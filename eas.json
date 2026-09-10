@@ -25,6 +25,9 @@
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mYWlkdWtiaWVlZWtxYWJvc2NtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3OTA4MDgsImV4cCI6MjEwNDM2NjgwOH0.kQ08y8s262XP8yuPzHeNABTwdqMnyMgoJj2mZ8TMILA",
         "EXPO_PUBLIC_SENTRY_DSN": "https://f83fffa8c787e41e509b17b384787aed@o4511123980877825.ingest.us.sentry.io/4511123983695872",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      },
+      "ios": {
+        "autoIncrement": true
       }
     },
     "production": {

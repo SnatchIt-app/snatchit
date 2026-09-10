@@ -17,6 +17,7 @@ import 'react-native-reanimated';
 
 import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
+import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
 import { usePushToken } from '@/src/hooks/usePushToken';
 import { APP_CONFIG } from '@/src/config/app';
 import { looksLikeStripePublishableKey } from '@/src/config/envValue';
@@ -152,6 +153,12 @@ interface NativeEffectsOptions {
 export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEffectsOptions) {
   // Register Expo push token on every app launch (only when authenticated)
   usePushToken(userId);
+
+  // Supabase's refresh loop is a JS timer, and iOS suspends those the moment the
+  // app is backgrounded — which is exactly what a 3-D Secure browser handoff
+  // does. Without this the token silently stops refreshing and the person is
+  // signed out on return. Native only; the web build has no AppState.
+  useEffect(() => startSessionAutoRefresh(), []);
 
   // ── Deep link handler (H-5 hardened) ────────────────────────────────────
   //

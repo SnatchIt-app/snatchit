@@ -46,6 +46,7 @@ import * as v2 from '@/src/theme/v2';
 import { payControl, fmtCountdown } from '@/src/lib/checkout/payControl';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
+import { decideCheckoutSetup, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -176,44 +177,58 @@ export default function CheckoutScreen() {
         setPaymentLoading(true);
         setPaymentError(null);
 
-        // Buy Now: pre-validate reservation
-        if (isBuyNow) {
-          const { data: freshListing, error: fetchErr } = await supabase
-            .from('listings')
-            .select('status, reserved_by, reserved_until')
-            .eq('id', listingId)
-            .single();
+        // Settled-first, then hold, then intent — see setupDecision.ts. The
+        // 3-D Secure return can remount this screen after the charge landed;
+        // that must render the completed settlement, never "reservation
+        // expired", and must never create a second intent (auction included).
+        const decision = await decideCheckoutSetup(
+          { listingId, buyerId: user!.id, mode: isBuyNow ? 'buy_now' : 'auction' },
+          {
+            fetchSettledPayment: async (lid, bid) => {
+              const { data } = await supabase
+                .from('payments')
+                .select('status')
+                .eq('listing_id', lid)
+                .eq('buyer_id', bid)
+                .in('status', [...SETTLED_STATUSES])
+                .limit(1)
+                .maybeSingle();
+              return data ?? null;
+            },
+            fetchListing: async (lid) => {
+              const { data, error } = await supabase
+                .from('listings')
+                .select('status, reserved_by, reserved_until')
+                .eq('id', lid)
+                .single();
+              return error ? null : data;
+            },
+            createIntent: () =>
+              createPaymentIntent({
+                listingId: listingId,
+                buyerId: user!.id,
+                mode: isBuyNow ? 'buy_now' : 'auction',
+                // Server authority: this is the total we showed the buyer; the
+                // server 409s rather than charge a different number.
+                expectedTotalCents: estimatedTotalCents || undefined,
+              }),
+          },
+        );
 
-          if (fetchErr || !freshListing) {
-            setPaymentError('Unable to verify reservation. Please go back and try again.');
-            return;
-          }
-
-          const reservedUntil = freshListing.reserved_until
-            ? new Date(freshListing.reserved_until)
-            : null;
-          const stillReservedForMe =
-            freshListing.status === 'reserved' &&
-            freshListing.reserved_by === user!.id &&
-            reservedUntil != null &&
-            reservedUntil > new Date();
-
-          if (!stillReservedForMe) {
-            setPaymentError(
-              'Your reservation has expired. Please go back and reserve again.',
-            );
-            return;
-          }
+        if (decision.kind === 'already_settled') {
+          confirmedRef.current = true;
+          setSettlement('completed');
+          return;
         }
-
-        const result = await createPaymentIntent({
-          listingId: listingId,
-          buyerId: user!.id,
-          mode: isBuyNow ? 'buy_now' : 'auction',
-          // Server authority: this is the total we showed the buyer; the
-          // server 409s rather than charge a different number.
-          expectedTotalCents: estimatedTotalCents || undefined,
-        });
+        if (decision.kind === 'reservation_unverifiable') {
+          setPaymentError('Unable to verify reservation. Please go back and try again.');
+          return;
+        }
+        if (decision.kind === 'reservation_expired') {
+          setPaymentError('Your reservation has expired. Please go back and reserve again.');
+          return;
+        }
+        const result = decision.intent;
 
         setPaymentIntentId(result.paymentIntentId);
         // The order summary renders these server-computed amounts.
@@ -283,7 +298,12 @@ export default function CheckoutScreen() {
         const { error } = await initPaymentSheet({
           paymentIntentClientSecret: result.clientSecret,
           merchantDisplayName: 'Snatch It',
-          returnURL: 'snatchit://checkout',
+          // Must resolve to a REAL route. `snatchit://checkout` matched nothing
+          // (app/checkout has only [id].tsx), so a completed 3-D Secure
+          // challenge returned the buyer to expo-router's unmatched/sitemap
+          // screen while the charge had already succeeded. The id sends them
+          // back to the screen that owns this payment.
+          returnURL: `snatchit://checkout/${listingId}`,
           allowsDelayedPaymentMethods: false,
           defaultBillingDetails: { email: user!.email },
           // P1-03: passing both customerId and the ephemeral key activates

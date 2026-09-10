@@ -31,7 +31,10 @@ describe('env guard — refused pairings', () => {
     ['production label with a test key', { appEnv: 'production', supabaseUrl: PROD_URL, publishableKey: LIVE_ACCT_TEST_PK }, 'F4'],
     ['unresolved environment', { appEnv: 'sandbox', supabaseUrl: '', publishableKey: '' }, 'F6'],
     ['unknown Supabase host', { appEnv: 'sandbox', supabaseUrl: 'https://someone-else.supabase.co', publishableKey: SANDBOX_PK }, 'F7'],
-    ['return URL no longer matches the checkout literal', { appEnv: 'sandbox', supabaseUrl: SANDBOX_URL, publishableKey: SANDBOX_PK, returnUrl: 'snatchit://elsewhere' }, 'F8'],
+    ['return URL on a foreign path', { appEnv: 'sandbox', supabaseUrl: SANDBOX_URL, publishableKey: SANDBOX_PK, returnUrl: 'snatchit://elsewhere' }, 'F8'],
+    ['return URL on a foreign scheme', { appEnv: 'sandbox', supabaseUrl: SANDBOX_URL, publishableKey: SANDBOX_PK, returnUrl: 'other://checkout/abc' }, 'F8'],
+    ['bare return URL with no listing id (the D5 defect)', { appEnv: 'sandbox', supabaseUrl: SANDBOX_URL, publishableKey: SANDBOX_PK, returnUrl: 'snatchit://checkout' }, 'F8'],
+    ['return URL with an empty id segment', { appEnv: 'sandbox', supabaseUrl: SANDBOX_URL, publishableKey: SANDBOX_PK, returnUrl: 'snatchit://checkout/' }, 'F8'],
   ];
   for (const [name, input, code] of cases) {
     it(`refuses: ${name} (${code})`, () => {
@@ -40,4 +43,12 @@ describe('env guard — refused pairings', () => {
       expect(v.failure).toContain(code);
     });
   }
+});
+
+describe('env guard — F8 accepts the id-bearing return URL', () => {
+  it('snatchit://checkout/<id> passes on the sandbox pair', async () => {
+    const { evaluateEnv, isExpectedReturnUrl } = await import('../src/config/envGuard');
+    expect(isExpectedReturnUrl('snatchit://checkout/f46feafe-8832-413f-98af-01dda1518b80')).toBe(true);
+    expect(isExpectedReturnUrl('snatchit://checkout/abc/def')).toBe(false);
+  });
 });
