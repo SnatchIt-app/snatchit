@@ -54,13 +54,30 @@ function blobKeyName(key: string): string {
   return BLOB_NS + key;
 }
 
+/**
+ * One stable AES-256 key per storage key, created on first use and REUSED.
+ *
+ * It used to mint a fresh key on every write and store it BEFORE the blob was
+ * written. The two stores are not one transaction: if the process was suspended
+ * or killed between the Keychain write and the AsyncStorage write — exactly what
+ * a 3-D Secure browser handoff or a deep-link relaunch does — the Keychain held
+ * key N+1 while AsyncStorage still held blob N. The next read decrypted with the
+ * wrong key, failed, and `getItem` deleted the session with no server call at
+ * all. Reusing the key removes the torn-write hazard entirely: whichever write
+ * lands, key and blob always match.
+ */
+async function loadOrCreateKey(key: string): Promise<Uint8Array> {
+  const existingHex = await SecureStore.getItemAsync(secureKeyName(key));
+  if (existingHex) return aesjs.utils.hex.toBytes(existingHex);
+  const fresh = crypto.getRandomValues(new Uint8Array(256 / 8));
+  await SecureStore.setItemAsync(secureKeyName(key), aesjs.utils.hex.fromBytes(fresh));
+  return fresh;
+}
+
 async function encrypt(key: string, value: string): Promise<string> {
-  // Fresh random AES-256 key per write. Kept only in the Keychain/Keystore.
-  const encryptionKey = crypto.getRandomValues(new Uint8Array(256 / 8));
+  const encryptionKey = await loadOrCreateKey(key);
   const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
   const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
-
-  await SecureStore.setItemAsync(secureKeyName(key), aesjs.utils.hex.fromBytes(encryptionKey));
   return aesjs.utils.hex.fromBytes(encryptedBytes);
 }
 
