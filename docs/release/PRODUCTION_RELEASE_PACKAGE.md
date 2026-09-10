@@ -158,7 +158,9 @@ no dependency on them.
 | Sandbox tickets RPC verified | **PASSED** | ledger row, `SECURITY DEFINER`, empty result for authenticated, 401 for anon | release integration |
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
-| **Handset QA — 11 cases on the preview build** | **READY, pending a device cold-launch check** | build **15** (`cbb3fbbe`) from head `5bf2daa`; see §12 for the two device-only checks that must pass first | Claude C |
+| **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
+| **Handset QA — 11 cases on the preview build** | **READY TO RESUME** | build **15** (`cbb3fbbe`) from head `5bf2daa`; start at D2 (§13) | Claude C |
+| **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
 | **Runtime crypto availability** | **PASSED** | entry-first polyfill, guarded injectable RNG, named `RandomnessUnavailable`, Math.random fallback refused, Hermes smoke `SMOKE_OK` | release integration |
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
@@ -382,3 +384,52 @@ clearing cleanly.
 The lesson from build 14 stands: a green bundle and a Node round-trip are not runtime evidence. The Hermes
 smoke closes most of that gap, but the native modules cannot run in the bare engine, so these two remain
 device-only and must pass before the payment matrix resumes.
+
+
+## 13. Build 15 cold-launch gate — PASSED, 2026-09-10
+
+Run on the owner's iPhone against build `cbb3fbbe` (build number **15**, source `5bf2daa`).
+
+| Check | Device observation | Server-side corroboration | Verdict |
+|---|---|---|---|
+| Install + launch | installs, launches normally, no crash | — | **PASS** — the build-14 `ReferenceError: Property 'crypto' doesn't exist` is gone on real hardware |
+| Sandbox badge | `SANDBOX — TEST MONEY ONLY` visible | — | **PASS** — the environment guard resolved a sandbox pair; no `F1`–`F8` blocker |
+| First cold launch | signed out (deleting build 14 cleared storage), signed back in with no error | session `dd928989…` created `19:31:49.064813`, 1 token, 0 revoked | **PASS** — a fresh install, not a failure. Sign-in writes a v3 blob, drawing a 24-byte nonce from the **real native RNG** — the exact path that killed build 14 |
+| Force-quit + second cold launch | still signed in, badge still visible, no error, no Sentry event | `sessions_total` **41**, unchanged; sessions strictly newer than `dd928989…`: **0**; that session still 1 token, 0 revoked, `updated_at` unmoved | **PASS** — the session was restored from the v3 blob; no re-authentication occurred |
+
+Device report and server state agree: **no password login and no new session** followed the first sign-in.
+
+One measurement caveat worth recording so it is not over-read: a boundary query with truncated seconds
+(`created_at > '…19:31:49+00'`) returns **1**, because `dd928989…` is itself stored at `19:31:49.064813`.
+Compared against that row's own timestamp the count is **0**. The correct reading is zero new sessions.
+
+**What this does not yet prove.** `dd928989…` shows **0 rotations**, so the AppState refresh wiring has not
+fired — expected for a session minutes old against a one-hour token lifetime. The cold-launch gate does not
+speak to it either way; a rotation appearing on a longer-lived session is the evidence to look for.
+
+### Known gap — build-13 legacy blob migration on real hardware
+
+Deleting build 14 cleared the app's storage, so the first build-15 launch was a **fresh install**. The
+build-13 legacy-format blob path was therefore **never exercised on a device**. It is verified byte-for-byte
+against `9aae63f`'s exact algorithm, under real Hermes in the smoke, and in
+`session-store-hermes.test.ts` — but not against a real Keychain and a real AsyncStorage.
+
+Risk is bounded: it applies only to a device upgrading **from build 13 with a session in place**, which is now
+a single handset, and the failure mode is a sign-out, never a crash or a money defect. Closing it needs a
+device-side write of a legacy-format blob followed by a launch, which cannot be staged off-device. **Owner
+decision: accept the gap, or schedule the device-side exercise.** It does not gate the payment matrix.
+
+### Payment QA may resume, starting at D2
+
+The gate is complete and the matrix is unpaused. Guidance for the next case:
+
+* **Use `Device D5`** for D2. It is the only staged listing with **no payment history at all** (`payments = 0`),
+  so a fee-total check is not confounded by a stale pending row. `Device D1` carries 2 pending rows,
+  `D2`/`D3`/`Phone P1` one each; `D4`, `Phone P2` and `Phone P3` are sold.
+* D2 is the fee-total check: open the listing → **Buy Now** → confirm the total reads **$110.00** with the
+  service fee shown as 10%. Opening checkout creates a PaymentIntent but **no charge**; dismissing the sheet
+  leaves a pending row, which is expected and harmless.
+* **$110.90 or any fixed fee is a stop condition** — the model must stay 10% buyer / 10% seller.
+* Unchanged sandbox caveats, neither a bug: `notify-transfer` and `auto-finalize-auctions` are not deployed
+  there, and all nine sandbox edges run `verify_jwt=false`.
+* **Device D4 stays untouched** — one captured $110 test charge, not retried and not modified.
