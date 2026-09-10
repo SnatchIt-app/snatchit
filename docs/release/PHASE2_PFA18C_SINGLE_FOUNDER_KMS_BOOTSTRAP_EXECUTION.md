@@ -1131,3 +1131,10 @@ unchanged in scope), C5, C6, secrets, deploy, issuance/scanning, any AWS change.
 **Pre-reset baseline (CLAUDE-OBSERVED 18:48:18–18:48:20Z):** auth_users **18** · ledger **135** · signing_key **0** · tickets **0** · flags issuance/scanning/monitor **false** · pg_cron active jobs **24** ·
 kernel tables **32** · triggers `tg_signing_key_immutable=O, tg_signing_key_insert_guard=O, tg_signing_key_updated_at=O` · `postgres` role present · KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key ·
 edge sources referencing `SUPABASE_DB_URL`/direct Postgres: **0** (11 ACTIVE functions, all PostgREST + service-role JWT). No mutation by the coordinator.
+**OWNER-RETURNED:** "reset done" (2026-09-10, time not stated by the owner; between 18:48Z and 18:51Z per the coordinator reads). The coordinator did not see, set, or enter the password.
+**Post-reset validations (CLAUDE-OBSERVED 18:51:16–18:51:24Z):** **V4 PASS** — auth_users 18 · ledger 135 · signing_key 0 · tickets 0 · flags false · cron active 24 · kernel tables 32 · triggers unchanged;
+platform services connected after the reset: PostgREST (`authenticator`) ×3, `supabase_admin`, `postgres_exporter`, `mgmt-api` (`postgres` = this read-only connector); pg_cron ran at 18:51:00Z (after the reset).
+**V5 PASS with one platform side effect recorded:** the same 11 ACTIVE edge functions, identical ids and `ezbr_sha256` (code unchanged), identical `updated_at`; **every function's `version` incremented by 1**
+(e.g. create-payment-intent 45→46, notify-transfer 5→6) — consistent with the platform re-injecting the refreshed default secret (`SUPABASE_DB_URL`) into deployed functions after the password reset. Not a
+deploy by the owner or coordinator; no source changed; 0 functions read `SUPABASE_DB_URL`. **V8 PASS** — KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key; 0 ScheduleKeyDeletion/DisableKey/
+PutKeyPolicy/Sign events since 18:40Z; flags false. Pending from the owner: R2 (`PROD_DB_URL=set`), R3 = V1/V2/V3 lines; optional V6/V7 (app read, test sign-in).
