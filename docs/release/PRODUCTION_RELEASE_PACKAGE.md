@@ -159,8 +159,8 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **PAUSED** | build **16** (`66be8872`) built and verified off-device; QA resumes only after the D5 return is re-tested on the handset (§15) | Claude C |
-| **3-D Secure automatic return (`handleURLCallback`)** | **PASSED off-device** | `a8adfb1` reviewed and integrated at `df9e0d3`; CI 34523989011 green; the browser return itself is device-only and unproven (§15) | release integration |
+| **Handset QA — 11 cases on the preview build** | **RESUMED** | D2 and D5 passed on build 16; D6–D11 outstanding (§16) | Claude C |
+| **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
 | **Runtime crypto availability** | **PASSED** | entry-first polyfill, guarded injectable RNG, named `RandomnessUnavailable`, Math.random fallback refused, Hermes smoke `SMOKE_OK` | release integration |
@@ -528,3 +528,53 @@ resolves the sheet. **QA stays paused** until the D5 return is re-tested on buil
 Use a listing other than `Device D5`, which is sold and settled. Every remaining staged listing carries a
 stale pending row (`Device D1` two; `Device D2`, `Device D3`, `Phone P1` one each) — harmless for a
 browser-return test. `Device D3` is the suggested choice. Device D4 and Device D5 payments stay untouched.
+
+
+## 16. D5 re-test on build 16 — PASSED, server-side confirmed (2026-09-10)
+
+Run on `Device D3` (build 16, `66be8872`, source `df9e0d3`). Device observation: after completing 3-D Secure
+the browser **returned to the app automatically** and checkout reached the success state — no white page, no
+404, no reservation-expired message, no manual browser exit. The `handleURLCallback` wiring works on real
+hardware.
+
+### Single-payment invariant — CONFIRMED
+
+| Check | Result |
+|---|---|
+| Listing | `Device D3` **sold** 20:49:56; `reserved_by` and `reserved_until` both NULL — hold released |
+| Payment rows | **2**: `e569d654` **failed** (the superseded 17:47 intent) and `ca594f76` **succeeded** |
+| **Succeeded payments** | **exactly one** |
+| Amounts | item $100.00 · buyer fee $10.00 · seller fee $10.00 · **total $110.00** — 10%/10% intact |
+| `stripe_livemode` | `false` |
+| Stripe PaymentIntents | **2**: `pi_3UEEuMG…` **succeeded** with one charge, `pi_3UEC4oG…` **canceled** with **no charge** |
+| **Captured charges** | **exactly one** — `ch_3UEEuMG…`, `captured=true`, `refunded=false`, `amount_refunded=0`, `disputed=false` |
+| Transfer | 1 row, `pending`, **no payout id**, not released — payout correctly withheld |
+| Payout attempts | 0 |
+| Refunds | 0 |
+| Webhook retries for this listing | **0** |
+
+The stale pending row from 17:47 did not become a second charge: `create-payment-intent` marked it `failed`
+and **cancelled its intent at Stripe**. Two intents, one charge — the invariant holds, and the supersede path
+behaved exactly as designed.
+
+**Pre-existing residue, unrelated:** one unresolved `webhook_retries` row from **2026-09-08 00:57:53**,
+`settle_verified_payment` / `unknown_payment:pi_3UDDMB…`, with no listing attached. It predates this test by
+two days and belongs to the old diagnostic session. Noted so it is not mistaken for a D3 finding; it does not
+gate the matrix.
+
+### Matrix resumed
+
+D2 and D5 are complete on build 16. Remaining: **D6–D11** (and D1/D3/D4 only if attribution to this binary is
+wanted — they passed on build 13).
+
+Listing budget is tight: `Device D3`, `Device D4`, `Device D5`, `Phone P2` and `Phone P3` are sold. Three
+remain, all with a harmless stale pending row: `Device D1` (2), `Device D2` (1), `Phone P1` (1). Suggested
+allocation, since D8 and D9 each consume one and D6 consumes none:
+
+* **D6** (3-D Secure cancellation) → `Device D2` — cancelled, so the listing survives
+* **D8** (pending-payment recovery, force-quit) → `Device D1`
+* **D9** (connection loss, Airplane Mode) → `Phone P1`
+* **D7** (order + listing state) → read-only against `Device D3`, already sold
+* **D10/D11** (deletion messaging and withdrawal) → need an unsettled order; run after D8 or D9
+
+`Device D4` and `Device D5` payments stay untouched — neither is to be retried or modified.
