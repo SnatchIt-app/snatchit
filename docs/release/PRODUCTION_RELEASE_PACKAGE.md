@@ -149,7 +149,7 @@ no dependency on them.
 
 | Gate | Status | Detail | Owner |
 |---|---|---|---|
-| Candidate pinned + CI green at head | **PASSED** | **`187e69e`**, CI **34514320391**, five jobs green (supersedes `7986711` / 34320158401) | release integration |
+| Candidate pinned + CI green at head | **PASSED** | **`5bf2daa`**, CI **34518588051**, five jobs green (supersedes `187e69e` / 34514320391) | release integration |
 | Migration chain verified both orders | **PASSED** | 18/18; identical function hash fresh vs production order | release integration |
 | Rollback battery | **PASSED** | 63/63 incl. archive, restore, deploy-window duplicate | release integration |
 | Repo test suites | **PASSED** | pgTAP 4698 · mobile 1531 · admin 96 · typecheck · lint · web build · deno | release integration |
@@ -158,9 +158,9 @@ no dependency on them.
 | Sandbox tickets RPC verified | **PASSED** | ledger row, `SECURITY DEFINER`, empty result for authenticated, 401 for anon | release integration |
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
-| **Handset QA — 11 cases on the preview build** | **BLOCKED** | build **14** crashes before authentication (§11); no handset payment testing until a replacement is approved | Claude C |
-| **D5 3-D Secure return + session fix** | **REGRESSED** | logic accepted, but `aa8c8b3` dropped the RNG polyfill import and the app cannot start (§11) | Claude C + release integration |
-| **Runtime crypto availability** | **IMPLEMENTATION NEEDED** | polyfill at the app entry, injectable RNG with a legible failure, deleted-global regression test | Claude C |
+| **Handset QA — 11 cases on the preview build** | **READY, pending a device cold-launch check** | build **15** (`cbb3fbbe`) from head `5bf2daa`; see §12 for the two device-only checks that must pass first | Claude C |
+| **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
+| **Runtime crypto availability** | **PASSED** | entry-first polyfill, guarded injectable RNG, named `RandomnessUnavailable`, Math.random fallback refused, Hermes smoke `SMOKE_OK` | release integration |
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
@@ -330,3 +330,55 @@ green, **and** evidence that the crypto path actually executes at runtime.
 
 Unchanged throughout: production, AWS, Supabase, flags and payment rows. The D5 payment remains one captured
 $110 test charge and must not be retried.
+
+
+## 12. Runtime crypto fix verified — build 15 — 2026-09-10
+
+Integrated `9196123` at head **`5bf2daa04708acefddc435c4af745806f6bdb4e6`**; CI **34518588051** green on all
+five jobs. Preview build **`cbb3fbbe-0bc1-4898-987b-ad9b8de03b72`**, iOS build number **15**, supersedes 13
+and 14. EAS records `Commit 5bf2daa04708acefddc435c4af745806f6bdb4e6` — the pinned SHA.
+
+### Review
+
+| Requirement | Evidence |
+|---|---|
+| RN/Expo-compatible randomness | `react-native-get-random-values` is the **first import** of `app/_layout.tsx`. `src/lib/randomness.ts` refuses `no_global` and `no_native_module`, accepts `ExpoCrypto` or `RNGetRandomValues`, and runs a liveness self-test. |
+| Math.random fallback refused | `insecure_fallback` is detected and rejected for session keys, with a test. |
+| Named failures | `RandomnessUnavailable`, whose message names the missing polyfill; asserted under Hermes, never a bare `ReferenceError`. |
+| Import graph, not text | Tests assert the polyfill is first in depth-first evaluation order from the entry, that the cipher is genuinely reachable from the entry, and that **no** module reachable from the entry reads the `crypto` global except the guarded randomness module. |
+| AEAD preserved | v3 XChaCha20-Poly1305, fresh 24-byte nonce per write; no AES-CTR keystream reuse; legacy/v2 read-and-migrate; torn-write recovery both orders; one key under concurrent first writes; no token material logged. |
+| `TextDecoder` | Removed from the cipher — Hermes has `TextEncoder` but **no** `TextDecoder`, a second latent cold-launch crash. Strict pure UTF-8 codecs replace it and a test forbids reintroduction. A repo search of the native application path finds **zero** uses. |
+| Metro / native bundle | `expo export` succeeds; the shipped IPA carries `RNGetRandomValues`, `RandomnessUnavailable`, `react-native-get-random-values`, `xchacha20poly1305`, `v3.`, `snatchit://checkout/`, `already_settled`. |
+| Real runtime test | `PORT=8083 npm run smoke:hermes` → **`SMOKE_OK`**. The real cipher and store, bundled by the project's own Metro and executed by the **Hermes CLI with no `crypto` global**: the named error without a source, then v3 write, restore, legacy migration and tamper rejection with an injected source. |
+
+**One bundle finding, investigated and cleared.** The shipped bundle contains a single `new TextDecoder`.
+It is not ours: it is inside `@sentry-internal/replay`'s bundled worker (an inlined `fflate`), written as
+`"undefined" != typeof TextDecoder && new TextDecoder` with the follow-up `decode` in a `try/catch`. It
+feature-detects, cannot throw at module scope on Hermes, and is not on the session or auth path.
+
+### Compiled environment — read from the shipped IPA of build 15
+
+Exactly one Supabase URL `https://ofaidukbieeekqaboscm.supabase.co`; exactly one JWT, `ref = ofaidukbieeekqaboscm`,
+`role = anon`; Stripe `pk_test_51T6Fb1Gl…` → **`acct_1T6Fb1GlD5aqtxIw`**; **zero** matches for
+`pk_live_51T6Far`, `sk_test`, `sk_live`, `service_role`, `SUPABASE_SERVICE`; `SANDBOX — TEST MONEY ONLY`
+present once (UTF-16LE); `CFBundleVersion` **15**; build page HTTP 200.
+
+### Upgrade-path evidence, and what is still device-only
+
+Verified here: a blob produced by **build 13's exact algorithm** (`9aae63f`: fresh key, fixed `Counter(1)`,
+bare hex) is byte-identical to `encryptLegacyForTests`, and the integrated code reads it, labels it `legacy`
+and migrates it to v3 **without deleting ciphertext**. The same path executes under real Hermes in the smoke.
+`session-store-hermes.test.ts` covers the build 13 → 14 upgrade explicitly, plus v2 migration, a locked
+Keychain at launch (signed out this time, ciphertext intact, recovered next launch) and a tampered blob
+clearing cleanly.
+
+**Not verifiable off-device, and therefore outstanding:**
+
+1. Cold launch of build 15 **on the handset with a build-13/14 session already persisted** — the real
+   Keychain, the real AsyncStorage, the real native RNG.
+2. Cold launch again **after the upgrade**, confirming the session is preserved or fails with a named guarded
+   outcome — never a crash, never a silently deleted ciphertext.
+
+The lesson from build 14 stands: a green bundle and a Node round-trip are not runtime evidence. The Hermes
+smoke closes most of that gap, but the native modules cannot run in the bare engine, so these two remain
+device-only and must pass before the payment matrix resumes.

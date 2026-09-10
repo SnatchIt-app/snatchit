@@ -7,25 +7,19 @@ Date: 2026-09-10. **Sandbox only. No production action is authorized by this han
 
 | | |
 |---|---|
-| Build ID | **`31846b72-f10b-4cc2-9208-4e32383f83c6`** |
-| Source SHA | **`187e69e2b95ec94bed04f387c205ad0c2cf92827`** |
-| Includes D5 fix | `aa8c8b3c12e932e9833f9c661a61a9afe2c7d7d3` |
+| Build ID | **`cbb3fbbe-0bc1-4898-987b-ad9b8de03b72`** |
+| Source SHA | **`5bf2daa04708acefddc435c4af745806f6bdb4e6`** |
+| Includes D5 fix | `9196123` (runtime crypto) on `aa8c8b3` (AEAD + re-entry) |
 | Profile / distribution | `preview` / internal (ad-hoc), iOS |
-| App version / build number | 1.0.0 (**14**) · Expo SDK 54 |
-| Expo fingerprint | `4907b994cb26a0ec575a233d60935888d41e4694` |
-| Status | finished 2026-09-10 14:35:43 |
-| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/31846b72-f10b-4cc2-9208-4e32383f83c6 |
-| Direct artifact | https://expo.dev/artifacts/eas/PaDdbxFzUoTp8bKHSJLRDOJItd65eYwEfxLDUuqt87c.ipa |
+| App version / build number | 1.0.0 (**15**) · Expo SDK 54 |
+| Expo fingerprint | `1fa6c2581671dcc071e11986c9886e431181ed51` |
+| Status | finished 2026-09-10 15:17:39 |
+| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/cbb3fbbe-0bc1-4898-987b-ad9b8de03b72 |
+| Direct artifact | https://expo.dev/artifacts/eas/advSW7g7rOVskN4Fq8TsKMVyptJ-JBIzcX5k6a5TkkY.ipa |
 
-> ## ⛔ BUILD 14 IS BLOCKED — DO NOT INSTALL OR TEST
-> Build `31846b72` crashes before authentication with
-> `ReferenceError: Property 'crypto' doesn't exist` (Sentry `19d8d967a00043a59a889fe8e7dfa3b3`,
-> environment `sandbox`). Cause: `aa8c8b3` dropped the `react-native-get-random-values` import when the RNG
-> call moved into `sessionCipher.ts`. **No handset payment testing until a replacement build is approved.**
-> See `PRODUCTION_RELEASE_PACKAGE.md` §11.
-
-> **This build supersedes `aeb89616` (build 13).** Delete the old app before installing so the two are
-> never confused. The D5 defects are fixed here; build 13 must not be used for the remaining matrix.
+> **This build supersedes builds 13 and 14.** Delete the old app before installing. Build 14 crashed at cold
+> launch (`ReferenceError: Property 'crypto' doesn't exist`) and must not be used; build 13 predates the D5
+> fixes.
 
 ### Install
 
