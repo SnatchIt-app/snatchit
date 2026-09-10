@@ -50,7 +50,9 @@ mechanisms; neither is device-confirmed:
   minutes**; that setting could not be read from here (connector dropped
   mid-investigation). If `jwt_exp` is the 3600 s default, expiry alone does not
   fit the window.
-- *Torn-write in `LargeSecureStore`* (hardened in `a050125`): a fresh AES key
+- *Torn-write in `LargeSecureStore`* (hardened in `a050125`; the stable key it
+  introduced reused the CTR keystream — closed with a random IV per write and a
+  legacy read path in the follow-up commit): a fresh AES key
   written to the Keychain before the blob reached AsyncStorage; a suspend between
   the two leaves an undecryptable blob, and `getItem` clears it locally. Fits
   every server-side fact including the missing refresh grant. Confirmed only by a

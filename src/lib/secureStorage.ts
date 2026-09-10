@@ -35,6 +35,7 @@ import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as aesjs from 'aes-js';
+import { decryptAny, encryptV2 } from './sessionCipher';
 
 // Namespace for the ENCRYPTED session blob kept in AsyncStorage.
 const BLOB_NS = 'ss.v1.';
@@ -75,22 +76,18 @@ async function loadOrCreateKey(key: string): Promise<Uint8Array> {
 }
 
 async function encrypt(key: string, value: string): Promise<string> {
-  const encryptionKey = await loadOrCreateKey(key);
-  const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
-  const encryptedBytes = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
-  return aesjs.utils.hex.fromBytes(encryptedBytes);
+  // Stable key (torn-write closed) + fresh IV per write (keystream never reused).
+  return encryptV2(await loadOrCreateKey(key), value);
 }
 
-async function decrypt(key: string, value: string): Promise<string | null> {
+/**
+ * Returns the plaintext and whether the blob was in the legacy no-IV format, so
+ * the caller can re-encrypt it into v2 without ever treating it as unreadable.
+ */
+async function decrypt(key: string, value: string): Promise<{ plaintext: string; legacy: boolean } | null> {
   const encryptionKeyHex = await SecureStore.getItemAsync(secureKeyName(key));
   if (!encryptionKeyHex) return null; // no key → cannot decrypt
-
-  const cipher = new aesjs.ModeOfOperation.ctr(
-    aesjs.utils.hex.toBytes(encryptionKeyHex),
-    new aesjs.Counter(1),
-  );
-  const decryptedBytes = cipher.decrypt(aesjs.utils.hex.toBytes(value));
-  return aesjs.utils.utf8.fromBytes(decryptedBytes);
+  return decryptAny(aesjs.utils.hex.toBytes(encryptionKeyHex), value);
 }
 
 /**
@@ -103,7 +100,14 @@ export const LargeSecureStore = {
     const encrypted = await AsyncStorage.getItem(blobKeyName(key));
     if (encrypted) {
       try {
-        return await decrypt(key, encrypted);
+        const out = await decrypt(key, encrypted);
+        if (out === null) return null;
+        if (out.legacy) {
+          // Pre-IV blob: readable today, rewritten into the IV format so the
+          // fixed-counter generation is retired without a sign-out.
+          await this.setItem(key, out.plaintext).catch(() => {});
+        }
+        return out.plaintext;
       } catch (e) {
         // Corrupt / undecryptable (e.g. Keychain key wiped by OS restore).
         // Treat as "no session" rather than crash the app on launch.
