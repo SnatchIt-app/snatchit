@@ -18,6 +18,8 @@ import 'react-native-reanimated';
 import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { startSessionAutoRefresh } from '@/src/lib/auth/sessionAutoRefresh';
+import { assertDeviceRandomness } from '@/src/lib/randomness';
+import { NativeModules } from 'react-native';
 import { usePushToken } from '@/src/hooks/usePushToken';
 import { APP_CONFIG } from '@/src/config/app';
 import { looksLikeStripePublishableKey } from '@/src/config/envValue';
@@ -159,6 +161,11 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
   // does. Without this the token silently stops refreshing and the person is
   // signed out on return. Native only; the web build has no AppState.
   useEffect(() => startSessionAutoRefresh(), []);
+
+  // Startup availability check for the session RNG. Fails closed with a named,
+  // readable error (caught by the root ErrorBoundary) rather than a
+  // ReferenceError deep inside session restore, which is how build 14 died.
+  useEffect(() => { assertDeviceRandomness(globalThis, NativeModules as Record<string, unknown>); }, []);
 
   // ── Deep link handler (H-5 hardened) ────────────────────────────────────
   //

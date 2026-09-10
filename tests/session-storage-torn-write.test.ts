@@ -16,7 +16,7 @@ const binding = read('src/lib/secureStorage.ts');
 describe('key reuse', () => {
   it('load-or-create: read the Keychain first, mint only when absent, memoised per key', () => {
     const fn = store.slice(store.indexOf('async function loadOrCreateKey'), store.indexOf('async function clear'));
-    expect(fn.indexOf('deps.secure.get')).toBeLessThan(fn.indexOf('randomBytes(32)'));
+    expect(fn.indexOf('deps.secure.get')).toBeLessThan(fn.indexOf('randomBytes(32, deps.random)'));
     expect(fn).toContain('if (r.value) return');
     expect(fn).toContain('keyInFlight');
   });
@@ -26,7 +26,9 @@ describe('key reuse', () => {
     expect(set).not.toContain('secure.delete');
   });
   it('the native binding only adapts the modules into typed outcomes', () => {
-    expect(binding).toContain('createSessionStore({ secure, blob })');
-    expect(binding).not.toMatch(/encrypt|decrypt|Counter|getRandomValues/);
+    expect(binding).toContain('createSessionStore({ secure, blob, random: deviceRandomBytes })');
+    expect(binding).not.toMatch(/encrypt|decrypt|Counter/);
+    // the global is read only inside the guarded randomness module, never here
+    expect(binding).not.toMatch(/getRandomValues/);
   });
 });

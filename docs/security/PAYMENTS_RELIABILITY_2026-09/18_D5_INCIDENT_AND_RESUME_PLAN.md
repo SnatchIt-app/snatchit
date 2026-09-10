@@ -77,6 +77,44 @@ the completed settlement, and creates/initialises/presents nothing; two rapid
 re-entries share one in-flight setup. Covered behaviourally with mocked
 dependencies (tests/checkout-setup-reentry.test.ts).
 
+## Build 14 cold-launch crash — CONFIRMED, fixed
+
+Sentry `19d8d967a00043a59a889fe8e7dfa3b3`, 2026-09-10 18:41:47Z, sandbox:
+`ReferenceError: Property 'crypto' doesn't exist`, before sign-in.
+
+Cause: build 13's `secureStorage.ts` opened with
+`import 'react-native-get-random-values'`, the polyfill that installs
+`crypto.getRandomValues` on Hermes (SecRandomCopyBytes). The rewrite to a thin
+binding dropped it. First write after launch — the legacy→v3 migration of the
+build-13 blob during session restore — reached `randomBytes()` and the undefined
+global. Not at module load; `@noble/ciphers` never touches the global.
+
+Fix: the polyfill is the binding's first import again and the source is handed
+to the store explicitly (`random` dep); the cipher and store read no global on
+any write path, and a missing source fails with a typed error at wiring time.
+Covered by a suite that runs with `globalThis.crypto` deleted: cold launch,
+sign-in write, relaunch restore, the exact build-13→14 legacy migration, v2
+migration, background/foreground refresh, Keychain and AsyncStorage unavailable,
+tampered ciphertext, plus source guards on import order. Hermes itself cannot
+run under vitest, so the real path is executed under the Hermes ENGINE instead:
+`npm run smoke:hermes` bundles `scripts/hermes/session-smoke.entry.ts` through
+the project's own Metro and runs it with react-native's `hermes` CLI, no
+`crypto` global present. Result `SMOKE_OK`.
+
+That smoke immediately found a second Hermes-only defect Node could never show:
+Hermes ships `TextEncoder` but **no `TextDecoder`**. The cipher decoded
+plaintext with `TextDecoder`, the ReferenceError landed inside a catch that
+reported "v3 auth failed", and the store would have cleared a valid session —
+the same misclassification the review warned about. Fixed with a strict pure
+UTF-8 codec and a catch that wraps only the AEAD call, so a programming error
+propagates as itself and the store keeps the ciphertext.
+
+Honest gap: the bare engine cannot load the audited native RNG, so the smoke
+proves the cipher/store execute on Hermes with an injected source; that the
+device source is present and non-degenerate is asserted at startup by
+`assertDeviceRandomness()` and proven only on the device. On-device cold start
+on the next build is the gate for that part.
+
 ## Re-pinned baselines (read 2026-09-10 ~18:05Z)
 
 | Listing | ID | Status | Payment rows | Live intent |

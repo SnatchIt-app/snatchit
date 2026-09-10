@@ -27,7 +27,7 @@
  * Nothing here logs a value: the warn calls carry the error only.
  */
 
-import { decryptAny, encryptV3, randomBytes, SessionCipherError } from './sessionCipher';
+import { decryptAny, encryptV3, randomBytes, SessionCipherError, type RandomBytes } from './sessionCipher';
 
 export type Read<T> = { ok: true; value: T | null } | { ok: false; reason: 'unavailable'; error: unknown };
 export type Write = { ok: true } | { ok: false; reason: 'unavailable'; error: unknown };
@@ -45,6 +45,8 @@ export interface BlobBackend {
 export interface SessionStoreDeps {
   secure: SecureBackend;
   blob: BlobBackend;
+  /** Audited device randomness. The native binding supplies it; never a global. */
+  random: RandomBytes;
   warn?: (message: string, error?: unknown) => void;
 }
 
@@ -76,7 +78,7 @@ export function createSessionStore(deps: SessionStoreDeps) {
       const r = await deps.secure.get(name);
       if (!r.ok) throw new StorageUnavailable(r.error);
       if (r.value) return bytesOf(r.value);
-      const fresh = randomBytes(32);
+      const fresh = randomBytes(32, deps.random);
       const w = await deps.secure.set(name, hexOf(fresh));
       if (!w.ok) throw new StorageUnavailable(w.error);
       return fresh;
@@ -127,7 +129,7 @@ export function createSessionStore(deps: SessionStoreDeps) {
 
     async setItem(key: string, value: string): Promise<void> {
       const k = await loadOrCreateKey(key);          // Keychain first; never replaced once present
-      const w = await deps.blob.set(blobKeyName(key), encryptV3(k, value));
+      const w = await deps.blob.set(blobKeyName(key), encryptV3(k, value, randomBytes(24, deps.random)));
       if (!w.ok) throw new StorageUnavailable(w.error);
       await deps.blob.remove(key);                     // no plaintext copy may survive
     },

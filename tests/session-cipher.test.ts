@@ -8,7 +8,11 @@ import * as aesjs from 'aes-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { blobFormat, decryptAny, encryptLegacyForTests, encryptV2ForTests, encryptV3, SessionCipherError } from '../src/lib/sessionCipher';
+import { blobFormat, decryptAny, encryptLegacyForTests, encryptV2ForTests, encryptV3, randomBytes, RandomnessUnavailable, SessionCipherError } from '../src/lib/sessionCipher';
+import { randomBytes as nodeRandom } from 'node:crypto';
+
+const rng = (n: number) => new Uint8Array(nodeRandom(n));
+const nonce = () => randomBytes(24, rng);
 
 const KEY = new Uint8Array(32).map((_, i) => (i * 7 + 3) & 0xff);
 const P1 = '{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaaa","refresh_token":"r1"}';
@@ -16,15 +20,15 @@ const P2 = '{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bbbb","refresh
 
 describe('v3 is authenticated', () => {
   it('round-trips and reports its format', () => {
-    const b = encryptV3(KEY, P1);
+    const b = encryptV3(KEY, P1, nonce());
     expect(blobFormat(b)).toBe('v3');
     expect(decryptAny(KEY, b)).toEqual({ plaintext: P1, format: 'v3' });
   });
   it('two writes differ (fresh nonce each time)', () => {
-    expect(encryptV3(KEY, P1)).not.toBe(encryptV3(KEY, P1));
+    expect(encryptV3(KEY, P1, nonce())).not.toBe(encryptV3(KEY, P1, nonce()));
   });
   it('a flipped bit, a truncation, a wrong key and non-hex all throw undecryptable', () => {
-    const b = encryptV3(KEY, P1);
+    const b = encryptV3(KEY, P1, nonce());
     const flipped = b.slice(0, -2) + (b.slice(-2) === '00' ? '01' : '00');
     for (const bad of [flipped, b.slice(0, 60), 'v3.zz', 'v3.' + 'ab'.repeat(30)]) {
       expect(() => decryptAny(KEY, bad)).toThrow(SessionCipherError);
@@ -33,8 +37,22 @@ describe('v3 is authenticated', () => {
     expect(() => decryptAny(other, b)).toThrow(SessionCipherError);
   });
   it('rejects a bad key or nonce length instead of silently truncating', () => {
-    expect(() => encryptV3(new Uint8Array(16), P1)).toThrow();
+    expect(() => encryptV3(new Uint8Array(16), P1, nonce())).toThrow();
     expect(() => encryptV3(KEY, P1, new Uint8Array(12))).toThrow();
+  });
+});
+
+describe('randomness is injected, never a global', () => {
+  it('a missing source fails closed with a typed error, not a ReferenceError', () => {
+    const saved = (globalThis as { crypto?: unknown }).crypto;
+    delete (globalThis as { crypto?: unknown }).crypto; // simulate Hermes: no crypto global
+    try {
+      expect(() => randomBytes(24)).toThrow(RandomnessUnavailable);
+      expect(randomBytes(24, rng)).toHaveLength(24);
+    } finally { (globalThis as { crypto?: unknown }).crypto = saved; }
+  });
+  it('a source returning the wrong shape is rejected', () => {
+    expect(() => randomBytes(24, () => new Uint8Array(3))).toThrow(RandomnessUnavailable);
   });
 });
 

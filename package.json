@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:hermes": "scripts/hermes/run-session-smoke.sh"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
