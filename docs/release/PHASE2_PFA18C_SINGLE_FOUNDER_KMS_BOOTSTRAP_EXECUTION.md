@@ -1122,3 +1122,12 @@ PostgREST (`authenticator`), Realtime/exporter (`supabase_admin`), Storage (`sup
 scripts (localhost), cron/exporter (internal roles) do not use it. 11 ACTIVE edge functions all use `supabase-js createClient` (service-role JWT); **zero** reference `SUPABASE_DB_URL`/direct Postgres.
 Reset cannot alter schema, data, KMS (AWS), Stripe secrets, `catalog.platform_config` flags, or `auth.users`. Post-reset update = `PROD_DB_URL` only; validations V1–V8. Required phrase:
 **"AUTHORIZE PFA-18C DB PASSWORD RESET"**. No reset performed; no settings changed.
+
+## SESSION 21 — 2026-09-10 — DB PASSWORD RESET AUTHORIZED ("AUTHORIZE PFA-18C DB PASSWORD RESET") · PRE-RESET BASELINE · OWNER PERFORMS THE RESET (COORDINATOR NEVER SEES THE PASSWORD)
+
+Authorization (OWNER, 2026-09-10): exact phrase **"AUTHORIZE PFA-18C DB PASSWORD RESET"**, scoped per `PHASE2_PFA18C_DB_PASSWORD_RESET_IMPACT_INVENTORY.md` §8: one Dashboard reset of project
+`hqycwntpfoztoinemqns`'s database (`postgres` role) password; the only update is `PROD_DB_URL` in the owner's Mac 1 shell; validations V1–V8. Not authorized: C3 (still paused; existing C3 authorization
+unchanged in scope), C5, C6, secrets, deploy, issuance/scanning, any AWS change. The reset is the owner's Dashboard action; the coordinator runs read-only validations only and never sets, enters, or sees the password.
+**Pre-reset baseline (CLAUDE-OBSERVED 18:48:18–18:48:20Z):** auth_users **18** · ledger **135** · signing_key **0** · tickets **0** · flags issuance/scanning/monitor **false** · pg_cron active jobs **24** ·
+kernel tables **32** · triggers `tg_signing_key_immutable=O, tg_signing_key_insert_guard=O, tg_signing_key_updated_at=O` · `postgres` role present · KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key ·
+edge sources referencing `SUPABASE_DB_URL`/direct Postgres: **0** (11 ACTIVE functions, all PostgREST + service-role JWT). No mutation by the coordinator.
