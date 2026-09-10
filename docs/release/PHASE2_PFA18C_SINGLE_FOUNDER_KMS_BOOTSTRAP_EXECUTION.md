@@ -1241,3 +1241,4 @@ Claude B: base→head diff = three additions only; 121 > 120. Implementation unc
 `fix/121-manifest-signing-context-strict` (pushed); PR #58 body rewritten; definition md5 now `333372bbbe7dd8fe1a95db4de66ea4c6` (rev 1 `c321ad7e…`); suites 180 + 189 = 61/61 PASS; rollback
 round-trip `b14d938e…` (= production) verified. Package: `PHASE2_PFA18C_121_FORWARD_FIX_PACKAGE.md` rev 2. Remaining gates: owner review; integration with A after Build 16; apply only under
 "AUTHORIZE PFA-18C MIGRATION 121" with the day-of `AUTODEPLOY-VERIFIED-OFF` attestation. Mutation ledger: production none; no merge, deploy, apply, or sibling implementation. C5 paused (request `05e0ff5d…`).
+CI on PR #58 rev 2 (`030a922b…`, CLAUDE-OBSERVED 23:58:12Z): Migrations apply cleanly (fresh DB) **PASS**; Typecheck/Lint/Unit, Deno type-check, Admin console, Web build PASS; Immutability + ordering red by design (attestation gate). Unchanged from rev 1.
