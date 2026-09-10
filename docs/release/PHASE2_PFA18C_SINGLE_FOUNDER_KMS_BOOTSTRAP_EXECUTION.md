@@ -1167,3 +1167,17 @@ definition contains platform_admin + aal2 checks (definition review) · ledger 1
 0 ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateKey since 19:00Z; key `Enabled ECC_NIST_P256` — **no AWS event from C3.**
 Pending: owner's `c3_output.txt` NOTICE/COMMIT/exit lines (record); Mac 2 A1–A7 (independent verification); Mac 1 §8B write-attempt probes P-7.5 / P-7.3 (expected refused, rolled back).
 **Mutation ledger (C3 so far):** production DB — **one row inserted into `kernel.signing_key`** (`…b0`) by the owner via the pinned artifact. AWS: none. Secrets/edges/flags: none / not deployed / unchanged.
+
+## SESSION 21 — CLOSE (2026-09-10) — **C3 COMPLETE** · C5 PACKAGE FOR REVIEW (NOT AUTHORIZED; MONITOR NOT ARMED)
+
+OWNER-RETURNED: Mac 1 `c3_output.txt` NOTICE/COMMIT/exit lines passed; §8B P-7.5 (immutability) and P-7.3 (five parked lifecycle calls) refused and rolled back; Mac 2 A1–A7 all passed.
+CLAUDE-OBSERVED 19:28:02Z re-confirm: `1|1` rows/active-ES256, fingerprint `562b5e87…`; monitor keys still v1 (`false`/`null`/`null`); checker → `monitor_disabled` (no write).
+**C3 COMPLETE** — consolidated record `docs/release/PHASE2_PFA18C_C3_EXECUTION_RECORD.md` (exactly one active global ES256 row `…b0`; ARN = D4; D5; resolver + manifest signing context valid; flags false;
+refs 0/0/0/0; machine RPC grants service_role-only; probes refused/rolled back; no AWS event; limitation L-1 pooler application_name; corrections dated).
+**C5 package** `docs/release/PHASE2_PFA18C_C5_MONITOR_ARMING_EXECUTION_PACKAGE.md` — prepared read-only from live definitions: `catalog.set_platform_config` (102: `signing.expected_key_fingerprint` /
+`expected_max_not_after` dual-controlled, no polarity ⇒ park; `monitor_enabled` direct), `kernel.approve_refund_request` (generic approver; `config.set_money_key` branch; SoD `self_approval`; aal2 required;
+inserts the config version on approve), `kernel.check_signing_key_invariants()` (postgres-only EXECUTE; expected ok/match after pin+arm), cron `monitor-signing-key-invariants` 23 5 * * *, `notify-report`
+egress + vault `service_role_key` present, 2 platform_admins (bootstrap), 0 `config.%` audit rows ever (first production use), PostgREST exposed schemas = public/graphql_public/kernel/ops (**catalog not
+exposed**). Package states exact keys/values (fingerprint = D5; max_not_after unchanged null; monitor_enabled true), the two-human procedure (proposer via authenticated psql claims; approver via PostgREST
+with the second founder's aal2 session), read-backs, disarm rollback (own phrase), residuals, and confirms issuance/scanning, secrets, edges, M5/T3 untouched. **C5 NOT AUTHORIZED — requires
+"AUTHORIZE PFA-18C MONITOR ARMING".** Mutation ledger this entry: none (reads only; a nonexistent-RPC PostgREST probe with the public key, executing nothing).
