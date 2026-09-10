@@ -6,12 +6,21 @@ import type { OrderRow, RosterRow } from "@/lib/types";
 import { Attendees } from "@/components/attendees/Attendees";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
+import { NotWiredState } from "@/components/ui/DataSourceError";
 
 export const metadata = { title: "Attendees" };
 
 export default async function AttendeesPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok || !p.event) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState />;
+  if (p.ctx.source === "database") {
+    return (
+      <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs}>
+        <NotWiredState surface="Attendees" />
+      </Shell>
+    );
+  }
+  if (!p.event) return <DeniedState />;
   const { ctx, event } = p;
   const basePath = p.scope.basePath;
   const session = event.sessions[0];

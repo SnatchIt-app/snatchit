@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { VENUE } from "@/fixtures/venue";
 import { listBatches, listEvents, listHolds, listTicketTypes, PreviewReadError } from "@/lib/data";
-import { readPage, type PageParams } from "@/lib/page";
+import { dbListBatches, dbListEvents, dbListTicketTypes } from "@/lib/db/adapters";
+import type { ReadFailure } from "@/lib/db/read-result";
+import { readPage, sessionFailure, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canEditEvents, canReadEvents } from "@/lib/roles";
 import type { Event, InventoryBatch, InventoryHold, TicketType } from "@/lib/types";
 import { EventsTable } from "@/components/events/EventsTable";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
+import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PreviewHidden } from "@/components/events/EventSetup";
 
@@ -18,32 +21,62 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
   const p = await readPage(params, searchParams);
   if (!p.scope.ok) return <DeniedState />;
   const ctx = p.ctx;
-  const basePath = p.scope.basePath;
+  const { basePath, venueId } = p.scope;
   const readable = ctx.state !== "denied" && canReadEvents(ctx.role);
 
-  // Reads happen here, outside JSX, so a simulated read failure renders the error card (spec §18).
   let loaded: Loaded | null = null;
   let failedRead: string | null = null;
+  let dbFailure: ReadFailure | null = null;
+
   if (readable && ctx.state !== "loading") {
-    try {
-      const events = listEvents(ctx.state);
-      loaded = {
-        events,
-        types: events.flatMap((e) => listTicketTypes("live", e.eventId)),
-        batches: events.flatMap((e) => listBatches("live", e.eventId)),
-        holds: events.flatMap((e) => listHolds("live", e.eventId)),
-      };
-    } catch (e) {
-      failedRead = e instanceof PreviewReadError ? e.read : "catalog.event";
+    if (ctx.source === "database") {
+      // Reads run as the signed-in user; RLS on the base tables is the only scoping.
+      dbFailure = sessionFailure(p.session, "venue_api.events");
+      if (!dbFailure) {
+        const ev = await dbListEvents(venueId);
+        if (!ev.ok) dbFailure = ev;
+        else {
+          const types: TicketType[] = [];
+          const batches: InventoryBatch[] = [];
+          for (const e of ev.data) {
+            const t = await dbListTicketTypes(e.eventId);
+            if (!t.ok) {
+              dbFailure = t;
+              break;
+            }
+            const b = await dbListBatches(e.eventId);
+            if (!b.ok) {
+              dbFailure = b;
+              break;
+            }
+            types.push(...t.data);
+            batches.push(...b.data);
+          }
+          if (!dbFailure) loaded = { events: ctx.state === "empty" ? [] : ev.data, types, batches, holds: [] };
+        }
+      }
+    } else {
+      try {
+        const events = listEvents(ctx.state);
+        loaded = {
+          events,
+          types: events.flatMap((e) => listTicketTypes("live", e.eventId)),
+          batches: events.flatMap((e) => listBatches("live", e.eventId)),
+          holds: events.flatMap((e) => listHolds("live", e.eventId)),
+        };
+      } catch (e) {
+        failedRead = e instanceof PreviewReadError ? e.read : "catalog.event";
+      }
     }
   }
 
+  const venueName = ctx.source === "database" ? "Venue" : VENUE.name;
   return (
-    <Shell ctx={ctx} event={null} active="events">
+    <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
       <PreviewOutcome did={p.first("did")} />
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="eyebrow text-dim">{VENUE.name}</p>
+          <p className="eyebrow text-dim">{venueName}</p>
           <h1 className="text-2xl font-bold">Events</h1>
         </div>
         {readable && canEditEvents(ctx.role) ? (
@@ -73,6 +106,8 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
         <DeniedState />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={7} />
+      ) : dbFailure ? (
+        <DataSourceError failure={dbFailure} loginHref={`/login?next=${encodeURIComponent(withPreview(`${basePath}/events`, ctx))}`} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : failedRead || !loaded ? (
         <ErrorState read={failedRead ?? "catalog.event"} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : (
@@ -83,7 +118,7 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
           holds={loaded.holds}
           ctx={ctx}
           basePath={basePath}
-          venueName={VENUE.name}
+          venueName={venueName}
           timeZone={p.timeZone}
           now={p.now}
           filter={{ status: ctx.state === "nodata" ? "zzz" : p.first("status"), q: p.first("q") }}

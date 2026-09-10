@@ -54,8 +54,8 @@ describe("door (spec §12)", () => {
 
 describe("preview context and formatting", () => {
   it("defaults to venue_manager / live and ignores junk", () => {
-    expect(readPreviewContext({ role: "hacker", state: "boom" })).toEqual({ role: "venue_manager", state: "live" });
-    expect(readPreviewContext({ role: "venue_scanner", state: "denied" })).toEqual({ role: "venue_scanner", state: "denied" });
+    expect(readPreviewContext({ role: "hacker", state: "boom" })).toMatchObject({ role: "venue_manager", state: "live", source: "fixtures", countersAvailable: true });
+    expect(readPreviewContext({ role: "venue_scanner", state: "denied" })).toMatchObject({ role: "venue_scanner", state: "denied" });
   });
   it("carries role and state through links only when non-default", () => {
     expect(withPreview("/x", { role: "venue_manager", state: "live" })).toBe("/x");

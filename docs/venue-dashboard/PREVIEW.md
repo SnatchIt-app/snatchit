@@ -43,6 +43,15 @@ denial). Resize to 375px for the mobile-critical surfaces (attendees, inventory,
 
 `docs/venue-dashboard/screenshots/` — 17 headless-Chrome captures of the sample data: the five surfaces at 1400px, the small-breakpoint attendees/inventory/door views at 500px (Chrome headless clamps narrower windows; a real 375px viewport was verified overflow-free in the browser pane), the inventory matrix collapse at 1024px, the create wizard, and the loading / empty / no-match / error / denied / finance-role / blocked-on-sale states.
 
+## Database mode (slice 1 — events list + event setup, read side)
+
+`NEXT_PUBLIC_VENUE_DATA_SOURCE=database` switches the events list, event setup and inventory
+pages to authenticated reads through the `venue_api` views (migration `20260910120000`). The
+banner turns blue and names the host; the role switch then changes display only — the database
+decides what you can read. Attendees, door and the create wizard show "not wired" in this mode;
+sample data is never shown there. Setup and evidence: `docs/venue-dashboard/SLICE1_HANDOFF.md`;
+local harness env: `venue/.env.local.example-harness`.
+
 ## Sample-data source
 
 `venue/src/fixtures/venue.ts` — invented names, ids prefixed `smp_`, clock frozen at

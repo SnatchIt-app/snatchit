@@ -46,7 +46,8 @@ export type Event = {
   title: string;
   status: EventStatus;
   resaleMode: ResaleMode;
-  promoterCount: number;
+  /** null when the promoter table is not readable in the current data source. */
+  promoterCount: number | null;
   sessions: EventSession[];
 };
 
@@ -71,6 +72,8 @@ export type InventoryBatch = {
   sold: number;
   /** Low-inventory threshold for this batch (spec §22.8 leaves the source unresolved; fixture-supplied here). */
   lowThreshold: number;
+  /** false when only `remaining` is known (database mode: capacity/held/sold are not client-readable, 081 E-29). */
+  countersKnown?: boolean;
 };
 
 export type InventoryHold = {

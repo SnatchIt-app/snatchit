@@ -1,7 +1,7 @@
 import { RELEASE_LABEL, availability, capacityFloor, doorHoldback, inventoryWarnings, remaining, sessionTotals, warningLabel } from "@/lib/inventory";
 import { usd, venueTime, relative } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
-import { canChangeCapacity, canReadHolds, canReleaseHold, inventoryView } from "@/lib/roles";
+import { canChangeCapacity, canReadHolds, canReleaseHold, inventoryView, showCounters } from "@/lib/roles";
 import type { Event, InventoryBatch, InventoryHold, TicketType } from "@/lib/types";
 import { AuditNote, CapacityBar, Chip, Panel } from "@/components/ui/Bits";
 import { EmptyState, LargerScreenBanner } from "@/components/ui/State";
@@ -13,7 +13,7 @@ import { PreviewHidden } from "@/components/events/EventSetup";
  * Counters are staff-scoped; `remaining` is world-readable (note 4).
  */
 export function InventoryOverview({ event, types, batches, holds, ctx, basePath, timeZone, now }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; holds: InventoryHold[]; ctx: PreviewContext; basePath: string; timeZone: string; now: Date }) {
-  const view = inventoryView(ctx.role);
+  const view = showCounters(ctx.role, ctx) ? "counters" : inventoryView(ctx.role) === "none" ? "none" : "remaining_only";
   const session = event.sessions[0];
   const self = `${basePath}/events/${event.eventId}/inventory`;
   const releases = (["public_sale", "presale", "promoter_hold", "comp", "door"] as const).filter((k) => batches.some((b) => b.releaseKind === k));

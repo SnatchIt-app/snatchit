@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ORG, VENUE } from "@/fixtures/venue";
-import { PREVIEW_DATA_LABEL, PREVIEW_STATES, withPreview, type PreviewContext } from "@/lib/preview";
+import { PREVIEW_STATES, withPreview, type PreviewContext } from "@/lib/preview";
+import { sourceInfo } from "@/lib/source";
 import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
 import { canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses, canManualLookup } from "@/lib/roles";
 
@@ -11,7 +12,7 @@ export type NavEvent = { eventId: string; title: string } | null;
  * Spec §3.2 — xl: persistent left nav · lg: icon nav · md/sm: top drawer.
  * The "Preview data" strip is sticky and not dismissible on any breakpoint.
  */
-export function Shell({ ctx, event, active, children }: { ctx: PreviewContext; event: NavEvent; active: "events" | "setup" | "inventory" | "attendees" | "door"; children: ReactNode }) {
+export function Shell({ ctx, event, active, children, signedInAs }: { ctx: PreviewContext; event: NavEvent; active: "events" | "setup" | "inventory" | "attendees" | "door"; children: ReactNode; signedInAs?: string | null }) {
   const base = `/o/${ORG.orgId}/v/${VENUE.venueId}`;
   const evBase = event ? `${base}/events/${event.eventId}` : null;
   const items: { key: typeof active; label: string; short: string; href: string; show: boolean }[] = [
@@ -26,7 +27,7 @@ export function Shell({ ctx, event, active, children }: { ctx: PreviewContext; e
   return (
     <div className="min-h-dvh">
       <PreviewStrip ctx={ctx} />
-      <ContextBar ctx={ctx} />
+      <ContextBar ctx={ctx} signedInAs={signedInAs} />
       <div className="mx-auto flex max-w-[1600px]">
         {/* xl persistent nav; lg icons */}
         <nav aria-label="Dashboard" className="hidden w-14 shrink-0 border-r border-line md:block xl:w-52">
@@ -67,10 +68,11 @@ export function Shell({ ctx, event, active, children }: { ctx: PreviewContext; e
 }
 
 function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
+  const info = sourceInfo();
   return (
-    <div className="preview-banner px-3 py-1.5" role="status" aria-live="polite">
+    <div className={`preview-banner px-3 py-1.5 ${info.source === "database" ? "preview-banner-db" : ""}`} role="status" aria-live="polite">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2">
-        <span>◆ {PREVIEW_DATA_LABEL}</span>
+        <span>◆ {info.label}</span>
         <PreviewControls ctx={ctx} />
       </div>
     </div>
@@ -82,7 +84,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
   return (
     <form method="get" className="flex flex-wrap items-center gap-2 text-[11px] normal-case tracking-normal">
       <label className="flex items-center gap-1">
-        Viewing as
+        {ctx.source === "database" ? "Display as" : "Viewing as"}
         <select name="role" defaultValue={ctx.role} className="border border-black/40 bg-black/80 px-1 py-0.5 text-white">
           {PREVIEW_PRINCIPALS.map((p) => (
             <option key={p} value={p}>
@@ -109,7 +111,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
 }
 
 /** Spec §4.3 — the switchers only list what the user is in. The preview has exactly one of each. */
-function ContextBar({ ctx }: { ctx: PreviewContext }) {
+function ContextBar({ ctx, signedInAs }: { ctx: PreviewContext; signedInAs?: string | null }) {
   return (
     <header className="sticky top-8 z-40 border-b border-line bg-bg/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
@@ -130,6 +132,20 @@ function ContextBar({ ctx }: { ctx: PreviewContext }) {
         <span className="text-xs text-dim">
           {PRINCIPAL_LABEL[ctx.role]} · {VENUE.timeZone}
         </span>
+        {ctx.source === "database" ? (
+          signedInAs ? (
+            <form method="post" action="/logout" className="flex items-center gap-2 text-xs">
+              <span className="text-muted">{signedInAs}</span>
+              <button className="btn btn-ghost btn-sm" type="submit">
+                Sign out
+              </button>
+            </form>
+          ) : (
+            <Link className="btn btn-ghost btn-sm" href="/login">
+              Sign in
+            </Link>
+          )
+        ) : null}
       </div>
     </header>
   );

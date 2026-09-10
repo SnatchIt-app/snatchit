@@ -64,6 +64,10 @@ export function inventoryView(p: Principal): "counters" | "remaining_only" | "no
   if (["org_member", "venue_scanner"].includes(p)) return "remaining_only";
   return "none";
 }
+/** Counters render only when the role may read them AND the data source can supply them. */
+export function showCounters(p: Principal, ctx: { countersAvailable?: boolean }): boolean {
+  return inventoryView(p) === "counters" && ctx.countersAvailable !== false;
+}
 /** Row 16: create batch / capacity change. */
 export function canChangeCapacity(p: Principal): boolean {
   return FULL_OPERATORS.includes(p);

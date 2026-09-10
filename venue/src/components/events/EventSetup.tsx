@@ -3,7 +3,7 @@ import { STATUS_HELP, STATUS_LABEL, editMode, nextStatus, publishBlocker, RESALE
 import { doorHoldback, sessionTotals } from "@/lib/inventory";
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
-import { canEditEvents, canReadResalePolicy, inventoryView } from "@/lib/roles";
+import { canEditEvents, canReadResalePolicy, showCounters } from "@/lib/roles";
 import { MANIFEST_COPY, manifestState } from "@/lib/door";
 import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 import { AuditNote, Metric, Panel, StatusPill } from "@/components/ui/Bits";
@@ -15,7 +15,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
   const mode = editMode(event.status);
   const next = nextStatus(event.status);
   const blocker = next === "on_sale" ? publishBlocker(types, batches) : null;
-  const counters = inventoryView(ctx.role) === "counters";
+  const counters = showCounters(ctx.role, ctx);
   const first = event.sessions[0];
   const totals = first ? types.map((t) => sessionTotals(batches, t.ticketTypeId, first.sessionId)) : [];
   const sold = totals.reduce((n, t) => n + t.sold, 0);

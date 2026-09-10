@@ -8,6 +8,7 @@
  * ("no sales yet") on purpose — spec §9.7 says collapsing them makes an
  * operator think the event failed.
  */
+import { DATA_SOURCE, type DataSource } from "@/lib/env";
 import { DEFAULT_PRINCIPAL, isPrincipal, type Principal } from "@/lib/roles";
 
 export const PREVIEW_STATES = ["live", "loading", "empty", "error", "denied", "nodata"] as const;
@@ -15,7 +16,14 @@ export type PreviewState = (typeof PREVIEW_STATES)[number];
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
-export type PreviewContext = { role: Principal; state: PreviewState };
+export type PreviewContext = {
+  role: Principal;
+  state: PreviewState;
+  /** Where rows come from. Fixtures by default; database mode reads as the signed-in user. */
+  source?: DataSource;
+  /** false when capacity/held/sold are not readable (database mode) — surfaces then show `remaining` only. */
+  countersAvailable?: boolean;
+};
 
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
@@ -26,7 +34,7 @@ export function readPreviewContext(sp: SearchParams | undefined): PreviewContext
   const stateRaw = first(sp?.state);
   const role = isPrincipal(roleRaw) ? roleRaw : DEFAULT_PRINCIPAL;
   const state = (PREVIEW_STATES as readonly string[]).includes(stateRaw ?? "") ? (stateRaw as PreviewState) : "live";
-  return { role, state };
+  return { role, state, source: DATA_SOURCE, countersAvailable: DATA_SOURCE === "fixtures" };
 }
 
 /** Build a link that keeps the current role/state so the reviewer can walk the flow in one persona. */
