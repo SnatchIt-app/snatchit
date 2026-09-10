@@ -26,9 +26,9 @@ describe('key reuse', () => {
     expect(set).not.toContain('secure.delete');
   });
   it('the native binding only adapts the modules into typed outcomes', () => {
-    expect(binding).toContain('createSessionStore({ secure, blob, random })');
+    expect(binding).toContain('createSessionStore({ secure, blob, random: deviceRandomBytes })');
     expect(binding).not.toMatch(/encrypt|decrypt|Counter/);
-    // the ONE permitted use of the polyfilled global: bound once, handed to the store
-    expect((binding.match(/getRandomValues/g) ?? []).length).toBe(1);
+    // the global is read only inside the guarded randomness module, never here
+    expect(binding).not.toMatch(/getRandomValues/);
   });
 });

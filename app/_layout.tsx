@@ -9,6 +9,12 @@
  * require.context can process it safely for both native and web builds.
  */
 
+// FIRST import, before anything that can reach the session cipher. Hermes has no
+// `crypto` global; this installs `crypto.getRandomValues` from the device RNG.
+// Module evaluation follows the import graph, so a leaf-module import is order
+// by luck — build 14 crashed at cold launch when that luck ran out.
+import 'react-native-get-random-values';
+
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

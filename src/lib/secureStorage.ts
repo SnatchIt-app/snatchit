@@ -20,6 +20,7 @@ import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
+import { deviceRandomBytes } from './randomness';
 import { createSessionStore, type BlobBackend, type SecureBackend } from './sessionStore';
 
 const unavailable = (error: unknown) => ({ ok: false as const, reason: 'unavailable' as const, error });
@@ -36,7 +37,4 @@ const blob: BlobBackend = {
   async remove(name) { try { await AsyncStorage.removeItem(name); return { ok: true }; } catch (e) { return unavailable(e); } },
 };
 
-// Polyfilled above. Bound here once so the store never touches the global.
-const random = (n: number) => crypto.getRandomValues(new Uint8Array(n));
-
-export const LargeSecureStore = createSessionStore({ secure, blob, random });
+export const LargeSecureStore = createSessionStore({ secure, blob, random: deviceRandomBytes });

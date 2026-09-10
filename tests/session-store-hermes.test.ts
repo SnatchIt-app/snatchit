@@ -141,9 +141,13 @@ describe('the native binding supplies the source in the right order', () => {
     const firstImport = code.match(/^\s*import[^\n]*$/m)?.[0] ?? '';
     expect(firstImport).toContain("import 'react-native-get-random-values'");
   });
-  it('the binding hands the polyfilled source to the store explicitly', () => {
-    expect(code).toContain('createSessionStore({ secure, blob, random })');
-    expect(code).toContain('crypto.getRandomValues(new Uint8Array(n))');
+  it('the binding hands the guarded device source to the store explicitly', () => {
+    expect(code).toContain('createSessionStore({ secure, blob, random: deviceRandomBytes })');
+    expect(code).not.toMatch(/crypto\./);
+  });
+  it('no cipher or store path reads TextDecoder/TextEncoder — Hermes has no TextDecoder', () => {
+    expect(cipher).not.toMatch(/TextDecoder|TextEncoder/);
+    expect(store).not.toMatch(/TextDecoder|TextEncoder/);
   });
   it('neither the store nor the cipher reaches a crypto global on any write path', () => {
     expect(store).not.toMatch(/\bcrypto\./);

@@ -96,7 +96,24 @@ Covered by a suite that runs with `globalThis.crypto` deleted: cold launch,
 sign-in write, relaunch restore, the exact build-13→14 legacy migration, v2
 migration, background/foreground refresh, Keychain and AsyncStorage unavailable,
 tampered ciphertext, plus source guards on import order. Hermes itself cannot
-run under vitest; the device pass on the next build is the final proof.
+run under vitest, so the real path is executed under the Hermes ENGINE instead:
+`npm run smoke:hermes` bundles `scripts/hermes/session-smoke.entry.ts` through
+the project's own Metro and runs it with react-native's `hermes` CLI, no
+`crypto` global present. Result `SMOKE_OK`.
+
+That smoke immediately found a second Hermes-only defect Node could never show:
+Hermes ships `TextEncoder` but **no `TextDecoder`**. The cipher decoded
+plaintext with `TextDecoder`, the ReferenceError landed inside a catch that
+reported "v3 auth failed", and the store would have cleared a valid session —
+the same misclassification the review warned about. Fixed with a strict pure
+UTF-8 codec and a catch that wraps only the AEAD call, so a programming error
+propagates as itself and the store keeps the ciphertext.
+
+Honest gap: the bare engine cannot load the audited native RNG, so the smoke
+proves the cipher/store execute on Hermes with an injected source; that the
+device source is present and non-degenerate is asserted at startup by
+`assertDeviceRandomness()` and proven only on the device. On-device cold start
+on the next build is the gate for that part.
 
 ## Re-pinned baselines (read 2026-09-10 ~18:05Z)
 
