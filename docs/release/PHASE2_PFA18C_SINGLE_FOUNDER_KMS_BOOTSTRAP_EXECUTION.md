@@ -1143,3 +1143,6 @@ tg_signing_key_updated_at=O|0|false` (V3). CLAUDE-OBSERVED 18:51:49Z: `Supavisor
 succeeded / 0 failed in 10 min. **DB PASSWORD RESET COMPLETE AND VALIDATED (V1–V5, V8; V6/V7 owner-optional).** The only updated consumer is the owner's shell `PROD_DB_URL`; nothing else changed.
 **C3 resumes** under the existing authorization ("AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT", rev 3 scope) at Mac 1 step 1 (artifact staging) and step 2 (inputs); step 3 (the mutation) is withheld until
 their outputs are read back. No production mutation has occurred.
+**OWNER-RETURNED (Mac 1 steps 2a/2b):** `PEM-DER-MATCH` · `der=91 private=0 blocks=1` · `D5=562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` · `pemsha=cf5da142cbd8ad0f550cc49d3bcd46d242d5a60f886f5c6f131f2ccfe90a8c27` · `INPUTS-PASS`
+(Device 2's `pub.pem`/`pub.der` copied to Mac 1; PEM decodes to the same 91-byte DER; D5 and PEM hash equal the coordinator's independent export). **Step 1 output (artifact hash `380f434d…` / 118 lines /
+`ARTIFACT-PASS`) not yet returned — requested; step 3 withheld until it is read back.** No mutation.
