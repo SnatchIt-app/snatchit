@@ -1098,3 +1098,11 @@ CLAUDE-OBSERVED preflight 18:01:52Z: **G6** key `Enabled ECC_NIST_P256 SIGN_VERI
 coordinator's own public-key copy: DER 91 bytes, D5 `562b5e87…` (Device 2's export is the authoritative input on Mac 1). Supabase `query_logs` for the A0 statement: no matching entries in the queried
 sources (NOT OBSERVED — A0 stands as OWNER-RETURNED). **G1–G5 (DB) re-read:** the read-only MCP connector was unresponsive at 18:02Z; re-read to be completed before step 3 (the mutation) and
 mirrored by the owner's own `psql -tAc` count in step 0. No mutation of any kind at the time of this entry.
+**Connector reconnected (owner, 2026-09-10) — full read-only C3 preflight refreshed, CLAUDE-OBSERVED:** project `hqycwntpfoztoinemqns` "Snatch It" (org `zcxpqolueooqkslolfrt`, us-west-2, PG 17.6,
+ACTIVE_HEALTHY) accessible via the read-only MCP as `postgres`. **DB 18:11:56Z:** G1 `kernel.signing_key` **0** · G2 triggers `tg_signing_key_immutable=O, tg_signing_key_insert_guard=O,
+tg_signing_key_updated_at=O` · G3 issuance/scanning/monitor **false**, expected_key_fingerprint/expected_max_not_after **null** · G4 tickets 0 / wallet_pass 0 / door_manifest_entry 0 / door_manifest_delta 0 ·
+G5 ledger **135**, tip **120**, `get_manifest_signing_context()` `unavailable/no_active_global_key` · recovery rows 0 · `pg_stat_activity` backends named `pfa18c-c3%` **0** · column defaults confirmed
+(`algorithm` default `EdDSA` ⇒ explicit ES256 mandatory). **AWS 18:12:17Z:** G6 key `Enabled ECC_NIST_P256 SIGN_VERIFY AWS_KMS MultiRegion false`, 1 key / 0 customer aliases / 3 tags, policy v2 (diff
+empty) · G7 runtime bound to D4 (diff empty), access keys 0/0/0 · events since 17:20Z: ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateAccessKey all **0** ·
+root since 09-09 **0** · trail logging, no delivery error. **G9** artifact sha256 `380f434d…` / 118 lines (18:01Z). **All coordinator-side preconditions PASS. No mutation.** Awaiting the owner's Mac 1
+step 0–2 outputs (connection PASS line; owner-side DB read `0|135|…|0|false`; artifact hash + 118; inputs line with D5 and pem sha `cf5da142…`) before step 3 is issued.
