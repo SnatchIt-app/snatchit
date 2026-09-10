@@ -7,14 +7,18 @@ Date: 2026-09-10. **Sandbox only. No production action is authorized by this han
 
 | | |
 |---|---|
-| Build ID | **`aeb89616-a539-4e42-a5fa-bb7c46beb0e8`** |
-| Source SHA | **`9aae63fa2c9f062c8097c9876710499cd6e814a0`** |
+| Build ID | **`31846b72-f10b-4cc2-9208-4e32383f83c6`** |
+| Source SHA | **`187e69e2b95ec94bed04f387c205ad0c2cf92827`** |
+| Includes D5 fix | `aa8c8b3c12e932e9833f9c661a61a9afe2c7d7d3` |
 | Profile / distribution | `preview` / internal (ad-hoc), iOS |
-| App version / build number | 1.0.0 (13) · Expo SDK 54 |
-| Expo fingerprint | `e6e8156ee8874deb3061d77e1ebf6fad25ddc951` |
-| Status | finished 2026-09-09 02:17:30 |
-| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/aeb89616-a539-4e42-a5fa-bb7c46beb0e8 |
-| Direct artifact | https://expo.dev/artifacts/eas/IhTyI686t7hQynfBbcDkVsYSHSRMH20sUi-c8qJoO3Q.ipa |
+| App version / build number | 1.0.0 (**14**) · Expo SDK 54 |
+| Expo fingerprint | `4907b994cb26a0ec575a233d60935888d41e4694` |
+| Status | finished 2026-09-10 14:35:43 |
+| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/31846b72-f10b-4cc2-9208-4e32383f83c6 |
+| Direct artifact | https://expo.dev/artifacts/eas/PaDdbxFzUoTp8bKHSJLRDOJItd65eYwEfxLDUuqt87c.ipa |
+
+> **This build supersedes `aeb89616` (build 13).** Delete the old app before installing so the two are
+> never confused. The D5 defects are fixed here; build 13 must not be used for the remaining matrix.
 
 ### Install
 
@@ -34,37 +38,49 @@ plus a rebuild first.
 never paste it into chat. Stripe test cards: success `4242 4242 4242 4242` · 3-D Secure `4000 0025 0000 3155` ·
 decline `4000 0000 0000 0002`.
 
-## 2. What is in the build, and what is not
+## 2. What is in the build
 
-The build was produced from `9aae63f`. The release head has since moved to `7986711`. **The build does not
-contain those later commits** — but nothing executable differs between them:
+Cut from the release head `187e69e`, so unlike build 13 there is no source/head gap. It carries the D5
+repair merged from `frontend/d5-3ds-return-and-session` at `aa8c8b3`, whose full lineage
+(`8f94cda → a050125 → ceda719 → 5a6e6ad → aa8c8b3`) was reviewed rather than only the final commit.
 
-| Check | Result |
+| Change | Effect on QA |
 |---|---|
-| Commits `9aae63f..7986711` | 2, both `docs(release)` / `docs(pfa18c)` |
-| Files changed | 3, all `docs/release/*.md` |
-| `src/`, `app/`, `supabase/`, `scripts/`, `assets/`, `components/`, `hooks/`, `constants/`, `tests/` | **0 files changed** |
-| `package.json`, `package-lock.json`, `eas.json`, `app.json`, `babel.config.js`, `metro.config.js`, `tsconfig.json` | **all unchanged** |
-| Expo fingerprint recomputed at `7986711` | `e6e8156ee8874deb3061d77e1ebf6fad25ddc951` — **identical to the build's** |
+| 3-D Secure return URL now `snatchit://checkout/<listingId>` | the completed challenge returns to the checkout screen instead of expo-router's unmatched/sitemap screen |
+| `app/checkout/index.tsx` floor for a bare link | redirects Home and asserts no payment outcome |
+| Settled-purchase resolution before the reservation pre-check | re-entry after a completed charge renders the settlement state; **"Your reservation has expired" is unreachable once a payment succeeded** |
+| v3 session blob — XChaCha20-Poly1305, fresh 24-byte nonce per write | the torn-write session loss is closed and the blob is now authenticated |
+| Typed storage outcomes | a transient Keychain/AsyncStorage error leaves the ciphertext intact instead of deleting a recoverable session |
+| `AppState.currentState` gates the initial refresh | the refresh loop follows the foreground |
 
-The fingerprint covers the native project, the JS entry graph, dependencies and build config; an identical
-fingerprint means no build input changed. So QA results from this binary describe `7986711`'s executable
-behaviour, even though the binary was cut at `9aae63f`. **Do not describe the build as containing `7986711`.**
+**Root-cause wording, stated carefully.** The **torn-write mechanism is supported** by the storage evidence
+and by the server-side record: `auth.audit_log_entries` is empty and `auth.refresh_tokens` shows the three
+2026-09-10 sessions each holding one token with zero revocations and zero rotations — a silent client-side
+loss with no expiry, failed refresh or sign-out ever reaching the server. **Token expiry remains conditional**
+on the sandbox `jwt_exp` value, which has not been read; it is a contributing hypothesis, not an established
+fact. The missing AppState refresh wiring is retained as a **latent defect**, separate from the reproduced
+storage defect, and is not claimed as the D5 cause.
 
-## 3. Compiled environment evidence (read from the shipped IPA, not from `eas.json`)
+## 3. Compiled environment evidence (read from the shipped IPA of build 14)
 
-Extracted from `Payload/SnatchIt.app/main.jsbundle` (Hermes bytecode):
+Extracted from `Payload/SnatchIt.app/main.jsbundle` (Hermes bytecode), not from `eas.json`:
 
 | Check | Result |
 |---|---|
 | Supabase URLs in the bundle | **exactly one** — `https://ofaidukbieeekqaboscm.supabase.co` |
 | JWTs in the bundle | **exactly one**, decoding to `ref = ofaidukbieeekqaboscm`, `role = anon` |
 | Stripe publishable key | `pk_test_51T6Fb1Gl…` → sandbox account **`acct_1T6Fb1GlD5aqtxIw`** |
+| `pk_live_51T6Far` (production account) | **0 matches** |
 | `sk_test` / `sk_live` / `service_role` / `SUPABASE_SERVICE` | **0 matches** |
-| Production ref / live account fragment | present **only** as env-guard constants — the fail-closed guard must recognise production in order to refuse it |
-| Guard symbols | `ENV_GUARD_FAILURE`, `IS_SANDBOX_BUILD`, `Build misconfigured` all present |
-| Sandbox marker | `SANDBOX — TEST MONEY ONLY` present once, stored **UTF-16LE** in Hermes's string table (the em dash puts it there — an ASCII `strings`/`grep` pass will not find it; both encodings were checked) |
-| Feature code | `get_my_tickets` and `FilterSheet` both present |
+| Sandbox marker | `SANDBOX — TEST MONEY ONLY` present once (UTF-16LE in Hermes's string table) |
+| D5 fix compiled in | `xchacha20poly1305` ×1, `poly1305` ×2, `v3.` ×1, `snatchit://checkout/` ×1, `already_settled` ×1, `sessionCipher: undecryptable` ×1 |
+| Bundle identity | `com.jdt-inc.snatchit`, `CFBundleShortVersionString` 1.0.0, `CFBundleVersion` **14** |
+| Install links | build page HTTP **200**; artifact HTTP **307** (signed redirect to the IPA) |
+
+Metro bundling of the new dependency was proven before the build: a local
+`expo export --platform ios` produced a Hermes bundle containing `xchacha20poly1305` and `poly1305`, and a
+Node round-trip confirmed the AEAD (5-byte plaintext → 21 bytes with the Poly1305 tag). `@noble/ciphers`
+2.4.0 is a runtime `dependency` in both `package.json` and `package-lock.json`.
 
 ## 4. Sandbox server-side state Claude C is testing against
 

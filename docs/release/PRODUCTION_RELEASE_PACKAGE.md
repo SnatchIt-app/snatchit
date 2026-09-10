@@ -149,7 +149,7 @@ no dependency on them.
 
 | Gate | Status | Detail | Owner |
 |---|---|---|---|
-| Candidate pinned + CI green at head | **PASSED** | `7986711`, CI 34320158401, five jobs green | release integration |
+| Candidate pinned + CI green at head | **PASSED** | **`187e69e`**, CI **34514320391**, five jobs green (supersedes `7986711` / 34320158401) | release integration |
 | Migration chain verified both orders | **PASSED** | 18/18; identical function hash fresh vs production order | release integration |
 | Rollback battery | **PASSED** | 63/63 incl. archive, restore, deploy-window duplicate | release integration |
 | Repo test suites | **PASSED** | pgTAP 4698 · mobile 1531 · admin 96 · typecheck · lint · web build · deno | release integration |
@@ -158,8 +158,8 @@ no dependency on them.
 | Sandbox tickets RPC verified | **PASSED** | ledger row, `SECURITY DEFINER`, empty result for authenticated, 401 for anon | release integration |
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
-| **Handset QA — 11 cases on the preview build** | **PAUSED** | D3/D4 + auth-logo passed; **D5 failed after a successful charge** (see §9); matrix paused until the replacement build is verified; D1, D2, D6–D11 outstanding | Claude C |
-| **D5 3-D Secure return + session fix** | **IN REVIEW** | `8f94cda` reviewed; five targeted changes requested, two blocking; replacement preview build gated on them | Claude C + release integration |
+| **Handset QA — 11 cases on the preview build** | **READY TO RESUME** | replacement build **14** (`31846b72`) verified from head `187e69e`; D3/D4 + auth-logo already passed; D1, D2, D5–D11 outstanding on the new binary | Claude C |
+| **D5 3-D Secure return + session fix** | **PASSED** | `aa8c8b3` reviewed across its full lineage and integrated at `187e69e`; CI 34514320391 green; every required check has behavioural coverage | release integration |
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
@@ -243,3 +243,37 @@ correctly refused once `user?.id` was null, and a relaunch landed on sign-in.
 Two things this establishes positively: the app does **not** treat a transient network failure as revocation
 (the phrase list is narrow), and the proposed fix does not weaken that — it starts and stops only the refresh
 the client was already configured to perform.
+
+
+## 10. D5 repair verified and built — 2026-09-10
+
+Integrated `aa8c8b3` at release head **`187e69e2b95ec94bed04f387c205ad0c2cf92827`**; CI **34514320391**
+green on all five jobs. Replacement sandbox preview build **`31846b72-f10b-4cc2-9208-4e32383f83c6`**,
+iOS build number **14**, supersedes build 13.
+
+Required checks, all satisfied by behavioural tests (1588 tests / 64 files):
+
+| Requirement | Evidence |
+|---|---|
+| Authenticated v3 encryption, fresh 24-byte nonce per write | XChaCha20-Poly1305 from `@noble/ciphers` 2.4.0; key and nonce lengths enforced; two writes of the same plaintext differ |
+| No AES-CTR keystream reuse | fixed `Counter(1)` exists only on the legacy **read** path; asserted that only v3 is written |
+| Torn-write interruption, both orders | interruption after the Keychain write and on the Keychain write itself; previous session intact in both |
+| Concurrent first writes produce one key | `loadOrCreateKey` memoises in flight; both blobs stay readable |
+| Legacy and v2 migrate without deletion | both decrypt, are rewritten as v3, and a migration that cannot write still returns the session |
+| Unavailable Keychain/AsyncStorage preserves ciphertext | typed `unavailable` outcome returns null and clears nothing; only a missing key or a failed AEAD clears |
+| Tampered/truncated v3 fails safely | flipped bit, truncation, wrong key and non-hex all raise `undecryptable`; never garbage plaintext |
+| No token material in logs | asserted every `warn` call carries a message and an error, never the session value |
+| Settled re-entry creates/submits nothing | buy-now and auction: no intent, no `initPaymentSheet`, no `presentPaymentSheet`; two rapid re-entries share one in-flight setup |
+| Return URL and fallback route | F8 accepts only `snatchit://checkout/<id>`; bare, empty-id, foreign path and foreign scheme all refused; the bare-link floor redirects Home and claims nothing |
+| `AppState.currentState` gates initial refresh | covered, with teardown and transition tests |
+| Metro installs and bundles `@noble/ciphers` | proven by a local `expo export` Hermes bundle **and** by the shipped IPA |
+
+**Root-cause wording.** The torn-write mechanism is **supported** by the storage evidence and by the
+server-side record (empty `auth.audit_log_entries`; three 2026-09-10 sessions each with one token, zero
+revoked, zero rotations). **Token expiry remains conditional** on the sandbox `jwt_exp` value, which has not
+been read, and is not claimed as established. The missing AppState refresh wiring is recorded as a **latent**
+defect, separate from the reproduced storage defect. Claude C's earlier commit messages were left as written.
+
+The original D5 payment remains settled exactly once: one $110 charge, one succeeded payment, `Device D4`
+sold, holds released, one pending transfer with payout withheld. Nothing was retried, refunded or manually
+settled, and the shared sandbox backend is unchanged at ledger 129.
