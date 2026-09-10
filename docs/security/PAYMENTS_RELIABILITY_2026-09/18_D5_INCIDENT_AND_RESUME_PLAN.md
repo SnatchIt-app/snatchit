@@ -172,3 +172,32 @@ launch of 15; that is the remaining unverified path.
 
 D1 on build 15 is satisfied by the same evidence (badge, sign-in, Home, session
 on the sandbox project). Payment matrix resumes at D2.
+
+## D5 on build 15 (Device D5) — payment CLEAN, automatic return FAILED
+
+Financial truth, read-only: payment `0417d2ee` succeeded; intent
+`pi_3UEDzXGlD5aqtxIw0Hcu4jNl` succeeded, the only intent created on the test
+account in 45 minutes; charge `ch_3UEDzX…` captured 11000, refunded 0, not
+disputed, 3-D Secure `authenticated`; listing sold 19:50:57Z, hold released;
+one transfer `pending` with no payout id; zero webhook retries; session intact
+through the handoff (no `/token`, no `/logout`). **No duplicate intent** — the
+manual browser exit and any remount created nothing, so the settled-first
+re-entry guard held on hardware. **Device D5 is settled once; not to be retried.**
+
+Acceptance failure: after Authorize the browser did not return to the app on
+its own; the buyer exited it manually, after which checkout completed normally.
+A wiring defect, not a money defect.
+
+Cause (confirmed in source, device-confirmed only by the symptom): the Stripe
+SDK dismisses its browser and resolves the PaymentSheet only when the app hands
+the return URL back through `handleURLCallback`. Nothing in the app called it.
+`urlScheme` was set and the URL resolved to a real route, so the route opened
+underneath while the browser stayed up.
+
+Fix: every incoming URL now goes through `dispatchDeepLink` (pure, tested with
+mocked effects), which asks the module-level `handleURLCallback` FIRST and
+returns when it consumes the URL; the H-5 auth contract runs otherwise,
+unchanged. One funnel covers `getInitialURL()` (cold start after iOS killed the
+app behind the browser) and the `'url'` event. A rejection from Stripe cannot
+take the auth path down. The wiring is behaviourally tested; the real browser
+return remains device-only and is the gate on build 16.
