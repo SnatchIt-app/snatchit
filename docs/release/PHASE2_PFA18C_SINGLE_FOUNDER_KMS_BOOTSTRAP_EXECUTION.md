@@ -1207,3 +1207,9 @@ Identity resolution (CLAUDE-OBSERVED, own-account records): founder A = `2b11775
 `required_approver_class platform_admin`, `requested_by` = founder A, `approved_by` null, created 19:59:17Z, expires 2026-09-13T19:59:17Z, payload key `signing.expected_key_fingerprint`, proposed value = D5
 (true), current null, `config_versions {fingerprint:1}`; pending total 1; keys unchanged (v1/v1/v1); audit `config.money_key_proposed` by founder A; checker still `monitor_disabled`. **Production write so far:
 one parked approval request + one audit row; no config version written.** C5-2 (founder B, aal2, PostgREST approve) issued.
+**PAUSE (OWNER, 2026-09-10): C5 paused after C5-1 — founder B unavailable today; no approve/arm/disarm/other production change.** CLAUDE-OBSERVED 20:46:33Z: request `05e0ff5d-1044-40c9-b32d-c5db1c171976`
+**pending** (requested_by founder A, approved_by null), **expires 2026-09-13T19:59:17Z** (71.2 h left); `signing.expected_key_fingerprint` **v1 null**; `signing.monitor_enabled` **v1 false**; checker
+**`monitor_disabled`**; `config.%` audit rows 1 (`money_key_proposed`); signing_key `1|1`; flags false. Read-only materials prepared: `PHASE2_PFA18C_C5_PAUSE_HANDOFF.md` (exact C5-2 browser-console
+procedure preserved; C5-3 arm gated on the C5-2 read-back v2 = D5; C5-4 checker; disarm rollback with its own phrase; resumption checklist) and `PHASE2_PFA18C_C6_DARK_DEPLOY_REVIEW_PACKAGE.md` (review-only:
+E2 env contract from `parseAssumeRoleConfig`/`readBaseCredentials`, one access key at C6, `secrets set --env-file`, dark deploy set and verify_jwt values, prerequisites incl. 114 L121 forward fix and C5
+completion, verification with zero invocations, rollback, T3 boundary; phrase "AUTHORIZE PFA-18C DARK DEPLOY"). Nothing executed: no C5-3, C6, migration, flag, issuance, scanning, or deployment.
