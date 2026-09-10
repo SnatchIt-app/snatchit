@@ -149,7 +149,7 @@ no dependency on them.
 
 | Gate | Status | Detail | Owner |
 |---|---|---|---|
-| Candidate pinned + CI green at head | **PASSED** | **`5bf2daa`**, CI **34518588051**, five jobs green (supersedes `187e69e` / 34514320391) | release integration |
+| Candidate pinned + CI green at head | **PASSED** | **`df9e0d3`**, CI **34523989011**, five jobs green (supersedes `5bf2daa` / 34518588051) | release integration |
 | Migration chain verified both orders | **PASSED** | 18/18; identical function hash fresh vs production order | release integration |
 | Rollback battery | **PASSED** | 63/63 incl. archive, restore, deploy-window duplicate | release integration |
 | Repo test suites | **PASSED** | pgTAP 4698 · mobile 1531 · admin 96 · typecheck · lint · web build · deno | release integration |
@@ -159,8 +159,8 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **PAUSED again** | D2 and D5 financials passed on build 15; D5 acceptance failed on the 3-D Secure browser return (§14). Paused until build 16 | Claude C |
-| **3-D Secure automatic return (`handleURLCallback`)** | **IMPLEMENTATION NEEDED** | reviewed and concurred; stacking on Claude C's branch, then CI and build 16 (§14) | Claude C + release integration |
+| **Handset QA — 11 cases on the preview build** | **PAUSED** | build **16** (`66be8872`) built and verified off-device; QA resumes only after the D5 return is re-tested on the handset (§15) | Claude C |
+| **3-D Secure automatic return (`handleURLCallback`)** | **PASSED off-device** | `a8adfb1` reviewed and integrated at `df9e0d3`; CI 34523989011 green; the browser return itself is device-only and unproven (§15) | release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
 | **Runtime crypto availability** | **PASSED** | entry-first polyfill, guarded injectable RNG, named `RandomnessUnavailable`, Math.random fallback refused, Hermes smoke `SMOKE_OK` | release integration |
@@ -479,3 +479,52 @@ The real browser return stays device-only — these prove wiring, not the redire
 4. Device re-test of D5 uses a different listing. Every remaining staged listing carries a stale pending row
    (`Device D1` two; `Device D2`, `Device D3`, `Phone P1` one each), which is harmless for a browser-return
    test. `Device D3` is the suggested choice.
+
+
+## 15. Build 16 — 3-D Secure return fix (2026-09-10)
+
+Integrated `a8adfb1` at head **`df9e0d3718086907faeff538fbba5b62bae38a1e`**; CI **34523989011** green on all
+five jobs. Build **`66be8872-163a-43c6-99ed-71de752f5f16`**, iOS build number **16**; EAS records
+`Commit df9e0d3718086907faeff538fbba5b62bae38a1e` — the pinned SHA.
+
+### Diff review
+
+`a8adfb1` extracts the URL handling into `src/lib/auth/deepLinkDispatch.ts` — pure orchestration with injected
+effects — and rewires the shell to it. All three review refinements are present:
+
+| Refinement | Implementation |
+|---|---|
+| Module-level function, not the hook | `import { StripeProvider, handleURLCallback } from '@stripe/stripe-react-native'`, injected as `stripeCallback`. No provider context needed, which is what the shell's position outside `StripeProvider` requires. |
+| Early return on `true` | `if (await deps.stripeCallback(url)) return { kind: 'stripe' }` — the auth branch never parses a Stripe redirect for `token_hash`/`code`. |
+| One funnel | `attachDeepLinkFunnel` routes `getInitialURL()` (cold start behind the browser) and the `'url'` event through the same dispatch; the effect returns its teardown. No second listener. |
+
+Beyond the brief: a Stripe callback **rejection** is caught and the auth path still runs. The H-5 contract is
+preserved verbatim — only `verifyOtp` and `exchangeCodeForSession` may mint a session, and there is still no
+`setSession`-from-URL path.
+
+Tests are behavioural: call ordering, no auth exchange when Stripe consumes the URL, auth links unchanged for
+`token_hash`/`type` and for `code` including fragment parameters, both entry points reaching one dispatch, and
+a rejection not breaking auth.
+
+### Verification
+
+Local: **1626 tests / 67 files**, admin 96/96, typecheck clean, lint 0 errors, env pairing OK, Hermes smoke
+**`SMOKE_OK`**. Shipped IPA: `handleURLCallback`, `attachDeepLinkFunnel`, `dispatchDeepLink` and the
+rejection-warning string all compiled in; exactly one Supabase URL (sandbox); one JWT scoped to the sandbox;
+`pk_test_51T6Fb1Gl…`; **zero** `pk_live`/`sk_`/`service_role`; SANDBOX badge present; `CFBundleVersion` **16**;
+build page HTTP 200.
+
+**On the fingerprint.** Build 16 reports the same Expo fingerprint as build 15 (`1fa6c258…`). That is expected
+and not a sign the build is unchanged: the fingerprint covers the **native** layer — native files, app config,
+dependency set — and this change is JS-only. The shipped JS bundle differs (`sha256 c336cd04…`) and carries
+the new symbols, which is the check that matters.
+
+### Still device-only
+
+The actual browser return after **Authorize** cannot be proven off-device. The tests prove the URL reaches
+Stripe first and that the auth contract is intact; only a handset shows whether iOS dismisses the browser and
+resolves the sheet. **QA stays paused** until the D5 return is re-tested on build 16.
+
+Use a listing other than `Device D5`, which is sold and settled. Every remaining staged listing carries a
+stale pending row (`Device D1` two; `Device D2`, `Device D3`, `Phone P1` one each) — harmless for a
+browser-return test. `Device D3` is the suggested choice. Device D4 and Device D5 payments stay untouched.

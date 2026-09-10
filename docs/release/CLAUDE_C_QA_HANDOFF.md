@@ -7,17 +7,17 @@ Date: 2026-09-10. **Sandbox only. No production action is authorized by this han
 
 | | |
 |---|---|
-| Build ID | **`cbb3fbbe-0bc1-4898-987b-ad9b8de03b72`** |
-| Source SHA | **`5bf2daa04708acefddc435c4af745806f6bdb4e6`** |
-| Includes D5 fix | `9196123` (runtime crypto) on `aa8c8b3` (AEAD + re-entry) |
+| Build ID | **`66be8872-163a-43c6-99ed-71de752f5f16`** |
+| Source SHA | **`df9e0d3718086907faeff538fbba5b62bae38a1e`** |
+| Includes D5 fix | `a8adfb1` (3-D Secure return) on `9196123` (runtime crypto) on `aa8c8b3` (AEAD + re-entry) |
 | Profile / distribution | `preview` / internal (ad-hoc), iOS |
-| App version / build number | 1.0.0 (**15**) · Expo SDK 54 |
+| App version / build number | 1.0.0 (**16**) · Expo SDK 54 |
 | Expo fingerprint | `1fa6c2581671dcc071e11986c9886e431181ed51` |
-| Status | finished 2026-09-10 15:17:39 |
-| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/cbb3fbbe-0bc1-4898-987b-ad9b8de03b72 |
-| Direct artifact | https://expo.dev/artifacts/eas/advSW7g7rOVskN4Fq8TsKMVyptJ-JBIzcX5k6a5TkkY.ipa |
+| Status | finished 2026-09-10 16:12:58 |
+| Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/66be8872-163a-43c6-99ed-71de752f5f16 |
+| Direct artifact | https://expo.dev/artifacts/eas/91gB3Xc7VDODq_ndzv_e1xSVrec2x74fGGgA5fF_iqY.ipa |
 
-> **This build supersedes builds 13 and 14.** Delete the old app before installing. Build 14 crashed at cold
+> **This build supersedes builds 13, 14 and 15.** Delete the old app before installing. Build 14 crashed at cold
 > launch (`ReferenceError: Property 'crypto' doesn't exist`) and must not be used; build 13 predates the D5
 > fixes.
 
