@@ -1228,3 +1228,16 @@ C5 resumption pre-read (REHEARSAL + definition review): expiry enforced by the a
 keys v1/v1/v1, `monitor_disabled`, signing_key 1 row, ledger 135, function md5 `b14d938e…`).
 CI on PR #58 (CLAUDE-OBSERVED 23:42:40Z): **Migrations apply cleanly (fresh DB) PASS**; Typecheck/Lint/Unit PASS; Deno type-check PASS; Admin console PASS; Web build PASS; **Immutability + ordering FAIL by design** — the
 AUTODEPLOY-1 acknowledgement gate ("This PR changes supabase/migrations/** and merging to main applies migrations to PRODUCTION…"), to be satisfied only on the day of apply with the `AUTODEPLOY-VERIFIED-OFF: <date>` line; not a migration defect.
+
+## SESSION 25 — 2026-09-10 — MIGRATION 121 RATIONALE CORRECTED PER CLAUDE A (REVIEW-ONLY; NOT APPLIED; NO MERGE) · C5 PAUSED · C6 REVIEW-ONLY
+
+Owner relayed Claude A's review of PR #58: `venue.get_manifest_signing_context` is STABLE — its reads share the calling query's snapshot, so the concurrent-revoke race claimed in rev 1 is **not
+reachable**; describe 121 as defensive hardening with explicit missing-row handling; sibling `kernel.get_ticket_signing_context` fails closed via its explicit null guard (no blocker); the ordering CI
+job stopped at the missing attestation before its later checks (A verified ordering/immutability locally); integrate with A after Build 16's handset matrix closes (combined chain 142 migrations).
+**Dated correction (C-6, 2026-09-10):** rev-1 wording "demonstrated production defect / concurrent-revoke race" withdrawn in the migration header, the in-body comment, the function comment, the rollback
+and test headers, the PR description, the review package (rev 2) and the C6 package P2 row. REHEARSAL (local replica `snatchit_rehears_121`, 23:53Z): STABLE vs VOLATILE copies of the 114 body with a 3 s
+pause and a concurrent status flip — STABLE returned the original row, VOLATILE returned `{status:ok, key_id:null, kms_handle_ref:null}` — reproducing A's finding. Ordering/immutability verified by
+Claude B: base→head diff = three additions only; 121 > 120. Implementation unchanged (STRICT read + handlers); rev-2 commit **`030a922bc054501f28f8baef4d7710ef6a374868`** on
+`fix/121-manifest-signing-context-strict` (pushed); PR #58 body rewritten; definition md5 now `333372bbbe7dd8fe1a95db4de66ea4c6` (rev 1 `c321ad7e…`); suites 180 + 189 = 61/61 PASS; rollback
+round-trip `b14d938e…` (= production) verified. Package: `PHASE2_PFA18C_121_FORWARD_FIX_PACKAGE.md` rev 2. Remaining gates: owner review; integration with A after Build 16; apply only under
+"AUTHORIZE PFA-18C MIGRATION 121" with the day-of `AUTODEPLOY-VERIFIED-OFF` attestation. Mutation ledger: production none; no merge, deploy, apply, or sibling implementation. C5 paused (request `05e0ff5d…`).

@@ -25,7 +25,7 @@ Evidence classes: **CLAUDE-OBSERVED** (repo/AWS/DB reads), **DEFINITION-REVIEW**
 | # | Prerequisite | Status today |
 |---|---|---|
 | P1 | C5 COMPLETE (monitor armed, ok/match) — so the trust root is watched before any signer exists | **not yet** (paused after C5-1) |
-| P2 | **Forward fix 114 L121** (non-STRICT `select … into v_k` in `get_manifest_signing_context`; body-only migration; edge fails closed today) — recorded "before C6" | **open** — needs its own reviewed migration + authorization before C6 |
+| P2 | **Migration 121 — defensive hardening** of `get_manifest_signing_context` (STRICT row read with explicit missing-row handling). Corrected 2026-09-10 per Claude A's PR #58 review: the function is STABLE, its reads share the calling query's snapshot, so the concurrent-revoke race first described is **not reachable**; 121 is **not a demonstrated defect fix** and **not a C6 blocker** — recommended before C6 as hardening. Sibling `kernel.get_ticket_signing_context` already fails closed via its explicit null guard (no blocker, Claude A). | **prepared, review-only** (PR #58 draft; not applied); integration with Claude A after Build 16's handset matrix closes (combined release + venue + 121 chain = 142 migrations, per A) |
 | P3 | Forward fix 086 ↔ 112/113 expired-episode drift | required before **scanning activation**, not before C6 (record) |
 | P4 | Runtime user access keys = 0; runtime role policy bound to D4 only; trust has `sts:ExternalId`; key policy v2 | **PASS** (2026-09-10 reads) |
 | P5 | No `KMS_*`/`AWS_*` secrets in `supabase secrets list` (names only) | **PASS** (2026-09-10) |
