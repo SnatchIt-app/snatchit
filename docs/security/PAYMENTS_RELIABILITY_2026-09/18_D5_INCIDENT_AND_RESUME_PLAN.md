@@ -59,8 +59,13 @@ mechanisms; neither is device-confirmed:
   device artefact: the `[secureStorage] decrypt failed; clearing entry` warning
   in Sentry breadcrumbs or a device log from the D5 session.
 
-Both fixes ship regardless: the refresh loop now follows the foreground, and
-key/blob can no longer disagree. Which one *caused* D5 is settled by `jwt_exp`
+Both fixes ship regardless, and they are separate defects: the refresh-loop
+wiring is a latent defect (not the D5 cause); the storage adapter is the
+reproduced-symptom path. The store now (a) returns null and keeps the ciphertext
+when the Keychain or AsyncStorage is transiently unavailable, clearing only on a
+missing key or a failed authentication, and (b) writes v3 XChaCha20-Poly1305
+(@noble/ciphers, nonce per write) so tampering, truncation and a wrong key all
+fail cleanly; v2 and legacy blobs are read and migrated, never deleted. Which one *caused* D5 is settled by `jwt_exp`
 plus the breadcrumb, not by argument.
 
 **Re-entry (review item 1, blocking) — CONFIRMED and fixed in this commit.** The

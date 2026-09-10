@@ -1,54 +1,32 @@
 /**
- * tests/session-storage-torn-write.test.ts — the session blob and its key can
- * never disagree.
- *
- * Structural hazard found while investigating D5's session loss (labelled a
- * HYPOTHESIS for that incident, not a confirmed cause): the adapter minted a new
- * AES key on every write and stored it in the Keychain before the blob reached
- * AsyncStorage. A suspend/kill between the two — a 3-D Secure handoff, a deep
- * link relaunch — left a key that could not decrypt the blob, and getItem then
- * deleted the session locally with no server traffic. That silent client-side
- * loss is the only shape consistent with the sandbox auth log (no logout, no
- * refresh, no revocation).
+ * tests/session-storage-torn-write.test.ts — the key is created once and reused,
+ * so a write interrupted between the Keychain and AsyncStorage can never leave
+ * a blob its key cannot open. Behavioural coverage lives in session-store.test.ts;
+ * this pins the structural guarantee in the store and the thinness of the binding.
  */
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const src = readFileSync(resolve(__dirname, '..', 'src/lib/secureStorage.ts'), 'utf8');
-const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const read = (rel: string) => readFileSync(resolve(__dirname, '..', rel), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const store = read('src/lib/sessionStore.ts');
+const binding = read('src/lib/secureStorage.ts');
 
-describe('session storage: key reuse removes the torn-write hazard', () => {
-  it('the key is loaded before it is created, and created only when absent', () => {
-    const fn = code.slice(code.indexOf('async function loadOrCreateKey'), code.indexOf('async function encrypt'));
-    expect(fn.indexOf('SecureStore.getItemAsync')).toBeGreaterThan(-1);
-    expect(fn.indexOf('SecureStore.getItemAsync')).toBeLessThan(fn.indexOf('getRandomValues'));
-    expect(fn).toMatch(/if \(existingHex\) return/);
+describe('key reuse', () => {
+  it('load-or-create: read the Keychain first, mint only when absent, memoised per key', () => {
+    const fn = store.slice(store.indexOf('async function loadOrCreateKey'), store.indexOf('async function clear'));
+    expect(fn.indexOf('deps.secure.get')).toBeLessThan(fn.indexOf('randomBytes(32)'));
+    expect(fn).toContain('if (r.value) return');
+    expect(fn).toContain('keyInFlight');
   });
-
-  it('encrypt no longer mints a key per write', () => {
-    const enc = code.slice(code.indexOf('async function encrypt'), code.indexOf('async function decrypt'));
-    expect(enc).not.toContain('getRandomValues');
-    expect(enc).not.toContain('SecureStore.setItemAsync');
-    expect(enc).toContain('loadOrCreateKey(key)');
+  it('setItem writes the key before the blob and never deletes the key', () => {
+    const set = store.slice(store.indexOf('async setItem'), store.indexOf('async removeItem'));
+    expect(set.indexOf('loadOrCreateKey(key)')).toBeLessThan(set.indexOf('deps.blob.set'));
+    expect(set).not.toContain('secure.delete');
   });
-
-  it('a decrypt failure is still non-fatal, but no longer reachable by a torn write', () => {
-    // the defensive clear stays for genuinely corrupt data (OS restore wiped the Keychain)
-    expect(code).toContain("console.warn('[secureStorage] decrypt failed; clearing entry'");
-    expect(code).toContain('await this.removeItem(key);');
-  });
-
-  it('removeItem still wipes both halves, so sign-out leaves nothing behind', () => {
-    const rm = code.slice(code.indexOf('async removeItem'));
-    expect(rm).toContain('AsyncStorage.removeItem(blobKeyName(key))');
-    expect(rm).toContain('SecureStore.deleteItemAsync(secureKeyName(key))');
-  });
-
-  it('existing sessions stay readable: the stored key is the one the last blob used', () => {
-    // the old adapter always left the Keychain holding the key of the LAST write,
-    // which is the key the current blob was encrypted with — reuse is a no-op for them
-    expect(code).not.toMatch(/deleteItemAsync\(secureKeyName\(key\)\)[^}]*setItemAsync/);
+  it('the native binding only adapts the modules into typed outcomes', () => {
+    expect(binding).toContain('createSessionStore({ secure, blob })');
+    expect(binding).not.toMatch(/encrypt|decrypt|Counter|getRandomValues/);
   });
 });
