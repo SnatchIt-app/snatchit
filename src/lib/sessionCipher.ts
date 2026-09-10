@@ -1,8 +1,12 @@
 /**
  * src/lib/sessionCipher.ts — the session blob cipher, three generations.
  *
- * Pure (aes-js, @noble/ciphers, crypto.getRandomValues) so it is testable as
- * behaviour. The storage adapter (sessionStore.ts) never touches primitives.
+ * Pure (aes-js, @noble/ciphers) so it is testable as behaviour. RANDOMNESS IS
+ * INJECTED: nothing here reads a `crypto` global. Hermes has none unless a
+ * polyfill is loaded, and build 14 crashed at cold launch with
+ * "Property 'crypto' doesn't exist" because the binding lost that import. The
+ * store now passes an explicit RNG; a missing one fails with a typed error at
+ * wiring time, never a ReferenceError during session restore.
  *
  *   v3  `v3.` + hex(nonce, 24 B) + hex(ct || tag)   XChaCha20-Poly1305 (AEAD)
  *   v2  `v2.` + hex(iv, 16 B)   + hex(ct)           AES-256-CTR, IV per write
@@ -47,8 +51,27 @@ const hex = {
   toBytes: (h: string) => Uint8Array.from(aesjs.utils.hex.toBytes(h)),
 };
 
-export function randomBytes(n: number): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(n));
+export type RandomBytes = (n: number) => Uint8Array;
+
+export class RandomnessUnavailable extends Error {
+  constructor() { super('sessionCipher: no cryptographic randomness source was wired'); }
+}
+
+/**
+ * The only randomness entry point. Callers supply `random` from an audited
+ * device source (the native binding wires react-native-get-random-values).
+ * Falls back to a WebCrypto global only where one already exists (Node, web);
+ * otherwise fails closed instead of reaching an undefined global.
+ */
+export function randomBytes(n: number, random?: RandomBytes): Uint8Array {
+  if (random) {
+    const out = random(n);
+    if (!(out instanceof Uint8Array) || out.length !== n) throw new RandomnessUnavailable();
+    return out;
+  }
+  const g = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (g && typeof g.getRandomValues === 'function') return g.getRandomValues(new Uint8Array(n));
+  throw new RandomnessUnavailable();
 }
 
 export function blobFormat(blob: string): BlobFormat {
@@ -58,7 +81,7 @@ export function blobFormat(blob: string): BlobFormat {
 }
 
 /** v3 — the only write path. */
-export function encryptV3(key: Uint8Array, plaintext: string, nonce: Uint8Array = randomBytes(NONCE_BYTES)): string {
+export function encryptV3(key: Uint8Array, plaintext: string, nonce: Uint8Array): string {
   if (key.length !== 32) throw new Error('sessionCipher: key must be 32 bytes');
   if (nonce.length !== NONCE_BYTES) throw new Error('sessionCipher: nonce must be 24 bytes');
   const ct = xchacha20poly1305(key, nonce).encrypt(utf8.to(plaintext));

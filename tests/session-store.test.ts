@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSessionStore, blobKeyName, secureKeyName, StorageUnavailable, type BlobBackend, type SecureBackend } from '../src/lib/sessionStore';
 import { blobFormat, encryptLegacyForTests, encryptV2ForTests, encryptV3 } from '../src/lib/sessionCipher';
+import { randomBytes as nodeRandom } from 'node:crypto';
+
+const rng = (n: number) => new Uint8Array(nodeRandom(n));
 
 const KEY = 'sb-test-auth-token';
 const SESSION = '{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa","refresh_token":"r1"}';
@@ -41,7 +44,7 @@ function fakeBackends() {
     async remove(n) { if (hit(faults.blob, 'remove')) return unav(); kv.delete(n); return { ok: true }; },
   };
   const warn = vi.fn();
-  return { kv, secureMap, faults, calls, secure, blob, warn, store: createSessionStore({ secure, blob, warn }) };
+  return { kv, secureMap, faults, calls, secure, blob, warn, store: createSessionStore({ secure, blob, warn, random: rng }) };
 }
 
 let f: ReturnType<typeof fakeBackends>;
@@ -60,7 +63,7 @@ describe('persistence boundaries', () => {
     await f.store.setItem(KEY, SESSION);              // generation 1 persisted
     f.faults.blob.push({ on: 'set' });                // the second write dies between the two stores
     await expect(f.store.setItem(KEY, SESSION2)).rejects.toBeInstanceOf(StorageUnavailable);
-    const relaunched = createSessionStore({ secure: f.secure, blob: f.blob, warn: f.warn });
+    const relaunched = createSessionStore({ secure: f.secure, blob: f.blob, warn: f.warn, random: rng });
     expect(await relaunched.getItem(KEY)).toBe(SESSION); // key was never replaced, so the old blob still opens
   });
 
@@ -82,7 +85,7 @@ describe('persistence boundaries', () => {
   it('a relaunch between key creation and first blob write reads null, not an error, and keeps the key', async () => {
     f.faults.blob.push({ on: 'set' });
     await expect(f.store.setItem(KEY, SESSION)).rejects.toBeInstanceOf(StorageUnavailable);
-    const relaunched = createSessionStore({ secure: f.secure, blob: f.blob, warn: f.warn });
+    const relaunched = createSessionStore({ secure: f.secure, blob: f.blob, warn: f.warn, random: rng });
     expect(await relaunched.getItem(KEY)).toBeNull();
     await relaunched.setItem(KEY, SESSION);
     expect(await relaunched.getItem(KEY)).toBe(SESSION);
@@ -169,7 +172,7 @@ describe('ciphertext non-determinism', () => {
     expect(b1).not.toBe(b2);
     const k = keyBytes();
     const body = (b: string) => Uint8Array.from((b.slice(3 + 48).match(/.{2}/g) ?? []).map((x) => parseInt(x, 16)));
-    const c1 = body(b1), c2 = body(b2), c3 = body(encryptV3(k, SESSION2));
+    const c1 = body(b1), c2 = body(b2), c3 = body(encryptV3(k, SESSION2, rng(24)));
     const xor = (a: Uint8Array, b: Uint8Array) => Array.from(a.slice(0, Math.min(a.length, b.length)), (x, i) => x ^ b[i]).join(',');
     expect(xor(c1, c2)).not.toBe('0,'.repeat(c1.length - 1) + '0');   // same plaintext, different keystream
     const p12 = Array.from(new TextEncoder().encode(SESSION), (x, i) => x ^ new TextEncoder().encode(SESSION2)[i]).join(',');
