@@ -159,7 +159,8 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **READY TO RESUME** | build **15** (`cbb3fbbe`) from head `5bf2daa`; start at D2 (§13) | Claude C |
+| **Handset QA — 11 cases on the preview build** | **PAUSED again** | D2 and D5 financials passed on build 15; D5 acceptance failed on the 3-D Secure browser return (§14). Paused until build 16 | Claude C |
+| **3-D Secure automatic return (`handleURLCallback`)** | **IMPLEMENTATION NEEDED** | reviewed and concurred; stacking on Claude C's branch, then CI and build 16 (§14) | Claude C + release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
 | **Runtime crypto availability** | **PASSED** | entry-first polyfill, guarded injectable RNG, named `RandomnessUnavailable`, Math.random fallback refused, Hermes smoke `SMOKE_OK` | release integration |
@@ -433,3 +434,48 @@ The gate is complete and the matrix is unpaused. Guidance for the next case:
 * Unchanged sandbox caveats, neither a bug: `notify-transfer` and `auto-finalize-auctions` are not deployed
   there, and all nine sandbox edges run `verify_jwt=false`.
 * **Device D4 stays untouched** — one captured $110 test charge, not retried and not modified.
+
+
+## 14. D5 — money correct, browser return not wired (2026-09-10)
+
+### Financial result: clean, and not to be touched
+
+Exactly **one** succeeded $110 sandbox payment, **one** PaymentIntent, **one** captured charge, **no**
+duplicate intent, `Device D5` sold, hold released, **one** pending transfer with no payout id, and **no**
+webhook retries. The settlement path behaved correctly throughout. No retry, refund or manual settlement is
+authorized, and `Device D5` must not be reused for the re-test.
+
+### The defect
+
+Acceptance failed on one point only: after **Authorize**, the 3-D Secure browser did not return to the app
+automatically. Exiting manually let checkout complete normally. Claude C traced it to
+`handleURLCallback(url)` never being wired.
+
+**This is a wiring defect, not a money defect.** The charge succeeded, settled once, and produced no
+duplicate — the failure is that the buyer had to dismiss a browser by hand.
+
+### Review — concurred, with three refinements
+
+Verified against the installed `@stripe/stripe-react-native` **0.50.3**:
+
+| Point | Finding |
+|---|---|
+| Placement outside `StripeProvider` | **Correct.** The deep-link listener does run outside the provider. |
+| How to reach the function there | `index.d.ts` does `export * from './functions'`, and `functions.d.ts` declares `export declare const handleURLCallback: (url: string) => Promise<boolean>`. The **module-level import** needs no provider context — use it rather than `useStripe()`. |
+| Early return | The implementation is `Platform.OS === 'ios' ? await NativeStripeSdkModule.handleURLCallback(url) : false`. `true` means Stripe consumed the URL, so **return immediately** and never let the auth branch parse a Stripe redirect for `token_hash`/`code`. Android returns `false`, so the auth path is unaffected. |
+| One placement covers both entry points | `NativeAppShell.native.tsx:246-247` funnels `Linking.getInitialURL()` **and** the `'url'` event through the same `handleUrl(url)`. Calling it at the top of that function covers the warm return **and** the cold-start case where iOS killed the app during the handoff. No second listener. |
+
+Tests must be behavioural, not `toContain` on source: a Stripe URL takes the early return with the auth
+exchange never invoked; an auth deep link still runs `verifyOtp` / `exchangeCodeForSession` exactly as today;
+both the initial-URL path and the `'url'` event reach the call; and a rejection does not break the auth path.
+The real browser return stays device-only — these prove wiring, not the redirect.
+
+### Plan
+
+1. Claude C stacks the fix on **`frontend/d5-3ds-return-and-session`** on top of `9196123` — not on
+   `5bf2daa`. Keeping the D5 lineage in one reviewed chain is the flow that has worked twice; no rebase.
+2. Release integration merges it into the candidate, runs the full battery and CI.
+3. **Build 16** is cut before any QA resumes. D6–D11 do **not** continue on build 15.
+4. Device re-test of D5 uses a different listing. Every remaining staged listing carries a stale pending row
+   (`Device D1` two; `Device D2`, `Device D3`, `Phone P1` one each), which is harmless for a browser-return
+   test. `Device D3` is the suggested choice.
