@@ -80,3 +80,5 @@ Expected `{"status":"ok","version":3}`; the checker returns `monitor_disabled` a
 
 ## 6. Resumption checklist (read-only, minutes before C5-2)
 G1 one active ES256 `…b0` row, fingerprint D5 · request `05e0ff5d…` still `pending` and unexpired · keys still v1/v1/v1 · checker `monitor_disabled` · founder B signed in with MFA (aal2) · flags false. Coordinator re-reads and records before C5-2 proceeds.
+
+**If the request has expired (after 2026-09-13T19:59:17Z) — rehearsed 2026-09-10, no production change:** expiry is enforced by the approver (`precondition_failed: request … has expired`); the row stays `pending` and does not block a new proposal. Re-run C5-1 exactly as before but with a **new command key** (`pfa18c-c5-pin-2`): re-using `pfa18c-c5-pin-1` fails with `duplicate key value violates unique constraint "approval_request_command_key_key" (requested_by, command_idempotency_key)` and writes nothing. Then the coordinator reads back the new `request_id`, and founder B's C5-2 block is re-issued with that id substituted (and a new `p_command_key`, e.g. `pfa18c-c5-approve-2`).

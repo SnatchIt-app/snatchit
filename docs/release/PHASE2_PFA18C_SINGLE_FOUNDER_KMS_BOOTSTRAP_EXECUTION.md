@@ -1213,3 +1213,16 @@ one parked approval request + one audit row; no config version written.** C5-2 (
 procedure preserved; C5-3 arm gated on the C5-2 read-back v2 = D5; C5-4 checker; disarm rollback with its own phrase; resumption checklist) and `PHASE2_PFA18C_C6_DARK_DEPLOY_REVIEW_PACKAGE.md` (review-only:
 E2 env contract from `parseAssumeRoleConfig`/`readBaseCredentials`, one access key at C6, `secrets set --env-file`, dark deploy set and verify_jwt values, prerequisites incl. 114 L121 forward fix and C5
 completion, verification with zero invocations, rollback, T3 boundary; phrase "AUTHORIZE PFA-18C DARK DEPLOY"). Nothing executed: no C5-3, C6, migration, flag, issuance, scanning, or deployment.
+
+## SESSION 24 — 2026-09-10 — 114 L121 FORWARD FIX PREPARED (MIGRATION 121, REVIEW-ONLY, NOT APPLIED) · C5 STILL PAUSED · C6 REVIEW-ONLY
+
+Owner instruction: prepare the 114 L121 forward fix on an isolated branch; do not apply to sandbox/production; no keys, secrets, deploys, monitor arming.
+Implemented on `fix/121-manifest-signing-context-strict` (from `origin/admin/operating-console @ 562fda9`): migration `121_get_manifest_signing_context_strict.sql` (body-only STRICT read +
+no_data_found/too_many_rows → stable unavailable codes; census 0), rollback `121_…_rollback.sql` (restores the 114 body; md5 round-trip `b14d938e…` = production), test `189_…` (19 assertions).
+Commit **`29ad7f87ea11ed212eac32be7209bee515d6b01e`** (pushed); draft PR **#58** into `admin/operating-console` (review-only; not for apply). Numbering reserved 121/189 (187/188 taken on other branches);
+the session message to Claude A was undeliverable (cross-session messaging unavailable here) — reservation recorded in the package and PR. REHEARSAL: 136-migration replica; GATE-2 = CI baseline;
+suites 176/180/189 **112/112 ALL-PASS**; census 153/87/32/3 unchanged; rollback round-trip verified. Package: `docs/release/PHASE2_PFA18C_121_FORWARD_FIX_PACKAGE.md` (defect, effect on C6,
+rollback considerations, integration dependencies, apply phrase "AUTHORIZE PFA-18C MIGRATION 121", sibling observation `kernel.get_ticket_signing_context`).
+C5 resumption pre-read (REHEARSAL + definition review): expiry enforced by the approver (`request … has expired`), request rows stay `pending`; re-proposal after expiry needs a NEW command key
+(same key → unique violation `approval_request_command_key_key`, no partial write); an expired pending request does not block a new one. Production untouched (last reads: request `05e0ff5d…` pending,
+keys v1/v1/v1, `monitor_disabled`, signing_key 1 row, ledger 135, function md5 `b14d938e…`).
