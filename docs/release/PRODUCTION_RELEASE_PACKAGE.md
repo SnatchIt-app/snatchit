@@ -158,7 +158,8 @@ no dependency on them.
 | Sandbox tickets RPC verified | **PASSED** | ledger row, `SECURITY DEFINER`, empty result for authenticated, 401 for anon | release integration |
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
-| **Handset QA — 11 cases on the preview build** | **PENDING EVIDENCE** | only D3/D4 + auth-logo done, on an older binary; D1, D2, D5–D11 outstanding | Claude C |
+| **Handset QA — 11 cases on the preview build** | **PAUSED** | D3/D4 + auth-logo passed; **D5 failed after a successful charge** (see §9); matrix paused until the replacement build is verified; D1, D2, D6–D11 outstanding | Claude C |
+| **D5 3-D Secure return + session fix** | **IN REVIEW** | `8f94cda` reviewed; five targeted changes requested, two blocking; replacement preview build gated on them | Claude C + release integration |
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
@@ -191,3 +192,54 @@ object is reachable only through the private policies, then delete the public co
 restores the paths, and an explicit check that a tombstoned account's evidence is not resurrected into the new
 bucket. A separate owner decision covers the 7 unreferenced objects (delete or archive). This is data movement
 touching the deletion/tombstone machine and must not ride along with a schema release.
+
+
+## 9. D5 — 3-D Secure return, and what it cost
+
+Claude C's D5 run on build `aeb89616` failed **after the charge had already succeeded**. Financial result,
+recorded and not to be touched: **one** successful $110.00 test charge, **one** succeeded payment, `Device D4`
+sold, holds released, **one** pending transfer with payout correctly withheld, and **no** duplicate charge
+despite browser refreshes. No retry, refund or manual settlement is authorized.
+
+Two defects, one trigger — the browser handoff:
+
+1. `initPaymentSheet` passed `returnURL: 'snatchit://checkout'`, but `app/checkout/` held only `[id].tsx`.
+   The completed challenge deep-linked into a route that matched nothing, so expo-router rendered its
+   unmatched/sitemap screen. The buyer saw a "404" after authorising a real payment.
+2. The Supabase client sets `autoRefreshToken: true`, which is only a JS timer; iOS suspends those on
+   backgrounding, which is exactly what the 3-D Secure handoff does. No `AppState` wiring existed anywhere
+   (`startAutoRefresh` appeared zero times in the source), so the refresh loop stopped.
+
+**Money was never at risk from re-entry.** `create-payment-intent` refuses with `409 This listing is already
+sold` on both the buy-now and auction paths, so a second intent could not be created regardless of what the
+client did. The defect is recovery and messaging, not double-charging.
+
+### Review of fix `8f94cda` — required changes
+
+| # | Finding | Severity |
+|---|---|---|
+| 1 | On re-entry after a successful buy-now charge the reservation pre-check bails into **"Your reservation has expired. Please go back and reserve again."** — a false failure on a completed purchase, the same class as the "contact support" defect this release removes. Needs a settled-payment lookup before the reservation pre-check, rendering the completed settlement state instead. | **blocking** |
+| 2 | Tests assert **file contents** (`toContain`) and route existence. They cannot prove the re-entry rule. Behavioural tests needed over the setup path with Stripe and supabase mocked. | **blocking** |
+| 3 | `src/config/envGuard.ts` still declares `EXPECTED_RETURN_URL = 'snatchit://checkout'` and F8 fails anything else. No runtime caller passes `returnUrl`, so nothing breaks today, but the guard and its test now assert a URL the app no longer sends. Needs a prefix rule. | required |
+| 4 | `startSessionAutoRefresh()` calls `startAutoRefresh()` unconditionally at mount without consulting `AppState.currentState`. Teardown, single-listener and native-only wiring are correct. | minor |
+| 5 | The stated root cause overreaches — see below. | required (record) |
+
+### Root cause, corrected
+
+`useAuth` signs out **only** on `'Invalid Refresh Token'` / `'Refresh Token Not Found'`. Read-only evidence
+from the sandbox:
+
+* `auth.audit_log_entries` is **empty (0 rows)** — the "three password logins, zero refresh grants" claim
+  cannot be corroborated from the database.
+* `auth.refresh_tokens`: 39 tokens, **2 revoked, 2 rotations ever**. The three sessions created 2026-09-10 at
+  17:38, 17:42 and 17:45 each hold exactly one token with **zero** revocations and **zero** rotations.
+
+That corroborates the real defect — the refresh loop never ran — but rules out the stale-token branch, which
+requires a revocation that did not occur. The symptoms are fully explained without it: the access token expired
+while the app was backgrounded, `getSession()` returned `session = null` with **no error**, and the else-branch
+set the session to null. Home still showed a buyer it had rendered while the session was alive, `Buy Now`
+correctly refused once `user?.id` was null, and a relaunch landed on sign-in.
+
+Two things this establishes positively: the app does **not** treat a transient network failure as revocation
+(the phrase list is narrow), and the proposed fix does not weaken that — it starts and stops only the refresh
+the client was already configured to perform.
