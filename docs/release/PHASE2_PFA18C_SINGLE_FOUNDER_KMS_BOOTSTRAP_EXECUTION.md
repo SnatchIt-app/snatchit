@@ -1045,3 +1045,28 @@ ctx `no_active_global_key` (rollback available; C3 inputs valid for rules 1–11
 CloudTrail proves the reads happened under MFA but not the diff verdicts (computed on Device 2, never logged). Requested from the owner; nothing inferred. **C2 NOT yet reported complete.**
 **C3 package prepared for review (NOT AUTHORIZED, nothing executed):** `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md` — §6.1 artifact (doc `66f5de60`, block sha256 `380f434d…`),
 D4/D5/pub.pem/ES256 inputs, guard rules 1–11 mapping, §6.2 invocation, §7.1–7.6 read-backs (7.3 revoke-un-parked correction), abort/rollback, C3-does-not-approach-T3. **C3 requires "AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT".**
+
+## SESSION 18 — CLOSE (2026-09-10) — D2C-7 VERDICTS RECORDED (OWNER-RETURNED) · **C2 COMPLETE** · C3 PACKAGE rev 2 FOR REVIEW (NOT AUTHORIZED) · COORDINATOR LABEL → CLAUDE B
+
+OWNER-RETURNED (D2C-7, Device 2, verifier profile, 2026-09-10): `kms_key_policy_v2_final.json` OK · `m3_runtime_role_policy.json` OK · **`V2-DIFF-EMPTY`** · **`RUNTIME-DIFF-EMPTY`** ·
+runtime trust: principal `snatchit-credential-sign-runtime`, action `sts:AssumeRole` (returned as "sts"), condition `sts:ExternalId` present (value never printed) · key `Enabled`, `ECC_NIST_P256`,
+`MultiRegion false` · exactly one KMS key · access keys `jose-admin` 0, `snatchit-kms-verifier` 0, `snatchit-credential-sign-runtime` 0. (The owner's message again wrote the ARN without `:key/`;
+the AWS-verified D4 with `:key/` is the value compared on Device 2 and recorded.) Corroboration: verifier `ConsoleLogin` 17:10:27Z `MFAUsed: Yes` (Device-2 passkey); the D2C-7 reads 17:12–17:13Z
+`readOnly true`, `mfaAuthenticated true` (recorded earlier this session).
+**All C2 gates satisfied → C2 COMPLETE.** Consolidated record: `docs/release/PHASE2_PFA18C_C2_EXECUTION_RECORD.md` (result, the one successful `Sign` vs the two denied `Sign` probes, step ledger,
+variances V-1/V-2, corrections C-1..C-3, mutation ledger). Not repeated: the challenge signature, CreateKey, PutKeyPolicy, PutRolePolicy.
+Variance V-1 (recorded, non-blocking, owner may reopen): Device 2 made no `GetKeyPolicy` call at D2C-3 (CloudTrail 05:58Z), so the interim v1 policy was verified by the coordinator only; Device 2
+verified the final v2 at D2C-7.
+**C-1 (dated correction 2026-09-10):** per the owner, the coordinator label for the C2 execution portion and the C3 preparation is **Claude B**; entries above dated 2026-09-09 keep "Claude A" as written.
+**C-4 (dated correction 2026-09-10):** the rev-1 C3 package cited "commit 66f5de60…" — that is the file's blob id; the pinning commit is `1f3fc19d295e101fb680393e4bd99db8b2f2cc5f`. Fixed in rev 2.
+**C3 package rev 2** (`PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md`): corrections per owner review — uncertain-outcome procedure (§5: read-only exact-row determination + in-flight
+transaction check; never an automatic re-run); Device-2 DB access path (§6: options A Dashboard-on-Device-2 / C read-only role — a genuinely missing prerequisite if principal enforcement is wanted);
+read-only checks separated from write-attempt probes (§7A/7B: caller context `postgres` on the owner's `psql -X` session, explicit `begin…rollback`, containment, no live `revoke_signing_key`);
+invocation verified (§4: 118-line block sha256 `380f434d…` reproducible from the commit/blob/tree; boundaries lines 13/14/90/118; `-X`, `-v ON_ERROR_STOP=1`, no `-1`, `tee`, exit codes; **session-mode
+connection required** — local marker `aws-0-us-west-2.pooler.supabase.com:5432`; psql 17.11); coordinator label Claude B; Sign classification. Production read (17:20Z): `kernel.signing_key` triggers
+`tg_signing_key_immutable` O, `tg_signing_key_insert_guard` O, `tg_signing_key_updated_at` O; five parked lifecycle functions raise `dual_control_unavailable`; `revoke_signing_key` checks platform_admin+aal2.
+**C3 NOT AUTHORIZED — requires "AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT" after review.** Open owner decisions: Device-2 DB path (A recommended); §7.3 deviation; V-1 acknowledgement.
+
+### SESSION 18 MUTATION LEDGER (final)
+AWS: `CreateKey`, proof `Sign`, `PutKeyPolicy` v2 (owner, ceremony role, MFA); `PutRolePolicy` (coordinator with `jose-admin`, owner-instructed). Denied probes only otherwise. **KMS: one key, Enabled, v2, no alias/grant/deletion. Access keys: none.**
+Production DB: **none** (read-only). Secrets/edges/flags: **none / not deployed / unchanged**. Repository: C2 record, C3 package rev 2, packet rows, this entry.

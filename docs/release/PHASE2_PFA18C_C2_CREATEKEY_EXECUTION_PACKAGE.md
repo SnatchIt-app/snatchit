@@ -1,5 +1,7 @@
 # PFA-18C — C2 CREATEKEY EXECUTION PACKAGE — **READY FOR OWNER AUTHORIZATION** (NOT AUTHORIZED · NOTHING EXECUTED)
 
+> **RESULT (dated note 2026-09-10): EXECUTED AND COMPLETE** — see `PHASE2_PFA18C_C2_EXECUTION_RECORD.md` (key `45907419-8894-4582-ba79-71e9c29c549e`, policy v2, runtime bound, one successful proof `Sign` + two denied `Sign` probes). Coordinator label for the execution portion: **Claude B** (owner instruction 2026-09-10); the preparation-date label "Claude A" below is historical and preserved.
+
 **Date:** 2026-09-09 (coordinator session 17, Claude A) · **Branch:** `feature/venue-native-and-product-v2` · **Prepared against:** production after C4 (migrations 110–114 applied 2026-09-09T04:22:52Z) and the C1 Phase-1 gate closed (M2 SATISFIED, rev 3).
 **Nothing in this document was executed.** No KMS key was created, no challenge was signed, no DB row was added, no edge was deployed, no Supabase secret was written, no AWS or production mutation occurred. AWS and production state at the end of this session are identical to the state recorded after C4 (§2).
 **C2 requires the separate exact owner phrase: `AUTHORIZE PFA-18C CREATEKEY`** (§4.1). This package is not that authorization.
