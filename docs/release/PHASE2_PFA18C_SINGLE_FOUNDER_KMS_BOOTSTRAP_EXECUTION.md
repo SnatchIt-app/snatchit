@@ -1191,3 +1191,14 @@ request pending 72 h, audit `config.money_key_proposed`); approve as B (aal2) �
 `step_up_required`, `insufficient_privilege: platform_admin required`, `insufficient_privilege: authentication required` (no JWT), `noop_replay`; deny → `denied`. Record:
 `docs/release/PHASE2_PFA18C_C5_LOCAL_REHEARSAL_RECORD.md`; package §9a added. Production (last read 19:28Z): monitor keys still v1 (`false`/`null`/`null`), checker `monitor_disabled`, signing_key 1 row.
 Mutation ledger: production **none**; local rehearsal DB only. **C5 requires "AUTHORIZE PFA-18C MONITOR ARMING".**
+
+## SESSION 23 — 2026-09-10 — C5 AUTHORIZED ("AUTHORIZE PFA-18C MONITOR ARMING") · LIVE PRECONDITIONS PASS · C5-1 ISSUED (NO WRITE YET)
+
+Authorization (OWNER, 2026-09-10): exact phrase **"AUTHORIZE PFA-18C MONITOR ARMING"**, scoped to package §1: `signing.expected_key_fingerprint` → D5 (dual-controlled: propose by founder A via authenticated
+psql claims, approve by founder B on an aal2 session via PostgREST `kernel.approve_refund_request`), `signing.expected_max_not_after` unchanged (null), `signing.monitor_enabled` → true (direct), then the
+first `kernel.check_signing_key_invariants()` must be ok/match. Excluded: issuance/scanning flags, secrets, edge deployment, KMS, M5/T3, Model A.
+**Live preconditions (CLAUDE-OBSERVED 19:55:38Z) — ALL PASS:** G1 `1|1` (one active global ES256 `…b0`), fingerprint `562b5e87…` · G2 `expected_key_fingerprint@v1=null`, `expected_max_not_after@v1=null`,
+`monitor_enabled@v1=false` · G3 checker `monitor_disabled` (no write) · G4 pending approval requests 0 · G5 issuance/scanning false · G6 `notify-report` ACTIVE (11 functions unchanged), vault
+`service_role_key` 1 · G7 platform_admins 2 (bootstrap) / platform_role 0 · G9 audit baseline `signing_key.%` 0 / `config.%` 0. Platform_admin identities (uuids, from `public.admin_users`):
+`2b117757-f4e3-41c1-b7df-68a4502d0fba` ("SNATCH IT APP ADMIN") and `3b7b50af-e9a2-41b6-89a3-b82a43dcae00` ("Founder"). The owner selects their own uid as founder A; the other is founder B.
+**C5-1 issued to the owner** (propose the pin as founder A; expected `parked` + request_id). No production write at the time of this entry.
