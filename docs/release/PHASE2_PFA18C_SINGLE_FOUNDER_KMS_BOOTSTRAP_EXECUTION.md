@@ -1151,3 +1151,19 @@ their outputs are read back. No production mutation has occurred.
 **Final gate re-read before step 3 (CLAUDE-OBSERVED 19:06:21–19:06:25Z):** G1 `signing_key` **0** · G2 triggers `immutable=O, insert_guard=O, updated_at=O` · G3 flags false, fingerprint null · G4 refs
 0/0/0/0 · G5 ledger/tip 135/120, ctx `no_active_global_key` · `pfa18c-c3%` backends 0 · G6 key `Enabled ECC_NIST_P256 MultiRegion false`, policy v2 · G7 runtime bound. **ALL GATES PASS → step 3 issued to
 the owner (the single guarded INSERT via the pinned artifact; owner runs it personally on Mac 1). No mutation at the time of this entry.**
+
+## SESSION 21 (cont.) — **C3 TRUST-ROOT ROW COMMITTED** (owner, Mac 1, 2026-09-10T19:07:50Z) · OUTCOME DETERMINED READ-ONLY · §8A READ-BACKS PASS · NO AWS EVENT
+
+OWNER-RETURNED (step 3, partial paste): the identity `-c` line printed **`app=Supavisor`** instead of the `PGAPPNAME` value, **backend_pid 463167**. **Recorded limitation:** the session pooler (Supavisor)
+does not pass the client `application_name` through to the server backend; correlation therefore uses the captured server pid + timestamp, not the application name (package §3/§7.2 amended by this note).
+The NOTICE/COMMIT/`psql_exit` lines were not yet pasted — outcome was **not assumed**; the rev-3 §7 procedure was applied read-only:
+**CLAUDE-OBSERVED 19:09:14Z (separate read-only session ⇒ visibility = committed):** `kernel.signing_key` **n=1, exact_row=true** — `key_id 00000000-0000-0000-0000-0000000000b0`, `scope global`,
+`status active`, `algorithm ES256`, `not_before = created_at = 2026-09-10T19:07:50.431202Z`, `not_after null`, `kms_handle_ref` = D4, fingerprint = D5 `562b5e87…`. Backend **463167**: `app Supavisor`,
+`backend_start 19:07:50.19Z`, `state idle`, `holds_xid false`, no `xact_start` ⇒ no in-flight transaction. **Outcome class: COMMITTED.**
+**§8A read-backs (CLAUDE-OBSERVED 19:09:41Z):** A1 `…b0 | scope=global | status=active | not_before=2026-09-10 19:07:50.43Z | not_after=null | fingerprint=562b5e87…4415` · A2 resolver `…b0 | global` ·
+A3 `1|1|0|0` · A4 exact_row true · A5 `get_manifest_signing_context()` → `status ok`, `key_id …b0`, `algorithm ES256`, `key_status active`, `not_after null`, `kms_handle_ref` = D4 · A6 flags issuance/
+scanning/monitor **false**, fingerprint **null**; refs 0/0/0/0 · A7 grants `get_signing_keys_door`/`get_door_manifest_door`/`get_manifest_signing_context` = `service_role` only · 7.3-def `revoke_signing_key`
+definition contains platform_admin + aal2 checks (definition review) · ledger 135 · recovery rows 0. **CloudTrail 19:09:45Z:** `Sign` total since 2026-09-08 = **3** (1 success + 2 denied, unchanged);
+0 ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateKey since 19:00Z; key `Enabled ECC_NIST_P256` — **no AWS event from C3.**
+Pending: owner's `c3_output.txt` NOTICE/COMMIT/exit lines (record); Mac 2 A1–A7 (independent verification); Mac 1 §8B write-attempt probes P-7.5 / P-7.3 (expected refused, rolled back).
+**Mutation ledger (C3 so far):** production DB — **one row inserted into `kernel.signing_key`** (`…b0`) by the owner via the pinned artifact. AWS: none. Secrets/edges/flags: none / not deployed / unchanged.
