@@ -1181,3 +1181,13 @@ egress + vault `service_role_key` present, 2 platform_admins (bootstrap), 0 `con
 exposed**). Package states exact keys/values (fingerprint = D5; max_not_after unchanged null; monitor_enabled true), the two-human procedure (proposer via authenticated psql claims; approver via PostgREST
 with the second founder's aal2 session), read-backs, disarm rollback (own phrase), residuals, and confirms issuance/scanning, secrets, edges, M5/T3 untouched. **C5 NOT AUTHORIZED — requires
 "AUTHORIZE PFA-18C MONITOR ARMING".** Mutation ledger this entry: none (reads only; a nonexistent-RPC PostgREST probe with the public key, executing nothing).
+
+## SESSION 22 — 2026-09-10 — C5 LOCAL REHEARSAL PASS (REHEARSAL; production untouched) · C5 STILL NOT AUTHORIZED · MONITOR NOT ARMED
+
+Owner confirmations (2026-09-10): second founder will perform C5-2 on their own MFA/aal2 session; authenticated platform_admin psql proposer path accepted for C5-1/C5-3; rehearse locally first.
+REHEARSAL (local `snatchit_rehears_c5`, 135 migrations, GATE-2 = CI baseline; harness loopback-only): artifact bootstrap with the production inputs → 4 NOTICEs; propose as A → `parked` (v1 unchanged,
+request pending 72 h, audit `config.money_key_proposed`); approve as B (aal2) → `approved`, `applied_version 2` = D5, audit `config.money_key_approved`; arm as A → `ok` v2; checker → `ok`, `alerts []`,
+`fingerprint match`, 0 alert rows; local-only wrong pin → `MISMATCH` alert (1 row) then restored → ok; disarm → `ok` v3 → `monitor_disabled`. Negatives verbatim: `self_approval`, `step_up_unavailable`,
+`step_up_required`, `insufficient_privilege: platform_admin required`, `insufficient_privilege: authentication required` (no JWT), `noop_replay`; deny → `denied`. Record:
+`docs/release/PHASE2_PFA18C_C5_LOCAL_REHEARSAL_RECORD.md`; package §9a added. Production (last read 19:28Z): monitor keys still v1 (`false`/`null`/`null`), checker `monitor_disabled`, signing_key 1 row.
+Mutation ledger: production **none**; local rehearsal DB only. **C5 requires "AUTHORIZE PFA-18C MONITOR ARMING".**

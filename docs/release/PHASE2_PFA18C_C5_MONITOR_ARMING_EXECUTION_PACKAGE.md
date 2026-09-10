@@ -74,8 +74,11 @@ Expected: `{"status":"ok","key":"signing.monitor_enabled","version":2,"request_i
 ## 8. Untouched by C5 (confirmation)
 Issuance/scanning flags (`feature.*`) — not written · Supabase secrets — none · edge deployment — none (`notify-report` already deployed; the monitor only posts to it on an alert) · AWS/KMS — none · `kernel.signing_key` — not written · M5/T3 — no credential signed, issuance stays off · Model A — unchanged (still required before T3).
 
+## 9a. Local rehearsal (2026-09-10T19:47Z) — PASS
+Full propose → approve → arm → check → disarm sequence and seven negative cases rehearsed on a 135-migration local replica with the exact production inputs: `PHASE2_PFA18C_C5_LOCAL_REHEARSAL_RECORD.md`. Confirmed response shapes: propose `{"status":"parked","version":1,"request_id":…}`; approve `{"status":"approved","request_id":…,"applied_version":2}` (the approver applies the version); arm `{"status":"ok","version":2}`; checker `{"status":"ok","alerts":[],"fingerprint":"match",…}`. Audit actions: `config.money_key_proposed`, `config.money_key_approved`, `config.change`. Refusals verified verbatim: `self_approval`, `step_up_unavailable`, `step_up_required`, `insufficient_privilege` (non-admin and no-JWT), `noop_replay`.
+
 ## 9. Owner decisions before authorization
-1. Confirm the dual-control reality (102) and that the **second founder** will approve C5-2 with their own MFA/aal2 session.
-2. Accept the proposer path (authenticated psql with claims) or choose to first build/expose a token-verified path (separate work).
-3. Optional: rehearse C5-1/C5-2 locally first.
-4. Then, if approved: **`AUTHORIZE PFA-18C MONITOR ARMING`** scoped to §1.
+1. **Confirmed 2026-09-10:** the second founder approves C5-2 with their own MFA/aal2 session.
+2. **Confirmed 2026-09-10:** the authenticated platform_admin psql proposer path for C5-1 and C5-3.
+3. **Done 2026-09-10:** local rehearsal PASS (§9a).
+4. Remaining before the phrase: live preconditions re-read (§4) minutes before, the exact fingerprint restated from the evidence pack (D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`), founder B's session ready (admin console login, MFA, aal2), and the approval call path agreed (PostgREST `rpc/approve_refund_request` with `Content-Profile: kernel`). Then, if approved: **`AUTHORIZE PFA-18C MONITOR ARMING`** scoped to §1.
