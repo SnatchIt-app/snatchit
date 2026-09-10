@@ -1226,3 +1226,5 @@ rollback considerations, integration dependencies, apply phrase "AUTHORIZE PFA-1
 C5 resumption pre-read (REHEARSAL + definition review): expiry enforced by the approver (`request … has expired`), request rows stay `pending`; re-proposal after expiry needs a NEW command key
 (same key → unique violation `approval_request_command_key_key`, no partial write); an expired pending request does not block a new one. Production untouched (last reads: request `05e0ff5d…` pending,
 keys v1/v1/v1, `monitor_disabled`, signing_key 1 row, ledger 135, function md5 `b14d938e…`).
+CI on PR #58 (CLAUDE-OBSERVED 23:42:40Z): **Migrations apply cleanly (fresh DB) PASS**; Typecheck/Lint/Unit PASS; Deno type-check PASS; Admin console PASS; Web build PASS; **Immutability + ordering FAIL by design** — the
+AUTODEPLOY-1 acknowledgement gate ("This PR changes supabase/migrations/** and merging to main applies migrations to PRODUCTION…"), to be satisfied only on the day of apply with the `AUTODEPLOY-VERIFIED-OFF: <date>` line; not a migration defect.
