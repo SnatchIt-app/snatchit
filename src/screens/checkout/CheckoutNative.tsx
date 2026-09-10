@@ -283,7 +283,12 @@ export default function CheckoutScreen() {
         const { error } = await initPaymentSheet({
           paymentIntentClientSecret: result.clientSecret,
           merchantDisplayName: 'Snatch It',
-          returnURL: 'snatchit://checkout',
+          // Must resolve to a REAL route. `snatchit://checkout` matched nothing
+          // (app/checkout has only [id].tsx), so a completed 3-D Secure
+          // challenge returned the buyer to expo-router's unmatched/sitemap
+          // screen while the charge had already succeeded. The id sends them
+          // back to the screen that owns this payment.
+          returnURL: `snatchit://checkout/${listingId}`,
           allowsDelayedPaymentMethods: false,
           defaultBillingDetails: { email: user!.email },
           // P1-03: passing both customerId and the ephemeral key activates
