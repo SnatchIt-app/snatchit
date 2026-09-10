@@ -17,6 +17,13 @@ Date: 2026-09-10. **Sandbox only. No production action is authorized by this han
 | Build page (install from here) | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/31846b72-f10b-4cc2-9208-4e32383f83c6 |
 | Direct artifact | https://expo.dev/artifacts/eas/PaDdbxFzUoTp8bKHSJLRDOJItd65eYwEfxLDUuqt87c.ipa |
 
+> ## ⛔ BUILD 14 IS BLOCKED — DO NOT INSTALL OR TEST
+> Build `31846b72` crashes before authentication with
+> `ReferenceError: Property 'crypto' doesn't exist` (Sentry `19d8d967a00043a59a889fe8e7dfa3b3`,
+> environment `sandbox`). Cause: `aa8c8b3` dropped the `react-native-get-random-values` import when the RNG
+> call moved into `sessionCipher.ts`. **No handset payment testing until a replacement build is approved.**
+> See `PRODUCTION_RELEASE_PACKAGE.md` §11.
+
 > **This build supersedes `aeb89616` (build 13).** Delete the old app before installing so the two are
 > never confused. The D5 defects are fixed here; build 13 must not be used for the remaining matrix.
 

@@ -158,8 +158,9 @@ no dependency on them.
 | Sandbox tickets RPC verified | **PASSED** | ledger row, `SECURITY DEFINER`, empty result for authenticated, 401 for anon | release integration |
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
-| **Handset QA — 11 cases on the preview build** | **READY TO RESUME** | replacement build **14** (`31846b72`) verified from head `187e69e`; D3/D4 + auth-logo already passed; D1, D2, D5–D11 outstanding on the new binary | Claude C |
-| **D5 3-D Secure return + session fix** | **PASSED** | `aa8c8b3` reviewed across its full lineage and integrated at `187e69e`; CI 34514320391 green; every required check has behavioural coverage | release integration |
+| **Handset QA — 11 cases on the preview build** | **BLOCKED** | build **14** crashes before authentication (§11); no handset payment testing until a replacement is approved | Claude C |
+| **D5 3-D Secure return + session fix** | **REGRESSED** | logic accepted, but `aa8c8b3` dropped the RNG polyfill import and the app cannot start (§11) | Claude C + release integration |
+| **Runtime crypto availability** | **IMPLEMENTATION NEEDED** | polyfill at the app entry, injectable RNG with a legible failure, deleted-global regression test | Claude C |
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
@@ -277,3 +278,55 @@ defect, separate from the reproduced storage defect. Claude C's earlier commit m
 The original D5 payment remains settled exactly once: one $110 charge, one succeeded payment, `Device D4`
 sold, holds released, one pending transfer with payout withheld. Nothing was retried, refunded or manually
 settled, and the shared sandbox backend is unchanged at ledger 129.
+
+
+## 11. Build 14 BLOCKED — `ReferenceError: Property 'crypto' doesn't exist`
+
+Reported from a handset against build `31846b72` (iOS build 14), Sentry environment `sandbox`, issue
+`19d8d967a00043a59a889fe8e7dfa3b3`. The app crashes **before authentication**. **Build 14 must not be
+shipped or used for QA**, and no further handset payment tests are to be requested.
+
+### Cause, pinned to a commit
+
+`git grep -l react-native-get-random-values` per commit:
+
+```
+9aae63f  -> src/lib/secureStorage.ts
+a050125  -> src/lib/secureStorage.ts
+aa8c8b3  -> (nothing anywhere in the tree)
+```
+
+The refactor in `aa8c8b3` that gutted `secureStorage.ts` and moved the RNG call into the new
+`sessionCipher.ts` carried the call but **not** the `import 'react-native-get-random-values';`.
+`sessionCipher.ts:51` calls a bare `crypto.getRandomValues(...)`; Hermes has no `crypto` global, so the first
+session write throws. The dependency is still declared (`~1.11.0`) — only the import is missing.
+`@noble/ciphers` also throws when the runtime lacks `crypto.getRandomValues` (`utils.js:799`), though on this
+path the nonce is passed explicitly so its internal RNG is not reached.
+
+### Why the pre-build verification did not catch it
+
+Two checks were run before approving build 14, and **neither could have caught this**:
+
+* the AEAD round-trip ran under **Node**, which has a global `crypto`;
+* the Metro check (`expo export`) proves **module resolution**, not runtime globals.
+
+A bundle that resolves and a cipher that works in Node say nothing about Hermes at runtime. That is the gap,
+and it is the reason real runtime behavioural tests are now a release requirement rather than a nicety.
+
+### Required before a replacement build is approved
+
+| # | Requirement |
+|---|---|
+| 1 | Polyfill imported at the **app entry**, first import, ahead of any module that can reach the cipher — not in a leaf module, where evaluation order is incidental. `expo-crypto`'s native `getRandomBytes` is an acceptable alternative; pick one single source. |
+| 2 | No bare global in library code: an injectable randomness source that throws a **named, legible** error when unavailable. |
+| 3 | A startup availability check that fails closed with a readable message rather than a `ReferenceError` inside a storage call. |
+| 4 | A regression test that **deletes `globalThis.crypto`** and exercises the real write path — it must succeed through the injected source or raise the named error, never a bare `ReferenceError`. |
+| 5 | A test asserting the entry imports the polyfill before any cipher-reaching module, asserted on the import graph rather than on file text. |
+| 6 | A session round-trip executed under **Hermes**, not Node. If no Hermes runtime is available locally, that gap is to be stated explicitly and on-device becomes the gate — an honest gap beats a green check that means nothing. |
+| 7 | Everything already accepted stays intact: v3 XChaCha20-Poly1305 with a fresh 24-byte nonce per write, no AES-CTR keystream reuse, legacy/v2 read-and-migrate without deletion, torn-write behaviour in both orders, concurrent first writes minting one key, typed outcomes, no token material in logs. |
+
+Approval of a replacement requires the crash fixed, the deleted-global test passing, CI green, bundle checks
+green, **and** evidence that the crypto path actually executes at runtime.
+
+Unchanged throughout: production, AWS, Supabase, flags and payment rows. The D5 payment remains one captured
+$110 test charge and must not be retried.
