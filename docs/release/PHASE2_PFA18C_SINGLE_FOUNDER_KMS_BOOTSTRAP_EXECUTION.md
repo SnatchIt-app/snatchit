@@ -1202,3 +1202,8 @@ first `kernel.check_signing_key_invariants()` must be ok/match. Excluded: issuan
 `service_role_key` 1 · G7 platform_admins 2 (bootstrap) / platform_role 0 · G9 audit baseline `signing_key.%` 0 / `config.%` 0. Platform_admin identities (uuids, from `public.admin_users`):
 `2b117757-f4e3-41c1-b7df-68a4502d0fba` ("SNATCH IT APP ADMIN") and `3b7b50af-e9a2-41b6-89a3-b82a43dcae00` ("Founder"). The owner selects their own uid as founder A; the other is founder B.
 **C5-1 issued to the owner** (propose the pin as founder A; expected `parked` + request_id). No production write at the time of this entry.
+Identity resolution (CLAUDE-OBSERVED, own-account records): founder A = `2b117757-f4e3-41c1-b7df-68a4502d0fba` (gnvprod@gmail.com, the owner; 1 verified MFA factor); founder B = `3b7b50af-e9a2-41b6-89a3-b82a43dcae00` (contact@snatchitapp.com; 1 verified MFA factor).
+**C5-1 DONE (OWNER-RETURNED 2026-09-10): `status=parked`, `COMMIT`, request_id `05e0ff5d-1044-40c9-b32d-c5db1c171976`.** CLAUDE-OBSERVED 20:00:51Z: `kernel.approval_request` **pending**, action `config.set_money_key`,
+`required_approver_class platform_admin`, `requested_by` = founder A, `approved_by` null, created 19:59:17Z, expires 2026-09-13T19:59:17Z, payload key `signing.expected_key_fingerprint`, proposed value = D5
+(true), current null, `config_versions {fingerprint:1}`; pending total 1; keys unchanged (v1/v1/v1); audit `config.money_key_proposed` by founder A; checker still `monitor_disabled`. **Production write so far:
+one parked approval request + one audit row; no config version written.** C5-2 (founder B, aal2, PostgREST approve) issued.
