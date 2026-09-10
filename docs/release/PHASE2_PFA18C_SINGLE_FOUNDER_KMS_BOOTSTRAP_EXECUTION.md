@@ -1018,3 +1018,30 @@ AWS — by the owner (ceremony role): `CreateKey` (05:44:33Z), `Sign` ×1 proof 
 `45907419-8894-4582-ba79-71e9c29c549e`, Enabled, policy v2, 3 tags, no alias/grant. Access keys: **none.** Secrets/edges/flags/DB rows: **none.**
 CLAUDE-OBSERVED (06:42:52Z): **`PutRolePolicy` ×1** — 06:40:34Z eventID `944261d5-a411-419f-95cc-484de1ebb11a`, `arn:aws:iam::652872010073:user/jose-admin`,
 `mfaAuthenticated "true"`, role `SnatchIt-CredentialSign-Runtime`, policy `pfa18c-runtime-sign`, no error. `CreateAccessKey`/`AttachRolePolicy`/`UpdateAssumeRolePolicy` since 05:30Z: 0.
+
+## SESSION 18 (cont., 2026-09-10) — C2-9 CONFIRMED · C2-10 CORROBORATION · C2-11 PRECHECK · D2C-8 CORROBORATED · D2C-9 · ONE EVIDENCE ITEM OUTSTANDING (D2C-7 outputs)
+
+Coordinator `aws login` session still valid; production reads via read-only MCP. All CLAUDE-OBSERVED unless noted.
+**C2-9 (P3′-d) CONFIRMED from CloudTrail (not inferred):** `Sign` 2026-09-10T17:11:30Z eventID `e7a4ac69-565c-4bb5-8878-bb1908f83478`, `AssumedRole` `…/SnatchIt-KMS-Ceremony/pfa18c-ceremony`,
+`mfaAuthenticated "true"`, `errorCode AccessDenied`, full errorMessage names the resource exactly: "kms:Sign on resource: `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e`
+**because no resource-based policy allows the kms:Sign action**" (= the post-v2 key policy no longer grants the ceremony role Sign). Absent fields on the denial: `requestParameters`/`resources`/`keyId`/`messageType`/
+`signingAlgorithm` = null (KMS omits request params on AccessDenied) — the resource is recovered from the errorMessage, the outcome/principal/MFA from the identity block. Preceded by a fresh ceremony
+`AssumeRole` 2026-09-10T17:07:37Z eventID `45469ee6-…` (`jose-admin`, serial `…:mfa/jose-admin-totp`, session `pfa18c-ceremony`) — the expired-session re-assume.
+**C2-10 corroboration:** since 2026-09-09T05:30Z — `CreateKey` ×1 (`pfa18c-ceremony`, 05:44:33Z, ok), `PutKeyPolicy` ×1 (`pfa18c-ceremony`, 06:35:16Z, ok), `PutRolePolicy` ×1 (`jose-admin`, 06:40:34Z, ok);
+`Sign`: **1 success** (`ca5a2602…`, ceremony, MFA, keyId=D4, RAW, ECDSA_SHA_256) + **2 denied** (`76bff95c…` verifier 06:34:09Z; `e7a4ac69…` ceremony 17:11:30Z); `CreateAlias` 3× AccessDenied
+(verifier + ceremony ×2), `TagResource` 1× AccessDenied (verifier); `ScheduleKeyDeletion`/`DisableKey`/`EnableKey`/`CreateGrant`/`DeleteAlias`/`UpdateAlias`/`UntagResource`/`CreateAccessKey`/`AttachRolePolicy`/
+`DeleteRolePolicy`/`UpdateAssumeRolePolicy`/`DeleteRole` **0**; the only non-ceremony `AssumeRole`s are the AWS `resource-explorer-2` service role (benign); root **0**. Trail logging, last delivery 2026-09-10T17:17:35Z, no error.
+**Live state:** key `Enabled`/`ECC_NIST_P256`/`SIGN_VERIFY`/`AWS_KMS`/`MultiRegion false`/description as set; exactly 1 customer key; customer aliases `[]`; tags = the 3; **key policy still = v2** (coordinator diff empty);
+**runtime role still bound** to D4 (`pfa18c-runtime-sign`, diff empty), inline = that one policy, attached `[]`; access keys 0/0/0.
+**D2C-8 corroborated (OWNER-RETURNED summary matched to the underlying records):** three `Sign` events, one CreateKey (ceremony), one PutKeyPolicy (ceremony), one PutRolePolicy (jose-admin),
+0 ScheduleKeyDeletion/DisableKey/CreateGrant, root 0 — each verified above with outcome/principal/MFA/keyId/msgType/alg where recorded and absent fields distinguished.
+**D2C-9 / verifier posture:** verifier `ConsoleLogin` 2026-09-10T17:10:27Z **`MFAUsed: Yes`**, `MFAIdentifier = …u2f/…/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA`, Success; its D2C-7 read calls
+17:12–17:13Z (`GetKeyPolicy`, `DescribeKey`, `GetRole`, `GetRolePolicy`, `ListAccessKeys` ×3, `ListKeys`, `LookupEvents` ×8) all `readOnly true`, `mfaAuthenticated true`, no errors.
+**C2-11 precheck (local):** D4 passes guard rule-4 regex; `pub.der` 91 bytes, prefix `3059301306072a…420004`, 0 `PRIVATE KEY`, exactly one SPKI block, 0 CR bytes; **D5 `562b5e87…` = the §6.1 PRE-FLIGHT-2
+recomputation** (base64-strip → SHA-256); `kernel.signing_key` columns confirmed (`algorithm` default `EdDSA` ⇒ `-v ALGORITHM=ES256` mandatory; `scope` default `per_event`; `status` default `active`);
+production 2026-09-10T17:20:07Z — `signing_key` 0 · ledger 135 · tip 120 · guard `O` · recovery rows 0 · tickets/wallet_passes/manifest_entries 0 · flags false · fingerprint/max_not_after null ·
+ctx `no_active_global_key` (rollback available; C3 inputs valid for rules 1–11).
+**OUTSTANDING for C2 closure — one item:** **D2C-7 comparison OUTPUTS** (Device-2 verdicts `V2-DIFF-EMPTY`, `RUNTIME-DIFF-EMPTY`, the trust line, `describe-key`, `list-keys`=1, access keys 0/0/0).
+CloudTrail proves the reads happened under MFA but not the diff verdicts (computed on Device 2, never logged). Requested from the owner; nothing inferred. **C2 NOT yet reported complete.**
+**C3 package prepared for review (NOT AUTHORIZED, nothing executed):** `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md` — §6.1 artifact (doc `66f5de60`, block sha256 `380f434d…`),
+D4/D5/pub.pem/ES256 inputs, guard rules 1–11 mapping, §6.2 invocation, §7.1–7.6 read-backs (7.3 revoke-un-parked correction), abort/rollback, C3-does-not-approach-T3. **C3 requires "AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT".**
