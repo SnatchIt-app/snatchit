@@ -1706,3 +1706,84 @@ database at 03:46:27Z and Stripe (read-only CLI) at 03:46:29Z. The reads are ide
   valid D9c evidence only under timing (i) or (ii).
 - **After an expiry or a release,** the later close may surface D9-UX-1; the owner goes back rather than tapping Try
   Again.
+
+### D9 Stage 3 (D9c, Device D8): server verification, classification, and the SDK reconciliation (2026-09-11)
+
+**Owner report (to C):** "completed exactly as instructed". There are no times, no (i)/(ii)/(iii) timing and no
+on-screen text. The owner asked A to cross-check and classify from the server evidence and the recorded handset
+sequence, and does not want to be asked again.
+
+**Server evidence.** C read Stripe at 04:04:19Z and the database at 04:04:18Z and 04:09:20Z. A read Stripe (CLI) at
+04:14:33Z, the database at 04:14:17Z, and the logs for 03:53–04:10Z. The reads are identical.
+- **Stripe.**
+  - `pi_3UELWp…` (Device D8, `919d511e`, `buy_now`, 11000) is `requires_payment_method`. Nothing received, no charge,
+    `last_payment_error` = `payment_intent_authentication_failure`.
+  - Events, each with an API request id and idempotency key: created 03:53:31Z (`req_vOhs…`), `requires_action`
+    03:54:16Z (`req_vt1U…`), `payment_failed` 03:55:43Z (`req_HP80…`).
+  - The newest charge on the account is from 01:18:59Z.
+- **Database.**
+  - Device D8: `active`/`active`, no hold, `updated_at` 03:55:44.642. Row `9fc40dd6` is `failed`. 0 transfers.
+  - Device D1, Phone P1 and Device D7 are unchanged.
+  - Globals: payments 51, transfers 33, succeeded 21, multi-succeeded 0, pending 3, reserved 0. The only payment
+    created since 03:44Z is Device D8's.
+  - Webhooks: one event (`payment_failed`; received 03:55:44.437, processed, 1 attempt). No retries.
+- **Logs.**
+
+  | UTC | Event |
+  |---|---|
+  | 03:53:02.6 | app resume (token refresh + realtime) |
+  | 03:53:26.651 | `reserve_buy_now` — hold taken, window to ≈04:03:26.7 |
+  | 03:53:27.525 / .536 / .716 | checkout mount (F1 400) and setup pre-check |
+  | 03:53:28–31.6 | `create-payment-intent`: `payments-lookup` 0, `pi-created`, `db-insert-ok`; no retire or cancel, so no L1 |
+  | 03:54:16Z | `requires_action` |
+  | 03:54:26.8 → 03:55:20.4 | handset REST gap; realtime upgrade at 03:55:10.5 |
+  | 03:55:43Z | `payment_failed` (authentication failure) |
+  | 03:55:44.316–.732 | `stripe-webhook`: claim, PATCH, `release_reservation` .631 (UPDATE .642) — path 3, ≈7.7 min before expiry |
+  | 03:59:17.094 | first realtime upgrade after ≈4 min with none |
+  | 03:59:17.6–19.186 | `confirm-payment` "not succeeded" |
+  | 03:59:19.277 | handset `release_reservation` — a no-op (`updated_at` unchanged): path 1 online, the third no-op |
+
+  After 03:59:19.3 there were no handset REST requests. There was no second F1 query, so no remount, and no
+  settled-payment read after 03:53:27.536, so no Try Again.
+
+**Classification: D9c UNTESTED** (§23 D9c table, row 1: no authorization and no charge, whatever the timing). Proposed
+by C and confirmed by A.
+- **Payment safety held:** no charge, no settlement or transfer, the hold released correctly by path 3, the path-1 close
+  a no-op, and no L1.
+- **Device D8 becomes a spare:** one `failed` row, so a rerun mints a fresh intent.
+- A path-1 release of a live hold while online remains unexercised.
+
+**Discrepancy.** The issued procedure touches nothing after reconnecting until verification. The server shows two
+handset-side events after the phone was back online: the challenge ended (cancel request, `payment_failed` 03:55:43),
+and the sheet returned `Canceled` (≈03:59:17). A reconciled them against the Stripe iOS SDK source in the local Pods.
+
+The local Pods are Stripe iOS 24.19.0. Build 16 pins `@stripe/stripe-react-native` 0.50.3, whose podspec requires
+`~> 24.19.0`. `df9e0d3` commits no Podfile.lock, so the binary's exact patch is unverified.
+
+1. **Challenge end.**
+   - `STPPaymentHandler._markChallengeCanceled` (`:1959`, "only called after web-redirects") runs from
+     `_retrieveAndCheckIntentForCurrentAction`.
+   - In the in-app 3-D Secure browser flows, that re-check starts only from:
+     - `safariViewControllerDidFinish` (the browser's Close/Done, `:2290`);
+     - the `ASWebAuthenticationSession` completion (Cancel or callback, `:1783`);
+     - `handleURLCallback` (return URL).
+   - The `willEnterForeground` re-check (`:1664`) is registered only for **external** browser or app redirects
+     (`:1712`, `:1873`). A screen lock or app switch does not trigger it in the in-app flow.
+   - For a web-based 3DS2 card challenge (`use_stripe_sdk`), the SDK retrieves the intent 6 times, 3 s apart
+     (`maxChallengeRetries = 5`, `:2048`; card `timeBetweenPollingAttempts` = 3 in `STPPaymentMethodEnums.swift`), before
+     cancelling. The trigger was therefore ≈03:55:25–27, or at 03:55:43 for `redirect_to_url`: either way after
+     reconnection.
+2. **Sheet `Canceled`.**
+   - `StripePaymentSheet` has no lifecycle-driven dismissal. Its only lifecycle observers are the confirm button's
+     `willEnterForeground` and the polling view's background/active hooks.
+   - The React Native wrapper's iOS sources have none either.
+   - `Canceled` corresponds to a sheet dismissal (close button or swipe-down). It coincided with the app resuming after
+     ≈4 min of realtime silence.
+
+**Conclusion.** In this SDK version, neither event has an automatic trigger. Both most likely followed a handset action
+or a return-URL callback. **Not proven**, and no conclusion is drawn about the owner's actions. Not excluded:
+- a hosted test-page script redirecting to the return URL after reconnecting;
+- a different 24.19.x patch in the binary;
+- an accidental swipe.
+
+The classification does not depend on this. The owner is not asked again.
