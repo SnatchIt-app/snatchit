@@ -1440,3 +1440,80 @@ The other two functions that cancel PaymentIntents:
 - **`enforce-transfer-expiry:235`** runs only after a settlement, so the listing is `sold`.
 - **`primary-checkout:1450`** cancels unrecorded `native_primary` intents. These carry no `listing_id` and fail the
   webhook's `buy_now` gate.
+
+### D9 Stage 2 (D9b, Device D7): server verification, A cross-check, attribution (2026-09-11)
+
+**Owner report so far (via C).**
+- The challenge appeared and stayed on screen.
+- Airplane Mode was on, with Wi-Fi off, for about 30 s; then the owner reconnected.
+- The flow returned to the PaymentSheet, which showed "Processing" and then its normal "Pay $110" state.
+- No second Pay, no reload; the owner is still on checkout.
+- **Not yet stated:** whether Complete was tapped while offline; whether the challenge closed by itself or via Done;
+  the cut time.
+
+**Financial result.** C verified Stripe at 03:13:53Z and the database at 03:13:45Z. A cross-checked the database and
+the logs at 03:17:52Z. The Stripe facts rest on C's read.
+- **Stripe (C).**
+  - `pi_3UEKqq…` (`919d511e`) is `requires_payment_method`: no amount received, no charge.
+  - `last_payment_error` is `payment_intent_authentication_failure`.
+  - Events: created 03:10:08Z, `requires_action` 03:10:46Z, `payment_failed` 03:11:57Z.
+  - No charges since 03:03Z.
+- **Database (both).**
+  - Device D7: `active`/`active`, no hold, `updated_at` 03:11:58.102968. Row `a79d6fe4` (`919d511e`) is `failed`.
+    0 transfers.
+  - Device D8 and Phone P1 are unchanged.
+  - Globals: payments 49, transfers 33, succeeded 21, multi-succeeded 0, pending 3, reserved 0.
+  - Webhooks: one event, `evt_3UEKqq…` `payment_failed` (received 03:11:57.960, processed, 1 attempt); 0 retries.
+
+**Timeline** (Supabase logs).
+
+| UTC | Source | Event |
+|---|---|---|
+| 03:10:03.961 | handset | `reserve_buy_now` 204 — hold taken; window to ≈03:20:04 |
+| 03:10:04.838 | handset | F1 checkout `listings` 400 (F2 `bids` 400s also recur on the listing screen) |
+| 03:10:05.7–08.9 | `create-payment-intent` | auth `919d511e`; listing `reserved`; payments-lookup 0; `pi-created` `pi_3UEKqq…` 11000; `db-insert-ok`. No retire and no cancel, so no L1 |
+| 03:10:55.362 → 03:11:45.883 | handset | no REST requests (the ≈30 s offline period lies within). A realtime websocket upgrade at 03:11:36.005 carries no identity |
+| 03:11:57.818–58.187 | `stripe-webhook` | claim; PATCH payments 200 (`a79d6fe4` pending→failed); `release_reservation` (service role) 03:11:58.076; release logged; complete; POST 200 |
+| 03:11:58.102968 | `listings.updated_at` | the release's UPDATE |
+
+There was no `confirm-payment` call, no handset `release_reservation`, and no second `create-payment-intent` through the
+latest log lines.
+
+**Attribution: path 3, credited.**
+- The event resolves to the D7 intent, and its buyer `919d511e` is the hold owner.
+- The release call landed 26 ms before the UPDATE.
+- Path 1 did not run: the sheet was open and there was no `confirm-payment` call.
+- Path 2 did not run: the owner stayed on checkout, and there was no handset release.
+- The per-buyer sweep and the cron are excluded.
+
+**Classification (§23 D9b): pending the owner's answer.**
+- **Complete tapped while offline:** valid D9b evidence. The offline Complete never authorized. After reconnect, Stripe
+  recorded an authentication failure. There was no charge. The app returned to a payable sheet without claiming
+  success, and path 3 released the hold. A would record PASS, with the sheet text verbatim.
+- **Complete not tapped offline:** the window was missed. D9b is UNTESTED, and Device D7 becomes a spare.
+
+**X close, requested by C while online.** Prediction from `df9e0d3`:
+1. `releaseAbandonedHold` calls `confirm-payment`. For an intent that is not succeeded, it returns
+   `stripe_verified:false` and writes nothing beyond the rate-limit RPC (header `:15–17`; `:177`, `:209`, `:248`).
+2. The handset then calls `release_reservation`. The listing is already `active`, so there is no UPDATE and
+   `updated_at` must stay at 03:11:58.103.
+
+If `updated_at` moves, or `confirm-payment` reports verified, stop and flag it.
+
+**Observations.**
+- **L3 candidate: same-sheet retry after `payment_failed` runs without a hold.** Not a D9 result; owner decision.
+  - *Observed live.* After path 3's release, the owner's sheet offered "Pay $110" for `pi_3UEKqq…` while Device D7 had
+    no hold.
+  - *Why.* `stripe-webhook/index.ts:362–368` expects same-sheet retries after `payment_failed`, yet the webhook releases
+    the hold on that event.
+  - *Handling.* `settle_verified_payment`'s key lines include an `unfulfillable` outcome: another payment already holds
+    the listing's one success, and the capture is refunded from the review queue. A conflict therefore appears to be
+    handled by refund rather than a double sale. Only those lines were read.
+  - *D9 coverage.* The no-second-Pay rule covers it.
+- **The listing screen stays mounted under checkout.** It refetches bids, listings and profiles after each realtime
+  websocket upgrade (03:10:53, 03:11:36, 03:12:02, 03:12:28, 03:13:16). Its cached listing has read `active` since
+  03:12:04, so path 2's gate should not fire when the owner later leaves. The reconnect cadence is unclassified.
+
+**Spares.**
+- **Device D7:** only a `failed` row, so a rerun mints a fresh intent with no reuse and no cancel.
+- **Phone P1:** carries `919d511e`'s pending `pi_3UEKY6…`, so a rerun reuses it only while the total matches.
