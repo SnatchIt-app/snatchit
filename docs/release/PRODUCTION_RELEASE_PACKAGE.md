@@ -822,3 +822,74 @@ Two branches, both owner-requested, both deliberately **outside** the pinned can
 
 Neither is to be merged into `release/convergence-135` while build 16's matrix is open. Both are reviewed and
 sequenced after QA closes.
+
+## 21. D8 passed; the D9 attempt became a completed payment (2026-09-11)
+
+### D8 — `Device D1`, server-side verified
+
+The pending intent was **reused**, exactly as the baseline predicted: `pi_3UEC0D…`, created 2026-09-10 17:43,
+paid 2026-09-11 01:05:12. So **one** intent for this purchase, not two.
+
+| Check | Result |
+|---|---|
+| Payment rows | 2: one `failed` (2026-09-08), one **`succeeded`** |
+| Succeeded payments | **exactly one**, $110.00 |
+| Transfer | `pending`, **no payout id** |
+| Webhook retries | **0** |
+
+Reuse rather than supersede is correct behaviour and must not be logged as a duplicate charge. *Handset
+observation still outstanding — the server side is confirmed, the client-side reopen behaviour is not yet
+reported.*
+
+### D9 attempt on `Device D6` — a completed payment, NOT a D9 pass
+
+The payment finished before the network was disconnected, so the interruption was never exercised. Recorded
+as **another completed payment**; **D9 remains un-run**.
+
+| Check | Result |
+|---|---|
+| Listing | **sold** 2026-09-11 01:19:01, `reserved_by` and `reserved_until` both NULL — hold released |
+| Payment rows | 3: two `failed` (the D6/D6b attempts), one **`succeeded`** |
+| **Succeeded payments** | **exactly one**, $110.00 |
+| Stripe intents | 3: one `succeeded` with a charge; the two D6/D6b intents `requires_payment_method` with **no charge** |
+| **Captured charges** | **exactly one** — captured, `refunded=false`, `amount_refunded=0`, `disputed=false`, `livemode=false` |
+| Transfer | `pending`, **no payout id**, nothing released, send window to 2026-09-12 01:19:01 |
+| Webhook retries | **0** |
+
+`Device D6`'s payment is settled and must not be retried or modified.
+
+### Inventory is now the binding constraint
+
+**`Phone P1` is the only active listing left in the entire sandbox** — not just among the staged set. Every
+other staged listing is sold, and there is no other active buy-now listing anywhere on the project.
+
+That leaves **one shot** at D9. If the interruption is mistimed again, there is nothing left to attempt it
+with. Recommendation, for owner approval: stage **two** further listings (`Device D7`, `Device D8`) before the
+next attempt, so D9 has retries. D10/D11 are not at risk — eight unsettled orders exist (every sold listing's
+transfer is `pending` with no payout).
+
+### A more reproducible interruption procedure
+
+The `4242` flow is unhittable by hand: the gap between the sheet closing and settlement completing is
+milliseconds. The fix is to use a card that *creates* a human-scale pause.
+
+**D9 (primary) — 3-D Secure handback.** Card `4000 0025 0000 3155`.
+
+1. Buy Now → Pay. The 3-D Secure browser opens and **waits indefinitely** — an unmissable cue.
+2. While it waits, swipe Control Centre down once to confirm the Airplane Mode toggle is reachable, then
+   dismiss it. (Control Centre, not Settings — one tap instead of three.)
+3. Tap **Complete authentication**. The authorization commits on Stripe's side at this point.
+4. As the browser **begins dismissing**, swipe down and tap **Airplane Mode**.
+5. Wait 15 s, then turn it off.
+
+The window is now roughly a second of handback animation rather than milliseconds, and the charge is already
+authorized when the network drops — which is precisely the state D9 exists to test.
+
+**Expected:** no "contact support"; a calm "payment received / your payment is safe — don't pay again"; the
+order appears shortly, settled by `stripe-webhook` (which **is** deployed in the sandbox, so this is genuinely
+testable there).
+
+**D9b (deterministic companion) — no network at confirm time.** Airplane Mode **before** tapping Pay on the
+sheet. The confirm then fails with **no charge at all**. 100% reproducible, needs no timing, and it tests a
+real and different path: the app must show a calm, retryable error rather than an alarming one, and must leave
+the listing buyable. Worth running regardless of how D9 goes, and it consumes no listing.
