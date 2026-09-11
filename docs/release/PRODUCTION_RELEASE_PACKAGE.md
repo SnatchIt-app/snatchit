@@ -1077,3 +1077,37 @@ The window is short, so an honest **UNTESTED** is an expected outcome. No copy i
 * **Verification flow:** after each attempt the owner stops; C verifies server-side (payment rows, Stripe
   intents, events and charges, listing and hold, transfer, webhook rows) and sends the result to A for
   cross-check before telling the owner to continue.
+
+### Correction — reservation clearing does work (2026-09-11)
+
+A claim sent to Claude C during D9 planning — that nothing clears an expired buy-now hold, so a listing left
+`status='reserved'` stays hidden from browse indefinitely and spare reuse would need an authorised cleanup run —
+was **wrong**, and has been retracted with C. It was never put to the owner.
+
+**How it went wrong:** the check searched `cron.job` commands for the text "reservation", found none, and stopped.
+That missed an **indirect** call.
+
+**Verified facts, both environments:**
+
+| Fact | Sandbox | Production |
+|---|---|---|
+| `auto_finalize_expired_auctions` ends with an **unconditional** `perform public.cleanup_expired_reservations();` | yes | yes |
+| `auto-finalize-auctions` cron schedule | `*/2`, active | `*/2`, active |
+| runs in the last hour | **30, all succeeded** | **30, all succeeded** |
+| `cleanup_expired_reservations` guard | skips listings holding a **succeeded** payment (N1, from `20260906110000`) — md5 `0271dca2…` | pre-Package-2 body, **no** guard — md5 `ecc0afc0…` |
+
+The guard difference is **not drift**: `20260906110000` is one of the five migrations still pending in
+production, so production runs the older body by design until the release.
+
+**Consequences for D9:**
+
+* An expired hold is cleared within **one 2-minute tick** after `reserved_until`. C's original statement — "the
+  10-minute TTL clears it" — was correct.
+* Phone P1's stale row `3a546cf3` is **pending**, not succeeded, so the N1 guard does not block clearing P1's
+  Stage 1 hold.
+* **Stage 1 hold criterion:** gone because `releaseAbandonedHold` released it when the sheet was closed after
+  reconnect, **or** because the cron cleared it within about 2 minutes of `reserved_until`. The anomaly worth
+  reporting is a `status='reserved'` row whose `reserved_until` is **more than ~4 minutes (two ticks) in the
+  past**, on a listing with no succeeded payment.
+* **Spare reuse needs no authorised cleanup.** An uncharged spare returns to `active` and reappears in Explore on
+  its own within one tick after its TTL.
