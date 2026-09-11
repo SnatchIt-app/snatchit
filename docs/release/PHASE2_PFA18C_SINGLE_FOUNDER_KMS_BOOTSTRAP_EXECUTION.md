@@ -1254,3 +1254,8 @@ CLAUDE-OBSERVED 01:27:15Z: request `05e0ff5d-1044-40c9-b32d-c5db1c171976` **pend
 **proposed value = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (= the stored row's fingerprint). Keys still v1/v1/v1; checker `monitor_disabled`; signing_key `1|1`;
 pending total 1; flags false. Founder B account (`3b7b50af…`): admin bootstrap true, 1 verified MFA factor, last sign-in 2026-09-11T01:24:46Z. Guarded browser-console approval snippet
 (pause handoff §2) issued unchanged; token stays inside the browser. Next: read-back (v2 = D5; distinct approver; audit) before C5-3.
+**C5-2 DONE (OWNER-RETURNED, founder B personally on Mac 2, MFA session): `200 {"status":"approved","request_id":"05e0ff5d-1044-40c9-b32d-c5db1c171976","applied_version":2}`.**
+CLAUDE-OBSERVED 01:41:10Z: request **approved** at 01:39:50Z, `requested_by` founder A `2b117757…`, **`approved_by` founder B `3b7b50af…` (distinct approver: true)**, reason `pfa18c_c5_pin_fingerprint`;
+`signing.expected_key_fingerprint` **v2 = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (effective 01:39:50Z, visibility `restricted` copied forward); audit trail
+`config.money_key_proposed` (A, 2026-09-10T19:59:17Z) → `config.money_key_approved` (B, 2026-09-11T01:39:50Z); pending requests 0; `signing.monitor_enabled` still **v1 false**;
+`expected_max_not_after` v1 null; checker `monitor_disabled`; alert rows 0; signing_key `1|1`; flags false. **C5-3 gate satisfied → C5-3 issued to the owner; Mac 2 read-backs issued.** Monitor NOT yet armed.
