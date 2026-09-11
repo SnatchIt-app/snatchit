@@ -912,9 +912,9 @@ Settlement-source evidence, which the earlier record lacked:
 | `payments.paid_at` (Device D1) | **01:05:11.648** |
 | webhook row marked processed | 01:05:11.850 |
 
-`paid_at` falls inside the webhook's own processing window, which is **consistent with `stripe-webhook`
-settling the order after the client was killed** — the path D8 exists to exercise. (`settle_verified_payment`
-is shared with `confirm-payment`, so this is strong timing evidence rather than a recorded source field.)
+`paid_at` falls inside the webhook's own processing window (1 attempt, no error), so the settlement was
+**written by `stripe-webhook`**. **Tightened 2026-09-11:** that timing does *not* show whether the client was
+alive at that instant, so the force-quit timing remains **owner-reported** rather than proven by this record.
 
 ### Phone P1 — reactivated (owner-authorized)
 
@@ -983,8 +983,11 @@ appear are, verbatim:
 * settlement `failed` (raises an alert): title `Payment received`, body `Your payment went through, but we
   couldn't complete this order. Please don't pay again — contact support and we'll sort it out right away.`
 
-Which one appears depends on the exact error text reaching `classifySettlement`. Its pending patterns include
-`network request failed` and `failed to fetch`; an offline error phrased any other way falls through to
+Which one appears depends on the exact error text reaching `classifySettlement`. **Corrected 2026-09-11:** its
+pending patterns are three business refusals (`no verified payment found`, `must be confirmed before`, `payment
+has not succeeded`) plus **five** network phrasings — `network request failed`, `failed to fetch`, `fetch failed`,
+`timed out`, `timeout`. An earlier version of this line listed only two network phrasings; that came from a
+truncated read and was caught by Claude C. With confirm unreachable, anything outside those falls through to
 `failed`. So **the `failed` alert appearing when Stripe shows the charge succeeded is the specific defect D9-B
 is positioned to catch** — to be recorded as observed, not predicted.
 
@@ -1056,3 +1059,21 @@ Judging the screen when the evidence is valid:
 * SDK-owned sheet text → recorded verbatim, judged after verification
 
 The window is short, so an honest **UNTESTED** is an expected outcome. No copy is promised in advance.
+
+
+### Refinements from Claude C, verified against `df9e0d3` (2026-09-11)
+
+* **Five network patterns, not two** — corrected in §22 above.
+* **When `classifySettlement` runs.** It is reached from `finalizePurchase`, which runs after the PaymentSheet
+  returns without error — **and also** on the `Canceled` path when `releaseAbandonedHold` finds Stripe already
+  has the money: *"Stripe has the money: fall through to the normal settlement path rather than discard a real
+  payment."* So closing the sheet (the agreed exit) does not bypass the classifier when the charge succeeded;
+  the `failed` "contact support" alert stays reachable that way too. Most reachable in Stage 3.
+* **Wi-Fi pre-flight** added once before Stage 1: Airplane Mode on → Wi-Fi tile off → Airplane Mode off, so iOS
+  keeps Wi-Fi off in later Airplane Mode cuts. The Wi-Fi-off confirmation is still required at every cut.
+* **Why one listing per stage** (C): a Stage 1 that fails as intended still leaves the buyer's **10-minute hold**
+  and a live intent on Phone P1; running Stage 2 there would resume that intent and blur which attempt Stripe's
+  record belongs to. A spare is reused only after its hold has cleared and a server read confirms it.
+* **Verification flow:** after each attempt the owner stops; C verifies server-side (payment rows, Stripe
+  intents, events and charges, listing and hold, transfer, webhook rows) and sends the result to A for
+  cross-check before telling the owner to continue.
