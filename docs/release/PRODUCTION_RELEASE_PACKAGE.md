@@ -1389,3 +1389,54 @@ window.
 2. **Name the back arrow and the swipe.** The owner's manual navigation Home is exactly the path-2 trigger, so the L2
    guard must name both, not only on-screen controls. After a possibly paid attempt, the owner stays on the screen
    until a verifier confirms the result.
+
+### D9 Stage 2: baseline cross-check, and L1 reachability (2026-09-11)
+
+**Baseline.** A read at 03:06:00Z; C read at 03:03:19Z. The two reads are identical, and no Buy Now had arrived.
+- **Device D7 and Device D8:** `active`/`active`, no hold, 0 payments, 0 transfers. `updated_at` is 02:01:44.985,
+  unchanged since staging.
+- **Phone P1:** unchanged since 02:52:27.37.
+- **Globals:** payments 48, transfers 33, succeeded 21, multi-succeeded listings 0, pending 3, reserved rows 0.
+- **Webhook events:** none since 02:56Z.
+
+**Stage 2 as issued by C** (D9b, Device D7):
+1. Buy Now online; card `4000 0025 0000 3155`; Pay online; wait for the challenge.
+2. Airplane Mode, with the Wi-Fi symbol confirmed gone. Note the time. Tap Complete once.
+3. Stay offline 30 s. Reconnect and confirm.
+4. Tap Done on the Stripe page if it is open, and X on the sheet if it is open.
+5. **Guard:** stay on the checkout screen: no back, no Home, no second Pay or Complete. Report.
+
+Orders and Buy Now are checked only after verification.
+
+**A's verification notes for Stage 2.**
+- **Path 1 online.** Closing online exercises path 1, untested in Stage 1: a reachable, unverified `confirm-payment`
+  followed by a handset `release_reservation`.
+- **Path 3 may fire too.** A `payment_failed` or `canceled` event for the D7 intent names `919d511e`, the hold owner,
+  so the webhook's release is legitimate. The first UPDATE lands and the other is a no-op. Attribute by
+  `listings.updated_at` against the handset and service-role release timestamps.
+- **If the intent succeeded.** If Stripe shows the D7 intent `succeeded`, path 1's confirm returns verified and
+  settlement runs. Record that exactly; no pass is inferred.
+- **Missed window.** If Complete cannot be tapped offline, the window is missed: record untested, with no reload.
+- **Swipe back.** A suggested to C that the next relay name the swipe-back gesture alongside "no back".
+
+**L1 reachability, verified across every PaymentIntent cancel in `df9e0d3`.** A wrongful release of a live hold needs a
+cancel of the **holder's own** `buy_now` intent while the hold is live.
+
+`create-payment-intent`:
+
+| Site | Reason | Outcome |
+|---|---|---|
+| `:624–654` | amount mismatch | **reachable: this is L1** |
+| `:451` | `sold-to-another-buyer` (via `refuse()`) | another buyer's payment succeeded: sold in fact, intended money-wins outcome |
+| `:457`, `:480` | `listing-sold` | `release_reservation` returns early on `sold` |
+| `:463` | `not-reserved` | no hold |
+| `:466`, `:497` | `reserved-by-another` | not the requester's hold; `:497` is auction mode, excluded by the webhook's release gate |
+| `:469` | `reservation-expired` | releases an expired hold, the same outcome as cleanup |
+| `:471`, `:527` | Buy Now disabled; client total mismatch | return without retiring |
+| `:588` | other-buyers retire | the release names the other buyer, a no-op for the holder |
+| `:829` | orphan cancel after a failed insert | no row to claim |
+
+The other two functions that cancel PaymentIntents:
+- **`enforce-transfer-expiry:235`** runs only after a settlement, so the listing is `sold`.
+- **`primary-checkout:1450`** cancels unrecorded `native_primary` intents. These carry no `listing_id` and fail the
+  webhook's `buy_now` gate.
