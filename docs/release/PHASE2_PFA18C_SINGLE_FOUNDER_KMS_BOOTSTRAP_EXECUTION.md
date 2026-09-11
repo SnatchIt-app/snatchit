@@ -1293,3 +1293,9 @@ F9 0 runtime-role AssumeRole ever, Sign total 3, 0 lifecycle events since 09-10T
 **C6-0 (OWNER-RETURNED):** HEAD `562fda9…`, clean, four tree hashes as reviewed, project ref, CLI 2.115.0 — all match. **C6-1 DONE (OWNER-RETURNED):** `access_key_id_prefix AKIAZQAR status Active created 2026-09-11T02:13:02Z`;
 key file local, never displayed. CLAUDE-OBSERVED 02:14:44Z: runtime user access keys **exactly 1, Active, 02:13:02Z**; admin/verifier keys 0/0; CloudTrail `CreateAccessKey` ×1 — eventID
 `930208b0-3f16-420b-a596-4dbef0b459c9`, 02:13:02Z, actor `jose-admin` (MFA true), user `snatchit-credential-sign-runtime`, key prefix `AKIAZQAR`, Active, no error. **C6-2 issued.**
+**C6-2 DONE (OWNER-RETURNED):** env file built locally, `keys: KMS_PROVIDER,AWS_REGION,KMS_SIGNER_ROLE_ARN,KMS_SIGNER_EXTERNAL_ID,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY | format: PASS`.
+**C6-3 (first attempt halted safely, no mutation):** the owner's `supabase secrets list` output was not the JSON shape the chain expected → collision step failed closed before `secrets set`. Corrected to
+`--output json` (a plain array of `{name, updated_at}`; parser reads from the first `[`); syntax verified locally.
+**C6-3 DONE (OWNER-RETURNED):** collision check `none`; `secrets set --env-file` completed; total 24; the six AWS/KMS names present; `c6.env` and `runtime-key.json` unlinked; no values displayed.
+CLAUDE-OBSERVED 02:33:45Z: **24 secret names; all 18 pre-existing preserved; new = exactly** `AWS_ACCESS_KEY_ID, AWS_REGION, AWS_SECRET_ACCESS_KEY, KMS_PROVIDER, KMS_SIGNER_EXTERNAL_ID, KMS_SIGNER_ROLE_ARN`;
+`~/pfa18c-local` holds only the two placeholder-filled artifacts (trust file mode 600) and the C3 directory — the key file and env file are gone (unlinked, not securely erased; key revocable). **C6-4 issued.**
