@@ -1666,3 +1666,43 @@ re-read by A.
 - **Stage 3 protocol.** C alone issues handset steps. Stage 3 on Device D8 waits for the owner's acceptance of the
   Stage 2 classification. C then takes a fresh baseline immediately before issuing one procedure, including "go back,
   not Try Again". If the owner's acknowledgment reaches A first, A forwards it to C.
+
+### D9: owner acceptance of Stage 2, and the Stage 3 baseline (2026-09-11)
+
+**Owner decision (relayed by C).**
+- The owner **accepted** the Stage 2 (rerun) classification: PASS on payment safety, with the two deviations recorded.
+- D9-UX-1 is recorded as an **open non-financial UX defect**, kept out of Build 16.
+- Device D7 is not to be modified.
+
+**Stage 3 baseline.** C read the database at 03:43:43Z and 03:44:47Z, and Stripe at 03:42:53Z and 03:43:46Z. A read the
+database at 03:46:27Z and Stripe (read-only CLI) at 03:46:29Z. The reads are identical:
+- **Device D8:** `active`/`active`, $100, no hold, `updated_at` 02:01:44.985 (staging), 0 payments, 0 transfers.
+- **Device D1:** `sold`, one succeeded payment (`14a762bb`), 1 transfer, `updated_at` 01:05:11.648. It also carries the
+  old `1fcd0c69` failed row `79d37964` from 09-08.
+- **Phone P1:** unchanged (02:52:27.368; one `failed` row, one `pending` row).
+- **Device D7:** unchanged (03:23:21.876; both rows `failed`).
+- **Globals:** payments 50, transfers 33, succeeded 21, multi-succeeded 0, pending 3, reserved 0.
+- **Latest writes:** listing write 03:23:21.876; webhook event 03:23:21.717 (`payment_failed`); no retries since.
+- **Stripe:** no Device D8 intent. The newest charge is from 01:18:59Z, and there have been no events since 03:23:20Z.
+
+**Stage 3 procedure, as issued by C.** It changes one thing from §23's D9c definition, on the owner's instruction
+("require server verification before any further action").
+- The owner stops after reconnecting and reports.
+- Closing any open sheet or browser, then Home and Orders, becomes the next single step. C issues it only after
+  verification.
+- The (i)/(ii)/(iii) timing note and the interpretation table are unchanged.
+- The stay-put guard covers:
+  - Pay, Try Again, Complete, Fail and Done;
+  - the sheet's X and any alert buttons;
+  - reload, the back arrow and the swipe;
+  - Orders and other listings;
+  - backgrounding and force-quit.
+
+**Timing note for the verifiers (A).**
+- **The hold keeps running during the stop:** Buy Now plus 10 minutes, then the next 2-minute cron tick clears it.
+- **If the attempt is still `requires_action`,** a slow verification lets the hold expire under an open sheet, so the
+  in-window read must be taken as soon as the owner reports.
+- **If Stripe shows `succeeded`,** settlement does not depend on the handset, and Device D8 should read `sold`. That is
+  valid D9c evidence only under timing (i) or (ii).
+- **After an expiry or a release,** the later close may surface D9-UX-1; the owner goes back rather than tapping Try
+  Again.
