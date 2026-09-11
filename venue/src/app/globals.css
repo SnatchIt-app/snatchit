@@ -1,35 +1,49 @@
 @import "tailwindcss";
 
 /*
- * Snatch It venue dashboard (preview) — same brand system as web/ (snatchitapp.com
- * measured values): #000 canvas, #0a0a0a card, #FF1A1A red with black-on-red
- * CTAs, red-tinted hairlines, radius 0 everywhere. Inter for everything —
- * this is a dense tool, not a marketing surface, so no display face.
+ * Snatch It venue dashboard (preview) — LIGHT appearance (owner request 2026-09-10: white
+ * surfaces for easier navigation and analytics reading). Same brand system as
+ * web/ (snatchitapp.com measured values) — #FF1A1A red accents with black-on-red
+ * CTAs, red-tinted hairlines, radius 0 everywhere, Inter for everything — but
+ * on a white canvas with dark ink. Every colour below is chosen for WCAG AA on
+ * white: body/secondary text ≥ 4.5:1, status colours ≥ 4.5:1 as text and ≥ 3:1
+ * as borders/fills, focus ring ≥ 3:1.
+ *
+ * Token roles:
+ *   bg / card / field   white primary surfaces
+ *   raised               very light gray — distinguishes sections, hover rows,
+ *                        disabled fields
+ *   ink / muted / dim    primary, secondary, tertiary text (#111 / #4a4a4a / #6b6b6b)
+ *   primary              brand red for fills and borders (CTAs stay black-on-red)
+ *   primary-ink          brand red darkened for TEXT on white (#c40000, 5.9:1)
+ *   line*                red-tinted hairlines (brand) and neutral hairlines
+ *   success/warning/danger/info  status colours legible as text on white
  */
 @theme inline {
-  --color-bg: #000;
-  --color-card: #0a0a0a;
-  --color-field: #0a0a0a;
-  --color-raised: #111;
-  --color-overlay: rgba(0, 0, 0, 0.72);
+  --color-bg: #ffffff;
+  --color-card: #ffffff;
+  --color-field: #ffffff;
+  --color-raised: #f5f5f6;
+  --color-overlay: rgba(17, 17, 17, 0.45);
 
-  --color-ink: #fff;
-  --color-muted: rgba(255, 255, 255, 0.7);
-  --color-dim: rgba(255, 255, 255, 0.45);
-  --color-placeholder: rgba(255, 255, 255, 0.3);
+  --color-ink: #111111;
+  --color-muted: #4a4a4a;
+  --color-dim: #6b6b6b;
+  --color-placeholder: #767676;
 
   --color-primary: #ff1a1a;
+  --color-primary-ink: #c40000;
   --color-primary-muted: #cc0000;
-  --color-primary-soft: rgba(255, 26, 26, 0.1);
+  --color-primary-soft: rgba(255, 26, 26, 0.08);
 
-  --color-line: rgba(255, 26, 26, 0.15);
-  --color-line-strong: rgba(255, 26, 26, 0.3);
-  --color-line-neutral: rgba(255, 255, 255, 0.1);
+  --color-line: rgba(255, 26, 26, 0.28);
+  --color-line-strong: rgba(204, 0, 0, 0.5);
+  --color-line-neutral: rgba(17, 17, 17, 0.12);
 
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-danger: #ff1a1a;
-  --color-info: #60a5fa;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #c40000;
+  --color-info: #1d4ed8;
 
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -39,13 +53,13 @@
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
   border-radius: 0 !important;
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: #c4c4c4 transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -59,8 +73,8 @@
 }
 
 body {
-  background: #000;
-  color: #fff;
+  background: #ffffff;
+  color: #111111;
   font-family: var(--font-sans);
   font-size: 14px;
   text-rendering: optimizeLegibility;
@@ -84,32 +98,48 @@ body {
   text-transform: uppercase;
 }
 
-/* Form controls: flat, square, hairline. */
+/* Form controls: flat, square, hairline. Hover darkens the hairline, focus is
+   red + a soft ring, disabled is gray-on-gray with a not-allowed cursor. */
 .field {
   width: 100%;
-  background: #0a0a0a;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #ffffff;
+  color: #111111;
+  border: 1px solid rgba(17, 17, 17, 0.22);
   padding: 0.5rem 0.75rem;
   font-size: 14px;
 }
+.field:hover:not(:disabled):not(:focus) {
+  border-color: rgba(17, 17, 17, 0.4);
+}
 .field:focus {
   border-color: #ff1a1a;
+  box-shadow: 0 0 0 3px rgba(255, 26, 26, 0.15);
   outline: none;
 }
+.field:disabled,
+.field[aria-disabled="true"] {
+  background: #f5f5f6;
+  color: #6b6b6b;
+  border-color: rgba(17, 17, 17, 0.12);
+  cursor: not-allowed;
+}
 .field::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: #767676;
 }
 select.field {
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #fff 50%),
-    linear-gradient(135deg, #fff 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, #111 50%),
+    linear-gradient(135deg, #111 50%, transparent 50%);
   background-position:
     calc(100% - 16px) 50%,
     calc(100% - 11px) 50%;
   background-size: 5px 5px;
   background-repeat: no-repeat;
   padding-right: 2rem;
+}
+select.field:disabled {
+  background-image: linear-gradient(45deg, transparent 50%, #9a9a9a 50%),
+    linear-gradient(135deg, #9a9a9a 50%, transparent 50%);
 }
 
 .btn {
@@ -125,9 +155,13 @@ select.field {
   border: 1px solid transparent;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 .btn-primary {
@@ -135,15 +169,22 @@ select.field {
   color: #000;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #ff4d4d;
+  background: #d90000;
+}
+.btn-primary:active:not(:disabled) {
+  background: #b80000;
 }
 .btn-ghost {
   background: transparent;
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.2);
+  color: #111111;
+  border-color: rgba(17, 17, 17, 0.3);
 }
 .btn-ghost:hover:not(:disabled) {
   border-color: #ff1a1a;
+  background: rgba(255, 26, 26, 0.06);
+}
+.btn-ghost:active:not(:disabled) {
+  background: rgba(255, 26, 26, 0.12);
 }
 .btn-sm {
   padding: 0.3rem 0.65rem;
@@ -151,47 +192,57 @@ select.field {
 }
 
 .link {
-  color: #fff;
+  color: #111111;
   text-decoration: underline;
-  text-decoration-color: rgba(255, 26, 26, 0.5);
+  text-decoration-color: rgba(196, 0, 0, 0.5);
   text-underline-offset: 2px;
 }
 .link:hover {
-  color: #ff1a1a;
+  color: #c40000;
+  text-decoration-color: #c40000;
 }
 
 kbd {
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(17, 17, 17, 0.25);
+  background: #f5f5f6;
+  color: #4a4a4a;
 }
 
-/* Data tables. */
+/* Data tables. White rows, gray hairlines, red header rule; hover and
+   keyboard focus tint the row; a selected row is marked with aria-selected. */
 .data-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  background: #ffffff;
 }
 .data-table th {
   text-align: left;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: #4a4a4a;
   padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 26, 26, 0.3);
+  border-bottom: 1px solid rgba(204, 0, 0, 0.35);
+  background: #fafafa;
   white-space: nowrap;
 }
 .data-table td {
   padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
   vertical-align: top;
 }
-.data-table tbody tr:hover {
+.data-table tbody tr:hover,
+.data-table tbody tr:focus-within {
   background: rgba(255, 26, 26, 0.05);
+}
+.data-table tbody tr[aria-selected="true"] {
+  background: rgba(255, 26, 26, 0.09);
+  box-shadow: inset 2px 0 0 #ff1a1a;
 }
 .data-table .num {
   text-align: right;

@@ -37,7 +37,7 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
                 <Link
                   href={i.href}
                   aria-current={i.key === active ? "page" : undefined}
-                  className={`block px-3 py-2 text-sm ${i.key === active ? "border-l-2 border-primary text-ink" : "text-muted hover:text-ink"}`}
+                  className={`block px-3 py-2 text-sm transition-colors ${i.key === active ? "border-l-2 border-primary bg-primary-soft font-semibold text-ink" : "border-l-2 border-transparent text-muted hover:bg-raised hover:text-ink"}`}
                 >
                   <span className="xl:hidden font-mono text-[11px]">{i.short}</span>
                   <span className="hidden xl:inline">{i.label}</span>
@@ -49,11 +49,11 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
         <div className="min-w-0 flex-1">
           {/* md/sm: top drawer */}
           <details className="border-b border-line md:hidden">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-bold uppercase tracking-wider">Menu · {visible.find((i) => i.key === active)?.label ?? "Events"}</summary>
+            <summary className="cursor-pointer px-4 py-3 text-sm font-bold uppercase tracking-wider hover:bg-raised">Menu · {visible.find((i) => i.key === active)?.label ?? "Events"}</summary>
             <ul className="border-t border-line-neutral">
               {visible.map((i) => (
                 <li key={i.key}>
-                  <Link href={i.href} className={`block px-4 py-3 text-sm ${i.key === active ? "text-primary" : ""}`}>
+                  <Link href={i.href} aria-current={i.key === active ? "page" : undefined} className={`block px-4 py-3 text-sm ${i.key === active ? "bg-primary-soft font-semibold text-primary-ink" : "hover:bg-raised"}`}>
                     {i.label}
                   </Link>
                 </li>
@@ -94,7 +94,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
     <form method="get" className="flex flex-wrap items-center gap-2 text-[11px] normal-case tracking-normal">
       <label className="flex items-center gap-1">
         {ctx.source === "database" ? "Display as" : "Viewing as"}
-        <select name="role" defaultValue={ctx.role} className="border border-black/40 bg-black/80 px-1 py-0.5 text-white">
+        <select name="role" defaultValue={ctx.role} className="border border-black/30 bg-white px-1 py-0.5 text-ink">
           {PREVIEW_PRINCIPALS.map((p) => (
             <option key={p} value={p}>
               {PRINCIPAL_LABEL[p]}
@@ -104,7 +104,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
       </label>
       <label className="flex items-center gap-1">
         State
-        <select name="state" defaultValue={ctx.state} className="border border-black/40 bg-black/80 px-1 py-0.5 text-white">
+        <select name="state" defaultValue={ctx.state} className="border border-black/30 bg-white px-1 py-0.5 text-ink">
           {PREVIEW_STATES.map((s) => (
             <option key={s} value={s}>
               {s === "nodata" ? "no matches" : s}
@@ -112,7 +112,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
           ))}
         </select>
       </label>
-      <button className="border border-black/60 bg-black px-2 py-0.5 font-bold text-white" type="submit">
+      <button className="border border-black bg-black px-2 py-0.5 font-bold text-white hover:bg-[#333]" type="submit">
         Apply
       </button>
     </form>

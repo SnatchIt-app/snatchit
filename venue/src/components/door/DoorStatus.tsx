@@ -85,11 +85,22 @@ export function DoorStatus({
           {scans.arrivalsPer5Min.length > 0 ? (
             <div className="mt-4">
               <p className="eyebrow text-dim">Arrivals per 5 minutes</p>
-              <div className="mt-1 flex h-16 items-end gap-0.5" aria-label="Arrivals per five minutes">
-                {scans.arrivalsPer5Min.map((n, i) => (
-                  <span key={i} className="flex-1 bg-primary" style={{ height: `${(n / maxBar) * 100}%` }} title={`${n}`} />
+              <div className="relative mt-1 h-16" role="img" aria-label={`Arrivals per five minutes: ${scans.arrivalsPer5Min.join(", ")}; peak ${maxBar}`}>
+                {[25, 50, 75, 100].map((pct) => (
+                  <span key={pct} aria-hidden="true" className="absolute inset-x-0 border-t border-dashed border-line-neutral" style={{ bottom: `${pct}%` }} />
                 ))}
+                <div className="flex h-full items-end gap-0.5">
+                  {scans.arrivalsPer5Min.map((n, i) => (
+                    <span key={i} className="flex-1 bg-primary" style={{ height: `${(n / maxBar) * 100}%` }} title={`${n} arrivals`} />
+                  ))}
+                </div>
               </div>
+              <p className="mt-1 flex justify-between text-[11px] text-dim" aria-hidden="true">
+                <span>oldest</span>
+                <span>
+                  peak <span className="tabular-nums text-muted">{maxBar}</span> · latest
+                </span>
+              </p>
             </div>
           ) : null}
           <ul className="mt-4 divide-y divide-line-neutral text-xs">

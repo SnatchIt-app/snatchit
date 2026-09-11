@@ -26,7 +26,7 @@ const STATUS_TONE: Record<EventStatus | SessionStatus, string> = {
   announced: "border-info text-info",
   on_sale: "border-success text-success",
   scheduled: "border-line-neutral text-muted",
-  live: "border-primary text-primary",
+  live: "border-primary text-primary-ink",
   completed: "border-line-neutral text-dim",
   cancelled: "border-danger text-danger",
 };
@@ -61,7 +61,7 @@ export function CapacityBar({ capacity, held, sold, remaining }: { capacity: num
         <span className="held" style={{ width: w(held) }} />
       </div>
       <p className="mt-1 text-xs text-muted tabular-nums">
-        <span className="text-ink">{sold} sold</span> · <span className="text-warning">{held} held</span> · {remaining} remaining · of {capacity}
+        <span className="text-ink"><span className="legend-swatch sold" aria-hidden="true" />{sold} sold</span> · <span className="text-warning"><span className="legend-swatch held" aria-hidden="true" />{held} held</span> · <span><span className="legend-swatch remaining" aria-hidden="true" />{remaining} remaining</span> · of {capacity}
       </p>
     </div>
   );
