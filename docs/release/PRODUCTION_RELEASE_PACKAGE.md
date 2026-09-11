@@ -1111,3 +1111,37 @@ production, so production runs the older body by design until the release.
   past**, on a listing with no succeeded payment.
 * **Spare reuse needs no authorised cleanup.** An uncharged spare returns to `active` and reappears in Explore on
   its own within one tick after its TTL.
+
+### Per-buyer hold sweep, evidence ordering, and the crossed verification (2026-09-11)
+
+**Claude C's finding, verified against the live sandbox body.** `reserve_buy_now` is defined by
+`20260906100000_checkout_reservation_authority.sql` (an earlier note here citing `018` was wrong — a
+case-sensitive search missed that file's uppercase `FUNCTION`). It has **two** clearing paths, both skipping
+listings that hold a succeeded payment:
+
+1. **Target sweep** (live lines 32–35): the listing being reserved is reclaimed if its own hold has lapsed.
+2. **Per-buyer sweep** (live lines 73–76): **all** of the caller's other `status='reserved'` holds are released,
+   **lapsed or not** — there is no `reserved_until` condition:
+
+   ```sql
+   UPDATE public.listings SET status='active', reserved_by=null, reserved_until=null
+    WHERE reserved_by = v_caller_id AND status='reserved' AND id <> p_listing_id
+      AND NOT EXISTS (SELECT 1 FROM public.payments p
+                       WHERE p.listing_id = public.listings.id AND p.status = 'succeeded');
+   ```
+
+**Evidence-ordering rule for D9.** If a stage's Buy Now happens inside the previous stage's 10-minute TTL, the
+per-buyer sweep erases the previous listing's still-live hold, destroying the evidence of whether
+`releaseAbandonedHold` released it. **Each stage's listing row is read before the owner taps the next Buy Now** —
+by C for verification and by A for cross-check, before the owner is released.
+
+**The crossed verification.** C independently "verified" the incorrect no-cron claim — but by the same method
+(searching `cron.job` command text), so it was not independent confirmation; both checks missed the indirect call
+in `auto_finalize_expired_auctions`. C has been sent the evidence and asked to withdraw scoring rule (b) and the
+manual-cleanup assumption from the incident record. The correct rules are those in the correction above:
+lapsed holds clear within one 2-minute tick in both environments, spare reuse needs no manual cleanup, and a
+reserved row whose `reserved_until` is more than ~4 minutes in the past (no succeeded payment) is the anomaly.
+
+**Lesson recorded:** three misses in this thread shared one cause — text search standing in for reading the live
+definition (command text instead of function bodies, twice; a case-sensitive grep once). Verification of
+database behaviour reads `pg_get_functiondef` from the target catalog.
