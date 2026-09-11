@@ -1279,3 +1279,14 @@ collision check: 18 existing, none of the ten E2 names present. **Inactivity con
 open episode required (0 staff roles / orgs / venues / events / sessions / manifests); door-session — device + PIN + `DoorSession` bearer verified by `kernel.assert_door_session` (0 devices/PINs/sessions),
 never calls KMS. **Corrections recorded:** the scanning flag is NOT read by the door functions (not a control); door-session's header "PFA-26 parked" is stale — migration 107 un-parked
 `mint_door_session`. Handoff rev 2: exact six secret names, name-scoped rollback, accurate cleanup wording (no secure-erase claim; key revocable), final preflight F1–F10, owner steps C6-0…C6-4.
+
+## SESSION 27 — 2026-09-11 — C6 AUTHORIZED ("AUTHORIZE PFA-18C DARK DEPLOY", rev 2 @ b5bbcf62…, checkout 562fda9) · FINAL PREFLIGHT F1–F10 PASS · OWNER STEPS ISSUED (NO MUTATION YET)
+
+Authorization (OWNER): scope = C6 rev 2 at `b5bbcf621ce7900f0ca85a36257c73d1842da570`; isolated checkout `snatchit-c6deploy @ 562fda9`; one runtime access key, exactly six secrets, the three
+specified functions; stop on any mismatch/uncertain outcome; zero-data preconditions for door-manifest/door-session maintained (production venue/staff/manifest/device/PIN creation stays outside this
+authorization — to be relayed to Claude A/D via the repo record); coordinator + Mac 2 read-backs; 24-hour observation. Not authorized: test invocations, production signing, issuance/scanning, 121, Model A.
+**Preflight (CLAUDE-OBSERVED 02:09:45–02:10:04Z):** F1 monitor `ok/match`, 0 alert rows · F2 checkout `562fda9…` clean, hashes `8acff3797f7d / 9cd883d0bb63 / 910eef735250 / 20fda4a1eae5` ·
+F3 link `hqycwntpfoztoinemqns`, CLI 2.115.0 · F4 runtime keys 0, inline `pfa18c-runtime-sign` = `kms:Sign` on D4, trust condition `sts:ExternalId`, key `Enabled ECC_NIST_P256`, policy v2 ·
+F5 18 secrets, no collisions (names snapshot saved) · F6 legacy function snapshot (11 ACTIVE, ids/hashes) taken · F7 ExternalId file mode 600, 64 chars, format PASS · F8 counts
+tickets/door_sessions/door_manifests/scan_devices/door_pins/staff_roles/orgs/venues/events/event_sessions = 0/0/0/0/0/0/0/0/0/0, flags issuance/scanning false, monitor true, ledger 135, signing_key `1|1` ·
+F9 0 runtime-role AssumeRole ever, Sign total 3, 0 lifecycle events since 09-10T20:00Z, trail logging · F10 no password/token needed. **ALL PASS → C6-0/C6-1 issued.**
