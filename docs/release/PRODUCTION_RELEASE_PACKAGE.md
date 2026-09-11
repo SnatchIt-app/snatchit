@@ -993,3 +993,66 @@ payment rows, Stripe intents and charges, listing, transfer — has been verifie
 
 Listing allocation: **Phone P1** first; **Device D7** and **Device D8** as backups. D9-A consumes no listing if
 the confirm fails as intended.
+
+## 23. D9 procedure — AGREED between A and C (2026-09-11)
+
+Supersedes the allocation and D9-B wording in §22. **Claude C delivers the single handset sequence to the
+owner; this section is the written record of what was agreed.**
+
+### Readiness — two independent reads, identical
+
+| Listing | id | Read by C (02:03Z) and A (02:06Z) |
+|---|---|---|
+| Phone P1 | `c343406e-be85-49c1-9951-ac08bb1daab2` | active / active, $100, buy-now, ends 2026-09-24 23:35Z, no hold, 0 transfers; 1 row `3a546cf3` pending → `pi_3UDGNF…` `requires_payment_method`, no charge; the only intent at Stripe |
+| Device D7 | `b1c3c478-b32e-4167-8f8d-2b9a4a4fd212` | active / active, $100, buy-now, ends 2026-09-25 02:01Z, no hold, 0 rows, 0 transfers, 0 intents |
+| Device D8 | `58cc00e3-e219-4095-9b57-cbdaa83df421` | same as D7 |
+
+C also confirmed settled listings unchanged: Device D1–D6 and Phone P2/P3 each sold, exactly one succeeded
+payment, one transfer, no hold; no listing with more than one succeeded payment; no charge since 01:18:59Z.
+
+### Three stages, one listing each
+
+| Stage | Listing | Definition |
+|---|---|---|
+| **D9a** offline before confirm | Phone P1 | online through Buy Now, checkout, PaymentSheet and `4242` card entry; **then** Airplane Mode with Wi-Fi confirmed off; **then** tap Pay |
+| **D9b** offline before Complete (C) | Device D7 | card `4000 0025 0000 3155`; challenge page on screen; Airplane Mode, Wi-Fi off; **then** tap Complete authentication |
+| **D9c** offline after Complete (A) | Device D8 | same card; tap Complete **while online**; **immediately** Airplane Mode, Wi-Fi off |
+
+**All stages:** offline 30 s → restore → confirm Wi-Fi has **reconnected** → close any open sheet with its
+close control (**never Pay**) → Home → Orders → report exact on-screen text. One attempt, then stop until that
+attempt is verified server-side (C owns verification; A cross-checks on request). A listing that ends
+uncharged becomes the spare for a missed window. Whichever listing ends charged joins the settled,
+never-retried set.
+
+### A's amendments, accepted into the sequence
+
+1. **Leaving the sheet.** The SDK (stripe-react-native 0.50.3, iOS SDK ~24.19.0) can keep the sheet open with
+   its own error text after a confirm failure, so the allowed exit must be explicit: close it, never Pay.
+   Closing returns `Canceled` → `releaseAbandonedHold`, which can show *"Your hold was released. Please go back
+   and reserve again."* — legitimate whenever Stripe shows no charge.
+2. **Wait for reconnection** before opening Orders, so its own offline state doesn't confound the result.
+3. **D9a's expected server evidence is "unchanged".** An offline confirm never reaches Stripe, and on P1
+   `create-payment-intent` will most likely **reuse** `pi_3UDGNF…` when Buy Now runs online. Expect that same
+   single intent, still `requires_payment_method`, no charge. The handset observation carries D9a.
+4. **The settled do-not-touch list grows** with whichever listing is charged.
+
+### D9c — definition and interpretation rule (A)
+
+At the moment the network goes off, the owner records which was true:
+**(i)** the challenge browser was still on screen · **(ii)** the browser had dismissed but the app showed no
+result yet · **(iii)** the app had already shown a result.
+
+| Stripe afterwards | Timing note | Record as |
+|---|---|---|
+| no authorization, no charge | any | **D9c UNTESTED** — the result never reached Stripe, so the interruption landed at D9b's stage; D8 becomes spare |
+| succeeded | (iii) | **D9c UNTESTED** — window missed; just another completed payment |
+| succeeded | (i) or (ii) | **valid D9c evidence** — then judge the screen |
+| `requires_action` / `requires_payment_method` / `canceled` | any | recorded exactly; no pass inferred |
+
+Judging the screen when the evidence is valid:
+* calm pending state, or the order appearing after reconnect → consistent with correct handling
+* the `failed` **"contact support"** alert while Stripe shows the charge succeeded → **the defect D9c catches**
+* **"Your hold was released…"** while Stripe shows the charge succeeded → also a defect
+* SDK-owned sheet text → recorded verbatim, judged after verification
+
+The window is short, so an honest **UNTESTED** is an expected outcome. No copy is promised in advance.
