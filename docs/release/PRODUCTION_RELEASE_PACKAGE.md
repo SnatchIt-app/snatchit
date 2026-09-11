@@ -1805,3 +1805,11 @@ owner's decision, and neither verifier issues rerun steps unless the owner asks.
 - So the source predicts that text, not "Your reservation has expired…". An expired-text report would imply an
   unlogged setup run: check for log-ingestion lag or a remount first. If the app was relaunched, record whatever is
   shown.
+
+**Correction: the Stage 3 checkout-text expectation is not blind.** A exposed it before the owner's report. It appeared
+in A's owner-visible reply (the narration above the tool calls), in commit `d661e4a`, whose diff is visible in A's
+transcript, and in A's earlier Stage 2 rerun reports. C kept it out of everything the owner sees. The owner's
+observation of the checkout text is therefore recorded as **not blind**. It cannot corroborate the source prediction,
+which rests only on `CheckoutNative.tsx:379–384` and the absence of any logged setup re-run. **Lesson for A:** a blind
+expectation goes only to the other verifier, never into owner-visible narration or committed files, until the owner has
+reported.
