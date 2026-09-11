@@ -1268,3 +1268,7 @@ Sign/PutKeyPolicy/ScheduleKeyDeletion/DisableKey/CreateGrant/CreateAlias/PutRole
 Mutation ledger (C5 total): `catalog.platform_config` +2 versions (fingerprint v2 by the approver path; monitor_enabled v2 direct); `kernel.approval_request` 1 row (approved); `kernel.admin_audit` 3 rows. No AWS, secret, edge, flag, or signing change.
 **Mac 2 post-arm read-back (OWNER-RETURNED, independent, 2026-09-11):** monitor v2 `true`; fingerprint v2 = exact D5; audit proposal (A) → approval (B) → config change (A); invariant alert rows 0;
 request `approved`, distinct approver `true`. **C5 COMPLETE — all items closed.** C6 remains review-only; C6 review handoff prepared next (no execution authorized).
+**C6 review handoff prepared (2026-09-11, not authorized):** `docs/release/PHASE2_PFA18C_C6_REVIEW_HANDOFF.md` — prerequisites P1–P11 with live status (C5 done; 121 optional; deploy source: the four function
+trees are byte-identical on `admin/operating-console @ 562fda9` and `feature/venue-native-and-product-v2 @ HEAD` — `credential-sign 8acff379…`, `door-manifest 9cd883d0…`, `door-session 910eef73…`,
+`_shared 20fda4a1…`; E2 `72d4e90` ancestor of both; CI deno-checks the signer modules), owner actions C6-1…C6-4 with secret-free read-back lines, coordinator read-backs (immediate and +24 h),
+Mac 2 checks (verifier AWS reads; Dashboard Option A), abort conditions, rollback order, T3 boundary, phrase "AUTHORIZE PFA-18C DARK DEPLOY". No execution.
