@@ -721,3 +721,56 @@ embeds is invalid off-production.
 
 **D7 stays open. D8 and D9 remain paused.** Nothing was recreated, retried or altered: the transfer row, the
 settled order and the payment are untouched, and no schema change was applied anywhere.
+
+## 19. Migration 123 applied to the sandbox — 2026-09-10
+
+Owner-authorized, **sandbox only** (`ofaidukbieeekqaboscm`). No production change, no venue acceptance, no
+mobile build. Executed via `scripts/release/apply_123_transfers_fk_sandbox.sh`.
+
+### Preflight (unchanged from the earlier dry run)
+
+```
+baselines:   transfers=31  payments=46  listings=47  profiles=7  ledger=129
+fk targets:  transfers_buyer_id_fkey -> auth.users  |  transfers_seller_id_fkey -> auth.users
+orphans:     0
+ledger 123:  (absent)
+```
+
+### Apply
+
+Both constraints retargeted, each logging its own notice. Ledger row written once, no `ON CONFLICT`:
+`version=123  name=transfers_profiles_fk_parity  statements=1  chars=4950  md5=e34a675450ea76c4ed41a3ce43ce39f1`,
+matching the expected md5 exactly.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| V1 | both FKs → `profiles`, `upd=a del=a match=s validated=true deferrable=false` — production's exact shape |
+| V2 | `dispute_resolved_by` still → `auth`, untouched |
+| V3 | 5 foreign keys on `transfers`, unchanged |
+| V4 | RLS enabled, all 5 policies present |
+| V5 | transfers **31**, payments **46**, listings **47** — identical to preflight |
+| V6 | ledger **130** rows (129 + 1), `123` recorded exactly once |
+| V7 | ledger content matches the migration file by md5 |
+| **Buyer embed** | `seller:profiles!seller_id(display_name)` → **HTTP 200**, embed resolved (was 400 `PGRST200`) |
+| **Seller embed** | `buyer:profiles!buyer_id(display_name)` → **HTTP 200**, embed resolved |
+
+PostgREST picked the change up immediately; no schema-cache reload was needed.
+
+### Nothing financial moved
+
+`Device D3` still `sold` at 20:49:56; its payment still `succeeded`, **$110**, `paid_at` unchanged; its
+transfer still `pending` with **no payout id** and nothing released. Project-wide totals unchanged:
+19 succeeded payments, 4 transfers with a payout, 18 refund rows. The migration touched constraints only.
+
+### One expected cosmetic on the handset
+
+`seller.display_name` is **null** — the synthetic sandbox seller never had one set. The transfer screen may
+show a blank or placeholder seller name. That is data, not a defect, and must not be read as a failure of this
+fix.
+
+### Build 16 unchanged
+
+No mobile build was produced. The candidate stays pinned at `df9e0d3`; Claude C's corrected error copy is
+being reviewed separately and deliberately **not** combined with this verification.
