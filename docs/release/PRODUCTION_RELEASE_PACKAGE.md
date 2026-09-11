@@ -1082,7 +1082,12 @@ The window is short, so an honest **UNTESTED** is an expected outcome. No copy i
 
 A claim sent to Claude C during D9 planning — that nothing clears an expired buy-now hold, so a listing left
 `status='reserved'` stays hidden from browse indefinitely and spare reuse would need an authorised cleanup run —
-was **wrong**, and has been retracted with C. It was never put to the owner.
+was **wrong**, and has been retracted with C.
+
+> **Corrected 2026-09-11:** an earlier version of this line said the claim "was never put to the owner". That was
+> false. Claude C had independently "verified" it — by the same command-text search — and relayed it to the owner
+> as verified, including scoring criterion (b) and the idea that spare reuse needs owner authorisation. C has
+> withdrawn it in the incident record and is correcting it with the owner directly.
 
 **How it went wrong:** the check searched `cron.job` commands for the text "reservation", found none, and stopped.
 That missed an **indirect** call.
@@ -1145,3 +1150,23 @@ reserved row whose `reserved_until` is more than ~4 minutes in the past (no succ
 **Lesson recorded:** three misses in this thread shared one cause — text search standing in for reading the live
 definition (command text instead of function bodies, twice; a case-sensitive grep once). Verification of
 database behaviour reads `pg_get_functiondef` from the target catalog.
+
+
+### Owner-facing correction status (2026-09-11)
+
+C independently re-verified the corrected facts on the sandbox at 02:14Z: `auto-finalize-auctions` runs `*/2`,
+active, calling the SQL function directly (not over HTTP); 30 runs in the last 60 minutes, all succeeded, latest
+ending 02:14:00Z; `auto_finalize_expired_auctions()` performs `cleanup_expired_reservations()`; zero reserved rows at
+that moment. C's incident record now withdraws criterion (b) and the authorisation requirement, with the reason, and
+adopts the corrected criterion. **Two statements were given to the owner and are withdrawn:**
+
+1. that an expired-but-uncleared hold counts as "cleared" for scoring, and
+2. that reusing a spare listing needs the owner to authorise a cleanup run.
+
+**What is true:** a lapsed hold clears within one 2-minute tick in both environments; an uncharged spare restores
+itself with no authorisation; the anomaly is a reserved row more than ~4 minutes past its window with no succeeded
+payment. Unchanged and still true: browse hides reserved rows, and `reserve_buy_now`'s per-buyer sweep clears prior
+unpaid holds on the next Buy Now, so each stage's listing is read before the next Buy Now.
+
+C's production catalog reads are blocked in its session, so the production md5 comparison is recorded as A-reported,
+not independently verified.
