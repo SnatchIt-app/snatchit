@@ -1,5 +1,5 @@
 -- ============================================================================
--- 122_transfers_profiles_fk_parity.sql — restore transfers↔profiles FK parity.
+-- 123_transfers_profiles_fk_parity.sql — restore transfers↔profiles FK parity.
 --
 -- THE DRIFT. Production carries
 --   transfers_buyer_id_fkey  FOREIGN KEY (buyer_id)  REFERENCES public.profiles(id)
@@ -38,8 +38,8 @@
 -- bids today, so it is latent; it is reported rather than fixed here because
 -- this change was scoped to transfers.
 --
--- Rollback: supabase/rollbacks/122_transfers_profiles_fk_parity_rollback.sql
--- Verification: supabase/tests/190_transfers_profiles_fk_parity.sql
+-- Rollback: supabase/rollbacks/123_transfers_profiles_fk_parity_rollback.sql
+-- Verification: supabase/tests/191_transfers_profiles_fk_parity.sql
 -- ============================================================================
 begin;
 
@@ -49,7 +49,7 @@ declare
   v_orphan_seller bigint;
 begin
   if to_regclass('public.transfers') is null or to_regclass('public.profiles') is null then
-    raise exception '122: public.transfers or public.profiles is absent — refusing';
+    raise exception '123: public.transfers or public.profiles is absent — refusing';
   end if;
 
   select count(*) into v_orphan_buyer
@@ -62,7 +62,7 @@ begin
      and not exists (select 1 from public.profiles p where p.id = t.seller_id);
 
   if v_orphan_buyer > 0 or v_orphan_seller > 0 then
-    raise exception '122 REFUSED — orphaned references: buyer=%, seller=%. Reconcile the rows first; this migration will not drop a live constraint and leave the table unprotected.',
+    raise exception '123 REFUSED — orphaned references: buyer=%, seller=%. Reconcile the rows first; this migration will not drop a live constraint and leave the table unprotected.',
       v_orphan_buyer, v_orphan_seller;
   end if;
 
@@ -78,9 +78,9 @@ begin
       add constraint transfers_buyer_id_fkey
       foreign key (buyer_id) references public.profiles(id)
       match simple on update no action on delete no action;
-    raise notice '122: transfers_buyer_id_fkey retargeted to public.profiles(id)';
+    raise notice '123: transfers_buyer_id_fkey retargeted to public.profiles(id)';
   else
-    raise notice '122: transfers_buyer_id_fkey already targets public.profiles(id) — no change';
+    raise notice '123: transfers_buyer_id_fkey already targets public.profiles(id) — no change';
   end if;
 
   -- seller_id
@@ -95,9 +95,9 @@ begin
       add constraint transfers_seller_id_fkey
       foreign key (seller_id) references public.profiles(id)
       match simple on update no action on delete no action;
-    raise notice '122: transfers_seller_id_fkey retargeted to public.profiles(id)';
+    raise notice '123: transfers_seller_id_fkey retargeted to public.profiles(id)';
   else
-    raise notice '122: transfers_seller_id_fkey already targets public.profiles(id) — no change';
+    raise notice '123: transfers_seller_id_fkey already targets public.profiles(id) — no change';
   end if;
 end $$;
 

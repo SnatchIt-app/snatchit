@@ -1,7 +1,7 @@
 -- ============================================================================
--- 190_transfers_profiles_fk_parity.sql — migration 122 (transfers↔profiles FK).
+-- 191_transfers_profiles_fk_parity.sql — migration 123 (transfers↔profiles FK).
 --   (187 my_tickets_read = release candidate; 188 venue_api = venue slice 1;
---    189 manifest signing context = PR #58. 190 is the next free number.)
+--    189 = PR #58; 190 is reserved for Claude B's migration 122. 191 is next free.)
 --
 -- Asserts the SHAPE production carries, read read-only on 2026-09-10:
 --   buyer_id / seller_id -> public.profiles(id), NO ACTION on update and
