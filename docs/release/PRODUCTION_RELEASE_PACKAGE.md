@@ -1632,3 +1632,22 @@ the owner: two taps about 3 s apart, with the hold-released line possibly shown 
   - *Owner decisions.* Severity, and whether it gates release.
 - **Stage 3 (Device D8):** unaffected; Device D8 is unchanged. If a similar end state appears, the owner goes back after
   verification rather than tapping Try Again.
+
+**C's independent cross-check of the rerun** (C read Stripe at 03:30:14Z and the database at 03:30:08Z) matches A on
+every fact and on the D9-UX-1 root cause. Four points from the exchange:
+- **Confirmed by A:** the `create-payment-intent` stage lines are `payments-lookup` count 1 `["failed"]`, then
+  `pi-created` `pi_3UEL2L…`, then `db-insert-ok`. There are no retire, amount-mismatch or canceled-intent lines, and no
+  `payment_intent.canceled` event since 02:50:46Z. So: a fresh intent and no L1.
+- **Added by A to C's reasoning:** the setup effect's dependencies alone cannot rule out a remount. The recurring-mount
+  query did not recur, and `useAuth` never flips `loading` back, so the two re-runs are Try Again presses.
+- **Deviations recorded (two):** the rerun began before the first attempt's X close was verified, and the challenge
+  page was reloaded.
+- **Classification, proposed by A and C and pending the owner's acceptance:**
+  - Stage 2 (rerun) PASS on payment safety.
+  - D9-UX-1 recorded as a recovery defect found in D9, not a payment failure.
+  - Device D7 is not retried.
+  - Stage 3 on Device D8 follows the owner's acknowledgment and a fresh baseline.
+
+**Correction.** A earlier stated it had no Stripe access. That was wrong: the local Stripe CLI (read-only, sandbox
+account) was available. The Stripe facts for Stage 1 and the first Stage 2 attempt rest on C's reads and have not been
+re-read by A.
