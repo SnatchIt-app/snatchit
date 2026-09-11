@@ -1517,3 +1517,41 @@ If `updated_at` moves, or `confirm-payment` reports verified, stop and flag it.
 **Spares.**
 - **Device D7:** only a `failed` row, so a rerun mints a fresh intent with no reuse and no cancel.
 - **Phone P1:** carries `919d511e`'s pending `pi_3UEKY6…`, so a rerun reuses it only while the total matches.
+
+### D9 Stage 2 classified UNTESTED; rerun sequencing (2026-09-11)
+
+**Owner answers (via C).**
+1. Complete was **not** tapped while offline.
+2. After reconnecting, the owner tapped Done to close the Stripe page.
+3. Airplane Mode went on as soon as the Stripe page loaded.
+
+These fit the evidence: `requires_action` at 03:10:46Z (C's Stripe read), the last handset request at 03:10:55.362,
+reconnection by 03:11:36–45, and the authentication failure at 03:11:57Z.
+
+**Classification: D9b UNTESTED (missed window), not a failure.** Complete was never submitted while offline. Device D7
+becomes the spare.
+
+**Recorded separately, not scored as D9b.** An open challenge survived about 30 s offline. Done after reconnecting
+produced the D6-style authentication failure:
+- no charge;
+- a payable sheet;
+- no success claimed;
+- a path 3 release of the owner's own hold.
+
+**X close (online).** As of A's read at 03:21:47Z, it had not reached the server:
+- no `confirm-payment` call, and no non-GET handset request since 03:13:00Z;
+- Device D7 `updated_at` still 03:11:58.102968.
+
+The prediction stands: a reachable, unverified confirm, then a handset release with no UPDATE. If X was tapped while
+still offline, neither call happens, which is also designed behaviour.
+
+**Rerun sequencing.** C recommends rerunning Stage 2 on Device D7 before Stage 3, and A agrees.
+1. **Verify the X close first.** Device D7's `updated_at` must be read before the rerun's Buy Now, which will move it.
+2. **Expected server path on the rerun:** `reserve_buy_now`, then `create-payment-intent` with `payments-lookup` count 1
+   (`[failed]`), then `pi-created` for a new intent. The idempotency key is salted by the failed attempt. There is no
+   retire and no cancel, so no L1. A logged cancel or `reuse-rejected-amount-mismatch` stops the stage.
+3. **Timing emphasis for the owner:**
+   - Wait until the challenge page shows its Complete button.
+   - Then turn on Airplane Mode, with the Wi-Fi symbol confirmed gone.
+   - Tap Complete once while offline, even if nothing visibly happens, and note what the page shows.
+   - Wait 30 s, reconnect, tap Done or X if open, and stay on checkout.
