@@ -1215,3 +1215,62 @@ backstop. It is not a defect and must **not** be scored as a failed release.
 "may prompt the owner first". Both suggested a report field for a declined release prompt. That was written before
 `reservationExit.ts` was read, and it is wrong: path 2 has no UI. A retracted it to C and asked C to retract anything
 already relayed to the owner.
+
+### D9 Stage 1 readiness, attribution evidence, and two latent release gaps (2026-09-11)
+
+**Readiness snapshot (sandbox, 02:27Z; read-only).**
+- **Listings.** Phone P1 `c343406e`, Device D7 `b1c3c478` and Device D8 `58cc00e3` are all `active`/`active`, with no
+  reservation and a future `ends_at`. D7 and D8 have no payments.
+- **Phone P1's leftover row.** Phone P1 still carries buyer `1fcd0c69`'s pending row `3a546cf3` (`pi_3UDGNF…`, total
+  11000 cents), created 2026-09-08.
+- **Account.** The newest sandbox session belongs to `919d511e`, the account behind every Build 16 handset payment since
+  2026-09-10.
+
+**Expected Stage 1 side effect.** If Stage 1 runs as `919d511e`, loading checkout on Phone P1 should run
+`create-payment-intent`'s other-buyers retire (`index.ts:588`, at `df9e0d3`), which cancels `pi_3UDGNF…`. This emits at
+most one `payment_intent.canceled` event and moves `3a546cf3` from `pending` to `failed`. The webhook then calls
+`release_reservation(P1, 1fcd0c69)`, which is a no-op because `919d511e` owns the hold.
+
+This is the designed retirement, not a release of the owner's hold. The sandbox already shows the pattern on `9c6eecd4`:
+a `canceled` event at 20:58:36.63Z, 80 ms before `919d511e`'s payment row, and that payment succeeded.
+
+If the handset account is instead `1fcd0c69`, Stage 1 stops for A. The reuse path is expected, since 11000 cents matches
+Build 16's $110 total for a $100 listing, but the intent has not been checked at Stripe.
+
+**Attribution evidence sources.**
+- `public.stripe_webhook_events` holds no PaymentIntent or listing column.
+- `payments.failed_at` was null on every failed row in the last 3 days; neither the webhook nor the retire code sets it.
+- `create-payment-intent` emits `payment_intent.canceled` itself, from three sites:
+  - the other-buyers retire (`:588`);
+  - the refused-buyer retire (`:421`);
+  - the amount-mismatch cancel (`:633`).
+- `stripe-webhook` logs "release_reservation succeeded" with the `listing_id` even when the RPC is a no-op.
+
+Path 3 therefore needs function logs per stage: the retire `logStage` from `create-payment-intent` (payment row and PI id)
+and the release line from `stripe-webhook`. An event row or that log line alone does not prove a release.
+
+**Route facts (`df9e0d3`; appearance on the handset not asserted).**
+- `listing/[id]` and `checkout/[id]` are root-Stack siblings of `(tabs)` (`app/_layout.tsx:123–129`), so the tab bar is
+  not reachable from either screen without leaving it first.
+- Checkout "Go back" (`CheckoutNative.tsx:526`) returns to the listing, and the hold is kept.
+- Listing back (`ListingDetailScreen.tsx:1120`) goes to Home, where path 2 may fire.
+- The result view's button (`CheckoutNative.tsx:702–708`) calls `router.replace`. Source does not establish whether it
+  removes the listing screen underneath.
+
+**Latent gap L1 — same-buyer cancel race** (not observed; owner decision; Build 16 unchanged).
+- **Where.** `create-payment-intent`'s amount-mismatch branch cancels the buyer's own pending PI at Stripe (`:633`)
+  *before* retiring the row (`:646–650`). By that point the buyer holds a live hold (`:412` refuses otherwise).
+- **Failure.** If the `canceled` webhook claims the still-`pending` row first, `release_reservation(listing, same
+  buyer)` releases the buyer's **live** hold.
+- **Trigger.** A seller re-prices between the same buyer's attempts.
+- **Stage 1 exposure.** Not reachable in Stage 1: Phone P1's amount matches, and `919d511e` does not own the row.
+
+**Latent gap L2 — `release_reservation` has no succeeded-payment guard** (not observed; owner decision; Build 16
+unchanged).
+- **The gap.** `cleanup_expired_reservations` and the per-buyer sweep both skip a listing that holds a `succeeded`
+  payment (N1). Live `release_reservation` (md5 `1f447dd5…`) checks only `sold` and hold ownership, and path 2 checks
+  only the cached listing state.
+- **Failure.** Leaving the listing screen after a payment succeeded, but before the listing reads `sold`, could release
+  a paid order's hold.
+- **Guard proposed to C.** After any attempt that may have been paid, the owner stays off the listing exit until a
+  verifier confirms the listing is `sold` or the payment did not succeed.
