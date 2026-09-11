@@ -1555,3 +1555,80 @@ still offline, neither call happens, which is also designed behaviour.
    - Then turn on Airplane Mode, with the Wi-Fi symbol confirmed gone.
    - Tap Complete once while offline, even if nothing visibly happens, and note what the page shows.
    - Wait 30 s, reconnect, tap Done or X if open, and stay on checkout.
+
+### D9 Stage 2 rerun (D9b, Device D7): verification, and defect D9-UX-1 traced (2026-09-11)
+
+**Owner report (to A directly).**
+- The challenge was open. Airplane Mode was on, with Wi-Fi off.
+- The owner tapped **Complete while offline**, and the challenge stayed on its stale screen.
+- After reconnecting, the owner **reloaded** the page, then tapped back to the PaymentSheet. It showed "Processing",
+  then "Pay $110".
+- After closing the sheet, checkout displayed exactly: "Your reservation has expired. Please go back and reserve again."
+- The Try Again button appeared to do nothing. No second Pay.
+
+The owner asked A to treat the expired copy and the inactive Try Again control as a potential D9 defect until traced.
+
+**Stripe.** A read it with the local Stripe CLI: read-only, account `acct_1T6Fb1GlD5aqtxIw` (sandbox, test mode), output
+filtered to exclude client secrets.
+- **Intent:** `pi_3UEL2L…` (Device D7, `919d511e`, `buy_now`, 11000) is `requires_payment_method`. Nothing received,
+  no `latest_charge`, `last_payment_error` = `payment_intent_authentication_failure`.
+- **Events:** created 03:22:01Z, `requires_action` 03:22:11Z, `payment_failed` 03:23:20Z.
+- **Charges:** the newest charge on the account is from 01:18:59Z, so there was no charge in Stage 2 or its rerun.
+
+**Database (03:30:58Z).**
+- **Device D7:** `active`/`active`, no hold, `updated_at` 03:23:21.876063. Rows `a79d6fe4` (`pi_3UEKqq…`) and
+  `9a3dd888` (`pi_3UEL2L…`) are both `failed`. 0 transfers.
+- **Device D8 and Phone P1:** unchanged.
+- **Globals:** payments 50, transfers 33, succeeded 21, multi-succeeded 0, pending 3, reserved 0.
+- **Webhooks:** one event, `evt_3UEL2L…` `payment_failed` (received 03:23:21.717, processed, 1 attempt). 0 retries.
+- **Cron:** `auto-finalize-auctions` ran every 2 min from 03:20 to 03:30; every run succeeded.
+
+**Timeline** (handset = `SnatchIt/16`, `919d511e`).
+
+| UTC | Event |
+|---|---|
+| 03:21:54.9 → 55.025 | First attempt's X close: `confirm-payment` "not succeeded" (`pi_3UEKqq…`), then handset `release_reservation`. A no-op: Device D7 had been active since 03:11:58 with no reserve before 03:21:57.58 (the `updated_at` proof was lost because the rerun began 2.5 s later) |
+| 03:21:57.580 | `reserve_buy_now` — hold taken, would expire ≈03:31:58 |
+| 03:21:58.450 | F1 summary query 400 (mount) |
+| 03:21:58.458 / .623 | Setup pre-check #1 (settled-payment lookup; listing hold) — the hold is the buyer's |
+| 03:21:59–22:01.6 | `create-payment-intent`: `payments-lookup` count 1 `[failed]`, `pi-created` `pi_3UEL2L…`; no retire or cancel, so no L1 |
+| 03:21:58.6 → 03:22:56.9 | no handset REST requests; reconnected by 03:22:56.9 |
+| 03:23:20Z | Stripe authentication failure, after the reload and return |
+| 03:23:21.573–.957 | `stripe-webhook`: claim; PATCH 200; `release_reservation` 03:23:21.844 (UPDATE 03:23:21.876), **8½ min before expiry** |
+| 03:23:23.9 → 24.062 | Rerun X close: `confirm-payment` "not succeeded", then handset `release_reservation`. A **proven no-op**: `updated_at` did not move |
+| 03:23:25.798 / 26.202 | Setup pre-check #2: no hold, so `reservation_expired`; no intent created |
+| 03:23:28.511 / 28.858 | Setup pre-check #3: the same refusal |
+
+**Defect trace: D9-UX-1** (`df9e0d3`).
+1. Closing the sheet runs `releaseAbandonedHold` (`CheckoutNative.tsx:364–386`). It sets `paymentReady=false` and the
+   error "Your hold was released. Please go back and reserve again."
+2. `payControl.ts:40` maps any `paymentError` to **"Try again"** with action `retry`. `CheckoutNative.tsx:517` wires
+   retry to `setupPaymentRef.current()`.
+3. Each Try Again re-runs `setupPayment`. `decideCheckoutSetup`'s `holdIsMine` fails because the listing is `active`,
+   so it returns `reservation_expired` (`setupDecision.ts:87`). `CheckoutNative.tsx:228` then sets "Your reservation
+   has expired…", replacing the hold-released line.
+4. The control stays "Try again". Setup never re-reserves, so every tap repeats the refusal and appears to do nothing.
+
+Pre-checks #2 and #3 are the owner's two Try Again taps. They are not remounts: the mount-time summary query
+(`CheckoutNative.tsx:133–158`, always 400 in the sandbox) did not recur. They are not automatic re-runs either:
+`useAuth` only ever sets `loading` to false (`useAuth.ts:69`, `:90`), so the setup effect cannot re-fire. Blind check for
+the owner: two taps about 3 s apart, with the hold-released line possibly shown briefly before the first.
+
+**Assessment.**
+- **D9b, money and state: PASS on the interruption question** (A's recommendation; the owner decides).
+  - The offline Complete never authorized, and there was no charge, no false success, and no second intent.
+  - Path 3 released the hold correctly, and setup's refusals were correct.
+  - The reload deviation did not change the Stripe outcome.
+- **Path 1 online ran twice, as designed:** confirm first, then release. Both releases were no-ops because path 3 had
+  already released the hold. A path-1 release of a **live** hold while online remains unexercised.
+- **D9-UX-1: open. UX defect, not payment integrity.** Checkout conflates "hold released" with "reservation expired":
+  `setupDecision` has one `reservation_expired` kind for any hold that is not the buyer's live hold. Once the hold is
+  gone, it offers a live "Try again" that cannot recover without re-reserving. The copy says "go back"; the button says
+  "try again".
+  - *Scope.* Not interruption-specific: reachable after any authentication failure or cancel whose release lands before
+    the retry.
+  - *Fix direction* (after the matrix, not in Build 16): distinguish released from expired in the copy, and replace the
+    retry with a go-back or re-reserve action once the hold is gone.
+  - *Owner decisions.* Severity, and whether it gates release.
+- **Stage 3 (Device D8):** unaffected; Device D8 is unchanged. If a similar end state appears, the owner goes back after
+  verification rather than tapping Try Again.
