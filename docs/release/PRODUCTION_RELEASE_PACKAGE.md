@@ -1651,3 +1651,18 @@ every fact and on the D9-UX-1 root cause. Four points from the exchange:
 **Correction.** A earlier stated it had no Stripe access. That was wrong: the local Stripe CLI (read-only, sandbox
 account) was available. The Stripe facts for Stage 1 and the first Stage 2 attempt rest on C's reads and have not been
 re-read by A.
+
+**Evidence-hygiene notes (C, acknowledged by A).**
+- **The blind check on Try Again presses is compromised.** Before A's blind check arrived, C's report to the owner asked
+  "Did you tap Try Again twice?" and said the hold-released line likely showed first. The owner's answers on those two
+  points are prompted and cannot corroborate the trace. The attribution of the two setup re-runs to presses rests on the
+  logs and source alone:
+  - two pre-check pairs;
+  - the mount-time query did not recur;
+  - `useAuth` never flips `loading` back.
+- **C overstated path-1 coverage, and has corrected it.** C's record and owner report had called the rerun's closes
+  "the close path Stage 1 couldn't test". Path 1 online ran twice, but both releases were no-ops after path 3. A path-1
+  release of a **live** hold while online remains unexercised.
+- **Stage 3 protocol.** C alone issues handset steps. Stage 3 on Device D8 waits for the owner's acceptance of the
+  Stage 2 classification. C then takes a fresh baseline immediately before issuing one procedure, including "go back,
+  not Try Again". If the owner's acknowledgment reaches A first, A forwards it to C.
