@@ -159,7 +159,9 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **RESUMED** | D2 and D5 passed on build 16, plus a second 3-D Secure completion on `Device D2`; **D6 not yet run** (§17); D6–D11 outstanding | Claude C |
+| **Handset QA — 11 cases on the preview build** | **D7 OPEN, D8/D9 paused** | D2, D5, D6, D6b passed on build 16; D7's "Transfer not found" traced to sandbox schema drift, not an app defect (§18) | Claude C |
+| **Sandbox↔production FK drift on `transfers`** | **OWNER DECISION** | the repo chain builds `transfers.buyer_id/seller_id → auth.users`; production has `→ profiles`. Breaks PostgREST embeds in every environment built from the chain (§18) | release integration |
+| **False "Transfer not found" copy** | **IMPLEMENTATION NEEDED** | a 400 schema error is reported to the user as a missing record (§18) | Claude C |
 | **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
@@ -647,3 +649,75 @@ extra on the same listing.
 
 `Device D1` stays reserved for **D8**, `Phone P1` for **D9**. Device D2, D3, D4 and D5 payments are settled
 and must not be retried or modified.
+
+
+## 18. D7 — "Transfer not found" is sandbox schema drift, not an app defect (2026-09-10)
+
+`Device D3`'s order shows **Paid $110** and the sold listing correctly offers no Buy Now. Tapping **View
+transfer** shows **"Transfer not found"** — while the transfer plainly exists. Traced against the pinned
+build 16 source (`df9e0d3`).
+
+### The trace
+
+Routing is correct. `ListingDetailScreen` sends a buyer to `/transfer/receive/<id>` and a seller to
+`/transfer/send/<id>`, and `transferId` is populated by a query that succeeds (which is why the button
+appears at all).
+
+The receive screen then runs:
+
+```
+.from('transfers')
+.select('… seller:profiles!seller_id(display_name), listing:listings!listing_id(event_name, ticket_platform)')
+.eq('id', id).eq('buyer_id', userId).single()
+```
+
+Reproduced as the real signed-in buyer against the sandbox:
+
+| Probe | Result |
+|---|---|
+| **A** — the exact query, both embeds | **HTTP 400**, `PGRST200`: *"Searched for a foreign key relationship between 'transfers' and 'profiles' using the hint 'seller_id' … but no matches were found."* |
+| **B** — identical query **without** the `profiles` embed | **HTTP 200**, full row returned: `status=pending`, listing embed resolves |
+| **D** — the seller's send-screen shape (`buyer:profiles!buyer_id`) as the seller | **HTTP 400**, same `PGRST200` |
+| **E** — buyer reading the seller's `profiles` row directly | **HTTP 200** |
+
+So it is **not a missing record** (B returns it), **not an authorization failure** (RLS is never reached —
+the request dies in schema-cache relationship resolution, and E shows the buyer may read profiles anyway),
+and **not a loading error**.
+
+### The actual cause — environment drift, and the app is right
+
+| Environment | `transfers.buyer_id` / `seller_id` |
+|---|---|
+| **Production** | `REFERENCES profiles(id)` |
+| **Sandbox** and every fresh replay of the repo chain | `REFERENCES auth.users(id)` |
+
+**The app code is correct and works in production.** The embeds are unresolvable only in environments built
+from the repo's migration chain. The embeds date to the **initial commit** and are present at the
+pre-convergence base `10ad9e42` — this is neither a regression from the convergence, nor from the v2 UI, nor
+from any D5 work.
+
+**The finding therefore inverts:** D7 does not indict build 16. What it exposes is that **the repo's migration
+chain does not reproduce production's schema** on these two constraints — the class of gap the Phase-0 note
+warns about with "main reproduces prod ~99%". Any environment built from the chain — the sandbox, CI's fresh
+DB, the local rehearsal — differs from production here, so any QA or parity assertion that leans on those
+embeds is invalid off-production.
+
+### Two separable defects
+
+1. **Schema fidelity (owner decision).** A migration aligning the chain's FK targets to production's
+   `profiles(id)` would be a **no-op against production** and would fix every fresh environment. It touches an
+   applied table, so it needs its own authorization, and it must be **proved a no-op against production before
+   apply** using the documented technique. The alternative is to accept the divergence and record it as a
+   known non-parity, but then the transfer screens can never be QA'd outside production.
+2. **False copy (app, implementation needed).** `app/transfer/receive/[id].tsx:90` and
+   `app/transfer/send/[id].tsx:86` map **every** non-network error to the literal `'Transfer not found'`. A
+   400 schema error is thus reported to the user as a missing record. Under this release's own principle —
+   never state a failure that did not happen — these should separate `PGRST116` (no row, or not yours) from a
+   request/schema error, which should surface its own distinct message. This mis-mapping is what disguised an
+   environment gap as missing data for an entire QA cycle, and it is worth fixing regardless of how the FK
+   question is decided.
+
+### Status
+
+**D7 stays open. D8 and D9 remain paused.** Nothing was recreated, retried or altered: the transfer row, the
+settled order and the payment are untouched, and no schema change was applied anywhere.
