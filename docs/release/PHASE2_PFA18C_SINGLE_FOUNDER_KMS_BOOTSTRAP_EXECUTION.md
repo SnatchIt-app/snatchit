@@ -1272,3 +1272,10 @@ request `approved`, distinct approver `true`. **C5 COMPLETE — all items closed
 trees are byte-identical on `admin/operating-console @ 562fda9` and `feature/venue-native-and-product-v2 @ HEAD` — `credential-sign 8acff379…`, `door-manifest 9cd883d0…`, `door-session 910eef73…`,
 `_shared 20fda4a1…`; E2 `72d4e90` ancestor of both; CI deno-checks the signer modules), owner actions C6-1…C6-4 with secret-free read-back lines, coordinator read-backs (immediate and +24 h),
 Mac 2 checks (verifier AWS reads; Dashboard Option A), abort conditions, rollback order, T3 boundary, phrase "AUTHORIZE PFA-18C DARK DEPLOY". No execution.
+**C6 preparation (2026-09-11T02:0xZ, owner-directed; not authorized):** 121 deferred to A's integration; isolated checkout `snatchit-c6deploy` detached at `562fda9` (clean; tree hashes
+`8acff379…/9cd883d0…/910eef73…/20fda4a1…` = reviewed; link markers mirrored); ExternalId file present, mode 600, principal = runtime user, 64-char value, format PASS (not printed); secret-name
+collision check: 18 existing, none of the ten E2 names present. **Inactivity controls verified from live sources (handoff rev 2 §1):** credential-sign — gateway JWT + getUser + fail-closed rate limit +
+`kernel.get_ticket_signing_context` owner gate (0 atoms; atoms only via `issue_ticket_atoms`, which raises `feature_disabled` while issuance is false); door-manifest — JWT + `has_venue_role` +
+open episode required (0 staff roles / orgs / venues / events / sessions / manifests); door-session — device + PIN + `DoorSession` bearer verified by `kernel.assert_door_session` (0 devices/PINs/sessions),
+never calls KMS. **Corrections recorded:** the scanning flag is NOT read by the door functions (not a control); door-session's header "PFA-26 parked" is stale — migration 107 un-parked
+`mint_door_session`. Handoff rev 2: exact six secret names, name-scoped rollback, accurate cleanup wording (no secure-erase claim; key revocable), final preflight F1–F10, owner steps C6-0…C6-4.
