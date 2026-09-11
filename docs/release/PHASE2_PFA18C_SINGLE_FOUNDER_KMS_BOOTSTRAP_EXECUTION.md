@@ -1259,3 +1259,10 @@ CLAUDE-OBSERVED 01:41:10Z: request **approved** at 01:39:50Z, `requested_by` fou
 `signing.expected_key_fingerprint` **v2 = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (effective 01:39:50Z, visibility `restricted` copied forward); audit trail
 `config.money_key_proposed` (A, 2026-09-10T19:59:17Z) → `config.money_key_approved` (B, 2026-09-11T01:39:50Z); pending requests 0; `signing.monitor_enabled` still **v1 false**;
 `expected_max_not_after` v1 null; checker `monitor_disabled`; alert rows 0; signing_key `1|1`; flags false. **C5-3 gate satisfied → C5-3 issued to the owner; Mac 2 read-backs issued.** Monitor NOT yet armed.
+**C5-3 DONE (OWNER-RETURNED, founder A, Mac 1): `{"key":"signing.monitor_enabled","status":"ok","version":2,"request_id":null}`, COMMIT (not re-run).**
+**C5-4 (CLAUDE-OBSERVED 01:49:35Z, `postgres`): `{"status":"ok","alerts":[],"fingerprint":"match","total_keys":1,"scoped_keys":0,"active_global":1,"rotating_keys":0,"revoked_keys":0,"max_not_after_set":false,"deduped":false}`**;
+alert rows 0; keys `expected_key_fingerprint@v2=D5`, `monitor_enabled@v2=true`, `expected_max_not_after@v1=null`; audit `config.change` (A, 01:47:34Z, `pfa18c_c5_arm`) after proposed/approved; cron
+`monitor-signing-key-invariants` active `23 5 * * *`; signing_key `1|1`; flags false; pending requests 0. AWS 01:49:55Z unchanged: key `Enabled ECC_NIST_P256 MultiRegion false`, 1 key / 0 aliases, 0
+Sign/PutKeyPolicy/ScheduleKeyDeletion/DisableKey/CreateGrant/CreateAlias/PutRolePolicy/CreateAccessKey since 2026-09-10T20:00Z, runtime user 0 events ever, access keys 0/0/0.
+**C5 COMPLETE (coordinator-verified)** — record `docs/release/PHASE2_PFA18C_C5_EXECUTION_RECORD.md`; Mac 2 final read-back issued (monitor v2 true; audit order; alert rows 0) and recorded on return.
+Mutation ledger (C5 total): `catalog.platform_config` +2 versions (fingerprint v2 by the approver path; monitor_enabled v2 direct); `kernel.approval_request` 1 row (approved); `kernel.admin_audit` 3 rows. No AWS, secret, edge, flag, or signing change.
