@@ -1787,3 +1787,21 @@ or a return-URL callback. **Not proven**, and no conclusion is drawn about the o
 - an accidental swipe.
 
 The classification does not depend on this. The owner is not asked again.
+
+**Post-verification recovery step (issued by C; no rerun).**
+1. Note the checkout text as it is, and tap nothing on checkout.
+2. Use the back arrow to reach the Device D8 listing, noting whether Buy Now shows. Do not tap it.
+3. Go to Home, then Orders, and confirm there is no Device D8 order.
+4. Report. C and A then run read-only checks that nothing moved.
+
+Leaving the listing cannot release anything. The listing screen refetched Device D8 as `active` at 03:59:18.953, after
+the 03:55:44.6 release, so path 2's gate is false; and there is no hold. Rerunning D9c, or leaving it untested, is the
+owner's decision, and neither verifier issues rerun steps unless the owner asks.
+
+**Blind expectation (A; not to be prompted).**
+- The 03:59:17–19 sequence is `releaseAbandonedHold`. Per `df9e0d3` `:379–384`, it sets "Your hold was released.
+  Please go back and reserve again." with a "Try again" control.
+- No setup re-run has been logged since 03:53:27.7.
+- So the source predicts that text, not "Your reservation has expired…". An expired-text report would imply an
+  unlogged setup run: check for log-ingestion lag or a remount first. If the app was relaunched, record whatever is
+  shown.
