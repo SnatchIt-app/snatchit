@@ -1,4 +1,4 @@
-# PFA-18C — C5 MONITOR ARMING EXECUTION RECORD — **COMPLETE (coordinator-verified 2026-09-11T01:49Z; Mac 2 final read-back recorded below when returned)**
+# PFA-18C — C5 MONITOR ARMING EXECUTION RECORD — **COMPLETE** (coordinator-verified 2026-09-11T01:49Z; Mac 2 independent read-back PASS, owner-returned 2026-09-11)
 
 **Authorization:** owner phrase **"AUTHORIZE PFA-18C MONITOR ARMING"** (2026-09-10), scoped to package §1 (`PHASE2_PFA18C_C5_MONITOR_ARMING_EXECUTION_PACKAGE.md`): `signing.expected_key_fingerprint` → D5 under dual control, `signing.expected_max_not_after` unchanged (null, D6), `signing.monitor_enabled` → true, first `kernel.check_signing_key_invariants()` must be `ok`/`match`. Owner confirmations: Option A for Mac 2; local rehearsal first (`PHASE2_PFA18C_C5_LOCAL_REHEARSAL_RECORD.md`, PASS). **Coordinator:** Claude B. **C18:** founder A ran C5-1 and C5-3 on Mac 1 (authenticated psql session with their own platform_admin claims); founder B personally ran C5-2 on Mac 2 in their own MFA/aal2 admin-portal session (token never left the browser); the coordinator read back only.
 **Not done:** no flag change (issuance/scanning false), no secret, no edge, no AWS change, no M5/T3.
@@ -30,7 +30,7 @@
 | C5-3 arm | founder A (Mac 1) | `{"key":"signing.monitor_enabled","status":"ok","version":2,"request_id":null}`, COMMIT | PASS |
 | C5-4 first check | coordinator | §1 | PASS |
 | Mac 2 pre-arm read-back | founder B / owner | *(not returned separately; the C5-2 result and the coordinator read-back cover v2 = D5 and the distinct approver)* | recorded as coordinator-verified |
-| Mac 2 final read-back | founder B / owner | **pending — issued 2026-09-11T01:5xZ** (monitor v2 true; audit order; alert rows 0) | pending |
+| Mac 2 final read-back | founder B / owner (Dashboard, Option A) | **OWNER-RETURNED 2026-09-11:** monitor `2 \| true`; fingerprint `2 \| D5` exact; audit order proposal (A) → approval (B) → config change (A); invariant alert rows `0`; request `approved`, distinct approver `true` — matches the coordinator read-backs | PASS |
 
 ## 3. Facts recorded
 - The setter's dual-control path (102) worked in production exactly as rehearsed: parked → second distinct platform_admin on aal2 → `applied_version 2`; the approver applied the version itself.

@@ -1266,3 +1266,5 @@ alert rows 0; keys `expected_key_fingerprint@v2=D5`, `monitor_enabled@v2=true`, 
 Sign/PutKeyPolicy/ScheduleKeyDeletion/DisableKey/CreateGrant/CreateAlias/PutRolePolicy/CreateAccessKey since 2026-09-10T20:00Z, runtime user 0 events ever, access keys 0/0/0.
 **C5 COMPLETE (coordinator-verified)** — record `docs/release/PHASE2_PFA18C_C5_EXECUTION_RECORD.md`; Mac 2 final read-back issued (monitor v2 true; audit order; alert rows 0) and recorded on return.
 Mutation ledger (C5 total): `catalog.platform_config` +2 versions (fingerprint v2 by the approver path; monitor_enabled v2 direct); `kernel.approval_request` 1 row (approved); `kernel.admin_audit` 3 rows. No AWS, secret, edge, flag, or signing change.
+**Mac 2 post-arm read-back (OWNER-RETURNED, independent, 2026-09-11):** monitor v2 `true`; fingerprint v2 = exact D5; audit proposal (A) → approval (B) → config change (A); invariant alert rows 0;
+request `approved`, distinct approver `true`. **C5 COMPLETE — all items closed.** C6 remains review-only; C6 review handoff prepared next (no execution authorized).
