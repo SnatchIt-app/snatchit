@@ -1173,26 +1173,45 @@ not independently verified.
 
 ### Hold-release taxonomy and evidence timing (2026-09-11)
 
-**Timing rule (Claude C).** After `reserved_until` plus one cron tick, an explicit release and a cron clear leave
-**identical** rows. Only a read taken **before** `reserved_until` distinguishes them. Inside the window, a row still
-`reserved` means no explicit release has happened; a row already `active` means an **explicit** release — never the
-cron, since `cleanup_expired_reservations` requires `reserved_until <= now()`. Both C (verification) and A
-(cross-check) therefore read each stage's listing as soon as the owner reports, and log the read time against
-`reserved_until`, before the next Buy Now.
+**Timing rule (Claude C; one word corrected by A).** After `reserved_until` plus one cron tick, an explicit release
+and a cron clear leave **identical** rows. Only a read taken **before** `reserved_until` distinguishes them. Inside the
+window:
+- A row still `reserved` means no explicit release **landed**. One may have been attempted and failed offline (see
+  *Offline behaviour*).
+- A row already `active` means an **explicit** release, never the cron. The live sandbox
+  `cleanup_expired_reservations` (md5 `0271dca2…`) requires `reserved_until <= now()`, plus the N1 succeeded-payment
+  guard.
 
-**Every explicit release path, verified against `df9e0d3`** (the sandbox's deployed `stripe-webhook` source is
-identical):
+Both C (verification) and A (cross-check) therefore read each stage's listing as soon as the owner reports. Each logs
+the read time against `reserved_until`, before the next Buy Now.
 
-| # | Caller | Trigger |
+**Every explicit release path, verified against `df9e0d3`.**
+- **Deployed webhook.** The sandbox `stripe-webhook` is deployed at version 3. Its `index.ts`, `_shared/sentry.ts` and
+  `_shared/stripe.ts` are byte-identical to `df9e0d3` (`index.ts`: 919 lines, md5 `d379c156…`).
+- **Live `release_reservation`** (md5 `1f447dd5…`). It returns early on `sold` and releases only a `reserved` hold
+  owned by the caller. For the service role, the caller is `p_user_id`.
+
+| # | Caller | Trigger and gate |
 |---|---|---|
-| 1 | `src/screens/checkout/CheckoutNative.tsx:372` | `releaseAbandonedHold`, on PaymentSheet `Canceled` |
-| 2 | `src/screens/ListingDetailScreen.tsx:201` | the listing detail screen's own release, via `src/lib/listing/reservationExit.ts` ("decides only whether to ASK") |
-| 3 | `supabase/functions/stripe-webhook/index.ts:398` | `payment_intent.payment_failed` **or** `payment_intent.canceled`, after marking the row `failed` where status is not succeeded/refunded |
-| 4 | `reserve_buy_now` per-buyer sweep (live lines 73–76) | the same buyer reserving any other listing — **excluded by procedure** (read before the next Buy Now), not by mechanism |
+| 1 | `src/screens/checkout/CheckoutNative.tsx:364–386` (`releaseAbandonedHold`, RPC at :372) | PaymentSheet `Canceled` on Buy Now. It calls `confirmPaymentSuccess` first. A verified payment settles instead of releasing. An **unreachable** backend returns **without releasing**. Only a reachable backend with no verified payment releases the hold. Source error text: "Your hold was released. Please go back and reserve again." What the handset renders is not asserted. |
+| 2 | `src/screens/ListingDetailScreen.tsx:186–207` (`beforeRemove` listener, RPC at :201) | The listing screen being **removed** (popped back toward Home). Pushing Checkout on top does not fire it. `shouldReleaseReservation` (`src/lib/listing/reservationExit.ts:33–40`) checks the **last-known client** listing state: status `reserved`, `reserved_by` = the user, no sale latched. **No UI and no prompt.** "ASK" in the file header means asking the server. The call is fire-and-forget, at most once per screen instance. |
+| 3 | `supabase/functions/stripe-webhook/index.ts:361–412` (RPC at :398) | `payment_intent.payment_failed` **or** `payment_intent.canceled`, with `metadata.mode === 'buy_now'`. It runs only after the payment row was claimed `failed` (status not succeeded or refunded). An unclaimable row returns before the release. |
+| 4 | `reserve_buy_now` per-buyer sweep (live lines 73–76) | The same buyer reserving any other listing. **Excluded by procedure** (read before the next Buy Now), not by mechanism. |
 
-**Attribution.** The row alone establishes only "explicit release". Which path released it needs corroboration: a
-`payment_failed`/`canceled` webhook event near the read time points to path 3; the owner's report of what they tapped
-points to paths 1 or 2. Because the D9 route back to Home passes through the listing detail screen, path 2 is
-reachable and may prompt the owner first. A declined release prompt leaves the hold in place and must **not** be
-scored as a failed release. `reservationExit.ts` is to be read before any in-window release is attributed to a
-specific component; its prompt text and trigger are not asserted here.
+**Offline behaviour.** Neither client path can release while the handset is offline.
+- Path 1 declines to release when the backend is unreachable.
+- Path 2's single fire-and-forget RPC fails with only a `console.warn`. Its latch prevents a retry on that screen
+  instance.
+
+After an offline cancel or exit, the hold staying `reserved` until `reserved_until` plus a cron tick is the designed
+backstop. It is not a defect and must **not** be scored as a failed release.
+
+**Attribution.** The row alone establishes only "explicit release"; which path released it needs corroboration.
+- A `payment_failed` or `canceled` webhook event near the read time points to path 3.
+- The owner's report of their taps points to path 1 (cancelling the sheet) or path 2 (leaving the listing back to
+  Home).
+
+**Correction (same day).** The first version of this section (commit `05b5451`) and A's first message to C said path 2
+"may prompt the owner first". Both suggested a report field for a declined release prompt. That was written before
+`reservationExit.ts` was read, and it is wrong: path 2 has no UI. A retracted it to C and asked C to retract anything
+already relayed to the owner.
