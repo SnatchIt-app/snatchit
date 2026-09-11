@@ -1350,3 +1350,42 @@ the logs, so each cause below is consistent with the evidence rather than read f
     targets `auth.users` (`000_baseline_schema.sql:144`), so the embed has no relationship to resolve, as in D7.
     Observed at 02:50:35.025.
   - *Status.* This is the recorded latent `bids_bidder_id_fkey` drift, now observed live on the listing screen.
+
+### D9 Stage 1: owner report complete, and the verdict (2026-09-11)
+
+**Owner report (via C).**
+- The Wi-Fi symbol was gone before tapping Pay.
+- Pay was tapped about 2 s after disconnecting.
+- The sheet showed "The internet connection appears to be offline." (SDK/iOS text, not app copy) and stayed open.
+- The owner closed the sheet **before** reconnecting. §23's order is reconnect first, then close, so this is a
+  deviation.
+- "No control returned me Home; I navigated Home manually."
+- Orders shows no Phone P1 order. Phone P1 is active, with Buy Now available.
+- No retry, no second attempt.
+
+**Reconciliation with the server evidence.** Every blind check holds.
+- **No "hold was released" line.** Closing the sheet offline made path 1 unreachable, so it returned without releasing
+  and set no line. This matches the absence of any `confirm-payment` call since 2026-09-10 23:42:53Z.
+- **The manual navigation removed the listing screen online.** The handset's `release_reservation` arrived at
+  02:52:27.107, alongside the Home-screen loads, and its UPDATE landed at 02:52:27.3676. So the owner reconnected
+  before leaving the listing screen.
+- **Reconnection by 02:52:24Z.** Handset requests resume at 02:52:24.282.
+- **Offline at Pay** is corroborated independently: no confirm reached Stripe (C's read), and the SDK showed its offline
+  text. The cut came after `create-payment-intent`'s response was served at 02:50:46.688.
+
+**Verdict: D9a PASS** (C verifies, A concurs).
+- Offline before confirm produced no charge and no succeeded payment. No success was shown and there was no retry.
+- The listing returned to buyable inside the window, released by path 2 at 02:52:27.107.
+
+**Not exercised in Stage 1:** path 1 online (the confirm-first release after reconnecting), because the sheet was closed
+while offline. This is recorded as **untested, not failed**. Phone P1 ended uncharged and is the spare for a missed
+window.
+
+**Carried into Stages 2 and 3.**
+1. **Reconnect before closing the sheet.** Per `df9e0d3`, closing while offline skips path 1's confirm-first check.
+   `releaseAbandonedHold` returns before `setPaymentReady(false)` and `runSettlement` just returns, so checkout keeps
+   its ready state. After a possibly paid attempt (D9c), the Pay control may still be offered, and the never-Pay rule
+   carries the safety.
+2. **Name the back arrow and the swipe.** The owner's manual navigation Home is exactly the path-2 trigger, so the L2
+   guard must name both, not only on-screen controls. After a possibly paid attempt, the owner stays on the screen
+   until a verifier confirms the result.
