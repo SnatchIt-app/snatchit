@@ -1170,3 +1170,29 @@ unpaid holds on the next Buy Now, so each stage's listing is read before the nex
 
 C's production catalog reads are blocked in its session, so the production md5 comparison is recorded as A-reported,
 not independently verified.
+
+### Hold-release taxonomy and evidence timing (2026-09-11)
+
+**Timing rule (Claude C).** After `reserved_until` plus one cron tick, an explicit release and a cron clear leave
+**identical** rows. Only a read taken **before** `reserved_until` distinguishes them. Inside the window, a row still
+`reserved` means no explicit release has happened; a row already `active` means an **explicit** release — never the
+cron, since `cleanup_expired_reservations` requires `reserved_until <= now()`. Both C (verification) and A
+(cross-check) therefore read each stage's listing as soon as the owner reports, and log the read time against
+`reserved_until`, before the next Buy Now.
+
+**Every explicit release path, verified against `df9e0d3`** (the sandbox's deployed `stripe-webhook` source is
+identical):
+
+| # | Caller | Trigger |
+|---|---|---|
+| 1 | `src/screens/checkout/CheckoutNative.tsx:372` | `releaseAbandonedHold`, on PaymentSheet `Canceled` |
+| 2 | `src/screens/ListingDetailScreen.tsx:201` | the listing detail screen's own release, via `src/lib/listing/reservationExit.ts` ("decides only whether to ASK") |
+| 3 | `supabase/functions/stripe-webhook/index.ts:398` | `payment_intent.payment_failed` **or** `payment_intent.canceled`, after marking the row `failed` where status is not succeeded/refunded |
+| 4 | `reserve_buy_now` per-buyer sweep (live lines 73–76) | the same buyer reserving any other listing — **excluded by procedure** (read before the next Buy Now), not by mechanism |
+
+**Attribution.** The row alone establishes only "explicit release". Which path released it needs corroboration: a
+`payment_failed`/`canceled` webhook event near the read time points to path 3; the owner's report of what they tapped
+points to paths 1 or 2. Because the D9 route back to Home passes through the listing detail screen, path 2 is
+reachable and may prompt the owner first. A declined release prompt leaves the hold in place and must **not** be
+scored as a failed release. `reservationExit.ts` is to be read before any in-window release is attributed to a
+specific component; its prompt text and trigger are not asserted here.
