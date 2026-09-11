@@ -159,9 +159,11 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **D7 OPEN, D8/D9 paused** | D2, D5, D6, D6b passed on build 16; D7's "Transfer not found" traced to sandbox schema drift, not an app defect (§18) | Claude C |
-| **Sandbox↔production FK drift on `transfers`** | **OWNER DECISION** | the repo chain builds `transfers.buyer_id/seller_id → auth.users`; production has `→ profiles`. Breaks PostgREST embeds in every environment built from the chain (§18) | release integration |
-| **False "Transfer not found" copy** | **IMPLEMENTATION NEEDED** | a 400 schema error is reported to the user as a missing record (§18) | Claude C |
+| **Handset QA — 11 cases on the preview build** | **D8 NEXT** | D2, D5, D6, D6b, **D7 all passed** on build 16; D8–D11 outstanding (§20) | Claude C |
+| **Sandbox↔production FK drift on `transfers`** | **RESOLVED in the sandbox** | migration **123** applied and verified (§19); still to ride the normal release path to production, where it is a proven no-op | release integration |
+| **`bids_bidder_id_fkey` drifts the same way** | **OWNER DECISION** | latent — no code embeds profiles off bids today (§18) | release integration |
+| **False "Transfer not found" copy** | **IN REVIEW, isolated** | Claude C's `5569385` splits not_found / offline / unavailable; one blocking copy change requested (§20) | Claude C |
+| **Legacy transfer screens → V2 design system** | **IN PROGRESS, isolated** | owner-requested; must not touch the pinned candidate (§20) | Claude C |
 | **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
 | **Build-13 legacy blob migration on a real device** | **OPEN — known gap** | never exercised on hardware; deleting build 14 cleared storage, so launch 1 was a fresh install (§13) | owner decision |
 | **D5 3-D Secure return + session fix** | **PASSED** | AEAD, re-entry and runtime crypto all reviewed and verified (§10, §12) | release integration |
@@ -774,3 +776,49 @@ fix.
 
 No mobile build was produced. The candidate stays pinned at `df9e0d3`; Claude C's corrected error copy is
 being reviewed separately and deliberately **not** combined with this verification.
+
+
+## 20. D7 CLOSED, and what is held aside (2026-09-10)
+
+### D7 — passed on unchanged Build 16
+
+After migration 123, **View transfer opens**: `Device D3`, **Pending**, mobile transfer, seller **"Unknown"**,
+and the delivery-info form. The order reads **Paid $110**; the sold listing offers **no Buy Now**. No delivery
+information was submitted and no delivery was confirmed.
+
+Verified server-side after the re-test: transfer still `pending`, `delivery_email` and `delivery_phone` both
+NULL, `buyer_confirmed_at` NULL, `seller_sent_at` NULL, no payout id. Counts unchanged — transfers **31**,
+payments **46**, listings **47**, ledger **130**. The re-test wrote nothing.
+
+Seller **"Unknown"** is the app rendering a null `display_name` gracefully; the synthetic sandbox seller never
+had one. Correct fallback, not a defect.
+
+**All four required D7 checks are satisfied** — order total, no Buy Now on the sold listing, the transfer
+opening with correct state, and no seller-only controls offered to the buyer. **D7 is closed.**
+
+Worth stating plainly: D7 was never an app defect. It was schema drift between the repo's chain and
+production, and the app was right the whole time.
+
+### D8 baseline, captured fresh
+
+`Device D1` — `086dd027-fcd2-4cec-86a5-d753b8b2efb4`, `active`, $100 (total $110), no reservation, 13d 22h
+left. Two payment rows: one `failed` (2026-09-08) and one **`pending`** (2026-09-10 17:43,
+`pi_3UEC0DGlD5aqtxIw1G3EBTRn`, which at Stripe is `requires_payment_method`, $110.00, **no charge**). Zero
+transfers, zero succeeded payments.
+
+**Interpretation note for D8:** because that pending row has a live, amount-matching intent,
+`create-payment-intent` will most likely **reuse** it rather than mint a new one — so this purchase may show
+**one** intent total, not two. On D2 and D3 the stale rows were superseded and cancelled instead. Either is
+correct; reuse must not be read as a duplicate-charge defect.
+
+### Held aside from this matrix
+
+Two branches, both owner-requested, both deliberately **outside** the pinned candidate:
+
+1. Claude C's `5569385` — splits `not_found` / `offline` / `unavailable` on the transfer screens. Structure
+   and tests accepted; one **blocking** copy change requested, because the `unavailable` body asserted "Your
+   tickets and payment are not affected" from a read that had just failed and therefore could not know it.
+2. The legacy buyer/seller transfer screens modernised onto the consumer V2 design system.
+
+Neither is to be merged into `release/convergence-135` while build 16's matrix is open. Both are reviewed and
+sequenced after QA closes.
