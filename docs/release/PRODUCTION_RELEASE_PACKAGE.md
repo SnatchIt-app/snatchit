@@ -837,9 +837,10 @@ paid 2026-09-11 01:05:12. So **one** intent for this purchase, not two.
 | Transfer | `pending`, **no payout id** |
 | Webhook retries | **0** |
 
-Reuse rather than supersede is correct behaviour and must not be logged as a duplicate charge. *Handset
-observation still outstanding — the server side is confirmed, the client-side reopen behaviour is not yet
-reported.*
+Reuse rather than supersede is correct behaviour and must not be logged as a duplicate charge.
+
+> **Correction (2026-09-11):** the note that originally stood here — "handset observation still outstanding" —
+> was wrong. The owner had already closed D8; see §22.
 
 ### D9 attempt on `Device D6` — a completed payment, NOT a D9 pass
 
@@ -893,3 +894,102 @@ testable there).
 sheet. The confirm then fails with **no charge at all**. 100% reproducible, needs no timing, and it tests a
 real and different path: the app must show a calm, retryable error rather than an alarming one, and must leave
 the listing buyable. Worth running regardless of how D9 goes, and it consumes no listing.
+
+
+## 22. Record reconciliation, listing readiness, and the D9 procedure design (2026-09-11)
+
+### D8 — CLOSED (corrected record)
+
+Handset, after force-quit and relaunch on `Device D1`: listing **sold**, **Buy Now gone**, Orders showed
+**Purchased / Add transfer info**. §21 wrongly listed the handset observation as outstanding; D8 is closed.
+
+Settlement-source evidence, which the earlier record lacked:
+
+| Event | Time (UTC) |
+|---|---|
+| Stripe `payment_intent.succeeded` `evt_3UEC0D…15XAw03P` created | 01:05:10 |
+| sandbox `stripe_webhook_events` received | 01:05:11.517 |
+| `payments.paid_at` (Device D1) | **01:05:11.648** |
+| webhook row marked processed | 01:05:11.850 |
+
+`paid_at` falls inside the webhook's own processing window, which is **consistent with `stripe-webhook`
+settling the order after the client was killed** — the path D8 exists to exercise. (`settle_verified_payment`
+is shared with `confirm-payment`, so this is strong timing evidence rather than a recorded source field.)
+
+### Phone P1 — reactivated (owner-authorized)
+
+Found `status=active` but **`auction_status=ended`, `ended_at` 2026-09-10 03:46** — the earlier `ends_at`
+extension (§17) had not reset the auction state, so Build 16 would still have treated it as an ended auction:
+Explore filters on `auction_status='active'`, and the listing detail derives "Auction ended" from it. The §21
+claim that Phone P1 was ready was therefore incomplete.
+
+Preconditions asserted inside the transaction before any write — all held: `status=active`,
+`auction_status=ended`, `ends_at` in the future (13d 21h), no succeeded/refunded payment, no transfer, no
+winner, not sold, no reservation. Stripe independently confirmed **one** intent for the listing,
+`requires_payment_method`, **no charge**.
+
+Change: `auction_status 'ended' → 'active'`, `ended_at → NULL`, under `set local app.bypass_listing_guard =
+'on'` (transaction-local; confirmed unset afterwards). Nothing else touched.
+
+| Global check | Before | After |
+|---|---|---|
+| sold listings | 33 | 33 |
+| succeeded payments | 21 | 21 |
+| transfers | 33 | 33 |
+| notifications referencing Phone P1 | 0 | 0 |
+
+### Device D7 and Device D8 — staged (owner-authorized, sandbox only)
+
+| Listing | id | State |
+|---|---|---|
+| Device D7 | `b1c3c478-b32e-4167-8f8d-2b9a4a4fd212` | active, auction active, $100, 14 days, 0 payments |
+| Device D8 | `58cc00e3-e219-4095-9b57-cbdaa83df421` | active, auction active, $100, 14 days, 0 payments |
+
+Listings 47 → 49. No settled listing or payment was modified.
+
+### D9 — procedure design (A's side; the single handset sequence comes from Claude C)
+
+Two separate cases, because they exercise different stages. Neither is a pass unless the interruption
+demonstrably happened at the intended stage and Stripe is checked afterwards. **A missed timing window is
+recorded as untested, not passed.**
+
+**D9-A · Offline before confirm.** Load checkout **and** the PaymentSheet while online; **then** disconnect;
+**then** tap Pay. Starting offline before Buy Now risks never reaching the confirmation path at all, which would
+test nothing useful.
+
+**D9-B · Interruption during 3-D Secure authentication/return** — two distinct stages, not one:
+
+| Variant | When the network drops | What it exercises |
+|---|---|---|
+| **Offline before Complete** (C's test) | while the challenge page is open, before tapping **Complete authentication** | the challenge result may never reach Stripe; expect no authorization |
+| **Offline after Complete** (A's test) | immediately after tapping **Complete authentication**, as the browser hands back | the challenge result may or may not have reached Stripe |
+
+**Correction to §21:** it said the authorization "commits on Stripe's side" when Complete is tapped. That
+overclaimed. Tapping Complete *submits* the challenge; whether Stripe received it, authorized, and captured
+depends on requests that may not have left the device when the network dropped. Outcome is established only
+from Stripe afterwards, never from the tap.
+
+**Network control.** Airplane Mode on iOS can leave **Wi-Fi enabled** if Wi-Fi was re-enabled during a
+previous Airplane Mode session. The sequence must include confirming the **Wi-Fi icon is off**, not just the
+airplane icon on.
+
+**Wording.** Nothing is promised in advance. For reference only, the Build 16 (`df9e0d3`) strings that *can*
+appear are, verbatim:
+
+* sheet, network-classified error: `Payment connection timed out. Try again.`
+* sheet, other error: `We couldn't complete payment. Please try again.`
+* settlement `pending`: title `Payment received`, body `You're all set. We're finalizing your order — it will
+  appear in your purchases within a few minutes. Your payment is safe; please don't pay again.`
+* settlement `failed` (raises an alert): title `Payment received`, body `Your payment went through, but we
+  couldn't complete this order. Please don't pay again — contact support and we'll sort it out right away.`
+
+Which one appears depends on the exact error text reaching `classifySettlement`. Its pending patterns include
+`network request failed` and `failed to fetch`; an offline error phrased any other way falls through to
+`failed`. So **the `failed` alert appearing when Stripe shows the charge succeeded is the specific defect D9-B
+is positioned to catch** — to be recorded as observed, not predicted.
+
+**Discipline.** One attempt, then stop. The next attempt waits until that attempt's server-side result —
+payment rows, Stripe intents and charges, listing, transfer — has been verified.
+
+Listing allocation: **Phone P1** first; **Device D7** and **Device D8** as backups. D9-A consumes no listing if
+the confirm fails as intended.
