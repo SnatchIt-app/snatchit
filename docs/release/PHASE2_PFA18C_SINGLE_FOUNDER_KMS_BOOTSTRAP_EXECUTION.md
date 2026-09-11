@@ -1299,3 +1299,10 @@ key file local, never displayed. CLAUDE-OBSERVED 02:14:44Z: runtime user access 
 **C6-3 DONE (OWNER-RETURNED):** collision check `none`; `secrets set --env-file` completed; total 24; the six AWS/KMS names present; `c6.env` and `runtime-key.json` unlinked; no values displayed.
 CLAUDE-OBSERVED 02:33:45Z: **24 secret names; all 18 pre-existing preserved; new = exactly** `AWS_ACCESS_KEY_ID, AWS_REGION, AWS_SECRET_ACCESS_KEY, KMS_PROVIDER, KMS_SIGNER_EXTERNAL_ID, KMS_SIGNER_ROLE_ARN`;
 `~/pfa18c-local` holds only the two placeholder-filled artifacts (trust file mode 600) and the C3 directory — the key file and env file are gone (unlinked, not securely erased; key revocable). **C6-4 issued.**
+**C6-4 DONE (OWNER-RETURNED, checkout `562fda9`):** `credential-sign ACTIVE verify_jwt=True v1` · `door-manifest ACTIVE verify_jwt=True v1` · `door-session ACTIVE verify_jwt=False v1` · total 14.
+CLAUDE-OBSERVED 02:35:36–02:35:43Z: `list_edge_functions` = 14 — new `credential-sign` id `633b416b…` hash `1318b969…` v1 jwt true (created 02:34:48Z), `door-manifest` `e1ab7ddd…` hash `ab317c3d…` v1 jwt true,
+`door-session` `38258c87…` hash `40666efb…` v1 jwt **false**; the 11 legacy functions: ids, code hashes (`ezbr_sha256`) and `verify_jwt` **unchanged** vs the F6 snapshot (each `version` +1 — the platform's
+secret-injection re-bundle, as observed after the password reset; `updated_at` unchanged). DB: monitor `ok/match`, 0 alert rows, counts 0/0/0/0/0/0/0/0/0/0, flags false, ledger 135, signing_key `1|1`.
+AWS: runtime key 1 Active; **0** `AssumeRole` into the runtime role; runtime user events ever 0; `Sign` total still 3; 0 lifecycle events; key Enabled. Edge logs for the three slugs: see next line.
+Edge logs (Supabase `query_logs`, all sources, 02:30Z→02:36Z): **0 entries** mentioning `credential-sign`, `door-manifest` or `door-session` — no request reached any of the three. **C6 dark deploy verified at T+0.**
+**24-hour observation window opened 2026-09-11T02:35:36Z → closes 2026-09-12T02:35Z** (C6 COMPLETE recorded only after the T+24h read-backs match). Mac 2 checks issued. No test invocation, signing, flag, 121 or Model A change.
