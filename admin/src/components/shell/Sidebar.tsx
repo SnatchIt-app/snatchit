@@ -20,7 +20,7 @@ export function Sidebar() {
     <nav aria-label="Console sections" className="flex h-full flex-col">
       <div className="border-b border-line px-4 py-4">
         <Link href="/" className="block">
-          <span className="block text-[17px] font-black uppercase tracking-[0.2em] text-primary">Snatch It</span>
+          <span className="block text-[17px] font-black uppercase tracking-[0.2em] text-primary-ink">Snatch It</span>
           <span className="eyebrow block text-dim">Operating console</span>
         </Link>
       </div>
@@ -33,7 +33,7 @@ export function Sidebar() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={`flex items-center justify-between border-l-2 px-4 py-2 text-[13px] font-medium transition-colors ${
-                  active ? "border-primary bg-primary-soft text-ink" : "border-transparent text-muted hover:text-ink"
+                  active ? "border-primary bg-primary-soft font-semibold text-ink" : "border-transparent text-muted hover:bg-raised hover:text-ink"
                 }`}
               >
                 <span>{item.label}</span>
