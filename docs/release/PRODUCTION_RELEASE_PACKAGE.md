@@ -1257,7 +1257,7 @@ and the release line from `stripe-webhook`. An event row or that log line alone 
 - The result view's button (`CheckoutNative.tsx:702–708`) calls `router.replace`. Source does not establish whether it
   removes the listing screen underneath.
 
-**Latent gap L1 — same-buyer cancel race** (not observed; owner decision; Build 16 unchanged).
+**Latent gap L1 — same-buyer cancel releases the live hold** (not observed; owner decision; Build 16 unchanged; *corrected in the Stage 1 section below: deterministic, not a race*).
 - **Where.** `create-payment-intent`'s amount-mismatch branch cancels the buyer's own pending PI at Stripe (`:633`)
   *before* retiring the row (`:646–650`). By that point the buyer holds a live hold (`:412` refuses otherwise).
 - **Failure.** If the `canceled` webhook claims the still-`pending` row first, `release_reservation(listing, same
@@ -1274,3 +1274,79 @@ unchanged).
   a paid order's hold.
 - **Guard proposed to C.** After any attempt that may have been paid, the owner stays off the listing exit until a
   verifier confirms the listing is `sold` or the payment did not succeed.
+
+### D9 Stage 1 (D9a, Phone P1): server verification, A cross-check, attribution (2026-09-11)
+
+**Owner report so far (via C).**
+- Airplane Mode was turned on before tapping Pay.
+- The sheet showed the SDK's offline text and stayed open. No retry. Connectivity has been restored.
+- Still outstanding: Wi-Fi-off confirmation, cut time, whether and when the sheet was closed, text after closing, the
+  control used to reach Home, Orders, and Buy Now.
+
+**Financial result.** C verified the database at 02:52:52Z and Stripe at 02:52:59Z. A cross-checked the database and
+the Supabase logs at 02:55:07Z. A has no Stripe access, so the Stripe facts rest on C's read.
+- **Stripe (C).** `pi_3UDGNF…` (`1fcd0c69`) was canceled at 02:50:46Z with no charge. The new `pi_3UEKY6…` (`919d511e`)
+  is `requires_payment_method`, with no charge and no `requires_action`, `payment_failed` or `succeeded`. The confirm
+  never reached Stripe.
+- **Database (both).**
+  - Phone P1 rows: `3a546cf3` is `failed`; `9f4ab181` (`919d511e`, `pi_3UEKY6…`, 11000) is `pending`; Phone P1 has 0
+    transfers.
+  - Listing: `active`/`active`, no hold, not sold.
+  - Globals: payments 48, transfers 33, succeeded 21, multi-succeeded listings 0, reserved rows 0.
+  - Webhooks: one event since 02:40Z (`canceled`, processed, 1 attempt) and 0 webhook retries.
+
+**Timeline** (Supabase logs; handset = `SnatchIt/16`, JWT subject `919d511e`).
+
+| UTC | Source | Event |
+|---|---|---|
+| 02:50:41.160 | handset | `reserve_buy_now` 204 — hold taken; live `v_minutes := 10`, so the window runs to ≈03:00:41 |
+| 02:50:42.9–46.7 | `create-payment-intent` | auth `919d511e`; listing `reserved`; payments-lookup 0; retire's row update (PATCH 204, 46.128); `other-buyer-pending-retired` `3a546cf3` / `pi_3UDGNF…` / `1fcd0c69` (46.387); `pi-created` `pi_3UEKY6…` (46.589); `db-insert-ok` (46.675) |
+| 02:50:46.564–.855 | `stripe-webhook` | claim; PATCH payments 200 (46.632); `release_reservation` as service role for `1fcd0c69` (46.690), logged "succeeded" |
+| 02:50:42.419 → 02:52:24.282 | handset | no requests (the offline period lies within); realtime reconnect at 02:52:24.448 |
+| 02:52:27.107 | handset | `release_reservation` 204, alongside `user_blocks` and `get_my_profile` (Home loads) |
+| 02:52:27.3676 | `listings.updated_at` | the release's UPDATE |
+
+**Attribution: path 2 (listing exit).**
+- **The landed write** is the handset's authenticated call at 02:52:27.107. `updated_at` proves an UPDATE ran, and
+  `release_reservation` updates only a reserved hold owned by the caller, so the hold still existed at that moment.
+- **Path 3 is excluded.** Its only call ran for `1fcd0c69`, and the hold survived it.
+- **Path 1 is excluded.** `releaseAbandonedHold` releases only after a reachable `confirm-payment`. None has reached the
+  server since 2026-09-10 23:42:53Z, and `confirm-payment` invocations are visible in `function_edge_logs` (8 earlier
+  calls by `919d511e`).
+- **The per-buyer sweep is excluded:** there was no `reserve_buy_now` after 02:50:41.160.
+- **The cron is excluded:** the window was open, and the write was a handset RPC.
+
+**Verdict.** Server-side verification is complete, and A concurs: no charge, no succeeded payment, the confirm did not
+reach Stripe, and the listing is active and buyable. **Stage 1 is not yet recorded as PASS.** §23 defines D9a with
+"Wi-Fi confirmed off", and the post-reconnect report is part of the stage.
+
+Blind checks for the owner's report, not to be prompted:
+- the route back to Home went through the listing;
+- the "hold was released" line was not shown;
+- the handset reconnected by 02:52:24Z.
+
+**Corrections.**
+- **§23 amendment 3 is superseded.** It said checkout would "most likely reuse `pi_3UDGNF…`". As `919d511e`, checkout
+  instead retired the other buyer's intent and minted a new one, as predeclared in the Stage 1 readiness section.
+- **L1 is deterministic, not a race.** The webhook's claim predicate (`stripe-webhook/index.ts:373`,
+  `status NOT IN (succeeded, refunded)`) also matches `failed` rows, contrary to its comment at `:383–386`.
+  - *Evidence.* Stage 1's logs show it: the retire marked `3a546cf3` `failed` at 02:50:46.128, yet the webhook still
+    claimed that row (02:50:46.632) and called `release_reservation`.
+  - *Consequence.* Whenever `create-payment-intent` cancels the hold owner's **own** PaymentIntent, the `canceled` event
+    releases that owner's live hold, whatever the ordering. In `df9e0d3` only the amount-mismatch branch does that.
+  - *D9 impact.* None. Device D7 and Device D8 have no prior payment rows.
+
+**Incidental Build 16 sandbox errors** (not D9 results; recorded for after the matrix). Response bodies are not in
+the logs, so each cause below is consistent with the evidence rather than read from the error.
+- **F1 — checkout summary query returns 400.**
+  - *Cause.* `CheckoutNative.tsx:138` selects `cover_image_url`. No migration in the chain creates it, and the sandbox
+    `listings` table does not have it. Observed at 02:50:42.217.
+  - *Impact.* The same query supplies `reserved_until` and the order-summary fields, so checkout's summary and hold
+    countdown in the sandbox are not representative.
+  - *Production.* The source treats `cover_image_url` as a legacy column. Whether production has it is not checked: a
+    production↔chain drift like D7 is suspected, not established.
+- **F2 — bid history query returns 400.**
+  - *Cause.* `useListingRealtime.ts:64` embeds `profiles(display_name, avatar_url)`. The sandbox `bids_bidder_id_fkey`
+    targets `auth.users` (`000_baseline_schema.sql:144`), so the embed has no relationship to resolve, as in D7.
+    Observed at 02:50:35.025.
+  - *Status.* This is the recorded latent `bids_bidder_id_fkey` drift, now observed live on the listing screen.
