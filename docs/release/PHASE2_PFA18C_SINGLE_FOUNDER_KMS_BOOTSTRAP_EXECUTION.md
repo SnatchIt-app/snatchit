@@ -1245,3 +1245,12 @@ CI on PR #58 rev 2 (`030a922b…`, CLAUDE-OBSERVED 23:58:12Z): Migrations apply 
 **Owner close-out (2026-09-10, late):** rev 2 `030a922b…` and CI results received; PR #58 stays draft and unapplied; no further work tonight. Consumer QA paused at D7 ("Transfer not found" on View transfer;
 Claude A and C investigating) — 121 integration remains deferred. C5 stays paused; C6 review-only. Resumption order tomorrow: re-read request `05e0ff5d…` status/expiry (expires 2026-09-13T19:59:17Z), then founder B's
 independent approval (C5-2), then the gated C5-3/C5-4. This message authorized no mutation; none performed.
+
+## SESSION 26 — 2026-09-11 — C5 RESUMED · PRE-READ PASS · C5-2 ISSUED TO FOUNDER B (Mac 2, present in person) · NO WRITE YET
+
+Owner: founder B physically present, signed in to the admin portal as contact@snatchitapp.com on Mac 2 with MFA completed; will personally review and run the approval.
+CLAUDE-OBSERVED 01:27:15Z: request `05e0ff5d-1044-40c9-b32d-c5db1c171976` **pending**, action `config.set_money_key`, approver class platform_admin, `requested_by` founder A (`2b117757…`),
+`approved_by` null, created 2026-09-10T19:59:17Z, **expires 2026-09-13T19:59:17Z (66.5 h left, not expired)**, command key `pfa18c-c5-pin-1`, payload key `signing.expected_key_fingerprint`,
+**proposed value = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (= the stored row's fingerprint). Keys still v1/v1/v1; checker `monitor_disabled`; signing_key `1|1`;
+pending total 1; flags false. Founder B account (`3b7b50af…`): admin bootstrap true, 1 verified MFA factor, last sign-in 2026-09-11T01:24:46Z. Guarded browser-console approval snippet
+(pause handoff §2) issued unchanged; token stays inside the browser. Next: read-back (v2 = D5; distinct approver; audit) before C5-3.
