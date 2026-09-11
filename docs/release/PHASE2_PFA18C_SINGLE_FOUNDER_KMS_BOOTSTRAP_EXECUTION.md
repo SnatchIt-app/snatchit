@@ -1290,3 +1290,6 @@ F3 link `hqycwntpfoztoinemqns`, CLI 2.115.0 · F4 runtime keys 0, inline `pfa18c
 F5 18 secrets, no collisions (names snapshot saved) · F6 legacy function snapshot (11 ACTIVE, ids/hashes) taken · F7 ExternalId file mode 600, 64 chars, format PASS · F8 counts
 tickets/door_sessions/door_manifests/scan_devices/door_pins/staff_roles/orgs/venues/events/event_sessions = 0/0/0/0/0/0/0/0/0/0, flags issuance/scanning false, monitor true, ledger 135, signing_key `1|1` ·
 F9 0 runtime-role AssumeRole ever, Sign total 3, 0 lifecycle events since 09-10T20:00Z, trail logging · F10 no password/token needed. **ALL PASS → C6-0/C6-1 issued.**
+**C6-0 (OWNER-RETURNED):** HEAD `562fda9…`, clean, four tree hashes as reviewed, project ref, CLI 2.115.0 — all match. **C6-1 DONE (OWNER-RETURNED):** `access_key_id_prefix AKIAZQAR status Active created 2026-09-11T02:13:02Z`;
+key file local, never displayed. CLAUDE-OBSERVED 02:14:44Z: runtime user access keys **exactly 1, Active, 02:13:02Z**; admin/verifier keys 0/0; CloudTrail `CreateAccessKey` ×1 — eventID
+`930208b0-3f16-420b-a596-4dbef0b459c9`, 02:13:02Z, actor `jose-admin` (MFA true), user `snatchit-credential-sign-runtime`, key prefix `AKIAZQAR`, Active, no error. **C6-2 issued.**
