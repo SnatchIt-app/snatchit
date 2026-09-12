@@ -2132,3 +2132,36 @@ C also corrected the origin of its earlier caveat: its query used `auto_release_
 which matches every past deadline too, and the result was then described as "about to flip". C's re-read matches
 A's: 0 transfers with a future deadline inside 6 hours, and the other 13 open rows carry no `auto_release_at`
 at all.
+
+### Ordering, final: two layers, both real (2026-09-12)
+
+A's previous entry said the ordering guard "does not exist". **That was wrong**, and wrong the same way the
+original claim was: A searched `.github/workflows/ci.yml` and `supabase/ci/` and reported a *global* absence.
+C found it; A then read it. Both layers hold, and they govern different things.
+
+**Layer 1 — merge time, and it does reject.** `.github/workflows/migrations-guard.yml` §4, "Monotonic ordering
+for added migrations (scheme-aware)", runs on **every** pull request. For each newly **added** migration it
+computes `basemax` = the highest version of the same scheme in the **base branch**, and fails when the added
+version is not strictly greater:
+
+> `::error::$f ($s scheme) is not greater than the latest existing $s migration ($basemax). Migrations must be
+> append-only and monotonic.`
+
+**Layer 2 — apply time, and it does not reject.** `supabase db push --include-all` = "include all migrations
+not found on remote history table". The default plan carries only versions above the remote max, so a
+lower-numbered file is silently **omitted**, never rejected. Production's own apply order is out of numeric
+order — 115–120 on 2026-09-08, then 110–114 on 2026-09-09 — per Claude B's canonical state document
+(`PHASE2_PRODUCTION_STATE_20260912.md` §1, now on the release path at `e115424`).
+
+**Consequence: renumbering is not merely tidiness.** If `123` and `124` merge first, `basemax` becomes `124`
+and a PR adding `122` fails CI. The same applies to `121`: it is written in PR #58, so once `124` is in the
+base branch that PR trips the guard on re-run. Renumbering `121` costs a re-review; renumbering the **unwritten**
+`122` costs nothing.
+
+**Recommended sequence (C's, adopted by A; owner decides):** merge `121` → `123` → `124`, and number `122`
+above `124` when it is written. That unblocks the QA-relevant pair without waiting on the venue work, keeps
+every PR ascending, and avoids re-reviewing `121`. `123` keeps its number either way. Applies still dry-run with
+the planned list checked exactly — that remains the protection at layer 2.
+
+**Lesson recorded (A).** An absence claim is only as wide as the search behind it. "No guard in `ci.yml` and
+`supabase/ci`" is a fact; "there is no guard" was an inference, and it was false.
