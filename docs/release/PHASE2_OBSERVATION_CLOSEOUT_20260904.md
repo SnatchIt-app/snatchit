@@ -1,6 +1,7 @@
 # PHASE-2 DARK SUBSTRATE (076–092) — 24-HOUR OBSERVATION CLOSE-OUT (READ-ONLY)
 
 Prepared: 2026-09-04 · Author: Claude A (this preflight session) · Production mutations: NONE (read-only)
+> **PRODUCTION-STATE RECONCILIATION (2026-09-12).** The "current state" statements in this record are historical. Production now: ledger 135 (numeric tip 120; 076–120 applied, 121 not applied), one active global ES256 trust root (KMS D4, fingerprint pinned, monitor armed and healthy), `credential-sign`/`door-manifest`/`door-session` deployed dark with 0 requests and 0 runtime signing activity, issuance/scanning false, native data 0. Source of truth: `docs/release/PHASE2_PRODUCTION_STATE_20260912.md`. Nothing here is re-authorized by that document.
 
 > **WHY THIS DOCUMENT EXISTS.** The deployment record (docs/release/PHASE2_DEPLOYMENT_RECORD_20260902.md)
 > captured **checkpoint 1** (~0.9 h of 24) and ended "24-hour close: NOT DUE (target ~2026-09-03T20:45Z).
