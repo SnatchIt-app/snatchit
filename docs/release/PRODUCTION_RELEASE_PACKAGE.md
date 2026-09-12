@@ -2064,3 +2064,30 @@ mapping a suite to a migration by number.
 column list, blank-as-absence mapping, and `reservedUntilMs` returning null rather than NaN. Production also has
 no `cover_image_url` (A, read-only, on the owner's authorization), so C's "correct either way" hedge can become
 a statement: the column exists in no environment.
+
+### Correction to C's auto-release caveat, and finding F4 (2026-09-12, sandbox read-only)
+
+C carried a caveat that two of the buyer's `seller_sent` transfers had `auto_release_at` within 6 hours, so the
+deletion sheet might gain an `unpaid_seller_obligation` line mid-run. **Inverted.** Read at 04:24:30Z:
+
+| Transfer | `auto_release_at` | Age past deadline | State |
+|---|---|---|---|
+| `83b83858` | 2026-09-11T00:54:49Z | **27.5 h overdue** | `seller_sent`, `payout_released_at` null, no dispute |
+| `8f59d37e` | 2026-09-11T01:20:24Z | **27.1 h overdue** | same |
+
+They are not about to flip; they are long overdue and static. **The blocker set is therefore mechanically
+stable for the run** — barring a manual buyer confirmation, no `active_transfer` can become
+`unpaid_seller_obligation` during D10, so the single deduped line holds by construction rather than by luck.
+
+**F4 — live-rail auto-release does not run in the sandbox** (A-reported, candidate, not blocking D10).
+- `public.get_auto_release_candidates()` exists but is a read, and **no pg_cron job calls it**.
+- Of the 21 active jobs, `market-sweep-expired-p2p-transfers` (`*/2`) operates on `market.p2p_transfer` — the
+  **native** rail, `status='initiated'`, `expires_at` — not `public.transfers`. `payout-execute-tick` (`*/10`)
+  executes payouts that have already been released.
+- So live-rail auto-release must be driven from outside pg_cron (the `confirm-and-release` edge on an external
+  schedule), and nothing is driving it in the sandbox.
+- **Why it matters:** wherever this also holds, seller payouts wait indefinitely after the buyer goes quiet —
+  the auto-release deadline is the mechanism that pays a seller when the buyer never confirms.
+- **Open question for the owner:** whether production has a scheduler for `confirm-and-release` that the sandbox
+  lacks. A production `cron.job` read is read-only but outside the F1/F2 parity authorization, so it was **not**
+  performed; it is put to the owner instead.
