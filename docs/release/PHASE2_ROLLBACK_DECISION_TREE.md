@@ -1,4 +1,5 @@
 # PHASE-2 ROLLBACK DECISION TREE (production; companion to the runbook)
+> **PRODUCTION-STATE RECONCILIATION (2026-09-12).** The "current state" statements in this record are historical. Production now: ledger 135 (numeric tip 120; 076–120 applied, 121 not applied), one active global ES256 trust root (KMS D4, fingerprint pinned, monitor armed and healthy), `credential-sign`/`door-manifest`/`door-session` deployed dark with 0 requests and 0 runtime signing activity, issuance/scanning false, native data 0. Source of truth: `docs/release/PHASE2_PRODUCTION_STATE_20260912.md`. Nothing here is re-authorized by that document.
 
 **Prime rule:** rollback is legal only while CLEAN-WHILE-EMPTY holds. Every rollback
 file's guard enforces it (counts under `set local row_security = off`, tables locked,

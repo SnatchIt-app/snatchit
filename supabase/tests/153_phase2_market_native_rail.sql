@@ -291,6 +291,17 @@ SELECT tap._store153('pay2', tap._newpayment153(tap.fan153(),     tap.buyer(),  
 SELECT tap._store153('pay3', tap._newpayment153(tap.other_user(), tap.buyer(),   5000, 'pi_88_3')::text);
 SELECT tap._store153('pay4', tap._newpayment153(tap.fan153(),     tap.buyer(),   5000, 'pi_88_4')::text);
 SELECT tap._store153('pay5', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_5')::text);
+-- 097's rail guard (KB P1-1) now REFUSES kernel.record_dispute_native for any payment that is
+-- neither mode='native_primary' nor already linked through kernel.payment_native — a legacy
+-- buy_now payment with zero fulfillment (never finalized, never sold) is exactly the leak the
+-- guard closes. pay5 is deliberately left UNFINALIZED (no kernel.payment_native row ever
+-- written for it) to keep exercising the H17/H18 NO-LINK ARM honestly under the new fence: it
+-- is flipped to mode='native_primary' (the pairing CHECK payments_rail_pairing_ck then requires
+-- listing_id/seller_id null, satisfied below) so the guard's mode arm passes while the
+-- payment_native lookup still finds nothing — the one shape 097 still lets reach the no-link
+-- arm (record, zero freeze legs, 'no_link' alert) rather than refusing outright.
+UPDATE public.payments SET mode = 'native_primary', listing_id = NULL, seller_id = NULL
+ WHERE id = tap._u153('pay5');
 SELECT tap._store153('pay6', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_6')::text);
 SELECT tap._store153('pay7', tap._newpayment153(tap.other_user(), tap.seller(),  5000, 'pi_88_7')::text);
 -- mint through the money path (issuance flag ON inside the txn only)
@@ -643,6 +654,34 @@ UPDATE market.listing_native SET status='sold', reason_code=NULL WHERE listing_i
 -- SECTION H — DISPUTES (R-40; PFA-13; PFA-31 park; PFA-29 chargeback seam; E-90)
 -- ============================================================================
 -- a closed settlement over order1 → a pending payout (the payout-leg operand)
+-- 2026-09-02 (package 093): TEST SETUP DRIFT — the fixture, not the assertions. 093 mints a
+-- settlement payout HELD/'unbounded_refund_exposure' whenever
+-- 'payout.settlement_maturity_interval' is unset (it ships seeded 'null'::jsonb), because a refund
+-- succeeding after a close can never be collected. THIS SECTION IS ABOUT THE DISPUTE FREEZE LEG,
+-- not about that gate: H2/H6/H11/H12/H25/H43 exist to prove that recording a dispute HOLDS the
+-- reachable payout, emits payout_on_hold, and that the hold survives a park and a terminal state.
+-- A payout that arrives already held for an unrelated reason would make every one of those pass
+-- VACUOUSLY — H11 would read a hold nobody placed and H25/H43 would confirm a hold that was never
+-- at risk. Setting the key here mints po1 unheld, so the dispute leg is the only thing that can
+-- hold it and each assertion below means exactly what it always meant, byte for byte.
+-- The gate itself is proved on BOTH arms, with its release exit, at 151 C20i..C20n / C28a/C28b.
+SELECT tap._cfg153('payout.settlement_maturity_interval', '"7 days"'::jsonb);
+-- 2026-09-02 (package 093, pass 3): the key was RENAMED from settlement.refund_window_interval —
+-- it names a payout maturity window after the event, not a refund-eligibility window (that policy
+-- exists and is owned by refund.buyer_self_service_window_hours / refund.request_ttl_hours). The
+-- old spelling is NOT read as a fallback.
+--
+-- The hold is also no longer one config test: it is a conjunction of eight fail-closed predicates,
+-- and one of them is `now() >= max(ends_at over the settlement's covered sessions) + interval`.
+-- st1 is event1-scoped and its lines cover order1 and order3, both on session1, whose ends_at the
+-- fixture puts 10 days in the FUTURE — so the anchor has not elapsed and po1 would be minted HELD
+-- for maturity_not_elapsed. session1 is moved into the past for THE DURATION OF THIS CLOSE ONLY
+-- and restored immediately: the gate reads the anchor once, at close, and stamps the payout's hold
+-- state there, so a two-statement window is exactly enough and cannot leak into the custody,
+-- listing or dispute assertions that follow, every one of which is written against a future event.
+-- The eight predicates are isolated one at a time at 151 C28c..C28l.
+UPDATE catalog.event_session SET starts_at = now() - interval '30 days', ends_at = now() - interval '30 days' + interval '5 hours'
+ WHERE session_id = tap._u153('session1');
 SELECT tap.login(tap.seller());
 SELECT tap._store153('st1', (venue.open_settlement(tap._u153('org1'), tap._u153('venue1'), tap._u153('event1'), '{}'::jsonb, 'ck88-st1') ->> 'settlement_id'));
 SELECT tap.logout();
@@ -651,7 +690,19 @@ SELECT tap.login(tap.other_user());
 SELECT tap._aal2();
 SELECT tap._store153('cl1', kernel.close_settlement(tap._u153('st1'), 'ck88-cl1')::text);
 SELECT tap.logout();
-SELECT is((tap._fetch153('cl1')::jsonb ->> 'net_minor'), '15000', 'H1: settlement 1 closes at net 15000 (OWNER TEST C operand: the PRIOR settlement)');
+-- …and session1 goes straight back to the future the rest of this file assumes.
+UPDATE catalog.event_session SET starts_at = now() + interval '10 days', ends_at = now() + interval '10 days 5 hours'
+ WHERE session_id = tap._u153('session1');
+-- 2026-09-02 (package 093): 15000 -> 20000. RATIFIED CONTRACT CHANGE —
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A3/A5 adds the primary revenue seam
+-- kernel.settlement_primary_lines, which close_settlement now unions as a THIRD seam. st1 is
+-- scoped to event1, so the seam emits +5000 for order3 (other_user, 1 x 5000 on session1,
+-- finalized at FIX-2 with a kernel.payment_native row) ON TOP OF the hand-written
+-- primary_sale/15000 line for order1 above — order1 is skipped by the seam's own
+-- never-lined-before dedupe, which is itself the property proved by H50/H56. Gross is
+-- therefore 15000 + 5000 and net follows exactly. The OWNER TEST C operand is unchanged in
+-- kind: this is still the PRIOR settlement whose closed total H49 proves is never clawed back.
+SELECT is((tap._fetch153('cl1')::jsonb ->> 'net_minor'), '20000', 'H1: settlement 1 closes at net 20000 = the hand-written 15000 (order1) + the primary seam''s 5000 (order3) (OWNER TEST C operand: the PRIOR settlement)');
 SELECT tap._store153('po1', ((tap._fetch153('cl1')::jsonb -> 'payout_ids') ->> 0));
 SELECT ok((SELECT p.status='pending' AND p.hold_state='none' FROM kernel.payout p WHERE p.payout_id = tap._u153('po1')), 'H2: its payout is pending and unheld');
 -- record (service path; the webhook branch)
@@ -750,12 +801,24 @@ SELECT tap._aal2();
 SELECT tap._store153('cl2', kernel.close_settlement(tap._u153('st2'), 'ck88-cl2')::text);
 SELECT tap._store153('cl3', kernel.close_settlement(tap._u153('st3'), 'ck88-cl3')::text);
 SELECT tap.logout();
-SELECT ok((SELECT s.status='closed' AND s.gross_minor=0 AND s.fees_minor=0 AND s.refunds_minor=15000 AND s.net_minor=-15000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st2')),
-  'H46: OWNER TEST B — chargeback −15000 lands in the org''s NEXT settlement: refunds 15000, net −15000');
+-- 2026-09-02 (package 093): gross 0 -> 5000, net −15000 -> −10000. RATIFIED CONTRACT CHANGE
+-- (ruling A3/A5, the primary revenue seam). st2 is the PERIOD grain (event_id NULL, empty
+-- period => unbounded), so the seam's period arm — 088:347-351's scope idiom byte for byte —
+-- picks up org1's remaining paid order at venue1: order2 (event2/session2, 1 x 5000,
+-- finalized at FIX-3). order1 and order3 are already lined in st1 and are dedup-skipped.
+-- THE ASSERTION UNDER TEST IS UNWEAKENED: refunds_minor is still exactly 15000 and the
+-- chargeback still lands HERE rather than in st1 — all four money columns stay pinned, and
+-- the extra +5000 of genuine primary revenue is asserted as exactly that, not tolerated.
+SELECT ok((SELECT s.status='closed' AND s.gross_minor=5000 AND s.fees_minor=0 AND s.refunds_minor=15000 AND s.net_minor=-10000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st2')),
+  'H46: OWNER TEST B — chargeback −15000 lands in the org''s NEXT settlement: refunds 15000; gross 5000 is order2''s face value via the primary seam; net −10000');
 SELECT ok((SELECT l.amount_minor=-15000 AND l.cause='chargeback' FROM venue.settlement_line l WHERE l.settlement_id=tap._u153('st2') AND l.cause_ref=tap._u153('d1')),
   'H47: …as an append-only negative line with cause_ref = the dispute');
 SELECT is((tap._fetch153('cl2')::jsonb -> 'payout_ids'), '[]'::jsonb, 'H48: NEGATIVE_SETTLEMENT_CARRY — a negative net mints NO payout (no carry account invented)');
-SELECT ok((SELECT s.gross_minor=15000 AND s.net_minor=15000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st1'))
+-- 2026-09-02 (package 093): 15000 -> 20000, tracking H1. RATIFIED CONTRACT CHANGE (ruling
+-- A3/A5). The property is untouched: st1's totals are EXACTLY what its own close computed and
+-- the later chargeback added nothing to it. Pinned to the literal, not to H1's value, so a
+-- drift in either row is caught independently.
+SELECT ok((SELECT s.gross_minor=20000 AND s.net_minor=20000 FROM venue.settlement s WHERE s.settlement_id=tap._u153('st1'))
        AND (SELECT count(*)=0 FROM venue.settlement_line l WHERE l.settlement_id=tap._u153('st1') AND l.cause='chargeback'),
   'H49: OWNER TEST C — the PRIOR (closed) settlement is unchanged: no clawback, no mutation');
 SELECT is((SELECT count(*)::int FROM venue.settlement_line l WHERE l.cause='chargeback' AND l.cause_ref=tap._u153('d1')), 1,
@@ -785,7 +848,14 @@ SELECT tap._store153('st6', (venue.open_settlement(tap._u153('org1'), tap._u153(
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(tap._u153('st6'))), 0, 'H56: OWNER TEST D — a re-run of the seam offers NOTHING already lined (royalty AND chargeback)');
 SELECT is((SELECT count(*)::int FROM kernel.settlement_royalty_lines(gen_random_uuid())), 0, 'H57: an unknown settlement yields zero rows — the seam never raises (087 close-safety)');
-SELECT ok((SELECT p.prosrc !~* 'numeric|float|double|real' FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
+-- 2026-09-03 (100 reconciliation): strip '--' line comments before the regex.
+-- 100's header prose inside the seam body uses the English words "real
+-- receipt" and "double-counted" in comments — a substring match against raw
+-- prosrc flagged those as if they were the SQL types numeric/float/double/
+-- real. This checks CODE, not comments; the assertion's meaning (no float/
+-- numeric arithmetic in the seam) is unchanged.
+SELECT ok((SELECT regexp_replace(p.prosrc, '--[^' || chr(10) || ']*', '', 'g') !~* 'numeric|float|double|real'
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='kernel' AND p.proname='settlement_royalty_lines'),
   'H58: integer minor units only — no float/numeric arithmetic in the seam');
 
 -- ============================================================================
@@ -960,8 +1030,25 @@ DELETE FROM market.market_sale WHERE sale_id = '00000000-0000-0000-0000-00000000
 UPDATE market.listing_native SET status='reserved' WHERE listing_id = tap._u153('l2');
 INSERT INTO market.market_sale (sale_id, listing_id, ticket_atom_id, buyer_id, seller_id, price_minor, payment_id, sale_state, paid_pending_since, command_idempotency_key)
 VALUES ('00000000-0000-0000-0000-0000000000a8', tap._u153('l2'), tap._u153('a1'), tap.fan153(), tap.buyer(), 5000, tap._u153('pay4b'), 'paid_pending_transfer', now(), 'ck88-s8');
-SELECT is((kernel.record_dispute_native('dp_88_4b', 'ch_88_4b', 'pi_88_4b', 5000, 'USD', 'fraudulent', 'lost', NULL, 'ck88-d4b') ->> 'status'), 'ok', 'J6a: the sale''s payment is charged back (lost)…');
-SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz8')$$, '00000000-0000-0000-0000-0000000000a8'), '%payment_charged_back%', 'J6b: …finalize can never move custody on returned money');
+-- 097's rail guard (KB P1-1) refuses kernel.record_dispute_native for pay4b here: R-34 writes
+-- kernel.payment_native.sale_id ONLY at transfer (088:716-719), and pay4b's sale (a8) is still
+-- paid_pending_transfer — the guard's payment_native EXISTS check can never see this sale until
+-- AFTER finalize_market_sale runs, which is exactly the call this scenario needs to BLOCK. This
+-- is a genuine gap in 097 as shipped (KB's own O6 trade-off note names the sale arm's exemption
+-- as needed but ties it to `exists payment_native.sale_id`, which is the post-transfer fact, not
+-- the pre-transfer one) — see docs/phase2/_impl/KT_pgtap_reconciliation.md §"153 finding" for the
+-- full analysis. It is NOT a silent hole: the webhook's classifyDisputeError (native-dispute.ts)
+-- treats an unclassified precondition_failed as ack:false/alert:true, so Stripe retries and
+-- platform_risk is paged; the row lands once finalize eventually completes. J6a below proves the
+-- fence fires; the raw kernel.dispute_native insert that follows re-establishes the SAME
+-- charged-back fact record_dispute_native would have written (had the guard let it through) so
+-- J6b-d can still prove finalize_market_sale's own dispute check (088:1327-1329, UNCHANGED by
+-- 097) still blocks custody moves on charged-back money, and on_atom_voided still compensates.
+SELECT throws_like($$SELECT kernel.record_dispute_native('dp_88_4b', 'ch_88_4b', 'pi_88_4b', 5000, 'USD', 'fraudulent', 'lost', NULL, 'ck88-d4b')$$,
+  '%not_native_rail%', 'J6a: 097''s rail guard refuses the pre-transfer chargeback — pay4b has no kernel.payment_native row yet (R-34: born at transfer), so the dispute cannot be recorded until finalize runs (the gap J6a proves; see header comment)');
+INSERT INTO kernel.dispute_native (stripe_dispute_ref, stripe_charge_ref, stripe_pi_ref, payment_id, amount_minor, currency, reason, status)
+VALUES ('dp_88_4b', 'ch_88_4b', 'pi_88_4b', tap._u153('pay4b'), 5000, 'USD', 'fraudulent', 'lost');
+SELECT throws_like(format($$SELECT market.finalize_market_sale(%L, 'ck88-fz8')$$, '00000000-0000-0000-0000-0000000000a8'), '%payment_charged_back%', 'J6b: …finalize can never move custody on returned money (kernel.dispute_native is UNCHANGED by 097 — the check at 088:1327-1329 still fires against the fact however it landed)');
 SELECT lives_ok(format($$SELECT market.on_atom_voided(%L, %L, 'refund_void')$$, tap._u153('a1'), gen_random_uuid()), 'J6c: the void hook runs…');
 SELECT ok((SELECT s.terminal_state='compensated' FROM tap._sale153('00000000-0000-0000-0000-0000000000a8') s), 'J6d: …and compensates the charged-back sale (the chargeback IS the money return)');
 UPDATE market.listing_native SET status='sold' WHERE listing_id = tap._u153('l2');

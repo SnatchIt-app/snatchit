@@ -6,6 +6,16 @@ about production (which has NONE of 076–092 applied). Authority order and ever
 in `PHASE_2_ARCHITECTURE_FREEZE.md` and `POST_FREEZE_AMENDMENTS.md` (E-1…E-162, PFA-1…PFA-31).
 Counts are the suite-asserted values (`supabase/tests/140…157`) on a fresh 001→092 replay.
 
+> **DEPLOYMENT-STATE CORRECTION (2026-09-02, added post-apply).** This document was written
+> BEFORE the production apply and its §10 readiness matrix states "nothing of 076-092 is applied
+> anywhere". **That is no longer true.** Migrations 076-092 were applied to production on
+> 2026-09-02 at 20:43:31Z under owner authorization; the ledger is 107 rows and all post-apply
+> verification passed. See `docs/release/PHASE2_DEPLOYMENT_RECORD_20260902.md`. Every rail remains
+> DARK and no feature is activated, so this document's per-rail CLASSIFICATIONS and obligation
+> ledger remain valid and in force. Only its deployment-state assertions are superseded.
+
+
+
 ## 1. The train (17 packages, no gaps, no duplicates — ODR-1 as re-ratified for the 076–092 band)
 
 | Package | Merge commit on `phase2/consolidation` | Subject |

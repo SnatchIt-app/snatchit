@@ -1,4 +1,5 @@
 # PHASE-2 PRODUCTION READINESS — release-candidate report (2026-09-02)
+> **PRODUCTION-STATE RECONCILIATION (2026-09-12).** The "current state" statements in this record are historical. Production now: ledger 135 (numeric tip 120; 076–120 applied, 121 not applied), one active global ES256 trust root (KMS D4, fingerprint pinned, monitor armed and healthy), `credential-sign`/`door-manifest`/`door-session` deployed dark with 0 requests and 0 runtime signing activity, issuance/scanning false, native data 0. Source of truth: `docs/release/PHASE2_PRODUCTION_STATE_20260912.md`. Nothing here is re-authorized by that document.
 
 **Verdict: RELEASE CANDIDATE READY FOR OWNER DEPLOYMENT AUTHORIZATION — as a DARK DB
 APPLY (Option A+C: all 17 migrations, every flag false, integrations unarmed) riding
@@ -6,6 +7,15 @@ the 077 release train (DB + three edge bodies + `kernel` API exposure).** Nothin
 this document changes production; production remains at migration 20260902003623 with
 NONE of 076–092 applied. Feature activation of every rail remains separately blocked
 (per-rail blockers below).
+
+> **DEPLOYMENT-STATE CORRECTION (2026-09-02, added post-apply).** The verdict line below and §2
+> describe the pre-apply world. The dark DB apply was subsequently authorized and executed on
+> 2026-09-02 (apply window 20:41:58Z to 20:43:31Z; ledger 90 -> 107; V1-V18 pass; kernel exposed;
+> three edge functions deployed). See `docs/release/PHASE2_DEPLOYMENT_RECORD_20260902.md`. The
+> classifications, rail matrix and owner packets below remain valid; the deployment-state
+> assertions are superseded.
+
+
 
 ## 1. Source integrity (proven)
 - `phase2/consolidation` tip local=remote `76bda03963d631c365b48aacc14a24e8ca3d1da6`;

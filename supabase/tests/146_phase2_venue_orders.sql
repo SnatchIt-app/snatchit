@@ -10,7 +10,12 @@
 -- controlled in-txn flag flip. Convention: BEGIN … plan(N) … finish() … ROLLBACK.
 -- ============================================================================
 BEGIN;
-SELECT plan(71);
+-- 2026-09-02 (package 093): 71 -> 78. Seven new assertions: B7a names the exact
+-- column grant ruling F leaves on venue.order; F0 proves ruling A8's fail-closed
+-- payout gate; F0b-F0d prove A8/G2b's signing-key deliverability gate (refused, no
+-- order written, hold untouched); F0a proves ruling A5's fail-closed service-fee
+-- gate; I1a proves buyer_id is unreadable. Nothing was removed or relaxed.
+SELECT plan(78);
 
 SELECT tap.seed_core();
 
@@ -81,10 +86,27 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.org_contact_consent','
 SELECT ok(NOT has_table_privilege('authenticated','kernel.org_contact_consent_event','SELECT')
        AND NOT has_table_privilege('service_role','kernel.org_contact_consent_event','UPDATE'),
   'B6: consent event ledger is deny-all + AO (no UPDATE even for service_role)');
-SELECT ok(has_table_privilege('authenticated','venue."order"','SELECT')
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling F (attendee privacy): "the
+-- verified table-grain buyer-identity/display-name join that allows an unaudited
+-- attendee roster is fixed." venue."order" is now COLUMN-scoped: `authenticated`
+-- holds no table-grain SELECT at all and is granted 12 of the 13 columns —
+-- buyer_id is WITHHELD, which is what removes the roster join. B7 keeps the
+-- original write half verbatim and tightens the read half from "has SELECT" to
+-- the exact granted column set, so a re-widened grant fails here immediately.
+SELECT ok(NOT has_table_privilege('authenticated','venue."order"','SELECT')
        AND NOT has_table_privilege('authenticated','venue."order"','INSERT')
        AND NOT has_table_privilege('authenticated','venue."order"','UPDATE'),
-  'B7: venue.order is client-read only — every write is RPC/definer');
+  'B7 [093/ruling F]: venue.order gives authenticated NO table-grain grant — not SELECT, and every write is RPC/definer');
+SELECT bag_eq(
+  $$SELECT column_name::text FROM information_schema.column_privileges
+     WHERE table_schema='venue' AND table_name='order'
+       AND grantee='authenticated' AND privilege_type='SELECT'$$,
+  $$VALUES ('order_id'),('org_id'),('event_session_id'),('status'),('source'),
+           ('total_minor'),('currency'),('command_idempotency_key'),
+           ('attribution_candidate_code_id'),('attribution_candidate_link_id'),
+           ('created_at'),('updated_at')$$,
+  'B7a [093/ruling F]: exactly the 12 non-identity columns are granted — buyer_id is WITHHELD by name');
 
 -- ============================================================================
 -- FIXTURE — org → venue → event → ticket_type → batch → on_sale
@@ -107,6 +129,35 @@ SELECT tap._store146('session', (SELECT session_id::text FROM catalog.event_sess
 SELECT tap._store146('tt', (venue.create_ticket_type(tap._fetch146('event')::uuid,'admission','GA',5000,'public','ck-tt-1') ->> 'ticket_type_id'));
 SELECT tap._store146('batch', (venue.create_inventory_batch(tap._fetch146('tt')::uuid, tap._fetch146('session')::uuid, 'public_sale', 100, 0, 'ck-b-1') ->> 'batch_id'));
 SELECT catalog.publish_event(tap._fetch146('event')::uuid, 'announced', 'ck-pub-1');
+SELECT tap.logout();
+-- 2026-09-03 (migration 102, ratified reading B / A8a') — the on_sale
+-- transition now enforces the SAME SALEABLE predicate create_primary_checkout
+-- already enforces below (F0 payout_not_ready, F0b no_active_signing_key, F0a
+-- service_fee_unset): org Connect-bound+ready, an active in-window signing
+-- key resolving for the event scope, and fee.buyer_service_bps set. Grant all
+-- three HERE, TRANSIENTLY, purely so this fixture event can reach on_sale —
+-- every one of them is REGRESSED back to its pre-existing UNSET state below,
+-- immediately before SECTION F, so F0/F0b/F0a still prove their original
+-- refusals against a genuinely unready org exactly as before 102.
+-- A direct UPDATE/INSERT (not the real onboarding verbs) is used on purpose:
+-- kernel.set_org_connect_ref is BIND-ONCE, and its real, audited exercise
+-- happens for good in SECTION F below (~250) — this is scaffolding only, not
+-- the meaningful exercise of that RPC.
+UPDATE kernel.organization
+   SET stripe_connect_account_ref = 'acct_ORD146TEMP', connect_transfers_active = true
+ WHERE org_id = tap._fetch146('org')::uuid;
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-146-TEMP', 'test-fixture://no-kms/146-temp',
+        'active', now() - interval '1 day', NULL);
+-- version 2: 093 owns version 1 of this key (seeded JSON-null, owner-unset).
+-- Regressed to a HIGHER-version null below (v3), then re-granted for good at
+-- v4 in SECTION F (~319) — platform_config is append-only/highest-version-wins,
+-- so lowering v2 in place is not an option.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('fee.buyer_service_bps', 2, '500'::jsonb, 'restricted');
+SELECT tap.login(tap.seller());
 SELECT catalog.publish_event(tap._fetch146('event')::uuid, 'on_sale', 'ck-pub-2');
 SELECT tap.logout();
 
@@ -153,9 +204,13 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
 -- SECTION E — E-23 / F-1: the checkout buyer must be proven ACTIVE
 -- (flip the flag + seed the E-28 keys so we reach the create path, then attack it)
 -- ============================================================================
+-- version 2 on the two inventory keys: 093 (rulings D2/A5) now seeds them at
+-- version 1 with a JSON-null value, so version 1 is taken. The readers are
+-- `order by c.version desc limit 1`, so a version-2 row is exactly what an owner
+-- setting the value through catalog.set_platform_config would produce.
 INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('feature.native_issuance_enabled', 2, 'true'::jsonb, 'public');
-INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.per_user_active_hold_max', 1, '10'::jsonb, 'restricted');
-INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.hold_ttl_interval', 1, '"15 minutes"'::jsonb, 'restricted');
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.per_user_active_hold_max', 2, '10'::jsonb, 'restricted');
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('inventory.hold_ttl_interval', 2, '"15 minutes"'::jsonb, 'restricted');
 
 -- a DELETION_PENDING buyer is refused (F-1). Set the state directly in VALUES so
 -- it holds whether or not the buyer already has a lazily-created identity_ext row.
@@ -183,10 +238,141 @@ SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L, '[]'::jsonb, 
 SELECT tap.logout();
 
 -- ============================================================================
+-- 102/A8a' REGRESSION — undo the transient publish-time SALEABLE grant made
+-- above (before ck-pub-2) so SECTION F below proves its refusals against a
+-- genuinely unready org, exactly as it did before 102 added the publish-time
+-- gate. Reading B is explicit that on_sale is not a permanent guarantee: "a
+-- later config change… can regress an already-published event's readiness"
+-- (102 PART 2 commentary) — this performs precisely that regression.
+-- ============================================================================
+UPDATE kernel.organization
+   SET stripe_connect_account_ref = NULL, connect_transfers_active = false
+ WHERE org_id = tap._fetch146('org')::uuid;
+DELETE FROM kernel.signing_key WHERE kms_handle_ref = 'test-fixture://no-kms/146-temp';
+-- APPEND-ONLY TRAP: platform_config values can only be added, never lowered.
+-- Restore fee.buyer_service_bps to owner-UNSET with a version ABOVE the temp
+-- v2=500 above (never by deleting it) — version chain for this txn ends up
+-- 1 (093 seed, null) < 2 (temp, 500) < 3 (this regression, null) < 4 (F1 happy
+-- path, 500 — see ~SECTION F), so highest-version-wins always resolves the
+-- LATEST intent.
+INSERT INTO catalog.platform_config (key, version, value, visibility)
+VALUES ('fee.buyer_service_bps', 3, 'null'::jsonb, 'restricted');
+
+-- ============================================================================
 -- SECTION F — create_primary_checkout HAPPY PATH + idempotency (flag on, holds)
 -- ============================================================================
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE.
+-- PRIMARY_TICKETING_OWNER_RATIFICATION.md ruling A8 (event / payment gating):
+-- an org "may not accept real primary payments until all required Stripe
+-- payment/settlement prerequisites are satisfied… checkout must fail closed if
+-- the venue organization is not eligible for primary-sale collection."
+-- create_primary_checkout now demands BOTH a bound stripe_connect_account_ref
+-- AND connect_transfers_active. The fixture org has neither, so F0 asserts the
+-- fail-closed refusal FIRST — the readiness the happy path needs is granted only
+-- after the gate has been proven to bite, so satisfying it cannot mask a
+-- regression in it.
 SELECT tap.login(tap.buyer());
 SELECT tap._store146('hold', (venue.reserve_primary_inventory(tap._fetch146('batch')::uuid, 2, 'ck-r-1') ->> 'hold_id'));
+SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
+    format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0')$$,
+    tap._fetch146('session'), tap._fetch146('tt'), tap._fetch146('hold')),
+  NULL, 'precondition_failed: payout_not_ready',
+  'F0 [093/ruling A8]: with the selling org not Connect-ready, checkout FAILS CLOSED — SALEABLE is gated on payout readiness');
+SELECT tap.logout();
+-- make the org Connect-ready through the real verbs, not a direct UPDATE:
+-- kernel.set_org_connect_ref binds the payee (org_owner + aal2 + approved org —
+-- rulings A7/A9), kernel.sync_org_connect_state carries the Stripe capability
+-- fact (ruling A6). sync is service_role-only EXECUTE, so it is exercised in the
+-- DEFINER context here for the same reason G2 exercises cancel_pending_order there.
+CREATE FUNCTION tap._aal2_146() RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
+END $f$;
+-- 2026-09-02 (package 093, ruling A7) — FIXTURE DRIFT: a Connect account must now be
+-- STAGED by the server before it can be bound. kernel.organization.connect_pending_ref
+-- is written only by kernel.stage_org_connect_ref (service_role only), and the bind
+-- must match it and consumes it. This closed a P0 where a red team bound a freshly
+-- created acct_ straight through the RPC as `authenticated`, past a cross-plane check
+-- that could only enumerate known-bad accounts. 141 L0f-L0h/L1a assert that contract;
+-- here it is fixture only. Staged in the DEFINER context, as sync_org_connect_state is.
+SELECT kernel.stage_org_connect_ref(tap._fetch146('org')::uuid, 'acct_ORD146READY', 'ck-cx-0');
+SELECT tap.login(tap.seller());
+SELECT tap._aal2_146();
+SELECT kernel.set_org_connect_ref(tap._fetch146('org')::uuid, 'acct_ORD146READY', 'ck-cx-1');
+SELECT tap.logout();
+SELECT kernel.sync_org_connect_state(tap._fetch146('org')::uuid, 'acct_ORD146READY', true, now(), 'ck-cx-2');
+-- ── 2026-09-02 (package 093) — A8/G2b: SIGNING-KEY DELIVERABILITY ───────────
+-- RATIFIED CONTRACT CHANGE. venue.create_primary_checkout now refuses unless an
+-- active, in-window signing key resolves for the event's scope. It exists because
+-- a gate audit proved a buyer could be CHARGED for a ticket that could never
+-- exist: the key requirement lived in finalize_primary_order, which runs AFTER
+-- the PaymentIntent is confirmed. Buyer pays, the mint raises
+-- no_active_signing_key (083:513-530), no ticket — and with the refund executor
+-- undeployed there is no automatic path back to the money. G2 asks whether the
+-- VENUE can be paid; this asks whether the BUYER can be delivered to.
+--
+-- The gate order is DELIBERATE and is not to be reordered to suit a test:
+--   buyer gates -> idempotency -> session/event status -> connect -> SIGNING KEY
+--   -> fee -> item/hold loop -> insert.
+-- An unsellable event must fail before any inventory work happens.
+--
+-- F0b-F0d assert the zero-key state, which had no coverage in this file. They sit
+-- HERE because this is the only window where the org is Connect-ready (so F0's
+-- gate is passed) and no key exists yet.
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
+    format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0a')$$,
+    tap._fetch146('session'), tap._fetch146('tt'), tap._fetch146('hold')),
+  NULL, 'precondition_failed: no_active_signing_key — an active signing key must resolve for the event scope before a ticket can be sold',
+  'F0b [093/A8-G2b]: with ZERO signing keys the checkout is REFUSED — the buyer can never be charged for a ticket the mint could not have produced');
+SELECT is((SELECT count(*)::int FROM venue."order"), 0,
+  'F0c [093/A8-G2b]: …and NO order row was created — the refusal precedes the insert, so there is nothing to reconcile or refund');
+SELECT is((SELECT status || ':' || quantity::text FROM venue.inventory_hold
+            WHERE hold_id = tap._fetch146('hold')::uuid), 'active:2',
+  'F0d [093/A8-G2b]: …and the buyer''s HOLD is untouched (still active, still 2) — the gate precedes the item/hold loop, so a retry after the key lands needs no re-reservation');
+SELECT tap.logout();
+-- The key the gate waits for. LOCAL TEST MATERIAL ONLY — deliberately not
+-- key-shaped: no PEM armour, no base64 body, no real KMS handle. The genuine
+-- bootstrap row is an owner ceremony output (ruling B, 093 scope item 2) and 093
+-- DELIBERATELY inserts none — kernel.provision_signing_key and rotate_signing_key
+-- stay parked as unconditional raises, because a gate that could mint its own key
+-- would defeat the two-person KMS ceremony it exists to wait for. scope='global'
+-- is the LOWEST precedence arm of finalize's own most-specific-first rule
+-- (085:1948-1960 — per_event > per_venue > global), so seeding it here cannot mask
+-- a precedence regression in the per-event or per-venue arms.
+INSERT INTO kernel.signing_key (scope, event_id, venue_id, public_key, kms_handle_ref,
+                                status, not_before, not_after)
+VALUES ('global', NULL, NULL,
+        'TEST-FIXTURE-NOT-A-KEY-146', 'test-fixture://no-kms/146',
+        'active', now() - interval '1 day', NULL);
+
+-- 2026-09-02 (package 093) — RATIFIED CONTRACT CHANGE, ruling A5 (venue revenue /
+-- platform economics): "No service-fee percentage is hardcoded in migration 093.
+-- No percentage is invented anywhere. Fee economics remain owner/config
+-- controlled." 093 seeds fee.buyer_service_bps owner-UNSET (JSON-null), and
+-- create_primary_checkout refuses to QUOTE rather than falling back to zero —
+-- a fallback would sell at face value with no platform revenue, and settlement
+-- lines are append-only, so unrecognised revenue could never be restated.
+-- The gate sits STRICTLY AFTER A8's payout gate (F0) and the signing gate above,
+-- and STRICTLY BEFORE any hold/inventory work. F0a's original point is unchanged —
+-- the signing key is supplied purely so the call REACHES the fee gate. The
+-- no-fallback-to-zero property is what ruling A5's owner STOP depends on.
+SELECT tap.login(tap.buyer());
+SELECT throws_ok(format($$SELECT venue.create_primary_checkout(%L,
+    format('[{"ticket_type_id":"%%s","quantity":2}]', %L)::jsonb, ARRAY[%L]::uuid[], 'ck-co-0b')$$,
+    tap._fetch146('session'), tap._fetch146('tt'), tap._fetch146('hold')),
+  NULL, 'precondition_failed: service_fee_unset — fee.buyer_service_bps has no value; selling cannot be activated until the owner sets it',
+  'F0a [093/ruling A5]: Connect-ready but with the buyer service fee UNSET, checkout refuses to quote — it never falls back to zero');
+SELECT tap.logout();
+-- version 4: 093 owns v1 (seeded JSON-null); v2 was this fixture's temporary
+-- publish-time grant (~ck-pub-2) and v3 the regression back to null
+-- immediately above SECTION F — both already consumed. v4 is what an owner
+-- setting the value through catalog.set_platform_config would produce now,
+-- and (append-only, highest-version-wins) is what F0a above still read as
+-- null and what F1 below reads as 500.
+INSERT INTO catalog.platform_config (key, version, value, visibility) VALUES ('fee.buyer_service_bps', 4, '500'::jsonb, 'restricted');
+SELECT tap.login(tap.buyer());
 SELECT tap._store146('checkout', (venue.create_primary_checkout(
   tap._fetch146('session')::uuid,
   format('[{"ticket_type_id":"%s","quantity":2}]', tap._fetch146('tt'))::jsonb,
@@ -257,7 +443,14 @@ SELECT throws_ok(format($$UPDATE venue."order" SET attribution_candidate_code_id
 -- SECTION I — RLS: owner reads own; a non-buyer is denied
 -- ============================================================================
 SELECT tap.login(tap.buyer());
-SELECT is((SELECT count(*)::int FROM venue."order" WHERE buyer_id = tap.buyer()), 2, 'I1: the buyer reads their own orders (owner policy)');
+-- 2026-09-02 (package 093, ruling F): buyer_id is no longer selectable by
+-- `authenticated`, so the owner scope is asserted on the ROW COUNT the RLS owner
+-- policy itself yields rather than on a client-side buyer_id predicate. This is
+-- strictly stronger: the buyer holds no org or venue role here, so a policy that
+-- leaked another buyer's order would now show up as a count > 2.
+SELECT is((SELECT count(*)::int FROM venue."order"), 2, 'I1: the buyer reads their own orders and ONLY those — the owner policy alone yields exactly 2');
+SELECT throws_ok('SELECT buyer_id FROM venue."order"', '42501', NULL,
+  'I1a [093/ruling F]: …and cannot read buyer_id at all — the attendee-roster join is unexpressible for a client');
 SELECT tap.logout();
 -- a different signed-in user (not the buyer, holds no org/venue role) sees none
 SELECT tap.login(tap.other_user());

@@ -99,10 +99,16 @@ SELECT ok(NOT has_function_privilege('authenticated','venue.append_door_manifest
 -- ============================================================================
 SELECT is((SELECT (value #>> '{}')::text FROM catalog.platform_config WHERE key='feature.native_scanning_enabled' ORDER BY version DESC LIMIT 1),
   'false', 'C1: native scanning is DARK (078 seed)');
-SELECT throws_ok($$SELECT kernel.revoke_signing_key(gen_random_uuid(),'compromise',0,'ck')$$,
-  NULL, 'precondition_failed: dual_control_unavailable — credential dual-control mechanism not yet ratified (PFA-18A); signing-key revocation is parked, no key state changes and no episode is force-closed',
-  'C2: PFA-18A — revoke_signing_key FAILS CLOSED (the trio''s third leg; same unbuildable dual control)');
-SELECT is((SELECT count(*)::int FROM kernel.signing_key), 0, 'C3: …and it activated/changed no key (zero mutation)');
+-- C2 (updated by 106 / PFA-18B): revoke_signing_key is UN-PARKED under single
+-- platform_admin + aal2. It no longer raises dual_control_unavailable; a
+-- non-platform caller is now refused by real authz (platform_admin only), which
+-- proves the park is lifted. (provision/rotate STAY parked — see test 147.)
+SELECT tap.login(tap.buyer());
+SELECT throws_like($$SELECT kernel.revoke_signing_key(gen_random_uuid(),'compromise',0,'ck')$$,
+  '%platform_admin%',
+  'C2: PFA-18B — revoke_signing_key is UN-PARKED; a non-platform_admin is refused by real authz (no longer dual_control_unavailable)');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM kernel.signing_key), 0, 'C3: …and a refused revoke changed no key (zero mutation)');
 
 -- ============================================================================
 -- FIXTURE — org → venue → event → session → tt → comp batch → active key → atoms
@@ -217,27 +223,25 @@ SELECT throws_ok(format($$SELECT venue.issue_comp(%L, %L, 2, 'ck86-c-4')$$, tap.
 SELECT tap.logout();
 
 -- ============================================================================
--- SECTION E — DOOR PIN + TOKENIZED SESSION: PARKED fail-closed (PFA-26 / PFA-20)
---   §3.10 mandates a SLOW KDF for the low-entropy PIN; no crypto extension is in
---   the chain, so create_door_pin + mint_door_session are parked (owner ruling).
---   scan_device registration and assert_door_session (256-bit token md5, compliant)
---   stay live; there are simply no PINs/sessions to work with.
+-- SECTION E — DOOR PIN + TOKENIZED SESSION: UN-PARKED (107 / PFA-26-UNPARK)
+--   §3.10's slow KDF is now pgcrypto bcrypt (cost 12); create_door_pin +
+--   mint_door_session are live. The PIN is bcrypt-hashed at creation, verified
+--   by a constant-time crypt compare at mint, and a 256-bit token is issued whose
+--   md5 assert-verifies. (Full attack coverage is in test 173.)
 -- ============================================================================
 SELECT tap.login(tap.seller());
 SELECT tap._store150('dev', (venue.register_scan_device(tap._fetch150('venue')::uuid, 'scanner-1', 'ck86-dev-1') ->> 'device_id'));
-SELECT throws_ok(format($$SELECT venue.create_door_pin(%L,%L,'front','pin1234',now()+interval '1 day','ck86-p-1')$$,
-    tap._fetch150('venue'), tap._fetch150('session')),
-  NULL, 'precondition_failed: door_pin_kdf_unavailable — door-PIN slow-KDF mechanism not yet ratified (PFA-26); door PIN creation is parked fail-closed',
-  'E1: create_door_pin is PARKED fail-closed (PFA-26; no slow KDF in the chain)');
+SELECT tap._store150('pin', (venue.create_door_pin(tap._fetch150('venue')::uuid, tap._fetch150('session')::uuid, 'front', 'pin1234', now()+interval '1 day', 'ck86-p-1') ->> 'pin_id'));
+SELECT ok(tap._fetch150('pin') IS NOT NULL,
+  'E1: create_door_pin is UN-PARKED (107/PFA-26): venue_manager creates a bcrypt-hashed PIN');
 SELECT tap.logout();
 SELECT tap.login_service();
-SELECT throws_ok(format($$SELECT venue.mint_door_session(%L,%L,%L,'pin1234','ck86-ds-1')$$,
-    tap._fetch150('venue'), tap._fetch150('session'), tap._fetch150('dev')),
-  NULL, 'precondition_failed: door_pin_kdf_unavailable — door-session mint depends on the parked door-PIN mechanism (PFA-26); parked fail-closed',
-  'E2: mint_door_session is PARKED fail-closed (depends on the parked PIN)');
+SELECT tap._store150('ds', (venue.mint_door_session(tap._fetch150('venue')::uuid, tap._fetch150('session')::uuid, tap._fetch150('dev')::uuid, 'pin1234', 'ck86-ds-1') ->> 'door_session_id'));
+SELECT ok(tap._fetch150('ds') IS NOT NULL,
+  'E2: mint_door_session is UN-PARKED: a correct PIN mints a tokenized session');
 SELECT tap.logout();
-SELECT is((SELECT count(*)::int FROM venue.door_pin), 0, 'E3: zero door_pin rows stored (create parked, no mutation)');
-SELECT is((SELECT count(*)::int FROM venue.door_session), 0, 'E4: zero door_session rows minted (mint parked)');
+SELECT is((SELECT count(*)::int FROM venue.door_pin), 1, 'E3: one door_pin row stored (bcrypt verifier, never plaintext)');
+SELECT is((SELECT count(*)::int FROM venue.door_session WHERE status='active'), 1, 'E4: one active door_session minted');
 SELECT tap.login_service();
 SELECT throws_ok(format($$SELECT kernel.assert_door_session(%L,%L,%L,'any-token')$$,
     tap._fetch150('dev'), tap._fetch150('session'), gen_random_uuid()),
