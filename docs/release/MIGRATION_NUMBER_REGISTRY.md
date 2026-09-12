@@ -13,7 +13,8 @@ banners; it authorizes nothing.
 | `20260910120000` | 188 | **Claude D** | `venue_api` read views | branch `venue/read-adapters-slice-1`, not applied |
 | `121` | 189 | **Claude B** | manifest signing context STRICT | PR #58, not applied |
 | `122` | **190** | **Claude B** | scanning drift fix | **RESERVED** — named in B's remaining-path report |
-| `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`, not applied |
+| `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
+| `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | proposed 2026-09-12, not written |
 
 ## How 122 was resolved
 
@@ -38,7 +39,22 @@ safe for all three, because each only re-creates or alters objects established e
 `--db-url`. `supabase db --help | head -30` truncates the subcommand list after five entries; `query`, `lint`,
 `start`, `advisors` and `schema` follow. Do not conclude from a truncated listing that it is unavailable.
 
-## Apply-order conflict with 121/122 (flagged 2026-09-12)
+## Apply order RESOLVED with B's plan of record (2026-09-12)
+
+**Normal forward order, no renumbering:** `121` → `122` → `123` → `124`. Production tip is `120` and none of
+the four is in production, so plain ascending order satisfies the guard and nothing needs renumbering. B's
+`121` (PR #58) and `122` (086↔112/113 scanning drift) keep their numbers; `123` keeps its number, so the
+sandbox apply history stays intact.
+
+Two constraints follow:
+- **`123` must not reach production before `121`/`122`.** It is sandbox-only today; nothing schedules it.
+- **Sandbox is already at tip `123`**, so B's `121`/`122` rehearsals belong on a fresh replay DB (B's normal
+  harness), not on the shared sandbox, or they land below its tip.
+
+`142` in B's remaining-path report is the **count** of the combined release + venue + 121 chain, not a
+migration number. Nothing claims `142`.
+
+## Superseded: apply-order conflict as first flagged (2026-09-12)
 
 Production tip is **120** and `121` is deferred optional hardening, applied only under
 `AUTHORIZE PFA-18C MIGRATION 121` (B's state document §3). `123` is sandbox-applied only.

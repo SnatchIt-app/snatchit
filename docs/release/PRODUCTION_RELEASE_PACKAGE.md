@@ -1844,3 +1844,49 @@ flags false, native data all 0, cron 24 active. `primary-checkout` is still **no
 
 Standing restrictions and the historical production apply order (076–092, 093–109, 115–120, then 110–114) are
 preserved unchanged. Nothing here is authorization to apply, deploy, or activate anything.
+
+### F1 / F2 parity checks — read-only, four-way (2026-09-12)
+
+Production `hqycwntpfoztoinemqns` and sandbox `ofaidukbieeekqaboscm` catalogs read read-only; chain state read
+from `origin/release/convergence-135`; client usage from `df9e0d3`. No writes anywhere.
+
+**F1 — `listings.cover_image_url`: not drift, a client defect.**
+
+| Source | State |
+|---|---|
+| Production | column **absent** (`listings` media columns: `cover_image_path text NOT NULL` only) |
+| Sandbox | column **absent** — identical |
+| Chain / fresh replay | never created: no `cover_image_url` in any migration; `000_baseline_schema.sql:98` defines `cover_image_path` only |
+| Client (`df9e0d3`) | `CheckoutNative.tsx:138` **selects** it; the other nine references are `(listing as any).cover_image_url` fallbacks that read a property nothing ever sets |
+
+- **Difference:** none between environments. Build 16 asks every environment for a column that has never existed.
+- **Impact:** the checkout order-summary query returns **400 everywhere, production included**. `display` stays
+  null, so cover, event, venue and date fall back to route params, and `reservedUntil` is never set — the Buy
+  Now countdown cannot render on checkout. Observed three times in sandbox logs (02:50:42.217, 03:10:04.838,
+  03:21:58.450, 03:53:27.525). No payment or hold impact: the reservation itself is server-owned.
+- **Proposed correction:** client-only — drop `cover_image_url` from the select (and, optionally, the dead
+  `as any` fallbacks). No migration. It belongs on C's post-matrix branch; **Build 16's pin stays unchanged**,
+  so the countdown gap persists for the remaining handset stages and must not be scored.
+
+**F2 — `bids_bidder_id_fkey`: real production↔chain drift, same class as D7.**
+
+| Source | Target of `bids.bidder_id` |
+|---|---|
+| Production | `public.profiles` |
+| Sandbox | `auth.users` |
+| Chain / fresh replay | `auth.users` (`000_baseline_schema.sql:144`), unchanged by any later migration |
+| Client (`df9e0d3`) | `useListingRealtime.ts:64` embeds `*, profiles(display_name, avatar_url)` |
+
+- **Difference:** production was corrected out of band; the chain still reproduces `auth.users`.
+- **Impact:** the embed resolves in production and fails as PGRST200 → 400 in sandbox and in any fresh replay,
+  so bid history is empty on the listing screen there (observed at 02:50:35.025 and on every later listing
+  load). The release risk is the same one D7 exposed: **the chain no longer reproduces production**, so any
+  environment rebuilt from it — DR restore, a new sandbox, a staging clone — loses bid-history display.
+- **Proposed correction:** migration **124** + pgTAP **192**, mirroring `123`: conditional, orphan-guarded
+  retarget of `bids_bidder_id_fkey` to `public.profiles(id)`, a no-op where the constraint already points
+  there. **Production needs no apply** — it is already correct; 124 exists to make the chain match it. Apply to
+  the sandbox only, under separate authorization, after the handset matrix.
+- **Also confirmed by the same read:** production `transfers_buyer_id_fkey` and `transfers_seller_id_fkey`
+  both target `public.profiles`, so `123` is a verified no-op against production, as recorded.
+
+**Not checked:** every other table's FK set. These two were checked because the client exercises them.
