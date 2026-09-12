@@ -1972,3 +1972,57 @@ consequences:
    authorization and keep `122`→`124` as a later batch, or to have B renumber the unwritten `122` above `124`
    — coordinated with the registry, and cheap precisely because it is unwritten. `123`'s number stays fixed
    either way: renumbering it would break the sandbox apply history.
+
+**124 — fresh-replay and no-op proofs (local PG 17.11 harness, 2026-09-12).** Script:
+`scripts/release/local_124_bids_fk_rehearsal.sh`. Local scratch database only; no sandbox, no production.
+
+| Proof | Result |
+|---|---|
+| P1 fresh replay of the whole chain, 141 files in `LC_ALL=C` order, 124 withheld | `FOREIGN KEY (bidder_id) REFERENCES auth.users(id)` — the drift reproduces |
+| P2 apply 124 | `FOREIGN KEY (bidder_id) REFERENCES profiles(id) ON DELETE CASCADE` — byte-identical to production |
+| P3 apply 124 again | "already matches production — no change"; constraint oid **and** xmin unchanged, so no catalog row was rewritten |
+| P4 pgTAP 192 | **11/11 pass** |
+| P5 orphan present, constraint dropped | `124 REFUSED — 1 bids row(s)…`; constraint left absent, nothing created blind |
+| P6 orphan removed, constraint still absent | "was ABSENT — creating it", then the production definition |
+
+**Defect found by P5, in my own migration, and fixed before commit.** The first draft guarded with
+`if exists (… and confrelid is distinct from profiles …)`. With the constraint **absent** that is false, so it
+silently did nothing and printed "already matches production" — the worst of both: no repair and a misleading
+notice. 124 now handles three states: correct → no-op; wrong → orphan check, drop, recreate; absent → orphan
+check, create. **`123` carries the same two-state shape.** Its absent case never arose (the constraint existed
+in both environments), and it is already applied to the sandbox, so it is recorded here rather than edited. If
+123 is ever re-applied to a database where the constraint is missing, it will skip instead of repairing.
+
+### D10/D11 — one coordinated procedure (sandbox account, issued by C)
+
+**Safety precondition, checked read-only 2026-09-12.** `delete-account`'s header states there is **no grace
+period**: the sweep tombstones as soon as no blocker remains, and cron `sweep-deletion-pending` `*/2` is active.
+Account `919d511e` is safe to test with **only** because it holds live obligations — 2 pending payments,
+13 pending transfers, 6 disputed, 2 seller_sent. Do not run this on an account without blockers, and do not
+settle or clean those rows first. Baseline: `kernel.identity_ext.deletion_state` = `ACTIVE`,
+`deletion_requested_at` null, `public.account_deletions` 0 rows.
+
+**D10 — deletion request.** Settings → delete account → confirm.
+- Expected: `delete-account` `action='request'` → `kernel.request_account_deletion` (always accepts) →
+  `deletion_state` `DELETION_PENDING`, response carrying `pending_obligations` naming the live-rail blockers.
+- The screen should show the pending banner. Record its exact text; no wording is promised in advance.
+- `kernel.is_deletion_pending` is the freeze operand, so app actions may be refused while pending — record what
+  is refused. **No payment attempt.**
+- **The real assertion:** hold through at least two sweep ticks (≥4 min) and confirm `deletion_state` is still
+  `DELETION_PENDING`. Blockers must prevent the tombstone.
+
+**D11 — withdrawal.** Settings banner → withdraw.
+- Expected: `action='withdraw'` → `kernel.withdraw_account_deletion` → `deletion_state` back to `ACTIVE`, with
+  an alert titled "Request withdrawn". Not to be prompted to the owner.
+
+**Server checks, run separately by C and A after each step, read-only.**
+- `kernel.identity_ext`: `deletion_state`, `deletion_requested_at`, `deletion_block_reason`.
+- `public.account_deletions` row count.
+- `delete-account` edge logs: `[delete-account] request_account_deletion for <uid>: <status>
+  pending_obligations=N`.
+- Unchanged counts for listings, payments and transfers.
+- Read within 2 minutes of each tap, so the read sits inside a sweep interval; log read time against the `*/2`
+  schedule.
+
+**Hard stop.** If `deletion_state` ever reads anything other than `ACTIVE` or `DELETION_PENDING`, stop and
+report before any further tap. Do not create a replacement account.

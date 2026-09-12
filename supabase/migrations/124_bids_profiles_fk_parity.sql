@@ -36,38 +36,65 @@
 -- NOT CHANGED: no column, no data, no grant, no RLS policy, no trigger, no other
 -- constraint (bids_listing_id_fkey stays on listings). Census: 0 objects added
 -- or removed.
+--
+-- THREE STATES, not two (fixed after the 2026-09-12 rehearsal caught it):
+--   correct  → no-op;
+--   wrong    → orphan check, drop, recreate;
+--   ABSENT   → orphan check, create.
+-- The first draft used `if exists (… and target is distinct from profiles …)`,
+-- which silently did nothing when the constraint was missing and then printed
+-- "already matches production". 123 carries the same shape; its absent-case
+-- never arose, and it is recorded rather than edited because it is applied.
 -- ============================================================================
 
 do $mig$
 declare
-  v_orphans bigint;
+  v_orphans  bigint;
+  v_present  boolean;
+  v_matches  boolean;
 begin
-  if exists (
-    select 1 from pg_constraint c
-     where c.conrelid = 'public.bids'::regclass
-       and c.conname  = 'bids_bidder_id_fkey'
-       and (c.confrelid is distinct from 'public.profiles'::regclass
-            or c.confdeltype is distinct from 'c')
-  ) then
-    select count(*) into v_orphans
-      from public.bids b
-     where b.bidder_id is not null
-       and not exists (select 1 from public.profiles p where p.id = b.bidder_id);
+  select true,
+         (c.confrelid = 'public.profiles'::regclass and c.confdeltype = 'c')
+    into v_present, v_matches
+    from pg_constraint c
+   where c.conrelid = 'public.bids'::regclass
+     and c.conname  = 'bids_bidder_id_fkey';
 
-    if v_orphans > 0 then
-      raise exception '124 REFUSED — % bids row(s) reference a bidder with no profiles row. '
-                      'Reconcile those rows first; this migration will not drop a live constraint '
-                      'and leave bids unprotected.', v_orphans;
-    end if;
+  v_present := coalesce(v_present, false);
+  v_matches := coalesce(v_matches, false);
 
-    alter table public.bids drop constraint bids_bidder_id_fkey;
-    alter table public.bids add constraint bids_bidder_id_fkey
-      foreign key (bidder_id) references public.profiles(id)
-      match simple on update no action on delete cascade;
-
-    raise notice '124: bids_bidder_id_fkey retargeted to public.profiles(id) ON DELETE CASCADE';
-  else
+  if v_present and v_matches then
     raise notice '124: bids_bidder_id_fkey already matches production (profiles(id) ON DELETE CASCADE) — no change';
+    return;
   end if;
+
+  -- Orphans are checked before any DDL, whether the constraint is being
+  -- retargeted or created from absent. Failing closed beats leaving bids
+  -- unprotected or creating a constraint that cannot validate.
+  select count(*) into v_orphans
+    from public.bids b
+   where b.bidder_id is not null
+     and not exists (select 1 from public.profiles p where p.id = b.bidder_id);
+
+  if v_orphans > 0 then
+    raise exception '124 REFUSED — % bids row(s) reference a bidder with no profiles row. '
+                    'Reconcile those rows first; this migration will not drop or create a '
+                    'constraint that leaves bids unprotected or fails validation.', v_orphans;
+  end if;
+
+  if v_present then
+    alter table public.bids drop constraint bids_bidder_id_fkey;
+  else
+    -- ABSENT is a real state: an earlier rollback, or a partial repair, can
+    -- leave bidder_id unconstrained. Recreating it is the parity fix, and the
+    -- pre-fix version of this migration silently skipped it.
+    raise notice '124: bids_bidder_id_fkey was ABSENT — creating it';
+  end if;
+
+  alter table public.bids add constraint bids_bidder_id_fkey
+    foreign key (bidder_id) references public.profiles(id)
+    match simple on update no action on delete cascade;
+
+  raise notice '124: bids_bidder_id_fkey now references public.profiles(id) ON DELETE CASCADE';
 end
 $mig$;
