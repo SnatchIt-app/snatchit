@@ -43,6 +43,12 @@ import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+import {
+  LISTING_SUMMARY_COLUMNS,
+  mapListingSummary,
+  reservedUntilMs,
+  type ListingSummaryRow,
+} from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown } from '@/src/lib/checkout/payControl';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
@@ -133,25 +139,24 @@ export default function CheckoutScreen() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('listings')
-        .select('cover_image_path, cover_image_url, event_name, venue, event_date, event_time, reserved_until')
+        .select(LISTING_SUMMARY_COLUMNS)
         .eq('id', listingId)
         .maybeSingle();
-      if (!alive || !data) return;
-      const d = data as {
-        cover_image_path?: string | null; cover_image_url?: string | null;
-        event_name?: string | null; venue?: string | null;
-        event_date?: string | null; event_time?: string | null; reserved_until?: string | null;
-      };
-      setDisplay({
-        cover: d.cover_image_path ?? d.cover_image_url ?? null,
-        eventName: d.event_name ?? eventName,
-        venue: d.venue ?? venue,
-        date: d.event_date ?? '',
-        time: d.event_time ?? '',
-      });
-      if (isBuyNow && d.reserved_until) setReservedUntil(new Date(d.reserved_until).getTime());
+      if (!alive) return;
+      if (error || !data) {
+        // F1: this read is cosmetic — it must never block or fail the payment.
+        // It stays quiet and the screen keeps the values navigation passed in.
+        if (error) console.warn('[checkout] listing summary unavailable:', error.message);
+        return;
+      }
+      const row = data as ListingSummaryRow;
+      setDisplay(mapListingSummary(row, { eventName, venue }));
+      if (isBuyNow) {
+        const until = reservedUntilMs(row);
+        if (until != null) setReservedUntil(until);
+      }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
