@@ -1813,3 +1813,34 @@ observation of the checkout text is therefore recorded as **not blind**. It cann
 which rests only on `CheckoutNative.tsx:379–384` and the absence of any logged setup re-run. **Lesson for A:** a blind
 expectation goes only to the other verifier, never into owner-visible narration or committed files, until the owner has
 reported.
+
+### Records handoff: canonical production state (2026-09-12)
+
+Claude B published `docs/release/PHASE2_PRODUCTION_STATE_20260912.md` (commit `55d37f5`, read-only
+reconciliation, no production mutation) after C6. It is the source of truth for production state and
+supersedes the "current state" statements in six historical Phase-2 records, which stay valid as history.
+
+**Agrees with this package as already recorded** (line 32): ledger **135**, numeric tip **120**, max version
+`20260902003623`. Also: one active global ES256 `kernel.signing_key`, fingerprint pinned (v2) with the monitor
+enabled and healthy, **14** ACTIVE edge functions including `credential-sign` / `door-manifest` /
+`door-session` deployed dark at v1 from `562fda9` with 0 requests and 0 signatures, issuance/scanning/resale
+flags false, native data all 0, cron 24 active. `primary-checkout` is still **not** deployed in production.
+
+**Flagged against the planned release sequence.**
+1. **Apply order, not numbering.** Migration `121` stays deferred (only under `AUTHORIZE PFA-18C MIGRATION
+   121`) and `122` is reserved for B. `123` (transfers FK parity) is applied to the **sandbox only**. If `123`
+   reaches production before them, `121`/`122` fall below the numeric tip and a strictly-increasing guard
+   rejects them. Sequence B's pair first, or clear their apply against a tip of `123`. Recorded in the
+   registry.
+2. **Doc location.** B's state document exists only on `origin/feature/venue-native-and-product-v2`, as do the
+   six dated banners. The release path does not carry them yet; that merge is a prerequisite for the release
+   records to read consistently.
+3. **Not covered by B's reconciliation:** F1 (`listings.cover_image_url`, absent in the sandbox and selected by
+   Build 16's checkout) and F2 (`bids_bidder_id_fkey` targeting `auth.users`). Both are suspected
+   production↔chain drift of the same class as the D7 transfers FK. Classifying them needs a read-only
+   production catalog read, which this handoff does not authorize and which is not requested here.
+4. **"Combined chain 142"** in B's §3 is B's chain label, not a migration number on this line. `142` is
+   unowned in the registry.
+
+Standing restrictions and the historical production apply order (076–092, 093–109, 115–120, then 110–114) are
+preserved unchanged. Nothing here is authorization to apply, deploy, or activate anything.

@@ -1,6 +1,11 @@
 # Migration and pgTAP number registry
 
-One owner per number. Updated 2026-09-10. Check here before claiming a number.
+One owner per number. Updated 2026-09-12. Check here before claiming a number.
+
+**Canonical production state:** `docs/release/PHASE2_PRODUCTION_STATE_20260912.md` (Claude B, commit
+`55d37f5`, currently only on `origin/feature/venue-native-and-product-v2`). Production ledger **135**, numeric
+tip **120**. That document supersedes the "current state" lines in the six historical Phase-2 records it
+banners; it authorizes nothing.
 
 | Migration | pgTAP | Owner | Subject | State |
 |---|---|---|---|---|
@@ -32,3 +37,17 @@ safe for all three, because each only re-creates or alters objects established e
 `supabase db query` **does** exist in CLI 2.115.0, with `--file/-f`, `--linked`, `--project-ref` and
 `--db-url`. `supabase db --help | head -30` truncates the subcommand list after five entries; `query`, `lint`,
 `start`, `advisors` and `schema` follow. Do not conclude from a truncated listing that it is unavailable.
+
+## Apply-order conflict with 121/122 (flagged 2026-09-12)
+
+Production tip is **120** and `121` is deferred optional hardening, applied only under
+`AUTHORIZE PFA-18C MIGRATION 121` (B's state document §3). `123` is sandbox-applied only.
+
+The conflict is ordering, not numbering: the scheme-aware guard compares a `seq` migration against the
+highest `seq` already applied. If `123` reaches production first, `121` and `122` are then **below** the tip
+and a strictly-increasing guard rejects them. So either B's `121`/`122` go first, or their apply has to be
+cleared against a tip of `123`. Numeric gaps themselves are fine — production already carries
+023/043/055/056/059/060/066.
+
+B's "combined chain 142" is B's own chain label, not a migration number on this line; `142` is unowned here.
+Confirm before anyone treats it as a claimed number.
