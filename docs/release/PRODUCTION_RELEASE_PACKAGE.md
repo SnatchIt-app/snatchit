@@ -2202,3 +2202,31 @@ reads HTTP status rather than job status. Not blocking anything; owner's call.
 **Evidence not accessible to A:** whether any scheduler outside this project (a CI workflow, a platform
 scheduler, a third-party cron) also targets these endpoints — the repository shows none, and the 401s are
 accounted for by `pg_net`, but absence outside the project cannot be proven from inside it.
+
+**F4 cause, and F5 attribution corrected (2026-09-12).**
+
+C pinned the **sandbox** cause and it is not "never provisioned": `032_pre_testflight_blocker_fixes` is the
+scheduler of record (it unschedules the shadow job and reschedules the HTTP job with the
+`net.http_post` + `vault.decrypted_secrets` idiom), `014/032/077/093/099` are all applied in the sandbox, and
+`auto-finalize-auctions` from the same `014` survives — so `enforce-transfer-expiry` was created by the
+migrations and **unscheduled out of band** afterwards. The sandbox's `vault.decrypted_secrets` holds 0 rows, so
+rescheduling it there would 401 on every tick.
+
+**C's inference does not carry to production, and A checked rather than assuming.** Production's vault holds
+exactly one secret, `service_role_key`, created and last updated **2026-06-11 19:03** — present, and never
+rotated since. So a missing or rotated secret does **not** explain production's 7 × 401. The cause of those
+seven remains unattributed.
+
+**Two distinct silent-failure modes now visible, both invisible to job-level monitoring:**
+- **401 at the edge** (7 in 24 h, from `pg_net/0.20.4`): the function definitely did not run.
+- **pg_net timeout** (`net._http_response` shows 3 in 24 h, `status_code` null, "Timeout of 5000 ms reached"):
+  the request was abandoned client-side, but the edge **may still have executed**. A timeout is therefore not
+  evidence of a skipped sweep, unlike a 401.
+
+**Evidence limit on A's side:** `net._http_response` is pruned — 180 rows in 24 h against 727 posts to that one
+endpoint — so the 401s cannot be reconstructed from it, and the edge logs that do show them are themselves
+capped at 24 h. Any longer-horizon question about these needs a retained source neither verifier has.
+
+**Carried into any provisioning runbook (C's point, adopted):** the schedule is repo-provisioned but its
+authorization is not. A fresh environment that applies the migrations gets the job and then 401s on every tick
+until the vault secret is seeded out of band.
