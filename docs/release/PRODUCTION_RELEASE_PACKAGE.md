@@ -2116,3 +2116,19 @@ is merely absent from the default plan.
 - Where production's apply order differs from file order, the rehearsal replays **production's** order, as
   `convergence_prod_order_rehearsal.sh` already does.
 - `123` keeps its number regardless, to preserve its sandbox apply history.
+
+**F4 sharpened (2026-09-12): a missing schedule, not a missing deploy.** The sandbox's edge function list shows
+`enforce-transfer-expiry` and `confirm-and-release` both **ACTIVE at v3**. So the code that would flip a
+`seller_sent` transfer at its `auto_release_at` is deployed; nothing invokes it. C verified the database half
+independently and added that `public.apply_auto_release` is the function that would set `payout_released_at`,
+and that nothing in the database calls it. Both verifiers agree: 21 active cron jobs, none touching
+`confirm-and-release`, `auto_release`, `public.transfers` or `enforce-transfer-expiry`.
+
+The remaining unknown is unchanged and belongs to the owner: whether production drives those edges on an
+external schedule (GitHub Actions, an external cron, a platform scheduler) that the sandbox lacks. Neither
+verifier has read production's `cron.job`; it sits outside the F1/F2 parity authorization.
+
+C also corrected the origin of its earlier caveat: its query used `auto_release_at < now() + interval '6 hours'`,
+which matches every past deadline too, and the result was then described as "about to flip". C's re-read matches
+A's: 0 transfers with a future deadline inside 6 hours, and the other 13 open rows carry no `auto_release_at`
+at all.
