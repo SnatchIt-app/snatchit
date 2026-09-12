@@ -1890,3 +1890,39 @@ from `origin/release/convergence-135`; client usage from `df9e0d3`. No writes an
   both target `public.profiles`, so `123` is a verified no-op against production, as recorded.
 
 **Not checked:** every other table's FK set. These two were checked because the client exercises them.
+
+### D9c reconciliation — what the evidence establishes, and what stays unverified (2026-09-12)
+
+The owner reported "completed exactly as instructed" with no screen or timing capture. This reconciles that
+against C's verification and A's independent reads. Nothing below is inferred from the owner's phrasing.
+
+**Established (Stripe CLI, database, Supabase logs; C and A agree):**
+- Hold taken 03:53:26.651; intent `pi_3UELWp…` created 03:53:31; `requires_action` 03:54:16.
+- Handset REST silent 03:54:26.8 → 03:55:20.4, with a realtime upgrade at 03:55:10.5.
+- `payment_failed` (authentication failure) 03:55:43, from an API request.
+- Webhook released the hold 03:55:44.63 (path 3), ≈7.7 min before expiry.
+- Sheet closed later: `confirm-payment` "not succeeded" 03:59:19.17, handset release 03:59:19.277 — a no-op.
+- **No authorization, no charge, no settlement, no transfer.** Device D8 `active`, one `failed` row.
+
+**Unverified, and recorded as such:**
+- Whether Complete was tapped while offline. Stripe shows authentication never succeeded, which is equally
+  consistent with a tap whose request never left the device and with no tap at all.
+- The (i)/(ii)/(iii) state at the cut, the cut time (bounded only: after 03:54:26.8, before the 03:55:10.5
+  reconnect), and every on-screen text.
+- What ended the challenge at ≈03:55:25–27 and what dismissed the sheet at ≈03:59:17. The SDK source shows no
+  automatic trigger for either, but that is not proof of a tap.
+
+**Consequence.** D9c stays **UNTESTED**. Across all three attempts the 3-D Secure authentication never
+succeeded at Stripe, so each one landed at D9b's stage and the D9c question — a charge that succeeds while the
+handset is offline — has never been reached.
+
+**Recommendation: no rerun before D10/D11.**
+1. Three attempts have produced the same failure mode. A fourth is likely to produce another UNTESTED and
+   consumes a spare listing.
+2. The risk D9c targets is largely covered elsewhere: settlement is server-side and independent of the handset
+   (`settle_verified_payment` via the webhook, observed live on the settled devices), and the client's pending
+   path is code-verified and was exercised by D5's 3-D Secure success.
+3. D10 and D11 (deletion messaging, withdrawal) do not depend on D9c.
+4. If the owner wants the gap closed, the honest option is an instrumented test rather than handset timing: the
+   window between Stripe's success and the client learning of it is too short to hit manually. Otherwise close
+   D9c as UNTESTED with the residual risk accepted and recorded.
