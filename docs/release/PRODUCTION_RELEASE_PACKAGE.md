@@ -2165,3 +2165,40 @@ the planned list checked exactly — that remains the protection at layer 2.
 
 **Lesson recorded (A).** An absence claim is only as wide as the search behind it. "No guard in `ci.yml` and
 `supabase/ci`" is a fact; "there is no guard" was an inference, and it was false.
+
+### F4 resolved: production schedules the tick; the sandbox does not (2026-09-12, read-only)
+
+Owner-authorized read-only investigation. No function was invoked, no schedule changed, no payout moved.
+
+**Answer: "no database schedule" was a SANDBOX fact, not a system fact.**
+
+| Evidence | Production | Sandbox |
+|---|---|---|
+| `cron.job` count | **24** | 21 |
+| `enforce-transfer-expiry` job | **present, `*/2`, active** | **absent** |
+| Job command | `net.http_post` to `/functions/v1/enforce-transfer-expiry` with a service-role bearer read from `vault.decrypted_secrets` | — |
+| Runs, last 24 h | **720 succeeded, 0 failed** | — |
+| Edge invocations, last 24 h | **720 × POST 200** | none |
+| Transfers past `auto_release_at`, unreleased | **0** | 2 (27.5 h and 27.1 h overdue) |
+| Open (`pending`/`seller_sent`) transfers | 0 | 21 |
+| `auto_released` rows | 4 | 0 |
+
+Production also carries `apply_auto_release(uuid)` and `get_auto_release_candidates()`, and both
+`confirm-and-release` and `enforce-transfer-expiry` are ACTIVE edge functions (v36 / v38). Jobs the sandbox
+lacks entirely: `enforce-transfer-expiry`, `ops-daily-summary`, `ops-detect-tick`.
+
+**So F4 is a sandbox environment gap, not a product defect.** Sellers are not stranded in production. The
+sandbox's two overdue transfers are an artefact of the missing tick, and they are exactly why D10/D11's blocker
+set is stable — worth keeping, not "fixing", for the duration of the matrix.
+
+**Incidental finding F5 — cron success does not mean the tick ran.** 7 of the 727 pg_net POSTs to that endpoint
+in the last 24 h returned **401**, the most recent at 2026-09-12T04:18:00.401Z, all with user agent
+`pg_net/0.20.4`, i.e. the scheduler itself rather than an outside caller. Because `pg_net` is asynchronous,
+`cron.job_run_details` records the job as **succeeded** — it succeeded in *queueing* the request — so an
+operator watching cron health sees 720/720 green and never sees the seven skipped sweeps. Each miss
+self-corrects on the next `*/2` tick, so the impact is a delayed sweep, not a lost one. Worth a monitor that
+reads HTTP status rather than job status. Not blocking anything; owner's call.
+
+**Evidence not accessible to A:** whether any scheduler outside this project (a CI workflow, a platform
+scheduler, a third-party cron) also targets these endpoints — the repository shows none, and the 401s are
+accounted for by `pg_net`, but absence outside the project cannot be proven from inside it.

@@ -12,7 +12,7 @@ banners; it authorizes nothing.
 | — | 187 | release integration | `my_tickets_read` | on the candidate |
 | `20260910120000` | 188 | **Claude D** | `venue_api` read views | branch `venue/read-adapters-slice-1`, not applied |
 | `121` | 189 | **Claude B** | manifest signing context STRICT | PR #58, not applied |
-| `122` | **190** | **Claude B** | scanning drift fix | **RESERVED** — named in B's remaining-path report |
+| ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12** by owner sequencing approval — unwritten, so the renumber is free |
 | `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
 | `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | proposed 2026-09-12, not written |
 
@@ -88,3 +88,20 @@ migration or a strictly-increasing guard rejects it" — **overstated it**. Sour
    the same order production applied, which the rehearsal harness models explicitly
    (`convergence_prod_order_rehearsal.sh` replays production's real order, not the file order).
 3. The owner's menu is wider than the earlier caveat suggested — see the release package.
+
+## Merge order approved by the owner (2026-09-12) — sequencing only
+
+**Intended merge order: `121` → `123` → `124`.** The unwritten scanning fix reserved as `122` is reassigned to
+**`125`**, the next free number above `124`. Its companion pgTAP number **190 stays with it** — the guard scopes
+to `supabase/migrations/**`, so test numbering is unaffected.
+
+Why the renumber is required rather than cosmetic: `.github/workflows/migrations-guard.yml` §4 fails any PR
+whose newly **added** migration is not strictly greater than the base branch's highest version of the same
+scheme. Once `124` is in the base, a PR adding `122` fails. `121` is written and reviewed in PR #58, so it
+merges **first** and needs no renumber; the unwritten fix costs nothing to move.
+
+`125` verified free across `release/convergence-135`, `feature/venue-native-and-product-v2`,
+`venue/read-adapters-slice-1` and this branch on 2026-09-12.
+
+**This is sequencing approval only** — not authorization to apply any migration, and not a Build 16 change.
+Claude B owns `121` and `125`; the registry and B's references need to agree before either is merged.
