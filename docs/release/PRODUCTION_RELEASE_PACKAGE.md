@@ -2026,3 +2026,41 @@ settle or clean those rows first. Baseline: `kernel.identity_ext.deletion_state`
 
 **Hard stop.** If `deletion_state` ever reads anything other than `ACTIVE` or `DELETION_PENDING`, stop and
 report before any further tap. Do not create a replacement account.
+
+### D10/D11 cross-check of C's draft, and finding F3 (2026-09-12)
+
+**Blocker prediction confirmed independently.** `public.account_deletion_blockers` is definer-only and A's
+session cannot execute it, so A replicated its body read-only for `919d511e`: **9 rows, all `active_transfer`**.
+C's read agrees, so the sheet should carry exactly one deduped line.
+
+**Why no `pending_payment` line** (A's open question, resolved): that arm fires only when
+`created_at > now() - 24h`, or an unresolved `webhook_retries` row names the payment. The buyer's two pending
+payments are `fd616e02` (99.6 h) and `9f4ab181` (25.5 h), neither with a retry row. `9f4ab181` crossed the
+24-hour boundary about 1.5 h before the check, so the prediction is time-sensitive by construction: any pending
+payment created during the test adds a line. No payment attempt is authorized, so this is a record note.
+`public.webhook_retries` holds 1 unresolved row globally, not on this buyer's payments; if it were, an
+`unresolved_review` line would appear.
+
+**BP-7 before BP-13 — C's safety argument verified against `077`.** `kernel.sweep_deletion_pending` coalesces
+BP-1..BP-12 in order and stops at the first non-null; the BP-7 live arm ("an open or disputed live transfer
+must reach a terminal state first") sits inside that coalesce. The live-rail aggregate
+(`public.account_deletion_block_reason`, the BP-13 string) applies only when the coalesce is null. The sweep
+writes its result to `identity_ext.deletion_block_reason` and tombstones only when the reason is null. So the
+baseline reads BP-13 because that is the aggregate function C called, and after a tick the **stored** reason
+should read BP-7. The record should name which function produced which string; they disagree by design.
+
+**F3 — latent copy defect (A-reported, not blocking D10).** `OBLIGATION_LABELS` in `app/settings/index.tsx`
+maps eight kinds, but `account_deletion_blockers` can return three it does not: `open_dispute`,
+`unresolved_review`, `open_payout_attempt`. Unknown kinds fall back to the raw token, so a user in those states
+sees `open_dispute` in the deletion sheet. This account is all `active_transfer`, so D10 will not surface it.
+Fix belongs alongside F1, scope C's call.
+
+**Numbering note, not a collision.** `121_settlement` … `124_account_deletion` are pgTAP suites under
+`supabase/tests`; 121–124 here are migrations under `supabase/migrations`. The registry pairs them
+(121→189, 122→190, 123→191, 124→192), and CI counts planned assertions across `supabase/tests/*.sql` without
+mapping a suite to a migration by number.
+
+**F1 fix reviewed (C, `2ba5281`, branch `frontend/f1-checkout-summary-query`): approved as written.** Named
+column list, blank-as-absence mapping, and `reservedUntilMs` returning null rather than NaN. Production also has
+no `cover_image_url` (A, read-only, on the owner's authorization), so C's "correct either way" hedge can become
+a statement: the column exists in no environment.
