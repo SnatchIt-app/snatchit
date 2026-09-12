@@ -1926,3 +1926,49 @@ handset is offline — has never been reached.
 4. If the owner wants the gap closed, the honest option is an instrumented test rather than handset timing: the
    window between Stripe's success and the client learning of it is too short to hit manually. Otherwise close
    D9c as UNTESTED with the residual risk accepted and recorded.
+
+### Authorized preparations, and the proposed production ordering (2026-09-12)
+
+The owner accepted **D9c as UNTESTED** with its documented limits; no further payment attempt for that case.
+Authorized as isolated preparation only — **no hosted application, no deployment, no change to Build 16's pin**.
+
+**C — F1 (client-only).** Drop `cover_image_url` from `CheckoutNative.tsx:138`; verify the order summary and the
+Buy Now countdown load, including a listing with a missing image (the sandbox's storage render path 400s on
+every load, so that case reproduces without setup). No migration.
+
+**A — F2: migration 124 + pgTAP 192, written, not applied.**
+- `supabase/migrations/124_bids_profiles_fk_parity.sql` — conditional, orphan-guarded retarget of
+  `bids_bidder_id_fkey` to `public.profiles(id)` **ON DELETE CASCADE**. The cascade matters: production's bids
+  constraint cascades, unlike 123's transfers constraints, which are NO ACTION. Parity, not an improvement.
+- `supabase/rollbacks/124_bids_profiles_fk_parity_rollback.sql` — returns the chain's pre-124 target
+  (`auth.users`, no action). Running it against production would create the drift.
+- `supabase/tests/192_bids_profiles_fk_parity.sql` — plan 11, `BEGIN … ROLLBACK`, read-only: existence, target,
+  `confdeltype='c'`, `confupdtype='a'`, MATCH SIMPLE, validated and not deferrable, the full
+  `pg_get_constraintdef` string matched verbatim against production's, zero orphans, and that
+  `bids_listing_id_fkey` and the three bids RLS policies are untouched.
+- **Constraint comparison (read-only, 2026-09-12).** Production:
+  `FOREIGN KEY (bidder_id) REFERENCES profiles(id) ON DELETE CASCADE`, 98 bids, 0 orphans. Sandbox and a fresh
+  replay: `FOREIGN KEY (bidder_id) REFERENCES auth.users(id)`, 0 bids, 0 orphans.
+- **Correction carried into 124's header:** 123 recorded this sibling as latent, "no code embeds profiles off
+  bids today". That was wrong — `useListingRealtime.ts:64` has always embedded it.
+
+**Proposed production ordering: `121` → `122` → `123` → `124`.** Conditional on each migration's own readiness
+and approval; **not executable today**.
+
+| # | Owner | State | Gate |
+|---|---|---|---|
+| 121 | B | written, PR #58 draft rev 2 | `AUTHORIZE PFA-18C MIGRATION 121`; deferred optional hardening |
+| 122 | B | **not written** (086↔112/113 expired-episode drift; B estimates 2–4 h engineering + 1 h apply) | needed before the scanning flip, not before C6 |
+| 123 | A | written, tested, **sandbox-applied** | production apply unauthorized; must not precede 121/122 |
+| 124 | A | written, tested, **not applied anywhere** | production needs none (already correct); sandbox apply after the matrix |
+
+**Scheduling effect of 122 — flagged.** 122 does not exist yet, so the sequence is a plan, not a runbook. Three
+consequences:
+1. Nothing in this chain can be applied to production as a batch until B writes, rehearses and gets 122
+   approved.
+2. `123` and `124` are both independent of `121`/`122` in content; they are held behind them **only** by the
+   ordering guard.
+3. If 122 slips past the release window, the alternatives are to apply `121` alone under its own
+   authorization and keep `122`→`124` as a later batch, or to have B renumber the unwritten `122` above `124`
+   — coordinated with the registry, and cheap precisely because it is unwritten. `123`'s number stays fixed
+   either way: renumbering it would break the sandbox apply history.
