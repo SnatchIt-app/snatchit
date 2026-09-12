@@ -1,5 +1,7 @@
 # PFA-18C — REMAINING PATH FROM C5 TO COORDINATOR HANDOFF (planning document · nothing executed · no authorization implied)
 
+> **2026-09-12 — HANDOFF STATE REACHED.** C5 and C6 are COMPLETE; the §5 definition is met except item 2 (migration 121), which the owner explicitly deferred to Claude A's integration sequence. The current gate list is `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md`; the text below is preserved as the plan of record dated 2026-09-10.
+
 **Date:** 2026-09-10 (late) · **Coordinator:** Claude B · **Basis:** the ratified single-founder packet (`PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` §5b/§5c/§5d, `PFA_SINGLE_FOUNDER_KMS_BOOTSTRAP.md` maturity trigger, `PFA_18C_OWNER_RATIFICATION.md`), the owner runbook, and the execution record through session 25.
 **Standing state:** C1 · C2 · C3 · C4 COMPLETE. **C5 paused after C5-1** (request `05e0ff5d…` pending, expires 2026-09-13T19:59:17Z; pin v1; monitor disabled). **Migration 121** review-only (PR #58 draft, rev 2). **C6** review-only. **C7/M5** pending governance clarification. **Model A** not authorized. Issuance and scanning **false**. Consumer QA paused at D7 (Claude A/C); Build 16 handset matrix open; combined release + venue + 121 chain = 142 migrations (A). Effort figures below are estimates of active time, excluding waits.
 
