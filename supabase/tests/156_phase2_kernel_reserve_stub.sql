@@ -80,7 +80,7 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid = p.po
   -- 2026-09-02 (package 092): 67 -> 72 (+5 notify owner policies).
   'A21: 091 creates NO policy (register 72 post-092)');
 -- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
-SELECT is((SELECT count(*)::int FROM cron.job), 22, 'A22 (099: 22 with the three signing/executor jobs): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
+SELECT is((SELECT count(*)::int FROM cron.job), 24, 'A22 (099: 22 with the three signing/executor jobs; 117: 24 with ops-detect-tick + ops-daily-summary): 091 schedules NO cron row (18 post-090 — an absolute census, not a name filter)');
 -- 2026-09-02 (package 093): 43 -> 47. RATIFIED CONTRACT CHANGE — four keys, each ONE row at
 -- version 1 and each seeded OWNER-UNSET (jsonb null, PFA-9 shape), so the census stays absolute:
 --   inventory.per_user_active_hold_max, inventory.hold_ttl_interval  (093_FINAL_PROPOSED_SCOPE item 3)
