@@ -2091,3 +2091,28 @@ stable for the run** — barring a manual buyer confirmation, no `active_transfe
 - **Open question for the owner:** whether production has a scheduler for `confirm-and-release` that the sandbox
   lacks. A production `cron.job` read is read-only but outside the F1/F2 parity authorization, so it was **not**
   performed; it is put to the owner instead.
+
+### Ordering: A's rule corrected, and the owner's real menu (2026-09-12)
+
+C asked whether renumbering the unwritten `122` above `124` would strand `121` below the tip once `124` applied.
+Checking it showed **A's rule was wrong**, so the question dissolves.
+
+**Sourced correction.** `supabase db push --include-all` means "include all migrations not found on remote
+history table": the default plan carries only versions above the remote maximum, and `--include-all` carries
+every missing version, applied in `LC_ALL=C` order. There is no monotonic guard in CI or `supabase/ci`, and
+production has already applied **115–120 before 110–114**. So a lower-numbered migration is never rejected — it
+is merely absent from the default plan.
+
+**Revised menu for `121` · `122` · `123` · `124`** (still nothing authorized):
+1. **Wait for `122`**, then apply `121` → `122` → `123` → `124` in one ascending pass.
+2. **Apply `121` alone** under its phrase now; take `122`–`124` later.
+3. **Apply `123` and `124` first**, and take `121`/`122` afterwards with `--include-all` and a dry-run that
+   lists exactly the intended versions.
+4. Renumbering the unwritten `122` remains available, but it is now a **tidiness** choice, not a requirement.
+
+**The constraints that do bind**, whichever is chosen:
+- Every apply dry-runs first and the planned list is checked exactly — that is the real protection against a
+  default push silently skipping a lower-numbered file.
+- Where production's apply order differs from file order, the rehearsal replays **production's** order, as
+  `convergence_prod_order_rehearsal.sh` already does.
+- `123` keeps its number regardless, to preserve its sandbox apply history.

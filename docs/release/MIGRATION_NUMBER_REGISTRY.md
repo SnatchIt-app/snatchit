@@ -67,3 +67,24 @@ cleared against a tip of `123`. Numeric gaps themselves are fine — production 
 
 B's "combined chain 142" is B's own chain label, not a migration number on this line; `142` is unowned here.
 Confirm before anyone treats it as a claimed number.
+
+## CORRECTION (2026-09-12): the "guard" is CLI planning, not a rejection
+
+A's earlier wording here and in the release package — "a seq migration must exceed the highest applied seq
+migration or a strictly-increasing guard rejects it" — **overstated it**. Sourced today:
+
+- `supabase db push --help`: `--include-all  Include all migrations not found on remote history table.`
+  So the DEFAULT plan contains only versions **above** the remote maximum; `--include-all` plans every version
+  missing from the ledger, applied in `LC_ALL=C` order.
+- There is **no** monotonic guard in `.github/workflows/ci.yml` or `supabase/ci/`. Nothing rejects a
+  lower-numbered migration.
+- Production has already applied out of numeric order: **115–120 (2026-09-08) before 110–114 (2026-09-09)**.
+
+**Consequences.**
+1. A lower-numbered migration is never "stranded". It is only **omitted from the default plan**, and
+   `--include-all` plans it. The risk is silent omission, not rejection — which is why every apply here
+   dry-runs and checks the planned list exactly.
+2. Renumbering is therefore **not required** by any ordering rule. It only keeps a fresh `LC_ALL=C` replay in
+   the same order production applied, which the rehearsal harness models explicitly
+   (`convergence_prod_order_rehearsal.sh` replays production's real order, not the file order).
+3. The owner's menu is wider than the earlier caveat suggested — see the release package.
