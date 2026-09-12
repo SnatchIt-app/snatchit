@@ -4,6 +4,8 @@ SNATCH IT — PHASE-2 093→109 PRODUCTION MIGRATION EXECUTION
 
 2026-09-04 · Gate B production migration · DARK substrate through 109 · NO ACTIVATION
 
+PRODUCTION-STATE RECONCILIATION (2026-09-12): the FINAL STATE / NEXT ACTION sections below are historical. Production now: ledger 135, numeric tip 120 (110-120 applied after this record; 121 not applied); KMS trust root ESTABLISHED (C2/C3, one active global ES256 kernel.signing_key row); signing monitor ENABLED and healthy (C5); credential-sign, door-manifest, door-session DEPLOYED DARK (C6) with 0 requests and 0 runtime Sign/AssumeRole; primary-checkout still NOT deployed; issuance/scanning false; native data 0; cron 24 active. Source of truth: docs/release/PHASE2_PRODUCTION_STATE_20260912.md. Standing restrictions unchanged; nothing re-authorized.
+
 AUTHORIZATION
 
 OWNER AUTHORIZATION:   YES — MIGRATIONS 093→109 ONLY (explicit owner instruction, this session)
