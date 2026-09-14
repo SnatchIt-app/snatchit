@@ -334,7 +334,7 @@ async function browser() {
     const anon = await br.newPage();
     let t = await visit(anon, `${A}/events`);
     check(P, "H1 signed out -> Sign in to continue (database mode)", t.includes(SIGN_IN), t.slice(0, 200));
-    check(P, "P1 signed out: no role label and no sample fixture names", !/Venue manager|Org owner|\(sample\)/.test(t), t.slice(0, 300));
+    check(P, "P1 signed out: no role label, no sample fixture names, no phantom role switch", !/Venue manager|Org owner|\(sample\)|role switch/i.test(t), t.slice(0, 300));
     await anon.close();
 
     // Manager: real login, page content, projection, no write controls.
@@ -443,7 +443,7 @@ async function browser() {
     check(P, "H7 concurrent: manager sees A events", tm.includes(TITLE.e1), tm.slice(0, 200));
     check(P, "H7 concurrent: outsider sees denial, never A's rows", to.includes(DENIED) && to.includes(NO_GRANT) && !to.includes(TITLE.e1) && !to.includes(TITLE.e2), to.slice(0, 200));
     await out.screenshot(join(OUT, "evidence-outsider-denied.png"));
-    check(P, "P1 grant-less caller: no role label claimed, no sample fixture names", !/Capabilities come from your grants: (Venue|Org)|Venue manager|\(sample\)/.test(to), to.slice(0, 300));
+    check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !/Capabilities come from your grants: (Venue|Org)|Venue manager|\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
     check(P, "P1 manager header shows no sample fixture names in database mode", !/\(sample\)/.test(tm), tm.slice(0, 300));
     for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`]) {
       t = await visit(out, path);
