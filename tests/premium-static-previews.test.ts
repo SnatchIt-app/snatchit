@@ -15,6 +15,9 @@ import { bidOutcomeCopy } from '@/src/lib/bid/bidEntry';
 import { notHeldCopy, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
 import { payControl } from '@/src/lib/checkout/payControl';
 import { UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
+import { REGISTRATION_REMEDY } from '@/src/lib/push/registration';
+import { RETURN_PROMPT, returnPromptBody } from '@/src/lib/transfer/providerHandoff';
+import { transferStatusCopy, transferStatusMeta } from '@/src/lib/transfer/transferState';
 
 const root = resolve(__dirname, '..');
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8');
@@ -86,5 +89,19 @@ describe('static previews are labelled and pinned to source', () => {
     expect(html).toContain(notice!);
     expect(read('app/settings/notifications.tsx')).toContain("Couldn't save ${label}. It's back to ${prev ? 'on' : 'off'}. Check your connection and try again.");
     expect(html).toContain("Couldn't save Outbid alerts. It's back to on. Check your connection and try again.");
+  });
+
+  it('batch 3: transfer vocabulary, the return question, and the registration remedy match source', () => {
+    expect(html).toContain(transferStatusMeta('seller_sent').label);
+    for (const [st, role] of [['seller_sent', 'buyer'], ['buyer_confirmed', 'buyer'], ['auto_released', 'buyer'], ['seller_sent', 'seller']] as const) {
+      const c = transferStatusCopy(st, role);
+      expect(html, `${st}/${role}`).toContain(c.title);
+      expect(html, `${st}/${role}`).toContain(c.body);
+    }
+    expect(html).toContain(RETURN_PROMPT.title);
+    expect(html).toContain(returnPromptBody('Ticketmaster'));
+    for (const b of [RETURN_PROMPT.here, RETURN_PROMPT.notYet, RETURN_PROMPT.problem]) expect(html).toContain(b);
+    expect(html).toContain(REGISTRATION_REMEDY.bound_to_other!);
+    expect(html).toContain('Open Ticketmaster');
   });
 });
