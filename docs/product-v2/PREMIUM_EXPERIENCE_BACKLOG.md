@@ -160,9 +160,10 @@ responsiveness · P2 completeness · P3 refinement.
 | 17 | CFT-501 | 35 | CFT-407 | 53 | CFT-704 |
 | 18 | CFT-503 | 36 | CFT-608 | 54 | CFT-705 |
 
-**Status totals (54 items):** implemented 0 · partial 42 · missing 10 ·
-blocked 2 (items 17 server-time part, 22) · deferred 0 (the native Tickets part
-of item 35 is deferred under CFT-801).
+**Status totals (54 items):** implemented 0 · partial 43 · missing 9
+(items 1, 5, 19, 21, 32, 35, 36, 41, 44) · blocked 2 (17, 22) · deferred 0 (the
+native Tickets part of item 35 is deferred under CFT-801). Item 17's client-side
+"Confirming result…" state can start; only its server-time correction is blocked.
 
 ---
 
