@@ -50,6 +50,9 @@ const EXPECTED_ERROR_PATTERNS = [
   /auction.*not ended/i,
   /not the winner/i,
   /not authenticated/i,
+  // create-payment-intent's amount check (index.ts :533 fresh path, :640 reuse
+  // path). Both carry `server_total_cents`; see PriceChangedError below.
+  /price changed/i,
 ];
 
 export function isExpectedCheckoutError(message: string): boolean {
@@ -130,6 +133,55 @@ export const SETTLEMENT_COPY: Record<
   },
 };
 
+/**
+ * A-02 (CFT-304): the server refused because its canonical total differs from
+ * the one the buyer was shown. It returns the number it would charge as
+ * `server_total_cents`. This error carries it so the screen can show the new
+ * total and ask for a fresh acceptance — never resend the stale one.
+ */
+export class PriceChangedError extends Error {
+  readonly serverTotalCents: number;
+  constructor(message: string, serverTotalCents: number) {
+    super(message);
+    this.name = 'PriceChangedError';
+    this.serverTotalCents = serverTotalCents;
+  }
+}
+
+export function isPriceChangedMessage(message: string): boolean {
+  return /price changed/i.test(message);
+}
+
+/**
+ * Decide what to do with a price-change refusal, purely.
+ *
+ *   - The buyer must be shown the SERVER's total, and it must agree with what
+ *     the client computes from a fresh listing read using the canonical money
+ *     helper. If the two disagree, nothing is offered: something is wrong and
+ *     no total is trustworthy.
+ *   - A fresh acceptance is always required: `nextAcceptedCents` is the number
+ *     the buyer taps to accept, and only then does it become the expected total
+ *     sent back to the server.
+ */
+export function reconcilePriceChange(input: {
+  /** What the server would charge. */
+  serverTotalCents: number;
+  /** All-in total recomputed client-side from the fresh listing row. */
+  freshTotalCents: number | null;
+  /** The total the buyer last accepted. */
+  acceptedTotalCents: number;
+}): { outcome: 'accept_required'; previousCents: number; nextAcceptedCents: number }
+  | { outcome: 'mismatch' } {
+  if (input.freshTotalCents == null || input.freshTotalCents !== input.serverTotalCents) {
+    return { outcome: 'mismatch' };
+  }
+  return {
+    outcome: 'accept_required',
+    previousCents: input.acceptedTotalCents,
+    nextAcceptedCents: input.serverTotalCents,
+  };
+}
+
 export async function createPaymentIntent(
   params: CreatePaymentIntentParams
 ): Promise<PaymentIntentResult> {
@@ -161,13 +213,19 @@ export async function createPaymentIntent(
     // FunctionsHttpError stores the raw Response in .context — read it once
     // to surface the function's own { error } / { message } body when present.
     let reason = fnError?.message ?? 'Payment setup failed';
+    let serverTotalCents: number | null = null;
     try {
       const ctx = (fnError as any)?.context;
       if (ctx && typeof ctx.json === 'function') {
         const body = await ctx.json();
         reason = body.error ?? body.message ?? reason;
+        if (typeof body.server_total_cents === 'number') serverTotalCents = body.server_total_cents;
       }
     } catch {}
+
+    if (isPriceChangedMessage(reason) && serverTotalCents != null) {
+      throw new PriceChangedError(reason, serverTotalCents);
+    }
 
     // Only log unexpected/system errors — business-rule rejections are normal
     if (!isExpectedCheckoutError(reason)) {
