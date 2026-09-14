@@ -55,3 +55,41 @@ Verified by A against the tree: base carries 110–120; exactly three files adde
 1. **Sequencing vs git base (commitment).** PR #62 bases on `admin/operating-console` (integer tip 120) so the merge guard passes trivially; the binding constraint is that 125 lands **last**, after 121 → 123 → 124, **onto the integrated release base** (rebased/merged there at integration time, not onto `562fda9` as-is), and never reaches production ahead of them. The overlay replay §3 proves composition. Claude B holds to this.
 2. **Defensive-only, not for this PR.** If `get_door_manifest` ever returned `open:true` with a null `manifest_id`, the bind would null the device's `manifest_id`. The 112/113 contract makes that impossible (open implies a manifest row), so it is not a defect; an added `and (v_res ? 'manifest_id')` would make it structurally impossible. Deferred to the separately reviewed §20.4.4 conformance migration (or a rev 2 of 125 if the owner prefers it before apply).
 Apply-time gate restated: re-verify production md5 `666422e5…` immediately before any rollback is ever run; re-verify `6beca316…` after apply.
+
+## 8. Final CI state of PR #62 (CLAUDE-OBSERVED 2026-09-14T21:30Z, head `fc4f1130`, draft)
+| Check | State | Reading |
+|---|---|---|
+| Migrations apply cleanly (fresh DB) | **PASS** (2m1s) | the real Supabase-stack fresh replay of the branch chain including 125 |
+| Typecheck / Lint / Unit tests | PASS | |
+| Deno type-check (edge functions) | PASS | |
+| Admin console (Next.js) · Web build (Next.js) · Vercel | PASS | unaffected surfaces |
+| Supabase Preview | skipping | no preview branch (by design; `git_branch` empty) |
+| **Immutability + ordering** | **BLOCKED BEFORE EXECUTION** | the job exits at step 0c, the AUTODEPLOY-1 attestation gate (`AUTODEPLOY-VERIFIED-OFF: YYYY-MM-DD` absent — deliberate placeholder until the day of apply), **before** the §4 monotonic-ordering and immutability checks run. It has neither passed nor failed those checks. Local equivalents: three added files, no existing file modified (`git diff --name-status 562fda9..fc4f1130`), 125 > 120 (base) and > 124 (approved order), `LC_ALL=C` position verified in the overlay replay |
+No GitHub review object exists on the PR; Claude A's approval (§7) is recorded in the registry and the release package, not as a GitHub review.
+
+## 9. The four full-suite local deltas — pre-existing and environmental, not a 125 effect
+The full suite on the 125 replay reported **4346/4350** — **not** an unconditional pass. The four failures are the exact set `scripts/rehearsal_test.sh` documents and classifies (`known_notok`: 060 → 2, 132 → 2); anything else would be reported as REGRESSION.
+| Suite | Failing assertions | Cause (harness header) | Evidence pre-existing / environmental |
+|---|---|---|---|
+| `060_payments_money.sql` | #11 "transfers.stripe_transfer_id should be unique" (TODO F-2); #12 "direct service-path rewrite of payment amounts should be blocked" (TODO F-3) | deliberate `todo()` markers for two un-built hardening items (unique index; payments amount/status guard trigger); the local TAP parser counts TODO as not_ok, pg_prove in CI does not | **Control run 2026-09-14** on a clean `562fda9` replay **without 125** (`snatchit_rehears_120_control`, 135/135, Gate-2 27/71/37/27): same two assertions fail; suite total **4316/4320** = 4350 − the 30 assertions of suite 190. The delta set is identical with and without 125 |
+| `132_replay_parity.sql` | #8 D-5/8 (cron parity: schedule, database, username, active, command bytes vs production jobid 10); #9 D-5/9 (exactly one canonical row under that jobname) | compares `cron.job."database"`/username against production's values; the local rehearsal database has a different name and pg_cron is an inert stand-in (fidelity ledger in `scripts/rehearsal_bootstrap.sql`) — parity cannot hold locally by construction | same control run: same two assertions fail without 125; both compare environment identity, not schema |
+125 touches one `venue` function body; neither suite reads `venue.*`. The CI real-stack apply job (§8) is the authoritative fresh replay and passed.
+
+## 10. Completeness of the 122 → 125 corrections (sweep 2026-09-14, docs branch @ this commit)
+Every remaining literal "122" that denotes the scanning fix sits under a dated note in the same document: `PHASE2_PFA18C_REMAINING_PATH_AND_HANDOFF.md` (A's note at the top covers the dependency diagram, §1.6, §2.6, the Claude A/C row and §6 verbatim), `PHASE2_PFA18C_C6_EXECUTION_RECORD.md` (A's note covers the closing §5 sentence), `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` (my dated corrections under G6 and the open-items row). Remaining "122" hits are not the scanning fix: `DARK_PRECEREMONY_AUDIT.md` "(#122)" is a list position; `fix/122-transfers-profiles-fk` is A's branch name; this package's own history lines. `PHASE2_PRODUCTION_STATE_20260912.md` never named 122. **Complete.** A confirmed the corrections match A's record; the final package (this file, §1–§11) is handed to A by session message with its commit hash.
+
+## 11. Integration conditions and apply / read-back requirements — handed to Claude A (integration owner)
+**Integration conditions**
+1. 125 lands **last**: after 121 (#58), 123, 124, rebased or merged onto the **integrated release base**, never onto `562fda9` as-is, and never reaches production ahead of them. PR #62's code stays at `fc4f1130` unless a new defect requires revision (the deferred `(v_res ? 'manifest_id')` guard is not a defect).
+2. **Scope of the composition evidence:** the 139-migration overlay replay (§3) proves `562fda9 + 121 + 123 + 124 + 125` compose in `LC_ALL=C` order with suites green. It is **not** the full integrated release chain (the release line also carries the timestamped payments migrations `20260906…`, `20260909000000`, Claude D's `20260910120000` venue_api views, and whatever A sequences); A's convergence rehearsal of the actual chain is the evidence for that.
+3. Position check on the integrated chain: 125 must still sort immediately after the highest integer migration and before the first timestamped one (`20260714…`); confirm no integer > 125 has landed (A's 126–128 are reserved, unwritten).
+4. Day-of PR discipline: `AUTODEPLOY-VERIFIED-OFF: <date>` replaces the placeholder only on the day of apply; `git_branch` stays empty; CI ordering job must then run to completion and pass.
+**Apply requirements (owner runs; each apply under its own owner authorization — none re-issued here)**
+5. Pre-apply read-back (production, read-only): `venue.sync_scan_device_manifest(uuid,uuid,integer)` md5 **`666422e5fe0c7e96c267ad259d7ef50a`**, comment null, grants authenticated true / service_role false / anon false, venue function count 87, `feature.native_scanning_enabled` false, scan_device/door_manifest rows 0; ledger and numeric tip as sequenced (121/123/124 present if they precede).
+6. `supabase db push --include-all --dry-run` lists `125_sync_scan_device_manifest_open_unexpired.sql` **by name** and nothing unexpected; apply; the ledger grows by exactly the planned rows.
+**Post-apply read-backs (coordinator + Mac 2 Dashboard)**
+7. md5 **`6beca3168e76bb566e456b6abd467197`**; comment present (`125: the device is bound …`); grants unchanged (t/f/f); venue function count unchanged (87 + whatever 121–124 add, expected 0); `pg_proc` count for the name = 1.
+8. CI suites 190, 178, 179 green on the integrated chain; monitor `kernel.check_signing_key_invariants()` still `ok/match`; scanning flag still false; native counts still 0; no edge redeploy needed (no caller changes).
+**Recovery**
+9. Rollback only under its own authorization, forward-only policy: re-verify production md5 = `6beca316…` immediately before, run `supabase/rollbacks/125_…_rollback.sql`, expect `666422e5…` and comment null; never after `feature.native_scanning_enabled` is true (it re-introduces the drift).
+**Assignment status:** development and review milestone accepted by the owner 2026-09-14; closed pending A's integration. Model A, M5 and C8 remain separately gated (final handoff §3) and are not reopened; C5/C6 stay COMPLETE; no AWS work reopened.
