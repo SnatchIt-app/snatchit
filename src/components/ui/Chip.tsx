@@ -12,6 +12,7 @@
 
 import { Animated, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
 
+import { hapticSelect } from '@/src/lib/feedback/haptics';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -40,10 +41,15 @@ export function Chip({
   const press = usePressScale(!disabled);
   const text = count == null ? label : `${label} ${count}`;
 
+  // A chip is a selection, so the selection tick lives here (CFT-202). The
+  // visible equivalent is the selected fill the parent renders on the next
+  // frame; the tick is never the only feedback.
+  const select = disabled || !onPress ? undefined : () => { hapticSelect(); onPress(); };
+
   return (
     <Animated.View style={press.style}>
       <Pressable
-        onPress={disabled ? undefined : onPress}
+        onPress={select}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         disabled={disabled}

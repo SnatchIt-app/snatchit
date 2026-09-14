@@ -29,7 +29,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Keyboard, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -113,8 +112,9 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
     transform: [{ translateY: kbd.interpolate({ inputRange: [0, 1], outputRange: [0, DOCK_HEIGHT + DOCK_GAP + 24] }) }],
   };
 
+  // Navigation is silent (CFT-202, item 9): a tab tap is not an event, and a
+  // buzz on every one of them is what makes the meaningful haptics meaningless.
   function onPress(routeKey: string, routeName: string, isFocused: boolean) {
-    Haptics.selectionAsync().catch(() => {});
     const event = navigation.emit({ type: 'tabPress', target: routeKey, canPreventDefault: true });
     if (!isFocused && !event.defaultPrevented) navigation.navigate(routeName);
   }
