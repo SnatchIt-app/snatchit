@@ -54,6 +54,7 @@ import {
   type ListingSummaryRow,
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
+import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import { fmtHoldUntil, notHeldCopy, notHeldReason, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
@@ -878,6 +879,10 @@ export default function CheckoutScreen() {
         ) : (
           <Button
             label={pay.label}
+            // The pending states payControl already names ("Processing",
+            // "Checking your payment", "Checking your hold") are now visible
+            // beside the spinner instead of hidden under it (CFT-203).
+            pendingLabel={pay.loading ? pay.label : undefined}
             onPress={payOnPress}
             variant="primary"
             size="md"
@@ -964,6 +969,9 @@ function ConfirmationView({
   const insets = useSafeAreaInsets();
   const copy = SETTLEMENT_COPY[outcome];
   const completed = outcome === 'completed';
+  // The one distinctive haptic (CFT-202), only for the face that is allowed to
+  // claim the purchase is done; its visible equivalent is the kicker below.
+  useEffect(() => { if (completed) hapticSuccess(); }, [completed]);
   // Only a recorded sale has a transfer to hand off.
   const showTransfer = completed && !!transferId;
   return (
@@ -1063,7 +1071,8 @@ const s = StyleSheet.create({
   meta: { color: v2.text.muted },
 
   holdRow: { marginTop: v2.space.lg },
-  hold: { color: v2.status.warning },
+  // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).
+  hold: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
   holdExpired: { color: v2.status.error },
 
   breakdown: {
