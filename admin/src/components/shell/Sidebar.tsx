@@ -37,7 +37,7 @@ export function Sidebar() {
                 }`}
               >
                 <span>{item.label}</span>
-                <kbd aria-hidden="true" className="opacity-60">
+                <kbd aria-hidden="true">
                   g {item.key}
                 </kbd>
               </Link>

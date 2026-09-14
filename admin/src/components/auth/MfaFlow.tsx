@@ -123,7 +123,7 @@ export function MfaFlow({ next }: { next: string }) {
           </div>
           <details className="text-[12px] text-muted">
             <summary className="cursor-pointer">Can&apos;t scan? Show the secret</summary>
-            <code className="mt-2 block break-all bg-field p-2 font-mono text-[12px] text-ink">{phase.secret}</code>
+            <code className="mt-2 block break-all border border-line-neutral bg-raised p-2 font-mono text-[12px] text-ink">{phase.secret}</code>
             <p className="mt-1 break-all font-mono text-[11px] text-dim">{phase.uri}</p>
           </details>
         </div>
