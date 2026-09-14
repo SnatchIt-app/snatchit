@@ -290,7 +290,7 @@ export default function PlaceBidScreen({ id }: Props) {
         left={
           <View>
             <Text style={[textStyle('micro'), s.stickyKicker]}>If you win</Text>
-            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1}>{lines.total}</Text>
+            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{lines.total}</Text>
           </View>
         }
       >

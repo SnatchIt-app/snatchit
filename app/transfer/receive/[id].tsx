@@ -409,7 +409,7 @@ const s = StyleSheet.create({
 
   countdown: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
   countdownExpired: { borderColor: v2.status.error },
-  countdownText: { color: v2.status.warning },
+  countdownText: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
   countdownExpiredText: { color: v2.status.error },
 
   proofBlock: { marginBottom: v2.space.md },
