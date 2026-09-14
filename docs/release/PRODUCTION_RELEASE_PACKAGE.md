@@ -2433,3 +2433,46 @@ Control: `PHASE2_PRODUCTION_RUNBOOK.md` resolves present on `release/convergence
 its stale "G6 — Migration 122" reference does **not** reach the release path. It still awaits the owner's word,
 and it is the one reason the numbering record is not yet complete. C verified both note commits: `22c3547` +3/−0
 on each of its two files, and `a7efaf5` +3/−0.
+
+### T — Tickets empty state: PASS, handset and server (2026-09-14)
+
+**Handset (owner, Build 16).** "Your tickets", "No tickets yet", "Tickets you own will show up here.", no DEV
+label, and the same empty state after switching tabs and returning.
+
+**Server (A, C concurring; sandbox `ofaidukbieeekqaboscm`).** Every request came from `SnatchIt/16`:
+
+| Time (UTC) | Screen focus (attribution) | Requests |
+|---|---|---|
+| 05:04:57.5–58.3 | Settings (where the owner stayed after D11) | `GET auth/v1/user`, `GET identity_ext` |
+| 05:04:58.3–59.4 | Profile | `rpc/get_my_profile`, `HEAD listings`, `GET listings` |
+| **05:04:59.590** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+| 05:05:12.7–13.4 | Profile | same three |
+| **05:05:13.216** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+| 05:05:14.5–15.0 | Profile | same three |
+| **05:05:14.836** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+
+- **Attribution:** at `df9e0d3`, `HEAD listings` (count, `head: true`) comes only from `profile.tsx:117-120`. Its
+  `useFocusEffect` (`:176-183`) runs profile → count → listings in sequence. That gives three Tickets focus
+  events with Profile between them, where the steps asked for one return. That is not a defect, and the exact tap
+  sequence is inferred from requests, not observed.
+- **No writes:** `kernel.tickets` 0 total and 0 for the buyer, `feature.native_issuance_enabled` false. C's
+  checksums were unchanged at 05:07:59Z.
+- **No over-the-update-channel bundle:** `df9e0d3` has no `expo-updates` (package.json and lockfile contain only
+  the transitive `expo-updates-interface`), no `app.config.*`, and no `EXUpdates`/`u.expo.dev` in the tracked
+  `ios/`.
+- Only `development` has `developmentClient`. Build 16's profile is `preview` per the build-time record,
+  not re-read from EAS today. The no-DEV-label expectation therefore rests on source, not on a live build read.
+
+**Correction to A's own interim read — edge-log ingestion lag.** From 05:07Z to 05:11:24Z, A and C each found
+**no** `get_my_tickets` request in `edge_logs`. A briefly carried "request not corroborated" as the proposed
+wording and sent it to the owner. The rows were late, not missing: absent at 05:11:24Z, present at 05:14:49Z,
+roughly 8–10 minutes after they happened. `pg_stat_statements` could not settle it, because it has no timestamps
+and there was no pre-test baseline (the PostgREST form reads `calls = 12`, reset 2026-09-07). **Rule from here
+on: before reporting a request as absent, re-query `edge_logs` at least 10 minutes after the event.**
+
+**Remains unverified by construction:** the populated Tickets state. Native issuance is off and there are 0
+tickets. The `__DEV__` fixture toggle is compiled out of Build 16.
+
+**Latent, recorded for F:** the Home price filter compares `current_bid` (`home.tsx:333-334`), while a Buy Now card
+shows `buy_now_price`. The two can disagree. All three visible sandbox listings carry 100 for both, so this
+cannot be observed without writes.
