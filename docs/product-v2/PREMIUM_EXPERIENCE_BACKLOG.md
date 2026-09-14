@@ -751,3 +751,40 @@ A-17's money-release review; CFT-401's expired/reversed states wait on A-09.
 from real states) to A first since it touches `payControl.ts`; then batch 4's
 client-side auction states that need no server time: CFT-502 (in-place bid
 updates), CFT-505 (My Bids ordering), CFT-504 (connection-health notice).
+
+### Batch 3 — 128 contract amended after A's adversarial review; client re-bound (2026-09-14)
+
+A's `4e29fde` (unconditional hash replacement for the owner) was a
+HIGH-severity regression — momentary session access could plant a secret and
+capture the device permanently — and is reverted at `f7b31ad`. The lockout it
+"fixed" was already recoverable because the owner holds RLS DELETE on their
+own row. **Client re-bound at `d48c290`:**
+- The stored hash is never replaced; the client never rotates. A mismatched
+  secret still returns `refreshed`, so the reply cannot reveal a mismatch and
+  `refreshed` is recorded as-is, never as proof the secret matches.
+- Recovery = delete the row this device owns, then register with the fresh
+  secret → `registered`. Gated three ways, never speculative: the secret was
+  generated on this attempt (the only lost-secret signal), this device's own
+  record says it registered THIS token for THIS user through the RPC, and the
+  RLS-scoped select finds a row we own. **C's gate is stricter than A's
+  two-way gate** (no stored secret AND row is mine): it adds "previously
+  RPC-registered", so the day 128 lands, every device with a legacy row and no
+  secret binds its secret to that row (`refreshed`) instead of deleting and
+  re-inserting fleet-wide. Cost: the rare case of AsyncStorage AND Keychain
+  lost while the token survives leaves a stale hash; A already noted a
+  reinstall issues a new token, so that strands nothing real. Offered to A to
+  accept or reject.
+- P0001 precondition refusals are terminal until the inputs change (A's
+  ruling on my question), not timed.
+- `notify.register_push_token` is now revoked server-side too; the client pin
+  stands. NULL platform → P0001 → the precondition branch.
+- **Not frozen.** Four findings open (legacy/no-secret path as steady state,
+  token squatting, client-writable proof column, rollback downgrading proven
+  rows); a second delta is expected and may change sign-out / account-switch
+  behaviour. Nothing here ships; 128 applied nowhere; the insert-only legacy
+  fallback remains the live path.
+- Gates at `d48c290`: tsc clean; vitest 1843 / 82; expo lint 0 errors.
+
+A confirmed on their side that the gated files are byte-identical across
+batch 3 and that the receive/vocabulary commits are right on the money-adjacent
+surface (A-17 applied to transfers).
