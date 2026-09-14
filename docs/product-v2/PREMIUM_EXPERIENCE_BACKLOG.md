@@ -614,3 +614,78 @@ A-09, A-12, A-17, A-14 and A-10 respectively.
   scale); and it is keyed by listing, which is correct only because a listing
   sells once — **if a future surface allows repeat purchases of the same id,
   the key must become the payment.**
+
+---
+
+## 54-item coverage — implemented / tested / still unverified (2026-09-14, after batch 3)
+
+"Implemented" names the batch on which the client work landed (B1 =
+`frontend/premium-batch-1` @43e3a97, B2 = `frontend/premium-batch-2` @73a5f19,
+B3 = `frontend/premium-batch-3`). "Tested" is what vitest proves: unit tests
+for pure modules, source contracts (SC) for screens that cannot render under
+vitest. "Still unverified" is what only a device, a build or a server contract
+can settle. **Nothing on this list has native visual/runtime acceptance yet;
+that is pending the next authorised candidate build and applies to every row
+marked B1/B2/B3.**
+
+| Item | Task | Implemented | Tested | Still unverified |
+|---|---|---|---|---|
+| 1 | CFT-101 | B1 — card content painted on detail; Buy/Bid gated on the fresh row | unit + SC (listing-handoff) | device paint timing |
+| 2 | CFT-102 | not yet (skeleton shapes) | — | — |
+| 3 | CFT-103 | B1 — quiet refresh on Tickets/Explore | unit + SC (quiet-refresh) | T re-run on next build |
+| 4 | CFT-104 | not yet (independent sections) — A-13 | — | — |
+| 5 | CFT-105 | not yet (prefetch) | — | — |
+| 6 | CFT-106 | B1 — onError fallback; every card via EventMedia | SC (event-media-fallback) | render on device; 400 on fixture images |
+| 7 | CFT-107 | B1 — place preserved across refresh and realtime inserts (first slice) | unit + SC (preserve-place) | filters/search persistence across navigation |
+| 8 | CFT-201 | B2 — Tappable on stepper, quick-add, seller card + actions, delivery submit | SC (premium-controls, -reversible) | press motion on device; CreateListing pickers remain |
+| 9 | CFT-202 | B2 — four meanings; dock silent; confirm/success only after server | unit + SC | haptic feel on device |
+| 10 | CFT-203 | B2 — pending labels everywhere; "You're leading" from a fresh read | unit + SC (bid-outcome, pending-states) | VoiceOver announcement on device |
+| 11 | CFT-204 | B2 — Your scene autosave + rollback; toggles explain inline. **Save event blocked (A-15)** | unit (coalescedSave) + SC | rollback timing on device |
+| 12 | CFT-205 | B2 — single-flight on bid/reserve/confirm/dispute. Server half closed by A (047 cooldown) | unit (singleFlight) + SC | double-tap on device |
+| 13 | CFT-701 | not yet (art transition, one celebration) | — | — |
+| 14 | CFT-206 | B2 — sheet + stack cross-fade under Reduce Motion; haptics paired | SC | Reduce Motion on device |
+| 15 | CFT-501 | not yet (position states beyond Bids tab) | — | — |
+| 16 | CFT-502 | not yet | — | — |
+| 17 | CFT-501 | **blocked** (server time) | — | — |
+| 18 | CFT-503 | not yet (competing bids) — A-06 increment finding F10 with owner | — | — |
+| 19 | CFT-504 | not yet (connection health) | — | — |
+| 20 | CFT-505 | not yet | — | — |
+| 21 | CFT-506 | not yet — A-11 | — | — |
+| 22 | CFT-303 | B1 label only ("2 tickets" beside the total). **Quantity semantics held (owner)** | SC | — |
+| 23 | CFT-304 | B1 — explicit price-change acceptance | unit + SC (refund-and-hold) | needs a live hold (sandbox window) |
+| 24 | CFT-301, 302 | B1 — "Held for you · until 9:14 PM"; not-held reasons; Back to listing | unit + SC | needs a live hold (sandbox window) |
+| 25 | CFT-305 | B1 — reconciliation before any Pay; "Checking your payment" | unit + SC | interruption cases on device (D9c stays UNTESTED) |
+| 26 | CFT-306 | not yet — touches payControl, goes to A first | — | — |
+| 27 | CFT-307, 301 | B1 partial (hold-loss copy); designed outcome screen with alternatives not yet — A-11 | SC | — |
+| 28 | CFT-308 | B1 — refunded / refund pending / partial refund; never "You're in." | unit + SC | owner's refund wording decision |
+| 29 | CFT-401 | B3 partial — auto_released now shown on the buyer screen; expired/reversed wait on A-09 | SC | — |
+| 30 | CFT-402 | **B3 — "Marked sent" vs "Received" everywhere; role copy** | unit + SC (premium-transfer-wording) | — |
+| 31 | CFT-403 | not yet — A-12 | — | — |
+| 32 | CFT-404 | **B3 — Open {provider}; return re-reads and asks "Did the tickets arrive?" only on fresh seller_sent** | unit + SC (premium-provider-handoff) | app-switch return on device |
+| 33 | CFT-405 | not yet (second confirmation) — A-17 money-release review | — | — |
+| 34 | CFT-406 | not yet — D-01 | — | — |
+| 35 | CFT-407 | not yet (event-day view); native part deferred (CFT-801) | — | — |
+| 36 | CFT-608 | not yet (drafts) | — | — |
+| 37 | CFT-609 | B1 — "$90 for all 2 tickets", no per-ticket copy | unit + SC (sell-state) | — |
+| 38 | CFT-610 | not yet | — | — |
+| 39 | CFT-408 | not yet — A-14 | — | — |
+| 40 | CFT-409 | not yet — A-10 / D-02 | — | — |
+| 41 | CFT-601, 611 | 611: B1 sign-out revoke (unchanged by 128) + **B3 128 client: device secret, registration machine, non-takeover legacy fallback, remedy in Settings**. 601 offline cache not yet | unit + SC (auth-sign-out, push-registration) | revoke and rebind on a physical device; 128 applied nowhere; A's adversarial review may amend the contract |
+| 42 | CFT-602 | not yet | — | — |
+| 43 | CFT-507 | not yet | — | — |
+| 44 | CFT-603 | not yet | — | — |
+| 45 | CFT-604 | not yet | — | — |
+| 46 | CFT-605 | not yet | — | — |
+| 47 | CFT-606 | not yet — A-07 | — | — |
+| 48 | CFT-607 | not yet | — | — |
+| 49 | CFT-702 | not yet | — | — |
+| 50 | CFT-207 | B2 — one formatter; tabular countdowns. Quantity half held with item 22 | unit + SC | — |
+| 51 | CFT-703 | not yet (calm language audit beyond checkout/refund/transfer copy) | — | — |
+| 52 | CFT-208 | B2 partial — guards on Edit listing, Report, Your scene-while-saving; sticky price cap | unit + SC | 1.3× text and long names on device; delivery form dirty state; CreateListing (tab) |
+| 53 | CFT-704 | B3 partial — one transfer vocabulary shared by Bids, detail, receive, send | unit + SC | — |
+| 54 | CFT-705 | not yet (interruption test procedure) | — | — |
+
+**Totals:** implemented in full or in part on a branch: 21 items (1, 3, 6, 7,
+8–12, 14, 22–25, 27–30, 32, 37, 41, 50, 52, 53); blocked/held: 3 (17 server
+time; 22 quantity, owner; item 11's save-event half, A-15); not yet started:
+30. Native acceptance outstanding for all 21.
