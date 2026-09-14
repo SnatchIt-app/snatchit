@@ -221,3 +221,139 @@ F1 commit. No transaction behaviour change.
    realtime inserts.
 
 Held for A before any frontend work: **CFT-303, 304, 305, 308, 611** (all P0).
+
+---
+
+## Rulings from A on the P0 holds and the first batch (2026-09-14)
+
+A re-read `df9e0d3` and the sandbox read-only. **Three holds are released with
+frontend-only contracts (A-02, A-03, A-04); two need the owner (A-01, part of
+A-08). No frontend task needs a server change.** A reviews every PR touching
+`payments.ts`, `setupDecision.ts`, `payControl.ts` or the sign-out helper.
+
+### A-01 Quantity — HELD FOR THE OWNER (CFT-303, CFT-609)
+The money path prices the **whole listing**: `create-payment-intent` charges
+`buy_now_price` once (:477), or `winning_bid`/`current_bid` for an auction
+(:499), and fees and payout come off that single base (:514-518). Buyer detail
+shows "Quantity: N tickets" with one price (ListingDetailScreen.tsx:1041). Only
+two seller strings say per ticket: "You receive $X per ticket"
+(CreateListingScreen.tsx:807) and the sticky "$X / ticket" when quantity > 1
+(:846). The sandbox has 0 listings with quantity > 1; production was not read.
+**A recommends the owner ratify whole-listing pricing** — what the server already
+does — and fix the two strings (frontend only). Per-ticket pricing would change
+amount, fees, payout, refunds and partial purchase: a transaction change with
+migration and edge work, outside Premium scope.
+
+### A-02 Price change — RELEASED (CFT-304)
+**Worse than the audit said — a dead loop, verified by A.**
+`expected_total_cents` comes from the route param (CheckoutNative.tsx:87, sent at
+:213). "Try again" (:517) re-runs setup with the same stale param, so the server
+returns 409 on every retry. The message is not in `EXPECTED_ERROR_PATTERNS`
+(payments.ts:37-53), so the buyer sees the generic safe error and it is reported
+as a failure, contradicting the comment at :333. No new server contract is
+needed: both 409 paths already return `server_total_cents` (CPI :532-535 fresh;
+:640-647 reuse, which also cancels the stale PaymentIntent at :633).
+**Contract.**
+1. Add `/price changed/i` to `EXPECTED_ERROR_PATTERNS`.
+2. On that 409, re-read the listing and compute the all-in total with
+   `allInFromDollars`. It must equal `server_total_cents`; if not, show the safe
+   error and offer no Pay.
+3. Show the new total; Pay requires a fresh explicit tap on it.
+4. Hold the accepted total in state, not the route param, and send it as
+   `expected_total_cents`; the server re-verifies.
+
+Never auto-accept, and never send a total the buyer has not seen.
+
+### A-03 Refunded — RELEASED, copy needs the owner's wording (CFT-308)
+Confirmed: `SETTLED_STATUSES = ['succeeded','refunded']` (setupDecision.ts:52)
+leads to `already_settled`, then `setSettlement('completed')` (:218-221), then
+"You're in." (:672). **Second defect:** `fetchSettledPayment` uses
+`.in(status, both).limit(1).maybeSingle()` with no ordering (:188-195), so a buyer
+holding both a refunded and a succeeded row gets an arbitrary one.
+**Contract.** Keep `refunded` in the no-setup set, so this route never creates or
+presents an intent. Add a decision kind `refunded` with its own non-success state
+and Back to listing; `already_settled` covers succeeded only. Check succeeded
+first, then refunded. Pure tests go in setupDecision. Whether a refunded buyer
+may buy a relisted listing is a product question outside scope; today's block is
+the safe default.
+
+### A-04 Pay gating and reconciliation — RELEASED (CFT-302, CFT-305); server gap L4 is A's
+Confirmed: `payControl` has no expiry input (payControl.ts; CheckoutNative.tsx:507-514),
+and `reservationExpired` (:520) drives display only, so Pay stays live at 0:00.
+**Server gap, L4 (A's item):** nothing cancels a PaymentIntent at hold expiry.
+The sheet can still confirm, and if another buyer took the listing, settlement is
+`unfulfillable` and the sweep refunds (20260906110000 :72-79) — no double sale,
+but charge-then-refund is possible.
+**Contract.**
+1. Take Pay out of `pay` when `reservationMsLeft` ≤ **15 s**. The margin absorbs
+   device-vs-server clock skew; A owns the number.
+2. At that point, re-check with existing dependencies: `fetchSettledPayment`
+   first, then the hold via `holdIsMine`. Succeeded → completed; still held
+   (clock skew) → re-offer Pay; otherwise → a no-longer-held state with Back to
+   listing.
+3. After **any non-Canceled** sheet error, call
+   `confirmPaymentSuccess(paymentIntentId)` (the check `releaseAbandonedHold`
+   uses, :368) before re-offering Pay. Verified → settlement path; reachable and
+   not verified → Pay only while the hold is live; **unreachable → a calm
+   "checking" state and no Pay.** The webhook, the sweep and the 10-minute hold
+   expiry are the backstop.
+
+Never re-offer Pay after an unreachable check.
+
+### A-08 Privacy — PARTLY HELD FOR THE OWNER (CFT-611)
+- **(a) The privacy page is currently untrue.** It says tokens are "automatically
+  marked inactive when you sign out"; none of the 5 sign-out sites touches
+  `push_tokens` (reset-password.tsx:34, profile.tsx:209, settings/index.tsx:126
+  and :197, useAuth.ts:62). **Correcting the copy is an owner/legal decision.**
+- **(b) Cross-account token binding, reproduced by A and verified by C.** The
+  sandbox holds exactly **one** `push_tokens` row, owned by the other test
+  account (`1fcd0c69`): iOS, active, last used 2026-09-10 17:33Z, never revoked.
+  Buyer `919d511e` has **none**, and `UNIQUE(token)` exists. SnatchIt/16's
+  registration reads the table and then gets **409 on insert** at both of today's
+  sign-ins (04:25:50.931Z and 04:41:20.813Z). Mechanism (A): `usePushToken`
+  selects by token, RLS hides the other user's row, the insert conflicts. Effect:
+  this phone would receive the other account's pushes and none of the buyer's
+  (`send-push` filters `is_active=true`, :70). C compared no token values.
+  **Production exposure unknown** (no production read).
+- **(c) Frontend part — RELEASED.** One sign-out helper for all 5 sites: before
+  `signOut`, while the JWT is still valid, set `is_active=false`,
+  `revoked_at=now()`, `revoked_reason='sign_out'` on this device's
+  `public.push_tokens` row. Sandbox RLS allows it (owner UPDATE policy,
+  authenticated UPDATE grant). Best-effort with a short timeout; never block
+  sign-out.
+- **(d) Server part — HELD FOR THE OWNER, A's.** Sign-out revocation cannot fix a
+  token already stuck on another account (reinstall, expired session, deleted
+  account). `notify.register_push_token` already rebinds on token conflict to
+  `auth.uid()`, but `notify` is not API-exposed. The fix is a narrow `public`
+  wrapper RPC with a registry number (A-16), not exposing `notify`. A will not
+  prepare it without the owner.
+
+### Conditions on the first batch (A)
+- **CFT-301.** "Back to listing" must be a normal back navigation
+  (`router.back`), so ListingDetail's `beforeRemove` / `reservationExit` path
+  still runs — no replace that skips it, and no reserve or release call added in
+  checkout. Say **"released"** only when this screen's own `release_reservation`
+  call succeeded (:372-384); the server cannot tell released from expired (both
+  leave the listing active with the hold fields null). Otherwise use neutral
+  wording such as "no longer held for you". Keep "Try again" for transient or
+  unverifiable setup errors (sheet init failure, 503, `reservation_unverifiable`),
+  where the hold may still be live.
+- **CFT-302.** F1 (`2ba5281`) already approved; an absolute "until 21:14" from
+  the server's `reserved_until` is fine; gating per A-04.
+- **CFT-103.** Fine. It changes the loading flash T recorded, so **re-run T on the
+  next build**. Keep it off checkout.
+- **CFT-106.** Fine. **Live reproduction:** the handset's
+  `GET /storage/v1/render/image/public/auction-media/fixtures/{P1,D7,D8}.jpg`
+  returns **400** (04:25:51Z and 04:41:21Z today, UA SnatchIt/1.0.0; verified by
+  C).
+- **CFT-101.** A-17 applies: card content is display-only; Buy now and Bid stay
+  disabled until the fresh listing row arrives (status, hold, `buy_now_enabled`,
+  price, `ends_at`); the `totalCents` param sent to checkout comes from the fresh
+  row, never the card snapshot, because checkout sends it as
+  `expected_total_cents` (A-02).
+- **CFT-107.** Fine. Anchoring must not suppress realtime removals
+  (home.tsx:268-287 drops sold or non-active listings).
+
+**Holds now:** CFT-303 and CFT-609 (owner: quantity); CFT-611 server part and the
+privacy copy (owner). **Released to C with contracts:** CFT-304, CFT-308 (owner
+copy), CFT-302/CFT-305 (A-04), CFT-611 frontend helper.
