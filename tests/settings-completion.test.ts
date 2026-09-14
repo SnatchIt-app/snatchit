@@ -38,9 +38,14 @@ describe('Group A — notifications / preferences / blocked users', () => {
   it('preferences: a failed save is not treated as success', () => {
     expect(files.preferences).toContain("rpc('get_my_profile')"); // hydrate
     expect(files.preferences).toContain('preferred_neighborhoods');
-    // on error: set saveError and RETURN before router.back — never navigate on failure
-    expect(files.preferences).toMatch(/if \(error\)[\s\S]*setSaveError\([\s\S]*return;/);
-    expect(files.preferences).toContain('router.back()');
+    // Premium batch 2 (CFT-204): saves run in the background; a failure rolls
+    // the chips back to the committed value and says so, and Done leaves only
+    // when settle() confirms the last change is committed — never on failure.
+    expect(files.preferences).toMatch(/onRollback: \(committed\) => \{[\s\S]*setSelected\(new Set\(committed\)\)/);
+    expect(files.preferences).toContain('const ok = (await saverRef.current?.settle()) ?? true;');
+    expect(files.preferences).toContain('if (ok) router.back();');
+    // and no other way out
+    expect(files.preferences.split('router.back()').length - 1).toBe(1);
   });
 
   it('blocked users keeps failed-load distinct from empty', () => {
