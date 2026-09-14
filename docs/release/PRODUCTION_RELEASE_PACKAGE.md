@@ -2263,3 +2263,44 @@ same BP-7 reason each pass while the account is pending.
 observation either way, since the owner was told to expect one line.
 
 D11 cleared by both verifiers and issued by C.
+
+### D11 — withdrawal: server side PASS; D10/D11 closed server-side (2026-09-14, A and C independently)
+
+**Withdraw tap:** 04:41:40.34Z (`identity_ext.updated_at`). The owner stayed in Settings. A confirmation
+screenshot was reported as attached but reached neither verifier; the text is requested instead.
+
+| Check | A (04:42:07Z, 04:44:46Z) | C (04:42:10.9Z, 04:44:02Z) |
+|---|---|---|
+| Edge | `delete-account` POST 200 at 04:41:40.405Z; log "withdraw_account_deletion for 919d511e…: ok", with **no** `pending_obligations` suffix | same |
+| State | `ACTIVE`, `deletion_requested_at` NULL, `deletion_block_reason` NULL | same |
+| `updated_at` | 04:41:40.341Z, **frozen** through the 04:42:00 and 04:44:00 sweeps | same |
+| `account_deletions` | 0 rows | same |
+| Globals | listings 49, payments 51, transfers 33, succeeded 21, pending 3, reserved 0 | same |
+| Row checksums | `9dfb922e…` / `e8a6ec07…` / `904966ca…` | same, A's SQL verbatim |
+
+**Result — server side PASS.** The withdraw restored `ACTIVE` with both pending fields cleared, matching
+`kernel.withdraw_account_deletion`'s body. It stayed `ACTIVE` through two sweeps that no longer rewrite the row:
+while pending, the sweep re-stamped `updated_at` on every pass; after the withdraw it did not. The checksummed
+listing, payment and transfer rows were unchanged across the **whole D10–D11 window, 04:28:21 → 04:44:46**, by
+both agents.
+
+**Verified before the tap (both):** `withdraw_account_deletion` sets `ACTIVE` with both fields null; an
+already-`ACTIVE` row returns `noop_replay`; `ERASED` raises and has no resurrection path.
+`request_account_deletion` expires the caller's pending `kernel.approval_request` rows, scoped to `requested_by`
+(a pending row has `approved_by` NULL by CHECK). This buyer had none, so nothing irreversible happened in D10.
+
+**Open — handset half, D10 and D11.** Neither confirmation text has reached the verifiers. Both are prompted
+observations when they arrive.
+
+**Finding F6 (C, verified by A; UX, non-financial, owner's call) — the pending notice survives withdrawal.**
+- `request_account_deletion` emits `account_deletion_pending` in the same transaction (OR-14). The result is
+  outbox `89d5cf0a` done, in-app notification `f3abe550` created 04:28:00.259Z (unread, not dismissed), email
+  delivery suppressed (`channel_unavailable`), push delivery `168139e3` queued.
+- `withdraw_account_deletion` contains no notify, outbox or emit reference, and no notification was created after
+  the withdraw. The user's inbox therefore still says deletion is pending, with no "withdrawn" notice to supersede
+  it.
+- **Delivery half unobservable in the sandbox:** push `168139e3` is still `pending`, attempt 0, `sent_at` null,
+  16 minutes past its `next_attempt_at`, never picked up. `notify-drain-outbox` drains the outbox, which is done;
+  what sends deliveries has not been traced, and whether it is undriven here (F4's class) or merely slow is not
+  established. "No push arrived" is therefore not evidence against F6; the in-app notice is the confirmed
+  surviving effect.
