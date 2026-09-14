@@ -25,6 +25,8 @@ import {
   findBannedContent,
   parseRiskCheckResponse,
   type SellInput,
+  proceedsKicker,
+  proceedsLabel,
 } from '../src/lib/sell/sellState';
 import {
   allInFromDollars,
@@ -244,5 +246,23 @@ describe('create listing — shipped-source guards', () => {
 
   it('does not introduce a venue-primary / direct-issuance path (093 still off)', () => {
     expect(screen).not.toMatch(/kernel\.|direct_issue|venue_inventory|scan(ner)?\b/i);
+  });
+});
+
+describe('seller proceeds are labelled for the whole listing', () => {
+  it('never says "per ticket", because the server pays per listing', () => {
+    expect(proceedsLabel('$90', 2)).toBe('$90 for all 2 tickets');
+    expect(proceedsLabel('$90', 1)).toBe('$90');
+    expect(proceedsKicker(3)).toBe('You get for 3 tickets');
+    expect(proceedsKicker(1)).toBe('You get');
+    for (const t of [proceedsLabel('$90', 2), proceedsLabel('$90', 1), proceedsKicker(2)]) {
+      expect(t).not.toMatch(/per ticket|\/ ticket/i);
+    }
+  });
+
+  it('the create-listing screen no longer prints a per-ticket proceeds line', () => {
+    const src = readFileSync(resolve(__dirname, '../src/screens/CreateListingScreen.tsx'), 'utf8');
+    expect(src).not.toMatch(/per ticket`/);
+    expect(src).not.toMatch(/' \/ ticket'/);
   });
 });

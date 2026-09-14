@@ -50,6 +50,8 @@ import {
   sellErrors,
   sellingMethodBlurb,
   submitCtaLabel,
+  proceedsKicker,
+  proceedsLabel,
 } from '@/src/lib/sell/sellState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -804,7 +806,7 @@ export default function CreateListingScreen() {
               <ReviewRow label="Tickets" value={ticketType ? `${quantity} × ${ticketType}` : `${quantity}`} />
               <ReviewRow label="Selling" value={buyNowEnabled ? 'Auction + Buy Now' : 'Auction'} />
               <ReviewRow label="Buyer pays" value={summary.buyerAllInLabel} />
-              <ReviewRow label="You receive" value={`${summary.sellerNet} per ticket`} />
+              <ReviewRow label="You receive" value={proceedsLabel(summary.sellerNet, quantity)} />
             </View>
           ) : null}
 
@@ -840,10 +842,10 @@ export default function CreateListingScreen() {
         style={{ marginBottom: ctaDockOffset, paddingBottom: v2.space.md }}
         left={
           <View>
-            <Text style={[textStyle('micro'), sx.stickyKicker]}>{summary.valid ? 'You get' : 'Set a price'}</Text>
+            <Text style={[textStyle('micro'), sx.stickyKicker]}>{summary.valid ? proceedsKicker(quantity) : 'Set a price'}</Text>
             {summary.valid ? (
               <Text style={[textStyle('price'), sx.stickyValue]} numberOfLines={1}>
-                {summary.sellerNet}{quantity > 1 ? ' / ticket' : ''}
+                {summary.sellerNet}
               </Text>
             ) : (
               <Text style={[textStyle('bodySm'), sx.stickyHint]} numberOfLines={1}>after the seller fee</Text>
