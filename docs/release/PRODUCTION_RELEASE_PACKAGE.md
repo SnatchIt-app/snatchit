@@ -2926,3 +2926,52 @@ already raised `current_bid`. The client's single-flight lock is the UX half, no
 therefore a convention, not a rule, and anything bypassing the client (a retry, a crafted request) can bid below
 it. Harmless today; if the increment is meant to be a rule it needs a server change and a registry number.
 Owner decision on whether it is a rule or a suggestion.
+
+### Independent adversarial review of 127 and 128 — both found real defects in A's own work (2026-09-14)
+
+Commissioned by A at the owner's instruction, one reviewer per migration, read-only, rehearsing on clones of the
+local 140-chain replay. Both reviews found defects that A's own tests had missed, and in each case A's test had
+passed **for the wrong reason** — the failure mode A had been flagging in others' work.
+
+**127 — the timestamp discriminator did not close L1 at all.** `reserve_buy_now` returns early when the holder
+re-reserves its own live hold ("keeps the EXISTING window"), and `create-payment-intent` mints a buy-now row
+only while the caller IS the live holder. So when the amount-mismatch branch retires P1 and mints P2 in one
+invocation, both sit under ONE unchanged hold and `reserved_until <= created_at + TTL` is true for both — the
+guard released a hold the live attempt was still using. pgTAP 194 missed it because the fixture wrote
+`reserved_until` directly and the passing case backdated the payment 45 minutes, a state that cannot coexist
+with a live hold. Fixed at `d3761c4` with a **live-sibling check** (refuse while another attempt by this buyer
+is `pending`/`processing`) — the answerable question, where "whose hold is this?" is not. Timestamps kept as a
+complementary check. Also fixed: auction payments could drive a Buy Now release; a NULL window blamed the
+timestamps; an over-claiming L2 comment; and the header now states that on apply **only L2 takes effect** until
+the webhook is redeployed. **194 is 26/26, and 5 of the new assertions fail against the previous version.**
+
+**128 — A's own rotation "fix" was a HIGH-severity regression.** `4e29fde` made rule 2 replace the stored hash
+so an owner could rotate a lost secret. That converts momentary session access into permanent silent device
+capture: plant a chosen secret into the victim's still-active, still-victim-owned row, then claim the token
+later from your own account. It survives password reset and session revocation. **And the lockout it fixed was
+already self-recoverable** — the owner holds RLS DELETE on their own row. Reverted at `f7b31ad`; recovery is by
+deletion, never rotation. Also fixed there: `notify.register_push_token` (which rebinds on token knowledge
+alone) was still `EXECUTE`-granted to `authenticated` with schema USAGE, its unreachability rested only on a
+Dashboard setting — **128 now revokes it**; the pgcrypto dependency was unguarded and would have failed on every
+call, not at apply; and a NULL platform skipped its own guard. **195 is 28/28, and the new plant-then-claim
+assertion fails against the previous version.**
+
+**128 IS NOT READY. Four findings remain open:**
+
+| | Finding | Why it matters |
+|---|---|---|
+| V2 | Rule 5 (the no-secret path) is the **steady state, not a migration path** — the client never calls the verb, so the shipping app keeps writing NULL-hash rows; sign-out is the normal terminal state, not a handover signal; and a provider `device_not_registered` signal also revokes a row | The legacy branch is reachable with **token knowledge alone** — verbatim the harm 128 exists to prevent. Needs gating on an apply-epoch, on `revoked_reason`, and a bounded window |
+| V3 | **Squatting** — rule 1 binds an unclaimed token with no proof, so an attacker can claim a token they do not hold and lock the real device out permanently | No self-service recovery; would need a `service_role` unbind verb |
+| V4 | The proof column is **client-writable** (`authenticated` holds UPDATE via the table grant), so a client can forge a "revoked pre-128 legacy" row | The `NULL ⇒ predates 128` invariant the design rests on is forgeable |
+| V5 | **Rollback + re-apply** erases every stored hash, so in that interval every revoked row is claimable by token knowledge | The rollback header understates this |
+
+Lower severity and recorded: unsalted SHA-256 of a **client-chosen** value (server cannot distinguish a CSPRNG
+secret from a constant — server-generating it would be stronger), the raw secret reaching the Postgres log if
+parameter logging is ever enabled, an insert race surfacing an unhandled `23505` rather than the documented
+error, and a free-vs-bound oracle that compounds squatting. Error paths, grants, `SECURITY DEFINER` +
+`search_path = ''` and message indistinguishability were all found **correct**.
+
+**Method note worth keeping:** both reviews were commissioned against work that already had passing tests. In
+both cases the tests passed because the fixture constructed a state the real system cannot produce. Tests built
+from the same mental model as the code inherit its blind spot; only an adversary with the real producers in hand
+finds that.
