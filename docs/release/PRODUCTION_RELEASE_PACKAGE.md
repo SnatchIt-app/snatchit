@@ -2804,3 +2804,24 @@ and after, so neither is the sole witness. `123`/`124` stay A's.
 **`admin/light-theme` is unblocked for sequencing** — the Build 16 matrix is closed, and it carries no migration,
 so the ordering guard does not bind it and it is independent of 121 → 123 → 124 → 125. Owner sequences; not
 merged on a peer's request.
+
+**Addendum (2026-09-14): the F2 adjacent case was real, and is now closed as F4.** A raised it as a question
+rather than a finding; D's kit did not cover it, so D added case **C6** and ran it.
+
+- **Before any fix, on a local replay:** C6 **API 6/6 PASS** — RLS held, so no data was readable — but C6
+  **entry 0/3**: an Org A owner entered `/o/A/v/B` as "Org owner", and a Venue A manager entered `/o/B/v/A` as
+  "Venue manager". The defect was entry, not exposure; `mapGrants` matching venue and org grants independently
+  was exactly the cause.
+- **F4** (`venue/read-slice1-fixes @ 2665a20`, ~30 lines, no SQL/RLS change): `dbVenueScope` reads
+  `venue_api.venues (venue_id, org_id)` **as the caller**, in parallel with grants; `venueInRouteOrg()` runs
+  **before** `derivePrincipal`, so a genuine grant holder is still denied when the route's venue is not in the
+  route's org. Fail-closed on every branch — unreadable or absent row → denied, org mismatch → denied, and a read
+  failure → an explicit failure state, never a silent pass. **A approved.**
+- **Evidence:** vitest 102/102, kit **128/128** (C6 9/9) on `venue/slice1-integration @ aeb936e`.
+- **Outstanding:** sandbox confirmation of C6 in the window (api + browser phases). One availability edge to
+  watch there, flagged by A: entry now depends on the caller being able to read the venues row, so a manager at
+  an **unapproved** venue depends solely on the own-staff policy. It fails in the safe direction (denial, not
+  exposure); assert it in the window if cheap, otherwise record it as unexercised rather than proven.
+
+Worth recording as method: "denied entry" and "no data readable" are different guarantees. The kit now proves
+both separately, and only the second was ever true here.
