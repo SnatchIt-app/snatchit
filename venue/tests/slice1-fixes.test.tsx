@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PreviewContext } from "@/lib/preview";
-import { eventInScope } from "@/lib/page";
+import { eventInScope, venueInRouteOrg } from "@/lib/page";
 import { Shell } from "@/components/shell/Shell";
 import type { Event } from "@/lib/types";
 
@@ -130,6 +130,31 @@ describe("F2 event must belong to the route's venue", () => {
     expect(
       eventInScope(ev(VEN_A.toUpperCase()), { venueId: VEN_A, orgId: ORG_A }),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 — the route's venue must belong to the route's org. Grants are matched per
+// venue and per org independently, so without this an org grant at org A would
+// open /o/A/v/<venue of org B> (and a venue grant would open /o/B/v/<own venue>).
+// RLS still hides the other org's drafts/hidden types; this closes the entry.
+// ---------------------------------------------------------------------------
+describe("F4 route venue must belong to the route org", () => {
+  const scope = { orgId: ORG_A, venueId: VEN_A };
+  it("accepts the venue's own org", () => {
+    expect(venueInRouteOrg({ venue_id: VEN_A, org_id: ORG_A }, scope)).toBe(true);
+  });
+  it("denies a venue that belongs to another org", () => {
+    expect(venueInRouteOrg({ venue_id: VEN_A, org_id: "5a4d0b0e-0000-4000-8000-00000000000b" }, scope)).toBe(false);
+  });
+  it("denies when the venue is not readable at all (null row)", () => {
+    expect(venueInRouteOrg(null, scope)).toBe(false);
+  });
+  it("denies a row for a different venue", () => {
+    expect(venueInRouteOrg({ venue_id: VEN_B, org_id: ORG_A }, scope)).toBe(false);
+  });
+  it("compares ids case-insensitively", () => {
+    expect(venueInRouteOrg({ venue_id: VEN_A.toUpperCase(), org_id: ORG_A.toUpperCase() }, scope)).toBe(true);
   });
 });
 

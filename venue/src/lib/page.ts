@@ -3,8 +3,9 @@ import { getEvent } from "@/lib/data";
 import { DATA_SOURCE } from "@/lib/env";
 import { readPreviewContext, type PreviewContext, type SearchParams } from "@/lib/preview";
 import { probeSession, type SessionProbe } from "@/lib/auth/session";
-import { dbGetEvent, dbMyGrants } from "@/lib/db/adapters";
+import { dbGetEvent, dbMyGrants, dbVenueScope } from "@/lib/db/adapters";
 import type { ReadFailure } from "@/lib/db/read-result";
+import type { VenueScopeRow } from "@/lib/db/rows";
 import { derivePrincipal, type GrantSet } from "@/lib/roles";
 import type { Event } from "@/lib/types";
 
@@ -32,6 +33,16 @@ export function resolveScope(params: PageParams): { ok: true; basePath: string; 
  */
 export function eventInScope(event: Pick<Event, "venueId">, scope: { venueId: string; orgId?: string }): boolean {
   return event.venueId.toLowerCase() === scope.venueId.toLowerCase();
+}
+
+/**
+ * The route's venue must belong to the route's org. Grants are matched per venue and per org
+ * independently (mapGrants), so without this an org grant would open another org's venue under the
+ * caller's org segment, and a venue grant would open its venue under any org segment. RLS still hides
+ * the other org's drafts and hidden types; this closes the entry. Unreadable venue = no access.
+ */
+export function venueInRouteOrg(row: VenueScopeRow | null, scope: { venueId: string; orgId: string }): boolean {
+  return !!row && row.venue_id.toLowerCase() === scope.venueId.toLowerCase() && row.org_id.toLowerCase() === scope.orgId.toLowerCase();
 }
 
 export function isUuid(v: string): boolean {
@@ -70,8 +81,10 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
     else if (!session.user) entry = { kind: "failure", failure: { ok: false, kind: "auth", message: "No session", read: "auth.getClaims" } };
     else if (scope.ok) {
       ctx = { ...ctx, scope: { orgId: scope.orgId, venueId: scope.venueId }, verifiedRole: false };
-      const g = await dbMyGrants(scope.venueId, scope.orgId);
+      const [g, venue] = await Promise.all([dbMyGrants(scope.venueId, scope.orgId), dbVenueScope(scope.venueId)]);
       if (!g.ok) entry = { kind: "failure", failure: g };
+      else if (!venue.ok) entry = { kind: "failure", failure: venue };
+      else if (!venueInRouteOrg(venue.data, scope)) entry = { kind: "denied" };
       else {
         const principal = derivePrincipal(g.data);
         if (!principal) entry = { kind: "denied" };
