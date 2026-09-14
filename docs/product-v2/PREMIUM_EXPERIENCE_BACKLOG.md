@@ -434,3 +434,44 @@ loading behaviour that test T recorded, so **T is re-run on the next build**.
 **Window:** the `reserve_buy_now` write needed to preview the held-checkout
 states is in the shared-sandbox window scope A has put to the owner, with an
 explicit `release_reservation` after each preview. Not run until scheduled.
+
+### Batch 1 — complete on the branch (2026-09-14, C)
+
+All batch-1 items are committed on `frontend/premium-batch-1` (HEAD
+**`43e3a97`**). Local only; nothing merged, applied or deployed; Build 16
+unchanged.
+
+| Commit | Task | What landed |
+|---|---|---|
+| `bcbb106` + `31b264c` | CFT-301/302/304/305/308, 303 label | approved by A |
+| `5cb53f3` | CFT-609 | approved by A |
+| `72ec91d` | CFT-611 (frontend), privacy copy | approved by A |
+| `88bd09e` | CFT-103 | pure `refreshPolicy` (shouldShowLoading / phaseAfterError / failureSurface); Tickets refreshes quietly over rows or a settled empty state; Search keeps prior results with an inline notice and Retry, no server text; copy, queries and the `__DEV__` toggle untouched |
+| `6bca7ac` | CFT-106 | EventMedia `onError` takes the existing branded fallback in the same frame (keyed by URI so recycled rows start clean); SellerListingCard renders through EventMedia; queries unchanged |
+| `26c0f4e` | CFT-101 | bounded in-memory card handoff (`cardHandoff.ts`, tolerant parser); Home/Search stage cover, name, venue, date/time, price label, then push the unchanged route; detail paints them immediately with no transactional control until the fetched row arrives; both `totalCents` computations still read the fetched row (pinned by test) |
+| `43e3a97` | CFT-107 (first slice) | `maintainVisibleContentPosition` on the Home feed with realtime handlers pinned verbatim; Tickets list stays mounted across focus |
+
+**Gates at `43e3a97`:** tsc clean; vitest **1730 passed (74 files)**, +53 over
+the batch baseline; expo lint 0 errors / 29 warnings (baseline). CFT-103/106/
+101/107 fall outside A's review gate and were not sent for review.
+
+**Deviations recorded.** CFT-101 uses an in-memory handoff rather than route
+params (existing guards pin the literal `/listing/${id}` push; no route file
+edit). CFT-106 has no behavioural failed-URL test because image failure is a
+runtime load event, not a resolver path; the component's handling is guarded
+from source. No blur placeholder was added (it would cost a request per image).
+
+**Previews — BLOCKED on this machine; owner access needed.** A sandbox-only
+Release build was attempted twice. The native project generates and CocoaPods
+installs, but `xcodebuild` lists **no iOS Simulator destination**: Xcode 26.6
+carries the iphonesimulator 26.5 SDK, only the iOS 26.2 simulator runtime is
+installed, and Xcode reports "iOS 26.5 is not installed". The documented
+remedy (`xcodebuild -downloadPlatform iOS`, ~9 GB, needs ~20 GB free) is not
+possible with **2.8 GB free**. Nothing was downloaded or changed in Xcode.
+Options for the owner: free disk and install the iOS 26.5 platform here; or a
+device/EAS build under a sandbox profile at a scheduled window (a hosted build,
+so it needs explicit authorisation); or accept static previews for now. The
+held-checkout states additionally need the scheduled sandbox window.
+
+**Follow-ups already recorded:** T re-run on the next build (CFT-103 changed
+the loading behaviour); A-08(d) rebinding; owner wording for the refund copy.
