@@ -96,8 +96,14 @@ describe('Place Bid — shipped-source guards', () => {
   });
 
   it('confirms with real bid semantics, not ownership', () => {
-    expect(screen).toContain("'Bid placed'");
-    expect(screen).not.toMatch(/you won|ticket secured|you own/i);
+    // Premium batch 2: the post-bid copy lives in the model (bidOutcomeCopy) and
+    // is chosen from a fresh read AFTER the insert; the screen no longer
+    // hard-codes a success string.
+    expect(screen).toContain('bidOutcomeCopy(bidOutcome(');
+    expect(model).toContain("title: 'Bid placed'");
+    for (const src of [screen, model]) {
+      expect(src).not.toMatch(/you won|ticket secured|you own/i);
+    }
   });
 });
 
