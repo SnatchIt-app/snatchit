@@ -9,11 +9,15 @@
  * src/lib/listing/sellerListing.ts, which mirrors the server rule: a listing with
  * bids or a non-active auction can only be cancelled. Behaviour is unchanged from
  * the legacy card; only the surface moved to V2.
+ *
+ * The cover goes through EventMedia like every other event image: it takes the
+ * RAW stored path and provides the frame, the branded fallback (missing or
+ * failed), the slot-sized derivative and the recycling key a raw Image never had.
  */
 
-import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { EventMedia } from '@/src/components/media/EventMedia';
 import { Badge } from '@/src/components/ui';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import {
@@ -29,9 +33,11 @@ import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
+/** The row's thumbnail edge, in points. Passed to EventMedia as the laid-out width. */
+const THUMB = 76;
+
 type Props = {
   listing: Listing;
-  coverUrl: string | null;
   onPress: () => void;
   onDelete?: () => void;
   onEdit?: () => void;
@@ -46,7 +52,7 @@ function titleCase(s: string | null | undefined): string {
   return (s ?? '').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
+export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
   const badge = sellerBadge(listing);
   const cancelled = badge === 'cancelled';
   const canEdit = canEditListing(listing);
@@ -62,11 +68,15 @@ export default function SellerListingCard({ listing, coverUrl, onPress, onDelete
 
   return (
     <Pressable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
-      {coverUrl ? (
-        <Image source={{ uri: coverUrl }} style={s.thumb} contentFit="cover" />
-      ) : (
-        <View style={[s.thumb, s.thumbEmpty]} />
-      )}
+      {/* A dense list: recognition, not persuasion — the SEARCH_RESULT slot at
+          the row's own 76pt edge. Decorative: the row text already names the event. */}
+      <EventMedia
+        asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }}
+        slot="SEARCH_RESULT"
+        width={THUMB}
+        title={listing.event_name}
+        decorative
+      />
 
       <View style={s.content}>
         <View style={s.titleRow}>
@@ -135,9 +145,6 @@ const s = StyleSheet.create({
     marginBottom: v2.space.sm,
   },
   cardCancelled: { opacity: 0.55 },
-
-  thumb: { width: 76, height: 76 },
-  thumbEmpty: { backgroundColor: v2.surface.elevated, borderWidth: 1, borderColor: v2.border.default },
 
   content: { flex: 1, minWidth: 0, justifyContent: 'center', gap: v2.space.xs },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xs },

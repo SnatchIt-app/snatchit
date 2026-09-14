@@ -12,6 +12,9 @@
  *  - Dark artwork dissolves into the near-black canvas. Now every image carries a
  *    hairline edge, and any image with text over it carries a scrim.
  *  - A missing image renders as a broken image. Now it renders a branded plate.
+ *  - A URL that fails to load (object gone, transform refused) leaves the frame
+ *    blank. Now it falls back to the same plate, in the same frame, keyed by
+ *    URI so a recycled row never inherits the previous row's failure.
  *  - Three lists flash the previous row's image while scrolling, because no
  *    recycling key is set. Now the URI is the key.
  *
@@ -117,6 +120,10 @@ function EventMediaImpl({
 
   const resolvedWidth = fluid ? measured : (width ?? spec.layoutWidth[breakpoint]);
 
+  // The URI that failed to load, if any. A URI rather than a boolean: this
+  // instance is recycled across list rows, and a new asset must start clean.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+
   if (fluid && resolvedWidth == null) {
     // One frame, at the right shape, before the width is known. It holds the exact
     // geometry the image will occupy, so nothing shifts when the image arrives.
@@ -171,7 +178,11 @@ function EventMediaImpl({
     backgroundColor: v2.surface.surface,
   };
 
-  if (resolved.kind === 'fallback') {
+  // A load failure takes the same branch as "no renderable image": same frame,
+  // same plate, no size change and no flash of the canvas behind it.
+  const failed = resolved.kind === 'image' && failedUri === resolved.uri;
+
+  if (resolved.kind === 'fallback' || failed) {
     return (
       <View style={[frame, styles.edge, style]} onLayout={fluid ? onLayout : undefined} {...a11y}>
         <FallbackPlate title={title} height={boxHeight} />
@@ -221,6 +232,8 @@ function EventMediaImpl({
         cachePolicy="memory-disk"
         transition={v2.motion.swift}
         priority={spec.preload ? 'high' : 'normal'}
+        // The plate, not a blank frame, when this URI cannot be loaded.
+        onError={() => setFailedUri(resolved.uri)}
         accessibilityElementsHidden
         importantForAccessibility="no"
       />
