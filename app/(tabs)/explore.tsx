@@ -37,6 +37,7 @@ import { EmptyState, IconButton, Input } from '@/src/components/ui';
 import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
+import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
 import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
@@ -197,6 +198,7 @@ export default function SearchScreen() {
           }
           renderItem={({ item }) => {
             const presentation = cardPresentation(item, now);
+            const priceAllIn = allInFromDollars(presentation.priceDollars);
             return (
               <DiscoveryCard
                 eventName={item.event_name}
@@ -204,10 +206,24 @@ export default function SearchScreen() {
                 whenLabel={whenLabel(item.event_date, item.event_time)}
                 coverPath={coverPath(item)}
                 presentation={presentation}
-                priceAllIn={allInFromDollars(presentation.priceDollars)}
+                priceAllIn={priceAllIn}
                 altAllIn={presentation.altDollars != null ? allInFromDollars(presentation.altDollars) : null}
                 countdown={presentation.showsCountdown ? countdownLabel(item.ends_at, now) : null}
-                onPress={() => router.push(`/listing/${item.id}`)}
+                onPress={() => {
+                  // Display-only handoff, as on Home: the detail screen paints
+                  // this card's content first; the fresh row still gates every action.
+                  stageCardHandoff(item.id, {
+                    coverPath: coverPath(item),
+                    eventName: item.event_name,
+                    venue: item.venue,
+                    eventDate: item.event_date,
+                    eventTime: item.event_time,
+                    neighborhood: item.neighborhood,
+                    priceLabel: presentation.priceLabel,
+                    priceAllIn,
+                  });
+                  router.push(`/listing/${item.id}`);
+                }}
               />
             );
           }}

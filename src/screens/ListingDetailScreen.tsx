@@ -20,6 +20,14 @@
  * Baseline: set once in useEffect([rt.loading, authReady]) — silent, no haptics.
  * Haptics + animated banner: fire ONLY inside onNewBid (realtime INSERT callback).
  * This guarantees zero false positives on screen entry or auth-token refresh.
+ *
+ * Card handoff — display only
+ * ───────────────────────────
+ * A card that pushes here stages what it already showed (src/lib/listing/
+ * cardHandoff.ts). Until the first row arrives the screen paints that — hero,
+ * identity, the card's price label — instead of a spinner. It never feeds
+ * detailState, a checkout total, a reservation or a bid: all of those read the
+ * fetched `listing` and nothing else (contract A-17).
  */
 
 import { router } from 'expo-router';
@@ -56,6 +64,7 @@ import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
 import { detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -114,6 +123,7 @@ function useAuctionCountdown(endsAt: string | null): string {
 
 function fmtDate(date: string, time: string): string {
   const d = new Date(`${date}T${time}`);
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
@@ -175,6 +185,12 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [listing,    setListing]    = useState<Listing | null>(null);
+
+  // ── Card handoff (display only) ────────────────────────────────────────────
+  // What the tapped card already showed, read once so the first frame is
+  // content rather than a spinner. It is never a listing: every offer, gate and
+  // total below reads `listing`, the fresh row, exactly as before.
+  const [handoff] = useState<CardHandoff | null>(() => readCardHandoff(id));
 
   // Keep the latest listing for the exit listener, and latch "purchased" so an
   // exit after a completed sale never even asks to release.
@@ -944,6 +960,41 @@ export default function ListingDetailScreen({ id }: Props) {
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────
+
+  // The card's content, painted while the FIRST row loads. Nothing on this
+  // branch can be tapped into a transaction: the sticky bar carries the card's
+  // price label and a spinner where the actions will appear, and the actions
+  // themselves only exist below, once `listing` has arrived. A later non-silent
+  // reload (listing already held) keeps the plain spinner it always had.
+  if (loading && !listing && handoff) return (
+    <View style={s.safe}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}
+        contentInsetAdjustmentBehavior="never"
+      >
+        <ListingHero
+          asset={{ path: handoff.coverPath, contract: 'legacy', bucket: 'auction-media' }}
+          eventName={handoff.eventName}
+          venue={handoff.venue}
+          whenLabel={fmtDate(handoff.eventDate, handoff.eventTime)}
+          neighborhood={handoff.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          onBack={() => router.back()}
+        />
+        <View style={s.scrollTail} />
+      </ScrollView>
+
+      <StickyBar
+        left={
+          handoff.priceAllIn ? (
+            <PriceDisplay size="sticky" label={handoff.priceLabel} amount={handoff.priceAllIn} />
+          ) : undefined
+        }
+      >
+        <Spinner label="Loading this listing" />
+      </StickyBar>
+    </View>
+  );
 
   if (loading) return (
     <View style={s.centered}>
