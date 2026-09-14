@@ -125,7 +125,7 @@ describe('Profile — shipped-source guards', () => {
 
   it('keeps UNKNOWN proceeds distinct from a real zero', () => {
     // Proceeds render "—" when zero; a real $0 is never shown as a number here.
-    expect(screen).toMatch(/stats\.revenue > 0 \? formatMoney\(stats\.revenue\) : '—'/);
+    expect(screen).toMatch(/stats\.revenue > 0 \? formatDollars\(stats\.revenue\) : '—'/);
   });
 
   it('does not expose the full phone number', () => {

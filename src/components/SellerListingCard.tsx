@@ -15,10 +15,10 @@
  * failed), the slot-sized derivative and the recycling key a raw Image never had.
  */
 
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
-import { Badge } from '@/src/components/ui';
+import { Badge, Tappable } from '@/src/components/ui';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import {
   canCancelListing,
@@ -29,6 +29,7 @@ import {
   sellerBadgeTone,
   timeLeftLabel,
 } from '@/src/lib/listing/sellerListing';
+import { formatDollars } from '@/src/lib/money';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
@@ -46,7 +47,8 @@ type Props = {
   needsTicketSend?: boolean;
 };
 
-function fmt$(n: number) { return `$${Math.round(n).toLocaleString('en-US')}`; }
+/** Whole-dollar bid display through the one formatter (CFT-207). */
+const fmt$ = formatDollars;
 
 function titleCase(s: string | null | undefined): string {
   return (s ?? '').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -67,7 +69,8 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
   const a11yLabel = `${listing.event_name}. ${sellerBadgeLabel(badge)}. ${bidMeta}.`;
 
   return (
-    <Pressable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
+    // The row carries the product's press response like every other tappable (CFT-201).
+    <Tappable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
       {/* A dense list: recognition, not persuasion — the SEARCH_RESULT slot at
           the row's own 76pt edge. Decorative: the row text already names the event. */}
       <EventMedia
@@ -113,24 +116,24 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
 
           <View style={s.actions}>
             {canEdit && onEdit ? (
-              <Pressable onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit listing">
+              <Tappable onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit listing">
                 <Text style={[textStyle('label'), s.edit]}>Edit</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
             {canDelete && onDelete ? (
-              <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
+              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
                 <Text style={[textStyle('label'), s.delete]}>Delete</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
             {canCancel && onDelete ? (
-              <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
+              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
                 <Text style={[textStyle('label'), s.cancel]}>Cancel</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
           </View>
         </View>
       </View>
-    </Pressable>
+    </Tappable>
   );
 }
 
