@@ -51,6 +51,7 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
         </nav>
         <div className="min-w-0 flex-1">
           {/* md/sm: top drawer */}
+          {visible.length > 0 ? (
           <details className="border-b border-line md:hidden">
             <summary className="cursor-pointer px-4 py-3 text-sm font-bold uppercase tracking-wider hover:bg-raised">Menu · {visible.find((i) => i.key === active)?.label ?? "Events"}</summary>
             <ul className="border-t border-line-neutral">
@@ -63,6 +64,7 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
               ))}
             </ul>
           </details>
+          ) : null}
           <main className="p-4 md:p-6">{children}</main>
         </div>
       </div>
