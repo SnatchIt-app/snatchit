@@ -574,6 +574,12 @@ function postflight() {
     for (const k of ["organizations", "venues", "events", "sessions", "ticket_types", "batches", "staff_roles", "org_members", "auth_users"]) {
       check("postflight", `count ${k} back to baseline (${base.counts[k]})`, now.counts[k] === base.counts[k], { before: base.counts[k], after: now.counts[k] });
     }
+    // Manifest scope: nothing outside the venue fixtures changed (native tickets, checkout/payments, door/scan, resale).
+    const changed = Object.keys(base.collateral ?? {}).filter((k) => base.collateral[k] !== now.collateral?.[k]);
+    check("postflight", `out-of-scope tables unchanged (${Object.keys(base.collateral ?? {}).length} checked)`, !!base.collateral && changed.length === 0, changed.map((k) => ({ table: k, before: base.collateral[k], after: now.collateral[k] })));
+    check("postflight", "platform_config unchanged (feature flags incl. issuance/scanning)", base.platform_config_digest === now.platform_config_digest, { before: base.platform_config_digest, after: now.platform_config_digest });
+    const get = (arr, k) => (arr.find((s) => s.startsWith(`${k}=`)) ?? "").slice(k.length + 1);
+    check("postflight", "db_pre_request hook unchanged", get(base.authenticator_pgrst, "pgrst.db_pre_request") === get(now.authenticator_pgrst, "pgrst.db_pre_request"), now.authenticator_pgrst);
   } else check("postflight", "baseline present", false, "no baseline.json");
 }
 

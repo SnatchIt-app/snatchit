@@ -1,16 +1,17 @@
 # Venue slice 1 — hosted acceptance runbook (automated, refreshed 2026-09-14)
 
-Supersedes the manual steps in `HOSTED_ACCEPTANCE.md` (its SQL-editor paste and `'{}'` ledger row are
-replaced by Claude A's reviewed method below) and the scratch run-order/addendum drafts. Nothing here has
-been run against the sandbox except the read-only preflight.
+**Execution is governed by [`SANDBOX_WINDOW_MANIFEST_VENUE.md`](SANDBOX_WINDOW_MANIFEST_VENUE.md)** — the venue
+part of Claude A's single window manifest (project, pinned commits, the one migration, exact fixture writes, the
+one setting change, cleanup, expected before/after state, owner MFA steps, evidence E1–E6). This runbook keeps
+the rationale and the local rehearsal. Nothing here has been run against the sandbox except read-only preflights.
 
 | Item | Value |
 |---|---|
-| Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — code frozen at `ae2e2ea` |
-| App under test | `venue/read-slice1-fixes` (agreed with Claude A; see *Readiness*) — the frozen app fails eight checks |
-| Kit | `venue/scripts/acceptance/` on `venue/slice1-acceptance-kit` |
+| Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — byte-identical to `ae2e2ea` |
+| App under test | `venue/read-slice1-fixes` @ `2665a20` (F1–F4 approved by Claude A) — the frozen app fails eight checks |
+| Kit | `venue/scripts/acceptance/` on `venue/slice1-acceptance-kit` (pin: the commit carrying the manifest) |
 | Target | shared sandbox `ofaidukbieeekqaboscm` only; production ref is refused by the kit |
-| Window | **not scheduled** — the owner names it; Claude A coordinates. Consumer QA closing is not a window. |
+| Window | **not scheduled** — owner authorizes the specific window; Claude A's phases run first, then venue V0–V10, then any C preview. |
 
 ## Readiness
 
@@ -72,6 +73,11 @@ exercises real JWKS verification). Authenticator: `pgrst.db_schemas=public, grap
 
 Fast lever if anything looks wrong mid-run: remove `venue_api` from exposed schemas (closes the client
 surface, leaves the views). Full reversal: `cleanup`, then the rollback file and the ledger row delete.
+
+**Scope proof (manifest §4):** `preflight` records 24 out-of-scope table counts (native tickets, wallet passes,
+checkout/payments/transfers/bids, refunds/payouts, door/scan, resale policies, profiles) and a
+`catalog.platform_config` digest; `postflight` fails unless every one is back to baseline and
+`db_pre_request` is unchanged. Cleanup deletes by exact id (the manifest's list), not by pattern.
 
 ## Who does what
 
