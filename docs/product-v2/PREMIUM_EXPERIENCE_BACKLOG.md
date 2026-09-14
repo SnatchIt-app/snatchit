@@ -572,3 +572,38 @@ the provider lands on the order with "Did the tickets arrive?" and a status
 refresh), then CFT-306 (real-state progress copy), which touches
 `payControl.ts` and goes to A first. CFT-401/403/405/406/408/409 wait on
 A-09, A-12, A-17, A-14 and A-10 respectively.
+
+### Batch 2 — A's review (2026-09-14)
+
+- **`4b705c4` APPROVED.** A verified the stronger claim: across all of batch 2
+  (`43e3a97..3c78382`) the diff over `payControl.ts`, `setupDecision.ts`,
+  `holdState.ts`, `payments.ts` and `signOut.ts` is empty — byte-identical.
+  One cosmetic nit: the `completed` effect re-fired on a remount (a 3-D
+  Secure return landing on a settled checkout), so a buyer could feel the
+  success haptic twice. **Fixed in `73a5f19`** with a module-level latch keyed
+  by the listing; sent to A for a re-check. Batch 2 head is now `73a5f19`.
+- **A-17 — all four confirmation sources APPROVED as implemented.** A checked
+  the load-bearing claim: migration 047 line 80 raises on
+  `NEW.amount <= v_current_bid`, so the rule is strictly greater and a
+  successful insert really was leading at that instant. The "Bid placed"
+  fallback when the re-read is unavailable is singled out as exactly A-17:
+  assert the placement the server confirmed, never a position we cannot know.
+  Do not "improve" it into a guess later.
+- **A-06 — duplicate half CLOSED.** 047 also carries a per-(listing, bidder)
+  3-second cooldown ("Please wait before bidding again."). Inside 3 s the
+  cooldown rejects a duplicate; outside it the first bid has already raised
+  `current_bid` so strictly-greater rejects it. The client lock is the UX
+  half, not the only guard.
+- **F10 (A's finding, owner decision).** The server enforces only "greater
+  than `current_bid`" — no minimum increment. `MIN_BID_INCREMENT` is a client
+  convention; a crafted request can bid one cent above the floor. If the
+  increment is meant to be a rule, that is a server change and a new migration
+  number from A. Changes nothing built here.
+- **A-08(d).** Migration 128 is written and rehearsed on A's side (pgTAP 195,
+  25/25). Client contract when the owner authorises it:
+  `public.register_push_token(token, platform, device_secret, device_name)`
+  with a random secret in SecureStore; rebinding requires the secret, never
+  the token alone. **Not built against yet.**
+- **Batch 3.** A agrees with the slice split and CFT-306 going to A first; the
+  go is the owner's. A-15 unchanged (blocked). Native acceptance still rides
+  the next authorised build.
