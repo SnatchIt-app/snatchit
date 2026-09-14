@@ -2337,15 +2337,17 @@ observations when they arrive.
 - **Lesson recorded (A):** server evidence that a row exists is not evidence that a user sees it. Visibility needs
   the read path, the API exposure and the channel checked before a display claim is made.
 
-**F6 — other surfaces checked (2026-09-14), closing the gap C flagged.** Neither the web app (`web/`) nor the
-admin console (`admin/`) contains a read of `notify.notification`, the `notify` schema, or `public.notifications`.
+**F6 — other surfaces checked (2026-09-14), closing the gap C flagged.** **[Corrected 2026-09-14 — this
+paragraph originally said neither `web/` nor `admin/` reads either table. That was wrong on both halves; see
+"F6 other surfaces, corrected" below.]**
 Scope: the working trees in `/Users/josetascon/snatchit`, not necessarily the commit each surface is deployed
 from. C also established that the stored row `f3abe550` has `title` and `body` NULL, its text coming from
 `template_key` only at delivery time, so even a raw-row list would show nothing.
 
 **F6, final wording shared with C:**
 - **Server state (verified by both):** the stored notice persists after withdrawal with no "withdrawn"
-  counterpart. No Build 16 user impact, and no reader on the web or admin surfaces in these trees.
+  counterpart. No Build 16 user impact. **[Corrected: a web inbox exists on the release line but reads a
+  different table — see below.]**
 - **Push after restore:** unobservable in the sandbox, since the delivery has never been attempted.
 - **Not a Build 16 display defect, and not reproduced.** Candidate only; owner's call.
 
@@ -2373,3 +2375,27 @@ The F6 classification is unchanged: not a Build 16 display defect, not reproduce
 **Lesson (A):** check privileges with `has_table_privilege` or the raw `relacl`, never `information_schema`
 grant views from a restricted role — those views are filtered by the viewer. This is the same shape as the
 earlier absence claims: the search was narrower than the statement.
+
+**F6 other surfaces, corrected (C found it; A verified; 2026-09-14).**
+- **A's `admin/` check was void.** `/Users/josetascon/snatchit/admin` does not exist. The grep's stderr was
+  suppressed, so an error read as "no reader".
+- **A web inbox exists, and it is on the committed release line.** `web/src/lib/notifications.ts` (`:25`, `:48`)
+  and `web/src/lib/notifications-actions.ts` (`:21`, `:41`) call `.from("notifications")`. They are present on
+  `release/convergence-135` and on `admin/operating-console` at `562fda9aba26…`, committed since `a8b7b7e`
+  (Phase 1A web accounts). Verified with quoted globs and a pattern sanity check against known `.from()` calls.
+- **It reads `public.notifications`, not `notify.notification`.** The deletion notice was written only to
+  `notify.notification`, and `public.notifications` gained 0 rows, so this inbox cannot show it either. The F6
+  classification is unchanged: not a display defect, not reproduced, candidate only.
+- **Tightens risk (b) (C):** an inbox surface already ships on the release line. If it is ever moved onto
+  `notify.notification` — where the `authenticated` SELECT grant and the owner-scoped policies already exist —
+  F6(b) becomes reachable, with nothing from withdraw to supersede the stale notice.
+
+**Tool errors behind A's wrong intermediate result, recorded so they are not repeated.** A briefly concluded the
+inbox files were absent from `562fda9` and the release line. Both "absent" results were A's own tooling:
+1. `"$r:web/…"` inside a zsh loop — `$r:w…` is parsed as a history modifier, mangling the path (the same trap
+   hit earlier with `$R:s…`).
+2. `git ls-tree --name-only <rev> web/src/lib` without a trailing slash lists the directory entry, not its
+   contents.
+
+That wrong result was caught before being recorded or sent, by resolving it against the worktree's `HEAD` and
+the full SHA.
