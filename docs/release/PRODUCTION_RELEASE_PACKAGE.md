@@ -2304,3 +2304,35 @@ observations when they arrive.
   what sends deliveries has not been traced, and whether it is undriven here (F4's class) or merely slow is not
   established. "No push arrived" is therefore not evidence against F6; the in-app notice is the confirmed
   surviving effect.
+
+### F6 reconciled against the owner's handset observation (2026-09-14)
+
+**Owner's handset observation (recorded as given):** after D11, the owner checked in-app notifications and **no
+"deletion pending" notice appears.** A stale notice visible to the user was **not reproduced**.
+
+**Reconciliation — the stored row was never user-visible in Build 16.** Four independent reasons, all read-only:
+1. **Build 16 has no in-app inbox.** At `df9e0d3` there is no read of `notify.notification` or
+   `public.notifications` anywhere in `src/` or `app/`: no `.from(…notifications…)`, no `.schema('notify')`, no
+   notify RPC. The only notification route is `app/settings/notifications.tsx`, a **preferences** screen
+   (`notification_preferences` toggles and the device-permission banner).
+2. **The `notify` schema is not exposed to the API.** The sandbox authenticator's `pgrst.db_schemas` is
+   `public, graphql_public, kernel`, and `authenticated` holds no table grant on `notify.notification`. A client
+   could not read the row even if it tried.
+3. **The notification type has no in-app channel.** `notify.notification_type` `account_deletion_pending`:
+   `delivery_class` mandatory, `allowed_channels` `["push","email"]`. The `notify.notification` row is the
+   substrate record that push and email deliveries fan out from, not an inbox item.
+4. **No handset request touched notifications.** The edge logs show no request from `SnatchIt/16` to any
+   notification path or `notify` profile since 04:40Z, and `public.notifications` gained 0 rows after the request.
+
+**F6 corrected.**
+- **Withdrawn as a display defect.** "The user's inbox still says deletion pending" was A's over-claim, inferred
+  from a server row without checking that anything renders it. Build 16 has nothing that shows it, so the owner's
+  observation is the expected result, not a missed reproduction.
+- **What remains, as a candidate only (C's finding, owner's call):**
+  - **Push after withdrawal.** The mandatory `account_security` push `168139e3` is still queued and nothing
+    retracts it. In an environment that actually sends deliveries, it could arrive after the account is restored.
+    Unverified — the sandbox has never attempted it.
+  - **Latent for any future inbox.** If an in-app inbox is later built on `notify.*`, the pending notice would
+    surface with no "withdrawn" counterpart, because withdraw emits nothing.
+- **Lesson recorded (A):** server evidence that a row exists is not evidence that a user sees it. Visibility needs
+  the read path, the API exposure and the channel checked before a display claim is made.
