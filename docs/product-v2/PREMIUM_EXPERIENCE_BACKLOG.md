@@ -483,3 +483,18 @@ destination and reports "iOS 26.5 is not installed". So the blocker is the
 missing iOS 26.5 simulator platform, not the destination syntax. Nothing was
 downloaded or changed in Xcode; the temporary Metro config and build directory
 are removed. The options recorded above stand, and the decision is the owner's.
+
+**Preview blocker closed as settled (A + C, 2026-09-14).** A checked the one
+remaining hypothesis — the deployment target is 15.1 (`ios/Podfile:19` and
+`project.pbxproj`), far below the installed 26.2 runtime — so an
+ineligible-by-target explanation is dead. Cause: Xcode 26.6 will not pair its
+26.5 SDK with the 26.2 simulator runtime for this scheme. Not fixable for
+free; recorded in A's release package with the evidence so it is not
+re-investigated. **A's recommendation to the owner: defer previews** to the
+next build authorised for another reason, on the grounds that visual preview
+is not a correctness gate for batch 1 (1730 tests, source contracts, A's
+line-level review of every gated file), the disk cost is real, a hosted build
+adds a non–Build 16 artefact to the record, and the held-checkout previews need
+the sandbox window regardless. C concurs. Static previews of the read-only
+screens remain the zero-cost middle path if the owner wants visual acceptance
+sooner.
