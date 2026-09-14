@@ -2660,3 +2660,26 @@ None of these is approved by the test report, and the first batch has no go.
 8. **Go / no-go for the first batch** (`frontend/premium-batch-1` cut from `df9e0d3` plus the approved F1 commit).
 9. Optional read-only authorizations: production `push_tokens` exposure (F7) and production listings with
    quantity > 1 (A-01).
+
+### Consolidated prioritized release checklist (2026-09-14, A owns)
+
+One list, priority-ordered, for the resale/marketplace release in §3. Detail lives in §8 and the sections named;
+this is the single tracker the owner asked release integration to keep. Nothing here is authorized yet.
+
+**P0 — blocks apply/deploy of the resale release**
+1. **Apply/deploy authorization** — nothing in §3 is authorized. Owner.
+2. **`AUTODEPLOY-VERIFIED-OFF`** on the merging PR, with `supabase branches list` showing an empty `git_branch` at merge (AUTODEPLOY-1). Owner + release integration.
+3. **Deploy-window sequencing** — migrate-then-deploy (edges 3b call RPCs that exist only after migrations 1–4); **pause the payout cron** for the window; run **legacy orphan reconciliation** inside it. A payout by old code mid-window creates a transfer with no attempt row (§5.7, §6). Owner schedules; release integration executes.
+4. **Stripe `payment_intent.canceled` subscription** — the webhook endpoint change the cancellation path depends on. Owner decision.
+5. **PFA-32 deletion amendment signature** — required before the deletion behaviour (migrations 3–4) ships. Owner.
+
+**P1 — must resolve; can be scheduled around the release, not inside the pin**
+6. **Public `auction-media` evidence exposure** — 27 legacy objects publicly readable; a separate data-movement change touching the tombstone machine, not bundled with the schema release (§8 detail). Owner decides scope; release integration executes as its own change.
+7. **Missing sandbox-unprovable evidence** — `notify-transfer` deploy + test, edge `verify_jwt` parity, push routing on a real device. Needs an environment with production parity.
+8. **Twilio Account SID rotation** — identifier, not a secret; local history still holds it. Owner.
+
+**P2 — latent / monitoring; owner decisions on severity, none blocking today**
+9. **F5** — a monitor that reads HTTP status, not cron job status (720/720 green hid 7 skipped ticks; 7 × 401 in production unattributed).
+10. **L1–L4** server correctness (mig 127 for L2; L1/L3/L4 mostly edge/webhook), **F3** unmapped blocker labels, **F7** push-token rebind (mig 128) + untrue privacy copy, **F2** chain drift (124 prepared).
+
+**Adjacent tracks, not part of this release's checklist** (tracked with their owners): B's `125` scanning fix; C's Premium batch 1; D's venue read-integration — where **applying the `venue_api` migration and exposing `venue_api` over PostgREST (adding it to the authenticator `pgrst.db_schemas`) are two distinct, separately-authorized steps**.
