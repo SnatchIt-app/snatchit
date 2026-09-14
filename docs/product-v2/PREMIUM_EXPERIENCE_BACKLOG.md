@@ -689,3 +689,65 @@ marked B1/B2/B3.**
 8–12, 14, 22–25, 27–30, 32, 37, 41, 50, 52, 53); blocked/held: 3 (17 server
 time; 22 quantity, owner; item 11's save-event half, A-15); not yet started:
 30. Native acceptance outstanding for all 21.
+
+---
+
+## Batch 3 — status (2026-09-14, C)
+
+Owner's go: the proposed isolated slice (seller-marked-sent vs
+buyer-confirmed-possession wording; returning from the external provider to
+the correct order), plus client integration with A's reviewed migration 128
+contract once A supplied it. Returning from another app must not itself imply
+receipt or payment success; order context preserved; authoritative state
+fetched. Local only; 128 not applied; no hosted data changed.
+
+Branch `frontend/premium-batch-3` in `/Users/josetascon/snatchit-batch1`, from
+batch 2's cleared head `73a5f19`:
+
+| Commit | Scope | Tasks |
+|---|---|---|
+| `09838fe` | One transfer vocabulary: `seller_sent` = "Marked sent", `buyer_confirmed` = "Received", `auto_released` = "Released"; `transferStatusCopy(status, role)`; Bids tab, listing banner, send screen and the legacy badge reworded | 402 (+704 slice) |
+| `06fa842` | Receive: "Open {provider}" (official entry points only, none for `other`); on return a QUIET re-read, then "Did the tickets arrive?" only when the fresh state is still `seller_sent`; "They're here" dismisses and highlights the explaining control, never confirms; "Report a problem" is the existing dispute flow; auto_released block added; all states via the vocabulary | 404, 402, 401 (partial) |
+| `d3a9856` | **128 client, for A's review**: `deviceSecret.ts` (32 CSPRNG bytes → base64url, once per install, Keychain, per device, never rotated or cleared by the client), `registration.ts` (decision machine + contract error classification + backoff + terminal 42501 branch + remedy copy), `registerToken.ts` (RPC with `p_` names; legacy select-then-insert-only, non-takeover), `registrationStore.ts` (record/failure on device, no secret), `registrationStatus.ts`, `usePushToken.ts` rewritten; Settings › Notifications shows the remedy | 611 / A-08(d) |
+| `<previews>` | Static previews extended with the batch 3 screens, pinned to source | previews |
+
+**Gates.** `tsc --noEmit` clean; vitest 1836 tests / 82 files (batch 2:
+1795 / 79); `expo lint` 0 errors (baseline warnings); gated files
+(`payControl.ts`, `setupDecision.ts`, `holdState.ts`, `payments.ts`,
+`signOut.ts`) byte-identical across `43e3a97..HEAD`. No progress-copy or
+payment-control change was needed for this slice.
+
+**Contract as built (A's text of 2026-09-14, 128 @4e29fde; A's adversarial
+review is still running and may amend it).** `register_push_token(p_token,
+p_platform, p_device_secret, p_device_name)` → `{ token_id, outcome:
+registered|refreshed|rebound|rebound_legacy, platform }`; 42501
+`not_authenticated` → auth; 42501 "token is bound to another account" → the
+ONE terminal branch (bound / wrong secret / active legacy row of another
+account are deliberately indistinguishable) → wait until account, token or
+method changes; P0001 `precondition_failed` → back off; same token+secret+user
+→ `refreshed` (idempotent retries); PGRST202 → legacy path (live today
+everywhere). Secret per device; sign-out unchanged (batch 1's direct UPDATE by
+token AND user_id — the revoke that makes an active legacy row claimable);
+account switch = rebind by design; never `notify.register_push_token`; the
+fallback stays insert-only. My question on recovery exposed a defect in 128
+(hash never replaceable for the owner) which A fixed at `4e29fde`.
+
+**Lifecycle covered.** Device secret: create on first use, reuse forever,
+regenerate only if the Keychain loses it (owner's next registration replaces
+the server hash). Account switching: `account_changed` → register → server
+rebinds. Sign-out: untouched. Legacy tokens: own legacy row → `refreshed`
+(first-time hash); another account's active legacy row → terminal until they
+sign out on the device (`rebound_legacy` after). Failed registration: backoff
+30 s doubling to 6 h, retry on foreground/sign-in, terminal branch surfaces
+the remedy in Settings.
+
+**Still unverified.** Everything native: the app-switch return, the Keychain,
+push registration against a database that has 128 (none does), the revoke and
+rebind on a physical device. F10 (no server-side minimum increment) is with
+the owner. CFT-405 (second confirmation before release) untouched pending
+A-17's money-release review; CFT-401's expired/reversed states wait on A-09.
+
+**Next deliverable (proposed, on the owner's go).** CFT-306 (progress copy
+from real states) to A first since it touches `payControl.ts`; then batch 4's
+client-side auction states that need no server time: CFT-502 (in-place bid
+updates), CFT-505 (My Bids ordering), CFT-504 (connection-health notice).
