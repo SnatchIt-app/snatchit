@@ -2476,3 +2476,42 @@ tickets. The `__DEV__` fixture toggle is compiled out of Build 16.
 **Latent, recorded for F:** the Home price filter compares `current_bid` (`home.tsx:333-334`), while a Buy Now card
 shows `buy_now_price`. The two can disagree. All three visible sandbox listings carry 100 for both, so this
 cannot be observed without writes.
+
+### Premium Experience P0 holds — A's rulings, and two new findings (2026-09-14)
+
+C opened the owner-assigned Premium Experience backlog (post–Build 16, `frontend/premium-experience-backlog`,
+`docs/product-v2/PREMIUM_EXPERIENCE_BACKLOG.md`), holding five P0 items for A. A re-read each at `df9e0d3` plus the
+sandbox, read-only. None of the frontend work needs a server change.
+
+| Hold | Status | Basis (`df9e0d3`) | Contract / next step |
+|---|---|---|---|
+| **A-01** quantity | **Held for the owner** | Server prices the whole listing: `create-payment-intent` charges `buy_now_price` once (`:477`), fees and payout come off that base (`:514-518`), and buyer detail shows one price (`ListingDetailScreen:1041`). Only the seller copy says per ticket (`CreateListingScreen:807`, `:846`). | A recommends ratifying whole-listing pricing and fixing the two seller strings. Per-ticket pricing would be a transaction change. Sandbox has 0 listings with quantity > 1; production not read. |
+| **A-02** price change | Unheld, frontend only | Stale total from route param (`CheckoutNative:87`, `:213`). Retry (`:517`) resends it and gets 409 every time. The message is missing from `EXPECTED_ERROR_PATTERNS` (`payments.ts:37-53`). Both 409s already return `server_total_cents` (`CPI:532-535`, `:640-647`). | Add the pattern; re-read the listing and require the computed all-in total to equal `server_total_cents`; show it and require an explicit re-accept; keep the accepted total in state. |
+| **A-03** refunded as settled | Unheld, frontend only; owner wording | `SETTLED_STATUSES` includes `refunded` (`setupDecision:52`), so a refund shows "You're in." (`:218-221`, `:672`). The lookup is unordered `limit(1)` over both statuses (`:188-195`). | Separate `refunded` decision kind; `already_settled` for succeeded only; check succeeded first; still never create an intent. |
+| **A-04** Pay gating | Unheld, frontend only | `payControl` has no expiry input (`:507-514`); `reservationExpired` (`:520`) is display only. | Pay leaves 'pay' at ≤ 15 s (A's margin). Re-check settled, then hold. After any non-Canceled sheet error run `confirmPaymentSuccess` first; if unreachable, no Pay. |
+| **A-08** privacy / push tokens | Frontend part unheld; server part and copy held for the owner | See F7. | Revoke own token before `signOut` via the owner UPDATE policy (best-effort). A public wrapper for `notify.register_push_token` needs owner authorization. |
+
+**L4 — a PaymentIntent outlives its hold (latent, A's).** Nothing cancels a PaymentIntent when a Buy Now hold
+expires. `cleanup_expired_reservations` is SQL-only, and CPI's `refuse()` retires a stale PI only when CPI is
+called again (`:419`). A PaymentSheet already set up can therefore confirm at Stripe after the lapse.
+Settlement then runs through `settle_listing_for_payment`. If the listing was taken meanwhile, the outcome is
+`unfulfillable` and the reconciliation sweep refunds it (migration `20260906110000` `:72-79`). There is no double
+sale, but charge-then-refund is possible. The A-04 client gating reduces exposure. A server-side cancel at expiry
+is a candidate transaction change that needs owner authorization. Not in Build 16's scope.
+
+**F7 — the device push token is bound to another account; Build 16 copy is untrue (reproduced in sandbox).**
+- Build 16's privacy screen says push tokens are "automatically marked inactive when you sign out". None of the
+  five `auth.signOut` sites touches `push_tokens`.
+- Sandbox `public.push_tokens` holds one row, an iOS token for user `1fcd0c69…` (not the sandbox buyer). It is
+  `is_active = true`, last used 2026-09-10.
+- The buyer's registration fails. `usePushToken` selects by token, RLS hides the other account's row, the code
+  falls through to insert, and `UNIQUE (token)` rejects it. Edge logs: `POST /rest/v1/push_tokens` **409** at
+  04:25:50.931Z and 04:41:20.813Z on 2026-09-14.
+- Effect: the handset would receive the other account's pushes (`send-push:70` filters `is_active = true`) and
+  none of the buyer's.
+- A correct rebind contract already exists and is unreachable. `notify.register_push_token` upserts
+  `on conflict (token)` to `auth.uid()` and resets `revoked_*`. `authenticated` has EXECUTE and `notify` USAGE,
+  but `pgrst.db_schemas` is `public, graphql_public, kernel`.
+- Production exposure is not read (needs read-only authorization).
+- Owner decisions: correct the privacy copy now or wait for the revoke fix; and authorize a narrow public wrapper
+  RPC (migration number from the registry), not exposing `notify`.
