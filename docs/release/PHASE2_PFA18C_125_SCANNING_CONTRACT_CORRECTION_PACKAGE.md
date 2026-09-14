@@ -16,7 +16,7 @@
 | Migration | `supabase/migrations/125_sync_scan_device_manifest_open_unexpired.sql` — body-only `create or replace`; the function calls `venue.get_door_manifest(p_session_id, 0)` **first** and binds the device only when the payload reports `open:true`, to exactly the `manifest_id`/`manifest_version` returned; otherwise the device row is untouched and the payload (`open:false`) is returned. Signature `(uuid,uuid,integer)`, VOLATILE, SECURITY DEFINER, `search_path=''`, grants and authorization unchanged (device-venue `venue_scanner`/`venue_manager` gate, then the session-venue gate inside `get_door_manifest`, which 086 also evaluated). Adds a function comment. Census 0. Post-apply md5 **`6beca3168e76bb566e456b6abd467197`** |
 | Rollback | `supabase/rollbacks/125_…_rollback.sql` — restores the 086 body verbatim and nulls the comment; md5 returns to `666422e5…` (verified) |
 | Test | `supabase/tests/190_sync_scan_device_manifest_open_unexpired.sql` — **30 assertions**: A definition (one contract read; bind-from-payload; 086 select gone; comment), B shape/grants, C contract (fresh device unbound → open v1 bound to exactly the returned manifest → closed: untouched → **expired-but-open v2: `open:false`, device still m1/1, `last_sync_at` untouched, row untouched, no header** → fresh v3 re-bound → repeat idempotent), D authorization (buyer 42501, unknown device P0002, manager ok), E census |
-| Commit / PR | see §5 |
+| Commit / PR | `fc4f1130dbbb7b926d87daa8c585e12ab521f6ba` · draft PR **#62** into `admin/operating-console` (review-only, not for apply) |
 
 **Behaviour corrected, exactly:** expired-but-still-open episode → device row untouched and `open:false` (086: bound m/N with `last_sync_at = now()` while returning `open:false`). Open-unexpired and closed/absent cases return the same results as 086, the open case now consistent by construction (single read). Nothing writes `door_manifest`; no audit row (RPC §20.4.4).
 
@@ -41,6 +41,6 @@ Limitation: the harness is the Docker-less replica (fidelity ledger in `scripts/
 6. **Dependencies:** not required before C6 (done), Model A, M5 or the issuance flip; **required before the scanning flip** (C8 second step) together with scanner SDK readiness. Does not touch KMS, secrets, flags, the trust root or the monitor.
 
 ## 5. Deliverable
-- Branch `fix/125-scan-device-sync-expired-episode` (origin), commit recorded in the execution record session 30; draft PR into `admin/operating-console` (review-only, not for apply) — number recorded in the execution record.
+- Branch `fix/125-scan-device-sync-expired-episode` (origin) @ `fc4f1130dbbb7b926d87daa8c585e12ab521f6ba`; draft PR **#62** into `admin/operating-console` (review-only, not for apply; the AUTODEPLOY attestation is a placeholder until the day of apply).
 - Documents reconciled with dated corrections (history preserved): `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` (G6 and the open-items row), `PHASE2_PFA18C_REMAINING_PATH_AND_HANDOFF.md` and `PHASE2_PFA18C_C6_EXECUTION_RECORD.md` (A's dated numbering notes, fast-forwarded onto this branch), this package.
 - The remaining launch gates (Model A, M5 ruling / M5-live, C8 flips, live commerce checks) stay documented in `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` §3 and are **not** part of this development deliverable.
