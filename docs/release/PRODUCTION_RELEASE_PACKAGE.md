@@ -2315,8 +2315,9 @@ observations when they arrive.
    notify RPC. The only notification route is `app/settings/notifications.tsx`, a **preferences** screen
    (`notification_preferences` toggles and the device-permission banner).
 2. **The `notify` schema is not exposed to the API.** The sandbox authenticator's `pgrst.db_schemas` is
-   `public, graphql_public, kernel`, and `authenticated` holds no table grant on `notify.notification`. A client
-   could not read the row even if it tried.
+   `public, graphql_public, kernel`, so a client cannot reach the row through the API. **[Corrected
+   2026-09-14: this point originally also said "`authenticated` holds no table grant on `notify.notification`".
+   That was false — see the grant correction below.]**
 3. **The notification type has no in-app channel.** `notify.notification_type` `account_deletion_pending`:
    `delivery_class` mandatory, `allowed_channels` `["push","email"]`. The `notify.notification` row is the
    substrate record that push and email deliveries fan out from, not an inbox item.
@@ -2350,3 +2351,25 @@ from. C also established that the stored row `f3abe550` has `title` and `body` N
 
 The earlier "confirmed surviving effect" wording is corrected in place above. Both verifiers made the same error:
 stored state is not displayed state.
+
+**Correction — `authenticated` DOES hold SELECT on `notify.notification`** (C found it; A verified,
+2026-09-14). A's F6 reconciliation said there was no table grant. That was a **false negative from the tool, not
+the database**:
+- Raw ACL `{postgres=arwdDxtm/postgres,authenticated=r/postgres}` — a direct SELECT grant, not inherited.
+  `has_table_privilege('authenticated','notify.notification','SELECT')` returns **true**.
+- A queried as `supabase_read_only_user`. `information_schema.role_table_grants` only lists grants involving
+  roles the **querying** role is enabled for, so it returned 0 rows to A — which A wrongly read as 0 grants.
+- Owner-scoped RLS backs the grant: `notify_notification_sel_owner` (SELECT) and `notify_notification_upd_owner`
+  (UPDATE), both to `authenticated`.
+- One precision A adds: the table-level UPDATE privilege for `authenticated` is **false**, so the UPDATE policy
+  is currently **inert** — a user could read their notifications but not mark them read without a new grant.
+
+**Why it matters (C):** it tightens latent risk (b). The grant and ownership policies already exist, so the only
+things between a restored user and a stale "deletion pending" notice are the API exposure (`notify` absent from
+`pgrst.db_schemas`) and the absence of client inbox code. Withdraw emits nothing to supersede it.
+
+The F6 classification is unchanged: not a Build 16 display defect, not reproduced, candidate only.
+
+**Lesson (A):** check privileges with `has_table_privilege` or the raw `relacl`, never `information_schema`
+grant views from a restricted role — those views are filtered by the viewer. This is the same shape as the
+earlier absence claims: the search was narrower than the statement.
