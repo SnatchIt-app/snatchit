@@ -14,7 +14,7 @@ banners; it authorizes nothing.
 | `121` | 189 | **Claude B** | manifest signing context STRICT | PR #58, not applied |
 | ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12** by owner sequencing approval — unwritten, so the renumber is free |
 | `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
-| `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | proposed 2026-09-12, not written |
+| `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | written with pgTAP 192 and rehearsed P1–P6 (2026-09-12); applied nowhere; sandbox apply awaits authorization |
 
 ## How 122 was resolved
 

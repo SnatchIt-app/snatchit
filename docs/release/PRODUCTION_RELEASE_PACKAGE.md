@@ -159,9 +159,9 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **D8 NEXT** | D2, D5, D6, D6b, **D7 all passed** on build 16; D8–D11 outstanding (§20) | Claude C |
+| **Handset QA — 11 cases on the preview build** | **COMPLETE 2026-09-14** | D2, D5, D6, D6b, D7, D8, D9a, D9b, T, F passed on build 16; D10/D11 server-side PASS, handset wording not captured; D9c UNTESTED and closed; D1/D3/D4 passed on build 13 only. See "Build 16 consolidated QA verdict" | Claude C + release integration |
 | **Sandbox↔production FK drift on `transfers`** | **RESOLVED in the sandbox** | migration **123** applied and verified (§19); still to ride the normal release path to production, where it is a proven no-op | release integration |
-| **`bids_bidder_id_fkey` drifts the same way** | **OWNER DECISION** | latent — no code embeds profiles off bids today (§18) | release integration |
+| **`bids_bidder_id_fkey` drifts the same way** | **PREPARED, not applied** | migration 124 + pgTAP 192 written and rehearsed (P1–P6); production already correct; sandbox apply awaits authorization (F2) | release integration |
 | **False "Transfer not found" copy** | **IN REVIEW, isolated** | Claude C's `5569385` splits not_found / offline / unavailable; one blocking copy change requested (§20) | Claude C |
 | **Legacy transfer screens → V2 design system** | **IN PROGRESS, isolated** | owner-requested; must not touch the pinned candidate (§20) | Claude C |
 | **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
@@ -171,7 +171,7 @@ no dependency on them.
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
-| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | proposed `121_ops_console_refund_exactness`; server-only, client already supports `certainty:'known'`; §14 acceptance cases A1–A8 | release integration, after owner decision |
+| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | server-only, client already supports `certainty:'known'`; §14 acceptance cases A1–A8. Formerly drafted as `121_ops_console_refund_exactness`; `121` is B's (PR #58) per the registry, so this takes the next free number when written | release integration, after owner decision |
 | **Public `auction-media` evidence exposure** | **UNRESOLVED RELEASE RISK** | see below | owner + release integration |
 | Deletion amendment PFA-32 signature | **OWNER DECISION** | required before the deletion behaviour ships | owner |
 | Stripe `payment_intent.canceled` subscription | **OWNER DECISION** | webhook endpoint change | owner |
@@ -2515,3 +2515,148 @@ is a candidate transaction change that needs owner authorization. Not in Build 1
 - Production exposure is not read (needs read-only authorization).
 - Owner decisions: correct the privacy copy now or wait for the revoke fix; and authorize a narrow public wrapper
   RPC (migration number from the registry), not exposing `notify`.
+
+### F — Filter sheet: PASS, handset and server (2026-09-14)
+
+**Handset (owner, Build 16).** All seven steps matched the expected results: Auction → "No matches"; Max 99 →
+"No matches"; Max 100 restored the three listings; the Max field read 99 on reopen; Clear → Apply reset the
+filters. Reported before 05:51Z; run on the handset at about 05:48–05:50Z per the server rows below.
+
+**Server (A after the agreed 15-minute ingestion wait; C's independent read compared).** Every row since
+05:15Z, realtime excluded, read at 06:06:30Z and again at 06:08Z (16 rows, no late arrivals; latest row
+05:49:27.558Z, 17 minutes before the first read):
+
+| Time (UTC) | Request | Attribution (`df9e0d3`) |
+|---|---|---|
+| 05:48:39.649 | `POST auth/v1/token` 200 | refresh — the 04:41:18 session's access token had expired at about 05:41 |
+| 05:48:41.132–42.273 | `GET auth/v1/user`, `POST rpc/get_my_profile`, `GET listings` | Home's `fetchListings` (`getUserNeighborhoods` → `auth.getUser` + `get_my_profile`, then `listings`, `home.tsx:60-64`, `:175-184`). One Home focus |
+| 05:49:13.108–.112 | six `GET storage/v1/render/image/public/auction-media/fixtures/{D7,D8,P1}.jpg` **400** | the three visible cards rendering (two requests per card); the 400 is the known sandbox fixture-image gap (CFT-106), not an F result |
+| 05:49:27.552–.558 | six more of the same | consistent with the cards unmounting on "No matches" and remounting when the three returned; the logs do not show which step |
+
+- **Absent, as expected:** `HEAD listings` (no Profile focus), `get_my_tickets`, `listings?auction_status=eq.ended`
+  and `listings?status=eq.sold` (Ended/Sold were not applied), any `POST`/`PATCH`/`DELETE` on a REST table, any
+  edge-function call. Filtering is client-side (`home.tsx:298-337`), so the sheet steps produce no requests.
+- **Database, 05:51:18Z and 06:06:30Z, identical:** listings 49 (max `updated_at` 2026-09-11 03:55:44), payments
+  51 (max `created_at` 2026-09-11 03:53:31), transfers 33 (max `created_at` 2026-09-11 01:19:01), bids 0,
+  push_tokens 1, `kernel.tickets` 0, reserved 0, pending payments 3, feed visible 3, sold 33, ended 13, buyer
+  `identity_ext.deletion_state` ACTIVE. Checksums at 06:06:30Z (md5 over `id||status[||reserved_by||reserved_until]`,
+  ordered by id): listings `85788bf1…`, payments `862f47f2…`, transfers `6c12538e…`. Nothing was written.
+- **Not covered by F:** ticket type, category, area, the Ended and Sold datasets, Your scene, the Min bound,
+  the single-select behaviour of the six group chips, and filter persistence across navigation.
+- **Latent (recorded under T):** the price filter compares `current_bid`, while a Buy Now card shows
+  `buy_now_price` (`home.tsx:333-334`). All three visible listings carry 100 for both.
+
+### Build 16 consolidated QA verdict (2026-09-14)
+
+Build 16 = EAS `66be8872-163a-43c6-99ed-71de752f5f16`, iOS build 16, preview profile per the build-time record,
+source **`df9e0d3`** (pinned, unchanged). Sandbox `ofaidukbieeekqaboscm` throughout; production read only where
+separately authorized. The owner's standing rulings are applied as given: **D9c stays UNTESTED and closed to
+further manual attempts; D10/D11 stay server-side PASS with the exact handset confirmation wording not captured.**
+This verdict is a record. It authorizes nothing: no migration, deployment, flag, or change to the pinned candidate.
+
+**1. Verified passes**
+
+| Case | Listing / account | Build | Result | Corroboration |
+|---|---|---|---|---|
+| D5 3-D Secure automatic return | Device D3 | 16 | PASS | single-payment invariant confirmed server-side (§16); a second 3DS completion on Device D2 (§17) |
+| D6 3-D Secure cancellation | Device D6 | 16 | PASS | no charge; the inline "hold released" line after closing the sheet was not observed (§17) |
+| D6b failed authentication | Device D6 | 16 | PASS | no charge, listing still buyable (§17) |
+| D7 order and listing state, View transfer | Device D3 | 16 after sandbox 123 | PASS, closed | View transfer opened on unchanged Build 16 after sandbox migration 123, a proven no-op in production; the original failure was sandbox schema drift, not an app defect (§18–§20) |
+| D8 force-quit after payment | Device D1 | 16 | PASS, closed | settlement written by `stripe-webhook` (§22); force-quit timing is owner-reported, not proven |
+| D9a offline before confirm | Phone P1 | 16 | PASS | no charge, no intent confirmed; hold released by path 3 (§23 Stage 1) |
+| D9b offline before Complete | Device D7 | 16 | PASS on payment safety (owner accepted) | first attempt UNTESTED (missed window); rerun: no authorization, no charge, no false success, no second intent; two deviations recorded — the rerun began before the first attempt's X close was verified, and the challenge page was reloaded; D9-UX-1 found (§23 Stage 2) |
+| D10 deletion request | sandbox buyer `919d511e` | 16 | **server-side PASS** | DELETION_PENDING held by BP-7 through three sweeps, no tombstone, no listing/payment/transfer change (A and C independently). **Handset wording not captured** |
+| D11 withdrawal | same | 16 | **server-side PASS** | ACTIVE restored, stable through two sweeps. **Handset wording not captured** |
+| T Tickets empty state | same | 16 | PASS | three `get_my_tickets` 200 at 05:04:59–05:05:15Z, no writes, 0 tickets |
+| F filter sheet | same | 16 | PASS | this section |
+
+**Passed on earlier builds, not scored on 16:** D1 (sign in, Home loads; build 13), D2 (fee total $110.00 with
+10%, Device D1; build 13, re-checked on 15), D3 (PaymentSheet cancellation, Phone P2), D4 (retry after
+cancellation, Phone P2; settled once). D2 sits here deliberately, per C's record, rather than being reclassified:
+build-16 evidence exists and is cited — "Pay $110" on the D9 sheets, "Paid $110" on Device D3's order in D7, and
+every build-16 checkout's 11 000-cent intent server-side (D5, D6, D8, D9a–c) — but no D2 run was scored on 16.
+Sign-in and Home load were likewise exercised incidentally on every build-16 session (password and refresh
+grants, Home fetches in the logs) without being scored as D1.
+
+**Settled exactly once and never to be retried or modified:** Device D1, D2, D3, D4, D5, D6; Phone P2, P3.
+
+**All planned handset checks are dispositioned.** No planned case remains open: each is PASS, or UNTESTED and
+closed by the owner. C confirms the same from its record (doc 18, matrix closure table).
+
+**2. Untested**
+
+| Item | Why | Status |
+|---|---|---|
+| **D9c** charge succeeding while offline | across three attempts the 3-D Secure authentication never succeeded at Stripe, so the D9c question was never reached (§"D9c reconciliation") | **UNTESTED, closed** — no further manual attempts. Residual risk accepted by the owner; server-side settlement is independent of the handset and was observed live on the settled devices |
+| Populated Tickets state | 0 native tickets, issuance disabled, `__DEV__` fixtures compiled out | untested by construction |
+| Build-13 legacy blob migration on hardware | build 14's deletion cleared storage (§13) | open known gap; owner decision |
+| `notify-transfer` change | not deployed to the sandbox | pending evidence |
+| Edge auth parity (`verify_jwt`) | sandbox runs `false` | pending evidence; needs production parity |
+| Push routing on a real device | `notify-transfer` absent in sandbox; and see F7 | pending evidence |
+| Transfer UI V2 visual acceptance | needs a device or simulator render (C's held-aside branch) | not met; owner decision on access |
+| F not-covered list | above | not planned |
+
+**3. Open defects — none financial, none fixed in Build 16's pin**
+
+| Id | Defect | Where | Fix status |
+|---|---|---|---|
+| D9-UX-1 | checkout conflates "hold released" with "reservation expired" and offers a dead "Try again" | `setupDecision.ts:87`, `CheckoutNative.tsx:228`, `:517` | fix direction agreed (CFT-301); not started |
+| F1 | checkout selects a column that exists in no environment; summary/countdown never load | `CheckoutNative.tsx:138` | C's `2ba5281` approved, unapplied |
+| F3 | three blocker kinds unmapped in `OBLIGATION_LABELS` | `app/settings/index.tsx` | not started |
+| F7 (C's record: A-08 / CFT-611) | device push token bound to another account; privacy copy claims sign-out revocation that does not exist | `usePushToken.ts:69-85`, `privacy.tsx`, five `signOut` sites | frontend revoke unheld (CFT-611); copy and server rebind held for the owner |
+| Image fallback | a failing image URL shows no designed fallback (sandbox render 400s reproduce it) | `EventMedia.tsx`, `SellerListingCard.tsx` | CFT-106, not started |
+| A-02 | price-change 409 is unrecoverable: retry resends the stale total | `CheckoutNative.tsx:87`, `:213`, `payments.ts:37-53` | contract issued; verified in source, not exercised by the matrix |
+| A-03 | a refunded payment renders the "You're in." success screen | `setupDecision.ts:52`, `CheckoutNative.tsx:218-221` | contract issued; verified in source, not exercised |
+| A-04 | Pay stays live after the hold countdown reaches zero | `payControl.ts`, `CheckoutNative.tsx:507-520` | contract issued; verified in source, not exercised |
+| A-01 copy | seller copy says "per ticket" while the server prices the whole listing | `CreateListingScreen.tsx:807`, `:846` | held for the owner's ruling |
+
+**4. Latent server gaps and risks — owner decisions on severity**
+
+| Id | Gap | Status |
+|---|---|---|
+| L1 | the webhook's claim predicate also matches `failed` rows, so a cancel of the hold owner's own PaymentIntent releases the live hold (deterministic; in `df9e0d3` only the amount-mismatch branch triggers it) | not observed; owner decision |
+| L2 | `release_reservation` has no succeeded-payment guard: leaving the listing screen after a payment succeeded, before the listing reads `sold`, could release a paid order's hold (recorded in this package under "D9 Stage 1 readiness"; now also in C's record). C's precision, verified at `df9e0d3`: `reservationExit.ts` never releases after a purchase the screen knows completed (its purchased gate), so the residual window is a client that does not yet know — a force-quit before the result, or a second session. No matrix case reached it | not observed; owner decision |
+| L3 | same-sheet retry after `payment_failed` runs without a hold; a conflict ends as `unfulfillable` and is refunded | observed once (D9b); owner decision |
+| L4 | nothing cancels a PaymentIntent when its hold expires; charge-then-refund possible, no double sale | new (2026-09-14); a server-side cancel at expiry needs owner authorization |
+| F2 | `bids_bidder_id_fkey` chain drift (production correct) | 124 + pgTAP 192 written and rehearsed (P1–P6); applied nowhere; sandbox apply awaits authorization |
+| F5 | cron success ≠ tick ran; 7 × 401 in production unattributed | monitoring blind spot; owner's call |
+| F6 | stale `account_deletion_pending` notification stored in `notify.notification`, not displayed | future integration risk (owner's final wording) |
+| Public `auction-media` evidence | 27 legacy objects publicly readable | unresolved release risk (§8); separate change |
+
+**5. Remaining release blockers** (unchanged in kind from §8; statuses current)
+
+1. Apply/deploy authorization for §3 — none given.
+2. `AUTODEPLOY-VERIFIED-OFF` on the merging PR, with `git_branch` empty at merge time.
+3. Deletion amendment PFA-32 signature.
+4. Stripe `payment_intent.canceled` webhook subscription.
+5. Legacy orphan reconciliation and the payout-cron pause inside the deploy window.
+6. Public `auction-media` evidence exposure — owner decision on scope.
+7. Ops-console partial-refund exactness — a server-only migration, implementation after the owner's decision.
+    Formerly named `121_ops_console_refund_exactness` (§8); migration number `121` now belongs to B's PR #58 per
+    the registry, so this takes the next free number when written. Not the pgTAP suite `121_settlement.sql`.
+8. Twilio Account SID rotation.
+9. Evidence gaps: `notify-transfer`, `verify_jwt` parity, push routing on a device.
+10. Merge order **121 → 123 → 124** is sequencing approval only. The scanning fix is reassigned **122 → 125**; the
+    re-issue of "AUTHORIZE PFA-18C MIGRATION 122" for 125, and the note on the third B document, await the
+    owner's word.
+11. C's held-aside branches (`5569385` transfer copy split; legacy transfer screens on V2) stay out of the pin.
+
+Not blockers, but owner decisions that shape the next build: severity of D9-UX-1, L1–L4, F3, F5, F7; whether
+the build-13 blob-migration gap is accepted; whether 124 is applied to the sandbox.
+
+**6. Premium Experience — owner decisions, listed separately from the release**
+
+None of these is approved by the test report, and the first batch has no go.
+
+1. **A-01 quantity meaning** — per ticket or whole listing; gates CFT-303 and CFT-609. A recommends whole-listing
+   (what the server already does) plus the two seller-copy fixes.
+2. **A-03 refunded-state wording** — the copy a buyer sees for a refunded purchase.
+3. **A-08(a) privacy copy** — correct the sign-out sentence now, or wait for the revoke fix.
+4. **A-08(d) push-token rebind** — authorize A to prepare a narrow public wrapper for
+   `notify.register_push_token` (a numbered migration; applied nowhere without separate authorization).
+5. **L4** — whether to authorize a server-side PaymentIntent cancel at hold expiry (a transaction change).
+6. **A-14** — `auto_release_at` in the buyer transfer query (already pending; gates CFT-401).
+7. **Device or simulator access** for visual acceptance (Transfer UI V2, CFT-705).
+8. **Go / no-go for the first batch** (`frontend/premium-batch-1` cut from `df9e0d3` plus the approved F1 commit).
+9. Optional read-only authorizations: production `push_tokens` exposure (F7) and production listings with
+   quantity > 1 (A-01).
