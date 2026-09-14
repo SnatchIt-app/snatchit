@@ -5,18 +5,20 @@
  * transfer. Shown on the receive screen when delivery info is missing.
  *
  * Phase A — migration 011
+ *
+ * PREMIUM BATCH 2 (CFT-201/203). The submit is the shared Button, so it carries
+ * the product's press response and reads "Saving…" while the RPC is in flight.
  */
 
 import { useState } from 'react';
 import {
-  ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 
+import { Button } from '@/src/components/ui';
 import { colors, fontSize, radius, spacing } from '@/src/theme';
 import type { TransferMethod } from '@/src/types';
 import {
@@ -124,20 +126,15 @@ export default function DeliveryInfoForm({
         </>
       )}
 
-      <Pressable
-        style={[s.submitBtn, (!canSubmit || loading) && s.submitBtnDisabled]}
+      <Button
+        label="Save delivery info"
+        pendingLabel="Saving…"
         onPress={handleSubmit}
-        disabled={!canSubmit || loading}
-        accessibilityRole="button"
+        loading={loading}
+        disabled={!canSubmit}
+        block
         accessibilityLabel="Save delivery info"
-        accessibilityState={{ disabled: !canSubmit || loading, busy: loading }}
-      >
-        {loading ? (
-          <ActivityIndicator color={colors.text} size="small" />
-        ) : (
-          <Text style={s.submitBtnText}>Save Delivery Info</Text>
-        )}
-      </Pressable>
+      />
     </View>
   );
 }
@@ -185,19 +182,5 @@ const s = StyleSheet.create({
     fontSize: fontSize.xs,
     marginTop: -spacing.sm,
     marginBottom: spacing.md,
-  },
-  submitBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  submitBtnDisabled: {
-    opacity: 0.5,
-  },
-  submitBtnText: {
-    color: colors.text,
-    fontSize: fontSize.md,
-    fontWeight: '700',
   },
 });

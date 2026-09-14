@@ -8,6 +8,12 @@
  * (`buyer_dispute_transfer`). Countdown + status vocabulary come from
  * src/lib/transfer/transferState.ts. The proof viewer and platform instructions
  * are untouched. Ownership is never implied before authoritative confirmation.
+ *
+ * PREMIUM BATCH 2 (CFT-203/205). Confirm and Report are separate pending
+ * states with visible labels ("Confirming receipt…", "Reporting…"), each held
+ * by a single-flight lock so a double tap cannot invoke confirm-and-release
+ * twice; the success haptic fires only after the edge function returned
+ * success, paired with the "Transfer complete" state block.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -17,6 +23,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
 import { ProofImageViewer } from '@/src/components/ProofImageViewer';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
@@ -50,8 +58,13 @@ export default function TransferReceiveScreen() {
   const [transfer, setTransfer] = useState<TransferData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [disputing, setDisputing] = useState(false);
   const [savingDelivery, setSavingDelivery] = useState(false);
+  // One money-moving call at a time (CFT-205): confirm and dispute share the
+  // lock, so neither can start while the other is in flight.
+  const flight = useSingleFlight();
+  const busy = confirming || disputing;
   const [countdown, setCountdown] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -124,12 +137,18 @@ export default function TransferReceiveScreen() {
     fetchTransfer();
   }
 
-  async function handleConfirm() {
+  function handleConfirm() {
     if (!id) return;
-    setSubmitting(true);
+    flight.run(confirmReceipt).catch(() => {
+      setConfirming(false);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    });
+  }
+
+  async function confirmReceipt() {
+    setConfirming(true);
     try {
       const { data, error: fnError } = await supabase.functions.invoke('confirm-and-release', { body: { transfer_id: id } });
-      setSubmitting(false);
       if (fnError) {
         let message = 'Something went wrong. Please try again.';
         try {
@@ -145,11 +164,15 @@ export default function TransferReceiveScreen() {
         Alert.alert('Error', message);
         return;
       }
+      // Authoritative: the edge function recorded the confirmation. Only now the
+      // distinctive success haptic (CFT-202), paired with the state block below.
+      hapticSuccess();
       setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed' } : prev));
       Alert.alert('Confirmed', 'Transfer complete. Enjoy the event.');
     } catch {
-      setSubmitting(false);
       Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -162,17 +185,25 @@ export default function TransferReceiveScreen() {
         {
           text: 'Report issue',
           style: 'destructive',
-          onPress: async () => {
-            setSubmitting(true);
-            const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', { p_transfer_id: id });
-            setSubmitting(false);
-            if (rpcErr) {
+          onPress: () => {
+            flight.run(async () => {
+              setDisputing(true);
+              try {
+                const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', { p_transfer_id: id });
+                if (rpcErr) {
+                  Alert.alert("Couldn't submit dispute", 'Please try again in a moment. If the problem persists, contact support.');
+                  console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
+                  return;
+                }
+                setTransfer((prev) => (prev ? { ...prev, status: 'disputed' } : prev));
+                Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
+              } finally {
+                setDisputing(false);
+              }
+            }).catch(() => {
+              setDisputing(false);
               Alert.alert("Couldn't submit dispute", 'Please try again in a moment. If the problem persists, contact support.');
-              console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
-              return;
-            }
-            setTransfer((prev) => (prev ? { ...prev, status: 'disputed' } : prev));
-            Alert.alert('Reported', 'The transfer has been flagged. Support will review.');
+            });
           },
         },
       ],
@@ -280,8 +311,25 @@ export default function TransferReceiveScreen() {
               </Text>
             </View>
 
-            <Button label="I got my tickets" onPress={handleConfirm} loading={submitting} disabled={submitting} block style={s.cta} />
-            <Button label="I haven't received them" variant="destructive" onPress={handleDispute} disabled={submitting} block style={s.disputeCta} />
+            <Button
+              label="I got my tickets"
+              pendingLabel="Confirming receipt…"
+              onPress={handleConfirm}
+              loading={confirming}
+              disabled={busy}
+              block
+              style={s.cta}
+            />
+            <Button
+              label="I haven't received them"
+              pendingLabel="Reporting…"
+              variant="destructive"
+              onPress={handleDispute}
+              loading={disputing}
+              disabled={busy}
+              block
+              style={s.disputeCta}
+            />
           </>
         ) : null}
 

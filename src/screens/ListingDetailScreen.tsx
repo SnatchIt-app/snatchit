@@ -49,6 +49,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
@@ -713,7 +714,14 @@ export default function ListingDetailScreen({ id }: Props) {
   }
 
   // ── Buy Now ────────────────────────────────────────────────────────────────
+  // One reservation call at a time (CFT-205): a second tap that lands before
+  // the re-render disables the button is dropped by the lock, not by state.
+  const buyFlight = useSingleFlight();
   async function handleBuyNow() {
+    await buyFlight.run(reserveAndCheckout).catch(() => setReserving(false));
+  }
+
+  async function reserveAndCheckout() {
     if (!listing) return;
     if (!user?.id) { Alert.alert('Sign in required', 'Please log in to buy tickets.'); return; }
     if (listing.seller_id === user.id) {
@@ -1249,6 +1257,9 @@ export default function ListingDetailScreen({ id }: Props) {
         ) : null}
         <Button
           label={state.primary.label}
+          // Visible while the reserve call is in flight (CFT-203); Buy Now is the
+          // only primary that sets `reserving`.
+          pendingLabel="Reserving…"
           variant="primary"
           size="md"
           disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
