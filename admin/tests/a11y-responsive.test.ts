@@ -20,3 +20,12 @@ describe("System settings controls have their own ids (UI audit: 3 unnamed combo
     expect(s).toContain('id={`setting-${s.key}`}');
   });
 });
+
+describe("timestamps may wrap between the UTC stamp and the relative hint (UI audit: 33 px overflow at 768)", () => {
+  it("DateTime keeps each part unbroken but not the pair", () => {
+    const s = readFileSync(resolve(__dirname, "../src/components/ui/DateTime.tsx"), "utf8");
+    const dateTime = s.slice(s.indexOf("export function DateTime"), s.indexOf("export function TimeAgo"));
+    expect(dateTime).not.toContain('className="whitespace-nowrap tabular-nums"');
+    expect(dateTime.match(/whitespace-nowrap/g)?.length).toBe(2);
+  });
+});
