@@ -24,6 +24,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { useIsOnboarding } from '@/src/lib/auth/onboardingGate';
 import { authPhase, rootRouteDecision, type AuthPhase } from '@/src/lib/auth/rootRoute';
 import { supabase } from '@/src/lib/supabase';
@@ -114,13 +115,16 @@ function RootLayout() {
     router.replace(decision.to);
   }, [session, loading, isRecovery, onboarding]);
 
+  // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
+  const reduceMotion = useReducedMotion();
+
   return (
     <ErrorBoundary>
     <AppShell>
     <SafeAreaProvider>
     <ThemeProvider value={DarkTheme}>
       {fontsReady ? (
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="listing/[id]" />

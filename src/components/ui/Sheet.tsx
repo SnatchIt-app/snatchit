@@ -32,6 +32,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -61,14 +62,17 @@ export interface SheetProps {
 export function Sheet({ visible, onClose, title, children, footer, style, testID }: SheetProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
 
   return (
     <Modal
       visible={visible}
       transparent
-      // `slide` is the platform's own sheet motion; it already honours the OS
-      // reduce-motion setting, which a hand-rolled translate would not.
-      animationType="slide"
+      // `slide` is the platform's own sheet motion. Under Reduce Motion the
+      // sheet still appears and disappears — as a cross-fade, the simpler
+      // transition the setting asks for (CFT-206). The platform does not swap
+      // this on its own: a Modal's slide is not a stack transition.
+      animationType={reduceMotion ? 'fade' : 'slide'}
       // Android hardware back. Without this a sheet is a trap on Android.
       onRequestClose={onClose}
       statusBarTranslucent
