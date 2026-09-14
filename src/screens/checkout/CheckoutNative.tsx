@@ -715,6 +715,7 @@ export default function CheckoutScreen() {
           whenLabel={whenLabel}
           isBuyNow={isBuyNow}
           transferId={postPurchaseTransferId}
+          purchaseKey={listingId}
         />
       </View>
     );
@@ -956,22 +957,35 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+// One celebration per purchase for the life of the process (A's review nit on
+// 4b705c4): a settled checkout that remounts — a 3-D Secure return landing
+// back on it — must not buzz a second time. A component ref would not survive
+// the remount; this latch does.
+const celebratedPurchases = new Set<string>();
+
 // The post-charge screen, in all three of its faces. `completed` is the only
 // one allowed to claim the purchase is done; `pending` and `failed` take their
 // words from SETTLEMENT_COPY so this screen and the alert cannot diverge.
 function ConfirmationView({
-  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId,
+  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId, purchaseKey,
 }: {
   outcome: SettlementOutcome;
   cover: string | null; eventName: string; venue: string; whenLabel: string;
   isBuyNow: boolean; transferId: string | null;
+  /** Identifies the purchase (the listing) so the success haptic fires once. */
+  purchaseKey: string;
 }) {
   const insets = useSafeAreaInsets();
   const copy = SETTLEMENT_COPY[outcome];
   const completed = outcome === 'completed';
   // The one distinctive haptic (CFT-202), only for the face that is allowed to
-  // claim the purchase is done; its visible equivalent is the kicker below.
-  useEffect(() => { if (completed) hapticSuccess(); }, [completed]);
+  // claim the purchase is done, and only once per purchase; its visible
+  // equivalent is the kicker below.
+  useEffect(() => {
+    if (!completed || celebratedPurchases.has(purchaseKey)) return;
+    celebratedPurchases.add(purchaseKey);
+    hapticSuccess();
+  }, [completed, purchaseKey]);
   // Only a recorded sale has a transfer to hand off.
   const showTransfer = completed && !!transferId;
   return (
