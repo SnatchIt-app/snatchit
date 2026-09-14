@@ -2825,3 +2825,22 @@ rather than a finding; D's kit did not cover it, so D added case **C6** and ran 
 
 Worth recording as method: "denied entry" and "no data readable" are different guarantees. The kit now proves
 both separately, and only the second was ever true here.
+
+**Addendum 2 (2026-09-14): the unapproved-venue availability edge is proven, not assumed.** A flagged that F4
+makes entry depend on reading the venues row, so a manager at a **pending** venue would rest solely on the
+own-staff policy. D asserted it rather than leaving it unexercised — kit case **C7**
+(`venue/slice1-acceptance-kit @ 492d641`): a pending Venue C in Org A (`approval_status 'pending'`), with Venue
+A's manager also granted `venue_manager` there.
+
+- **API:** the manager reads the C row via the own-staff policy; Org A's owner reads it via the org plane;
+  finance B and the outsider cannot. So the row carries without the approved-venue policy, and closing the entry
+  hole did not open a different one.
+- **Browser:** the manager enters `/o/A/v/C` as Venue manager, Org A's owner as Org owner, the outsider denied.
+- **Revocation** now also asserts that removing the A grant leaves the pending-C grant untouched.
+- Local on fixes `@ 2665a20` (integration `d2c634a`): **135/135**. **No over-denial.**
+
+A verified that `venue/read-slice1-fixes` is still at `2665a20` — the approved commit — and that `492d641`
+touches only the runbook, the acceptance runner and the SQL fixtures, with **no `venue/src` change**, so this is
+added coverage rather than a change under an existing approval.
+
+Venue track outstanding: sandbox confirmation of C6 and C7 in the window. Nothing else.
