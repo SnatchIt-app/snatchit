@@ -2715,3 +2715,36 @@ returns `open:false` (the 086 drift).
 2. **Defensive-only:** if `get_door_manifest` ever returned `open:true` with a null `manifest_id`, the bind would
    null the device's `manifest_id`; the contract makes that impossible, so it is not a defect — an added
    `and (v_res ? 'manifest_id')` guard would make it structurally impossible. Not held for this PR.
+
+### F8 — a partially refunded payment renders as a plain purchase success (2026-09-14, A)
+
+Found while reviewing C's Premium batch 1 against the server's own refund writer. **Present in Build 16 and not
+closed by A-03**, which addressed only the fully-refunded case.
+
+**The server's rule.** `public.record_payment_refund` (migration `20260906120000` `:515-522`) is the single writer
+of refund facts and sets them in one UPDATE under one predicate:
+
+```
+amount_refunded_cents = v_new_total
+status      = CASE WHEN v_new_total >= total THEN 'refunded' ELSE status END
+refunded_at = CASE WHEN v_new_total >= total THEN coalesce(refunded_at, now()) ELSE refunded_at END
+```
+
+- `status = 'refunded'` therefore **already implies** `refunded_at` set and `amount_refunded_cents >= total`. The
+  monotonicity trigger (`:419-427`) forbids unsetting `refunded_at` or decreasing the amount. A client rule of
+  "dated AND covers the total" is correct, and a "refunded-but-not-confirmed" state is unreachable through this
+  writer.
+- **A partial refund leaves `status = 'succeeded'`** with `amount_refunded_cents > 0` and no `refunded_at`. The
+  checkout route classifies that row as `already_settled` and shows the purchase-success screen, with nothing
+  indicating that money was returned.
+
+**Sandbox corroboration (read-only, 2026-09-14):** 12 `refunded` rows, all 12 dated and full, 0 dated-but-partial;
+21 `succeeded` rows, none carrying refund facts. So the full-refund path is clean and the partial path is simply
+not exercised there.
+
+**Exposure is low today** — ops-console refunds are disabled — which is why it is recorded rather than treated as
+a merge blocker. **Detection is nearly free:** the checkout settled-payment read already selects
+`amount_refunded_cents` and `total`, so a `succeeded` row with `amount_refunded_cents > 0` is partially refunded.
+
+**Owner decision:** whether this is handled inside Premium batch 1 or scheduled separately, and what a partially
+refunded order should say.
