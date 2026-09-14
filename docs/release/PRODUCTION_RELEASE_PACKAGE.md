@@ -2748,3 +2748,29 @@ a merge blocker. **Detection is nearly free:** the checkout settled-payment read
 
 **Owner decision:** whether this is handled inside Premium batch 1 or scheduled separately, and what a partially
 refunded order should say.
+
+### Simulator previews are blocked on this machine — cause established (2026-09-14)
+
+Recorded so the investigation is not repeated. This is the concrete cause behind "Transfer UI V2 visual
+acceptance / device or simulator render" in the Build 16 verdict's untested list.
+
+| Fact | Value |
+|---|---|
+| Installed simulator runtime | **iOS 26.2 only** (23C54), 11 devices, iPhone 17 Pro booted |
+| Installed simulator SDK | **iphonesimulator26.5 only** |
+| Project deployment target | **15.1** (`ios/Podfile:19`, `project.pbxproj` ×4) — far below 26.2, so NOT the constraint |
+| `xcodebuild -showdestinations` | **no simulator entries at all**; device entries ineligible with "iOS 26.5 is not installed" |
+| Explicit destination by device id, simulator booted | same "Unable to find a destination matching the provided destination specifier" |
+| Free disk | **~2.4 GB** (platform download needs ~9 GB, ~20 GB free) |
+
+Xcode 26.6 will not pair its 26.5 SDK with the installed 26.2 runtime for this scheme. It is not a destination
+specifier problem and not a deployment-target problem, so no free local workaround exists. Nothing was
+downloaded and Xcode was not modified.
+
+**Options (owner's):** free ~20 GB and install the 26.5 platform; a hosted EAS sandbox-profile build at a window,
+which needs explicit authorization and produces an artifact that is **not** Build 16; or static previews / defer.
+
+**Release integration's recommendation: defer.** Visual preview is not a gate on batch 1's correctness — the
+payment surface is covered by unit tests, source contracts and a line-level review — and the held-checkout
+previews need the shared-sandbox window regardless. The efficient moment to get previews is the next build that
+is authorized for another reason, when they ride along at no extra cost.
