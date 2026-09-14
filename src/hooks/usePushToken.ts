@@ -11,9 +11,12 @@
  *
  * Lifecycle: registers on sign-in and on every account change (a rebind, by
  * design); refreshes daily; retries with backoff on the next foreground after
- * a transient failure; stops on the one terminal failure (the token is bound
- * to another account) until the account, the token or the method changes.
- * Sign-out is elsewhere (signOutEverywhere) and unchanged.
+ * a transient failure; stops on the terminal failures (the token is bound to
+ * another account; a deterministic precondition refusal) until the account,
+ * the token or the method changes. A lost device secret is recovered by
+ * deleting the row this device owns and registering afresh, under the gates in
+ * registerToken.ts. Sign-out is elsewhere (signOutEverywhere) and unchanged.
+ * The 128 contract is not frozen (A, f7b31ad); a further delta is expected.
  *
  * - Skips silently on simulators / emulators (push tokens require real devices)
  * - Never throws — all errors are caught, classified and recorded
@@ -35,7 +38,7 @@ import {
   type RegistrationMethod,
   type RegistrationRecord,
 } from '@/src/lib/push/registration';
-import { registerLegacy, registerWithRpc, supabaseRegisterDeps, type PushPlatform } from '@/src/lib/push/registerToken';
+import { registerLegacy, registerRpcWithRecovery, supabaseRegisterDeps, type PushPlatform } from '@/src/lib/push/registerToken';
 import { loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
 import { publishRegistrationStatus } from '@/src/lib/push/registrationStatus';
 
@@ -120,7 +123,11 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         const platform = Platform.OS as PushPlatform;
         const now = Date.now();
         let method: RegistrationMethod = decision.method;
-        let result = method === 'rpc' ? await tryRpc(token, platform) : await tryLegacy(uid, token, platform, now);
+        const previouslyRpcForThisBinding =
+          state.record?.method === 'rpc' && state.record.token === token && state.record.userId === uid;
+        let result = method === 'rpc'
+          ? await tryRpc(token, platform, previouslyRpcForThisBinding)
+          : await tryLegacy(uid, token, platform, now);
 
         // The one fallback: 128 is not deployed here. Insert-only legacy path.
         if (!result.ok && result.kind === 'rpc_missing') {
@@ -152,11 +159,17 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       }
     }
 
-    async function tryRpc(token: string, platform: PushPlatform) {
+    async function tryRpc(token: string, platform: PushPlatform, previouslyRpcForThisBinding: boolean) {
       const secret = await getOrCreateDeviceSecret(secureSecretStore, deviceRandomBytes);
       if (!secret.ok) return { ok: false as const, kind: 'secret_unavailable' as const };
       const deviceName = Device.deviceName ?? Device.modelName ?? null;
-      return registerWithRpc(supabaseRegisterDeps, { token, platform, secret: secret.secret, deviceName });
+      // `secret.created` is the ONLY signal of a lost secret: the server's
+      // reply cannot reveal a mismatch. Recovery runs only under the gates.
+      return registerRpcWithRecovery(
+        supabaseRegisterDeps,
+        { token, platform, secret: secret.secret, deviceName },
+        { freshSecret: secret.created, previouslyRpcForThisBinding },
+      );
     }
 
     function tryLegacy(uid: string, token: string, platform: PushPlatform, now: number) {

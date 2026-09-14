@@ -2,14 +2,24 @@
  * src/lib/push/deviceSecret.ts — the device secret that proves "same device"
  * to push-token registration (migration 128 client half, A-08d).
  *
- * CONTRACT (A, 2026-09-14). 16–512 characters, any text encoding; the server
- * stores only its SHA-256. It is PER DEVICE, not per account: it MUST survive
- * sign-out and account switching, because proving the same physical device
- * across an account change is its entire purpose. Rotation is never required
- * and the client never rotates on purpose: if the Keychain loses the value, a
- * fresh one is generated here and the owner's next registration replaces the
- * server's hash (the owner may always rotate). Nothing clears it: account
- * deletion keeps it so the next account on this device can still rebind.
+ * CONTRACT (A, 2026-09-14, 128 @f7b31ad — NOT FROZEN, a second delta is
+ * expected). 16–512 characters, any text encoding; the server stores only its
+ * SHA-256. It is PER DEVICE, not per account: it MUST survive sign-out and
+ * account switching, because proving the same physical device across an
+ * account change is its entire purpose.
+ *
+ * THE STORED HASH IS NEVER REPLACED. An earlier revision let the owner's
+ * registration overwrite it; A's adversarial review found that a HIGH-severity
+ * regression (momentary session access could plant a secret and capture the
+ * device permanently) and it was reverted. Consequences for this client:
+ *  - a registration with a mismatched secret still returns `refreshed`, so
+ *    the reply can never reveal a mismatch; only the missing-secret signal can;
+ *  - if the Keychain loses the value, a fresh one is generated HERE and the
+ *    hook runs the recovery in registerToken.ts — delete the row this device
+ *    owns (RLS DELETE), then register — gated so it can never run
+ *    speculatively. The client never "rotates".
+ * Nothing clears it: account deletion keeps it so the next account on this
+ * device can still rebind.
  *
  * NEVER LOGGED, never sent anywhere but the registration RPC, never derived
  * from anything guessable, never a constant. Generated from the device CSPRNG
