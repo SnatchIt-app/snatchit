@@ -67,7 +67,7 @@ describe("database mode offers no write control", () => {
   });
   it("shell shows grant-derived capabilities and no role switch in database mode", () => {
     const out = html(
-      <Shell ctx={{ role: "venue_finance", state: "live", source: "database", countersAvailable: false, writesEnabled: false }} event={null} active="events" signedInAs="fin@example.test">
+      <Shell ctx={{ role: "venue_finance", state: "live", source: "database", countersAvailable: false, writesEnabled: false, verifiedRole: true, scope: { orgId: OA, venueId: VA } }} event={null} active="events" signedInAs="fin@example.test">
         <p>x</p>
       </Shell>,
     );

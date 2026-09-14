@@ -13,16 +13,19 @@ export type NavEvent = { eventId: string; title: string } | null;
  * The "Preview data" strip is sticky and not dismissible on any breakpoint.
  */
 export function Shell({ ctx, event, active, children, signedInAs }: { ctx: PreviewContext; event: NavEvent; active: "events" | "setup" | "inventory" | "attendees" | "door"; children: ReactNode; signedInAs?: string | null }) {
-  const base = `/o/${ORG.orgId}/v/${VENUE.venueId}`;
-  const evBase = event ? `${base}/events/${event.eventId}` : null;
+  const dbMode = ctx.source === "database";
+  // Database mode links to the route's own scope and offers navigation only once a role was verified.
+  const base = dbMode ? (ctx.scope ? `/o/${ctx.scope.orgId}/v/${ctx.scope.venueId}` : null) : `/o/${ORG.orgId}/v/${VENUE.venueId}`;
+  const navAllowed = !dbMode || (ctx.verifiedRole === true && base !== null);
+  const evBase = event && base ? `${base}/events/${event.eventId}` : null;
   const items: { key: typeof active; label: string; short: string; href: string; show: boolean }[] = [
-    { key: "events", label: "Events", short: "EV", href: withPreview(`${base}/events`, ctx), show: canReadEvents(ctx.role) },
+    { key: "events", label: "Events", short: "EV", href: base ? withPreview(`${base}/events`, ctx) : "", show: !!base && canReadEvents(ctx.role) },
     { key: "setup", label: "Event setup", short: "SET", href: evBase ? withPreview(evBase, ctx) : "", show: !!evBase && canReadEvents(ctx.role) },
     { key: "inventory", label: "Inventory", short: "INV", href: evBase ? withPreview(`${evBase}/inventory`, ctx) : "", show: !!evBase && canReadTicketTypes(ctx.role) },
     { key: "attendees", label: "Attendees", short: "ATT", href: evBase ? withPreview(`${evBase}/attendees`, ctx) : "", show: !!evBase && (rosterClasses(ctx.role) !== null || canManualLookup(ctx.role)) },
     { key: "door", label: "Door", short: "DR", href: evBase ? withPreview(`${evBase}/door`, ctx) : "", show: !!evBase && canReadDoor(ctx.role) },
   ];
-  const visible = items.filter((i) => i.show);
+  const visible = navAllowed ? items.filter((i) => i.show) : [];
 
   return (
     <div className="min-h-dvh">
@@ -78,7 +81,13 @@ function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
         <span>◆ {label}</span>
         {dbMode ? (
           <span className="text-[11px] normal-case tracking-normal">
-            Capabilities come from your grants: <strong>{PRINCIPAL_LABEL[ctx.role]}</strong>. Write actions are not available in this mode.
+            {ctx.verifiedRole ? (
+              <>
+                Capabilities come from your grants: <strong>{PRINCIPAL_LABEL[ctx.role]}</strong>. Write actions are not available in this mode.
+              </>
+            ) : (
+              <>No verified role at this venue. Write actions are not available in this mode.</>
+            )}
           </span>
         ) : (
           <PreviewControls ctx={ctx} />
@@ -126,21 +135,7 @@ function ContextBar({ ctx, signedInAs }: { ctx: PreviewContext; signedInAs?: str
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
         <span className="font-bold tracking-widest">SNATCH IT</span>
         <span className="eyebrow text-dim">Venue dashboard</span>
-        <label className="ml-auto flex items-center gap-1 text-xs text-muted">
-          Organization
-          <select className="field !w-auto !py-0.5 text-xs" defaultValue={ORG.orgId} aria-label="Organization">
-            <option value={ORG.orgId}>{ORG.displayName}</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1 text-xs text-muted">
-          Venue
-          <select className="field !w-auto !py-0.5 text-xs" defaultValue={VENUE.venueId} aria-label="Venue">
-            <option value={VENUE.venueId}>{VENUE.name}</option>
-          </select>
-        </label>
-        <span className="text-xs text-dim">
-          {PRINCIPAL_LABEL[ctx.role]} · {VENUE.timeZone}
-        </span>
+        {ctx.source === "database" ? <DatabaseScope ctx={ctx} /> : <FixtureSwitchers ctx={ctx} />}
         {ctx.source === "database" ? (
           signedInAs ? (
             <form method="post" action="/logout" className="flex items-center gap-2 text-xs">
@@ -157,6 +152,51 @@ function ContextBar({ ctx, signedInAs }: { ctx: PreviewContext; signedInAs?: str
         ) : null}
       </div>
     </header>
+  );
+}
+
+/** Fixture mode: the sample organization and venue switchers. */
+function FixtureSwitchers({ ctx }: { ctx: PreviewContext }) {
+  return (
+    <>
+      <label className="ml-auto flex items-center gap-1 text-xs text-muted">
+        Organization
+        <select className="field !w-auto !py-0.5 text-xs" defaultValue={ORG.orgId} aria-label="Organization">
+          <option value={ORG.orgId}>{ORG.displayName}</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-xs text-muted">
+        Venue
+        <select className="field !w-auto !py-0.5 text-xs" defaultValue={VENUE.venueId} aria-label="Venue">
+          <option value={VENUE.venueId}>{VENUE.name}</option>
+        </select>
+      </label>
+      <span className="text-xs text-dim">
+        {PRINCIPAL_LABEL[ctx.role]} · {VENUE.timeZone}
+      </span>
+    </>
+  );
+}
+
+/**
+ * Database mode: no sample names. Organization/venue names are not read in this slice,
+ * so the route's own ids are shown, plus the verified role (or none).
+ */
+function DatabaseScope({ ctx }: { ctx: PreviewContext }) {
+  return (
+    <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+      {ctx.scope ? (
+        <>
+          <span title={ctx.scope.orgId}>
+            Organization <code className="font-mono text-[11px]">{ctx.scope.orgId.slice(0, 8)}</code>
+          </span>
+          <span title={ctx.scope.venueId}>
+            Venue <code className="font-mono text-[11px]">{ctx.scope.venueId.slice(0, 8)}</code>
+          </span>
+        </>
+      ) : null}
+      <span className="text-dim">{ctx.verifiedRole ? PRINCIPAL_LABEL[ctx.role] : "No role"}</span>
+    </span>
   );
 }
 

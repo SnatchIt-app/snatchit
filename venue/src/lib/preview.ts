@@ -25,6 +25,10 @@ export type PreviewContext = {
   countersAvailable?: boolean;
   /** false in database mode: no write path is wired, so no action control is offered. */
   writesEnabled?: boolean;
+  /** Database mode: true only once `role` was derived from the caller's verified grants at this scope (lib/page.ts). */
+  verifiedRole?: boolean;
+  /** Database mode: the route's own org/venue, so navigation never points at the sample fixture ids. */
+  scope?: { orgId: string; venueId: string };
 };
 
 function first(v: string | string[] | undefined): string | undefined {

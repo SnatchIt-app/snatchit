@@ -25,6 +25,15 @@ export function resolveScope(params: PageParams): { ok: true; basePath: string; 
   return { ok: true, basePath: `/o/${params.org}/v/${params.venue}`, venueId: params.venue, orgId: params.org };
 }
 
+/**
+ * An event id from the URL is only valid under its own venue (spec §4.4 rule 5).
+ * RLS already hides other venues' drafts; this keeps a public event of Venue B
+ * from rendering inside Venue A's dashboard. Mismatch = not found (fail closed).
+ */
+export function eventInScope(event: Pick<Event, "venueId">, scope: { venueId: string; orgId?: string }): boolean {
+  return event.venueId.toLowerCase() === scope.venueId.toLowerCase();
+}
+
 export function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
@@ -60,6 +69,7 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
     if (!session.ok) entry = { kind: "failure", failure: { ok: false, kind: session.kind, message: session.message, read: "auth.getClaims" } };
     else if (!session.user) entry = { kind: "failure", failure: { ok: false, kind: "auth", message: "No session", read: "auth.getClaims" } };
     else if (scope.ok) {
+      ctx = { ...ctx, scope: { orgId: scope.orgId, venueId: scope.venueId }, verifiedRole: false };
       const g = await dbMyGrants(scope.venueId, scope.orgId);
       if (!g.ok) entry = { kind: "failure", failure: g };
       else {
@@ -67,10 +77,10 @@ export async function readPage(paramsP: Promise<PageParams>, spP: Promise<Search
         if (!principal) entry = { kind: "denied" };
         else {
           entry = { kind: "ok", grants: g.data };
-          ctx = { ...ctx, role: principal };
+          ctx = { ...ctx, role: principal, verifiedRole: true };
           if (params.event && isUuid(params.event)) {
             const r = await dbGetEvent(params.event);
-            if (r.ok) event = r.data;
+            if (r.ok) event = r.data && eventInScope(r.data, scope) ? r.data : null;
             else eventFailure = r;
           }
         }
