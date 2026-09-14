@@ -2230,3 +2230,36 @@ capped at 24 h. Any longer-horizon question about these needs a retained source 
 **Carried into any provisioning runbook (C's point, adopted):** the schedule is repo-provisioned but its
 authorization is not. A fresh environment that applies the migrations gets the job and then 401s on every tick
 until the vault secret is seeded out of band.
+
+### D10 — deletion request: server side PASS (2026-09-14, sandbox, A and C independently)
+
+**Tap:** 04:26:33.585Z (`deletion_requested_at`). Owner reports the acceptance message appeared and the app
+returned to the login screen; the message text has not yet been given.
+
+| Check | A (04:28:21Z, then 04:32:52Z) | C (04:28:21Z, 04:30:09Z, 04:32:17Z) |
+|---|---|---|
+| Edge | `delete-account` POST 200 at 04:26:33.658Z; log "request_account_deletion for 919d511e…: ok pending_obligations=**9**" | same |
+| `deletion_state` | `DELETION_PENDING`, `requested_at` unchanged | same |
+| Stored reason | "BP-7: an open or disputed live transfer must reach a terminal state first" | same |
+| Sweep runs after request | 04:28:00, 04:30:00, 04:32:00 — all succeeded, **none tombstoned** | same |
+| `account_deletions` | 0 rows | same |
+| BP-7 open/disputed transfers | 21 | 21 (disputed 6 / pending 13 / reversed 4 / seller_sent 2) |
+| Globals | listings 49, payments 51, transfers 33, succeeded 21, pending 3, reserved 0 | same |
+| Row checksums | payments `9dfb922e…`, transfers `e8a6ec07…`, listings `904966ca…` | **reproduced verbatim from A's SQL** at 04:30:09Z and 04:32:17Z |
+
+**Result — server side PASS.** The request was accepted with the predicted 9 obligations, the account entered
+`DELETION_PENDING`, BP-7 held through three sweep ticks with no tombstone, and the checksummed listing, payment
+and transfer rows were unchanged across 04:28:21 → 04:32:52 — a cross-agent proof, since C reproduced A's hashes
+from A's exact SQL. Checksum scope: buyer-side payments (id, status, `paid_at`), buyer-or-seller transfers (id,
+status, `payout_released_at`), all listings (id, status, `updated_at`); not every column.
+
+**Not observed:** the request writes `deletion_block_reason = null`, but the 04:28:00 tick replaced it with BP-7
+before either verifier's first read. Recorded as not observed, not inferred.
+
+**Not a state change:** `identity_ext.updated_at` moved 04:28:00.238 → 04:32:00.211 — the sweep re-stamping the
+same BP-7 reason each pass while the account is pending.
+
+**Open:** the handset half. The acceptance text is still to come from the owner, and it is a prompted
+observation either way, since the owner was told to expect one line.
+
+D11 cleared by both verifiers and issued by C.
