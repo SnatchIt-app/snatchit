@@ -2889,3 +2889,38 @@ authorization. 127's L1 guard already removes the *release* half of the damage.
 **Sandbox ordering consequence, recorded because it is not obvious:** `126`/`127`/`128` must not be applied to
 the shared sandbox before `125` either. The GitHub merge guard is base-branch-relative, but the sandbox ledger
 is not — applying 128 there would put the sandbox tip above 125 and recreate the ordering problem locally.
+
+### Premium batch 2 reviewed; A-17 ruled; A-06 mostly closed; F10 (2026-09-14, A)
+
+**Batch 2 — `frontend/premium-batch-2 @ 3c78382`, seven commits.** Only `4b705c4` touches checkout, and it is
+display only: **APPROVED**. Verified beyond the claim — across the whole batch (`43e3a97..3c78382`) the diff over
+`payControl.ts`, `setupDecision.ts`, `holdState.ts`, `payments.ts` and `signOut.ts` is **empty**. The Pay button
+now shows a label payControl already computed, the success haptic is keyed on the already-approved
+`outcome === 'completed'`, and the rest is styling. Nit, not blocking: the haptic effect re-fires if the screen
+remounts while already completed (a 3-D Secure return onto a settled checkout), so one purchase could buzz twice.
+
+**A-17 — all four confirmation sources approved as implemented.** The load-bearing server claim was checked, not
+accepted: migration `047` raises on `NEW.amount <= v_current_bid`, so the rule is **strictly greater** and a
+successful insert was leading at that instant.
+
+| Confirmation | Source | Ruling |
+|---|---|---|
+| Bid accepted | `bids` insert returned no error | approved — 047 enforces strictly-greater |
+| Position | fresh `listings.current_bid` re-read, judged by the Bids tab's own `bidStatusOf` | approved; one rule, both screens |
+| Receipt | `confirm-and-release` returned success | approved — server-confirmed, not the tap |
+| Purchase | settlement outcome `completed` | approved, unchanged from batch 1 |
+
+Worth preserving: when the re-read is unavailable the client falls back to "Bid placed" — asserting the
+placement the server confirmed while refusing to assert a position it cannot know. That is the A-17 principle
+working, and it should not later be "improved" into a guess.
+
+**A-06 — the duplicate half is CLOSED server-side.** `047` already carries a per-(listing, bidder) cooldown
+(`NOW() - last_bid_at < INTERVAL '3 seconds'`) on top of the strictly-greater rule. Together they reject a
+duplicate of the same amount at any interval: inside 3 s the cooldown catches it, outside 3 s the first bid has
+already raised `current_bid`. The client's single-flight lock is the UX half, not the only guard.
+
+**F10 — the server does not enforce a minimum bid increment (new, latent).** `047` enforces only
+"greater than `current_bid`", so a bid one cent above it is accepted. The client's `MIN_BID_INCREMENT` is
+therefore a convention, not a rule, and anything bypassing the client (a retry, a crafted request) can bid below
+it. Harmless today; if the increment is meant to be a rule it needs a server change and a registry number.
+Owner decision on whether it is a rule or a suggestion.
