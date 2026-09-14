@@ -2774,3 +2774,33 @@ which needs explicit authorization and produces an artifact that is **not** Buil
 payment surface is covered by unit tests, source contracts and a line-level review — and the held-checkout
 previews need the shared-sandbox window regardless. The efficient moment to get previews is the next build that
 is authorized for another reason, when they ride along at no extra cost.
+
+### F9 — the live admin console has no navigation below 768 px (2026-09-14, reported by Claude D)
+
+Found by D while doing the admin white-background work, outside its lane and outside this release's scope.
+Recorded so it is not lost.
+
+- Below 768 px the sidebar is hidden and **no drawer replaces it**, so there is no navigation at all on a phone.
+- The admin/ops console is **LIVE in production** (since 2026-09-08), which makes this a live usability defect
+  rather than a pre-release one. Nothing was changed.
+- **Owner decision:** severity, and whether it is fixed alongside the admin white-background work
+  (`admin/light-theme`, dry-run merge clean, admin/ files only, 109/109 on the merged tree) or separately.
+
+### Venue slice-1: three defects found before hosted acceptance (2026-09-14, D; reviewed by A)
+
+Recorded because one of them was invisible to local testing and would have surfaced only once hosted.
+
+| Id | Defect | Disposition |
+|---|---|---|
+| F1 | No Next proxy, so a refreshed session was never written back to the browser. Hosted Supabase rotates refresh tokens and revokes a reused one, so staff would be signed out ~1 h after login. The local stub does not rotate, which is why local verification passed. | Fixed with the official `@supabase/ssr` proxy pattern; **A approved** — gated to database mode, refuses a privileged-looking key, makes no authorization decision and no redirect, so its try/catch cannot fail open |
+| F2 | A public Venue B event rendered under a Venue A route. | Fixed with `eventInScope` (event venue must equal route venue, case-insensitive, fail-closed to not-found, applied after grants); **A approved for that case**. **Open question to D's kit:** the entry policy never verifies the route's venue belongs to the route's org — `mapGrants` filters venue roles and org roles independently — so an org-B principal with no venue grant can pass entry at a venue outside org B, and only RLS closes it. D's cross-tenant case (C4) must cover org-grant-without-venue-grant, not only "no grants" and "venue A staff at venue B" |
+| F3 | Grant-less callers saw a capabilities line naming a role, fixture names in the header, nav linking to fixture ids, a banner describing a nonexistent role switch, and an empty mobile menu. | Fixed; **A approved**. `verifiedRole` now distinguishes a displayed role from a verified one |
+
+**Hosted acceptance should target the fixes build**, not the frozen slice — the frozen build fails H3/C4/P1 by
+construction. **Apply split for the window:** D runs the `venue_api` apply with its own kit (the 24-statement
+ledger-row handling lives there and was reviewed); A verifies ledger count and Gate-2 census immediately before
+and after, so neither is the sole witness. `123`/`124` stay A's.
+
+**`admin/light-theme` is unblocked for sequencing** — the Build 16 matrix is closed, and it carries no migration,
+so the ordering guard does not bind it and it is independent of 121 → 123 → 124 → 125. Owner sequences; not
+merged on a peer's request.
