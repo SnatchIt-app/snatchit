@@ -17,6 +17,7 @@ import {
   buyerTotalCents,
   dollarsToCents,
   formatCents,
+  formatDollars,
 } from '@/src/lib/money';
 
 /** The floor a new bid must clear: the current bid plus one increment. */
@@ -71,4 +72,53 @@ export function bidPriceLines(selectedDollars: number): BidPriceLines {
 /** The all-in total on its own, for the sticky bar / CTA context. */
 export function bidTotalLabel(selectedDollars: number): string {
   return formatCents(buyerTotalCents(dollarsToCents(selectedDollars)));
+}
+
+// ─── After the server accepted the bid (CFT-203, item 10) ────────────────────
+
+export type BidOutcome = 'leading' | 'outbid' | 'accepted';
+
+/**
+ * What the bidder is told AFTER the insert succeeded — never before. The
+ * insert trigger rejects any amount not above the current bid, so a successful
+ * insert was leading at that instant; a fresh read of `current_bid` decides
+ * whether it still is. The rule is the Bids tab's own (`bidStatusOf`: amount >=
+ * current_bid), so the two screens tell one truth. With no fresh read the bid
+ * is only "accepted": in, position unknown.
+ */
+export function bidOutcome(amountDollars: number, freshCurrentBid: number | null | undefined): BidOutcome {
+  if (freshCurrentBid == null || !Number.isFinite(freshCurrentBid)) return 'accepted';
+  return amountDollars >= freshCurrentBid ? 'leading' : 'outbid';
+}
+
+export interface BidOutcomeCopy {
+  title: string;
+  body: string;
+}
+
+/** Calm, exact copy for each outcome; "You're leading" only for `leading`. */
+export function bidOutcomeCopy(
+  outcome: BidOutcome,
+  amountDollars: number,
+  freshCurrentBid?: number | null,
+): BidOutcomeCopy {
+  const bid = formatDollars(amountDollars);
+  const total = bidTotalLabel(amountDollars);
+  switch (outcome) {
+    case 'leading':
+      return {
+        title: "You're leading",
+        body: `Your bid of ${bid} is in and it's the highest right now. If you win, you'll pay ${total} total (includes the 10% service fee).`,
+      };
+    case 'outbid':
+      return {
+        title: 'Bid placed, but outbid',
+        body: `Your ${bid} bid is in, but someone has already bid ${freshCurrentBid != null ? formatDollars(freshCurrentBid) : 'higher'}. Go back to the listing to raise it.`,
+      };
+    default:
+      return {
+        title: 'Bid placed',
+        body: `Your bid of ${bid} is in. If you win, you'll pay ${total} total (includes the 10% service fee).`,
+      };
+  }
 }

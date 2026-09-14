@@ -10,6 +10,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
+// vi.mock below is hoisted above these imports by vitest.
+import { HAPTIC, hapticConfirm, hapticSelect, hapticSuccess, hapticWarning } from '@/src/lib/feedback/haptics';
+import { createSingleFlight } from '@/src/lib/async/singleFlight';
+
 const root = resolve(__dirname, '..');
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8');
 const stripComments = (s: string) =>
@@ -31,9 +35,6 @@ vi.mock('expo-haptics', () => {
     NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
   };
 });
-
-import { HAPTIC, hapticConfirm, hapticSelect, hapticSuccess, hapticWarning } from '@/src/lib/feedback/haptics';
-import { createSingleFlight } from '@/src/lib/async/singleFlight';
 
 beforeEach(() => { calls.length = 0; shouldReject = false; });
 
