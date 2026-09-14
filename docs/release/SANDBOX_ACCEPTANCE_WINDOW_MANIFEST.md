@@ -59,7 +59,7 @@ sessions continues in parallel throughout.
 
 ## 3. Phase B — venue acceptance (D runs, A witnesses, owner does one setting change)
 
-- **Source:** fixes `venue/read-slice1-fixes @ 2665a20`, kit `venue/slice1-acceptance-kit @ 492d641`,
+- **Source:** fixes `venue/read-slice1-fixes @ 2665a20`, kit `venue/slice1-acceptance-kit @ 62ec887`,
   integration `venue/slice1-integration @ d2c634a`.
 
 | Step | Who | Action |
@@ -69,7 +69,15 @@ sessions continues in parallel throughout.
 | B3 | A | Record ledger count + Gate-2 census **after** — expect **131 → 132** |
 | B4 | **Owner** | Expose `venue_api` — the window's only setting change (§4) |
 | B5 | D | Run the kit's api + browser phases, including **C6** (org-grant-without-venue-grant) and **C7** (pending venue) |
-| B6 | D, then A | Kit `cleanup.sql` removes fixtures; A re-verifies counts |
+| B6 | D, then A | Kit `cleanup.sql` removes fixtures **by exact id**; A re-verifies counts |
+
+**Kit pin moved `492d641` → `62ec887` (verified by A):** the diff is docs and acceptance scripts only — runbook,
+venue manifest, `cleanup.sql`, `preflight.sql`, `accept.mjs` (+6, postflight) and `lib/cdp.mjs` (+2, which D's
+summary did not mention). **No `venue/src` and no `supabase/` change**, so the reviewed application code and the
+migration are untouched by the re-pin. The kit's preflight now records 24 out-of-scope table counts plus a
+`platform_config` digest, and postflight fails unless all are back to baseline and `db_pre_request` is unchanged —
+which is what mechanically separates venue acceptance from native Tickets fixtures and checkout previews, and
+proves no flag moved.
 
 - **Fixture writes:** org / venue / event / session / ticket-type / presale-batch rows and staff grants for
   venues A, B and pending C. Confined to the venue and catalog planes plus org staff roles.
