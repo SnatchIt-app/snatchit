@@ -475,3 +475,11 @@ held-checkout states additionally need the scheduled sandbox window.
 
 **Follow-ups already recorded:** T re-run on the next build (CFT-103 changed
 the loading behaviour); A-08(d) rebinding; owner wording for the refund copy.
+
+**Preview attempt 3 (explicit destination, A's suggestion) — failed the same
+way.** `-destination "platform=iOS Simulator,id=<iPhone 17 Pro>"` against the
+booted iOS 26.2 runtime: xcodebuild still lists no eligible simulator
+destination and reports "iOS 26.5 is not installed". So the blocker is the
+missing iOS 26.5 simulator platform, not the destination syntax. Nothing was
+downloaded or changed in Xcode; the temporary Metro config and build directory
+are removed. The options recorded above stand, and the decision is the owner's.
