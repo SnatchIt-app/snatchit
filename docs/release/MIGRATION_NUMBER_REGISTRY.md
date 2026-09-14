@@ -16,10 +16,12 @@ banners; it authorizes nothing.
 | `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
 | `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | written with pgTAP 192 and rehearsed P1–P6 (2026-09-12); applied nowhere; sandbox apply awaits authorization |
 | `126` | 193 | **release integration** | ops-console partial-refund exactness | allocated 2026-09-14 (formerly drafted as `121_ops_console_refund_exactness`); not written |
-| `127` | 194 | **release integration** | `release_reservation` succeeded-payment guard (L2) | allocated 2026-09-14; not written |
-| `128` | 195 | **release integration** | public wrapper for `notify.register_push_token` — authenticated token rebind (F7) | allocated 2026-09-14; needs owner authorization to prepare; not written |
+| `127` | 194 | **release integration** | release guards — **L1** stale cancellation frees a newer hold + **L2** release frees a paid order's hold | **written + rehearsed 2026-09-14**, branch `fix/127-release-reservation-guards` (`dd1c0fe`); pgTAP 194 **20/20**; applied nowhere |
+| `128` | 195 | **release integration** | `public.register_push_token` — device-proof token rebinding (F7); `notify` stays unexposed | **written + rehearsed 2026-09-14** (`381da65`); pgTAP 195 **25/25**; applied nowhere |
 
-> **L1, L3, L4 claim no number yet.** They are primarily edge-function/webhook corrections (`stripe-webhook` claim predicate, `create-payment-intent`, and a possible hold-expiry PaymentIntent cancel). A migration number is taken here only if one is found to need a schema change; nothing is reserved speculatively.
+> **L1's server half landed in `127`** (payment-scoped release). **L3 and L4 still claim no number** — L3 is a product tradeoff (holding inventory longer on `payment_failed` vs. occasional charge-then-refund) and L4 needs a Stripe-calling path at hold expiry, which `cleanup_expired_reservations` cannot be since it is SQL-only. Neither is reserved speculatively.
+>
+> **Sandbox ordering consequence:** `126`/`127`/`128` must NOT be applied to the shared sandbox before `125` either. The GitHub guard is base-branch-relative, but the sandbox ledger is not — applying 128 there would put the sandbox tip above 125 and break the same ordering for any later sandbox apply.
 
 ## How 122 was resolved
 

@@ -2844,3 +2844,48 @@ touches only the runbook, the acceptance runner and the SQL fixtures, with **no 
 added coverage rather than a change under an existing approval.
 
 Venue track outstanding: sandbox confirmation of C6 and C7 in the window. Nothing else.
+
+### L1/L2 and F7 implemented; L3/L4 scoped but not written (2026-09-14, A)
+
+Owner-authorized isolated work, applied nowhere. Both migrations were rehearsed on a clone of the local
+140-chain replay DB, and both rehearsals began by reproducing the defect so the fix is measured against a
+failure, not an assumption.
+
+| | `127` release guards (L1 + L2) | `128` device-proof token rebinding (F7) |
+|---|---|---|
+| Branch / commit | `fix/127-release-reservation-guards` `dd1c0fe` | same branch, `381da65` |
+| pgTAP | **194 — 20/20, 0 failures** | **195 — 25/25, 0 failures** |
+| Defect reproduced first | paid listing's hold **was** released pre-127 | `notify.register_push_token` confirmed to rebind on `on conflict (token)` alone |
+| Idempotent re-apply | yes, census `release_reservation=1 for_payment=1` | yes |
+| Rollback | true inverse — restores the body, drops the new function, **defect reproduces again** | drops function and column; `notify`'s function untouched |
+
+**127 — L2:** `release_reservation` gains the succeeded-payment guard the sweeps already apply (N1). **L1:** new
+service_role-only `release_reservation_for_payment(listing, user, payment)`. Same-buyer ownership cannot tell
+"this payment's hold" from "a hold taken after it", so the discriminator is time: a hold is always taken before
+its own payment row, hence `reserved_until <= payments.created_at + the 10-minute TTL`; anything later was taken
+afterwards and is refused. Returns `{released, reason}` and never raises. The TTL coupling to `reserve_buy_now`
+is pinned by assertion A7, so the two cannot drift apart silently.
+
+**128 — F7:** `public.register_push_token` requires the device's own secret (SHA-256 stored, never the raw
+value), not knowledge of the token string. Another account's token is claimable only with a matching secret, or
+when the row predates 128 **and** has already been revoked — so an ACTIVE legacy binding is not stealable, while
+a genuine handover works once the previous owner's sign-out revoke has run. `notify.register_push_token` stays
+unexposed precisely because it rebinds on the token alone. EXECUTE to `authenticated` only.
+
+**A note on how 195 is written:** its fixture helpers are SECURITY DEFINER deliberately. Read under the
+attacker's own RLS, "the victim's row was deleted" and "the victim's row is invisible to me" are
+indistinguishable, and the cross-account assertions would have passed for the wrong reason.
+
+**L3 — not written, and it is a product tradeoff, not an oversight.** The webhook releases the hold on
+`payment_failed` while Stripe still permits a same-sheet retry. Holding the reservation through the retry window
+would cut charge-then-refund cases but locks inventory longer on every genuine failure. That balance is the
+owner's, and C's client-side Pay gating already narrows the exposure.
+
+**L4 — not written; needs infrastructure, not a migration.** Nothing cancels a PaymentIntent when a hold lapses,
+and `cleanup_expired_reservations` cannot do it (SQL cannot call Stripe). Closing it means a scheduled
+Stripe-calling path — a new edge function plus a cron entry — which is a scheduled mutation and needs its own
+authorization. 127's L1 guard already removes the *release* half of the damage.
+
+**Sandbox ordering consequence, recorded because it is not obvious:** `126`/`127`/`128` must not be applied to
+the shared sandbox before `125` either. The GitHub merge guard is base-branch-relative, but the sandbox ledger
+is not — applying 128 there would put the sandbox tip above 125 and recreate the ordering problem locally.
