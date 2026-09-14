@@ -7,8 +7,9 @@
  * changed (same device, next account — the rebind 128 exists for), the record
  * is stale, or the previous attempt failed and its backoff has elapsed.
  *
- * CONTRACT (A, 2026-09-14, migration 128 @4e29fde; an adversarial review is
- * still running and may amend it):
+ * CONTRACT (A, 2026-09-14, migration 128 @f7b31ad — NOT FROZEN: four review
+ * findings are open and a second delta is expected, likely around the legacy
+ * path, sign-out and account switch):
  *  - `register_push_token(p_token, p_platform, p_device_secret, p_device_name)`
  *    returns `{ token_id, outcome: registered|refreshed|rebound|rebound_legacy, platform }`.
  *  - 42501 `not_authenticated` — no session.
@@ -17,9 +18,13 @@
  *    secret" and "active legacy row owned by someone else"; the remedy is that
  *    the previous account signs out on this device, never a retry loop.
  *  - P0001 `precondition_failed: …` — a client bug (token/platform/secret
- *    shape); back off, do not spin.
+ *    shape, NULL platform). Deterministic: identical inputs can never succeed,
+ *    so it is TERMINAL until the inputs change, never a timer.
  *  - Same token+secret+user repeated is `refreshed`: safe to retry on network
- *    failure. No rate limit.
+ *    failure. No rate limit. `refreshed` does NOT prove the secret matches
+ *    (a mismatched secret also gets `refreshed`); the stored hash is never
+ *    replaced, and recovery from a lost secret is delete-then-register
+ *    (registerToken.ts), never a rotation.
  *  - PGRST202 (function not deployed — TRUE ON EVERY DATABASE TODAY) → the
  *    legacy path, which must stay insert-only and non-takeover.
  * Sign-out is unchanged (batch 1's direct UPDATE); it is what turns an
@@ -43,7 +48,7 @@ export interface RegistrationRecord {
 export type RegistrationErrorKind =
   | 'rpc_missing'        // 128 not deployed here: PostgREST cannot find the function
   | 'bound_to_other'     // terminal: another account holds this token on the server (F7)
-  | 'precondition'       // P0001 precondition_failed: a client-side shape bug
+  | 'precondition'       // P0001 precondition_failed: a client-side shape bug — terminal until inputs change
   | 'auth'               // no valid session
   | 'secret_unavailable' // Keychain or CSPRNG unavailable on this device
   | 'network'
@@ -79,7 +84,7 @@ export interface Decision {
   reason:
     | 'signed_out' | 'no_token' | 'fresh'
     | 'first' | 'token_changed' | 'account_changed' | 'method_changed' | 'stale' | 'retry'
-    | 'backoff' | 'bound_to_other';
+    | 'backoff' | 'bound_to_other' | 'precondition';
   /** For `wait` with `backoff`: epoch ms when a retry may run. */
   retryAt?: number;
 }
@@ -116,6 +121,10 @@ export function decideRegistration(i: DecisionInput): Decision {
     // token. Only a sign-out on that account, a new token, or a different user
     // changes the answer — all of which invalidate this failure record.
     if (failure.kind === 'bound_to_other') return { action: 'wait', method, reason: 'bound_to_other' };
+    // Deterministic refusal: the same inputs can never succeed, so a timer
+    // would only burn battery. A fixed build recovers on its next token or
+    // method change.
+    if (failure.kind === 'precondition') return { action: 'wait', method, reason: 'precondition' };
     const retryAt = failure.at + backoffMs(failure.attempts);
     if (i.now < retryAt) return { action: 'wait', method, reason: 'backoff', retryAt };
     return { action: 'register', method, reason: 'retry' };

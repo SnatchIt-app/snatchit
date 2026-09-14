@@ -1,7 +1,9 @@
 /**
  * tests/push-registration.test.ts — migration 128 client half (A-08d), built
- * against A's reviewed contract of 2026-09-14 (128 @4e29fde). 128 is applied
- * nowhere; the legacy path is the live path and must stay non-takeover.
+ * against A's reviewed contract of 2026-09-14 as amended after the adversarial
+ * review (128 @f7b31ad: rotation reverted, recovery is delete-then-register,
+ * precondition terminal; NOT frozen). 128 is applied nowhere; the legacy path
+ * is the live path and must stay non-takeover.
  */
 
 import { readFileSync } from 'node:fs';
@@ -16,7 +18,7 @@ import {
   BACKOFF_MAX_MS, REGISTRATION_REMEDY, REGISTRATION_TTL_MS, backoffMs, classifyRegistrationError,
   decideRegistration, recordFailure, type RegistrationFailure, type RegistrationRecord,
 } from '@/src/lib/push/registration';
-import { registerLegacy, registerWithRpc, type RegisterDeps } from '@/src/lib/push/registerToken';
+import { registerLegacy, registerRpcWithRecovery, registerWithRpc, type RegisterDeps } from '@/src/lib/push/registerToken';
 import { EMPTY_REGISTRATION_STATE, loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
 
 // Hoisted by vitest above the imports: registerToken.ts imports the supabase client.
@@ -143,6 +145,14 @@ describe('registration decisions', () => {
     expect(REGISTRATION_REMEDY.bound_to_other).toMatch(/sign out here first/);
   });
 
+  it('a precondition refusal is terminal until the inputs change — never a timer', () => {
+    const f: RegistrationFailure = { kind: 'precondition', userId: 'u1', token: 'tok', method: 'rpc', at: now - 7 * 24 * 3600 * 1000, attempts: 1 };
+    expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f, rpcAvailable: true, now })).toMatchObject({ action: 'wait', reason: 'precondition' });
+    expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f, rpcAvailable: true, now }).retryAt).toBeUndefined();
+    expect(decideRegistration({ userId: 'u1', token: 'tok2', record: null, failure: f, rpcAvailable: true, now })).toMatchObject({ action: 'register' });
+    expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f, rpcAvailable: false, now })).toMatchObject({ action: 'register', method: 'legacy' });
+  });
+
   it('an rpc_missing failure is spent once the method switched to legacy', () => {
     const f: RegistrationFailure = { kind: 'rpc_missing', userId: 'u1', token: 'tok', method: 'rpc', at: now, attempts: 1 };
     expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f, rpcAvailable: false, now })).toMatchObject({ action: 'register', method: 'legacy', reason: 'first' });
@@ -167,6 +177,7 @@ describe('error classification follows the contract', () => {
     expect(classifyRegistrationError({ code: '23505', message: 'duplicate key value violates unique constraint "push_tokens_token_key"' })).toBe('bound_to_other');
     expect(classifyRegistrationError({ code: 'P0001', message: 'precondition_failed: device secret length' })).toBe('precondition');
     expect(classifyRegistrationError({ code: 'P0001', message: 'precondition_failed: platform must be ios or android' })).toBe('precondition');
+    expect(classifyRegistrationError({ code: 'P0001', message: 'precondition_failed: platform is required' })).toBe('precondition');
     expect(classifyRegistrationError({ message: 'Network request failed' })).toBe('network');
     expect(classifyRegistrationError({ status: 401, message: 'JWT expired' })).toBe('auth');
     expect(classifyRegistrationError({ message: 'weird' })).toBe('unknown');
@@ -181,6 +192,7 @@ function fakeDeps(over: Partial<RegisterDeps> = {}) {
     legacySelect: async () => { calls.push('select'); return { data: null, error: null }; },
     legacyTouch: async () => { calls.push('touch'); return { error: null }; },
     legacyInsert: async () => { calls.push('insert'); return { error: null }; },
+    deleteOwn: async () => { calls.push('delete'); return { error: null }; },
     ...over,
   };
   return { deps, calls };
@@ -201,6 +213,51 @@ describe('registerWithRpc — the p_ names, every outcome, every error', () => {
     expect(await registerWithRpc(throwing, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: null })).toEqual({ ok: false, kind: 'network' });
     const { deps: odd } = fakeDeps({ rpc: async () => ({ data: { nope: true }, error: null }) });
     expect(await registerWithRpc(odd, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: null })).toEqual({ ok: false, kind: 'unknown' });
+  });
+});
+
+describe('registerRpcWithRecovery — delete-then-register, gated, never speculative', () => {
+  const args = { token: 'tok', platform: 'ios' as const, secret: 's'.repeat(43), deviceName: null };
+  const ownRow = async () => ({ data: { id: 'row-9' }, error: null });
+
+  it('recovers only when the secret is fresh AND this binding was registered via the RPC before AND a row we own exists', async () => {
+    const { deps, calls } = fakeDeps({ legacySelect: ownRow });
+    deps.legacySelect = async () => { calls.push('select'); return ownRow(); };
+    const r = await registerRpcWithRecovery(deps, args, { freshSecret: true, previouslyRpcForThisBinding: true });
+    expect(r).toMatchObject({ ok: true, method: 'rpc', recovered: true });
+    expect(calls).toEqual(['select', 'delete', 'rpc']);
+  });
+
+  it('never deletes when the secret was stored, when the binding was never RPC-registered, or when no own row exists', async () => {
+    for (const ctx of [
+      { freshSecret: false, previouslyRpcForThisBinding: true },
+      { freshSecret: true, previouslyRpcForThisBinding: false },
+      { freshSecret: false, previouslyRpcForThisBinding: false },
+    ]) {
+      const { deps, calls } = fakeDeps({ legacySelect: ownRow });
+      const r = await registerRpcWithRecovery(deps, args, ctx);
+      expect(r).toMatchObject({ ok: true, method: 'rpc' });
+      expect((r as any).recovered).toBeUndefined();
+      expect(calls, JSON.stringify(ctx)).toEqual(['rpc']);
+    }
+    const { deps, calls } = fakeDeps(); // select finds nothing we own
+    deps.legacySelect = async () => { calls.push('select'); return { data: null, error: null }; };
+    await registerRpcWithRecovery(deps, args, { freshSecret: true, previouslyRpcForThisBinding: true });
+    expect(calls).toEqual(['select', 'rpc']);
+  });
+
+  it('a failed delete stops the recovery and is classified, never followed by a register', async () => {
+    const { deps, calls } = fakeDeps({ legacySelect: ownRow, deleteOwn: async () => ({ error: { message: 'Network request failed' } }) });
+    const r = await registerRpcWithRecovery(deps, args, { freshSecret: true, previouslyRpcForThisBinding: true });
+    expect(r).toEqual({ ok: false, kind: 'network' });
+    expect(calls).not.toContain('rpc');
+  });
+
+  it('the live delete is by the row id we selected, never by token', () => {
+    const src = stripComments(read('src/lib/push/registerToken.ts'));
+    expect(src).toMatch(/\.delete\(\)\.eq\('id', id\)/);
+    expect(src).not.toMatch(/\.delete\(\)\s*\.eq\('token'/);
+    expect(src.split('.delete()').length - 1).toBe(1);
   });
 });
 
@@ -242,9 +299,23 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(JSON.stringify(record)).not.toMatch(/secret/);
   });
 
+  it('the contract citation is the amended one: rotation is out, recovery is delete-then-register', () => {
+    for (const rel of ['src/lib/push/deviceSecret.ts', 'src/lib/push/registration.ts', 'src/lib/push/registerToken.ts']) {
+      const src = read(rel);
+      expect(src, rel).not.toContain('4e29fde');
+    }
+    expect(read('src/lib/push/deviceSecret.ts')).toContain('THE STORED HASH IS NEVER REPLACED');
+    expect(read('src/lib/push/registration.ts')).toContain('`refreshed` does NOT prove the secret matches');
+  });
+
   it('the hook: rpc first, PGRST202 → legacy once per process, records success and failure, retries on foreground', () => {
     const hook = stripComments(read('src/hooks/usePushToken.ts'));
     expect(hook).toContain("if (!result.ok && result.kind === 'rpc_missing') {");
+    // the only lost-secret signal is the device finding none; recovery goes through the gated wrapper
+    expect(hook).toContain('{ freshSecret: secret.created, previouslyRpcForThisBinding }');
+    expect(hook).toMatch(/const previouslyRpcForThisBinding =\s*state\.record\?\.method === 'rpc' && state\.record\.token === token && state\.record\.userId === uid;/);
+    expect(hook).not.toMatch(/registerWithRpc\(/);
+    expect(hook).not.toMatch(/rotate/i);
     expect(hook).toContain('rpcAvailable = false;');
     expect(hook).toContain('await saveRegistrationState({ record, failure: null });');
     expect(hook).toContain('const failure = recordFailure(state.failure, result.kind, { userId: uid, token, method, now });');

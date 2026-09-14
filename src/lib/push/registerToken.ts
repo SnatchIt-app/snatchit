@@ -11,7 +11,20 @@
  * on purpose: an upsert or an update-by-token would claim another account's
  * row without device proof and reintroduce F7 on every database without 128.
  * Never call `notify.register_push_token`: it rebinds on the token alone and
- * is unexposed by design.
+ * is unexposed by design (128 now also revokes it server-side).
+ *
+ * RECOVERY (A's delta, 128 @f7b31ad). The server never replaces a stored
+ * hash, and a mismatched secret still returns `refreshed`, so the only signal
+ * of a lost secret is the device itself finding none. Recovery is then:
+ * DELETE the row this device owns (RLS permits deleting your own row), then
+ * register with the fresh secret → `registered`. It is destructive, so it is
+ * gated three ways in `registerRpcWithRecovery` and never runs speculatively:
+ * the secret was generated fresh on this attempt, this device previously
+ * registered THIS token for THIS user through the RPC (so the server's hash
+ * was ours and is now unreachable), and the RLS-scoped select finds a row we
+ * own. A legacy row (no hash) needs no recovery: the first RPC registration
+ * binds our secret to it. A reinstall issues a new token, so nothing older is
+ * touched.
  */
 
 import { supabase } from '@/src/lib/supabase';
@@ -39,6 +52,8 @@ export interface RegisterDeps {
   legacySelect: (token: string) => Promise<{ data: { id: string } | null; error: ErrorLike | null }>;
   legacyTouch: (id: string, nowIso: string) => Promise<{ error: ErrorLike | null }>;
   legacyInsert: (row: { user_id: string; token: string; platform: PushPlatform; is_active: true }) => Promise<{ error: ErrorLike | null }>;
+  /** Deletes the caller's own row by id (RLS DELETE own). Recovery only. */
+  deleteOwn: (id: string) => Promise<{ error: ErrorLike | null }>;
 }
 
 export type RegisterResult =
@@ -70,6 +85,42 @@ export async function registerWithRpc(
   if (reply.error) return { ok: false, kind: classifyRegistrationError(reply.error) };
   if (!isRpcReply(reply.data)) return { ok: false, kind: 'unknown' };
   return { ok: true, method: 'rpc', outcome: reply.data.outcome, tokenId: typeof reply.data.token_id === 'string' ? reply.data.token_id : null };
+}
+
+export interface RecoveryContext {
+  /** The secret was generated on this attempt because none was stored. */
+  freshSecret: boolean;
+  /** The device's own record says it registered this token for this user via the RPC. */
+  previouslyRpcForThisBinding: boolean;
+}
+
+export type RecoveryResult = RegisterResult & { recovered?: boolean };
+
+/**
+ * RPC registration with the one recovery path, gated so the destructive step
+ * can never run on a guess. Returns `recovered: true` when the own row was
+ * deleted and re-registered.
+ */
+export async function registerRpcWithRecovery(
+  deps: Pick<RegisterDeps, 'rpc' | 'legacySelect' | 'deleteOwn'>,
+  args: { token: string; platform: PushPlatform; secret: string; deviceName: string | null },
+  ctx: RecoveryContext,
+): Promise<RecoveryResult> {
+  if (ctx.freshSecret && ctx.previouslyRpcForThisBinding) {
+    try {
+      const own = await deps.legacySelect(args.token);
+      if (own.error) return { ok: false, kind: classifyRegistrationError(own.error) };
+      if (own.data) {
+        const gone = await deps.deleteOwn(own.data.id);
+        if (gone.error) return { ok: false, kind: classifyRegistrationError(gone.error) };
+        const r = await registerWithRpc(deps, args);
+        return r.ok ? { ...r, recovered: true } : r;
+      }
+    } catch (e) {
+      return { ok: false, kind: classifyRegistrationError(e as ErrorLike) };
+    }
+  }
+  return registerWithRpc(deps, args);
 }
 
 export async function registerLegacy(
@@ -109,6 +160,10 @@ export const supabaseRegisterDeps: RegisterDeps = {
   },
   legacyInsert: async (row) => {
     const { error } = await supabase.from('push_tokens').insert(row);
+    return { error };
+  },
+  deleteOwn: async (id) => {
+    const { error } = await supabase.from('push_tokens').delete().eq('id', id);
     return { error };
   },
 };
