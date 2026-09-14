@@ -12,7 +12,7 @@ banners; it authorizes nothing.
 | — | 187 | release integration | `my_tickets_read` | on the candidate |
 | `20260910120000` | 188 | **Claude D** | `venue_api` read views | branch `venue/read-adapters-slice-1`, not applied |
 | `121` | 189 | **Claude B** | manifest signing context STRICT | PR #58, not applied |
-| ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12**; being written 2026-09-14 on `fix/125-scan-device-sync-expired-episode` (+ rollback 125), base `admin/operating-console @ 562fda9`, rehearsed 121→123→124→125 |
+| ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12**; written + rollback + pgTAP 190 (30 assertions), **PR #62** (`fc4f1130` → `admin/operating-console`), rehearsed 121→123→124→125; **A-reviewed 2026-09-14, review-only**; not applied |
 | `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
 | `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | written with pgTAP 192 and rehearsed P1–P6 (2026-09-12); applied nowhere; sandbox apply awaits authorization |
 | `126` | 193 | **release integration** | ops-console partial-refund exactness | allocated 2026-09-14 (formerly drafted as `121_ops_console_refund_exactness`); not written |

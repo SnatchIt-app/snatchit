@@ -2683,3 +2683,35 @@ this is the single tracker the owner asked release integration to keep. Nothing 
 10. **L1–L4** server correctness (mig 127 for L2; L1/L3/L4 mostly edge/webhook), **F3** unmapped blocker labels, **F7** push-token rebind (mig 128) + untrue privacy copy, **F2** chain drift (124 prepared).
 
 **Adjacent tracks, not part of this release's checklist** (tracked with their owners): B's `125` scanning fix; C's Premium batch 1; D's venue read-integration — where **applying the `venue_api` migration and exposing `venue_api` over PostgREST (adding it to the authenticator `pgrst.db_schemas`) are two distinct, separately-authorized steps**.
+
+
+### Migration 125 review — native/scanning track, review-only (2026-09-14, A)
+
+PR #62 (`fix/125-scan-device-sync-expired-episode @ fc4f1130` → `admin/operating-console`), Claude B. Reviewed by
+release integration; **review-only, applied nowhere**. This is the PFA-18C native/scanning track, **explicitly out
+of the resale release package (§7)** — it does not touch Build 16, payments, or the pinned candidate `df9e0d3`, and
+it rides its own separately-gated sequence.
+
+**What it is.** Body-only `create or replace` of `venue.sync_scan_device_manifest(uuid,uuid,integer)` (086:1040-1068).
+Same signature, `VOLATILE`/`SECURITY DEFINER`/`search_path=''`, grants and authorization; census 0; `086`/`112`/`113`
+are not edited. It reads `venue.get_door_manifest` first (the 112/113 contract: `status='open' AND not_after > now()`)
+and binds the device only when that payload reports `open:true`, to exactly the manifest returned — so an
+expired-but-still-`open` episode now leaves the device row untouched instead of binding it while the same call
+returns `open:false` (the 086 drift).
+
+**Verified in the tree, not taken on assertion.**
+- Base `562fda9` carries `110`–`120`, so `112`/`113` are present and the drift reproduces.
+- PR adds exactly three files (migration, rollback, pgTAP 190); nothing else changes.
+- Rollback restores the 086 body and nulls the comment (claimed md5 `666422e5…` = production; that md5 is the
+  definitive apply-time gate and must be re-checked against production immediately before any rollback is run).
+- pgTAP 190 = `plan(30)`; the count reconciles (A 5, B 4, C 16, D 3, E 2) and the C7–C11 block is the correct
+  regression for the expired-but-open case (payload `open:false`, device not bound, `door_manifest` untouched).
+
+**Two notes, neither blocking.**
+1. **Sequencing vs git base.** The PR bases on `admin/operating-console` (integer tip `120`), so the merge-guard
+   passes trivially (`125 > 120`) but that base does not contain `121`/`123`/`124`. The binding constraint is that
+   `125` lands **last**, after `121 → 123 → 124`, onto the integrated release base and never reaches production
+   ahead of them. B's overlay rehearsal (`120→121→123→124→125`, 139/139) already proves composition.
+2. **Defensive-only:** if `get_door_manifest` ever returned `open:true` with a null `manifest_id`, the bind would
+   null the device's `manifest_id`; the contract makes that impossible, so it is not a defect — an added
+   `and (v_res ? 'manifest_id')` guard would make it structurally impossible. Not held for this PR.
