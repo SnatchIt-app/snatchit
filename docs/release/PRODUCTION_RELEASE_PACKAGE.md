@@ -2425,3 +2425,11 @@ Every original "122" reference is left verbatim beneath a dated note. That inclu
 **Flagged, not edited — a third B document also says 122.** `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` carries
 gate **"G6 — Migration 122"** with the same authorization phrase (line 38) and "numbering for 121/122" (line 56).
 It was outside the two documents the owner named, so it was left as is pending the owner's word.
+
+**Third B document — scope precision (C found; A verified with a positive control, 2026-09-14).**
+`PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` exists **only** on `origin/feature/venue-native-and-product-v2`. It
+is absent from `docs/production-state-integration`, `release/convergence-135` and `fix/122-transfers-profiles-fk`.
+Control: `PHASE2_PRODUCTION_RUNBOOK.md` resolves present on `release/convergence-135` with the same method. So
+its stale "G6 — Migration 122" reference does **not** reach the release path. It still awaits the owner's word,
+and it is the one reason the numbering record is not yet complete. C verified both note commits: `22c3547` +3/−0
+on each of its two files, and `a7efaf5` +3/−0.
