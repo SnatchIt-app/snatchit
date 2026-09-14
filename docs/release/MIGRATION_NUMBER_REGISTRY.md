@@ -12,9 +12,14 @@ banners; it authorizes nothing.
 | — | 187 | release integration | `my_tickets_read` | on the candidate |
 | `20260910120000` | 188 | **Claude D** | `venue_api` read views | branch `venue/read-adapters-slice-1`, not applied |
 | `121` | 189 | **Claude B** | manifest signing context STRICT | PR #58, not applied |
-| ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12** by owner sequencing approval — unwritten, so the renumber is free |
+| ~~`122`~~ → `125` | **190** | **Claude B** | scanning drift fix (086↔112/113) | **REASSIGNED 2026-09-12**; being written 2026-09-14 on `fix/125-scan-device-sync-expired-episode` (+ rollback 125), base `admin/operating-console @ 562fda9`, rehearsed 121→123→124→125 |
 | `123` | 191 | **release integration** | transfers↔profiles FK parity | branch `fix/122-transfers-profiles-fk`; **applied to sandbox**, not production |
 | `124` | 192 | **release integration** | bids↔profiles FK parity (F2) | written with pgTAP 192 and rehearsed P1–P6 (2026-09-12); applied nowhere; sandbox apply awaits authorization |
+| `126` | 193 | **release integration** | ops-console partial-refund exactness | allocated 2026-09-14 (formerly drafted as `121_ops_console_refund_exactness`); not written |
+| `127` | 194 | **release integration** | `release_reservation` succeeded-payment guard (L2) | allocated 2026-09-14; not written |
+| `128` | 195 | **release integration** | public wrapper for `notify.register_push_token` — authenticated token rebind (F7) | allocated 2026-09-14; needs owner authorization to prepare; not written |
+
+> **L1, L3, L4 claim no number yet.** They are primarily edge-function/webhook corrections (`stripe-webhook` claim predicate, `create-payment-intent`, and a possible hold-expiry PaymentIntent cancel). A migration number is taken here only if one is found to need a schema change; nothing is reserved speculatively.
 
 ## How 122 was resolved
 
