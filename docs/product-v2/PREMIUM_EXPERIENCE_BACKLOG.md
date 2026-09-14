@@ -408,3 +408,29 @@ sheet, create-listing proceeds copy, privacy page) can be previewed.
 
 **Deferred inside this batch.** CFT-306 (split "Processing" into confirming vs
 finalizing) waits on A-04's step signals; CFT-307's alternatives wait on A-11.
+
+### Batch 1 — review round 1 closed (A, 2026-09-14)
+
+**A approved all four payment/sign-out commits**, verified in the source:
+`bcbb106`, `5cb53f3`, `72ec91d` and **`31b264c`** (the review changes). The
+payment and sign-out half of batch 1 is cleared from A's side; nothing merges
+or deploys, and the review gate still applies to any later change to
+`payments.ts`, `setupDecision.ts`, `payControl.ts`, the sign-out helper or an
+authoritative-state read.
+
+| Review item | Disposition |
+|---|---|
+| Required 1 — auction price column | fixed: `winning_bid_amount ?? current_bid`, mirroring `create-payment-intent:499` |
+| Required 2 — Pay re-offer from the device clock | fixed: one `revalidateAgainstServer()` (settled first, then the hold via a fresh listing read) serves the margin effect and the manual re-check; Pay returns only on `held` |
+| Q1 unreachable → reachable re-offer | C's reading confirmed; built to it |
+| Q2 `ran_out` from the displayed deadline | accepted as implemented |
+| Q3 refund-confirmed rule | server's writer stamps status, amount and date together; `refund_pending` kept as documented, unreachable insurance |
+| **F8 (new)** partial refund on a `succeeded` row reached the success screen | fixed in-batch: `partially_refunded` kind with the amount; "Your order stands…", Back to home; still blocks a new intent |
+| Nit — revoke timer | cleared |
+
+**Consequence carried into the Build 16 verdict:** CFT-103 changes the Tickets
+loading behaviour that test T recorded, so **T is re-run on the next build**.
+
+**Window:** the `reserve_buy_now` write needed to preview the held-checkout
+states is in the shared-sandbox window scope A has put to the owner, with an
+explicit `release_reservation` after each preview. Not run until scheduled.
