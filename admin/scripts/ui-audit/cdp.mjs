@@ -112,8 +112,8 @@ export async function launchBrowser(chromePath) {
       async viewport(w, h, mobile = false) {
         await s("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile });
       },
-      async key(key, code, vk, modifiers = 0) {
-        await s("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers });
+      async key(key, code, vk, modifiers = 0, text) {
+        await s("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
         await s("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers });
       },
       close: () => send("Target.disposeBrowserContext", { browserContextId }),
