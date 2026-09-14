@@ -7,7 +7,7 @@ been run against the sandbox except the read-only preflight.
 | Item | Value |
 |---|---|
 | Migration under test | `supabase/migrations/20260910120000_venue_api_read_views.sql` (+ rollback), pgTAP `188` — code frozen at `ae2e2ea` |
-| App under test | `venue/read-slice1-fixes` (see *Readiness*); the frozen app fails five checks |
+| App under test | `venue/read-slice1-fixes` (agreed with Claude A; see *Readiness*) — the frozen app fails eight checks |
 | Kit | `venue/scripts/acceptance/` on `venue/slice1-acceptance-kit` |
 | Target | shared sandbox `ofaidukbieeekqaboscm` only; production ref is refused by the kit |
 | Window | **not scheduled** — the owner names it; Claude A coordinates. Consumer QA closing is not a window. |
@@ -25,7 +25,7 @@ and 188 passes again. All 8 views `security_invoker` + `security_barrier`; `anon
 | frozen `ae2e2ea` | fails H3, C4-cross-venue, P1 ×3, C6 entry ×3 (below) |
 | `venue/read-slice1-fixes` + F4 (integration build) | **128/128** |
 
-**Defects the kit found in the frozen slice (fixed on `venue/read-slice1-fixes`, awaiting Claude A's review):**
+**Defects the kit found in the frozen slice (fixed on `venue/read-slice1-fixes`; F1–F3 approved by Claude A 2026-09-14, F4 awaiting review):**
 
 - **F1 — refreshed sessions were never persisted (H3).** There was no Next.js proxy, and Server Components
   cannot write cookies, so a refresh lived for one render only. Hosted Supabase rotates refresh tokens and
@@ -69,7 +69,7 @@ surface, leaves the views). Full reversal: `cleanup`, then the rollback file and
 | Step | Who | Owner time |
 |---|---|---|
 | Name the window; confirm the app build (fixes branch) | owner | 2 min |
-| 0 preflight, 1 apply, 2 verify-apply | Claude A (or D on A's instruction) | — |
+| 0 preflight, 1 apply, 2 verify-apply | Claude D runs the kit; Claude A independently checks ledger count + Gate-2 census immediately before and after | — |
 | 3 expose `venue_api` in the Dashboard (Supabase login + MFA) | **owner** | 3 min |
 | 4 verify-exposure → 9 postflight | automated (A or D) | — |
 | Review 3 evidence screenshots | **owner** | 5 min |
