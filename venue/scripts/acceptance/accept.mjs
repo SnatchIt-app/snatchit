@@ -388,13 +388,14 @@ async function browser() {
     await m.close();
     const m2 = await br.newPage();
     await signIn(m2, users.manager, `${A}/events`);
+    await new Promise((r) => setTimeout(r, 1100)); // a refresh in the same second as sign-in can re-mint an identical access JWT
     ck = authCookie(await m2.cookies(opts.app));
     const before = ck.session;
     await writeAuthCookie(m2, ck, { ...before, expires_at: Math.floor(Date.now() / 1000) - 120 });
     t = await visit(m2, `${A}/events`);
     check(P, "H3 expired session still renders data (refreshed)", t.includes(TITLE.e1), t.slice(0, 200));
     const afterCk = authCookie(await m2.cookies(opts.app));
-    check(P, "H3 refreshed session persisted to the cookie (new access + refresh token)", !!afterCk && afterCk.session.access_token !== before.access_token && afterCk.session.refresh_token !== before.refresh_token && afterCk.session.expires_at > Math.floor(Date.now() / 1000), afterCk ? { expires_at: afterCk.session.expires_at, access_changed: afterCk.session.access_token !== before.access_token, refresh_changed: afterCk.session.refresh_token !== before.refresh_token } : "cookie gone");
+    check(P, "H3 refreshed session persisted to the cookie (rotated refresh token, future expiry)", !!afterCk && afterCk.session.refresh_token !== before.refresh_token && afterCk.session.expires_at > Math.floor(Date.now() / 1000), afterCk ? { expires_at: afterCk.session.expires_at, access_changed: afterCk.session.access_token !== before.access_token, refresh_changed: afterCk.session.refresh_token !== before.refresh_token } : "cookie gone");
     // Hosted GoTrue revokes a reused refresh token once its reuse interval (10 s default) has passed, so on the
     // sandbox wait past it: a refresh that was not persisted would sign the user out here.
     if (target.name === "sandbox") await new Promise((r) => setTimeout(r, 12000));
