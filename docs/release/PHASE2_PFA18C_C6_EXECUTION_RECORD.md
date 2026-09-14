@@ -1,5 +1,8 @@
 # PFA-18C — C6 DARK DEPLOY EXECUTION RECORD — **COMPLETE** (T+0 verified 2026-09-11T02:35Z; Mac 2 independent read-back PASS, owner-returned 2026-09-11; T+24 verified 2026-09-12T03:41–03:46Z)
 
+> **NUMBERING NOTE (2026-09-14, Claude A, on the owner's sequencing approval).** The closing next-steps paragraph refers to "migration 122 (086↔112/113) before the scanning flip". That unwritten fix is reassigned to migration **125** (companion pgTAP 190 unchanged); approved merge order is **121 → 123 → 124**, with the fix numbered 125 when it is written, as required by `.github/workflows/migrations-guard.yml` §4. The original sentence is left verbatim as history. Registry of record: `docs/release/MIGRATION_NUMBER_REGISTRY.md`. Sequencing approval only — this note authorizes no migration apply.
+
+
 **Authorization:** owner phrase **"AUTHORIZE PFA-18C DARK DEPLOY"** (2026-09-11), scoped to `PHASE2_PFA18C_C6_REVIEW_HANDOFF.md` rev 2 §5 steps C6-0…C6-4 from the isolated checkout `snatchit-c6deploy @ 562fda9` (source review at `b5bbcf621ce7900f0ca85a36257c73d1842da570`): one runtime access key, exactly six secrets, three functions; stop on any mismatch; zero-data preconditions maintained; production venue/staff/manifest/device/PIN creation outside this authorization (relayed to Claude A/D via the execution record). **Coordinator:** Claude B. **C18:** the owner ran every mutation on Mac 1; the coordinator read back; Mac 2 read back independently.
 **Not done (standing prohibitions, verbatim):** "No test invocations, production signing, issuance/scanning activation, migration 121, or Model A changes are authorized." No secret value, key secret, ExternalId, nonce or signature was ever collected or printed.
 
