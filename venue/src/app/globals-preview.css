@@ -1,27 +1,29 @@
 /* Preview-only additions layered on the shared brand sheet (globals.css). */
 
-/* The "Preview data" indicator: always visible, never dismissible. */
+/* The "Preview data" indicator: always visible, never dismissible. Amber
+   stripes with near-black text (≥ 9:1 on both stripes). */
 .preview-banner {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: repeating-linear-gradient(135deg, #f59e0b 0 12px, #d97706 12px 24px);
-  color: #000;
+  background: repeating-linear-gradient(135deg, #fbbf24 0 12px, #f59e0b 12px 24px);
+  color: #111111;
   font-weight: 700;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* Database mode: same stripe, blue, so the two modes are never confused. */
+/* Database mode: same stripe, blue, so the two modes are never confused.
+   Navy text on light-blue stripes (≥ 7:1 on both). */
 .preview-banner-db {
-  background: repeating-linear-gradient(135deg, #60a5fa 0 12px, #2563eb 12px 24px);
-  color: #000;
+  background: repeating-linear-gradient(135deg, #bfdbfe 0 12px, #93c5fd 12px 24px);
+  color: #0b1f4d;
 }
 
 /* Skeleton blocks for loading states. */
 .skel {
-  background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%);
+  background: linear-gradient(90deg, #ececec 25%, #f7f7f7 50%, #ececec 75%);
   background-size: 200% 100%;
   animation: skel 1.4s ease-in-out infinite;
   min-height: 0.9rem;
@@ -35,23 +37,37 @@
   }
 }
 
-/* Capacity bar: sold | held | remaining, three written numbers beside it. */
+/* Capacity bar: sold | held | remaining, three written numbers beside it.
+   Segment colours match the legend text tokens (sold = brand red, held =
+   warning amber #b45309 ≥ 3:1 on white, remaining = the gray track). */
 .capbar {
   display: flex;
   height: 10px;
   width: 100%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(17, 17, 17, 0.1);
   overflow: hidden;
 }
 .capbar > span {
   display: block;
   height: 100%;
 }
-.capbar .sold {
+.capbar .sold,
+.legend-swatch.sold {
   background: #ff1a1a;
 }
-.capbar .held {
-  background: #f59e0b;
+.capbar .held,
+.legend-swatch.held {
+  background: #b45309;
+}
+.legend-swatch.remaining {
+  background: rgba(17, 17, 17, 0.1);
+}
+.legend-swatch {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  vertical-align: -1px;
+  margin-right: 0.25rem;
 }
 
 /* Door surfaces: large targets, one decision per screen (spec §2.8). */

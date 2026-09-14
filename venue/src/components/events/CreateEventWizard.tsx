@@ -19,7 +19,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
         <h1 className="text-2xl font-bold">New event</h1>
         <ol className="mt-3 flex gap-2 text-xs">
           {steps.map((s, i) => (
-            <li key={s} className={`border px-2 py-1 ${i + 1 === step ? "border-primary text-primary" : i + 1 < step ? "border-success text-success" : "border-line-neutral text-dim"}`}>
+            <li key={s} className={`border px-2 py-1 ${i + 1 === step ? "border-primary text-primary-ink" : i + 1 < step ? "border-success text-success" : "border-line-neutral text-dim"}`}>
               {i + 1}. {s}
             </li>
           ))}
