@@ -2896,8 +2896,10 @@ is not — applying 128 there would put the sandbox tip above 125 and recreate t
 display only: **APPROVED**. Verified beyond the claim — across the whole batch (`43e3a97..3c78382`) the diff over
 `payControl.ts`, `setupDecision.ts`, `holdState.ts`, `payments.ts` and `signOut.ts` is **empty**. The Pay button
 now shows a label payControl already computed, the success haptic is keyed on the already-approved
-`outcome === 'completed'`, and the rest is styling. Nit, not blocking: the haptic effect re-fires if the screen
-remounts while already completed (a 3-D Secure return onto a settled checkout), so one purchase could buzz twice.
+`outcome === 'completed'`, and the rest is styling. Nit, not blocking: the haptic effect re-fired if the screen
+remounted while already completed (a 3-D Secure return onto a settled checkout), so one purchase could buzz twice.
+**Fixed and re-approved at `73a5f19`** — a module-level latch keyed by the listing, which survives the remount
+where a component ref would not. Gated surface re-verified empty across `43e3a97..73a5f19`. Batch 2 fully cleared.
 
 **A-17 — all four confirmation sources approved as implemented.** The load-bearing server claim was checked, not
 accepted: migration `047` raises on `NEW.amount <= v_current_bid`, so the rule is **strictly greater** and a
