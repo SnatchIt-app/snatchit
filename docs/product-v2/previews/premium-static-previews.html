@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snatch It · Premium Experience · STATIC PREVIEWS (batches 1–2)</title>
+<style>
+  :root{
+    --canvas:#000;--surface:#0A0A0A;--elevated:#111;
+    --text:#fff;--text2:rgba(255,255,255,.70);--muted:rgba(255,255,255,.55);--faint:rgba(255,255,255,.30);
+    --red:#FF1A1A;--redSoft:rgba(255,26,26,.10);--border:rgba(255,26,26,.15);--borderStrong:rgba(255,26,26,.30);
+    --success:#3DDC84;--warning:#FFB020;--error:#FF4D4D;
+    --display:Oswald,"Arial Narrow","Helvetica Neue Condensed",Impact,sans-serif;
+    --body:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#050505;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.45}
+  .wrap{padding:24px 16px 64px;max-width:1400px;margin:0 auto}
+  .stamp{border:2px solid var(--warning);color:var(--warning);padding:12px 16px;margin-bottom:24px;font-size:13px}
+  .stamp b{display:block;font-family:var(--display);font-size:22px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
+  h1{font-family:var(--display);text-transform:uppercase;font-size:34px;letter-spacing:-.7px;margin:0 0 8px}
+  h2{font-family:var(--display);text-transform:uppercase;font-size:22px;letter-spacing:-.2px;margin:40px 0 4px;color:var(--text)}
+  .sub{color:var(--muted);margin:0 0 16px}
+  .grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .phone{width:390px;max-width:100%;background:var(--canvas);border:1px solid var(--borderStrong);position:relative;overflow:hidden}
+  .phone .tag{position:absolute;top:0;right:0;background:var(--warning);color:#000;font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 6px;text-transform:uppercase;z-index:2}
+  .hdr{display:flex;align-items:center;justify-content:space-between;padding:52px 12px 8px;border-bottom:1px solid var(--border)}
+  .hdr .t{font-family:var(--display);text-transform:uppercase;font-size:20px}
+  .glyph{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:22px}
+  .body{padding:16px}
+  .micro{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+  .label{font-size:13px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+  .title{font-size:17px;font-weight:600}
+  .bodySm{font-size:13px;color:var(--text2)}
+  .price{font-weight:700;font-variant-numeric:tabular-nums}
+  .tab{font-variant-numeric:tabular-nums}
+  .card{border:1px solid var(--border);background:var(--surface);padding:16px;margin-top:16px}
+  .banner{border-left:2px solid var(--red);background:var(--surface);padding:12px 16px;display:flex;flex-direction:column;gap:2px}
+  .banner .label{color:var(--red)}
+  .sticky{border-top:1px solid var(--borderStrong);background:var(--surface);padding:12px 16px 34px;display:flex;align-items:center;gap:12px}
+  .sticky .left{flex:1;min-width:0}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:4px 16px;background:var(--red);color:#000;font-weight:600;letter-spacing:.3px;text-transform:uppercase;font-size:13px;border:0;border-radius:0;white-space:nowrap}
+  .btn.block{display:flex;width:100%}
+  .btn.lg{min-height:52px}
+  .btn.secondary{background:transparent;color:#fff;border:1px solid var(--borderStrong)}
+  .btn.destructive{background:transparent;color:var(--error);border:1px solid var(--error)}
+  .btn.disabled{opacity:.4}
+  .btn.pending{opacity:1}
+  .spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;display:inline-block}
+  .btn.secondary .spin{border-color:#fff;border-right-color:transparent}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{min-height:32px;padding:0 12px;border:1px solid var(--border);display:inline-flex;align-items:center;font-size:12px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;color:var(--muted)}
+  .chip.sel{border-color:var(--red);background:var(--redSoft);color:#fff}
+  .stepper{display:flex;align-items:center;gap:12px;margin-top:16px}
+  .stepBtn{width:52px;height:52px;border:1px solid var(--borderStrong);display:flex;align-items:center;justify-content:center;font-size:26px}
+  .stepBtn.off{opacity:.35}
+  .stepBtn.pressed{transform:scale(.98);background:rgba(255,255,255,.03)}
+  .quick{flex:1;min-height:40px;border:1px solid var(--red);background:var(--redSoft);color:var(--red);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;text-transform:uppercase}
+  .big{font-size:56px;line-height:64px;color:var(--red);font-weight:700;text-align:center;font-variant-numeric:tabular-nums;margin-top:24px}
+  .notice{color:var(--error);font-size:13px;margin-top:16px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+  .switch{width:51px;height:31px;border-radius:16px;background:var(--red);position:relative;flex:none}
+  .switch.off{background:var(--borderStrong)}
+  .switch i{position:absolute;top:2px;left:22px;width:27px;height:27px;border-radius:50%;background:#fff}
+  .switch.off i{left:2px}
+  .dialogWrap{position:relative;min-height:360px;background:rgba(0,0,0,.55)}
+  .dialog{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:270px;background:#1c1c1e;border-radius:14px;color:#fff;text-align:center;font-family:-apple-system,system-ui,sans-serif}
+  .dialog .dt{font-weight:600;font-size:17px;padding:19px 16px 4px}
+  .dialog .db{font-size:13px;padding:0 16px 16px;color:rgba(255,255,255,.85)}
+  .dialog .da{display:flex;border-top:1px solid rgba(255,255,255,.15)}
+  .dialog .da span{flex:1;padding:11px;font-size:17px;color:#0a84ff}
+  .dialog .da span+span{border-left:1px solid rgba(255,255,255,.15)}
+  .dialog .da span.d{color:#ff453a}
+  .dialog .da span.b{font-weight:600}
+  .kicker{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+  .kicker.warn{color:var(--warning)}
+  .displayLg{font-family:var(--display);text-transform:uppercase;font-size:34px;line-height:1.1;letter-spacing:-.7px;margin:8px 0 16px}
+  .hold{color:var(--warning);font-size:13px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;font-variant-numeric:tabular-nums;margin-top:16px}
+  .payState{margin-top:16px;padding:12px;border:1px solid var(--border);background:var(--surface)}
+  .legend{color:var(--muted);font-size:12px;margin-top:6px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--text2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stamp">
+    <b>Static preview — not a device render</b>
+    Hand-composed HTML of the screens changed in Premium batches 1 and 2, using the exact copy from the source modules
+    (<code>holdState.ts</code>, <code>payControl.ts</code>, <code>bidEntry.ts</code>, <code>unsavedChanges.ts</code>, the settings routes).
+    Layout, type and colour approximate the V2 tokens; the phone frame is illustrative. Native visual and runtime acceptance
+    remains outstanding for the next authorized candidate build; unit tests do not replace it. A test
+    (<code>tests/premium-static-previews.test.ts</code>) pins every string on this page to its source so the page cannot drift.
+  </div>
+
+  <h1>Premium Experience · static previews</h1>
+  <p class="sub">Branches <code>frontend/premium-batch-1</code> (payment reconciliation, hold and refund states, sign-out) and <code>frontend/premium-batch-2</code> (responsive controls, pending states, haptics, accessibility).</p>
+
+  <!-- ───────────────────────── 1. Controls ───────────────────────── -->
+  <h2>1 · Controls: tap received ≠ action succeeded (CFT-201/203)</h2>
+  <p class="sub">Button resting / pending (label visible beside the spinner, width held) / disabled. Chips resting and selected. Stepper key at the pressed 0.98 scale.</p>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="body">
+        <div class="micro">Resting</div>
+        <div style="margin:8px 0 16px"><button class="btn block">Place bid</button></div>
+        <div class="micro">Pending — visible label, spinner, busy for a screen reader</div>
+        <div style="margin:8px 0 16px"><button class="btn block pending"><span class="spin"></span>Submitting bid…</button></div>
+        <div class="micro">Pending, other flows</div>
+        <div style="margin:8px 0 8px"><button class="btn block pending"><span class="spin"></span>Reserving…</button></div>
+        <div style="margin:0 0 8px"><button class="btn block pending"><span class="spin"></span>Confirming receipt…</button></div>
+        <div style="margin:0 0 8px"><button class="btn block pending"><span class="spin"></span>Saving…</button></div>
+        <div style="margin:0 0 8px"><button class="btn block destructive pending"><span class="spin"></span>Reporting…</button></div>
+        <div style="margin:0 0 16px"><button class="btn block pending"><span class="spin"></span>Sending report…</button></div>
+        <div class="micro">Disabled</div>
+        <div style="margin:8px 0 16px"><button class="btn block disabled">Place bid</button></div>
+        <div class="micro">Chips (light selection tick + selected fill)</div>
+        <div class="chips" style="margin-top:8px"><span class="chip">Buy now</span><span class="chip sel">Auction</span><span class="chip">Ending soon</span><span class="chip sel">Wynwood</span></div>
+        <div class="micro" style="margin-top:16px">Stepper key, pressed (0.98)</div>
+        <div class="stepper"><div class="stepBtn off">−</div><div class="price" style="flex:1;text-align:center;font-size:17px">$80</div><div class="stepBtn pressed">+</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 2. Place bid ───────────────────────── -->
+  <h2>2 · Place bid: pending, then an honest outcome (CFT-203/205)</h2>
+  <p class="sub">The sticky action while the insert is in flight, then the three post-bid dialogs. "You're leading" only after the server accepted the bid and a fresh read confirmed the position.</p>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="hdr"><div class="glyph">←</div><div class="t">Place bid</div><div style="width:44px"></div></div>
+      <div class="body">
+        <div class="title">Weekend pool party</div>
+        <div class="bodySm">LIV Miami</div>
+        <div class="big">$80</div>
+        <div class="bodySm" style="text-align:center;margin-top:4px">+$5 per step · min $80</div>
+        <div class="stepper"><div class="stepBtn off">−</div><div class="price" style="flex:1;text-align:center;font-size:17px">$80</div><div class="stepBtn">+</div></div>
+        <div style="display:flex;gap:8px;margin-top:12px"><div class="quick">+$5</div><div class="quick">+$10</div><div class="quick">+$25</div></div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between"><span>Your bid</span><span class="price">$80</span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px"><span>Service fee (10%)</span><span class="price">$8</span></div>
+          <div style="height:1px;background:var(--border);margin:8px 0"></div>
+          <div style="display:flex;justify-content:space-between"><span class="title">You pay if you win</span><span class="price" style="color:var(--red)">$88 total</span></div>
+          <div class="bodySm" style="margin-top:8px">Only charged if you win the auction.</div>
+        </div>
+      </div>
+      <div class="sticky"><div class="left"><div class="micro">If you win</div><div class="price">$88</div></div><button class="btn pending" style="flex:none"><span class="spin"></span>Submitting bid…</button></div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">You're leading</div><div class="db">Your bid of $80 is in and it's the highest right now. If you win, you'll pay $88 total (includes the 10% service fee).</div><div class="da"><span class="b">OK</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">bidOutcome = <code>leading</code> · fresh current_bid = 80</div>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">Bid placed, but outbid</div><div class="db">Your $80 bid is in, but someone has already bid $90. Go back to the listing to raise it.</div><div class="da"><span class="b">OK</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">bidOutcome = <code>outbid</code> · fresh current_bid = 90</div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">Bid placed</div><div class="db">Your bid of $80 is in. If you win, you'll pay $88 total (includes the 10% service fee).</div><div class="da"><span class="b">OK</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">bidOutcome = <code>accepted</code> · re-read unavailable (position unknown, no claim)</div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 3. Listing detail ───────────────────────── -->
+  <h2>3 · Listing detail: reserving, and the hold banner (CFT-203/207)</h2>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div style="height:180px;background:linear-gradient(180deg,#2a0000,#000);display:flex;align-items:flex-end;padding:16px"><div><div class="displayLg" style="margin:0">Weekend pool party</div><div class="bodySm">LIV Miami · Sat, Sep 20 · 9:00 PM</div></div></div>
+      <div class="banner"><span class="label">Held for you</span><span class="bodySm tab">9:41 left to finish checkout.</span></div>
+      <div class="body"><div class="micro">Buy now</div><div class="price" style="font-size:24px">$88 total</div><div class="bodySm">2 tickets · sold together</div></div>
+      <div class="sticky"><div class="left"><div class="micro">Current bid</div><div class="price">$88</div></div><button class="btn pending" style="flex:none"><span class="spin"></span>Reserving…</button></div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 4. Checkout ───────────────────────── -->
+  <h2>4 · Checkout: hold, pay states, reconciliation, price change (batch 1 + 2)</h2>
+  <p class="sub">The hold row with tabular digits and the absolute deadline; payControl's labels now visible beside the spinner; the states that withdraw Pay.</p>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="hdr"><div class="glyph">←</div><div class="t">Checkout</div><div style="width:44px"></div></div>
+      <div class="body">
+        <div class="card" style="margin-top:0"><div class="title">Weekend pool party</div><div class="bodySm">LIV Miami</div><div class="bodySm" style="margin-top:4px">2 tickets</div></div>
+        <div class="hold">Held for you · 9:41 left · until 9:14 PM</div>
+        <div class="card"><div style="display:flex;justify-content:space-between"><span>Tickets</span><span class="price">$80</span></div><div style="display:flex;justify-content:space-between;margin-top:8px"><span>Service fee</span><span class="price">$8</span></div><div style="height:1px;background:var(--border);margin:8px 0"></div><div style="display:flex;justify-content:space-between"><span class="title">Total</span><span class="price" style="color:var(--red)">$88</span></div></div>
+      </div>
+      <div class="sticky"><div class="left"><div class="micro">Total</div><div class="price">$88</div></div><button class="btn" style="flex:none">Pay $88</button></div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="body">
+        <div class="micro">Pay withdrawn inside the 15 s margin</div>
+        <div class="hold" style="margin-top:8px">Checking your hold</div>
+        <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Checking your hold</button></div>
+        <div class="micro">Charge in flight</div>
+        <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Processing</button></div>
+        <div class="micro">Result being reconciled — no Pay, no retry</div>
+        <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Checking your payment</button></div>
+        <div class="micro">Reconciliation unreachable</div>
+        <div class="payState"><div class="title">We couldn't confirm your payment yet</div><div class="bodySm" style="margin-top:4px">Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now.</div><div style="margin-top:12px"><button class="btn secondary">Check status</button></div></div>
+      </div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="body">
+        <div class="micro">Hold lost — released by this screen</div>
+        <div class="payState"><div class="title">Your hold was released</div><div class="bodySm" style="margin-top:4px">Nothing was charged. Go back to the listing to reserve it again.</div></div>
+        <div class="micro" style="margin-top:16px">Hold lost — the deadline passed</div>
+        <div class="payState"><div class="title">Your hold ran out</div><div class="bodySm" style="margin-top:4px">Nothing was charged. Go back to the listing to reserve it again if it is still available.</div></div>
+        <div class="micro" style="margin-top:16px">Hold lost — reason unknown (neutral)</div>
+        <div class="payState"><div class="title">This listing is no longer held for you</div><div class="bodySm" style="margin-top:4px">Nothing was charged. Go back to the listing to check availability and reserve it again.</div></div>
+      </div>
+      <div class="sticky"><div class="left"><div class="micro">Total</div><div class="price">$88</div></div><button class="btn" style="flex:none">Back to listing</button></div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="body">
+        <div class="micro">Price changed — fresh acceptance required (CFT-304)</div>
+        <div class="payState"><div class="title">The total changed</div><div class="bodySm" style="margin-top:4px">It was $88 and is now $99, service fee included. Nothing has been charged. Accept the new total to continue.</div></div>
+      </div>
+      <div class="sticky"><div class="left"><div class="micro">Total</div><div class="price">$88</div></div><button class="btn" style="flex:none">Accept $99</button></div>
+    </div>
+  </div>
+
+  <h2>4b · Refund states — never a purchase success (CFT-308)</h2>
+  <p class="sub">Owner decision pending on the exact refund wording; this is the current REFUND_COPY.</p>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="body" style="padding-top:64px">
+        <div class="kicker">Payment refunded</div>
+        <div class="displayLg">This payment was refunded</div>
+        <div class="bodySm">The refund has been issued to your original payment method. When it appears depends on your bank or card provider. No purchase was made.</div>
+      </div>
+      <div class="sticky"><button class="btn block lg">Back to listing</button></div>
+    </div>
+    <div class="phone"><span class="tag">static</span>
+      <div class="body" style="padding-top:64px">
+        <div class="kicker warn">Refund in progress</div>
+        <div class="displayLg">A refund is being processed</div>
+        <div class="bodySm">This payment is being refunded. No purchase was made and there is nothing you need to do. We'll update this order once the refund is complete.</div>
+      </div>
+      <div class="sticky"><button class="btn block lg">Back to listing</button></div>
+    </div>
+    <div class="phone"><span class="tag">static</span>
+      <div class="body" style="padding-top:64px">
+        <div class="kicker">Partial refund issued</div>
+        <div class="displayLg">Part of this payment was refunded</div>
+        <div class="bodySm">Your order stands. $20 has been returned to your original payment method; when it appears depends on your bank or card provider.</div>
+      </div>
+      <div class="sticky"><button class="btn block lg">Back to home</button></div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 5. Transfer receive ───────────────────────── -->
+  <h2>5 · Transfer receive: confirm and report are separate pending states (CFT-203/205)</h2>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="hdr"><div class="glyph">←</div><div class="t">Receive transfer</div><div style="width:44px"></div></div>
+      <div class="body">
+        <div style="border:1px solid var(--warning);padding:8px;text-align:center;color:var(--warning)" class="bodySm tab">3h 12m remaining</div>
+        <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><span class="micro">Transfer</span><span class="chip sel" style="min-height:20px;font-size:10px">Seller sent</span></div><div class="row"><span class="bodySm">Event</span><span>Weekend pool party</span></div><div class="row" style="border:0"><span class="bodySm">Method</span><span>mobile transfer</span></div></div>
+        <div style="border:1px solid var(--warning);padding:8px;margin-top:16px;color:var(--warning)" class="bodySm">By confirming, you release payment to the seller. Only confirm if you can see the tickets in your account.</div>
+        <div style="margin-top:8px"><button class="btn block pending"><span class="spin"></span>Confirming receipt…</button></div>
+        <div style="margin-top:8px"><button class="btn block destructive disabled">I haven't received them</button></div>
+        <div class="legend">While confirm runs, Report is disabled and shows no spinner of its own; a double tap cannot invoke confirm-and-release twice.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 6. Settings ───────────────────────── -->
+  <h2>6 · Reversible actions: instant, background-saved, rolled back with an explanation (CFT-204)</h2>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="hdr"><div class="glyph">←</div><div class="t">Your scene</div><div style="width:44px"></div></div>
+      <div class="body">
+        <div class="bodySm" style="margin-bottom:16px">Pick the areas you go out in most. We'll show those listings first. Changes save as you go.</div>
+        <div class="chips"><span class="chip sel">Wynwood</span><span class="chip">Brickell</span><span class="chip sel">South Beach</span><span class="chip">Downtown</span><span class="chip">Little Havana</span><span class="chip">Coconut Grove</span></div>
+        <div class="notice" role="alert">We couldn't save that change, so it's back to what you had. Check your connection and try again.</div>
+        <div class="legend">Chips rolled back to the committed set; notice announced to VoiceOver.</div>
+      </div>
+      <div class="sticky"><button class="btn block pending"><span class="spin"></span>Saving…</button></div>
+      <div class="legend" style="padding:0 16px 12px">Done reads "Saving…" while a save is in flight and leaves only once the last change is committed.</div>
+    </div>
+
+    <div class="phone"><span class="tag">static</span>
+      <div class="hdr"><div class="glyph">←</div><div class="t">Notifications</div><div style="width:44px"></div></div>
+      <div class="body">
+        <div class="micro" style="margin-bottom:8px">Preferences</div>
+        <div class="row"><div><div class="title">Outbid alerts</div><div class="bodySm">Get notified when someone outbids you</div></div><div class="switch"><i></i></div></div>
+        <div class="row"><div><div class="title">Auction ending soon</div><div class="bodySm">Reminder when auctions you bid on are ending</div></div><div class="switch off"><i></i></div></div>
+        <div class="row"><div><div class="title">Auction won</div><div class="bodySm">Know the moment you win an auction</div></div><div class="switch"><i></i></div></div>
+        <div class="notice" role="alert">Couldn't save Outbid alerts. It's back to on. Check your connection and try again.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 7. Guards ───────────────────────── -->
+  <h2>7 · Back gestures preserve unfinished work (CFT-208)</h2>
+  <div class="grid">
+    <div class="phone"><span class="tag">static</span>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">Discard changes?</div><div class="db">Your edits to this listing haven't been saved.</div><div class="da"><span class="b">Keep editing</span><span class="d">Discard</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">Edit listing · dirty = any field differs from the loaded row</div>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">Discard this report?</div><div class="db">What you've entered won't be sent.</div><div class="da"><span class="b">Keep writing</span><span class="d">Discard</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">Report · dirty = a reason chosen or notes typed</div>
+    </div>
+    <div class="phone"><span class="tag">static</span>
+      <div class="dialogWrap"><div class="dialog"><div class="dt">Still saving</div><div class="db">Your last change is still saving. If you leave now it may not stick.</div><div class="da"><span class="b">Wait</span><span class="d">Leave anyway</span></div></div></div>
+      <div class="legend" style="padding:8px 16px">Your scene · a back gesture while a background save is in flight</div>
+    </div>
+  </div>
+
+  <h2>8 · Not previewable statically</h2>
+  <p class="sub">Haptics (select / confirm / success / warning), the 0.98 press motion, Reduce Motion cross-fades on sheets and stack transitions, the single-flight double-tap guard, Dynamic Type at 1.3×, and VoiceOver announcements. These need the next authorized candidate build.</p>
+</div>
+</body>
+</html>
