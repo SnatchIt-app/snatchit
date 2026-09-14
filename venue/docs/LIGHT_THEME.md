@@ -21,7 +21,7 @@ Layout, routes, permissions, fixture and database behaviour are unchanged; only 
 | `ink` | `#111111` | primary text | 18.9:1 |
 | `muted` | `#4a4a4a` | secondary text, table headers | 9.0:1 |
 | `dim` | `#6b6b6b` | tertiary text, eyebrows | 5.7:1 |
-| `placeholder` | `#767676` | input placeholders | 4.5:1 |
+| `placeholder` | `#6b6b6b` | input placeholders (also on disabled gray) | 5.7:1 (5.2:1 on raised) |
 | `primary` | `#ff1a1a` | brand fills and borders; CTAs stay black-on-red | 3.9:1 (non-text) |
 | `primary-ink` | `#c40000` | brand red as **text** (`text-primary-ink`) | 5.9:1 |
 | `primary-soft` | `rgba(255,26,26,.08)` | selected nav item, hover tint | — |
@@ -55,3 +55,17 @@ Layout, routes, permissions, fixture and database behaviour are unchanged; only 
 `docs/screenshots/light/` — every surface at 1440 (desktop) and 390 (mobile), inventory also at 820
 (tablet), plus hover/keyboard-focus captures and the loading / empty / no-match / error / denied /
 sign-in states.
+
+## Pass 2 (2026-09-14)
+
+- **Disclosure menus** (`<details>/<summary>`: mobile nav drawer, door reference panels, "New manual case",
+  audit rows, MFA secret): hover = `raised`, keyboard focus = inset red outline, open = hairline under the summary.
+- **Inline code** gets a faint `raised` chip so identifiers stay scannable on white.
+- **Placeholder** darkened to `#6b6b6b` so it also passes on the gray disabled-field background (5.2:1).
+- **Tooltips** are native `title`/`<abbr title>` (metric definitions, chart bars, partial cells), so they follow
+  the OS light tooltip; every chart also carries the same values as text or an `aria-label`.
+- **Automated guard**: `tests/theme-contrast.test.ts` parses the token sheet and fails the suite if any text token
+  drops below 4.5:1 on white or on `raised`, a status/brand colour below 3:1 as a border, black-on-red below 4.5:1,
+  or if a primary surface stops being white.
+
+New previews: `30-mobile-menu-open-mobile`, `31-door-disclosures-open-mobile`, `32-filter-field-focus-desktop`.
