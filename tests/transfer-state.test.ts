@@ -30,8 +30,9 @@ describe('formatCountdown', () => {
 describe('status meta', () => {
   it('carries a word and a tone for each state', () => {
     expect(transferStatusMeta('pending')).toEqual({ label: 'Pending', tone: 'neutral' });
-    expect(transferStatusMeta('seller_sent')).toEqual({ label: 'Sent', tone: 'neutral' });
-    expect(transferStatusMeta('buyer_confirmed')).toEqual({ label: 'Complete', tone: 'success' });
+    // CFT-402: the seller's claim and the buyer's possession never share a word.
+    expect(transferStatusMeta('seller_sent')).toEqual({ label: 'Marked sent', tone: 'neutral' });
+    expect(transferStatusMeta('buyer_confirmed')).toEqual({ label: 'Received', tone: 'success' });
     expect(transferStatusMeta('auto_released')).toEqual({ label: 'Released', tone: 'success' });
     expect(transferStatusMeta('disputed')).toEqual({ label: 'Issue', tone: 'warning' });
   });
