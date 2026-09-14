@@ -112,8 +112,8 @@ export async function launchBrowser(chromePath) {
       async viewport(w, h, mobile = false) {
         await s("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile });
       },
-      async key(key, code, vk, modifiers = 0) {
-        await s("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers });
+      async key(key, code, vk, modifiers = 0, text) {
+        await s("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
         await s("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers });
       },
       close: () => send("Target.disposeBrowserContext", { browserContextId }),
@@ -130,6 +130,8 @@ export async function launchBrowser(chromePath) {
       const exited = new Promise((r) => (proc.exitCode !== null ? r() : proc.once("exit", r)));
       proc.kill();
       await Promise.race([exited, sleep(3000)]);
+      if (proc.exitCode === null) proc.kill("SIGKILL");
+      proc.unref();
       try {
         rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       } catch {

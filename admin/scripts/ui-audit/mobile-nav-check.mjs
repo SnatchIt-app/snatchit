@@ -54,7 +54,7 @@ try {
   s = await state(p);
   check("390: Escape closes and returns focus to the button", !s.nav && s.expanded === "false" && s.focusIsButton, s);
 
-  await p.key("Enter", "Enter", 13);
+  await p.key("Enter", "Enter", 13, 0, "\r");
   await p.waitFor("!!document.getElementById('mobile-nav')", 3000);
   s = await state(p);
   check("390: keyboard Enter on the focused button opens the menu", s.nav, s);
