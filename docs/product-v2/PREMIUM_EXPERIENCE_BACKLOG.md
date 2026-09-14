@@ -357,3 +357,54 @@ Never re-offer Pay after an unreachable check.
 **Holds now:** CFT-303 and CFT-609 (owner: quantity); CFT-611 server part and the
 privacy copy (owner). **Released to C with contracts:** CFT-304, CFT-308 (owner
 copy), CFT-302/CFT-305 (A-04), CFT-611 frontend helper.
+
+---
+
+## Batch 1 — status (2026-09-14, C)
+
+Owner's go received 2026-09-14 with product direction: preserve whole-listing
+pricing and label the total for the listed quantity; remove the seller
+"per ticket" copy; make the privacy wording match implemented behaviour without
+claiming deactivation works until verified; "Payment refunded" only for a
+confirmed refund, a distinct pending state, no bank-arrival promise, no
+purchase success; coordinate notification rebinding with A. Authorised:
+isolated development and local verification only.
+
+Branch **`frontend/premium-batch-1`** (worktree `snatchit-batch1`), cut from
+the approved F1 commit `2ba5281`. Build 16 untouched. Nothing deployed.
+
+| Commit | Tasks | Contract | State |
+|---|---|---|---|
+| `bcbb106` | CFT-301, 302, 304, 305, 308, 303 (label) | A-02, A-03, A-04; owner ruling on quantity | **landed; with A for review** |
+| `5cb53f3` | CFT-609 | owner ruling | landed |
+| `72ec91d` | CFT-611 (frontend), privacy copy | A-08(c) | **landed; with A for review** |
+| — | CFT-103, 106, 101, 107 | A's batch conditions | in progress on the same branch |
+
+**How the direction landed.**
+- *Whole-listing pricing:* unchanged calculation; checkout shows the ticket
+  count beside the total ("2 tickets" row, "covers all 2 tickets"); the seller
+  sees "$X for all 2 tickets" / "You get for 2 tickets" — no "per ticket".
+- *Refunds:* `refunded` = `refunded_at` set and `amount_refunded_cents ≥ total`
+  → "Payment refunded"; anything else with status refunded → "Refund in
+  progress". Neither promises bank timing or shows success; both offer Back to
+  listing. (`payment_refunds` is not readable by the client, so the payments row
+  is the only source.)
+- *Privacy copy:* now describes an attempt and its failure mode. It does not
+  claim deactivation works; that stays **unverified** until a build carrying the
+  helper runs on a physical device.
+- *Rebinding:* not attempted client-side. A token bound to another account is
+  invisible under RLS (`no_match`); A-08(d) remains A's, on the owner's word.
+
+**Gates at `72ec91d`:** tsc clean; vitest 1677 passed (71 files); expo lint 0
+errors, 29 warnings (baseline).
+
+**Previews.** A simulator build is feasible locally (Xcode 26.6, iPhone 17 Pro,
+sandbox-only build script with pairing guards; native project generated in the
+batch worktree). **Limit flagged:** checkout states (hold loss, Pay gating,
+price change, refund screens) need a live reservation, which is a write to the
+shared sandbox; not done without an explicitly scheduled window. Read-only
+screens (Home with image fallback, listing detail handoff, Tickets, filter
+sheet, create-listing proceeds copy, privacy page) can be previewed.
+
+**Deferred inside this batch.** CFT-306 (split "Processing" into confirming vs
+finalizing) waits on A-04's step signals; CFT-307's alternatives wait on A-11.
