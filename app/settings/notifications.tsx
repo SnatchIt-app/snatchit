@@ -19,6 +19,8 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { REGISTRATION_REMEDY } from '@/src/lib/push/registration';
+import { getRegistrationStatus, subscribeRegistrationStatus, type RegistrationStatus } from '@/src/lib/push/registrationStatus';
 import { Button, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
@@ -47,6 +49,13 @@ export default function NotificationsScreen() {
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   // A failed toggle rolls back and says so here, briefly.
   const [notice, setNotice] = useState<string | null>(null);
+  // Whether this device is registered for THIS account (128 client, A-08d).
+  const [registration, setRegistration] = useState<RegistrationStatus>(getRegistrationStatus);
+  useEffect(() => subscribeRegistrationStatus(setRegistration), []);
+  const remedy =
+    registration.state === 'failed' || registration.state === 'waiting'
+      ? REGISTRATION_REMEDY[registration.kind] ?? null
+      : null;
 
   async function checkPermission() {
     try {
@@ -140,6 +149,15 @@ export default function NotificationsScreen() {
                   <Text style={[textStyle('label'), s.openSettingsText]}>Open settings</Text>
                 </Pressable>
               ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {remedy ? (
+          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
+            <View style={s.permBody}>
+              <Text style={[textStyle('bodySm'), s.permText]}>{remedy}</Text>
             </View>
           </View>
         ) : null}
