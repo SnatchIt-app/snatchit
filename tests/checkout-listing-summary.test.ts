@@ -15,6 +15,7 @@ import {
   LISTING_SUMMARY_COLUMNS,
   mapListingSummary,
   reservedUntilMs,
+  ticketCountLabel,
 } from '../src/lib/checkout/listingSummary';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
@@ -27,7 +28,7 @@ describe('the summary select asks only for columns that exist', () => {
 
   it('asks for every field the summary and the countdown need', () => {
     expect(COLUMNS.sort()).toEqual(
-      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'reserved_until', 'venue'],
+      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'quantity', 'reserved_until', 'venue'],
     );
   });
 
@@ -52,6 +53,7 @@ describe('mapping a row to what the screen shows', () => {
       venue: 'Stadium',
       date: '2026-10-01',
       time: '19:30',
+      quantity: null,
     });
   });
 
@@ -92,7 +94,7 @@ describe('mapping a row to what the screen shows', () => {
 
   it('survives a missing row entirely', () => {
     expect(mapListingSummary(null, fallback)).toEqual({
-      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '',
+      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null,
     });
   });
 });
@@ -128,5 +130,19 @@ describe('checkout uses the fixed read', () => {
   it('keeps the summary failure off the payment path', () => {
     // The read must not throw or clear payment state when it fails; it returns.
     expect(screen()).toMatch(/listing summary unavailable/);
+  });
+});
+
+describe('whole-listing pricing label', () => {
+  it('reads the ticket count from the row and labels it as a count, never a per-ticket price', () => {
+    expect(mapListingSummary({ quantity: 2 }, { eventName: 'e', venue: 'v' }).quantity).toBe(2);
+    expect(ticketCountLabel(2)).toBe('2 tickets');
+    expect(ticketCountLabel(1)).toBe('1 ticket');
+  });
+
+  it('shows no count when the quantity is unknown or invalid', () => {
+    expect(mapListingSummary({ quantity: 0 }, { eventName: 'e', venue: 'v' }).quantity).toBeNull();
+    expect(mapListingSummary({ quantity: null }, { eventName: 'e', venue: 'v' }).quantity).toBeNull();
+    expect(ticketCountLabel(null)).toBeNull();
   });
 });

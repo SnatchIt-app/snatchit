@@ -28,7 +28,7 @@
 
 /** Exactly the columns the summary needs; every one verified to exist. */
 export const LISTING_SUMMARY_COLUMNS =
-  'cover_image_path, event_name, venue, event_date, event_time, reserved_until';
+  'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity';
 
 export type ListingSummaryRow = {
   cover_image_path?: string | null;
@@ -39,6 +39,8 @@ export type ListingSummaryRow = {
   event_date?: string | null;
   event_time?: string | null;
   reserved_until?: string | null;
+  /** Tickets in the listing. The price covers all of them (whole-listing pricing). */
+  quantity?: number | null;
 };
 
 export type ListingSummary = {
@@ -48,6 +50,8 @@ export type ListingSummary = {
   venue: string;
   date: string;
   time: string;
+  /** Null when unknown; the screen then shows no ticket count. */
+  quantity: number | null;
 };
 
 /** '' and '   ' are absences, not values — a blank must not reach the renderer. */
@@ -73,6 +77,7 @@ export function mapListingSummary(
     venue: present(r.venue) ?? fallback.venue,
     date: present(r.event_date) ?? '',
     time: present(r.event_time) ?? '',
+    quantity: typeof r.quantity === 'number' && Number.isFinite(r.quantity) && r.quantity > 0 ? Math.floor(r.quantity) : null,
   };
 }
 
@@ -86,4 +91,14 @@ export function reservedUntilMs(row: ListingSummaryRow | null | undefined): numb
   if (raw == null) return null;
   const ms = new Date(raw).getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * "2 tickets" / "1 ticket". Whole-listing pricing: the total covers every
+ * ticket in the listing, so the count sits next to the total, never as a
+ * per-ticket price.
+ */
+export function ticketCountLabel(quantity: number | null): string | null {
+  if (quantity == null) return null;
+  return `${quantity} ${quantity === 1 ? 'ticket' : 'tickets'}`;
 }
