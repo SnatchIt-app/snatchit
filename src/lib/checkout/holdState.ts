@@ -73,8 +73,19 @@ export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string |
   }
 }
 
-/** The refund states this route can show. Neither is a purchase success. */
+/**
+ * The refund states this route can show. `refunded` and `refund_pending` are
+ * not purchase successes. `partially_refunded` is an order that stands with
+ * part of the money returned; it is not the celebration screen either.
+ */
 export const REFUND_COPY = {
+  partially_refunded: {
+    kicker: 'Partial refund issued',
+    title: 'Part of this payment was refunded',
+    body:
+      'Your order stands. {amount} has been returned to your original payment method; ' +
+      'when it appears depends on your bank or card provider.',
+  },
   refunded: {
     kicker: 'Payment refunded',
     title: 'This payment was refunded',
@@ -90,3 +101,8 @@ export const REFUND_COPY = {
       "need to do. We'll update this order once the refund is complete.",
   },
 } as const;
+
+/** Fill the amount into the partial-refund body. */
+export function partialRefundBody(formattedAmount: string): string {
+  return REFUND_COPY.partially_refunded.body.replace('{amount}', formattedAmount);
+}

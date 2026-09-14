@@ -54,10 +54,10 @@ import {
   type ListingSummaryRow,
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, REFUND_COPY } from '@/src/lib/checkout/holdState';
+import { fmtHoldUntil, notHeldCopy, notHeldReason, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
-import { decideCheckoutSetup, holdIsMine, pickSettled, settledKind, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
+import { decideCheckoutSetup, holdIsMine, partialRefundCents, pickSettled, settledKind, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -133,7 +133,9 @@ export default function CheckoutScreen() {
   // screen's release call succeeded; the wording depends on it (CFT-301).
   const [holdLost, setHoldLost] = useState<{ releasedByUs: boolean; at: number } | null>(null);
   // A refund state found at setup (A-03). Never a purchase success.
-  const [refundState, setRefundState] = useState<'refunded' | 'refund_pending' | null>(null);
+  const [refundState, setRefundState] = useState<
+    { kind: 'refunded' | 'refund_pending' } | { kind: 'partially_refunded'; refundedCents: number } | null
+  >(null);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // The server could not be reached to confirm a payment: no Pay is offered
@@ -252,7 +254,13 @@ export default function CheckoutScreen() {
         if (decision.kind === 'refunded' || decision.kind === 'refund_pending') {
           // A-03: a refund is never a success and never a reason to set up a
           // new intent here. Its own screen says so.
-          setRefundState(decision.kind);
+          setRefundState({ kind: decision.kind });
+          return;
+        }
+        if (decision.kind === 'partially_refunded') {
+          // F8: the order stands, but part of the money came back. Not the
+          // celebration screen; say what was returned.
+          setRefundState({ kind: 'partially_refunded', refundedCents: decision.refundedCents });
           return;
         }
         if (decision.kind === 'reservation_unverifiable') {
@@ -372,12 +380,16 @@ export default function CheckoutScreen() {
           // recompute the all-in total with the canonical helper, and offer the
           // new number only if the two agree. The buyer must tap to accept it;
           // nothing is resent automatically.
+          // Mirrors create-payment-intent exactly: buy_now_price for Buy Now,
+          // winning_bid_amount ?? current_bid for an auction (index.ts:499).
           const { data: fresh } = await supabase
             .from('listings')
-            .select('buy_now_price, current_bid')
+            .select('buy_now_price, current_bid, winning_bid_amount')
             .eq('id', listingId)
             .maybeSingle();
-          const baseDollars = isBuyNow ? fresh?.buy_now_price : fresh?.current_bid;
+          const baseDollars = isBuyNow
+            ? fresh?.buy_now_price
+            : (fresh?.winning_bid_amount ?? fresh?.current_bid);
           const freshTotalCents =
             typeof baseDollars === 'number' ? buyerTotalCents(dollarsToCents(baseDollars)) : null;
           const r = reconcilePriceChange({
@@ -560,9 +572,43 @@ export default function CheckoutScreen() {
     }
   }
 
+  // ── The one server-side re-validation (A-04) ──────────────────────────────
+  // Settled-first, then the hold. Used at the expiry margin and after a
+  // reachable "not verified" check, so Pay is never restored on the strength of
+  // the device clock alone (review, required change 2).
+  async function revalidateAgainstServer(): Promise<'settled' | 'refund' | 'held' | 'lost'> {
+    if (!user) return 'lost';
+    const { data: rows } = await supabase
+      .from('payments')
+      .select('status, refunded_at, amount_refunded_cents, total')
+      .eq('listing_id', listingId)
+      .eq('buyer_id', user.id)
+      .in('status', [...SETTLED_STATUSES])
+      .limit(5);
+    const settled = pickSettled(rows ?? null);
+    const kind = settledKind(settled);
+    if (kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
+    if (kind === 'partially_refunded') { setRefundState({ kind, refundedCents: partialRefundCents(settled) }); setPaymentReady(false); return 'refund'; }
+    if (kind) { setRefundState({ kind }); setPaymentReady(false); return 'refund'; }
+    if (!isBuyNow) return 'held'; // an auction winner holds no reservation
+    const { data: listing } = await supabase
+      .from('listings')
+      .select('status, reserved_by, reserved_until')
+      .eq('id', listingId)
+      .maybeSingle();
+    if (listing && holdIsMine(listing, user.id, new Date())) {
+      // Follow the server's deadline; Pay returns only if it is outside the margin.
+      setReservedUntil(new Date(listing.reserved_until as string).getTime());
+      return 'held';
+    }
+    setPaymentReady(false);
+    setHoldLost({ releasedByUs: false, at: Date.now() });
+    return 'lost';
+  }
+
   // Manual "Check status" after an unreachable check. Never re-offers Pay on
-  // its own: a reachable "not verified" re-offers it only while the hold is
-  // live; "verified" settles.
+  // its own: a reachable "not verified" re-offers it only after the SERVER
+  // says the hold is still live; "verified" settles.
   async function recheckPayment() {
     if (!user || !paymentIntentId) return;
     const verdict = await reconcileAfterSheetError();
@@ -579,9 +625,13 @@ export default function CheckoutScreen() {
       return;
     }
     if (verdict === 'not_verified') {
-      const live = !isBuyNow || (reservationMsLeft != null && !withinExpiryMargin(reservationMsLeft));
-      if (live) setPaymentReady(true);
-      else setHoldLost({ releasedByUs: false, at: Date.now() });
+      setChecking(true);
+      try {
+        const state = await revalidateAgainstServer();
+        if (state === 'held') setPaymentReady(true);
+      } finally {
+        setChecking(false);
+      }
     }
   }
 
@@ -593,29 +643,7 @@ export default function CheckoutScreen() {
     (async () => {
       setChecking(true);
       try {
-        const { data: rows } = await supabase
-          .from('payments')
-          .select('status, refunded_at, amount_refunded_cents, total')
-          .eq('listing_id', listingId)
-          .eq('buyer_id', user.id)
-          .in('status', [...SETTLED_STATUSES])
-          .limit(5);
-        const kind = settledKind(pickSettled(rows ?? null));
-        if (kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return; }
-        if (kind) { setRefundState(kind); setPaymentReady(false); return; }
-        const { data: listing } = await supabase
-          .from('listings')
-          .select('status, reserved_by, reserved_until')
-          .eq('id', listingId)
-          .maybeSingle();
-        if (listing && holdIsMine(listing, user.id, new Date())) {
-          // Clock skew: the server still holds it for us. Follow the server's
-          // deadline; Pay comes back only if that deadline is outside the margin.
-          setReservedUntil(new Date(listing.reserved_until as string).getTime());
-          return;
-        }
-        setPaymentReady(false);
-        setHoldLost({ releasedByUs: false, at: Date.now() });
+        await revalidateAgainstServer();
       } finally {
         setChecking(false);
       }
@@ -664,7 +692,8 @@ export default function CheckoutScreen() {
     return (
       <View style={s.safe}>
         <RefundView
-          state={refundState}
+          state={refundState.kind}
+          refundedCents={refundState.kind === 'partially_refunded' ? refundState.refundedCents : null}
           cover={cover}
           eventName={showName}
           venue={showVenue}
@@ -864,13 +893,17 @@ export default function CheckoutScreen() {
 // A-03: a refund is its own screen. It never says the purchase succeeded and
 // never promises when money reaches the bank.
 function RefundView({
-  state, cover, eventName, venue, whenLabel,
+  state, refundedCents, cover, eventName, venue, whenLabel,
 }: {
-  state: 'refunded' | 'refund_pending';
+  state: 'refunded' | 'refund_pending' | 'partially_refunded';
+  refundedCents: number | null;
   cover: string | null; eventName: string; venue: string; whenLabel: string;
 }) {
   const insets = useSafeAreaInsets();
   const copy = REFUND_COPY[state];
+  const body = state === 'partially_refunded' ? partialRefundBody(formatCents(refundedCents ?? 0)) : copy.body;
+  // A partial refund leaves a real order behind; the others leave nothing.
+  const orderStands = state === 'partially_refunded';
   return (
     <View style={s.confirmWrap}>
       <View style={[s.confirmBody, { paddingTop: insets.top + v2.space.xxl }]}>
@@ -892,10 +925,16 @@ function RefundView({
             ) : null}
           </View>
         </View>
-        <Text style={[textStyle('body'), s.confirmNote]}>{copy.body}</Text>
+        <Text style={[textStyle('body'), s.confirmNote]}>{body}</Text>
       </View>
       <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        <Button label="Back to listing" onPress={() => router.back()} variant="primary" size="lg" block />
+        <Button
+          label={orderStands ? 'Back to home' : 'Back to listing'}
+          onPress={() => (orderStands ? router.replace('/(tabs)/home') : router.back())}
+          variant="primary"
+          size="lg"
+          block
+        />
       </View>
     </View>
   );

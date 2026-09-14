@@ -56,11 +56,16 @@ export async function revokeThenSignOut(deps: SignOutDeps): Promise<{ revoke: Re
       const userId = await deps.getUserId();
       if (!userId) outcome = 'no_session';
       else {
-        const timeout = new Promise<'timed_out'>((res) =>
-          setTimeout(() => res('timed_out'), deps.timeoutMs ?? SIGN_OUT_REVOKE_TIMEOUT_MS),
-        );
-        const result = await Promise.race([deps.revoke(token, userId).then((n) => n), timeout]);
-        outcome = result === 'timed_out' ? 'timed_out' : result > 0 ? 'revoked' : 'no_match';
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<'timed_out'>((res) => {
+          timer = setTimeout(() => res('timed_out'), deps.timeoutMs ?? SIGN_OUT_REVOKE_TIMEOUT_MS);
+        });
+        try {
+          const result = await Promise.race([deps.revoke(token, userId).then((n) => n), timeout]);
+          outcome = result === 'timed_out' ? 'timed_out' : result > 0 ? 'revoked' : 'no_match';
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       }
     }
   } catch {
