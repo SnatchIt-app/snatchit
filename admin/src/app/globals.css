@@ -108,10 +108,12 @@ body {
   padding: 0.5rem 0.75rem;
   font-size: 14px;
 }
-.field:hover:not(:disabled):not(:focus) {
+.field:hover:not(:disabled):not(:focus):not(:focus-within) {
   border-color: rgba(17, 17, 17, 0.4);
 }
-.field:focus {
+.field:focus,
+.field:focus-within {
+  /* :focus-within too: native date/time inputs move focus into internal segments, where :focus does not match. */
   border-color: #ff1a1a;
   box-shadow: 0 0 0 3px rgba(255, 26, 26, 0.15);
   outline: none;
