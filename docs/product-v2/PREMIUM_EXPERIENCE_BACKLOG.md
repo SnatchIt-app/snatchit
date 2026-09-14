@@ -498,3 +498,77 @@ adds a non–Build 16 artefact to the record, and the held-checkout previews nee
 the sandbox window regardless. C concurs. Static previews of the read-only
 screens remain the zero-cost middle path if the owner wants visual acceptance
 sooner.
+
+---
+
+## Batch 2 — status (2026-09-14, C)
+
+Branch `frontend/premium-batch-2` in `/Users/josetascon/snatchit-batch1`, from
+batch 1's approved head `43e3a97`. Seven commits, oldest first:
+
+| Commit | Scope | Tasks |
+|---|---|---|
+| `53d3fbf` | Button `pendingLabel` (visible label + spinner, width held, read by VoiceOver); `Tappable`; `src/lib/feedback/haptics.ts` (select / confirm / success / warning); dock silent; Chip ticks; `createSingleFlight` / `useSingleFlight`; Sheet and root Stack cross-fade under Reduce Motion | 201, 202, 203, 205, 206 |
+| `de6dc09` | Place bid: "Submitting bid…", lock, outcome from a fresh `current_bid` read after the insert ("You're leading" / "Bid placed, but outbid" / "Bid placed"); confirm haptic after acceptance; `formatDollars` | 201, 203, 205, 207 |
+| `7f6284e` | Buy Now "Reserving…" behind a lock; receive splits `submitting` into `confirming` / `disputing`, "Confirming receipt…" / "Reporting…", one lock over confirm-and-release and dispute, success haptic after the edge function succeeds; delivery form on the shared Button ("Saving…") | 201, 203, 205 |
+| `4b705c4` | **Checkout, display only, for A's review**: Pay button passes payControl's label as `pendingLabel` while loading; one success haptic keyed on the `completed` outcome; tabular digits on the hold row | 202, 203, 207 |
+| `ed0adcf` | `formatDollars` replaces the seller-card and profile formatters; tabular digits on the listing banner detail and the receive countdown; seller row + Edit/Delete/Cancel are `Tappable`; sticky price beside Place bid capped like the CTA | 201, 207, 208 |
+| `afa2967` | Your scene: instant chips, latest-wins background save (`createCoalescedSaver`), rollback + inline notice + VoiceOver announcement, "Done" waits for settle; Notifications: inline revert notice instead of a modal alert; unsaved-changes guard (`useUnsavedChangesGuard`, `shouldAskBeforeLeaving`, `UNSAVED_COPY`) on Edit listing, Report and Your scene-while-saving; "Saving…" / "Sending report…" | 204, 208 |
+| `3c78382` | `docs/product-v2/previews/premium-static-previews.html` — STATIC previews of the batch 1 + 2 screens, every string pinned to its source module by `tests/premium-static-previews.test.ts` | previews |
+
+**Gates.** `tsc --noEmit` clean; vitest 1795 tests / 79 files (batch 1 was
+1730 / 74); `expo lint` 0 errors / 29 warnings (batch 1's baseline); the
+touched files carry 0 lint errors. Payment/sign-out gated files
+(`payments.ts`, `setupDecision.ts`, `payControl.ts`, `signOut.ts`) untouched.
+
+**Per task.**
+- CFT-201 — done for every non-primitive control the batch touched (stepper,
+  quick-add, seller row and its actions, delivery submit). Remaining: the raw
+  pressables inside CreateListing's pickers (SelectRow) — batch 6 polish.
+- CFT-202 — done. Tab taps silent; Chip = light tick; confirm = after the bids
+  insert returned without error; success = after confirm-and-release success
+  and on checkout's `completed` outcome; warning = the existing outbid path.
+  No in-app haptics switch: iOS applies the system setting; an app-level
+  toggle needs a preference column (adjacent to A-15).
+- CFT-203 — done. Pending labels everywhere a submission runs; no success
+  copy before the server's answer. "You're leading" comes from a fresh read
+  with the Bids tab's own rule (`bidStatusOf`: amount ≥ current_bid), so the
+  two screens tell one truth (item 53). Receipt success wording ("Transfer
+  complete") is unchanged; CFT-402/405 own that copy.
+- CFT-204 — done for Your scene and Notifications. **Save event stays blocked
+  on A-15** (no table or API).
+- CFT-205 — client half done: ref-held single-flight on bid, reserve, confirm,
+  dispute; back navigation never disabled. Server duplicate protection is A-06.
+- CFT-206 — done. Sheet and Stack cross-fade under Reduce Motion (the Modal
+  slide was never swapped by the platform); every haptic pairs with a visible
+  state; Spinner's static mark already existed.
+- CFT-207 — done except the quantity half, which is **held with CFT-303**.
+- CFT-208 — partial: guards on Edit listing and Report; Your scene asks while a
+  save is in flight; sticky price cap beside Place bid. Not done: the delivery
+  form's own typed-but-unsaved state (needs a state lift out of the
+  component), CreateListing (a tab — state survives tab switches, no removal
+  event), and the long-name / 1.3× audit, which needs a device.
+
+**A-17 confirmation sources as implemented (for A's ruling).** Bid accepted =
+`bids` insert without error (migration 047's trigger rejects anything not
+above `current_bid`, so a successful insert was leading at that instant);
+position = a fresh `listings.current_bid` read after the insert; receipt =
+`confirm-and-release` returned success; purchase = settlement outcome
+`completed` (unchanged from batch 1). Nothing is shown from the tap.
+
+**For A's review.** `4b705c4` (CheckoutNative, display only). For awareness:
+`7f6284e` (the lock now sits around `confirm-and-release` and the dispute RPC;
+the two calls are made exactly as before) and `de6dc09` (post-bid re-read).
+
+**Previews.** Static page sent to the owner and committed with its pin test.
+Native visual/runtime acceptance is still outstanding for the next authorised
+candidate build. Not previewable statically: haptics, press motion, Reduce
+Motion transitions, the double-tap guard, Dynamic Type, VoiceOver.
+
+**Next deliverable (proposed, on the owner's go).** The batch 3 slice that needs
+no A contract: CFT-402 (seller claim vs buyer possession wording across
+`transferState`, `bidState`, `TransferStatusBadge`) and CFT-404 (return from
+the provider lands on the order with "Did the tickets arrive?" and a status
+refresh), then CFT-306 (real-state progress copy), which touches
+`payControl.ts` and goes to A first. CFT-401/403/405/406/408/409 wait on
+A-09, A-12, A-17, A-14 and A-10 respectively.
