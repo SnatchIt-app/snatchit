@@ -167,6 +167,7 @@ describe("F3 database-mode presentation", () => {
     expect(out).not.toContain("Capabilities come from your grants");
     expect(out).toContain("No verified role at this venue");
     expect(out).not.toContain('href="/o/');
+    expect(out).not.toContain("Menu ·");
   });
 
   it("never renders the sample fixture organization or venue names", () => {
@@ -188,6 +189,15 @@ describe("F3 database-mode presentation", () => {
     expect(out).toContain(`href="/o/${ORG_A}/v/${VEN_A}/events"`);
     expect(out).toContain("Capabilities come from your grants");
     expect(out).toContain("Venue manager");
+  });
+
+  it("the database banner never mentions a role switch that does not exist", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_VENUE_DATA_SOURCE", "database");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:3202");
+    const { sourceInfo } = await import("@/lib/source");
+    expect(sourceInfo().label).not.toMatch(/role switch/i);
+    vi.unstubAllEnvs();
   });
 
   it("fixture mode is unchanged: sample names and the role switch stay", () => {

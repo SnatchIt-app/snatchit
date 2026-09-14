@@ -20,7 +20,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <h1 className="mt-1 text-xl font-bold">Sign in</h1>
       {DATA_SOURCE === "database" ? (
         <>
-          <p className="mt-1 text-sm text-muted">Venue staff and organization members. You will see exactly what your grants allow; the preview role switch does not change that.</p>
+          <p className="mt-1 text-sm text-muted">Venue staff and organization members. You will see exactly what your grants allow.</p>
           <div className="mt-5">
             <LoginForm next={next} />
           </div>
