@@ -23,9 +23,9 @@ and 188 passes again. All 8 views `security_invoker` + `security_barrier`; `anon
 | App build | Result |
 |---|---|
 | frozen `ae2e2ea` | fails H3, C4-cross-venue, P1 ×3, C6 entry ×3 (below) |
-| `venue/read-slice1-fixes` + F4 (integration build) | **128/128** |
+| `venue/read-slice1-fixes` @ `2665a20` (integration build) | **135/135** |
 
-**Defects the kit found in the frozen slice (fixed on `venue/read-slice1-fixes`; F1–F3 approved by Claude A 2026-09-14, F4 awaiting review):**
+**Defects the kit found in the frozen slice (fixed on `venue/read-slice1-fixes` @ `2665a20`; F1–F4 approved by Claude A 2026-09-14):**
 
 - **F1 — refreshed sessions were never persisted (H3).** There was no Next.js proxy, and Server Components
   cannot write cookies, so a refresh lived for one render only. Hosted Supabase rotates refresh tokens and
@@ -48,6 +48,15 @@ and 188 passes again. All 8 views `security_invoker` + `security_barrier`; `anon
   mismatch.
 
 No SQL, RLS or migration change is involved in F1–F4.
+
+**Two different guarantees, both proven:** *no data* (RLS — the API checks C1–C7 call `venue_api` directly with each
+role's token) and *denied entry* (the app — the browser checks prove a caller is not let in wearing a role it does
+not hold at that route). C6 showed they can diverge: RLS held 6/6 while entry was open 0/3 before F4.
+
+**C7 — unapproved venue (Claude A's F4 edge).** F4 makes entry depend on reading the venue row, and a *pending*
+venue is not covered by the approved-venue policy. Fixtures add pending Venue C in Org A with Venue A's manager
+also granted there: the manager reads the row via the own-staff policy and enters; Org A's owner reads it via the
+org plane and enters; finance B and the outsider cannot read it and are denied. No over-denial.
 
 **Sandbox, read-only preflight through the kit (2026-09-14 06:55Z): 8/8.** Ledger 130 rows (tip
 `20260909000000`; the extra row is the sandbox-only `123`), no `ops`/`venue_api`, venue substrate empty,
@@ -108,13 +117,13 @@ npm run build && npm start   # http://localhost:3300
 
 ```bash
 # 5  MUTATION — four synthetic users (Auth admin API, random passwords kept in .runs/sandbox/state.json, 0600)
-#    + fixture rows with fixed 5a4d0b0e- ids (incl. a Venue B draft, hidden type and presale batch), one transaction
+#    + fixture rows with fixed 5a4d0b0e- ids (incl. Venue B draft/hidden type/presale batch and pending Venue C), one transaction
 $K --phase fixtures   --window $VENUE_ACCEPT_WINDOW
 # 6  sign-ins + refused write attempts: C1 anon ×8, H4 projection, C2 writes, H5 cross-tenant, C3 outsider, C5 owner,
-#    C6 org grant without a venue grant at another org's venue (RLS)
+#    C6 org grant without a venue grant at another org's venue (RLS), C7 pending-venue readability
 $K --phase api        --window $VENUE_ACCEPT_WINDOW
 # 7  headless browser: H1 login, C4 malformed/foreign ids, H2 tampered token, H3 refresh persisted + 12 s soak,
-#    H6 logout, H5/C5 labels, C6 route venue/org binding, C3 outsider, H7 two concurrent sessions, P1 presentation; 3 PNGs
+#    H6 logout, H5/C5 labels, C6 route venue/org binding, C7 pending-venue entry, C3 outsider, H7 concurrency, P1; 3 PNGs
 $K --phase browser    --window $VENUE_ACCEPT_WINDOW
 # 8  MUTATION — role precedence (adds two scanner grants), then immediate revocation of the manager grant
 $K --phase precedence --window $VENUE_ACCEPT_WINDOW

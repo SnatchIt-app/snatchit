@@ -72,6 +72,7 @@ const ID = {
   orgB: "5a4d0b0e-0000-4000-8000-00000000000b",
   venA: "5a4d0b0e-0000-4000-8000-0000000000aa",
   venB: "5a4d0b0e-0000-4000-8000-0000000000bb",
+  venC: "5a4d0b0e-0000-4000-8000-0000000000cc",
   e1: "5a4d0b0e-0000-4000-8000-0000000000e1",
   e2: "5a4d0b0e-0000-4000-8000-0000000000e2",
   e3: "5a4d0b0e-0000-4000-8000-0000000000e3",
@@ -203,7 +204,7 @@ async function fixtures() {
     .replaceAll("{{OWNER_A}}", assertUuid(users.owner.id, "owner"))
     .replaceAll("{{FINANCE_B}}", assertUuid(users.finance.id, "finance"));
   const r = target.sqlText(sql);
-  check("fixtures", "2 orgs, 2 venues, 4 events, 4 sessions, 3 types, 3 batches, 2 staff, 1 member", r.orgs === 2 && r.venues === 2 && r.events === 4 && r.sessions === 4 && r.ticket_types === 3 && r.batches === 3 && r.staff_roles === 2 && r.org_members === 1, r);
+  check("fixtures", "2 orgs, 3 venues (1 pending), 4 events, 4 sessions, 3 types, 3 batches, 3 staff, 1 member", r.orgs === 2 && r.venues === 3 && r.events === 4 && r.sessions === 4 && r.ticket_types === 3 && r.batches === 3 && r.staff_roles === 3 && r.org_members === 1, r);
   check("fixtures", "remaining computed 174 / 0 / 40", r.remaining?.[ID.bPublic] === 174 && r.remaining?.[ID.bPresale] === 0 && r.remaining?.[ID.bPresaleB] === 40, r.remaining);
 }
 
@@ -237,8 +238,8 @@ async function api() {
   check(P, "H4 manager reads remaining 174 / 0", JSON.stringify(r.json) === JSON.stringify([{ batch_id: ID.bPublic, remaining: 174 }, { batch_id: ID.bPresale, remaining: 0 }]), r.text);
   r = await rest("inventory_batches?select=capacity", { token: T.manager });
   check(P, "H4 capacity is not a column (42703)", r.status === 400 && r.json?.code === "42703", r.text.slice(0, 120));
-  r = await rest("my_staff_roles", { token: T.manager });
-  check(P, "H4 my_staff_roles = own venue_manager row only", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venA, role: "venue_manager" }]), r.text);
+  r = await rest("my_staff_roles?order=venue_id", { token: T.manager });
+  check(P, "H4 my_staff_roles = own rows only (Venue A + pending Venue C)", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venA, role: "venue_manager" }, { venue_id: ID.venC, role: "venue_manager" }]), r.text);
   r = await rest("my_org_roles", { token: T.manager });
   check(P, "H4 my_org_roles empty for manager", Array.isArray(r.json) && r.json.length === 0, r.text);
 
@@ -263,7 +264,7 @@ async function api() {
     'probe', (select count(*) from catalog.event where event_id = '5a4d0b0e-0000-4000-8000-0000000000e9'),
     'remaining', (select json_object_agg(batch_id, remaining) from venue.inventory_batch where batch_id::text like '5a4d0b0e-%'),
     'staff', (select count(*) from venue.staff_role where venue_id::text like '5a4d0b0e-%')) as j;`);
-  check(P, "C2 nothing changed (titles, no probe row, remaining, grants)", after.titles[ID.e1] === TITLE.e1 && after.probe === 0 && after.remaining[ID.bPublic] === 174 && after.staff === 2, after);
+  check(P, "C2 nothing changed (titles, no probe row, remaining, grants)", after.titles[ID.e1] === TITLE.e1 && after.probe === 0 && after.remaining[ID.bPublic] === 174 && after.staff === 3, after);
 
   // H5 cross-tenant: finance at Venue B.
   r = await rest(`events?event_id=eq.${ID.e2}`, { token: T.finance });
@@ -308,6 +309,16 @@ async function api() {
   check(P, "C6 Org A owner cannot read Venue B presale batch (hidden type)", Array.isArray(r.json) && r.json.length === 0, r.text);
   r = await rest(`my_staff_roles?venue_id=eq.${ID.venB}`, { token: T.owner });
   check(P, "C6 Org A owner holds no staff role at Venue B", Array.isArray(r.json) && r.json.length === 0, r.text);
+  // C7 unapproved venue (Claude A's F4 edge): entry now needs the venue row to be readable. A pending venue is
+  // not covered by the approved-venue policy, so its manager depends on the own-staff policy, its org on the org plane.
+  r = await rest(`venues?venue_id=eq.${ID.venC}&select=venue_id,org_id,approval_status`, { token: T.manager });
+  check(P, "C7 manager reads own PENDING venue row (own-staff policy)", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venC, org_id: ID.orgA, approval_status: "pending" }]), r.text);
+  r = await rest(`venues?venue_id=eq.${ID.venC}&select=venue_id`, { token: T.owner });
+  check(P, "C7 Org A owner reads pending venue row (org plane)", Array.isArray(r.json) && r.json.length === 1, r.text);
+  r = await rest(`venues?venue_id=eq.${ID.venC}&select=venue_id`, { token: T.finance });
+  check(P, "C7 finance B cannot read Org A's pending venue", Array.isArray(r.json) && r.json.length === 0, r.text);
+  r = await rest(`venues?venue_id=eq.${ID.venC}&select=venue_id`, { token: T.outsider });
+  check(P, "C7 outsider cannot read a pending venue", Array.isArray(r.json) && r.json.length === 0, r.text);
   // Positive control: Venue B's own staff (finance) still read their draft-free public surface; the manager of A cannot.
   r = await rest(`events?event_id=eq.${ID.e4}`, { token: T.manager });
   check(P, "C6 Venue A manager cannot read Venue B draft", Array.isArray(r.json) && r.json.length === 0, r.text);
@@ -379,6 +390,9 @@ async function browser() {
     // C6 mirror: a venue grant under another org's route segment (/o/B/v/A) must not open Venue A.
     t = await visit(m, `/o/${ID.orgB}/v/${ID.venA}/events`);
     check(P, "C6 Venue A manager at /o/B/v/A: denied (venue not in route org)", t.includes(DENIED) && !t.includes(TITLE.e1), t.slice(0, 300));
+    // C7: the manager of a PENDING venue still gets in (no over-denial from F4).
+    t = await visit(m, `/o/${ID.orgA}/v/${ID.venC}/events`);
+    check(P, "C7 manager enters own pending venue (Venue manager, not denied)", !t.includes(DENIED) && !t.includes(SIGN_IN) && t.includes("Venue manager"), t.slice(0, 300));
     t = await visit(m, `${A}/events?role=org_owner&state=empty`);
     check(P, "C5 query-string role/state ignored", t.includes("Venue manager") && t.includes(TITLE.e1), t.slice(0, 300));
 
@@ -456,6 +470,8 @@ async function browser() {
     t = await visit(o, `${B}/events`);
     check(P, "C5 owner denied at Venue B", t.includes(DENIED) && t.includes(NO_GRANT), t.slice(0, 200));
     // C6: Org A's owner at Venue B under Org A's route segment (/o/A/v/B) — the venue is not in Org A.
+    t = await visit(o, `/o/${ID.orgA}/v/${ID.venC}/events`);
+    check(P, "C7 Org A owner enters Org A's pending venue (Org owner)", !t.includes(DENIED) && t.includes("Org owner"), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events`);
     check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !/Capabilities come from your grants/.test(t), t.slice(0, 300));
     t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events/${ID.e3}`);
@@ -473,7 +489,7 @@ async function browser() {
     await out.screenshot(join(OUT, "evidence-outsider-denied.png"));
     check(P, "P1 grant-less caller: no role label claimed, no sample names, no empty menu", !/Capabilities come from your grants: (Venue|Org)|Venue manager|\(sample\)|role switch/i.test(to) && !(await out.evaluate("[...document.querySelectorAll('details')].some(d => /Menu ·/.test(d.innerText) && d.querySelectorAll('a').length === 0)")), to.slice(0, 300));
     check(P, "P1 manager header shows no sample fixture names in database mode", !/\(sample\)/.test(tm), tm.slice(0, 300));
-    for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`]) {
+    for (const path of [`${A}/events/${ID.e1}`, `${A}/events/${ID.e1}/door`, `${B}/events`, `${A}/events?role=venue_manager&state=live`, `/o/${ID.orgA}/v/${ID.venC}/events`]) {
       t = await visit(out, path);
       check(P, `C3 outsider denied: ${path.replace(A, "A").replace(B, "B")}`, t.includes(DENIED) && !t.includes(TITLE.e1), t.slice(0, 200));
     }
@@ -527,7 +543,7 @@ async function revocation() {
   }
   const Tm = await passwordToken(users.manager);
   let r = await rest("my_staff_roles", { token: Tm });
-  check("revocation", "my_staff_roles empty after revocation", Array.isArray(r.json) && r.json.length === 0, r.text);
+  check("revocation", "Venue A grant gone after revocation (pending Venue C grant untouched)", JSON.stringify(r.json) === JSON.stringify([{ venue_id: ID.venC, role: "venue_manager" }]), r.text);
   r = await rest(`events?event_id=eq.${ID.e2}`, { token: Tm });
   check("revocation", "draft no longer readable after revocation", Array.isArray(r.json) && r.json.length === 0, r.text);
 }
