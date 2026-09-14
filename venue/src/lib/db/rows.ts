@@ -68,6 +68,7 @@ export function mapBatches(rows: BatchRow[]): InventoryBatch[] {
   }));
 }
 
+export type VenueScopeRow = { venue_id: string; org_id: string };
 export type StaffRoleRow = { venue_id: string; role: string };
 export type OrgRoleRow = { org_id: string; role: string };
 

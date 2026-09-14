@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, SupabaseConfigError } from "@/lib/supabase/server";
 import { mapReadError, transportFailure, type ReadFailure, type ReadResult } from "@/lib/db/read-result";
-import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type SessionRow, type StaffRoleRow, type TicketTypeRow } from "@/lib/db/rows";
+import { mapBatches, mapEvents, mapGrants, mapTicketTypes, type BatchRow, type EventRow, type OrgRoleRow, type PolicyRow, type VenueScopeRow, type SessionRow, type StaffRoleRow, type TicketTypeRow } from "@/lib/db/rows";
 import type { GrantSet } from "@/lib/roles";
 import type { Event, InventoryBatch, TicketType } from "@/lib/types";
 
@@ -36,6 +36,18 @@ async function select<T>(read: string, q: PromiseLike<{ data: T | null; error: {
   } catch (e) {
     return transportFailure(read, e);
   }
+}
+
+/**
+ * The route venue's own org, read as the caller (venue_api.venues: approved venues, the org plane, and the
+ * venue's own staff can read the row). null = not readable, which the entry policy treats as no access.
+ */
+export async function dbVenueScope(venueId: string): Promise<ReadResult<VenueScopeRow | null>> {
+  const cl = await client("venue_api.venues");
+  if (!cl.ok) return cl;
+  const rows = await select<VenueScopeRow[]>("venue_api.venues", cl.c.from("venues").select("venue_id,org_id").eq("venue_id", venueId).limit(1));
+  if (!rows.ok) return rows;
+  return { ok: true, data: rows.data[0] ?? null };
 }
 
 /** B1 — venue_api.events + event_sessions + resale_policies, scoped to one venue by the route. */
