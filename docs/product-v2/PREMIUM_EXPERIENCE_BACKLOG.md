@@ -607,3 +607,10 @@ A-09, A-12, A-17, A-14 and A-10 respectively.
 - **Batch 3.** A agrees with the slice split and CFT-306 going to A first; the
   go is the owner's. A-15 unchanged (blocked). Native acceptance still rides
   the next authorised build.
+- **`73a5f19` APPROVED (A, 2026-09-14). Batch 2 fully cleared; nothing
+  outstanding.** Gated surface re-verified across `43e3a97..73a5f19`: empty.
+  Two observations, no action: the latch Set grows one short string per
+  completed purchase for the life of the process (irrelevant at mobile
+  scale); and it is keyed by listing, which is correct only because a listing
+  sells once — **if a future surface allows repeat purchases of the same id,
+  the key must become the payment.**
