@@ -313,7 +313,7 @@ Never re-offer Pay after an unreachable check.
   sign-ins (04:25:50.931Z and 04:41:20.813Z). Mechanism (A): `usePushToken`
   selects by token, RLS hides the other user's row, the insert conflicts. Effect:
   this phone would receive the other account's pushes and none of the buyer's
-  (`send-push` filters `is_active=true`, :70). C compared no token values.
+  (`send-push` filters `is_active=true`, :70). **Same token, deduced (A; verified by C):** PostgREST returns 409 for SQLSTATE 23505 (unique violation; an RLS failure would be 403); the table's only unique indexes are `push_tokens_pkey(id)` and `push_tokens_token_key(token)`; `id` defaults to `gen_random_uuid()` and the app's insert sends only `user_id`, `token`, `platform`, `is_active` (usePushToken.ts:85) — so the conflict can only be on `token`, with one row present. Remaining assumption: no other row existed at 04:25/04:41Z and was deleted since. Token values not printed or compared.
   **Production exposure unknown** (no production read).
 - **(c) Frontend part — RELEASED.** One sign-out helper for all 5 sites: before
   `signOut`, while the JWT is still valid, set `is_active=false`,
