@@ -403,6 +403,10 @@ export default function HomeScreen() {
         // The ticker drives every countdown on screen; without this the cells
         // memoize and the clocks freeze.
         extraData={now}
+        // A realtime INSERT prepends to the feed (handler below, unchanged).
+        // Anchoring the visible content means a new row lands above what the
+        // user is reading instead of shoving it down by one card.
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

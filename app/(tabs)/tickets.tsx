@@ -129,6 +129,9 @@ export default function TicketsScreen() {
           body="Tickets you own will show up here."
         />
       ) : (
+        // Stays mounted across tab switches: a focus reload never re-enters the
+        // loading phase once rows exist (refreshPolicy), so the scroll position
+        // the user left survives the refetch.
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.key}
