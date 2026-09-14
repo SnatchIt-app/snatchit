@@ -150,7 +150,8 @@ export function bidPresentation(row: BidRowInput, userId: string): BidPresentati
       return base({ label: 'Won', tone: 'brand', actionHint: 'Pay to claim', priority: 1,
         priceLabel: 'You pay', priceDollars: l ? saleDollars(l) : row.amount });
     case 'seller_sent':
-      return base({ label: 'Tickets sent', tone: 'warning', actionHint: 'Confirm receipt',
+      // The seller's claim, not the buyer's possession (CFT-402).
+      return base({ label: 'Marked sent', tone: 'warning', actionHint: 'Confirm receipt',
         routesToTransfer: true, priority: 2,
         priceLabel: 'Paid', priceDollars: row.amount });
     case 'awaiting_transfer':
@@ -168,7 +169,7 @@ export function bidPresentation(row: BidRowInput, userId: string): BidPresentati
         priceLabel: 'Current bid', priceDollars: l?.current_bid ?? 0,
         secondaryLabel: 'Your max', secondaryDollars: row.amount });
     case 'purchase_confirmed':
-      return base({ label: 'Confirmed', tone: 'success', actionHint: 'View transfer',
+      return base({ label: 'Received', tone: 'success', actionHint: 'View transfer',
         routesToTransfer: true, priority: 6,
         priceLabel: 'Paid', priceDollars: row.amount });
     case 'sold':

@@ -135,7 +135,7 @@ export default function TransferSendScreen() {
       setSubmitting(false);
       if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
       setTransfer((prev) => (prev ? { ...prev, status: 'seller_sent', transfer_evidence_path: evidencePath } : prev));
-      Alert.alert('Sent', 'Transfer marked as sent. Waiting for the buyer to confirm receipt.');
+      Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.");
     } catch {
       setSubmitting(false);
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -246,8 +246,8 @@ export default function TransferSendScreen() {
 
         {/* SELLER_SENT */}
         {transfer.status === 'seller_sent' ? (
-          <StateBlock title="Transfer sent" tone="neutral">
-            <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm receipt.</Text>
+          <StateBlock title="Marked as sent" tone="neutral">
+            <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm they received the tickets.</Text>
             {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' ? (
               <Text style={[textStyle('bodySm'), s.stateSub]}>Buyer review window: {releaseCountdown}. Your payout releases once it clears review, sooner if the buyer confirms.</Text>
             ) : null}
@@ -266,11 +266,11 @@ export default function TransferSendScreen() {
 
         {/* BUYER_CONFIRMED */}
         {transfer.status === 'buyer_confirmed' ? (
-          <StateBlock title="Transfer complete" tone="success">
+          <StateBlock title="Tickets received" tone="success">
             <Text style={[textStyle('bodySm'), s.stateText]}>
               {transfer.payout_released_at
-                ? 'The buyer has confirmed receipt. Your payout has been released.'
-                : 'The buyer has confirmed receipt. Your payout is being processed, make sure your payout account is set up in Settings.'}
+                ? 'The buyer confirmed they received the tickets. Your payout has been released.'
+                : 'The buyer confirmed they received the tickets. Your payout is being processed, make sure your payout account is set up in Settings.'}
             </Text>
           </StateBlock>
         ) : null}

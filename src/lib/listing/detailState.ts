@@ -173,8 +173,9 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
     if (role === 'buyer' && transfer.status === 'seller_sent') {
       return {
         kind: 'transfer_pending',
-        label: 'Tickets sent',
-        detail: 'Check them, then confirm so the seller gets paid.',
+        // The seller's claim, not the buyer's possession (CFT-402).
+        label: 'Seller marked sent',
+        detail: 'Check your ticket account, then confirm receipt so the seller gets paid.',
         tone: 'warning',
       };
     }
