@@ -26,6 +26,16 @@
  * `already_settled` now means `succeeded` ONLY, and succeeded is checked
  * before refunded so a buyer holding both rows is never told the wrong one.
  *
+ * F8 (A's review of this batch). The server's single refund writer
+ * (`record_payment_refund`, 20260906120000 :518-522) flips status to
+ * `refunded` and stamps `refunded_at` only when the refunded amount reaches
+ * the total. A PARTIAL refund therefore leaves a `succeeded` row carrying
+ * `amount_refunded_cents > 0` and no date — which used to reach the success
+ * screen with no sign that money came back. That row is `partially_refunded`
+ * here: the order stands, and the screen says what was returned. Because of
+ * the same writer, a `refunded` row is always dated and full today, so
+ * `refund_pending` is defensive: kept as insurance against a diverging writer.
+ *
  * PREMIUM BATCH 1 (CFT-301, D9-UX-1). `reservation_expired` is renamed
  * `not_held`: the server cannot tell a hold that ran out from one that was
  * released early (both leave the listing active with the hold fields null),
@@ -69,6 +79,7 @@ export interface SetupDeps<Intent> {
 
 export type SetupDecision<Intent> =
   | { kind: 'already_settled' }
+  | { kind: 'partially_refunded'; refundedCents: number }
   | { kind: 'refunded' }
   | { kind: 'refund_pending' }
   | { kind: 'reservation_unverifiable' }
@@ -105,9 +116,18 @@ export function pickSettled(rows: SettledPayment | SettledPayment[] | null | und
   return settled.find((p) => p.status === 'succeeded') ?? settled.find((p) => p.status === 'refunded') ?? null;
 }
 
-export function settledKind(p: SettledPayment | null): 'already_settled' | 'refunded' | 'refund_pending' | null {
+/** Cents returned on a succeeded row, i.e. a partial refund; 0 when none. */
+export function partialRefundCents(p: SettledPayment | null | undefined): number {
+  if (!p || p.status !== 'succeeded') return 0;
+  const c = p.amount_refunded_cents ?? 0;
+  return c > 0 ? c : 0;
+}
+
+export type SettledKind = 'already_settled' | 'partially_refunded' | 'refunded' | 'refund_pending';
+
+export function settledKind(p: SettledPayment | null): SettledKind | null {
   if (!p) return null;
-  if (p.status === 'succeeded') return 'already_settled';
+  if (p.status === 'succeeded') return partialRefundCents(p) > 0 ? 'partially_refunded' : 'already_settled';
   if (p.status === 'refunded') return isRefundConfirmed(p) ? 'refunded' : 'refund_pending';
   return null;
 }
@@ -137,6 +157,7 @@ export async function decideCheckoutSetup<Intent>(
     //    present anything. Succeeded is preferred over refunded.
     const settled = pickSettled(await deps.fetchSettledPayment(input.listingId, input.buyerId));
     const kind = settledKind(settled);
+    if (kind === 'partially_refunded') return { kind, refundedCents: partialRefundCents(settled) };
     if (kind) return { kind };
 
     // 2. Buy Now must still hold the listing. (Only reachable when NOT paid.)
