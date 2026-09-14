@@ -42,7 +42,7 @@ responsiveness · P2 completeness · P3 refinement.
 | CFT-E1 | Transfer UI V2 (buyer receive, seller send) | `frontend/transfer-ui-v2` (`401e0aa`, `ddaf20d`, `cabc232`) | reviewed by A; **visual acceptance blocked** on a device/simulator render | CFT-401, 402, 403, 405 |
 | CFT-E2 | Transfer load-error handling (not found / offline / unavailable) | `frontend/d7-transfer-load-errors` (`5569385`, `59a413f`) | reviewed by A | CFT-401, 607 |
 | CFT-E3 | F1 checkout summary/countdown (dead `cover_image_url` select) | `frontend/f1-checkout-summary-query` (`2ba5281`) | **approved by A** | CFT-302 |
-| CFT-E4 | D9-UX1 released hold reported as "expired"; "Try again" cannot re-reserve | defect record, doc 18; no branch | open, out of Build 16 | CFT-301 |
+| CFT-E4 | D9-UX-1 released hold reported as "expired"; "Try again" cannot re-reserve | defect record, doc 18; no branch | open, out of Build 16 | CFT-301 |
 | CFT-E5 | F3 deletion sheet shows raw tokens for 3 blocker kinds | doc 18 | open | CFT-703 |
 | CFT-E6 | F6 stale "deletion pending" notification, future integration risk | doc 18 | retained risk | CFT-606 |
 | CFT-E7 | Populated native Tickets state untested (0 native tickets; issuance disabled) | matrix | deferred | CFT-801 |
@@ -209,7 +209,7 @@ No D session is identifiable from C's session; the owner routes these.
 Isolated branch `frontend/premium-batch-1`, cut from `df9e0d3` with the approved
 F1 commit. No transaction behaviour change.
 
-1. **CFT-301** — D9-UX1: released vs expired wording, and **Back to listing**
+1. **CFT-301** — D9-UX-1: released vs expired wording, and **Back to listing**
    instead of the dead "Try again". P0; presentation and navigation only.
 2. **CFT-302 (frontend part)** — carry F1, and show the hold's actual expiry
    time. Pay gating at zero waits for A-04.
