@@ -36,6 +36,7 @@
 | **G4 — M5-live = T3** (first production credential on an internal test event via `venue.issue_comp`; one `credential-sign`, one `door-manifest`; exactly one `Sign` each) | `AUTHORIZE PFA-18C M5` | owner (+ founder B for any dual-controlled config) | G2, G3, C6 (done), monitor armed (done) | CloudTrail/edge-log/`/keys` read-backs |
 | **G5 — C8 issuance flip** `feature.native_issuance_enabled := true` | owner act outside the runbook | owner | G4 green; M6; Model A operational | read-backs; monitor |
 | **G6 — Migration 122** (086↔112/113 expired-episode drift in `venue.sync_scan_device_manifest`) | `AUTHORIZE PFA-18C MIGRATION 122` | engineering (coordinator or A), owner (apply) | numbering with Claude A; rehearsal + CI | migration/rollback/test; **required before G7, not before G5** |
+| ↳ **DATED CORRECTION 2026-09-14:** G6 is migration **125** / rollback 125 / pgTAP **190** (reassigned from 122 by the owner's sequencing approval, registry `MIGRATION_NUMBER_REGISTRY.md`; A ack 2026-09-14). **Written and rehearsed** on branch `fix/125-scan-device-sync-expired-episode` (draft PR, review-only; package `PHASE2_PFA18C_125_SCANNING_CONTRACT_CORRECTION_PACKAGE.md`). Merge order 121 → 123 → 124 → 125. The phrase above is left verbatim as history; its re-issue for 125 is the owner's decision. | | | | |
 | **G7 — C8 scanning flip** `feature.native_scanning_enabled := true` | owner act | owner | G5, G6, scanner SDK readiness | read-backs |
 | **G8 — Live commerce checks** (Stripe live checkout on an internal event, payout posture) | primary-ticketing activation runbook | owner + payments program | G5 | separate program |
 
@@ -54,6 +55,7 @@
 | Local `~/pfa18c-local` placeholder artifacts and C3 directory | owner | keep or remove at the owner's discretion; key/env files already unlinked |
 | Uncommitted owner docs `PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md`, `docs/phase2/TICKETS_READ_CONTRACT_CORE_COORDINATION.md` | owner | never committed by the coordinator |
 | D7 "Transfer not found", Build 16 handset matrix, 142-chain integration, numbering for 121/122 | Claude A / C, owner | in progress |
+| ↳ DATED CORRECTION 2026-09-14: "numbering for 121/122" now reads 121/**125** (registry resolved; D7 closed on build 16 per A's record). | | |
 | PFA-18A un-park (rotation/provisioning lifecycle) | governance + engineering | post-launch |
 
 ## 5. Rollback surfaces still available (each needs its own phrase)
