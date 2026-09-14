@@ -17,17 +17,21 @@ insert into venue.staff_role (venue_id, identity_id, role) values
 insert into catalog.event (event_id, venue_id, org_id, title, status) values
   ('5a4d0b0e-0000-4000-8000-0000000000e1', '5a4d0b0e-0000-4000-8000-0000000000aa', '5a4d0b0e-0000-4000-8000-00000000000a', 'Hosted Acceptance Night A (synthetic, on sale)', 'on_sale'),
   ('5a4d0b0e-0000-4000-8000-0000000000e2', '5a4d0b0e-0000-4000-8000-0000000000aa', '5a4d0b0e-0000-4000-8000-00000000000a', 'Hosted Acceptance Draft A (synthetic)', 'draft'),
-  ('5a4d0b0e-0000-4000-8000-0000000000e3', '5a4d0b0e-0000-4000-8000-0000000000bb', '5a4d0b0e-0000-4000-8000-00000000000b', 'Hosted Acceptance Night B (synthetic, announced)', 'announced');
+  ('5a4d0b0e-0000-4000-8000-0000000000e3', '5a4d0b0e-0000-4000-8000-0000000000bb', '5a4d0b0e-0000-4000-8000-00000000000b', 'Hosted Acceptance Night B (synthetic, announced)', 'announced'),
+  ('5a4d0b0e-0000-4000-8000-0000000000e4', '5a4d0b0e-0000-4000-8000-0000000000bb', '5a4d0b0e-0000-4000-8000-00000000000b', 'Hosted Acceptance Draft B (synthetic)', 'draft');
 insert into catalog.event_session (session_id, event_id, starts_at, doors_at, status) values
   ('5a4d0b0e-0000-4000-8000-0000000000f1', '5a4d0b0e-0000-4000-8000-0000000000e1', now() + interval '3 days', now() + interval '3 days' - interval '1 hour', 'scheduled'),
   ('5a4d0b0e-0000-4000-8000-0000000000f2', '5a4d0b0e-0000-4000-8000-0000000000e2', now() + interval '30 days', null, 'scheduled'),
-  ('5a4d0b0e-0000-4000-8000-0000000000f3', '5a4d0b0e-0000-4000-8000-0000000000e3', now() + interval '10 days', null, 'scheduled');
+  ('5a4d0b0e-0000-4000-8000-0000000000f3', '5a4d0b0e-0000-4000-8000-0000000000e3', now() + interval '10 days', null, 'scheduled'),
+  ('5a4d0b0e-0000-4000-8000-0000000000f4', '5a4d0b0e-0000-4000-8000-0000000000e4', now() + interval '40 days', null, 'scheduled');
 insert into venue.ticket_type (ticket_type_id, event_id, kind, name, price_minor, visibility) values
   ('5a4d0b0e-0000-4000-8000-000000000011', '5a4d0b0e-0000-4000-8000-0000000000e1', 'admission', 'General admission (synthetic)', 2500, 'public'),
-  ('5a4d0b0e-0000-4000-8000-000000000012', '5a4d0b0e-0000-4000-8000-0000000000e1', 'admission', 'Hidden early bird (synthetic)', 1800, 'hidden');
+  ('5a4d0b0e-0000-4000-8000-000000000012', '5a4d0b0e-0000-4000-8000-0000000000e1', 'admission', 'Hidden early bird (synthetic)', 1800, 'hidden'),
+  ('5a4d0b0e-0000-4000-8000-000000000013', '5a4d0b0e-0000-4000-8000-0000000000e3', 'admission', 'Hidden Venue B tier (synthetic)', 4000, 'hidden');
 insert into venue.inventory_batch (batch_id, ticket_type_id, event_session_id, release_kind, capacity, held, sold) values
   ('5a4d0b0e-0000-4000-8000-000000000021', '5a4d0b0e-0000-4000-8000-000000000011', '5a4d0b0e-0000-4000-8000-0000000000f1', 'public_sale', 300, 6, 120),
-  ('5a4d0b0e-0000-4000-8000-000000000022', '5a4d0b0e-0000-4000-8000-000000000012', '5a4d0b0e-0000-4000-8000-0000000000f1', 'presale', 100, 0, 100);
+  ('5a4d0b0e-0000-4000-8000-000000000022', '5a4d0b0e-0000-4000-8000-000000000012', '5a4d0b0e-0000-4000-8000-0000000000f1', 'presale', 100, 0, 100),
+  ('5a4d0b0e-0000-4000-8000-000000000023', '5a4d0b0e-0000-4000-8000-000000000013', '5a4d0b0e-0000-4000-8000-0000000000f3', 'presale', 50, 0, 10);
 commit;
 select json_build_object(
   'orgs', (select count(*) from kernel.organization where org_id::text like '5a4d0b0e-%'),

@@ -75,6 +75,10 @@ const ID = {
   e1: "5a4d0b0e-0000-4000-8000-0000000000e1",
   e2: "5a4d0b0e-0000-4000-8000-0000000000e2",
   e3: "5a4d0b0e-0000-4000-8000-0000000000e3",
+  e4: "5a4d0b0e-0000-4000-8000-0000000000e4",
+  f4: "5a4d0b0e-0000-4000-8000-0000000000f4",
+  tHiddenB: "5a4d0b0e-0000-4000-8000-000000000013",
+  bPresaleB: "5a4d0b0e-0000-4000-8000-000000000023",
   f1: "5a4d0b0e-0000-4000-8000-0000000000f1",
   tPublic: "5a4d0b0e-0000-4000-8000-000000000011",
   tHidden: "5a4d0b0e-0000-4000-8000-000000000012",
@@ -83,7 +87,7 @@ const ID = {
 };
 const A = `/o/${ID.orgA}/v/${ID.venA}`;
 const B = `/o/${ID.orgB}/v/${ID.venB}`;
-const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hosted Acceptance Draft A (synthetic)", e3: "Hosted Acceptance Night B (synthetic, announced)" };
+const TITLE = { e1: "Hosted Acceptance Night A (synthetic, on sale)", e2: "Hosted Acceptance Draft A (synthetic)", e3: "Hosted Acceptance Night B (synthetic, announced)", e4: "Hosted Acceptance Draft B (synthetic)" };
 const DENIED = "You don't have access to this.";
 const NO_GRANT = "holds no staff or organization role at this venue";
 const SIGN_IN = "Sign in to continue";
@@ -199,8 +203,8 @@ async function fixtures() {
     .replaceAll("{{OWNER_A}}", assertUuid(users.owner.id, "owner"))
     .replaceAll("{{FINANCE_B}}", assertUuid(users.finance.id, "finance"));
   const r = target.sqlText(sql);
-  check("fixtures", "2 orgs, 2 venues, 3 events, 3 sessions, 2 types, 2 batches, 2 staff, 1 member", r.orgs === 2 && r.venues === 2 && r.events === 3 && r.sessions === 3 && r.ticket_types === 2 && r.batches === 2 && r.staff_roles === 2 && r.org_members === 1, r);
-  check("fixtures", "remaining computed 174 / 0", r.remaining?.[ID.bPublic] === 174 && r.remaining?.[ID.bPresale] === 0, r.remaining);
+  check("fixtures", "2 orgs, 2 venues, 4 events, 4 sessions, 3 types, 3 batches, 2 staff, 1 member", r.orgs === 2 && r.venues === 2 && r.events === 4 && r.sessions === 4 && r.ticket_types === 3 && r.batches === 3 && r.staff_roles === 2 && r.org_members === 1, r);
+  check("fixtures", "remaining computed 174 / 0 / 40", r.remaining?.[ID.bPublic] === 174 && r.remaining?.[ID.bPresale] === 0 && r.remaining?.[ID.bPresaleB] === 40, r.remaining);
 }
 
 async function api() {
@@ -291,6 +295,22 @@ async function api() {
   check(P, "C5 owner reads both Venue A events incl. draft", JSON.stringify(ids(r.json, "event_id")) === JSON.stringify([ID.e1, ID.e2]), r.text);
   r = await rest(`events?venue_id=eq.${ID.venB}&select=event_id`, { token: T.owner });
   check(P, "C5 owner sees Org B only as public (announced), never a grant", JSON.stringify(ids(r.json, "event_id")) === JSON.stringify([ID.e3]), r.text);
+
+  // C6 org grant WITHOUT a venue grant, at a venue outside that org (Claude A's adjacent case). Only RLS can
+  // close this: the Org A owner must not reach Venue B's draft, draft session, hidden type or presale batch.
+  r = await rest(`events?event_id=eq.${ID.e4}`, { token: T.owner });
+  check(P, "C6 Org A owner cannot read Venue B draft", Array.isArray(r.json) && r.json.length === 0, r.text);
+  r = await rest(`event_sessions?event_id=eq.${ID.e4}`, { token: T.owner });
+  check(P, "C6 Org A owner cannot read Venue B draft session", Array.isArray(r.json) && r.json.length === 0, r.text);
+  r = await rest(`ticket_types?event_id=eq.${ID.e3}&select=ticket_type_id,visibility`, { token: T.owner });
+  check(P, "C6 Org A owner cannot read Venue B hidden type", Array.isArray(r.json) && r.json.every((t) => t.visibility !== "hidden"), r.text);
+  r = await rest(`inventory_batches?batch_id=eq.${ID.bPresaleB}`, { token: T.owner });
+  check(P, "C6 Org A owner cannot read Venue B presale batch (hidden type)", Array.isArray(r.json) && r.json.length === 0, r.text);
+  r = await rest(`my_staff_roles?venue_id=eq.${ID.venB}`, { token: T.owner });
+  check(P, "C6 Org A owner holds no staff role at Venue B", Array.isArray(r.json) && r.json.length === 0, r.text);
+  // Positive control: Venue B's own staff (finance) still read their draft-free public surface; the manager of A cannot.
+  r = await rest(`events?event_id=eq.${ID.e4}`, { token: T.manager });
+  check(P, "C6 Venue A manager cannot read Venue B draft", Array.isArray(r.json) && r.json.length === 0, r.text);
 }
 
 // ---- browser helpers
@@ -356,6 +376,9 @@ async function browser() {
       t = await visit(m, `${A}/events/${ID.e1}/${sub}`);
       check(P, `H1 ${sub}: not wired in database mode`, t.includes("not wired to the database yet"), t.slice(0, 200));
     }
+    // C6 mirror: a venue grant under another org's route segment (/o/B/v/A) must not open Venue A.
+    t = await visit(m, `/o/${ID.orgB}/v/${ID.venA}/events`);
+    check(P, "C6 Venue A manager at /o/B/v/A: denied (venue not in route org)", t.includes(DENIED) && !t.includes(TITLE.e1), t.slice(0, 300));
     t = await visit(m, `${A}/events?role=org_owner&state=empty`);
     check(P, "C5 query-string role/state ignored", t.includes("Venue manager") && t.includes(TITLE.e1), t.slice(0, 300));
 
@@ -432,6 +455,11 @@ async function browser() {
     check(P, "C5 owner sees both A events; strip = Org owner", t.includes(TITLE.e1) && t.includes(TITLE.e2) && t.includes("Org owner"), t.slice(0, 300));
     t = await visit(o, `${B}/events`);
     check(P, "C5 owner denied at Venue B", t.includes(DENIED) && t.includes(NO_GRANT), t.slice(0, 200));
+    // C6: Org A's owner at Venue B under Org A's route segment (/o/A/v/B) — the venue is not in Org A.
+    t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events`);
+    check(P, "C6 Org A owner at /o/A/v/B: denied, no Venue B rows, no role claimed", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes(TITLE.e4) && !/Capabilities come from your grants/.test(t), t.slice(0, 300));
+    t = await visit(o, `/o/${ID.orgA}/v/${ID.venB}/events/${ID.e3}`);
+    check(P, "C6 Org A owner at /o/A/v/B event page: denied", t.includes(DENIED) && !t.includes(TITLE.e3) && !t.includes("Hidden Venue B tier"), t.slice(0, 300));
     await o.close();
 
     // C3 outsider + H7 no cross-user caching (two isolated sessions at once).

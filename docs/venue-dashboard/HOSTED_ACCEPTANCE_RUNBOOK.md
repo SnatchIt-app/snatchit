@@ -22,8 +22,8 @@ and 188 passes again. All 8 views `security_invoker` + `security_barrier`; `anon
 
 | App build | Result |
 |---|---|
-| frozen `ae2e2ea` | **113/118** — fails H3, C4-cross-venue, P1 ×3 (below) |
-| `venue/read-slice1-fixes` | **119/119** |
+| frozen `ae2e2ea` | fails H3, C4-cross-venue, P1 ×3, C6 entry ×3 (below) |
+| `venue/read-slice1-fixes` + F4 (integration build) | **128/128** |
 
 **Defects the kit found in the frozen slice (fixed on `venue/read-slice1-fixes`, awaiting Claude A's review):**
 
@@ -41,7 +41,13 @@ and 188 passes again. All 8 views `security_invoker` + `security_barrier`; `anon
   to fixture ids. Fix: the role label only after verified grants, route ids instead of sample names,
   navigation built from the route scope.
 
-No SQL, RLS or migration change is involved in F1–F3.
+- **F4 — route venue not bound to route org (C6, raised by Claude A).** Grants are matched per venue and per org
+  independently, so Org A's owner entered `/o/A/v/<Venue B>` (labelled Org owner) and Venue A's manager entered
+  `/o/B/v/A`. **RLS held**: the kit's C6 API checks prove Org A's owner cannot read Venue B's draft, draft session,
+  hidden type or presale batch. Fix: entry reads the venue's own org through `venue_api.venues` and denies a
+  mismatch.
+
+No SQL, RLS or migration change is involved in F1–F4.
 
 **Sandbox, read-only preflight through the kit (2026-09-14 06:55Z): 8/8.** Ledger 130 rows (tip
 `20260909000000`; the extra row is the sandbox-only `123`), no `ops`/`venue_api`, venue substrate empty,
@@ -102,12 +108,13 @@ npm run build && npm start   # http://localhost:3300
 
 ```bash
 # 5  MUTATION — four synthetic users (Auth admin API, random passwords kept in .runs/sandbox/state.json, 0600)
-#    + fixture rows with fixed 5a4d0b0e- ids, one transaction
+#    + fixture rows with fixed 5a4d0b0e- ids (incl. a Venue B draft, hidden type and presale batch), one transaction
 $K --phase fixtures   --window $VENUE_ACCEPT_WINDOW
-# 6  sign-ins + refused write attempts: C1 anon ×8, H4 projection, C2 writes, H5 cross-tenant, C3 outsider, C5 owner
+# 6  sign-ins + refused write attempts: C1 anon ×8, H4 projection, C2 writes, H5 cross-tenant, C3 outsider, C5 owner,
+#    C6 org grant without a venue grant at another org's venue (RLS)
 $K --phase api        --window $VENUE_ACCEPT_WINDOW
 # 7  headless browser: H1 login, C4 malformed/foreign ids, H2 tampered token, H3 refresh persisted + 12 s soak,
-#    H6 logout, H5/C5 labels, C3 outsider, H7 two concurrent sessions, P1 presentation; saves 3 PNGs
+#    H6 logout, H5/C5 labels, C6 route venue/org binding, C3 outsider, H7 two concurrent sessions, P1 presentation; 3 PNGs
 $K --phase browser    --window $VENUE_ACCEPT_WINDOW
 # 8  MUTATION — role precedence (adds two scanner grants), then immediate revocation of the manager grant
 $K --phase precedence --window $VENUE_ACCEPT_WINDOW
