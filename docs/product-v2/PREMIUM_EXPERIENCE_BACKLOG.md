@@ -788,3 +788,18 @@ own row. **Client re-bound at `d48c290`:**
 A confirmed on their side that the gated files are byte-identical across
 batch 3 and that the receive/vocabulary commits are right on the money-adjacent
 surface (A-17 applied to transfers).
+- **Three-way gate ACCEPTED by A (2026-09-14)** as the correct scope, not an
+  optimisation: rule 2 adopts a hash when the column is NULL, so a legacy row
+  binds its secret by simply registering (`refreshed`, nothing destroyed);
+  recovery-by-deletion exists for exactly one case — a device that bound
+  THROUGH the RPC and then lost its secret — which is what the third condition
+  names. Correction to C's earlier reasoning: **nothing references
+  `push_tokens` by foreign key** (zero inbound FKs; no `push_token_id` /
+  `token_id` column in `notify`, `public` or `kernel`), so "an FK would
+  surface" was speculative and is withdrawn. Residual case (AsyncStorage and
+  Keychain both lost, same token surviving) fails safe: notifications keep
+  working, only a later cross-account handover on that device is refused.
+  Storing `refreshed` as-is, never as proof the secret matched, confirmed as
+  the honest reading. Nothing further from A until the second 128 delta; the
+  legacy/no-secret path around sign-out is the area most likely to move, so
+  it is kept easy to re-bind (one wrapper, one decision function).
