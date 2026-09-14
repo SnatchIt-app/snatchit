@@ -240,3 +240,17 @@ export const RISK_COPY = {
   critical_risk:       'You cannot create listings at this time. Contact support.',
   listing_blocked:     'You cannot create listings at this time. Contact support.',
 } as const;
+
+/**
+ * Whole-listing pricing (owner ruling, 2026-09-14): the price, the fee and the
+ * payout all apply to the listing as a whole, however many tickets it holds.
+ * The seller's proceeds are therefore labelled for the listing, never "per
+ * ticket" — the old copy said per ticket while the server paid per listing.
+ */
+export function proceedsLabel(sellerNet: string, quantity: number): string {
+  return quantity > 1 ? `${sellerNet} for all ${quantity} tickets` : sellerNet;
+}
+
+export function proceedsKicker(quantity: number): string {
+  return quantity > 1 ? `You get for ${quantity} tickets` : 'You get';
+}
