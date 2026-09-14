@@ -93,8 +93,12 @@ describe('Checkout — pay control and completion (display only; for A)', () => 
     expect(screen).toContain('pendingLabel={pay.loading ? pay.label : undefined}');
   });
 
-  it('one success haptic, keyed on the completed outcome only', () => {
-    expect(screen).toContain('useEffect(() => { if (completed) hapticSuccess(); }, [completed]);');
+  it('one success haptic, keyed on the completed outcome only, once per purchase', () => {
+    // A's nit on 4b705c4: a settled checkout that remounts (3-D Secure return)
+    // must not buzz twice, so the latch lives outside the component.
+    expect(screen).toContain('const celebratedPurchases = new Set<string>();');
+    expect(code).toMatch(/if \(!completed \|\| celebratedPurchases\.has\(purchaseKey\)\) return;\s*celebratedPurchases\.add\(purchaseKey\);\s*hapticSuccess\(\);/);
+    expect(screen).toContain('purchaseKey={listingId}');
     expect(code.split('hapticSuccess').length - 1).toBe(2); // import + the one call
   });
 
