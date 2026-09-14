@@ -2302,8 +2302,7 @@ observations when they arrive.
 - **Delivery half unobservable in the sandbox:** push `168139e3` is still `pending`, attempt 0, `sent_at` null,
   16 minutes past its `next_attempt_at`, never picked up. `notify-drain-outbox` drains the outbox, which is done;
   what sends deliveries has not been traced, and whether it is undriven here (F4's class) or merely slow is not
-  established. "No push arrived" is therefore not evidence against F6; the in-app notice is the confirmed
-  surviving effect.
+  established. "No push arrived" is therefore not evidence against F6. **[Corrected 2026-09-14: this line originally said "the in-app notice is the confirmed surviving effect". What was confirmed is a stored ROW, not a visible notice — Build 16 has no inbox and nothing renders it. See "F6 reconciled against the owner's handset observation" below.]**
 
 ### F6 reconciled against the owner's handset observation (2026-09-14)
 
@@ -2336,3 +2335,18 @@ observations when they arrive.
     surface with no "withdrawn" counterpart, because withdraw emits nothing.
 - **Lesson recorded (A):** server evidence that a row exists is not evidence that a user sees it. Visibility needs
   the read path, the API exposure and the channel checked before a display claim is made.
+
+**F6 — other surfaces checked (2026-09-14), closing the gap C flagged.** Neither the web app (`web/`) nor the
+admin console (`admin/`) contains a read of `notify.notification`, the `notify` schema, or `public.notifications`.
+Scope: the working trees in `/Users/josetascon/snatchit`, not necessarily the commit each surface is deployed
+from. C also established that the stored row `f3abe550` has `title` and `body` NULL, its text coming from
+`template_key` only at delivery time, so even a raw-row list would show nothing.
+
+**F6, final wording shared with C:**
+- **Server state (verified by both):** the stored notice persists after withdrawal with no "withdrawn"
+  counterpart. No Build 16 user impact, and no reader on the web or admin surfaces in these trees.
+- **Push after restore:** unobservable in the sandbox, since the delivery has never been attempted.
+- **Not a Build 16 display defect, and not reproduced.** Candidate only; owner's call.
+
+The earlier "confirmed surviving effect" wording is corrected in place above. Both verifiers made the same error:
+stored state is not displayed state.
