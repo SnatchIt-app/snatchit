@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
@@ -123,7 +124,7 @@ export default function SettingsScreen() {
         onPress: async () => {
           setSigningOut(true);
           try {
-            await supabase.auth.signOut();
+            await signOutEverywhere();
             router.replace('/(auth)/login');
           } catch {
             alertWeb('Failed to sign out. Please try again.');
@@ -194,7 +195,7 @@ export default function SettingsScreen() {
       // completion is not immediate. `pending_obligations` is additive — an
       // older edge simply omits it.
       await notifyDeletionAccepted(parsed);
-      await supabase.auth.signOut();
+      await signOutEverywhere();
       router.replace('/(auth)/login');
     } catch {
       alertWeb('Something went wrong. Please try again.');

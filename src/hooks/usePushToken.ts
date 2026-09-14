@@ -16,6 +16,7 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 
 import { supabase } from '@/src/lib/supabase';
+import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 
 type PushTokenResult = {
   pushToken:         string | null;
@@ -65,6 +66,8 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         );
         const token = tokenData;
         setPushToken(token);
+        // Remembered for sign-out, which deactivates this device's token (CFT-611).
+        setRegisteredPushToken(token);
 
         // 5. Upsert to push_tokens table
         const platform = Platform.OS as 'ios' | 'android';

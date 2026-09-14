@@ -73,7 +73,7 @@ describe('auth screens — shipped-source guards', () => {
 
   it('reset keeps updateUser + sign out + return to login', () => {
     expect(reset).toContain('updateUser({ password })');
-    expect(reset).toContain('auth.signOut()');
+    expect(reset).toContain('signOutEverywhere()');
     expect(reset).toContain("router.replace('/(auth)/login')");
   });
 });

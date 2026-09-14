@@ -106,7 +106,7 @@ export default function PrivacyPolicyScreen() {
         {/* 4. Data Retention */}
         <Section title="4. Data Retention">
           <Body>We retain your account information and transaction history for as long as your account is active. Transaction records may be retained after account deletion as required for legal, tax, or dispute resolution purposes.</Body>
-          <Body>Push notification tokens are automatically marked inactive when you sign out. Crash report data in Sentry is retained according to Sentry&apos;s data retention settings (typically 90 days).</Body>
+          <Body>When you sign out, the app asks our servers to deactivate this device&apos;s push notification token for that account. If that request cannot complete (for example, while offline), the token may stay active until it is next updated. Crash report data in Sentry is retained according to Sentry&apos;s data retention settings (typically 90 days).</Body>
         </Section>
 
         {/* 5. Your Rights & Choices */}
