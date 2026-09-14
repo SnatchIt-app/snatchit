@@ -171,7 +171,7 @@ no dependency on them.
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
-| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | server-only, client already supports `certainty:'known'`; §14 acceptance cases A1–A8. Formerly drafted as `121_ops_console_refund_exactness`; `121` is B's (PR #58) per the registry, so this takes the next free number when written | release integration, after owner decision |
+| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | server-only, client already supports `certainty:'known'`; acceptance cases **A1–A8 are in `CONVERGENCE_135_REPORT.md:541-548`** (§8 previously cited §14, which does not contain them — corrected 2026-09-14). Contract **resolved and implementable**; see `ISOLATED_WORK_126_L3_L4_F10.md`. Formerly drafted as `121_ops_console_refund_exactness`; `121` is B's (PR #58) per the registry, so this takes the next free number when written | release integration, after owner decision |
 | **Public `auction-media` evidence exposure** | **UNRESOLVED RELEASE RISK** | see below | owner + release integration |
 | Deletion amendment PFA-32 signature | **OWNER DECISION** | required before the deletion behaviour ships | owner |
 | Stripe `payment_intent.canceled` subscription | **OWNER DECISION** | webhook endpoint change | owner |
