@@ -2399,3 +2399,29 @@ inbox files were absent from `562fda9` and the release line. Both "absent" resul
 
 That wrong result was caught before being recorded or sent, by resolving it against the worktree's `HEAD` and
 the full SHA.
+
+### Owner decisions: D10/D11 closed, F6 final, numbering notes placed (2026-09-14)
+
+**D10 / D11 — recorded as server-side PASS.** The exact handset confirmation wording was **not captured**, and
+stays uncaptured unless the owner recovers the screenshots. By the owner's instruction it is not requested
+again, not reconstructed from source, and deletion is not rerun to obtain it. The handset half is closed as
+**wording not captured**, not as open.
+
+**F6 — final classification (owner's wording).** A stale notification is stored in the newer system
+(`notify.notification`); it is not displayed by the current inbox and was not reproduced on the owner's
+handset. **Retained as a future integration risk**, specifically if the web inbox on the release line is moved
+onto `notify.notification`.
+
+**122 → 125 dated notes placed, docs only, history preserved.**
+
+| Branch | Commit | Files | Lines removed |
+|---|---|---|---|
+| `docs/b-122-to-125-numbering-notes` (off B's `feature/venue-native-and-product-v2`; B's branch itself untouched) | `22c3547` | `PHASE2_PFA18C_REMAINING_PATH_AND_HANDOFF.md`, `PHASE2_PFA18C_C6_EXECUTION_RECORD.md` | 0 |
+| `docs/production-state-integration` (release-path copy of the C6 record) | `a7efaf5` | `PHASE2_PFA18C_C6_EXECUTION_RECORD.md` | 0 |
+
+Every original "122" reference is left verbatim beneath a dated note. That includes the authorization phrase
+**"AUTHORIZE PFA-18C MIGRATION 122"**, whose re-issue for 125 is the owner's decision.
+
+**Flagged, not edited — a third B document also says 122.** `PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md` carries
+gate **"G6 — Migration 122"** with the same authorization phrase (line 38) and "numbering for 121/122" (line 56).
+It was outside the two documents the owner named, so it was left as is pending the owner's word.
