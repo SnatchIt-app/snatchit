@@ -17,7 +17,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
-import { getCoverImageUrl } from '@/src/lib/coverImage';
 import SellerListingCard from '@/src/components/SellerListingCard';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -25,8 +24,6 @@ import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
-
-type ListingRow = Listing & { coverUrl: string | null };
 
 type FilterKey = 'all' | 'active' | 'needs_action' | 'ended' | 'sold';
 const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 'sold'];
@@ -42,7 +39,7 @@ export default function MyListingsScreen() {
   const resolvedInitialFilter: FilterKey =
     filterParam && VALID_FILTERS.includes(filterParam as FilterKey) ? (filterParam as FilterKey) : 'all';
 
-  const [listings, setListings] = useState<ListingRow[]>([]);
+  const [listings, setListings] = useState<Listing[]>([]);
   const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,11 +66,9 @@ export default function MyListingsScreen() {
     }
     setLoadError(null);
 
-    const rows: ListingRow[] = (data as Listing[]).map((listing) => ({
-      ...listing,
-      coverUrl: getCoverImageUrl(listing.cover_image_path),
-    }));
-    setListings(rows);
+    // The card hands the raw cover path to EventMedia, which resolves, sizes and
+    // caches it; nothing is pre-resolved into a full-size URL here any more.
+    setListings(data as Listing[]);
 
     // Transfer state per listing — drives the "send the tickets" CTA. Read-only.
     const { data: txData } = await supabase
@@ -106,7 +101,7 @@ export default function MyListingsScreen() {
 
   // ── Delete / cancel (unchanged rules) ────────────────────────────────────────
 
-  async function performDelete(listing: ListingRow) {
+  async function performDelete(listing: Listing) {
     if (listing.bid_count > 0 || listing.auction_status !== 'active') {
       Alert.alert('Cannot delete', 'This listing has bids and cannot be deleted.');
       return;
@@ -123,7 +118,7 @@ export default function MyListingsScreen() {
     }
   }
 
-  async function performCancel(listing: ListingRow) {
+  async function performCancel(listing: Listing) {
     const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
     if (error) { Alert.alert('Cancel failed', error.message); return; }
     setListings((prev) =>
@@ -133,7 +128,7 @@ export default function MyListingsScreen() {
     );
   }
 
-  function handleDelete(listing: ListingRow) {
+  function handleDelete(listing: Listing) {
     if (listing.bid_count > 0 && listing.auction_status === 'active') {
       Alert.alert('Cancel listing', 'This listing has bids. Cancelling will void all bids. Are you sure?', [
         { text: 'Keep listing', style: 'cancel' },
@@ -152,7 +147,7 @@ export default function MyListingsScreen() {
   const [filter, setFilter] = useState<FilterKey>(resolvedInitialFilter);
 
   const needsTicketSend = useCallback(
-    (l: ListingRow) => l.status === 'sold' && transfers.get(l.id)?.status === 'pending',
+    (l: Listing) => l.status === 'sold' && transfers.get(l.id)?.status === 'pending',
     [transfers],
   );
 
@@ -256,7 +251,6 @@ export default function MyListingsScreen() {
             return (
               <SellerListingCard
                 listing={item}
-                coverUrl={item.coverUrl}
                 needsTicketSend={sendPending}
                 onPress={() =>
                   sendPending && transferId
