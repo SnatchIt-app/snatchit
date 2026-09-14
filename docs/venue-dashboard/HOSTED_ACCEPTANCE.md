@@ -1,5 +1,8 @@
 # Venue dashboard slice 1 — hosted acceptance procedure (copy-ready)
 
+> **Superseded (2026-09-14):** run the automated procedure in [`HOSTED_ACCEPTANCE_RUNBOOK.md`](HOSTED_ACCEPTANCE_RUNBOOK.md). This file stays as the check rationale (H1–H7); its §1 SQL-editor paste and `'{}'` ledger row were replaced after Claude A's review by `supabase db query -f` and a real-statement ledger row, and schema exposure is a separately authorized step.
+
+
 Scope: prove on a **hosted Supabase project** what the local auth stub cannot — real login, token
 and cookie refresh, JWT verification, `venue_api` exposure, cross-tenant denial, logout — for the
 code frozen at `ae2e2ea8528db37b3b416d5192cb18e3e6192bad` (branch `venue/read-adapters-slice-1`).
