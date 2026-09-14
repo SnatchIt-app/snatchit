@@ -20,6 +20,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { useEffect, useRef, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 
 type AuthState = {
   session: Session | null;
@@ -59,7 +60,9 @@ async function clearStaleSession(reason: string): Promise<void> {
   }
   // Best-effort: wipe the stored tokens so the next getSession() returns null.
   // Ignore any network / auth error from signOut itself.
-  await supabase.auth.signOut().catch(() => {});
+  // The refresh token is already invalid here, so no token deactivation is
+  // possible; the helper skips it when there is no session and still signs out.
+  await signOutEverywhere().catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
@@ -206,7 +207,7 @@ export default function ProfileScreen() {
 
   async function handleSignOut() {
     setSignOutBusy(true);
-    await supabase.auth.signOut();
+    await signOutEverywhere();
     setSignOutBusy(false);
   }
 

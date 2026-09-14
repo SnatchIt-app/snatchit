@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
@@ -31,7 +32,7 @@ export default function ResetPasswordScreen() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
-    await supabase.auth.signOut();
+    await signOutEverywhere();
     Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
       { text: 'OK', onPress: () => router.replace('/(auth)/login') },
     ]);
