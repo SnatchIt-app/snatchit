@@ -96,7 +96,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
         }
         title={
           l?.id ? (
-            <Link href={`/marketplace/${l.id}`} className="hover:text-primary">
+            <Link href={`/marketplace/${l.id}`} className="hover:text-primary-ink">
               {eventTitle}
             </Link>
           ) : (

@@ -7,7 +7,7 @@ export function EnvBadge() {
   return (
     <span
       className={`inline-flex items-center border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.2em] ${
-        IS_PRODUCTION_ENV_LABEL ? "border-primary bg-primary text-black" : "border-line-neutral text-muted"
+        IS_PRODUCTION_ENV_LABEL ? "border-primary bg-primary text-black" : "border-warning bg-warning/10 text-warning"
       }`}
       title={`Environment: ${ENV_LABEL}`}
     >

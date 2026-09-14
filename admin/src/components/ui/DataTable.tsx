@@ -85,7 +85,7 @@ export function DataTable<T>({
                     {c.sortKey ? (
                       <Link
                         href={withParams(basePath, searchParams, { sort: c.sortKey, dir: nextDir, [cursorParam]: null })}
-                        className={`hover:text-primary ${active ? "text-ink" : ""}`}
+                        className={`hover:text-primary-ink ${active ? "text-ink" : ""}`}
                       >
                         {c.header}
                         <span aria-hidden="true" className="ml-1 text-dim">

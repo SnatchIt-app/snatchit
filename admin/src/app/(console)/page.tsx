@@ -143,7 +143,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
               key={type}
               eyebrow={`${rows.length} item${rows.length === 1 ? "" : "s"}`}
               title={
-                <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="hover:text-primary">
+                <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="hover:text-primary-ink">
                   {humanize(type)}
                 </Link>
               }
