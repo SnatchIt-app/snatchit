@@ -283,6 +283,57 @@ async function cancelPaymentIntentBestEffort(piId: string | null, tag: string): 
   }
 }
 
+// ── Migration 130: per-(listing, buyer, mode) secret hand-out claim ─────────
+// A request that is about to reuse or supersede a pending PaymentIntent must
+// hold the group claim, so two concurrent requests by the same buyer can never
+// both hand out a live secret (the L1 concurrency residual). claim_held is
+// retried briefly (a reuse claim lasts milliseconds; a supersede, one Stripe
+// round trip); anything still held answers 409 without a secret or a mint.
+type CheckoutClaim =
+  | { kind: 'held'; paymentId: string; token: string }
+  | { kind: 'degraded' }                               // 130 not applied (PGRST202): #64 behaviour
+  | { kind: 'refused'; reason: string }
+  | { kind: 'error'; message: string };
+
+const CLAIM_RETRY_ATTEMPTS = 10;
+const CLAIM_RETRY_DELAY_MS = 200;
+
+async function claimCheckout(
+  supabase: SupabaseClient, listingId: string, buyerId: string, paymentId: string,
+): Promise<CheckoutClaim> {
+  for (let attempt = 0; attempt < CLAIM_RETRY_ATTEMPTS; attempt++) {
+    const { data, error } = await supabase.rpc('claim_checkout_supersede', {
+      p_listing_id: listingId, p_buyer_id: buyerId, p_payment_id: paymentId,
+    });
+    if (error) {
+      const e = error as { code?: string; message?: string };
+      if (e.code === 'PGRST202') {
+        await captureException('create-payment-intent', new Error(`claim_checkout_supersede unavailable (migration 130 not applied): ${e.message ?? ''}`));
+        return { kind: 'degraded' };
+      }
+      return { kind: 'error', message: `${e.code ?? '?'} ${e.message ?? ''}` };
+    }
+    const r = (data ?? null) as { claimed?: boolean; claim_token?: string | null; reason?: string } | null;
+    if (!r || typeof r.claimed !== 'boolean') return { kind: 'error', message: 'claim_checkout_supersede returned no result' };
+    if (r.claimed && r.claim_token) return { kind: 'held', paymentId, token: r.claim_token };
+    if (r.reason !== 'claim_held') return { kind: 'refused', reason: r.reason ?? 'unknown' };
+    if (attempt < CLAIM_RETRY_ATTEMPTS - 1) await new Promise((res) => setTimeout(res, CLAIM_RETRY_DELAY_MS));
+  }
+  return { kind: 'refused', reason: 'claim_held' };
+}
+
+async function releaseCheckout(supabase: SupabaseClient, claim: CheckoutClaim | null): Promise<void> {
+  if (!claim || claim.kind !== 'held') return;
+  const { data, error } = await supabase.rpc('release_checkout_supersede', {
+    p_payment_id: claim.paymentId, p_claim_token: claim.token,
+  });
+  const r = (data ?? null) as { released?: boolean; reason?: string } | null;
+  if (error || !r?.released) {
+    // Not fatal: an unreleased claim lapses after 120 s. Surfaced so it is visible.
+    console.warn('release_checkout_supersede did not release:', { payment_id: claim.paymentId, reason: r?.reason ?? null, error: error?.message ?? null });
+  }
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -561,7 +612,9 @@ serve(async (req: Request) => {
       .select('id, stripe_payment_intent_id, status')
       .eq('listing_id', listing_id)
       .eq('buyer_id', buyerId)
-      .eq('mode', mode);
+      .eq('mode', mode)
+      // newest first, so "the pending attempt" is deterministic (R-2)
+      .order('created_at', { ascending: false });
 
     const existingPayments = (allPayments ?? []) as
       { id: string; stripe_payment_intent_id: string; status: string }[];
@@ -591,6 +644,26 @@ serve(async (req: Request) => {
     await retirePendingIntents(supabase, listing_id, buyerId, { kind: 'other-buyers' }, 'entitled-buyer-checkout');
 
     const pendingPayment = existingPayments.find((p) => p.status === 'pending');
+    // 130: hold the group claim before reusing or superseding this attempt.
+    let checkoutClaim: CheckoutClaim | null = null;
+    if (pendingPayment) {
+      checkoutClaim = await claimCheckout(supabase, listing_id, buyerId, pendingPayment.id);
+      if (checkoutClaim.kind === 'error') {
+        logStage('checkout-claim-error', { payment_row: pendingPayment.id, error: checkoutClaim.message });
+        return new Response(
+          JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } }
+        );
+      }
+      if (checkoutClaim.kind === 'refused') {
+        logStage('checkout-claim-refused', { payment_row: pendingPayment.id, reason: checkoutClaim.reason });
+        return new Response(
+          JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+          { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '2', ...getResponseHeaders(req) } }
+        );
+      }
+    }
+    try {
     if (pendingPayment) {
       // Retrieve existing PaymentIntent from Stripe
       const existingPi = await stripeFetchRaw(
@@ -884,6 +957,10 @@ serve(async (req: Request) => {
       }),
       { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
     );
+    } finally {
+      // 130: every exit after the claim — success, 400/409/500, or a throw — releases it.
+      await releaseCheckout(supabase, checkoutClaim);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
     const isAuthError = /authorization|token/i.test(message);
