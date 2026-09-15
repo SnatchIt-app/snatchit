@@ -11,12 +11,12 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
 | CI at the pin | **DONE** — run 34932209458: five jobs green; migrations job through pgTAP on the real stack Files=80, Tests=4980, PASS |
 | Independent review | **DONE** — D-5 incremental PASS 22/0 at `74e51cf`; 126 (D), 127/128 (D, three passes), 129 (D), 130 + #66/#67 (A, RED evidence), 193 fixtures (D); no unresolved blocking finding |
 | Local certification | **DONE** — replay 149/149, census 31|96|37|35, manifest PASS, grant matrix = fixture, 4974/4974, S1–S5 + deadlock control, vitest 1911/1911, tsc 0 |
-| Build artifact | **PENDING** — one EAS `preview` build from the tag (O-2), Thursday AM after SBX-2; source + build IDs recorded here on cut |
-| Sandbox acceptance | **PENDING** — SBX-2 per manifest §8–§9 (O-1; **129/130 need the owner's extension**), venue phase last |
+| Build artifact | **SUBMITTED 2026-09-15** by C from a clean worktree at tag `candidate/2026-09-18-pin` (`aabe029`, 0 dirty files): EAS iOS `preview`, build id `53e5e98b-dbe9-405d-a7c8-159375c3fbc6`; build number + compiled env (sandbox ref/anon key/functions URL, read from the bundle) recorded when it lands. The one authorized build; no other build is authorized |
+| Sandbox acceptance | **SBX-2 DONE 2026-09-15** (owner path (b), O-1 extended): 124, 125, 127, 128, 129, 130 applied from the pin, ledger 136, md5-verified, D's witness read-back matches; `stripe-webhook` v4 + `create-payment-intent` v4 deployed from the tag, five files byte-identical (A and D independently). **126 and its admin surfaces are NOT validated on this sandbox** (no 110–120 there); their evidence is CI's full-chain replay + 193, the certified harness and D's review. Open in the window: DV-611/DV-L1/L2 and the device rows on the build, cleanup, venue phase last (MFA step announced by A) |
 | Device acceptance | **PENDING** — C's targeted DV plan on the build, Friday; leaves open by ruling: populated Tickets (CFT-801), D9c |
 
 ## 2. Deployment order (production, when authorized — not this sprint)
-1. **Pre-flight (read-only):** ledger = 135 and tip 120; `select count(*) from public.payments where status='refunded' and refunded_at is null` = 0 (126 precondition, B's L-1 — **OWNER** authorizes the read); native flags false; `AUTODEPLOY-VERIFIED-OFF` attested and `git_branch` empty (AUTODEPLOY-1).
+1. **Pre-flight (read-only):** ledger = 135 and tip 120; **L-1, the exact minimum query and its purpose (owner item 7):** `select count(*) as refunded_without_refunded_at from public.payments where status = 'refunded' and refunded_at is null;` — one aggregate, no row data; purpose: 126's backfill derives `refund_facts` from `refunded_at`, so every refunded payment must carry it (expected **0**; any other value stops the apply and routes to B). **This read is not authorized by anything to date; the owner authorizes it by name in the production preflight approval.** The two unauthorized reads of 2026-09-15 stay recorded as historical evidence only. Also: native flags false; `AUTODEPLOY-VERIFIED-OFF` attested and `git_branch` empty (AUTODEPLOY-1); **Vault `project_url` = `https://hqycwntpfoztoinemqns.supabase.co` inserted before 133 (owner ceremony; verify `select count(*) from vault.decrypted_secrets where name='project_url'` = 1)**.
 2. **Pause** the payout cron; run legacy orphan reconciliation (release package §3, §5.7).
 3. **Migrations**, `LC_ALL=C` order, each dry-run planned then applied: `121 → 123 → 124 → 125 → 126 → 127 → 128 → 129 → 130`. Verify after each: ledger +1, the object spot-check in manifest §9 row 8.
 4. **Edges** (after 127 **and** 130 are applied — coupling): `stripe-webhook`, `create-payment-intent`, then the other 9 of §3b from the pin. Parity: deployed source byte-identical to the tag.
@@ -30,6 +30,8 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
 | 130 before `create-payment-intent` deploy | claim RPC absent → edge degrades to #64 behaviour (Sentry); the double-charge interleave 130 closes is open until applied |
 | 128 + 129 before the new client is live | old clients keep the direct insert path (no proof, works); the new client's sign-out revoke needs 129 (PGRST202 otherwise — never blocks sign-out) |
 | 125 before 126–130 | ledger order only; production applies in one window so N/A |
+| **132 before `create-payment-intent`** (production gate) | edge before 132 → the edge fails closed with 503 on every fresh mint (by design, B); 132 before the edge → the group-claim table sits unused and 130's row claim still serializes reuse/supersede (B to confirm on the written edge) |
+| **Vault `project_url` before 133** | 133 before the secret → the five http crons and four notification triggers go silent (no error) until it exists; secret before 133 → nothing changes until 133 |
 | Stripe `payment_intent.canceled` subscription (**OWNER**) | without it the webhook never receives cancels; L1's close is only exercised for `payment_failed` |
 
 ## 4. Rollback and recovery
@@ -53,12 +55,14 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
 | | Needed for |
 |---|---|
 | O-1 extension to 129/130 | SBX-2 verification of sign-out revoke (DV-611) and the claim path (DV-L1/L2) |
-| O-3 placement (b1/b2/b3) and **131** integration | production gate — not this candidate |
-| **132** placement (this candidate vs production gate) | open money defect (double charge auto-refunded) |
-| K-2 | product change in 131's client delta |
+| O-3: b1 / b2 / b3 (brief §11 + D's §12; only b2 closes the completed-redirect path, under D's C1–C6) and **131** integration (incl. A-131-K2 amendment) | production gate — not this candidate |
+| **132** — REQUIRED before production (owner 2026-09-15); B implementing (Option B group claim), D reviews, A integrates | production gate |
+| **133** — config-driven functions URL; Vault `project_url` ceremony in production before apply | production gate |
+| **Production-gate candidate = a NEW pin and a NEW build** (131 + A-131-K2 + 132 + 133 + C's K-2/131 client delta); the one-build authorization covers only the sandbox candidate | production readiness |
+| K-2 | **APPROVED 2026-09-15** — this-device sign-out + "Sign out of all devices"; C built it (`frontend/logout-scope @ 066625e`, gated diff approved by A); server contract verified by A and D; D's K2-S1/K2-S2 gaps → A-131-K2 amendment |
 | P0 gates: apply/deploy authorization; `AUTODEPLOY-VERIFIED-OFF`; window schedule; Stripe `payment_intent.canceled`; PFA-32 | production deployment |
 | P1: `auction-media` scope; parity-environment evidence (`notify-transfer`, `verify_jwt`, push routing); Twilio SID | production readiness |
-| C's `frontend/*` push access | hygiene (integration already done from the local clone) |
+| C's `frontend/*` push access | **AUTHORIZED 2026-09-15** (non-force); the tool allowed it; all task branches on origin |
 | L-1 production read (authorized) | 126 apply precondition — an UNAUTHORIZED read-only query by B on 2026-09-15T03:50Z showed 7 refunded / 7 with `refunded_at` (L-1 = 0 then); disclosed in the package; an authorized re-read before apply is still required |
 
 ## 7. Known open items carried, none waived
