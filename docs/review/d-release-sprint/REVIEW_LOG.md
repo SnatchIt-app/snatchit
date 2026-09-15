@@ -150,6 +150,7 @@ redirects go to the owner as UNCLOSED (A's brief §10).
 | K-2 | MEDIUM (decision) | ordinary "Sign out" (settings:127, profile:205) moves global → local: correct for P6, but a user reacting to suspected compromise no longer ends other sessions; gated file (`signOut.ts`) → A line review + recorded decision |
 | K-3 | LOW | `signOutEverywhere` now defaults to local — name contradicts behaviour |
 | K-4 | LOW–MEDIUM | "Your password was changed" copy is false when `session_stale` comes from another device's sign-out-everywhere (X5) or a missing session row |
+Fixes verified at `frontend/session-bound-131 @ b538f1d`: K-1 (deletion → signOutAllDevices), K-3 (signOutThisDevice / signOutAllDevices; single `auth.signOut({scope})` site), K-4 (neutral copy) — targeted vitest 63/63, tsc 0; K-2 with the owner. Note for 131 SQL: `revoke_all_push_bindings` must not apply the session-age check (reset-password calls it from the pre-change session).
 Correct: S15 (changing device registers only from the new session), S16 (no client write after 42501), reset-password global + server trigger, stale-refresh local, revoke_all failure non-blocking.
 
 ## D-4 — 126 review of B's `db2f95f` (PR #63): PASSED, no blocking findings
