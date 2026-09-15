@@ -81,11 +81,11 @@ describe('CFT-501 client side — the clock ran out, the server has not spoken',
 
 describe('CFT-504 — a frozen screen must not look live', () => {
   it('the notice shows only while reconnecting on a live auction', () => {
-    expect(connectionNotice('reconnecting', 'auction')).toBe(CONNECTION_NOTICE);
+    expect(connectionNotice('reconnecting', 'auction_only')).toBe(CONNECTION_NOTICE);
     expect(connectionNotice('reconnecting', 'auction_and_buy_now')).toBe(CONNECTION_NOTICE);
     expect(connectionNotice('reconnecting', 'closed')).toBeNull();
-    expect(connectionNotice('live', 'auction')).toBeNull();
-    expect(connectionNotice('connecting', 'auction')).toBeNull();
+    expect(connectionNotice('live', 'auction_only')).toBeNull();
+    expect(connectionNotice('connecting', 'auction_only')).toBeNull();
     expect(CONNECTION_NOTICE).toBe('Reconnecting — bid status may be delayed');
   });
 
