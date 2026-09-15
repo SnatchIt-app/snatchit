@@ -262,3 +262,40 @@ identity lines: **323 are the `ops` schema (115–120)**; the rest are 110–114
   but **any fresh replay with a live pg_net (CI's Supabase stack, a new environment, a restored sandbox) points
   those triggers at production's edge functions**; whether a call would land depends on the auth header the
   trigger sends (unverified). Registry note filed; a later migration should read the URL from config.
+
+**EXECUTION RECORD, continued — 2026-09-15 (A; owner ruling: path (b), O-1 extended to 129/130).** Owner's words: "Defer 126 on
+this sandbox and proceed with 127 → 128 → 129 → 130, plus the two previously authorized payment edges, serialized through A.
+This extends O-1 to the reviewed 129/130 versions. … Record explicitly that this sandbox does not validate 126 or its admin
+surfaces; retain the full-chain rehearsal as separate evidence."
+- **Baseline re-read immediately before (read-only):** ledger 132; versions >109 = 123,124,125; schemas catalog/kernel/notify/
+  venue (no `ops`); native flags all false; counts 49/51/33/0, reserved 0, pending 3, push_tokens 1, tickets 0, signing_key 0;
+  `pgrst.db_schemas`/`db_pre_request` unchanged; L-1 = 0. **Equal to the record above.**
+- **Dependencies verified before apply:** every object 127–130 reference exists on the sandbox with the signature the file
+  expects (`release_reservation(uuid,uuid)`, `request_is_service_role()`, `check_rate_limit(uuid,text,int,int)`,
+  `notify.enqueue`, `notify.identity_channel_state`, `notify.record_delivery_result`, `notify.register_push_token(text,text,
+  text,text)` = the signature 128 revokes, `notify.revoke_push_token(text)`); `guard_push_token_secret_hash` is created by 128
+  itself. All eight objects 127–130 create were absent. Source: tag `candidate/2026-09-18-pin` = `aabe029` (file md5s 127
+  `764d3392…`, 128 `6757afcc…`, 129 `778d4249…`, 130 `b981cb52…`); D's independent pre-apply check confirmed the same md5s
+  and a clean local apply on a replay shaped like this ledger (194/195/196/197 all pass there).
+- **Order guard:** `apply_sandbox_migration.sh` gained `ORDER_GUARD_SKIP` (converge `838bceb`) so the deferral is declared,
+  printed on every run ("DEFERRED by owner ruling … 126") and never implied.
+- **Applied, in order, each `preflight → apply → verify` (ledger row = the pinned file's exact bytes):**
+  127 md5 `b7b76ba853b367e1bb0540f9fa12b0bb` ✔ · 128 `a1b4c0946d2cb26ea3a66de82b00c338` ✔ · 129 `11b27f36f07e9e856ad8c867216b8b5c` ✔ ·
+  130 `91f7720de0680ce4ee31e17f149e4811` ✔ (md5 of file minus trailing newline, the script's convention). **Ledger 136.**
+- **Read-back after:** versions >109 = 123,124,125,127,128,129,130; all eight objects present; `payments.supersede_claim_token/
+  supersede_claimed_at`; `push_token_rebind_epoch` 1 row; `push_tokens` grants anon/authenticated `DELETE,INSERT` only,
+  SELECT column-scoped excluding `device_secret_hash`, UPDATE column-scoped to platform/device_name/last_used/is_active (matches
+  128 and `expected_grants.txt`); flags false; counts unchanged; L-1 = 0. Public census **31 / 97 / 37 / 34** vs CI's
+  31/96/37/35 at the pin: −1 function and −1 trigger are 119's absent listing-block guard; `+sandbox_pre_request` is the
+  sandbox's own pre-request hook; **one further public function is unaccounted for** — D names it in the witness read-back
+  (not a 127–130 object; all eight are listed above).
+- **Edges (row 9–10):** `supabase functions deploy <fn> --project-ref ofaidukbieeekqaboscm --no-verify-jwt` from the pinned
+  worktree (`git rev-parse HEAD` = `aabe029`): `stripe-webhook` v3 → **v4** (ezbr `897283ef…`), `create-payment-intent` v3 →
+  **v4** (ezbr `4f0e9142…`), both `verify_jwt=false` as every sandbox edge was before (recorded evidence limit, unchanged).
+  Parity: `supabase functions download` into a scratch directory, `cmp` against the tag — `stripe-webhook/index.ts`,
+  `create-payment-intent/index.ts`, `_shared/stripe.ts`, `_shared/sentry.ts`, `_shared/money.ts` **byte-identical**.
+- **Not validated on this sandbox, by ruling:** 126 and every admin/ops surface it serves (no `ops` schema here). Evidence for
+  126 remains: GitHub CI full-chain replay + pgTAP 193 on the real stack at the pin, the certified local harness, D's review.
+  Also unrepresentative here, as recorded above: 119's guard, 121, door/scan-device paths.
+- **Still open in this window:** DV-611 L/S/R/C and the device rows (C, on the pinned build); DV-L1/L2 read-backs during those
+  rows (A); cleanup (row 12); venue phase last (D, MFA step announced by A). Nothing production; nothing native.
