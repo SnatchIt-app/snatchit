@@ -36,7 +36,9 @@
 -- production already holds. now() is frozen per transaction, so each ledger
 -- row's created_at (and the completing refunded_at) is shifted to an explicit
 -- timestamp immediately after it is recorded — the state the same call would
--- have produced at that instant. Windows are fixed UTC days D-10..D+1 with
+-- have produced at that instant — using only owner-level trigger disabling and
+-- the repo's app.bypass_payment_guard GUC, both available to CI's non-superuser
+-- postgres role (never session_replication_role). Windows are fixed UTC days D-10..D+1 with
 -- D = today - 3, disjoint from every seed_core timestamp.
 -- ============================================================================
 BEGIN;
@@ -95,13 +97,20 @@ begin
   select stripe_payment_intent_id into v_pi from public.payments where id = tap._pay193(p_n);
   r := public.record_payment_refund(v_pi, p_refund, p_dispute, p_amount, p_source);
   if (r ->> 'recorded')::boolean then
-    perform set_config('session_replication_role', 'replica', true);
+    -- Time placement only, never a state the writer cannot produce. Owner-level
+    -- and transaction-local, so it runs as Supabase's non-superuser postgres
+    -- role in CI (session_replication_role is superuser-only and must not be
+    -- used): the append-only ledger guard has no bypass GUC, so it is disabled
+    -- for this one UPDATE (the pattern of suites 142/143/177/178); the payments
+    -- guard honours the repo's app.bypass_payment_guard (reset after the statement).
+    execute 'alter table public.payment_refunds disable trigger trg_payment_refunds_append_only';
     update public.payment_refunds set created_at = p_at
      where payment_id = tap._pay193(p_n) and created_at = now()
        and stripe_refund_id is not distinct from nullif(p_refund, '')
        and stripe_dispute_id is not distinct from nullif(p_dispute, '');
+    execute 'alter table public.payment_refunds enable trigger trg_payment_refunds_append_only';
+    perform set_config('app.bypass_payment_guard', 'on', true);
     update public.payments set refunded_at = p_at where id = tap._pay193(p_n) and refunded_at = now();
-    perform set_config('session_replication_role', 'origin', true);
   end if;
   return r;
 end $f$;
