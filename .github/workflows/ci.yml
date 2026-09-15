@@ -625,10 +625,10 @@ jobs:
           # guard_listing_seller_not_blocked). A textual merge silently keeps 87;
           # the tree carries both, so the value below is read from the catalog of
           # an actual replay, never inherited from either side.
-          EXPECT_TABLES: 30
-          EXPECT_FUNCS: 88
+          EXPECT_TABLES: 31
+          EXPECT_FUNCS: 92
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 33
+          EXPECT_TRIGGERS: 34
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so

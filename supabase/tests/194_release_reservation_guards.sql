@@ -17,7 +17,7 @@
 -- constructed by backdating the payment row rather than by waiting.
 -- ============================================================================
 BEGIN;
-SELECT plan(29);
+SELECT plan(30);
 -- Runs as the suite runner does (role `postgres`, no request.jwt.claims), which
 -- is ALLOW 2 of 119's guard_listing_insert_columns(); tap.seed_core() sets
 -- server-controlled listing columns and is refused under any other role.
@@ -83,23 +83,27 @@ SELECT ok(NOT has_function_privilege('authenticated', 'public.release_reservatio
   'A3: authenticated may NOT — a client never drives a payment-scoped release');
 SELECT ok(NOT has_function_privilege('anon', 'public.release_reservation_for_payment(uuid,uuid,uuid)', 'EXECUTE'),
   'A4: anon may NOT');
-SELECT ok((SELECT p.prosecdef AND p.proconfig::text LIKE '%search_path=%' AND (p.prorettype::regtype)::text = 'jsonb'
+-- `LIKE '%search_path=%'` passes for ANY value, including one that re-exposes a
+-- mutable schema. Assert the value.
+SELECT ok((SELECT p.prosecdef AND p.proconfig @> ARRAY['search_path=public'] AND (p.prorettype::regtype)::text = 'jsonb'
              FROM pg_proc p WHERE p.oid = 'public.release_reservation_for_payment(uuid,uuid,uuid)'::regprocedure),
-  'A5: SECURITY DEFINER, search_path pinned, returns jsonb');
+  'A5: SECURITY DEFINER, search_path pinned to public, returns jsonb');
 SELECT has_function('public'::name, 'release_reservation'::name, ARRAY['uuid','uuid']::name[],
   'A6: release_reservation keeps its signature');
 -- 0590 removed the last coalesce(auth.uid(), p_user_id) fallbacks so a future
 -- re-GRANT could not reopen that hole. An earlier revision of 127 rebuilt this
 -- body from 000_baseline and silently reverted it; this pins it in both files.
 SELECT ok(pg_get_functiondef('public.release_reservation(uuid,uuid)'::regprocedure) ~ 'request_is_service_role'
-          AND pg_get_functiondef('public.release_reservation(uuid,uuid)'::regprocedure) !~ 'coalesce\(auth\.uid\(\), p_user_id\)',
+          AND pg_get_functiondef('public.release_reservation(uuid,uuid)'::regprocedure) !~* 'coalesce\s*\(\s*auth\.uid\(\)\s*,\s*p_user_id\s*\)',
   'A8: ...and keeps 0590''s strict identity resolution — no coalesce fallback');
 SELECT ok(has_function_privilege('authenticated', 'public.release_reservation(uuid,uuid)', 'EXECUTE')
           AND NOT has_function_privilege('anon', 'public.release_reservation(uuid,uuid)', 'EXECUTE'),
   'A9: ...and its grants survive the replace (authenticated yes, anon no)');
 SELECT ok(
   pg_get_functiondef('public.release_reservation_for_payment(uuid,uuid,uuid)'::regprocedure) ~ 'interval ''10 minutes'''
-  AND pg_get_functiondef('public.reserve_buy_now(uuid,uuid,integer)'::regprocedure) ~ 'v_minutes\s*:?=\s*10',
+  -- Anchored: unanchored, `v_minutes := 100` matched and a 100-minute drift would
+  -- have passed while the guard released holds up to 90 minutes newer than the payment.
+  AND pg_get_functiondef('public.reserve_buy_now(uuid,uuid,integer)'::regprocedure) ~ 'v_minutes\s*:=\s*10\s*;',
   'A7: TTL COUPLING — 127''s staleness window matches reserve_buy_now''s 10-minute hold');
 
 -- ── B. L2 on the client-facing release ──────────────────────────────────────
@@ -171,8 +175,8 @@ SELECT is((public.release_reservation_for_payment(tap._f194('l7')::uuid, tap.buy
   'not_held_by_buyer', 'C8: another buyer''s hold is refused');
 
 -- C9: IDEMPOTENCE — replaying the same event finds nothing left to release.
-SELECT is((public.release_reservation_for_payment(tap._f194('l4')::uuid, tap.buyer(), tap._f194('p4')::uuid) ->> 'released'), 'false',
-  'C9: replaying the same webhook event is a no-op (idempotent)');
+SELECT is((public.release_reservation_for_payment(tap._f194('l4')::uuid, tap.buyer(), tap._f194('p4')::uuid) ->> 'reason'),
+  'not_held_by_buyer', 'C9: replaying the same webhook event is a no-op, for the stated reason');
 SELECT is(tap._state194(tap._f194('l4')::uuid), 'active/-', 'C10: ...and the listing is unchanged by the replay');
 
 -- ── F. THE REAL L1 TIMELINE (the case the first draft of 127 did not close) ──
@@ -201,11 +205,14 @@ SELECT is(tap._state194(tap._f194('l8')::uuid), 'reserved/' || tap.buyer()::text
 -- Pins the premise the timestamp half depends on: re-reserving a live hold does
 -- NOT move the window. If reserve_buy_now ever starts extending, this fails here
 -- rather than the guard going quietly wrong.
-SELECT tap.login(tap.buyer());
-SELECT public.reserve_buy_now(tap._f194('l8')::uuid, tap.buyer(), 10);
-SELECT tap.logout();
-SELECT is((SELECT reserved_until::text FROM public.listings WHERE id = tap._f194('l8')::uuid), tap._f194('ru8'),
-  'F4: INVARIANT — re-reserving a live hold keeps the existing window (unchanged reserved_until)');
+-- F4 was VACUOUS and is replaced. It re-reserved and compared reserved_until,
+-- but now() is frozen for the transaction and reserve_buy_now recomputes
+-- now() + 10 minutes, so the value is bit-identical whether or not the early
+-- RETURN exists -- removing that branch still passed. The invariant is not
+-- observable from the value, so assert the branch itself.
+SELECT ok(pg_get_functiondef('public.reserve_buy_now(uuid,uuid,integer)'::regprocedure)
+            ~* 'v_reserved_by\s*=\s*v_caller_id\s+AND\s+v_reserved_until\s*>\s*now\(\)\s*THEN\s*RETURN',
+  'F4: INVARIANT — reserve_buy_now still RETURNS EARLY on the holder''s own live hold, so a re-reserve cannot move the window');
 
 -- An auction payment must never drive a Buy Now hold release: auctions take no
 -- reservation, so the hold window means nothing for them.
@@ -222,13 +229,20 @@ SELECT is((public.release_reservation_for_payment(tap._f194('l8')::uuid, tap.buy
 
 -- Earns F2: with the sibling removed the SAME call releases, so F2's refusal is
 -- attributable to the sibling check and not to the timestamp test shadowing it.
-SELECT tap._s194('p8d', tap._pay194(tap._f194('l8')::uuid, 'pending', now())::text);
 SELECT set_config('app.bypass_listing_guard', 'on', true);
 UPDATE public.listings SET status='reserved', reserved_by = tap.buyer(), reserved_until = tap._f194('ru8')::timestamptz
  WHERE id = tap._f194('l8')::uuid;
-DELETE FROM public.payments WHERE id = tap._f194('p8d')::uuid;
 SELECT is((public.release_reservation_for_payment(tap._f194('l8')::uuid, tap.buyer(), tap._f194('p8a')::uuid) ->> 'released'), 'true',
   'F7: with no live sibling the same call DOES release — F2''s refusal was the sibling check, not timestamps');
+
+-- D5: a listing can be both auction and buy-now enabled. An auction attempt
+-- holds no reservation, so it must not count as a sibling.
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+UPDATE public.listings SET status='reserved', reserved_by = tap.buyer(), reserved_until = tap._f194('ru8')::timestamptz
+ WHERE id = tap._f194('l8')::uuid;
+SELECT tap._s194('p8e', tap._paymode194(tap._f194('l8')::uuid, 'pending', 'auction')::text);
+SELECT is((public.release_reservation_for_payment(tap._f194('l8')::uuid, tap.buyer(), tap._f194('p8a')::uuid) ->> 'released'), 'true',
+  'F8: a pending AUCTION payment is not a sibling — it never needed the hold');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -221,13 +221,18 @@ begin
   end if;
 
   -- L1 (1) LIVE SIBLING — the question that actually closes the retire-and-remint
-  -- case. If another attempt by this buyer on this listing is still in flight,
-  -- the hold is still needed and this terminal event must not free it.
+  -- case. If another BUY NOW attempt by this buyer on this listing is still in
+  -- flight, the hold is still needed and this terminal event must not free it.
+  -- Mode-scoped to match the subject payment: a listing can be both auction and
+  -- buy-now enabled, and an auction attempt holds no reservation, so counting it
+  -- as a sibling would refuse a legitimate release for something that never
+  -- needed the hold.
   if exists (
     select 1 from public.payments p2
      where p2.listing_id = p_listing_id
        and p2.buyer_id   = p_user_id
        and p2.id        <> p_payment_id
+       and p2.mode      = 'buy_now'
        and p2.status in ('pending', 'processing')
   ) then
     return jsonb_build_object('released', false, 'reason', 'live_sibling_attempt');
