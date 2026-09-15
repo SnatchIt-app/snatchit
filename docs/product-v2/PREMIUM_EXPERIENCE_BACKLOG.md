@@ -1094,3 +1094,8 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   stack does not move. B is fixing 193; the pin moves to that merge commit and
   A sends the new tag with a green migrations job (expected Wed 09-16). C
   re-runs plan §1a's pre-flight against the new tag before any submission.
+- **Intended pin `aabe029` (A, 2026-09-15): CI green, all five jobs.** C's pre-flight
+  against it passed (231f120 ancestor; app/src identical to db5bddf; eas.json
+  identical to Build 16; delta since 4b012fd = docs, the rehearsal tripwire and
+  the 193 fixture only). Tag moves after D's re-run; build HELD until A sends
+  the moved tag and states CI green at it. Plan §1a updated.

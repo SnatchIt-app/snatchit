@@ -42,6 +42,15 @@ git fetch origin "refs/tags/candidate/2026-09-18-pin:refs/tags/candidate/2026-09
 
 Record afterwards: the EAS build id and the assigned build number (expected 17), in `RELEASE_PACKET_C_SECTION.md`.
 
+**Re-pin pre-flight (2026-09-15, later):** CI is green at `release/candidate-20260918 @ aabe029` (A: all five jobs,
+pgTAP 4980 PASS on the real stack); A names it the intended pin. Verified by C from origin: `231f120` is an
+ancestor; `app/` and `src/` identical to `db5bddf`; `eas.json` identical to Build 16; `envGuard` sandbox ref and
+`expo.version` 1.0.0 unchanged; the whole delta `4b012fd..aabe029` is four `docs/release` files,
+`scripts/rehearsal_test.sh` and `supabase/tests/193_ops_console_refund_exactness.sql` — no app, src, eas.json or
+edge change. The tag `candidate/2026-09-18-pin` moves to `aabe029` after D's incremental re-run and the 193
+fixture re-review; the submission command above is unchanged except its `--message` names the new commit. Still
+HELD until A sends the moved tag and states CI green at it (O-2's condition). Thursday morning submission stands.
+
 ## 2. Targeted device test plan (ordered, time-boxed; rows from `DEVICE_VERIFICATION_CHECKLIST.md`)
 
 Principles (directive rule 8): retest changed behaviour and integration risks; do not repeat the Build 16 matrix. Closed Build 16 results and their limitations stand. Sandbox writes only inside A's serialized window; every write row names A.
