@@ -287,8 +287,7 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   SELECT column-scoped excluding `device_secret_hash`, UPDATE column-scoped to platform/device_name/last_used/is_active (matches
   128 and `expected_grants.txt`); flags false; counts unchanged; L-1 = 0. Public census **31 / 97 / 37 / 34** vs CI's
   31/96/37/35 at the pin: −1 function and −1 trigger are 119's absent listing-block guard; `+sandbox_pre_request` is the
-  sandbox's own pre-request hook; **one further public function is unaccounted for** — D names it in the witness read-back
-  (not a 127–130 object; all eight are listed above).
+  sandbox's own pre-request hook; the other is `sandbox_gucs()`, the second sandbox-only helper (D's witness read-back: the sandbox differs from a local sandbox-shape replay, 31/95/37/34, by exactly those two functions). D also confirms 0 function bodies and 0 cron commands on the sandbox contain the production ref, and that the sandbox lacks the `enforce-transfer-expiry` cron altogether (pre-existing out-of-band drift).
 - **Edges (row 9–10):** `supabase functions deploy <fn> --project-ref ofaidukbieeekqaboscm --no-verify-jwt` from the pinned
   worktree (`git rev-parse HEAD` = `aabe029`): `stripe-webhook` v3 → **v4** (ezbr `897283ef…`), `create-payment-intent` v3 →
   **v4** (ezbr `4f0e9142…`), both `verify_jwt=false` as every sandbox edge was before (recorded evidence limit, unchanged).
