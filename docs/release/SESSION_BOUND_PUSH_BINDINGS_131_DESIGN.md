@@ -204,3 +204,12 @@ on a never-bumped account; no claim on a never-bumped account stays untouched (J
 session end everything and bump the epoch. S-13 (shared install after global sign-out → 42501 for another account) is
 deliberate (D): clearing the proof is what kills a plant; recovery = original account re-login + this-device sign-out,
 support unbind, or reinstall. 198 → plan 56 with two negative controls; census unchanged; rollback drops the column.
+**F-131-K2a (D, MEDIUM, found in the re-review of `f72e2d3`; fixed at the next head):** the session-end revoke wrote
+`revoked_reason = 'signed_out'`, which is 128's rule-5 precondition — a hash-less pre-128 row re-activated by an old build and
+then revoked by its session's end became claimable (`rebound_legacy`) by any account that knew the token string. Fix: that
+path writes `'session_ended'` and `revoked_at = now()`; rule 3 hand-off ignores the reason (K1b/K1c unchanged); 129's client
+revoke keeps `'signed_out'`. 198 P1–P4 with the negative control (`'signed_out'` on that path → claimable). **Product note
+(D, by design, recorded):** expired-session cleanup revokes that device's binding with the proof kept; a dormant user whose
+session is cleaned up loses push until the next launch refreshes it; the epoch does not move. **Cosmetic (LOW, open):** a
+deleted session is refused with the contract's frozen text "session predates a credential change"; the client's neutral
+copy covers it; changing the server text is a contract change and is not made here.
