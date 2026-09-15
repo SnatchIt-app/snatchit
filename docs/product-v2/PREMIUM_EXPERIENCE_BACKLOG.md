@@ -877,3 +877,15 @@ an old link shows an outcome, not an error).
   (no client change needed; noted for the day the contract is pinned).
 - Device checklist: A will act on the A-marked rows only when an authorised
   candidate build exists; no pre-approved read-backs.
+- **`9091397` — `revoked_reason` spelling aligned at A's request (gated file,
+  for A's confirmation).** 128's legacy path keys on the single value the
+  server's only writer (`notify.revoke_push_token`) uses, `signed_out`; the
+  batch 1 helper wrote `sign_out`, which would have left a signed-out device
+  unrecognised as a genuine handover and refused the next account silently.
+  One string changed; pinned by `tests/auth-sign-out.test.ts`. signOut.ts now
+  differs from batch 1 by that string and its comment only.
+- Coming in contract v2 (A, not yet released): the legacy path gets a 90-day
+  sunset from the migration's apply time (previously re-armed by every
+  sign-out, so it would have stayed open forever); the table holding that
+  epoch was created without access controls (anon-writable) — caught in
+  re-review, fixed, CI gate passes. Client unchanged until the versioned text.
