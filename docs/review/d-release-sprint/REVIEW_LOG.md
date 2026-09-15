@@ -139,7 +139,7 @@ and client retry), S16 (in-flight registration racing the trigger; no half-writt
 Clone of cd1f03c + 129: IDOR by token string → `{revoked:0}`, victim row untouched · own revoke → `{revoked:1}`,
 is_active false, reason signed_out, hash kept · repeat → 0 · anon and service_role EXECUTE denied · ACL exactly
 postgres=X, authenticated=X · definer, search_path "" · notify function ACLs identical before/after (0 lines) · revoked
-post-128 row not rule-5 claimable (42501) · pgTAP 196 9/9 · rollback drops the function. Question: reply lacks
+post-128 row not rule-5 claimable (42501) · pgTAP 196 9/9 · rollback drops the function. Question (closed by A: contract v2 §2.4 specifies `{revoked}`; C pins contract_version only on register replies): reply lacks
 `contract_version`. Numbering: session-bound work is now **131** (pgTAP 198); reclaim dropped per R1–R3 — completed
 redirects go to the owner as UNCLOSED (A's brief §10).
 
