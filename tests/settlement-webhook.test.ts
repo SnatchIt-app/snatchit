@@ -9,9 +9,11 @@
  *     fail_stripe_webhook_event, so Stripe redelivers and the retry calls the
  *     RPC AGAIN); every RPC outcome IS terminal (200 + complete) because the
  *     RPC recorded the review rows. Push notifications only on `settled`.
- *   * payment_intent.payment_failed / .canceled never touch a succeeded or
- *     refunded row, release a Buy-Now reservation, and answer non-2xx when
- *     the authoritative write fails.
+ *   * payment_intent.payment_failed / .canceled claim only a live attempt
+ *     (pending | processing), release a Buy-Now hold through
+ *     release_reservation_for_payment bound to that payment (L1, 2026-09-15 —
+ *     behavioral race coverage in tests/l1-edge-coupling.test.ts), and answer
+ *     non-2xx when the authoritative write fails.
  * Every RPC and query the handler makes is recorded by the mocks and asserted
  * on exactly — no network, no database, no real key.
  */
@@ -54,7 +56,7 @@ function harness(opts: { settle?: SettleStep[]; paymentsUpdate?: (q: unknown) =>
       if ('error' in step) return { data: null, error: { message: step.error, code: step.code } };
       return { data: [{ payment_id: 'pay_1', payment_status: step.outcome === 'refunded' ? 'refunded' : 'succeeded', listing_status: 'sold', transfer_id: step.transfer_id ?? 'tr_row_1', outcome: step.outcome }] };
     }
-    if (name === 'release_reservation') return opts.releaseError ? { data: null, error: { message: 'release boom' } } : { data: null };
+    if (name === 'release_reservation_for_payment') return opts.releaseError ? { data: null, error: { message: 'release boom' } } : { data: { released: true, reason: 'released' } };
     return { data: null };
   };
   const sb = mockSupabase({
@@ -197,15 +199,15 @@ describe('stripe-webhook — payment_intent.succeeded settles through settle_ver
 });
 
 describe('stripe-webhook — payment_intent.payment_failed / canceled', () => {
-  it('payment_failed marks the row failed guarded on status NOT IN (succeeded, refunded), releases the Buy-Now hold, 200', async () => {
+  it('payment_failed marks a LIVE row failed (status IN pending, processing), releases this payment\'s Buy-Now hold, 200', async () => {
     const h = harness();
     const { res } = await h.deliver(piEvent('evt_pf', 'payment_intent.payment_failed', { status: 'requires_payment_method', amount_received: 0 }));
     expect(res.status).toBe(200);
     const upd = h.sb.queries.find((q) => q.table === 'payments' && q.op === 'update');
     expect(upd?.body).toMatchObject({ status: 'failed' });
-    expect(upd?.filters).toEqual([['eq', 'stripe_payment_intent_id', PI], ['not', 'status', 'in', '("succeeded","refunded")']]);
-    expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'release_reservation', 'complete_stripe_webhook_event']);
-    expect(h.sb.rpcs[1].params).toEqual({ p_listing_id: LISTING, p_user_id: BUYER });
+    expect(upd?.filters).toEqual([['eq', 'stripe_payment_intent_id', PI], ['in', 'status', ['pending', 'processing']]]);
+    expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'release_reservation_for_payment', 'complete_stripe_webhook_event']);
+    expect(h.sb.rpcs[1].params).toEqual({ p_listing_id: LISTING, p_user_id: BUYER, p_payment_id: 'pay_1' });
   });
 
   it('payment_failed: a DB error on the failed-write is NOT terminal (non-2xx + fail)', async () => {
@@ -222,15 +224,15 @@ describe('stripe-webhook — payment_intent.payment_failed / canceled', () => {
     expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'complete_stripe_webhook_event']);
   });
 
-  it('payment_intent.canceled marks the pending row failed (same predicate), releases the Buy-Now hold, 200', async () => {
+  it('payment_intent.canceled marks the live row failed (same predicate), releases this payment\'s Buy-Now hold, 200', async () => {
     const h = harness();
     const { res } = await h.deliver(piEvent('evt_pc', 'payment_intent.canceled', { status: 'canceled', amount_received: 0 }));
     expect(res.status).toBe(200);
     const upd = h.sb.queries.find((q) => q.table === 'payments' && q.op === 'update');
     expect(upd?.body).toMatchObject({ status: 'failed' });
-    expect(upd?.filters).toEqual([['eq', 'stripe_payment_intent_id', PI], ['not', 'status', 'in', '("succeeded","refunded")']]);
-    expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'release_reservation', 'complete_stripe_webhook_event']);
-    expect(h.sb.rpcs[1].params).toEqual({ p_listing_id: LISTING, p_user_id: BUYER });
+    expect(upd?.filters).toEqual([['eq', 'stripe_payment_intent_id', PI], ['in', 'status', ['pending', 'processing']]]);
+    expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'release_reservation_for_payment', 'complete_stripe_webhook_event']);
+    expect(h.sb.rpcs[1].params).toEqual({ p_listing_id: LISTING, p_user_id: BUYER, p_payment_id: 'pay_1' });
   });
 
   it('payment_intent.canceled: DB error => non-2xx + fail', async () => {
@@ -240,7 +242,7 @@ describe('stripe-webhook — payment_intent.payment_failed / canceled', () => {
     expect(rpcNames(h.sb)).toEqual(['claim_stripe_webhook_event', 'fail_stripe_webhook_event']);
   });
 
-  it('auction-mode failures do not call release_reservation', async () => {
+  it('auction-mode failures do not call any reservation release', async () => {
     const h = harness();
     const { res } = await h.deliver(piEvent('evt_pf_auction', 'payment_intent.payment_failed', { status: 'requires_payment_method', metadata: { mode: 'auction', listing_id: LISTING, buyer_id: BUYER, seller_id: SELLER } }));
     expect(res.status).toBe(200);

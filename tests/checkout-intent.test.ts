@@ -18,7 +18,9 @@
  *   * MAJOR-3: minting or reusing for the entitled buyer cancels every OTHER
  *     buyer's pending PI on the listing (best-effort, never fails the request).
  *   * MINOR-4: a reused PI whose Stripe amount/currency disagrees with the
- *     current server total is cancelled, its row retired, and a fresh PI minted.
+ *     current server total is superseded: a fresh PI is minted and its row
+ *     inserted, THEN the old PI is cancelled and its row retired (L1 order,
+ *     2026-09-15 — race coverage in tests/l1-edge-coupling.test.ts).
  * Every DB query and Stripe call the handler makes is recorded by the mocks
  * and asserted on exactly — no network, no database, no real key.
  */
@@ -344,15 +346,21 @@ describe('create-payment-intent — reuse binds the amount (MINOR-4)', () => {
     expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
   });
 
-  it('X2d: if Stripe refuses to cancel the mismatched PI, no second PI is minted and the row stays pending (409 price changed)', async () => {
+  it('X2d: if Stripe refuses to cancel the mismatched PI, no secret is returned, the old row stays pending, and the unexposed replacement is withdrawn (409 price changed)', async () => {
     const s = await scenario({ listing: repriced(), user: HOLDER, payments: [pending], existingPi: { amount: 22000 }, cancelRefused: true });
     const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
     expect(res.status).toBe(409);
     expect(String(body.error)).toMatch(/price changed/i);
     expect(body.server_total_cents).toBe(33000);
-    expect(piCreates(s.stripe.calls)).toHaveLength(0);
-    expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
-    expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(body.clientSecret).toBeUndefined();
+    // L1 order: the replacement is minted and recorded first, then withdrawn when the old PI cannot be cancelled.
+    expect(piCreates(s.stripe.calls)).toHaveLength(1);
+    expect(paymentInserts(s.sb.queries)).toHaveLength(1);
+    expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_old/cancel', '/payment_intents/pi_new/cancel']);
+    const updates = paymentUpdates(s.sb.queries);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].filters).toEqual([['eq', 'stripe_payment_intent_id', 'pi_new'], ['eq', 'status', 'pending']]);
+    expect(updates.some((u) => u.filters.some((f) => f[1] === 'id' && f[2] === 'pay_p'))).toBe(false);
   });
 });
 
