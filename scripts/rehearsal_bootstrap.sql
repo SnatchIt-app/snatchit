@@ -78,6 +78,17 @@
 --                     (only gen_random_uuid() is used, built into PG13+), but
 --                     installing them keeps "no migration creates an extension"
 --                     assertions honest rather than vacuous.
+--     auth.sessions   COLUMN SUBSET of GoTrue's sessions table (id, user_id,
+--                     created_at, updated_at, not_after, refreshed_at, aal).
+--                     Added 2026-09-15 for migration 131 (session-bound push
+--                     bindings), which attaches a statement-level trigger to it
+--                     and reads created_at/not_after by the JWT's session_id.
+--                     FIDELITY RISK: GoTrue writes these rows; nothing here does.
+--                     Tests insert rows as postgres and set session_id in
+--                     request.jwt.claims. Ownership differs from hosted
+--                     (postgres here, supabase_auth_admin there): whether
+--                     `postgres` may create a trigger on auth.sessions/auth.users
+--                     on a hosted project is NOT provable by this harness.
 -- ===========================================================================
 
 \set ON_ERROR_STOP on
@@ -121,3 +132,15 @@ ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS username text    DEFAULT CURRENT_U
 -- 3c. Extensions the Supabase platform pre-installs. --------------------------
 CREATE EXTENSION IF NOT EXISTS pgcrypto    WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+
+-- 3d. auth.sessions: column subset of GoTrue's table (see the ledger). ---------
+CREATE TABLE IF NOT EXISTS auth.sessions (
+  id           uuid        PRIMARY KEY,
+  user_id      uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at   timestamptz,
+  updated_at   timestamptz,
+  not_after    timestamptz,
+  refreshed_at timestamp,
+  aal          text
+);
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON auth.sessions (user_id);
