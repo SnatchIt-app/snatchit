@@ -135,6 +135,15 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## Pin at `aabe029` (A, 2026-09-15/16); 131 rebased to `f102ce2` (content = a8ea025)
+
+## 132 interim alerts — D costing (ops framework 115/117/118, deployed console)
+| Item | Cost | Notes |
+|---|---|---|
+| (a) unfulfillable-refund detector | cheap, ~3–4 h incl. pgTAP | `ops.detect_unfulfillable()` in the detect_case/detect_sweep pattern over `public.webhook_retries` (`unfulfillable%`, unresolved, > 10 min) → p1 `refund_failed`/`payment`; manual_review also p1 (no p0: priority check p1–p4); needs a `run_job` CASE arm, schedule, census/manifest, negative control; no console change |
+| (b) double-capture signature | +~1 h in the same migration | the second capture stays unsucceeded with `unfulfillable:one_success_per_listing`; join to a succeeded payment for the same listing **and buyer** → p2 `reconciliation_mismatch`, reported 7 days past refund so detect_sweep does not hide it |
+| (c) job health for enforce-transfer-expiry | **not covered** | pg_cron runs `net.http_post` and records success on enqueue; the edge writes no `ops.job_state`; detect_jobs cannot see edge 500s; also job_health timed out on production volume (2026-09-08). (a) is the proxy; true cover needs an edge heartbeat or a `net._http_response` check |
+
 ## Re-pin — `aabe029` (code tree `74e51cf`: #68 193 fixtures without superuser GUCs): **PIN from D**
 193 fixture reachability OK: every ledger row via `record_payment_refund`; time shifts only move the row just written and the
 completing `refunded_at`, per-payment calls chronological (3, 4, 5, 11, 8), replay unshifted; U.3 legacy-then-chargeback
