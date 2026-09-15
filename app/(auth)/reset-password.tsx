@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutAllDevices } from '@/src/lib/auth/signOut';
+import { SIGN_OUT_FAILED_COPY, signOutAllDevices } from '@/src/lib/auth/signOut';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
@@ -32,8 +32,22 @@ export default function ResetPasswordScreen() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
-    // K-2: a new password ends every session; the login screen says why.
-    await signOutAllDevices({ reason: 'password_changed' });
+    await signOutAfterPasswordChange();
+  }
+
+  // K-2: a new password ends every session; the login screen says why.
+  // F-K2-3: if the sign-out fails (offline), the password is already changed
+  // and every binding revoked, so the user is told exactly that and retries.
+  async function signOutAfterPasswordChange(): Promise<void> {
+    setLoading(true);
+    const r = await signOutAllDevices({ reason: 'password_changed' });
+    setLoading(false);
+    if (!r.signedOut) {
+      Alert.alert('Password updated', `Your password has been updated, but this device could not sign out. ${SIGN_OUT_FAILED_COPY}`, [
+        { text: 'Try again', onPress: () => { void signOutAfterPasswordChange(); } },
+      ]);
+      return;
+    }
     Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
       { text: 'OK', onPress: () => router.replace('/(auth)/login') },
     ]);

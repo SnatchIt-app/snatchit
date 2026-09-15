@@ -129,10 +129,10 @@ describe('contract v2 §2.4 (erratum): sign-out revokes through public.revoke_pu
     }
   });
 
-  it('clears the registration record after the revoke and before the sign-out, and never blocks on it', async () => {
+  it('clears the registration record only after the sign-out succeeded, and never blocks on it', async () => {
     const d = deps({ clearRegistration: vi.fn(async () => { d.calls.push('clear'); }) });
     await revokeThenSignOut(d);
-    expect(d.calls).toEqual(['revoke', 'clear', 'signOut']);
+    expect(d.calls).toEqual(['revoke', 'signOut', 'clear']);
     const failing = deps({ clearRegistration: vi.fn(async () => { throw new Error('storage'); }) });
     expect((await revokeThenSignOut(failing)).revoke).toBe('revoked');
     expect(failing.signOut).toHaveBeenCalled();
