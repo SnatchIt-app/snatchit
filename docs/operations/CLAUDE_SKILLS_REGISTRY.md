@@ -9,16 +9,17 @@ skill files — they live in the records linked from `CLAUDE.md`.
 Where skills load from on this machine:
 - `~/.claude/skills/<name>/SKILL.md` — user level; the location all four sessions converged on (any `skills/` directory is gitignored by this repo, `.gitignore:54`, so project `.claude/skills/` cannot be tracked).
 - `CLAUDE.md` at the repo root is the shared policy file; it has existed on `origin/main` since de0bbab (governance) and each role appends its section there, append-only, integrated by A. `/Users/josetascon/snatchit` is a stale checkout (`mobile/profile-rpc-compat`, ~123 commits behind main, no CLAUDE.md); the live checkout is `/Users/josetascon/snatchit-converge`.
-- claude.ai-hosted skills — materialised per session under `~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/<session-ids>/skills/<name>/SKILL.md`; invoked as `anthropic-skills:<name>` (superpowers set) or by bare name (docx, pdf, pptx, xlsx, skill-creator).
+- claude.ai-hosted skills — materialised per session under `~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/<session-ids>/skills/<name>/SKILL.md`; invoked by bare name (portable form); the `anthropic-skills:<name>` prefix is a desktop-client namespace alias for the same skills and also resolves (verified by A and B by invocation, 2026-09-14).
 - Marketplace plugins under `~/.claude/plugins/marketplaces/claude-plugins-official/` are on disk but NOT enabled unless the Skill tool lists them.
 
 ## Role operating skills (user level)
+Ownership wording per A (2026-09-14): A = payment correctness, release integration, contracts and the migration registry, **shared-sandbox manifest (window unopened — no sandbox write authorised)**; B = signing infrastructure and database ceremonies; C = consumer experience, Tickets, the 54-item Premium checklist; D = vendor/admin dashboards and venue acceptance. The ownership map itself lives in B's half of CLAUDE.md.
 | Skill | Session | Path | Tracked copy |
 |---|---|---|---|
 | snatchit-a-payment-release | A | `~/.claude/skills/snatchit-a-payment-release/SKILL.md` | A's records |
 | snatchit-b-signing-ceremonies | B | `~/.claude/skills/snatchit-b-signing-ceremonies/SKILL.md` | B's records |
 | snatchit-consumer-experience | C | `~/.claude/skills/snatchit-consumer-experience/SKILL.md` | `docs/operations/claude-skills/C-consumer-experience.SKILL.md` (this branch; `skills/` dirs are gitignored) |
-| (D's) | D | not yet seen | — |
+| snatchit-d-dashboards-venue | D | `~/.claude/skills/snatchit-d-dashboards-venue/SKILL.md` | D's records |
 
 ## Third-party skills installed from the trusted sources (user level)
 | Skill | Source | Commit / date | Installed by | Notes |
