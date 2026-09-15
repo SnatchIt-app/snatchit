@@ -40,6 +40,8 @@ export function ListingStatusBanner({ status }: { status: ListingStatus | null }
         {status.label}
       </Text>
       {status.detail ? (
+        // Tabular digits: the reservation's m:ss countdown lives in `detail`
+        // and must not shift width as it ticks (CFT-207).
         <Text style={[textStyle('bodySm'), styles.detail]}>{status.detail}</Text>
       ) : null}
     </View>
@@ -56,5 +58,5 @@ const styles = StyleSheet.create({
     backgroundColor: v2.surface.surface,
     gap: 2,
   },
-  detail: { color: v2.text.secondary },
+  detail: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
 });

@@ -80,6 +80,7 @@ describe('grouping and urgency', () => {
     expect(bidGroupOf('lost')).toBe('past');
     expect(bidGroupOf('sold')).toBe('past');
     expect(bidGroupOf('purchase_confirmed')).toBe('past');
+    expect(bidGroupOf('cancelled')).toBe('past');
     for (const s of ['winning', 'outbid', 'won', 'awaiting_transfer', 'seller_sent', 'purchase_disputed'] as const) {
       expect(bidGroupOf(s)).toBe('active');
     }

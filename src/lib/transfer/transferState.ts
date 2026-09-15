@@ -10,6 +10,13 @@
  *
  * No effects, no Supabase, no theme. The transfer state machine itself is Core's
  * and is untouched.
+ *
+ * PREMIUM BATCH 3 (CFT-402, item 30). The seller's claim and the buyer's
+ * possession are different facts and are never given the same word:
+ * `seller_sent` is "Marked sent" (the seller said so), `buyer_confirmed` is
+ * "Received" (the buyer said so), `auto_released` is "Released" (the window
+ * closed with no word from the buyer — payment moved, possession is unknown).
+ * `transferStatusCopy` carries the role-specific sentence for the same states.
  */
 
 export type TransferStatus =
@@ -38,12 +45,47 @@ export function formatCountdown(ts: string | null, now: number = Date.now()): st
 /** The canonical badge label + tone for a status. Word carries the meaning. */
 export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
   switch (status) {
-    case 'pending':         return { label: 'Pending',  tone: 'neutral' };
-    case 'seller_sent':     return { label: 'Sent',     tone: 'neutral' };
-    case 'buyer_confirmed': return { label: 'Complete', tone: 'success' };
-    case 'auto_released':   return { label: 'Released', tone: 'success' };
-    case 'disputed':        return { label: 'Issue',    tone: 'warning' };
+    case 'pending':         return { label: 'Pending',     tone: 'neutral' };
+    case 'seller_sent':     return { label: 'Marked sent', tone: 'neutral' };
+    case 'buyer_confirmed': return { label: 'Received',    tone: 'success' };
+    case 'auto_released':   return { label: 'Released',    tone: 'success' };
+    case 'disputed':        return { label: 'Issue',       tone: 'warning' };
     default:                return { label: status.replace(/_/g, ' '), tone: 'neutral' };
+  }
+}
+
+export type TransferRole = 'buyer' | 'seller';
+
+/**
+ * One sentence per state and role, with the claim/possession distinction kept:
+ * "marked … as sent" is always the seller's statement; "received" is always the
+ * buyer's. Auto-release says what happened to the money, not to the tickets.
+ */
+export function transferStatusCopy(status: string, role: TransferRole): { title: string; body: string } {
+  const buyer = role === 'buyer';
+  switch (status) {
+    case 'pending':
+      return buyer
+        ? { title: 'Waiting for the seller', body: 'The seller has not marked the tickets as sent yet.' }
+        : { title: 'Send the tickets', body: 'The buyer has paid. Payment is held until they confirm receipt.' };
+    case 'seller_sent':
+      return buyer
+        ? { title: 'Seller marked as sent', body: "That is the seller's update, not a confirmation. Check your ticket account, then confirm receipt here." }
+        : { title: 'Marked as sent', body: 'Waiting for the buyer to confirm they received the tickets.' };
+    case 'buyer_confirmed':
+      return buyer
+        ? { title: 'Tickets received', body: 'You confirmed receipt. Enjoy the event.' }
+        : { title: 'Tickets received', body: 'The buyer confirmed they received the tickets.' };
+    case 'auto_released':
+      return buyer
+        ? { title: 'Payment released', body: 'The review window closed without a confirmation or a report from you, so payment went to the seller.' }
+        : { title: 'Payout released', body: 'The buyer review window passed without a report. Your payout has been released.' };
+    case 'disputed':
+      return buyer
+        ? { title: 'Issue reported', body: 'Our team typically reviews within 24 hours. Your payment stays on hold until this is resolved.' }
+        : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is on hold pending review.' };
+    default:
+      return { title: status.replace(/_/g, ' '), body: '' };
   }
 }
 

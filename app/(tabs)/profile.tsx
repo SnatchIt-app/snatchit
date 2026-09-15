@@ -20,10 +20,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { sellerNetDollars } from '@/src/lib/money';
+import { formatDollars, sellerNetDollars } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
@@ -54,11 +55,6 @@ type SellerStats = { active: number; sold: number; revenue: number };
 
 // ─── Helpers (unchanged) ────────────────────────────────────────────────────────
 
-function formatMoney(value: number): string {
-  return Number.isInteger(value)
-    ? `$${value.toLocaleString('en-US')}`
-    : `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
 
 function maskPhone(phone: string | null): string {
   if (!phone) return '—';
@@ -206,7 +202,7 @@ export default function ProfileScreen() {
 
   async function handleSignOut() {
     setSignOutBusy(true);
-    await supabase.auth.signOut();
+    await signOutEverywhere();
     setSignOutBusy(false);
   }
 
@@ -286,7 +282,7 @@ export default function ProfileScreen() {
             <Stat label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
             <View style={s.statDivider} />
             {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
-            <Stat label="Proceeds" value={stats.revenue > 0 ? formatMoney(stats.revenue) : '—'} />
+            <Stat label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
           </View>
           <SettingsRow
             label="My listings"

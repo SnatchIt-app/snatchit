@@ -34,6 +34,8 @@ import {
   isExpectedCheckoutError,
   SETTLEMENT_COPY,
   type SettlementOutcome,
+  PriceChangedError,
+  reconcilePriceChange,
 } from '@/src/lib/payments';
 import * as Sentry from '@sentry/react-native';
 
@@ -43,10 +45,20 @@ import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
-import { payControl, fmtCountdown } from '@/src/lib/checkout/payControl';
+import {
+  LISTING_SUMMARY_COLUMNS,
+  mapListingSummary,
+  reservedUntilMs,
+  ticketCountLabel,
+  type ListingSummary,
+  type ListingSummaryRow,
+} from '@/src/lib/checkout/listingSummary';
+import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
+import { hapticSuccess } from '@/src/lib/feedback/haptics';
+import { fmtHoldUntil, notHeldCopy, notHeldReason, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
-import { decideCheckoutSetup, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
+import { decideCheckoutSetup, holdIsMine, partialRefundCents, pickSettled, settledKind, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -110,6 +122,30 @@ export default function CheckoutScreen() {
   // entirely through initPaymentSheet (no separate button rendered).
   const [applePayAvailable, setApplePayAvailable] = useState<boolean | null>(null);
 
+  // ── Premium batch 1 state ──────────────────────────────────────────────
+  // The total the buyer has explicitly accepted. Starts as the route estimate
+  // and only changes through acceptNewTotal(); it is what the server verifies
+  // (A-02). Kept in a ref too so the setup closure always sends the latest.
+  const [acceptedTotalCents, setAcceptedTotalCents] = useState(estimatedTotalCents);
+  const acceptedTotalRef = useRef(estimatedTotalCents);
+  // A price change the buyer has not accepted yet.
+  const [priceChange, setPriceChange] = useState<{ previousCents: number; nextCents: number } | null>(null);
+  // The hold is known to be gone. `releasedByUs` is true only when THIS
+  // screen's release call succeeded; the wording depends on it (CFT-301).
+  const [holdLost, setHoldLost] = useState<{ releasedByUs: boolean; at: number } | null>(null);
+  // A refund state found at setup (A-03). Never a purchase success.
+  const [refundState, setRefundState] = useState<
+    { kind: 'refunded' | 'refund_pending' } | { kind: 'partially_refunded'; refundedCents: number } | null
+  >(null);
+  // A payment result is being reconciled with the server (A-04).
+  const [checking, setChecking] = useState(false);
+  // CFT-306: the settlement record after the charge is a step of its own.
+  const [finalizing, setFinalizing] = useState(false);
+  // The server could not be reached to confirm a payment: no Pay is offered
+  // until a reachable check says the money did not land.
+  const [checkUnreachable, setCheckUnreachable] = useState(false);
+  const holdRecheckedRef = useRef(false);
+
   const confirmedRef = useRef(false);
   const setupPaymentRef = useRef<(() => void) | null>(null);
   // Synchronous in-flight latch for the payment-sheet presentation. React state
@@ -125,33 +161,30 @@ export default function CheckoutScreen() {
   // flow. It touches no money and never blocks or fails payment. The old screen
   // showed the event and venue as two text rows and no artwork at all, on the
   // one screen where the money actually leaves.
-  const [display, setDisplay] = useState<{
-    cover: string | null; eventName: string; venue: string; date: string; time: string;
-  } | null>(null);
+  const [display, setDisplay] = useState<ListingSummary | null>(null);
   const [reservedUntil, setReservedUntil] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('listings')
-        .select('cover_image_path, cover_image_url, event_name, venue, event_date, event_time, reserved_until')
+        .select(LISTING_SUMMARY_COLUMNS)
         .eq('id', listingId)
         .maybeSingle();
-      if (!alive || !data) return;
-      const d = data as {
-        cover_image_path?: string | null; cover_image_url?: string | null;
-        event_name?: string | null; venue?: string | null;
-        event_date?: string | null; event_time?: string | null; reserved_until?: string | null;
-      };
-      setDisplay({
-        cover: d.cover_image_path ?? d.cover_image_url ?? null,
-        eventName: d.event_name ?? eventName,
-        venue: d.venue ?? venue,
-        date: d.event_date ?? '',
-        time: d.event_time ?? '',
-      });
-      if (isBuyNow && d.reserved_until) setReservedUntil(new Date(d.reserved_until).getTime());
+      if (!alive) return;
+      if (error || !data) {
+        // F1: this read is cosmetic — it must never block or fail the payment.
+        // It stays quiet and the screen keeps the values navigation passed in.
+        if (error) console.warn('[checkout] listing summary unavailable:', error.message);
+        return;
+      }
+      const row = data as ListingSummaryRow;
+      setDisplay(mapListingSummary(row, { eventName, venue }));
+      if (isBuyNow) {
+        const until = reservedUntilMs(row);
+        if (until != null) setReservedUntil(until);
+      }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,14 +218,15 @@ export default function CheckoutScreen() {
           { listingId, buyerId: user!.id, mode: isBuyNow ? 'buy_now' : 'auction' },
           {
             fetchSettledPayment: async (lid, bid) => {
+              // Several rows may exist (a refunded one and a later succeeded one);
+              // pickSettled prefers succeeded. No arbitrary limit(1) any more (A-03).
               const { data } = await supabase
                 .from('payments')
-                .select('status')
+                .select('status, refunded_at, amount_refunded_cents, total')
                 .eq('listing_id', lid)
                 .eq('buyer_id', bid)
                 .in('status', [...SETTLED_STATUSES])
-                .limit(1)
-                .maybeSingle();
+                .limit(5);
               return data ?? null;
             },
             fetchListing: async (lid) => {
@@ -210,7 +244,7 @@ export default function CheckoutScreen() {
                 mode: isBuyNow ? 'buy_now' : 'auction',
                 // Server authority: this is the total we showed the buyer; the
                 // server 409s rather than charge a different number.
-                expectedTotalCents: estimatedTotalCents || undefined,
+                expectedTotalCents: acceptedTotalRef.current || undefined,
               }),
           },
         );
@@ -220,12 +254,28 @@ export default function CheckoutScreen() {
           setSettlement('completed');
           return;
         }
-        if (decision.kind === 'reservation_unverifiable') {
-          setPaymentError('Unable to verify reservation. Please go back and try again.');
+        if (decision.kind === 'refunded' || decision.kind === 'refund_pending') {
+          // A-03: a refund is never a success and never a reason to set up a
+          // new intent here. Its own screen says so.
+          setRefundState({ kind: decision.kind });
           return;
         }
-        if (decision.kind === 'reservation_expired') {
-          setPaymentError('Your reservation has expired. Please go back and reserve again.');
+        if (decision.kind === 'partially_refunded') {
+          // F8: the order stands, but part of the money came back. Not the
+          // celebration screen; say what was returned.
+          setRefundState({ kind: 'partially_refunded', refundedCents: decision.refundedCents });
+          return;
+        }
+        if (decision.kind === 'reservation_unverifiable') {
+          // The hold may still be live; a retry is honest here.
+          setPaymentError('Unable to verify reservation. Please try again.');
+          return;
+        }
+        if (decision.kind === 'not_held') {
+          // CFT-301 (D9-UX-1): the server cannot say whether the hold ran out
+          // or was released, so the screen reports only what it knows and the
+          // only way forward is the listing. No retry, no re-reserve here.
+          setHoldLost({ releasedByUs: false, at: Date.now() });
           return;
         }
         const result = decision.intent;
@@ -328,6 +378,36 @@ export default function CheckoutScreen() {
 
         setPaymentReady(true);
       } catch (err: unknown) {
+        if (err instanceof PriceChangedError) {
+          // A-02: the server would charge a different total. Re-read the listing,
+          // recompute the all-in total with the canonical helper, and offer the
+          // new number only if the two agree. The buyer must tap to accept it;
+          // nothing is resent automatically.
+          // Mirrors create-payment-intent exactly: buy_now_price for Buy Now,
+          // winning_bid_amount ?? current_bid for an auction (index.ts:499).
+          const { data: fresh } = await supabase
+            .from('listings')
+            .select('buy_now_price, current_bid, winning_bid_amount')
+            .eq('id', listingId)
+            .maybeSingle();
+          const baseDollars = isBuyNow
+            ? fresh?.buy_now_price
+            : (fresh?.winning_bid_amount ?? fresh?.current_bid);
+          const freshTotalCents =
+            typeof baseDollars === 'number' ? buyerTotalCents(dollarsToCents(baseDollars)) : null;
+          const r = reconcilePriceChange({
+            serverTotalCents: err.serverTotalCents,
+            freshTotalCents,
+            acceptedTotalCents: acceptedTotalRef.current,
+          });
+          if (r.outcome === 'accept_required') {
+            setPriceChange({ previousCents: r.previousCents, nextCents: r.nextAcceptedCents });
+          } else {
+            reportCheckoutFailure('payment-intent', `price changed but totals disagree: server=${err.serverTotalCents} fresh=${freshTotalCents}`);
+            setPaymentError(SAFE_PAYMENT_ERROR);
+          }
+          return;
+        }
         const msg = err instanceof Error ? err.message : 'Failed to initialize payment.';
         if (isExpectedCheckoutError(msg)) {
           // Actionable, user-authored messages (price changed, listing sold,
@@ -377,11 +457,13 @@ export default function CheckoutScreen() {
     if (error) console.warn('[checkout] release_reservation failed:', error.message);
 
     // The hold is gone, so this sheet's intent can no longer settle. Drop it and
-    // hand the control back as "Try again" rather than a live Pay button, so a
-    // retry re-runs setup (and a second Buy Now can re-reserve from scratch).
+    // hand the control back as "Back to listing": only a fresh Buy Now can
+    // re-reserve, so a retry here would be a dead end (CFT-301). "Released" is
+    // claimed only when our own call succeeded.
     setPaymentReady(false);
     setPaymentIntentId(null);
-    setPaymentError('Your hold was released. Please go back and reserve again.');
+    setPaymentError(null);
+    setHoldLost({ releasedByUs: !error, at: Date.now() });
     return false;
   }
 
@@ -421,18 +503,32 @@ export default function CheckoutScreen() {
           // Raw SDK text (e.g. kCFErrorDomainCFNetwork -1001) stays in the log;
           // the customer sees one short line in the product's own vocabulary.
           console.warn('[checkout] presentPaymentSheet failed:', paymentError.code, paymentError.message);
-          Alert.alert('Payment Failed', paymentSheetErrorCopy(paymentError));
-          setConfirming(false);
-          return;
+          // A-04: a sheet error is not proof the charge failed (the network can
+          // drop after Stripe has the money). Ask the server before offering Pay
+          // again. Verified → settle. Reachable and unverified → Pay stays
+          // available while the hold is live. Unreachable → no Pay at all.
+          const verdict = await reconcileAfterSheetError();
+          if (verdict !== 'verified') {
+            if (verdict === 'not_verified') Alert.alert('Payment failed', paymentSheetErrorCopy(paymentError));
+            setConfirming(false);
+            return;
+          }
+          // Stripe has the money: fall through to settlement.
         }
       }
 
-      const result = await finalizePurchase({
-        listingId,
-        userId: user.id,
-        paymentIntentId,
-        mode,
-      });
+      setFinalizing(true);
+      let result: Awaited<ReturnType<typeof finalizePurchase>>;
+      try {
+        result = await finalizePurchase({
+          listingId,
+          userId: user.id,
+          paymentIntentId,
+          mode,
+        });
+      } finally {
+        setFinalizing(false);
+      }
 
       if (result.outcome === 'failed') {
         Sentry.captureMessage(
@@ -465,6 +561,123 @@ export default function CheckoutScreen() {
   const handleConfirmPurchase = () => runSettlement('buy_now');
   const handleAuctionPayment  = () => runSettlement('auction');
 
+  // ── A-04: reconcile a payment result with the server ──────────────────────
+  // Returns what the server said. Only 'verified' may lead to settlement.
+  async function reconcileAfterSheetError(): Promise<'verified' | 'not_verified' | 'unreachable'> {
+    if (!paymentIntentId) return 'not_verified';
+    setChecking(true);
+    try {
+      const confirm = await confirmPaymentSuccess(paymentIntentId);
+      if (confirm.reachable && confirm.verified) { setCheckUnreachable(false); return 'verified'; }
+      if (confirm.reachable) { setCheckUnreachable(false); return 'not_verified'; }
+      // Unreachable: we know nothing. Withdraw Pay until a reachable check says
+      // the money did not land. The webhook, the sweep and the hold's TTL are
+      // the backstop; the buyer is told not to pay again.
+      setPaymentReady(false);
+      setCheckUnreachable(true);
+      return 'unreachable';
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // ── The one server-side re-validation (A-04) ──────────────────────────────
+  // Settled-first, then the hold. Used at the expiry margin and after a
+  // reachable "not verified" check, so Pay is never restored on the strength of
+  // the device clock alone (review, required change 2).
+  async function revalidateAgainstServer(): Promise<'settled' | 'refund' | 'held' | 'lost'> {
+    if (!user) return 'lost';
+    const { data: rows } = await supabase
+      .from('payments')
+      .select('status, refunded_at, amount_refunded_cents, total')
+      .eq('listing_id', listingId)
+      .eq('buyer_id', user.id)
+      .in('status', [...SETTLED_STATUSES])
+      .limit(5);
+    const settled = pickSettled(rows ?? null);
+    const kind = settledKind(settled);
+    if (kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
+    if (kind === 'partially_refunded') { setRefundState({ kind, refundedCents: partialRefundCents(settled) }); setPaymentReady(false); return 'refund'; }
+    if (kind) { setRefundState({ kind }); setPaymentReady(false); return 'refund'; }
+    if (!isBuyNow) return 'held'; // an auction winner holds no reservation
+    const { data: listing } = await supabase
+      .from('listings')
+      .select('status, reserved_by, reserved_until')
+      .eq('id', listingId)
+      .maybeSingle();
+    if (listing && holdIsMine(listing, user.id, new Date())) {
+      // Follow the server's deadline; Pay returns only if it is outside the margin.
+      setReservedUntil(new Date(listing.reserved_until as string).getTime());
+      return 'held';
+    }
+    setPaymentReady(false);
+    setHoldLost({ releasedByUs: false, at: Date.now() });
+    return 'lost';
+  }
+
+  // Manual "Check status" after an unreachable check. Never re-offers Pay on
+  // its own: a reachable "not verified" re-offers it only after the SERVER
+  // says the hold is still live; "verified" settles.
+  async function recheckPayment() {
+    if (!user || !paymentIntentId) return;
+    const verdict = await reconcileAfterSheetError();
+    if (verdict === 'verified') {
+      setFinalizing(true);
+      try {
+        const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: isBuyNow ? 'buy_now' : 'auction' });
+        if (result.transferId) setPostPurchaseTransferId(result.transferId);
+        confirmedRef.current = result.outcome === 'completed';
+        setSettlement(result.outcome);
+      } finally {
+        setFinalizing(false);
+      }
+      return;
+    }
+    if (verdict === 'not_verified') {
+      setChecking(true);
+      try {
+        const state = await revalidateAgainstServer();
+        if (state === 'held') setPaymentReady(true);
+      } finally {
+        setChecking(false);
+      }
+    }
+  }
+
+  // ── A-04: re-check the hold when the countdown enters the margin ──────────
+  useEffect(() => {
+    if (!isBuyNow || !paymentReady || !user || holdRecheckedRef.current) return;
+    if (reservationMsLeft == null || !withinExpiryMargin(reservationMsLeft)) return;
+    holdRecheckedRef.current = true;
+    (async () => {
+      setChecking(true);
+      try {
+        await revalidateAgainstServer();
+      } finally {
+        setChecking(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isBuyNow, paymentReady, reservationMsLeft, user?.id]);
+
+  // After the server-confirmed deadline passes, the hold has run out.
+  useEffect(() => {
+    if (!isBuyNow || !paymentReady || !holdRecheckedRef.current) return;
+    if (reservationMsLeft === 0 && !checking) {
+      setPaymentReady(false);
+      setHoldLost({ releasedByUs: false, at: Date.now() });
+    }
+  }, [isBuyNow, paymentReady, reservationMsLeft, checking]);
+
+  // ── A-02: the buyer accepts the new total, then setup runs again ─────────
+  function acceptNewTotal() {
+    if (!priceChange) return;
+    acceptedTotalRef.current = priceChange.nextCents;
+    setAcceptedTotalCents(priceChange.nextCents);
+    setPriceChange(null);
+    setupPaymentRef.current?.();
+  }
+
   // -- Shared display derivations ------------------------------------------
 
   const cover     = display?.cover ?? null;
@@ -474,14 +687,30 @@ export default function CheckoutScreen() {
 
   // The total is always the server figure once loaded; the client estimate is a
   // placeholder before createPaymentIntent returns. Neither is computed here.
-  const totalCents   = serverBreakdown ? serverBreakdown.total : estimatedTotalCents;
+  const totalCents   = serverBreakdown ? serverBreakdown.total : acceptedTotalCents;
   const ticketCents  = serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount);
-  const feeCents     = serverBreakdown ? serverBreakdown.buyerFee : estimatedTotalCents - dollarsToCents(bidAmount);
+  const feeCents     = serverBreakdown ? serverBreakdown.buyerFee : acceptedTotalCents - dollarsToCents(bidAmount);
+  const ticketCount  = ticketCountLabel(display?.quantity ?? null);
 
   // -- Settlement outcome UI ------------------------------------------------
   // One screen, three faces. Only `completed` is allowed to say the purchase is
   // complete; `pending` and `failed` speak with SETTLEMENT_COPY, so the screen
   // and the alert can never disagree.
+
+  if (refundState) {
+    return (
+      <View style={s.safe}>
+        <RefundView
+          state={refundState.kind}
+          refundedCents={refundState.kind === 'partially_refunded' ? refundState.refundedCents : null}
+          cover={cover}
+          eventName={showName}
+          venue={showVenue}
+          whenLabel={whenLabel}
+        />
+      </View>
+    );
+  }
 
   if (settlement) {
     return (
@@ -494,6 +723,7 @@ export default function CheckoutScreen() {
           whenLabel={whenLabel}
           isBuyNow={isBuyNow}
           transferId={postPurchaseTransferId}
+          purchaseKey={listingId}
         />
       </View>
     );
@@ -508,16 +738,25 @@ export default function CheckoutScreen() {
     authLoading,
     paymentLoading,
     confirming,
+    finalizing,
+    checking,
     paymentReady,
     paymentError: !!paymentError,
+    holdLost: !!holdLost,
+    reservationMsLeft: isBuyNow ? reservationMsLeft : null,
     formattedTotal: formatCents(totalCents),
   });
   const payOnPress =
     pay.action === 'pay' ? payHandler
     : pay.action === 'retry' ? () => setupPaymentRef.current?.()
+    // A plain back navigation, so the listing screen's own exit path runs.
+    : pay.action === 'back' ? () => router.back()
     : undefined;
 
-  const reservationExpired = reservationMsLeft === 0;
+  const holdCopy = holdLost
+    ? notHeldCopy(notHeldReason({ releasedByUs: holdLost.releasedByUs, reservedUntilMs: reservedUntil, nowMs: holdLost.at }))
+    : null;
+  const holdUntil = reservedUntil ? fmtHoldUntil(reservedUntil) : null;
 
   return (
     <View style={s.safe}>
@@ -549,15 +788,15 @@ export default function CheckoutScreen() {
         </View>
 
         {/* Reservation countdown (Buy Now) */}
-        {isBuyNow && reservationMsLeft != null ? (
+        {isBuyNow && reservationMsLeft != null && !holdLost ? (
           <View style={s.holdRow}>
             <Text
-              style={[textStyle('label'), reservationExpired ? s.holdExpired : s.hold]}
+              style={[textStyle('label'), reservationMsLeft === 0 ? s.holdExpired : s.hold]}
               accessibilityLiveRegion="none"
             >
-              {reservationExpired
-                ? 'Reservation expired'
-                : `Held for you · ${fmtCountdown(reservationMsLeft)} left`}
+              {reservationMsLeft === 0
+                ? 'Checking your hold'
+                : `Held for you · ${fmtCountdown(reservationMsLeft)} left${holdUntil ? ` · until ${holdUntil}` : ''}`}
             </Text>
           </View>
         ) : null}
@@ -565,7 +804,7 @@ export default function CheckoutScreen() {
         {/* Price breakdown — the one screen where itemising is correct. Every
             number is the server figure once loaded. */}
         <View style={s.breakdown}>
-          <Row label={isBuyNow ? 'Ticket' : 'Winning bid'} value={formatCents(ticketCents)} />
+          <Row label={isBuyNow ? (ticketCount ?? 'Ticket') : 'Winning bid'} value={formatCents(ticketCents)} />
           <Row label="Service fee" value={formatCents(feeCents)} />
           <View style={s.hairline} />
           <View style={s.totalRow}>
@@ -574,7 +813,11 @@ export default function CheckoutScreen() {
               {formatCents(totalCents)}
             </Text>
           </View>
-          <Text style={[textStyle('bodySm'), s.meta]}>The service fee is included in this total.</Text>
+          <Text style={[textStyle('bodySm'), s.meta]}>
+            {ticketCount && isBuyNow
+              ? `The total covers all ${ticketCount} and includes the service fee.`
+              : 'The service fee is included in this total.'}
+          </Text>
         </View>
 
         {/* Payment method state */}
@@ -589,6 +832,28 @@ export default function CheckoutScreen() {
               <Text style={[textStyle('body'), s.payStateText]}>
                 {applePayAvailable ? 'Apple Pay or card' : 'Card payment'}
               </Text>
+            </View>
+          ) : holdCopy ? (
+            <View accessibilityLiveRegion="polite">
+              <Text style={[textStyle('title'), s.payStateText]}>{holdCopy.title}</Text>
+              <Text style={[textStyle('body'), s.payStateText]}>{holdCopy.body}</Text>
+            </View>
+          ) : priceChange ? (
+            <View accessibilityLiveRegion="polite">
+              <Text style={[textStyle('title'), s.payStateText]}>The total changed</Text>
+              <Text style={[textStyle('body'), s.payStateText]}>
+                {`It was ${formatCents(priceChange.previousCents)} and is now ${formatCents(priceChange.nextCents)}, service fee included. Nothing has been charged. Accept the new total to continue.`}
+              </Text>
+            </View>
+          ) : checkUnreachable ? (
+            <View accessibilityLiveRegion="polite">
+              <Text style={[textStyle('title'), s.payStateText]}>{"We couldn't confirm your payment yet"}</Text>
+              <Text style={[textStyle('body'), s.payStateText]}>
+                {"Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now."}
+              </Text>
+              <View style={{ marginTop: v2.space.md }}>
+                <Button label="Check status" variant="secondary" size="md" onPress={recheckPayment} loading={checking} disabled={checking} />
+              </View>
             </View>
           ) : paymentError ? (
             <View>
@@ -614,13 +879,76 @@ export default function CheckoutScreen() {
         <View style={s.barPrice}>
           <PriceDisplay size="sticky" label="Total" amount={formatCents(totalCents)} showTotal={false} />
         </View>
+        {priceChange ? (
+          <Button
+            label={`Accept ${formatCents(priceChange.nextCents)}`}
+            onPress={acceptNewTotal}
+            variant="primary"
+            size="md"
+          />
+        ) : (
+          <Button
+            label={pay.label}
+            // The pending states payControl already names ("Processing",
+            // "Checking your payment", "Checking your hold") are now visible
+            // beside the spinner instead of hidden under it (CFT-203).
+            pendingLabel={pay.loading ? pay.label : undefined}
+            onPress={payOnPress}
+            variant="primary"
+            size="md"
+            disabled={pay.disabled}
+            loading={pay.loading}
+          />
+        )}
+      </View>
+    </View>
+  );
+}
+
+// A-03: a refund is its own screen. It never says the purchase succeeded and
+// never promises when money reaches the bank.
+function RefundView({
+  state, refundedCents, cover, eventName, venue, whenLabel,
+}: {
+  state: 'refunded' | 'refund_pending' | 'partially_refunded';
+  refundedCents: number | null;
+  cover: string | null; eventName: string; venue: string; whenLabel: string;
+}) {
+  const insets = useSafeAreaInsets();
+  const copy = REFUND_COPY[state];
+  const body = state === 'partially_refunded' ? partialRefundBody(formatCents(refundedCents ?? 0)) : copy.body;
+  // A partial refund leaves a real order behind; the others leave nothing.
+  const orderStands = state === 'partially_refunded';
+  return (
+    <View style={s.confirmWrap}>
+      <View style={[s.confirmBody, { paddingTop: insets.top + v2.space.xxl }]}>
+        <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{copy.kicker}</Text>
+        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{copy.title}</Text>
+        <View style={s.confirmCard}>
+          <EventMedia
+            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
+            slot="CHECKOUT_THUMBNAIL"
+            title={eventName}
+            width={72}
+            decorative
+          />
+          <View style={s.orderText}>
+            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{eventName}</Text>
+            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{venue}</Text>
+            {whenLabel ? (
+              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
+            ) : null}
+          </View>
+        </View>
+        <Text style={[textStyle('body'), s.confirmNote]}>{body}</Text>
+      </View>
+      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
         <Button
-          label={pay.label}
-          onPress={payOnPress}
+          label={orderStands ? 'Back to home' : 'Back to listing'}
+          onPress={() => (orderStands ? router.replace('/(tabs)/home') : router.back())}
           variant="primary"
-          size="md"
-          disabled={pay.disabled}
-          loading={pay.loading}
+          size="lg"
+          block
         />
       </View>
     </View>
@@ -638,19 +966,35 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+// One celebration per purchase for the life of the process (A's review nit on
+// 4b705c4): a settled checkout that remounts — a 3-D Secure return landing
+// back on it — must not buzz a second time. A component ref would not survive
+// the remount; this latch does.
+const celebratedPurchases = new Set<string>();
+
 // The post-charge screen, in all three of its faces. `completed` is the only
 // one allowed to claim the purchase is done; `pending` and `failed` take their
 // words from SETTLEMENT_COPY so this screen and the alert cannot diverge.
 function ConfirmationView({
-  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId,
+  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId, purchaseKey,
 }: {
   outcome: SettlementOutcome;
   cover: string | null; eventName: string; venue: string; whenLabel: string;
   isBuyNow: boolean; transferId: string | null;
+  /** Identifies the purchase (the listing) so the success haptic fires once. */
+  purchaseKey: string;
 }) {
   const insets = useSafeAreaInsets();
   const copy = SETTLEMENT_COPY[outcome];
   const completed = outcome === 'completed';
+  // The one distinctive haptic (CFT-202), only for the face that is allowed to
+  // claim the purchase is done, and only once per purchase; its visible
+  // equivalent is the kicker below.
+  useEffect(() => {
+    if (!completed || celebratedPurchases.has(purchaseKey)) return;
+    celebratedPurchases.add(purchaseKey);
+    hapticSuccess();
+  }, [completed, purchaseKey]);
   // Only a recorded sale has a transfer to hand off.
   const showTransfer = completed && !!transferId;
   return (
@@ -750,7 +1094,8 @@ const s = StyleSheet.create({
   meta: { color: v2.text.muted },
 
   holdRow: { marginTop: v2.space.lg },
-  hold: { color: v2.status.warning },
+  // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).
+  hold: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
   holdExpired: { color: v2.status.error },
 
   breakdown: {

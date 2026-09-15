@@ -30,6 +30,8 @@ export interface BidCardProps {
   /** All-in, preformatted by allInFromDollars. */
   priceAllIn: string;
   secondaryAllIn?: string | null;
+  /** "Ends in 42m" while a live auction the user is in closes within the hour (CFT-505). */
+  urgencyLabel?: string | null;
   onPress: () => void;
 }
 
@@ -38,7 +40,7 @@ const TONE: Record<BidTone, 'neutral' | 'success' | 'warning' | 'danger'> = {
 };
 
 function BidCardImpl({
-  eventName, venue, whenLabel, coverPath, presentation, priceAllIn, secondaryAllIn, onPress,
+  eventName, venue, whenLabel, coverPath, presentation, priceAllIn, secondaryAllIn, urgencyLabel, onPress,
 }: BidCardProps) {
   const press = usePressScale();
   const act = needsAction(presentation.status);
@@ -54,6 +56,7 @@ function BidCardImpl({
         accessibilityRole="button"
         accessibilityLabel={
           `${eventName}. ${venue}. ${presentation.label}. ` +
+          `${urgencyLabel ? `${urgencyLabel}. ` : ''}` +
           `${presentation.priceLabel} ${priceAllIn} all in.`
         }
         accessibilityHint={presentation.actionHint}
@@ -76,6 +79,9 @@ function BidCardImpl({
           <Text style={[textStyle('bodySm'), styles.meta]} numberOfLines={1}>
             {venue}{whenLabel ? ` · ${whenLabel}` : ''}
           </Text>
+          {urgencyLabel ? (
+            <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
+          ) : null}
 
           <View style={styles.priceRow}>
             <Text style={[textStyle('bodySm'), styles.priceLabel]}>{presentation.priceLabel}</Text>
@@ -108,6 +114,7 @@ function BidCardImpl({
 export const BidCard = memo(BidCardImpl);
 
 const styles = StyleSheet.create({
+  urgency: { color: v2.status.warning, marginTop: 2 },
   wrap: { marginBottom: v2.space.md },
   row: {
     flexDirection: 'row',

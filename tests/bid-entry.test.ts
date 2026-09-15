@@ -96,8 +96,14 @@ describe('Place Bid — shipped-source guards', () => {
   });
 
   it('confirms with real bid semantics, not ownership', () => {
-    expect(screen).toContain("'Bid placed'");
-    expect(screen).not.toMatch(/you won|ticket secured|you own/i);
+    // Premium batch 2: the post-bid copy lives in the model (bidOutcomeCopy) and
+    // is chosen from a fresh read AFTER the insert; the screen no longer
+    // hard-codes a success string.
+    expect(screen).toContain('bidOutcomeCopy(bidOutcome(');
+    expect(model).toContain("title: 'Bid placed'");
+    for (const src of [screen, model]) {
+      expect(src).not.toMatch(/you won|ticket secured|you own/i);
+    }
   });
 });
 
@@ -111,7 +117,7 @@ describe('Profile — shipped-source guards', () => {
       "'create-connect-account'",        // non-blocking payout probe
       'status_only',
       "from('profiles')",                // avatar path update
-      'signOut(',
+      'signOutEverywhere(',
     ]) {
       expect(screen, `${marker} must survive`).toContain(marker);
     }
@@ -119,7 +125,7 @@ describe('Profile — shipped-source guards', () => {
 
   it('keeps UNKNOWN proceeds distinct from a real zero', () => {
     // Proceeds render "—" when zero; a real $0 is never shown as a number here.
-    expect(screen).toMatch(/stats\.revenue > 0 \? formatMoney\(stats\.revenue\) : '—'/);
+    expect(screen).toMatch(/stats\.revenue > 0 \? formatDollars\(stats\.revenue\) : '—'/);
   });
 
   it('does not expose the full phone number', () => {

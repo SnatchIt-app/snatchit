@@ -9,6 +9,12 @@
  * "Bid placed" → back. No bid math, minimum, increment or all-in logic changed;
  * the pure arithmetic now lives in src/lib/bid/bidEntry.ts and is tested.
  *
+ * PREMIUM BATCH 2 (CFT-201/203/205/207). The stepper and quick-add keys share
+ * the product's press response; Place bid reads "Submitting bid…" while the
+ * insert is in flight and a ref-held lock drops a second tap; "You're leading"
+ * is said only after the server accepted the bid AND a fresh read confirms the
+ * position; amounts format through the one dollar formatter.
+ *
  * This is NOT the Bids tab — it is the entry surface where a bid is chosen and
  * committed, and it deliberately shares the conversion language of Listing Detail
  * and Checkout: a comparison, a focused amount, a breakdown, one sticky action.
@@ -16,22 +22,26 @@
 
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { APP_CONFIG } from '@/src/config/app';
 import {
+  bidOutcome,
+  bidOutcomeCopy,
   bidPriceLines,
-  bidTotalLabel,
   canPlaceBid,
   minNextBid,
   quickAdd,
   stepDown,
   stepUp,
 } from '@/src/lib/bid/bidEntry';
-import { Button, IconButton, Spinner, StickyBar } from '@/src/components/ui';
+import { hapticConfirm } from '@/src/lib/feedback/haptics';
+import { formatDollars } from '@/src/lib/money';
+import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/components/ui';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
@@ -39,7 +49,7 @@ import type { Listing } from '@/src/types';
 type Props = { id: string };
 
 /** Whole-dollar bid display, e.g. "$80". Bid amounts are whole dollars. */
-function fmt$(n: number) { return `$${Math.round(n).toLocaleString('en-US')}`; }
+const fmt$ = formatDollars;
 
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
 const QUICK_CHIPS = [5, 10, 25] as const;
@@ -51,6 +61,9 @@ export default function PlaceBidScreen({ id }: Props) {
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // One submission at a time (CFT-205): a second tap that lands before the
+  // re-render disables the button is dropped here, not by React state.
+  const flight = useSingleFlight();
 
   // Fetch current_bid so the floor is always fresh
   useEffect(() => {
@@ -82,7 +95,7 @@ export default function PlaceBidScreen({ id }: Props) {
 
   const lines = bidPriceLines(selectedBid);
 
-  async function handleConfirm() {
+  function handleConfirm() {
     // Guard: must be signed in
     if (!user) {
       Alert.alert('Not signed in', 'Please sign in to place a bid.');
@@ -96,53 +109,71 @@ export default function PlaceBidScreen({ id }: Props) {
       return;
     }
 
-    setSubmitting(true);
+    // A skipped run means a submission is already in flight: nothing to do.
+    flight.run(() => submitBid(user.id, selectedBid)).catch(() => {
+      setSubmitting(false);
+      Alert.alert('Bid failed', 'Something went wrong. Please try again.');
+    });
+  }
 
-    // F-5 live-rail acquisition guard (OR-17; FR-9; DSM §3.2 F-5): a signed-in
-    // user whose account deletion is pending must not place a live bid. Reads the
-    // caller's OWN kernel.identity_ext row (owner-scoped SELECT, migration 077).
-    // Pre-Phase-2 the kernel schema is not exposed and the probe errors → treated
-    // as not-pending (the DB sweep's re-check is the hard wall).
+  async function submitBid(userId: string, amount: number) {
+    setSubmitting(true);
     try {
-      const { data: ext } = await supabase
-        .schema('kernel')
-        .from('identity_ext')
-        .select('deletion_state')
-        .eq('identity_id', user.id)
-        .maybeSingle();
-      if (ext?.deletion_state === 'DELETION_PENDING') {
-        setSubmitting(false);
-        Alert.alert(
-          'Account deletion pending',
-          'Your account deletion request is pending. Withdraw it in Settings to place new bids.',
-        );
+      // F-5 live-rail acquisition guard (OR-17; FR-9; DSM §3.2 F-5): a signed-in
+      // user whose account deletion is pending must not place a live bid. Reads the
+      // caller's OWN kernel.identity_ext row (owner-scoped SELECT, migration 077).
+      // Pre-Phase-2 the kernel schema is not exposed and the probe errors → treated
+      // as not-pending (the DB sweep's re-check is the hard wall).
+      try {
+        const { data: ext } = await supabase
+          .schema('kernel')
+          .from('identity_ext')
+          .select('deletion_state')
+          .eq('identity_id', userId)
+          .maybeSingle();
+        if (ext?.deletion_state === 'DELETION_PENDING') {
+          Alert.alert(
+            'Account deletion pending',
+            'Your account deletion request is pending. Withdraw it in Settings to place new bids.',
+          );
+          return;
+        }
+      } catch {
+        // pre-Phase-2 world or transient probe failure — proceed; the DB wall holds
+      }
+
+      // Insert bid row — the DB trigger updates listings.current_bid atomically
+      const { error } = await supabase.from('bids').insert({
+        listing_id: id,
+        bidder_id:  userId,
+        amount,
+      });
+
+      if (error) {
+        Alert.alert('Bid failed', error.message);
         return;
       }
-    } catch {
-      // pre-Phase-2 world or transient probe failure — proceed; the DB wall holds
+
+      // Accepted by the server: the insert trigger rejects any bid that is not
+      // above the current bid, so nothing below this line runs on a rejection.
+      // Only now the restrained confirmation (CFT-202), and a fresh read to tell
+      // "leading" from "already outbid" (CFT-203; source A-17). The alert is the
+      // haptic's visible equivalent.
+      hapticConfirm();
+      const { data: fresh } = await supabase
+        .from('listings')
+        .select('current_bid')
+        .eq('id', id)
+        .maybeSingle();
+      const freshBid: number | null = typeof fresh?.current_bid === 'number' ? fresh.current_bid : null;
+      const copy = bidOutcomeCopy(bidOutcome(amount, freshBid), amount, freshBid);
+
+      // Go back to the listing. Checkout only opens after the auction ends (via
+      // "Pay now" on the listing).
+      Alert.alert(copy.title, copy.body, [{ text: 'OK', onPress: () => router.back() }]);
+    } finally {
+      setSubmitting(false);
     }
-
-    // Insert bid row — the DB trigger updates listings.current_bid atomically
-    const { error } = await supabase.from('bids').insert({
-      listing_id: id,
-      bidder_id:  user.id,
-      amount:     selectedBid,
-    });
-
-    setSubmitting(false);
-
-    if (error) {
-      Alert.alert('Bid failed', error.message);
-      return;
-    }
-
-    // Bid placed — go back to the listing. Checkout only opens after the auction
-    // ends (via "Pay now" on the listing).
-    Alert.alert(
-      'Bid placed',
-      `Your bid of ${fmt$(selectedBid)} is in. If you win, you'll pay ${bidTotalLabel(selectedBid)} total (includes the 10% service fee).`,
-      [{ text: 'OK', onPress: () => router.back() }],
-    );
   }
 
   if (loading) {
@@ -192,8 +223,10 @@ export default function PlaceBidScreen({ id }: Props) {
             +{fmt$(MIN_INCREMENT)} per step · min {fmt$(minimumBid)}
           </Text>
 
+          {/* Stepper and quick-add keys carry the product's press response
+              (CFT-201): they are Tappable, not bare Pressables. */}
           <View style={s.stepper}>
-            <Pressable
+            <Tappable
               style={[s.stepBtn, atFloor && s.stepBtnOff]}
               onPress={decrease}
               disabled={atFloor}
@@ -203,9 +236,9 @@ export default function PlaceBidScreen({ id }: Props) {
               hitSlop={6}
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
-            </Pressable>
+            </Tappable>
             <Text style={[textStyle('price'), s.stepVal]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
-            <Pressable
+            <Tappable
               style={s.stepBtn}
               onPress={increase}
               accessibilityRole="button"
@@ -213,13 +246,14 @@ export default function PlaceBidScreen({ id }: Props) {
               hitSlop={6}
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>+</Text>
-            </Pressable>
+            </Tappable>
           </View>
 
           <View style={s.quickRow}>
             {QUICK_CHIPS.map((n) => (
-              <Pressable
+              <Tappable
                 key={n}
+                wrapperStyle={s.quickWrap}
                 style={s.quick}
                 onPress={() => addQuick(n)}
                 accessibilityRole="button"
@@ -227,7 +261,7 @@ export default function PlaceBidScreen({ id }: Props) {
                 hitSlop={4}
               >
                 <Text style={[textStyle('label'), s.quickText]}>+{fmt$(n)}</Text>
-              </Pressable>
+              </Tappable>
             ))}
           </View>
         </View>
@@ -256,11 +290,18 @@ export default function PlaceBidScreen({ id }: Props) {
         left={
           <View>
             <Text style={[textStyle('micro'), s.stickyKicker]}>If you win</Text>
-            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1}>{lines.total}</Text>
+            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{lines.total}</Text>
           </View>
         }
       >
-        <Button label="Place bid" onPress={handleConfirm} loading={submitting} disabled={submitting} block />
+        <Button
+          label="Place bid"
+          pendingLabel="Submitting bid…"
+          onPress={handleConfirm}
+          loading={submitting}
+          disabled={submitting}
+          block
+        />
       </StickyBar>
     </View>
   );
@@ -319,8 +360,9 @@ const s = StyleSheet.create({
   stepVal: { flex: 1, textAlign: 'center', color: v2.text.primary },
 
   quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
+  quickWrap: { flex: 1 },
   quick: {
-    flex: 1, minHeight: 40, paddingVertical: v2.space.xs,
+    minHeight: 40, paddingVertical: v2.space.xs,
     borderWidth: 1, borderColor: v2.brand.red,
     backgroundColor: v2.brand.redSoft,
     alignItems: 'center', justifyContent: 'center',

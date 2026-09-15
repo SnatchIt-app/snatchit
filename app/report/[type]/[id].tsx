@@ -6,6 +6,9 @@
  * public.reports → confirmation → back. App Store Guideline 1.2. Reached from the
  * listing overflow (`/report/listing/<id>`) and the public profile
  * (`/report/user/<id>`).
+ *
+ * PREMIUM BATCH 2 (CFT-203/208). Submit reads "Sending report…" while in
+ * flight, and a back gesture with a reason chosen or notes typed asks first.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -14,6 +17,8 @@ import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleShee
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
+import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
 import { Button } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
@@ -41,6 +46,14 @@ export default function ReportScreen() {
   const [notes, setNotes] = useState('');
   const [notesFocused, setNotesFocused] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  // Something to lose: a reason chosen or notes typed (CFT-208).
+  const dirty = reason != null || notes.trim().length > 0;
+  useUnsavedChangesGuard({
+    when: shouldAskBeforeLeaving({ dirty, submitting, saved: sent }),
+    ...UNSAVED_COPY.report,
+  });
 
   const titleNoun = targetType === 'user' ? 'user' : 'listing';
 
@@ -57,6 +70,7 @@ export default function ReportScreen() {
         Alert.alert('Could not submit report', 'Please try again in a moment.');
         return;
       }
+      setSent(true); // the guard stands down; the alert's OK navigates back
       Alert.alert('Report submitted', 'Thanks for letting us know. We review reports within 24 hours and act on what we find.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -110,7 +124,7 @@ export default function ReportScreen() {
           />
           <Text style={[textStyle('bodySm'), s.charCount]}>{notes.length} / 1000</Text>
 
-          <Button label="Submit report" onPress={handleSubmit} loading={submitting} disabled={!reason || submitting} block style={s.submit} />
+          <Button label="Submit report" pendingLabel="Sending report…" onPress={handleSubmit} loading={submitting} disabled={!reason || submitting} block style={s.submit} />
 
           <Text style={[textStyle('bodySm'), s.fineprint]}>
             Reports are reviewed by the Snatch It team. False or repeated bad-faith reports may result in your account being suspended.

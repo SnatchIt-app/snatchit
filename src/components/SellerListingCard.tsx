@@ -9,12 +9,16 @@
  * src/lib/listing/sellerListing.ts, which mirrors the server rule: a listing with
  * bids or a non-active auction can only be cancelled. Behaviour is unchanged from
  * the legacy card; only the surface moved to V2.
+ *
+ * The cover goes through EventMedia like every other event image: it takes the
+ * RAW stored path and provides the frame, the branded fallback (missing or
+ * failed), the slot-sized derivative and the recycling key a raw Image never had.
  */
 
-import { Image } from 'expo-image';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { Badge } from '@/src/components/ui';
+import { EventMedia } from '@/src/components/media/EventMedia';
+import { Badge, Tappable } from '@/src/components/ui';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import {
   canCancelListing,
@@ -25,13 +29,16 @@ import {
   sellerBadgeTone,
   timeLeftLabel,
 } from '@/src/lib/listing/sellerListing';
+import { formatDollars } from '@/src/lib/money';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
+/** The row's thumbnail edge, in points. Passed to EventMedia as the laid-out width. */
+const THUMB = 76;
+
 type Props = {
   listing: Listing;
-  coverUrl: string | null;
   onPress: () => void;
   onDelete?: () => void;
   onEdit?: () => void;
@@ -40,13 +47,14 @@ type Props = {
   needsTicketSend?: boolean;
 };
 
-function fmt$(n: number) { return `$${Math.round(n).toLocaleString('en-US')}`; }
+/** Whole-dollar bid display through the one formatter (CFT-207). */
+const fmt$ = formatDollars;
 
 function titleCase(s: string | null | undefined): string {
   return (s ?? '').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function SellerListingCard({ listing, coverUrl, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
+export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
   const badge = sellerBadge(listing);
   const cancelled = badge === 'cancelled';
   const canEdit = canEditListing(listing);
@@ -61,12 +69,17 @@ export default function SellerListingCard({ listing, coverUrl, onPress, onDelete
   const a11yLabel = `${listing.event_name}. ${sellerBadgeLabel(badge)}. ${bidMeta}.`;
 
   return (
-    <Pressable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
-      {coverUrl ? (
-        <Image source={{ uri: coverUrl }} style={s.thumb} contentFit="cover" />
-      ) : (
-        <View style={[s.thumb, s.thumbEmpty]} />
-      )}
+    // The row carries the product's press response like every other tappable (CFT-201).
+    <Tappable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
+      {/* A dense list: recognition, not persuasion — the SEARCH_RESULT slot at
+          the row's own 76pt edge. Decorative: the row text already names the event. */}
+      <EventMedia
+        asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }}
+        slot="SEARCH_RESULT"
+        width={THUMB}
+        title={listing.event_name}
+        decorative
+      />
 
       <View style={s.content}>
         <View style={s.titleRow}>
@@ -103,24 +116,24 @@ export default function SellerListingCard({ listing, coverUrl, onPress, onDelete
 
           <View style={s.actions}>
             {canEdit && onEdit ? (
-              <Pressable onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit listing">
+              <Tappable onPress={onEdit} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit listing">
                 <Text style={[textStyle('label'), s.edit]}>Edit</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
             {canDelete && onDelete ? (
-              <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
+              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
                 <Text style={[textStyle('label'), s.delete]}>Delete</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
             {canCancel && onDelete ? (
-              <Pressable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
+              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
                 <Text style={[textStyle('label'), s.cancel]}>Cancel</Text>
-              </Pressable>
+              </Tappable>
             ) : null}
           </View>
         </View>
       </View>
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -135,9 +148,6 @@ const s = StyleSheet.create({
     marginBottom: v2.space.sm,
   },
   cardCancelled: { opacity: 0.55 },
-
-  thumb: { width: 76, height: 76 },
-  thumbEmpty: { backgroundColor: v2.surface.elevated, borderWidth: 1, borderColor: v2.border.default },
 
   content: { flex: 1, minWidth: 0, justifyContent: 'center', gap: v2.space.xs },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xs },

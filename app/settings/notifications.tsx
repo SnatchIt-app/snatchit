@@ -3,18 +3,24 @@
  *
  * PRESENTATION rebuilt on the V2 account system; behaviour is unchanged: the same
  * `notification_preferences` fetch, the OPTIMISTIC toggle that flips immediately
- * and REVERTS with an alert on a failed write (a failed save never looks
- * successful), the device-permission banner with its focus re-check and the
- * "Open settings" recovery path.
+ * and REVERTS on a failed write (a failed save never looks successful), the
+ * device-permission banner with its focus re-check and the "Open settings"
+ * recovery path.
+ *
+ * PREMIUM BATCH 2 (CFT-204, item 11). The revert now explains itself inline —
+ * a short notice under the list, announced to a screen reader — instead of a
+ * modal alert that interrupts the whole screen for one toggle.
  */
 
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { AccessibilityInfo, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { REGISTRATION_REMEDY } from '@/src/lib/push/registration';
+import { getRegistrationStatus, subscribeRegistrationStatus, type RegistrationStatus } from '@/src/lib/push/registrationStatus';
 import { Button, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
@@ -41,6 +47,15 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  // A failed toggle rolls back and says so here, briefly.
+  const [notice, setNotice] = useState<string | null>(null);
+  // Whether this device is registered for THIS account (128 client, A-08d).
+  const [registration, setRegistration] = useState<RegistrationStatus>(getRegistrationStatus);
+  useEffect(() => subscribeRegistrationStatus(setRegistration), []);
+  const remedy =
+    registration.state === 'failed' || registration.state === 'waiting'
+      ? REGISTRATION_REMEDY[registration.kind] ?? null
+      : null;
 
   async function checkPermission() {
     try {
@@ -77,11 +92,12 @@ export default function NotificationsScreen() {
 
   useFocusEffect(useCallback(() => { checkPermission(); }, []));
 
-  // Optimistic: flip immediately, revert + alert on failure. A failed save must
-  // never look successful.
+  // Optimistic: flip immediately, revert with a brief explanation on failure.
+  // A failed save must never look successful.
   async function handleToggle(key: PrefKey, newValue: boolean) {
     if (!userId || !prefs) return;
     const prev = prefs[key];
+    setNotice(null);
     setPrefs({ ...prefs, [key]: newValue });
     const { error: updateErr } = await supabase
       .from('notification_preferences')
@@ -89,7 +105,10 @@ export default function NotificationsScreen() {
       .eq('user_id', userId);
     if (updateErr) {
       setPrefs((p) => (p ? { ...p, [key]: prev } : p));
-      Alert.alert('Update failed', 'Could not save your preference. Please try again.');
+      const label = TOGGLES.find((t) => t.key === key)?.label ?? 'that setting';
+      const msg = `Couldn't save ${label}. It's back to ${prev ? 'on' : 'off'}. Check your connection and try again.`;
+      setNotice(msg);
+      AccessibilityInfo.announceForAccessibility(msg);
     }
   }
 
@@ -134,6 +153,15 @@ export default function NotificationsScreen() {
           </View>
         ) : null}
 
+        {remedy ? (
+          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
+            <View style={s.permBody}>
+              <Text style={[textStyle('bodySm'), s.permText]}>{remedy}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <AccountSection title="Preferences">
           {TOGGLES.map((item) => (
             <View key={item.key} style={s.row}>
@@ -152,6 +180,9 @@ export default function NotificationsScreen() {
             </View>
           ))}
         </AccountSection>
+        {notice ? (
+          <Text style={[textStyle('bodySm'), s.notice]} accessibilityRole="alert">{notice}</Text>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -176,4 +207,5 @@ const s = StyleSheet.create({
   rowText: { flex: 1 },
   rowLabel: { color: v2.text.primary },
   rowDesc: { color: v2.text.muted, marginTop: 2 },
+  notice: { color: v2.status.error, marginTop: v2.space.md },
 });

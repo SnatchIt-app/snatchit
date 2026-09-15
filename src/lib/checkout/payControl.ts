@@ -1,24 +1,56 @@
 /**
  * src/lib/checkout/payControl.ts — the checkout pay button's state, as pure logic.
  *
- * The button has six states (authenticating, setting up, processing, ready,
- * error, unavailable) and the old screen resolved them inline, duplicated across
- * the Buy Now and auction branches of the JSX. This is the single mapping, so the
- * two modes cannot drift and the matrix is testable without a Stripe harness.
+ * The button's states (authenticating, setting up, processing, checking, ready,
+ * hold lost, error, unavailable) used to be resolved inline and duplicated
+ * across the Buy Now and auction branches of the JSX. This is the single
+ * mapping, so the two modes cannot drift and the matrix is testable without a
+ * Stripe harness.
  *
  * IT DECIDES NOTHING ABOUT MONEY. The formatted total is passed in already
- * computed from the server breakdown; this only chooses the label and whether the
- * control is live.
+ * computed from the server breakdown; this only chooses the label and whether
+ * the control is live.
+ *
+ * PREMIUM BATCH 1 (A-04, CFT-302/305). Pay is withdrawn when the hold has
+ * PAY_EXPIRY_MARGIN_MS or less left, so a tap can no longer race the server's
+ * expiry; the screen re-checks with the server at that point. `checking` is
+ * the state while a payment result is being reconciled: no Pay, no retry.
+ *
+ * PREMIUM BATCH 1 (CFT-301, D9-UX-1). When the hold is gone the control is
+ * "Back to listing" (action 'back'), because only a fresh Buy Now can
+ * re-reserve. "Try again" is kept for transient or unverifiable setup errors,
+ * where the hold may still be live.
+ *
+ * PREMIUM BATCH 4 (CFT-306, item 26). The one "Processing" is split into the
+ * two steps that actually happen: "Confirming payment" while the payment
+ * sheet is confirming the card with Stripe, and "Finalizing your order" while
+ * finalizePurchase records the settlement after the charge. Both are real
+ * states, not invented progress; no percentage, no timer.
  */
 
-export type PayAction = 'pay' | 'retry' | 'none';
+export type PayAction = 'pay' | 'retry' | 'back' | 'none';
+
+/**
+ * Seconds before the hold's deadline at which Pay is withdrawn. Absorbs
+ * device-vs-server clock skew. Owned by A (contract A-04); do not tune here.
+ */
+export const PAY_EXPIRY_MARGIN_MS = 15_000;
 
 export interface PayControlInput {
   authLoading: boolean;
   paymentLoading: boolean;
+  /** The payment sheet is confirming the card with Stripe. */
   confirming: boolean;
+  /** The charge is made; finalizePurchase is recording the settlement. */
+  finalizing?: boolean;
+  /** A payment result is being reconciled with the server. */
+  checking?: boolean;
   paymentReady: boolean;
   paymentError: boolean;
+  /** The hold is known to be gone: expired, released, or taken. */
+  holdLost?: boolean;
+  /** Milliseconds left on the buyer's hold; null when there is no countdown. */
+  reservationMsLeft?: number | null;
   /** Preformatted all-in total, e.g. "$66". Never recomputed here. */
   formattedTotal: string;
 }
@@ -30,12 +62,25 @@ export interface PayControl {
   action: PayAction;
 }
 
+/** True when Pay must not be offered because the hold is inside the margin. */
+export function withinExpiryMargin(reservationMsLeft: number | null | undefined): boolean {
+  return reservationMsLeft != null && reservationMsLeft <= PAY_EXPIRY_MARGIN_MS;
+}
+
 export function payControl(i: PayControlInput): PayControl {
-  // Order matters: an in-flight charge outranks every setup state, and setup
-  // outranks readiness. This is the exact precedence the screen shipped.
-  if (i.confirming)     return { label: 'Processing',        loading: true,  disabled: true,  action: 'none' };
+  // Order matters: an in-flight charge outranks every setup state, reconciling
+  // outranks readiness, and a lost hold outranks both readiness and error.
+  // Finalizing outranks confirming: it is the later step, and the two never
+  // overlap in the screen's sequence.
+  if (i.finalizing)     return { label: 'Finalizing your order', loading: true, disabled: true, action: 'none' };
+  if (i.confirming)     return { label: 'Confirming payment', loading: true,  disabled: true,  action: 'none' };
+  if (i.checking)       return { label: 'Checking your payment', loading: true, disabled: true, action: 'none' };
   if (i.authLoading)    return { label: 'Authenticating',    loading: true,  disabled: true,  action: 'none' };
   if (i.paymentLoading) return { label: 'Setting up payment', loading: true, disabled: true,  action: 'none' };
+  if (i.holdLost)       return { label: 'Back to listing',   loading: false, disabled: false, action: 'back' };
+  if (i.paymentReady && withinExpiryMargin(i.reservationMsLeft)) {
+    return { label: 'Checking your hold', loading: true, disabled: true, action: 'none' };
+  }
   if (i.paymentReady)   return { label: `Pay ${i.formattedTotal}`, loading: false, disabled: false, action: 'pay' };
   if (i.paymentError)   return { label: 'Try again',         loading: false, disabled: false, action: 'retry' };
   return { label: 'Payment unavailable', loading: false, disabled: true, action: 'none' };

@@ -66,6 +66,20 @@ export function formatCents(cents: number): string {
     : `$${dollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * An amount already held in DOLLARS for display, e.g. 80 → "$80", 22.5 →
+ * "$22.50", -5 → "−$5". Bids, listing prices and balances go through this;
+ * cent amounts go through `formatCents`. It replaces three screen-local
+ * formatters that had drifted (CFT-207). Never throws: an unusable number
+ * renders as "—" rather than crashing a card.
+ */
+export function formatDollars(dollars: number): string {
+  if (!Number.isFinite(dollars)) return '—';
+  const cents = Math.round(Math.abs(dollars) * 100);
+  const sign = dollars < 0 && cents > 0 ? '−' : '';
+  return `${sign}${formatCents(cents)}`;
+}
+
 /** All-in buyer price from a whole-dollar base, e.g. 100 → "$110". */
 export function allInFromDollars(baseDollars: number): string {
   return formatCents(buyerTotalCents(dollarsToCents(baseDollars)));

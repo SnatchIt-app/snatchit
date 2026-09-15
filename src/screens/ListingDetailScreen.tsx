@@ -20,6 +20,14 @@
  * Baseline: set once in useEffect([rt.loading, authReady]) — silent, no haptics.
  * Haptics + animated banner: fire ONLY inside onNewBid (realtime INSERT callback).
  * This guarantees zero false positives on screen entry or auth-token refresh.
+ *
+ * Card handoff — display only
+ * ───────────────────────────
+ * A card that pushes here stages what it already showed (src/lib/listing/
+ * cardHandoff.ts). Until the first row arrives the screen paints that — hero,
+ * identity, the card's price label — instead of a spinner. It never feeds
+ * detailState, a checkout total, a reservation or a bid: all of those read the
+ * fetched `listing` and nothing else (contract A-17).
  */
 
 import { router } from 'expo-router';
@@ -41,6 +49,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
@@ -56,6 +66,7 @@ import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
 import { detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -114,6 +125,7 @@ function useAuctionCountdown(endsAt: string | null): string {
 
 function fmtDate(date: string, time: string): string {
   const d = new Date(`${date}T${time}`);
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
@@ -175,6 +187,12 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [listing,    setListing]    = useState<Listing | null>(null);
+
+  // ── Card handoff (display only) ────────────────────────────────────────────
+  // What the tapped card already showed, read once so the first frame is
+  // content rather than a spinner. It is never a listing: every offer, gate and
+  // total below reads `listing`, the fresh row, exactly as before.
+  const [handoff] = useState<CardHandoff | null>(() => readCardHandoff(id));
 
   // Keep the latest listing for the exit listener, and latch "purchased" so an
   // exit after a completed sale never even asks to release.
@@ -273,6 +291,40 @@ export default function ListingDetailScreen({ id }: Props) {
   // ── Countdown ──────────────────────────────────────────────────────────────
   const countdown = useAuctionCountdown(listing?.ends_at ?? null);
   const ended     = listing ? new Date(listing.ends_at) <= new Date() : false;
+
+  // ── Result at zero (CFT-501) ───────────────────────────────────────────────
+  // This device's clock ran out; the server decides. Re-read the row on the
+  // liveState schedule until auction_status leaves 'active' (the finalize cron
+  // runs every two minutes). Reads only — no finalize call is added here and
+  // nothing about the auction's timing moves.
+  const pollAttemptRef = useRef(0);
+  const auctionStatusNow = listing?.auction_status;
+  const listingStatusNow = listing?.status;
+  useEffect(() => {
+    const active = !!listing && shouldPollForResult({
+      clockEnded: ended, auctionStatus: auctionStatusNow, sold: listingStatusNow === 'sold',
+    });
+    if (!active) { pollAttemptRef.current = 0; return; }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = () => {
+      const delay = resultPollDelayMs(++pollAttemptRef.current);
+      if (delay == null) return;
+      timer = setTimeout(async () => {
+        const { data } = await supabase
+          .from('listings')
+          .select('auction_status, status, winner_user_id, winning_bid_amount, current_bid, bid_count')
+          .eq('id', id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (data) setListing((prev) => (prev ? { ...prev, ...(data as Partial<Listing>) } : prev));
+        if (!data || (data as { auction_status?: string | null }).auction_status === 'active') tick();
+      }, delay);
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ended, auctionStatusNow, listingStatusNow, id]);
 
   // ── Derived render values ──────────────────────────────────────────────────
   // Gate on authReady so banner/derived state never shows while auth is
@@ -697,7 +749,14 @@ export default function ListingDetailScreen({ id }: Props) {
   }
 
   // ── Buy Now ────────────────────────────────────────────────────────────────
+  // One reservation call at a time (CFT-205): a second tap that lands before
+  // the re-render disables the button is dropped by the lock, not by state.
+  const buyFlight = useSingleFlight();
   async function handleBuyNow() {
+    await buyFlight.run(reserveAndCheckout).catch(() => setReserving(false));
+  }
+
+  async function reserveAndCheckout() {
     if (!listing) return;
     if (!user?.id) { Alert.alert('Sign in required', 'Please log in to buy tickets.'); return; }
     if (listing.seller_id === user.id) {
@@ -945,6 +1004,41 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ─── Guards ────────────────────────────────────────────────────────────────
 
+  // The card's content, painted while the FIRST row loads. Nothing on this
+  // branch can be tapped into a transaction: the sticky bar carries the card's
+  // price label and a spinner where the actions will appear, and the actions
+  // themselves only exist below, once `listing` has arrived. A later non-silent
+  // reload (listing already held) keeps the plain spinner it always had.
+  if (loading && !listing && handoff) return (
+    <View style={s.safe}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}
+        contentInsetAdjustmentBehavior="never"
+      >
+        <ListingHero
+          asset={{ path: handoff.coverPath, contract: 'legacy', bucket: 'auction-media' }}
+          eventName={handoff.eventName}
+          venue={handoff.venue}
+          whenLabel={fmtDate(handoff.eventDate, handoff.eventTime)}
+          neighborhood={handoff.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          onBack={() => router.back()}
+        />
+        <View style={s.scrollTail} />
+      </ScrollView>
+
+      <StickyBar
+        left={
+          handoff.priceAllIn ? (
+            <PriceDisplay size="sticky" label={handoff.priceLabel} amount={handoff.priceAllIn} />
+          ) : undefined
+        }
+      >
+        <Spinner label="Loading this listing" />
+      </StickyBar>
+    </View>
+  );
+
   if (loading) return (
     <View style={s.centered}>
       <Spinner size="large" label="Loading this listing" />
@@ -968,7 +1062,9 @@ export default function ListingDetailScreen({ id }: Props) {
       <EmptyState
         title="Listing not found"
         body="It may have been sold or taken down."
-        action={{ label: 'Go back', onPress: () => router.back() }}
+        // From a notification or a cold start there is nothing to go back to
+        // (CFT-605): the live feed is the outcome that always works.
+        action={{ label: 'Browse live listings', onPress: () => router.replace('/(tabs)/home') }}
       />
     </View>
   );
@@ -1021,6 +1117,10 @@ export default function ListingDetailScreen({ id }: Props) {
     hasBid:            userHasBid,
     buyNowAllIn,
   });
+
+  // A frozen screen must not look live (CFT-504): say when the bids channel is
+  // reconnecting, while there is still a clock to be wrong about.
+  const liveNotice = connectionNotice(rt.connection, state.mode);
 
   // The reservation status carries a live clock, which a pure function cannot.
   const status = state.status && state.status.kind === 'reserved_by_you'
@@ -1121,6 +1221,12 @@ export default function ListingDetailScreen({ id }: Props) {
           onOverflow={openListingActions}
         />
 
+        {liveNotice ? (
+          <View style={s.liveNotice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            <Text style={[textStyle('label'), s.liveNoticeText]} numberOfLines={1}>{liveNotice}</Text>
+          </View>
+        ) : null}
+
         {status ? (
           <View style={s.statusWrap}>
             <ListingStatusBanner status={status} />
@@ -1198,6 +1304,9 @@ export default function ListingDetailScreen({ id }: Props) {
         ) : null}
         <Button
           label={state.primary.label}
+          // Visible while the reserve call is in flight (CFT-203); Buy Now is the
+          // only primary that sets `reserving`.
+          pendingLabel="Reserving…"
           variant="primary"
           size="md"
           disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
@@ -1212,6 +1321,11 @@ export default function ListingDetailScreen({ id }: Props) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  liveNotice: {
+    paddingVertical: v2.space.sm, paddingHorizontal: v2.space.lg,
+    borderLeftWidth: 2, borderLeftColor: v2.status.warning, backgroundColor: v2.surface.surface,
+  },
+  liveNoticeText: { color: v2.status.warning },
   safe: { flex: 1, backgroundColor: v2.surface.canvas },
 
   // The artwork runs under the status bar: the hero is the first thing on the

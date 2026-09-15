@@ -8,6 +8,9 @@
  * (not found / not owner / has bids or inactive → back). The content-moderation
  * gate now reuses Create's `findBannedContent` from src/lib/sell/sellState.ts.
  * Server-side `guard_listing_state_columns` + RLS remain the hard wall.
+ *
+ * PREMIUM BATCH 2 (CFT-203/208). Save reads "Saving…" while in flight, and a
+ * back gesture with unsaved edits asks before discarding them.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -17,6 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
+import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
 import { findBannedContent } from '@/src/lib/sell/sellState';
 import { Button, Chip, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
@@ -47,6 +52,19 @@ export default function EditListingScreen() {
   const [restrictions, setRestrictions] = useState('');
   const [ticketPlatform, setTicketPlatform] = useState<TicketPlatform>('other');
   const [restrictionsFocused, setRestrictionsFocused] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Unsaved edits: anything that differs from the loaded listing (CFT-208).
+  const dirty = listing != null && (
+    eventName !== (listing.event_name ?? '')
+    || venue !== (listing.venue ?? '')
+    || restrictions !== (listing.restrictions ?? '')
+    || ticketPlatform !== ((listing.ticket_platform as TicketPlatform) ?? 'other')
+  );
+  useUnsavedChangesGuard({
+    when: shouldAskBeforeLeaving({ dirty, submitting: saving, saved }),
+    ...UNSAVED_COPY.listingEdit,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +127,7 @@ export default function EditListingScreen() {
         .eq('id', listing.id)
         .eq('seller_id', user.id);
       if (error) { Alert.alert('Save failed', error.message); return; }
+      setSaved(true); // the guard stands down; the alert's OK navigates back
       Alert.alert('Saved', 'Your listing has been updated.', [{ text: 'OK', onPress: () => router.back() }]);
     } finally {
       setSaving(false);
@@ -164,7 +183,7 @@ export default function EditListingScreen() {
       </ScrollView>
 
       <StickyBar>
-        <Button label="Save changes" onPress={handleSave} loading={saving} disabled={saving} block />
+        <Button label="Save changes" pendingLabel="Saving…" onPress={handleSave} loading={saving} disabled={saving} block />
       </StickyBar>
     </KeyboardAvoidingView>
   );

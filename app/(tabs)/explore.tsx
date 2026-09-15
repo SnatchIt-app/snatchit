@@ -16,11 +16,16 @@
  * the feed reads. There is no catalog access to search events or venues yet, so
  * this matches on the listing's own event name and venue text. When Core exposes
  * the catalog, this is the screen that grows.
+ *
+ * A FAILED QUERY KEEPS THE RESULTS ALREADY ON SCREEN. It used to clear them and
+ * show the full error screen; now the failure is surfaced inline above the rows
+ * that are still valid, and the state screen is reserved for a failure with
+ * nothing to keep (src/lib/screens/refreshPolicy.ts).
  */
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
@@ -32,7 +37,9 @@ import { EmptyState, IconButton, Input } from '@/src/components/ui';
 import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
+import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
@@ -53,6 +60,25 @@ function whenLabel(date: string, time: string): string {
 /** PostgREST `or` treats these as syntax, so a raw query string cannot go in. */
 function sanitize(term: string): string {
   return term.replace(/[%,()"\\]/g, ' ').trim();
+}
+
+/**
+ * A failed query over results that are still valid. Inline, above the rows, with
+ * the same two states ScreenState distinguishes. Never carries server text.
+ */
+function SearchFailureNotice({ kind, onRetry }: { kind: 'offline' | 'error'; onRetry: () => void }) {
+  return (
+    <View style={s.notice} accessibilityRole="alert">
+      <Text style={[textStyle('bodySm'), s.noticeText]}>
+        {kind === 'offline'
+          ? "You're offline. Showing earlier results."
+          : 'Search did not go through. Showing earlier results.'}
+      </Text>
+      <Pressable onPress={onRetry} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry search">
+        <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 export default function SearchScreen() {
@@ -100,14 +126,17 @@ export default function SearchScreen() {
     setSearched(true);
 
     if (error) {
-      // The raw message goes to the log. The user gets a state, not a stack.
+      // The raw message goes to the log. The user gets a state, not a stack —
+      // and keeps the results already on screen. Nothing is cleared here.
       console.warn('[search] query failed:', error.message);
       setLoadError(isNetworkError(error) ? 'offline' : 'error');
-      setResults([]);
       return;
     }
     setResults((data ?? []) as Listing[]);
   }, [blockedIds]);
+
+  // A failure takes over the screen only when there is nothing to keep on it.
+  const failure = failureSurface(results.length, loadError != null);
 
   // Debounced so a four-letter word is one query, not four.
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,7 +167,7 @@ export default function SearchScreen() {
 
       {searching && results.length === 0 ? (
         <DiscoveryGridSkeleton rows={2} />
-      ) : loadError ? (
+      ) : failure === 'screen' && loadError ? (
         <ScreenState state={loadError} onRetry={() => runSearch(query)} />
       ) : (
         <FlatList
@@ -151,6 +180,11 @@ export default function SearchScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           extraData={now}
+          ListHeaderComponent={
+            failure === 'inline' && loadError ? (
+              <SearchFailureNotice kind={loadError} onRetry={() => runSearch(query)} />
+            ) : null
+          }
           ListEmptyComponent={
             searched ? (
               <EmptyState title="Nothing matches" body="Try the venue name, or a shorter word." />
@@ -164,6 +198,7 @@ export default function SearchScreen() {
           }
           renderItem={({ item }) => {
             const presentation = cardPresentation(item, now);
+            const priceAllIn = allInFromDollars(presentation.priceDollars);
             return (
               <DiscoveryCard
                 eventName={item.event_name}
@@ -171,10 +206,24 @@ export default function SearchScreen() {
                 whenLabel={whenLabel(item.event_date, item.event_time)}
                 coverPath={coverPath(item)}
                 presentation={presentation}
-                priceAllIn={allInFromDollars(presentation.priceDollars)}
+                priceAllIn={priceAllIn}
                 altAllIn={presentation.altDollars != null ? allInFromDollars(presentation.altDollars) : null}
                 countdown={presentation.showsCountdown ? countdownLabel(item.ends_at, now) : null}
-                onPress={() => router.push(`/listing/${item.id}`)}
+                onPress={() => {
+                  // Display-only handoff, as on Home: the detail screen paints
+                  // this card's content first; the fresh row still gates every action.
+                  stageCardHandoff(item.id, {
+                    coverPath: coverPath(item),
+                    eventName: item.event_name,
+                    venue: item.venue,
+                    eventDate: item.event_date,
+                    eventTime: item.event_time,
+                    neighborhood: item.neighborhood,
+                    priceLabel: presentation.priceLabel,
+                    priceAllIn,
+                  });
+                  router.push(`/listing/${item.id}`);
+                }}
               />
             );
           }}
@@ -202,4 +251,14 @@ const s = StyleSheet.create({
   },
   hint: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
   hintText: { color: v2.text.muted },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.sm,
+    paddingHorizontal: v2.space.lg,
+    paddingBottom: v2.space.md,
+  },
+  noticeText: { color: v2.text.muted, flexShrink: 1 },
+  noticeAction: { color: v2.brand.red },
 });

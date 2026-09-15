@@ -16,9 +16,10 @@
  * guarantees the amount never wraps and the digits never jitter.
  */
 
-import { StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import { PriceDisplay } from '@/src/components/PriceDisplay';
+import { usePulseOnChange } from '@/src/hooks/usePulseOnChange';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { TransactionMode } from '@/src/lib/listing/detailState';
@@ -48,6 +49,9 @@ export function TransactionPanel({
   bidCount,
 }: TransactionPanelProps) {
   const closed = mode === 'closed';
+  // A new bid moves the amount in place: a brief dip-and-return, never a
+  // rebuild of the panel (CFT-502). Under Reduce Motion the value just changes.
+  const pulse = usePulseOnChange(currentAllIn);
 
   if (soldAllIn) {
     return (
@@ -74,14 +78,16 @@ export function TransactionPanel({
 
       <View style={[styles.bidRow, buyNowAllIn ? styles.bidRowSecondary : null]}>
         <View style={styles.bidPrice}>
-          <PriceDisplay
-            size={buyNowAllIn ? 'sticky' : 'detail'}
-            label={
-              closed ? 'Final bid' : bidCount > 0 ? 'Current bid' : 'Starting bid'
-            }
-            amount={currentAllIn}
-            muted={closed}
-          />
+          <Animated.View style={{ opacity: pulse.opacity }}>
+            <PriceDisplay
+              size={buyNowAllIn ? 'sticky' : 'detail'}
+              label={
+                closed ? 'Final bid' : bidCount > 0 ? 'Current bid' : 'Starting bid'
+              }
+              amount={currentAllIn}
+              muted={closed}
+            />
+          </Animated.View>
           {nextBidAllIn && !closed ? (
             <Text style={[textStyle('bodySm'), styles.note]}>
               Next bid from {nextBidAllIn}

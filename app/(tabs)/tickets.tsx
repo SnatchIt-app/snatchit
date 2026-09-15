@@ -11,6 +11,11 @@
  * to sign-in; other failures show a retry. No Ticket Detail, no QR/barcode, no
  * Apple Wallet, no price — none of those contracts exist yet.
  *
+ * Reloads are QUIET once anything is on screen (src/lib/screens/refreshPolicy.ts):
+ * a focus reload or pull-to-refresh swaps rows in place, never unmounts the list,
+ * and a failure keeps the rows (or the empty state) rather than replacing them
+ * with the error screen. The loading and error states are for a first load only.
+ *
  * In production the RPC returns [] today (native issuance is disabled server-side).
  * A __DEV__-only fixture toggle (off by default, never written anywhere) lets the
  * populated states be reviewed on a device; real RPC data always takes precedence.
@@ -31,6 +36,7 @@ import { fetchMyTickets } from '@/src/lib/tickets/api';
 import { DEV_TICKET_FIXTURES } from '@/src/lib/tickets/fixtures';
 import { classifyTicketsError, groupByEvent, splitByTimeClass, type EventGroup } from '@/src/lib/tickets/ticketState';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
+import { phaseAfterError, shouldShowLoading } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -48,28 +54,39 @@ export default function TicketsScreen() {
   // DEV-only: render sample states without any server write. Off by default.
   const [devFixtures, setDevFixtures] = useState(false);
   const mounted = useRef(true);
+  // What is on screen right now, readable from `load` without re-creating it: a
+  // new `load` re-runs the focus effect, which would refetch on every state change.
+  const shown = useRef<{ phase: Phase; rowCount: number }>({ phase: 'loading', rowCount: 0 });
 
   useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { shown.current = { phase, rowCount: rows.length }; }, [phase, rows]);
 
-  const load = useCallback(async (isRefresh: boolean) => {
+  const load = useCallback(async () => {
     if (devFixtures) { setPhase('ready'); return; }
-    if (!isRefresh) setPhase('loading');
+    // Quiet over content: the list stays mounted and rows swap in place. Only a
+    // screen that has shown nothing yet gets the loading state.
+    const { phase: shownPhase, rowCount } = shown.current;
+    if (shouldShowLoading(rowCount, shownPhase)) setPhase('loading');
     const { data, error } = await fetchMyTickets();
     if (!mounted.current) return;
     if (error) {
       if (classifyTicketsError(error) === 'auth') { router.replace('/(auth)/login'); return; }
-      setPhase('error');
+      // A failed quiet refresh keeps what is on screen; the error state only ever
+      // replaces the loading state. The raw message goes to the log, not the UI.
+      const next = phaseAfterError(rowCount, shownPhase);
+      if (next !== 'error') console.warn('[tickets] refresh failed, keeping current rows:', error.code ?? error.message);
+      setPhase(next);
       return;
     }
     setRows(data ?? []);
     setPhase('ready');
   }, [devFixtures]);
 
-  useFocusEffect(useCallback(() => { load(false); }, [load]));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load(true);
+    await load();
     if (mounted.current) setRefreshing(false);
   }, [load]);
 
@@ -105,13 +122,16 @@ export default function TicketsScreen() {
       {phase === 'loading' ? (
         <ScreenState state={'loading' as ScreenStateKind} />
       ) : phase === 'error' ? (
-        <ScreenState state={'error' as ScreenStateKind} onRetry={() => load(false)} />
+        <ScreenState state={'error' as ScreenStateKind} onRetry={() => load()} />
       ) : sections.length === 0 ? (
         <EmptyState
           title="No tickets yet"
           body="Tickets you own will show up here."
         />
       ) : (
+        // Stays mounted across tab switches: a focus reload never re-enters the
+        // loading phase once rows exist (refreshPolicy), so the scroll position
+        // the user left survives the refetch.
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.key}

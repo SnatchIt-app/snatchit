@@ -20,6 +20,8 @@ import { Session, User } from '@supabase/supabase-js';
 import { useEffect, useRef, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
+import { markSessionEndIfUnmarked } from '@/src/lib/auth/sessionEnd';
+import { signOutEverywhere } from '@/src/lib/auth/signOut';
 
 type AuthState = {
   session: Session | null;
@@ -59,7 +61,9 @@ async function clearStaleSession(reason: string): Promise<void> {
   }
   // Best-effort: wipe the stored tokens so the next getSession() returns null.
   // Ignore any network / auth error from signOut itself.
-  await supabase.auth.signOut().catch(() => {});
+  // The refresh token is already invalid here, so no token deactivation is
+  // possible; the helper skips it when there is no session and still signs out.
+  await signOutEverywhere().catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +108,11 @@ export function useAuth(): AuthState {
       // The stale-token check below is a diagnostic side-effect that should
       // never delay the UI transition to the login screen.
       setSession(newSession);
+
+      // A SIGNED_OUT the user did not ask for (stale refresh token, revoked
+      // session) is an expiry as far as the login screen is concerned; the
+      // sign-out helper marks its own case first (CFT-607).
+      if (event === 'SIGNED_OUT' && newSession === null) markSessionEndIfUnmarked('expired');
 
       if (
         event === 'SIGNED_OUT' &&

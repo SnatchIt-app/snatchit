@@ -49,7 +49,9 @@ describe('(a) buy_now re-entry after a succeeded payment', () => {
 
   it('a refunded purchase is also settled: never re-charge a refunded buyer', async () => {
     const d = deps({ fetchSettledPayment: vi.fn(async () => ({ status: 'refunded' })) });
-    expect((await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d)).kind).toBe('already_settled');
+    // A-03: refunded is still a no-setup state (never re-charge), but it is no
+    // longer reported as settled — a bare refunded row is a refund in progress.
+    expect((await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d)).kind).toBe('refund_pending');
     expect(d.createIntent).not.toHaveBeenCalled();
   });
 });
@@ -109,14 +111,14 @@ describe('(e) "reservation expired" is unreachable once a payment succeeded', ()
   it('a sold listing with the buyer\'s succeeded payment never reports expired', async () => {
     const d = deps({ fetchSettledPayment: vi.fn(async () => ({ status: 'succeeded' })), fetchListing: vi.fn(async () => SOLD) });
     const r = await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d);
-    expect(r.kind).not.toBe('reservation_expired');
+    expect(r.kind).not.toBe('not_held');
     expect(r.kind).toBe('already_settled');
   });
 
   it('a sold listing WITHOUT a payment by this buyer does report expired (someone else bought it)', async () => {
     const d = deps({ fetchListing: vi.fn(async () => SOLD) });
     const r = await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d);
-    expect(r).toEqual({ kind: 'reservation_expired' });
+    expect(r).toEqual({ kind: 'not_held' });
     expect(d.createIntent).not.toHaveBeenCalled();
   });
 
