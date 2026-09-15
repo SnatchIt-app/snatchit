@@ -83,6 +83,32 @@ tip above 125 — the hazard A's registry forbids for 126–128. Run SBX-2 first
 Kit `62ec887` · app `venue/read-slice1-fixes @ 2665a20` rebuilt · local stack with `venue_api` exposed:
 **138 PASS / 0 FAIL**, exit 0. No marketplace steps added to the kit (A's hosted steps; would duplicate the manifest).
 
+## 128 pass 3 — `f22c1a3` (freeze cleared from D)
+Harness PASS 17 · FAIL 0 · WARN 2 — pgTAP 4806/4806 · grant matrix = expected_grants (68) · S1/S2/S3 identical ·
+127 rollback identity exact (G-4 closed) · 128 rollback residue 10 lines, all declared (epoch table/trigger/function;
+`notify.register_push_token` EXECUTE not restored, rollback:46-47) (G-3 closed) · hash UPDATE with true and wrong hash
+both "permission denied for table" (G-2 closed by grant) · F1 heal still closed · O-3 attacks unchanged (residual).
+Rule-2 sunset: A declined for this candidate; D agrees (bounds plant creation, not dormant activation).
+
+## Owner O-3 decision (2026-09-15): option (b) — production security gate
+Session-bound bindings required before production deployment; sandbox acceptance does not waive it. D reviews A's
+lifecycle design and adversarial tests against S1–S12 (sent to A before the design): password change and
+sign-out-everywhere revoke bindings + clear hashes (confirm the project actually ends other sessions on password
+change); old JWT within exp cannot recreate via verb or direct table path; two-connection races (READ COMMITTED
+revoke can miss a concurrent insert — prefer a delivery-time security-epoch check); older clients; dormant plants;
+forwarding; ordinary single-device sign-out; every send path honours revocation (`send-push` filters `is_active`
+only — revocation must set `is_active = false`); account deletion; rollback does not resurrect; hosted auth hook
+needs its own authorisation.
+
+## D-4 — 126 review of B's `db2f95f` (PR #63): PASSED, no blocking findings
+Harness PASS 15 · pgTAP 4755/4755 (193 63/63) · 126 rollback identity exact · orders converge · census 30|88|37|33.
+Negative control: 193 against rolled-back (120) bodies → 18 ok / 45 not ok. `probes/probe_126_review_db2f95f.sql`:
+C1 refund+chargeback 10000 known · C2 partial + amount-less full capped · C3 µs half-open boundaries · C4 legacy →
+mixed with separate bound · C6 older payment's refund counted, TimeZone-invariant (UTC vs UTC+14) · C7 refund_facts
+not executable by anon/authenticated/service_role. Deployed console (admin/operating-console) degrades mixed/null
+safely. LOW: L-1 status refunded + NULL refunded_at invisible (data-drift only); L-2 cumulative full/partial
+reclassifies history (documented); L-3 deployed-console copy "marked refunded" under mixed (D, admin track).
+
 ## D-3 — 126 refund exactness (pre-review of A's part 1 `048eeb1`, now B's)
 
 | # | Severity | Finding | Evidence | Disposition |

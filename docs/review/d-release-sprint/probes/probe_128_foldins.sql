@@ -17,7 +17,7 @@ ROLLBACK TO SAVEPOINT s1;
 SAVEPOINT s2;
 WITH u AS (UPDATE public.push_tokens SET device_secret_hash = encode(sha256(convert_to('fold-secret-0123456789','utf8')),'hex')
             WHERE token = 'ExponentPushToken[d128-fold-a]' RETURNING 1) INSERT INTO o SELECT 'G2.update_with_true_hash_rows', count(*)::text FROM u;
-RELEASE SAVEPOINT s2;
+ROLLBACK TO SAVEPOINT s2;
 SAVEPOINT s3;
 UPDATE public.push_tokens SET device_secret_hash = encode(sha256(convert_to('wrong-guess-0123456789','utf8')),'hex') WHERE token = 'ExponentPushToken[d128-fold-a]';
 ROLLBACK TO SAVEPOINT s3;
