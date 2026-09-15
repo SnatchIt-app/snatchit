@@ -2,8 +2,12 @@
 
 Branch `admin/analytics-redesign` = `admin/light-theme-integration` + `admin/f9-mobile-nav` +
 `admin/a11y-responsive-fixes` (all merged, no conflicts) + this redesign. Local development only: no deployment,
-no tracking, no permission, route, `ops` function or migration change. **This is a preview for the owner's
-visual judgement, not acceptance.**
+no tracking, no permission, route, `ops` function or migration change.
+
+**Owner decision (2026-09-14): visual direction APPROVED** — softer typography, white surfaces, analytics-focused
+presentation, as shown in the previews. Preserve accessibility, mobile navigation, operational queues and honest
+metric labels; **no further expansion for now**. This approves the preview direction only — **not production
+deployment and not live-data performance**, which remains unmeasured (see *Hand-off to A*).
 
 ## Direction applied
 
@@ -72,3 +76,32 @@ production depends on production's payment count, **which has not been measured*
 
 Data definitions, incomplete-data behaviour, measured interim cost and backend dependencies:
 [`ANALYTICS_DATA_CONTRACT.md`](ANALYTICS_DATA_CONTRACT.md).
+
+## Hand-off to A (2026-09-14)
+
+**Branch:** `admin/analytics-redesign` — the head carrying this section. It contains `admin/light-theme-integration`,
+`admin/f9-mobile-nav` and `admin/a11y-responsive-fixes` (ancestry checked), so one review covers all four.
+
+| Check | Result |
+|---|---|
+| Base | `release/convergence-135` (branch base = its current tip, 0 commits since) · `git merge-tree` onto that tip: clean |
+| Scope | 118 files, all under `admin/`; `supabase/` untouched; no migration, `ops` function, grant, route-permission or tracking change |
+| typecheck · lint · vitest · `next build` | re-run on the hand-off head: exit 0 · exit 0 · **136/136** · exit 0 |
+| UI audit · F9 mobile menu · chart checks | run on `570defb`; every later commit touches `admin/docs/` only (`git diff 570defb.. -- admin ':!admin/docs'` empty), so the results hold for this tree: contrast 0 / 12 112, focus 0 / 775, overflow 0, unnamed 0 · 14/14 · 6/6 |
+
+**Review asked of A:** the `admin/` diff against the base (the visual system, `lib/analytics*.ts`, `components/charts`,
+`components/analytics`, the Today and Money pages); that the only data reads are existing `ops.money_overview`
+and `ops.today()` calls plus the unchanged payouts and reconciliation reads; merge sequencing. Production deployment
+of the console stays owner-gated (Vercel production branch `admin/operating-console`, SHA-pinned build step —
+`docs/admin-console/DEPLOYMENT_RECORD_2026-09-08.md`).
+
+**Remaining data / performance dependencies** (definitions in the contract §3):
+
+| Id | Owner of the next step | What | Needed for |
+|---|---|---|---|
+| Production payment count | owner authorises a read-only count; A asks | decides whether the interim per-bucket trend path is acceptable in production | before deploying the redesign |
+| AN-1 `ops.money_timeseries` + three date indexes | A assigns the number; D writes function, pgTAP, rehearsal and the client switch | replaces N interim calls with one set-based read | before production reaches ~100 k payments |
+| AN-2 known refund amounts | A's refund-exactness migration (`ops.refund_facts`) | UI already renders known / unknown / mixed; D maps the fields once that contract is frozen | optional; today amounts render as unknown with an upper bound |
+| AN-3 net platform revenue | owner / A: fee attribution on partial refunds | not shown until defined | optional |
+
+None of these is required for the marketplace release: the console is admin-only and deploys on its own path.
