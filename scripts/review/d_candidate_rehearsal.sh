@@ -18,6 +18,7 @@
 #   env:   RELEASE_ORDER  space-separated migration basenames applied after production's 135, in order.
 #                         Default: the four payment migrations, the tickets read, then every numbered
 #                         migration > 120 ascending, then any other tree migration not yet applied (flagged).
+#          (the tree's scripts/local/replay_shim_supplements.sql, when present, is applied after the shim automatically)
 #          SHIM_EXTRA     optional SQL applied after replay_shim.sql in FRESH and PROD (e.g. an auth stand-in the
 #                         certified rehearsal_bootstrap.sql has but replay_shim.sql lacks); reported as a WARN.
 #          REHEARSAL_PGHOST/PGPORT/PGUSER as the certified harness (loopback only).
@@ -66,6 +67,7 @@ echo "tree $TREE @ $HEAD · $TOTAL_FILES migration files · ci.yml EXPECT_* = $E
 echo; echo "=== FRESH: canonical LC_ALL=C replay → $FRESH"
 dropdb --if-exists "$FRESH" 2>/dev/null; createdb "$FRESH" || exit 1
 psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim.sql >/dev/null 2>&1 || { echo "SHIM FAIL"; exit 1; }
+[ -f scripts/local/replay_shim_supplements.sql ] && { psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim_supplements.sql >/dev/null 2>&1 || { echo "SHIM SUPPLEMENTS FAIL"; exit 1; }; }
 [ -n "${SHIM_EXTRA:-}" ] && { psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f "$SHIM_EXTRA" >/dev/null 2>&1 || { echo "SHIM_EXTRA FAIL"; exit 1; }; warn "SHIM_EXTRA applied after replay_shim.sql: $SHIM_EXTRA (harness fidelity, not a tree file)"; }
 nf=0; for f in $(ls supabase/migrations/*.sql | LC_ALL=C sort); do apply "$FRESH" "$f"; nf=$((nf+1)); done
 check "$FRESH" "F1 every migration file applied ($TOTAL_FILES)" "select $nf" "$TOTAL_FILES"
@@ -86,6 +88,7 @@ TOT=$(grep -E '^TOTAL ' "$OUT/tap.log" | tail -1); RES=$(grep -E 'RESULT:' "$OUT
 echo; echo "=== PROD: production's 135 order, then the release chain → $PROD"
 dropdb --if-exists "$PROD" 2>/dev/null; createdb "$PROD" || exit 1
 psql -X -q -d "$PROD" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim.sql >/dev/null 2>&1 || { echo "SHIM FAIL"; exit 1; }
+[ -f scripts/local/replay_shim_supplements.sql ] && { psql -X -q -d "$PROD" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim_supplements.sql >/dev/null 2>&1 || { echo "SHIM SUPPLEMENTS FAIL"; exit 1; }; }
 [ -n "${SHIM_EXTRA:-}" ] && { psql -X -q -d "$PROD" -v ON_ERROR_STOP=1 -f "$SHIM_EXTRA" >/dev/null 2>&1 || { echo "SHIM_EXTRA FAIL"; exit 1; }; }
 APPLIED="$OUT/applied.txt"; : > "$APPLIED"
 papply(){ apply "$PROD" "$1"; basename "$1" >> "$APPLIED"; }
