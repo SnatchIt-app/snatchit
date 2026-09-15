@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 awaiting B's branch**; item 6 CI VERIFIED at 10194d3 (negative control pending); 133 review pending |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control pending); 133 review pending |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -110,12 +110,17 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
 
-### 132 — independent review: waiting
-No 132 branch on origin at 2026-09-15 ~14:10Z (only `docs/132-checkout-group-claim-design`). Review plan: concurrency (two
-requests, same buyer/listing, all interleavings with 130 claim), retries (edge retry after DB commit / before Stripe create),
-uncertain Stripe outcomes (timeout after create, network error before response, idempotency key reuse, duplicate and out-of-order
-webhooks), duplicate prevention (one live intent per checkout group; unique index vs pending row), regression test RED on the
-130-only chain and GREEN with 132, rollback identity, four-file rule.
+### 132 — independent review of B's PR #70 (`fix/132-pending-before-intent`; probed at b20ee46, review-ready head acbd5dd = b20ee46 + service_role grant; CI 34980015844 green): **NOT PASSED — 2 blocking findings**
+Mechanism: pre-mint `checkout_group_claim` row keyed (listing, buyer, mode) — a record before the intent, not a pending payments
+row (B's addendum; A carries it to the owner). Sound as read: single-statement claim (ON CONFLICT … WHERE stale), token-bound
+release in an outer finally, E-1 budget now applies to fresh mints, guard check before insert (987) and before every hand-out with
+no await between the last check and the Response (884→887, 1041→1044, 1134→1137), supersede withdraws the replacement when the
+old intent is not provably cancelled, a timed-out create leaves only an unexposed orphan.
+| # | Severity | Finding |
+|---|---|---|
+| F-132-1 | HIGH (money) | **cross-mode double mint reachable, sequentially**: bid → `reserve_buy_now` while running → ends_at passes under the live hold → `auto_finalize_expired_auctions` → listing reserved+ended, winner = holder = buyer; both edge entitlement predicates true; both group claims `claimed` (key includes mode); both pending rows insert; the auction request's mode-filtered prior read (748–753) and P1 processing check see nothing → fresh mint → two live secrets (16500 / 6600) → second capture unfulfillable → sweep refund. `probes/probe_132_cross_mode.sql`. Fix: key (listing, buyer); cross-mode prior read; other-mode live attempt → 409 or L1-order supersede |
+| F-132-2 | HIGH (money, source) | **cross-buyer**: the other-buyer retire (790–796, 248–252) is best-effort — an intent not provably cancelled (processing/requires_capture/succeeded at Stripe with the webhook not landed, or cancel timeout/error) is skipped and the entitled buyer still receives a secret; soldToAnother reads succeeded rows only → two buyers capture. Fix: fail closed (409, no mint) when any other buyer's pending intent is not provably cancelled; optional retrieve-then-sold |
+Open for the full battery at the fixed head: create timeout then retry with a divergent key; insert stall vs 120 s (no bound() on the DB call; statement_timeout for service_role unproven); P1 liveness (which writer moves a `processing` row with no webhook); duplicate/out-of-order webhooks; rollback identity; four-file rule.
 
 ## D-INT0 — dry run on A's head `e104c87` (2026-09-15)
 
