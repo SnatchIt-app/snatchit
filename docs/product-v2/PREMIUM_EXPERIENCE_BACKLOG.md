@@ -645,17 +645,17 @@ marked B1/B2/B3.**
 | 13 | CFT-701 | not yet (art transition, one celebration) | — | — |
 | 14 | CFT-206 | B2 — sheet + stack cross-fade under Reduce Motion; haptics paired | SC | Reduce Motion on device |
 | 15 | CFT-501 | not yet (position states beyond Bids tab) | — | — |
-| 16 | CFT-502 | not yet | — | — |
-| 17 | CFT-501 | **blocked** (server time) | — | — |
+| 16 | CFT-502 | B4 — current bid dips and returns in place; next bid follows the live bid | unit + SC (premium-auction-live) | motion on device |
+| 17 | CFT-501 | B4 client side — "Confirming result" at zero, bounded SELECT poll until the server speaks. **Server-time correction still blocked** | unit + SC | at-zero behaviour on device; A read-back that no extra finalize call is made |
 | 18 | CFT-503 | not yet (competing bids) — A-06 increment finding F10 with owner | — | — |
-| 19 | CFT-504 | not yet (connection health) | — | — |
-| 20 | CFT-505 | not yet | — | — |
+| 19 | CFT-504 | B4 — realtime connection health; "Reconnecting — bid status may be delayed" on a live auction | unit + SC | airplane-mode drop and catch-up on device |
+| 20 | CFT-505 | B4 — urgency order, then the auction closing soonest; "Ends in Nm" within the hour | unit + SC | ordering with real rows on device |
 | 21 | CFT-506 | not yet — A-11 | — | — |
 | 22 | CFT-303 | B1 label only ("2 tickets" beside the total). **Quantity semantics held (owner)** | SC | — |
 | 23 | CFT-304 | B1 — explicit price-change acceptance | unit + SC (refund-and-hold) | needs a live hold (sandbox window) |
 | 24 | CFT-301, 302 | B1 — "Held for you · until 9:14 PM"; not-held reasons; Back to listing | unit + SC | needs a live hold (sandbox window) |
 | 25 | CFT-305 | B1 — reconciliation before any Pay; "Checking your payment" | unit + SC | interruption cases on device (D9c stays UNTESTED) |
-| 26 | CFT-306 | not yet — touches payControl, goes to A first | — | — |
+| 26 | CFT-306 | **B4 — "Confirming payment" / "Finalizing your order" from the two real steps; payControl change with A for review** | unit + SC (checkout-pay-control, premium-auction-live) | needs a live charge (sandbox window) |
 | 27 | CFT-307, 301 | B1 partial (hold-loss copy); designed outcome screen with alternatives not yet — A-11 | SC | — |
 | 28 | CFT-308 | B1 — refunded / refund pending / partial refund; never "You're in." | unit + SC | owner's refund wording decision |
 | 29 | CFT-401 | B3 partial — auto_released now shown on the buyer screen; expired/reversed wait on A-09 | SC | — |
@@ -682,13 +682,14 @@ marked B1/B2/B3.**
 | 50 | CFT-207 | B2 — one formatter; tabular countdowns. Quantity half held with item 22 | unit + SC | — |
 | 51 | CFT-703 | not yet (calm language audit beyond checkout/refund/transfer copy) | — | — |
 | 52 | CFT-208 | B2 partial — guards on Edit listing, Report, Your scene-while-saving; sticky price cap | unit + SC | 1.3× text and long names on device; delivery form dirty state; CreateListing (tab) |
-| 53 | CFT-704 | B3 partial — one transfer vocabulary shared by Bids, detail, receive, send | unit + SC | — |
+| 53 | CFT-704 | B3/B4 partial — one transfer vocabulary shared by Bids, detail, receive, send; one auction result vocabulary ("Confirming result") on detail | unit + SC | — |
 | 54 | CFT-705 | not yet (interruption test procedure) | — | — |
 
-**Totals:** implemented in full or in part on a branch: 21 items (1, 3, 6, 7,
-8–12, 14, 22–25, 27–30, 32, 37, 41, 50, 52, 53); blocked/held: 3 (17 server
-time; 22 quantity, owner; item 11's save-event half, A-15); not yet started:
-30. Native acceptance outstanding for all 21.
+**Totals (after batch 4):** implemented in full or in part on a branch: 26
+items (1, 3, 6, 7, 8–12, 14, 16, 17 client, 19, 20, 22–30, 32, 37, 41, 50,
+52, 53); blocked/held: 3 (17 server time; 22 quantity, owner; item 11's
+save-event half, A-15); not yet started: 26. Native acceptance outstanding
+for all 26; see DEVICE_VERIFICATION_CHECKLIST.md.
 
 ---
 
@@ -803,3 +804,49 @@ surface (A-17 applied to transfers).
   the honest reading. Nothing further from A until the second 128 delta; the
   legacy/no-secret path around sign-out is the area most likely to move, so
   it is kept easy to re-bind (one wrapper, one decision function).
+
+
+---
+
+## Batch 4 — status (2026-09-14, C)
+
+Owner's go: truthful progress copy and client-side auction presentation within
+existing backend rules; payment-control changes to A; no change to bid
+increments or auction timing while F10 is undecided; 128 client isolated and
+provisional pending A's final contract; batch 3 preserved; coverage and the
+next candidate's device checklist kept current.
+
+Branch `frontend/premium-batch-4` in `/Users/josetascon/snatchit-batch1`, from
+batch 3's head `d48c290`:
+
+| Commit | Scope | Tasks |
+|---|---|---|
+| `ac31172` | **payControl.ts (gated) + CheckoutNative, for A's review**: `finalizing` input; "Confirming payment" while the sheet confirms, "Finalizing your order" while finalizePurchase records; set only around the two finalizePurchase calls; no decision or handler changed | 306 |
+| `513adb0` | detailState: "Confirming result" at zero (kind `confirming_result`; the existing client finalize also reads as confirming); liveState: bounded SELECT poll schedule (3 s, then 10 s, ≤16 attempts) and the connection notice; useListingRealtime exposes `connection`; usePulseOnChange + TransactionPanel in-place amount change; bidState `endingSoon`, `compareBidRows`, `endingSoonLabel`, injectable clock; BidCard urgency line; Bids tab order | 501 (client), 502, 504, 505 |
+| `59fb928` | Static previews follow the split progress copy | previews |
+
+**Gates.** tsc clean after the test-type fix (next commit); vitest 1861 / 83;
+`expo lint` 0 errors (baseline 29 warnings). Gated files: only
+`payControl.ts` differs from batch 1 (the CFT-306 change, with A);
+`setupDecision.ts`, `holdState.ts`, `payments.ts`, `signOut.ts` byte-identical.
+
+**Semantics untouched, by construction.** No new `finalize_auction` call (the
+poll is a SELECT; the screen's one existing call stays one); `MIN_BID_INCREMENT`
+unchanged and read only where it was; no `ends_at` written or extended;
+`bidStatusOf`'s rules unchanged (only its clock became injectable). Pinned by
+`tests/premium-auction-live.test.ts`.
+
+**128 client.** Untouched this batch; still marked provisional against
+`f7b31ad`; awaiting A's final independently reviewed contract before
+notification integration is called complete.
+
+**Device checklist.** `DEVICE_VERIFICATION_CHECKLIST.md` (DV-101 … DV-505)
+prepared for the next authorised candidate; rows needing the sandbox window,
+A read-backs, or 128 on the sandbox are marked.
+
+**Next deliverable (proposed).** CFT-503 (competing bids: keep the entered
+amount, explain the new minimum, require a fresh tap) is the natural next
+auction item, but it touches the increment rule's presentation and waits for
+F10. Without F10: CFT-604 (empty / failed / filtered states distinguished on
+Home, Bids, Explore, Tickets) and CFT-605 (ended or sold listing opened from
+an old link shows an outcome, not an error).
