@@ -1138,3 +1138,19 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   checklist: DV-611 spelling corrected to `signed_out` (+129 dependency);
   production-gate rows DV-P1..P4 added (not Thursday). Checkpoint sent
   through A.
+- **A verified C's two outcome expectations against the 131 verb body (@ f102ce2):**
+  re-login after "Sign out of all devices" or a password change → `refreshed`
+  (row kept on the same user, hash cleared then re-adopted); re-login after a
+  this-device sign-out → `refreshed` (hash kept; a different account on the
+  same install → `rebound`). DV-P1/P2 set accordingly. **Shared-install edge
+  (expected behaviour):** after a global sign-out a different account on the
+  same install gets 42501 "bound to another account"; recovery = original
+  account signs in then signs out this-device, or support unbind, or reinstall.
+  DV-P5 added. The candidate's remedy copy ("sign out here first") is false
+  advice in that edge, so the production-gate branch refines it:
+  `frontend/session-bound-131-r2 @ dece6cf` ("…needs to sign in here and then
+  sign out from this device, or contact support"); candidate copy untouched.
+  **Process slip, disclosed:** 1b42e49 on that branch was committed and pushed
+  with two failing pins (push-registration, premium-static-previews) because
+  the commit was chained after the run without checking it; corrected in
+  dece6cf, full suite 1923 / 87 green. No candidate branch was affected.
