@@ -185,19 +185,44 @@ export function signOutThisDevice(opts: { reason?: SessionEndReason } = {}): Pro
 }
 
 /**
- * Sign out of ALL devices: revoke every push binding of this user on the
- * server (its failure is logged and never blocks), then end every session.
+ * The all-devices revoke, raced against the same budget as the per-device one
+ * (A's F-K2-1): a hang is not a failure, and a dead network must not leave the
+ * user stuck on "Sign out of all devices". Timeout or error → null (logged);
+ * the caller signs out regardless. `{ revoked }` is the only count read.
  */
-export async function signOutAllDevices(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome; revokedAll: number | null }> {
-  let revokedAll: number | null = null;
+export async function revokeAllBindings(
+  rpc: () => Promise<{ data: unknown; error: ErrorLike | null }>,
+  timeoutMs: number = SIGN_OUT_REVOKE_TIMEOUT_MS,
+): Promise<number | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timed_out'>((res) => { timer = setTimeout(() => res('timed_out'), timeoutMs); });
   try {
-    const { data, error } = await supabase.rpc(REVOKE_ALL_RPC);
-    if (error) throw error;
-    const n = data && typeof data === 'object' ? (data as Record<string, unknown>).revoked : undefined;
-    revokedAll = typeof n === 'number' ? n : null;
+    const r = await Promise.race([rpc(), timeout]);
+    if (r === 'timed_out') {
+      console.warn('[signOut] revoke_all_push_bindings timed out');
+      return null;
+    }
+    if (r.error) throw r.error;
+    const n = r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>).revoked : undefined;
+    return typeof n === 'number' ? n : null;
   } catch (e) {
     console.warn('[signOut] revoke_all_push_bindings failed:', e instanceof Error ? e.message : e);
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Sign out of ALL devices: revoke every push binding of this user on the
+ * server (bounded; failure or timeout is logged and never blocks), then end
+ * every session.
+ */
+export async function signOutAllDevices(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome; revokedAll: number | null }> {
+  const revokedAll = await revokeAllBindings(async () => {
+    const { data, error } = await supabase.rpc(REVOKE_ALL_RPC);
+    return { data, error };
+  });
   const result = await performSignOut({ scope: 'global', reason: opts.reason });
   return { ...result, revokedAll };
 }
