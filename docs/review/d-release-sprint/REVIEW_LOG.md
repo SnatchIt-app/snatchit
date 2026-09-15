@@ -135,6 +135,21 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## D-5 — candidate `release/candidate-20260918 @ 927b46d` (121–130 + #64/#65 edges + C's stack)
+Harness PASS 22 · FAIL 0 · WARN 2 (declared) · replay 149 · census 31|96|37|35 · grants = fixture (68) · manifest PASS ·
+pgTAP 4967/4967 (130_storage 18, 190 30, 191 15, 192 11, 193 63, 194 30, 195 58, 196 9, 197 40) · production order
+through 130 · rollback identity exact for 121/123/124/125/126/127/129/130 · S1/S2/S3 identical · 129 byte-identical to
+the attacked version · B's `rehearsal_130_concurrency.sh` S1–S4 + C1 PASS.
+130 probes (`probes/probe_130_claim.sql`, staleness by back-dating as postgres): stale other-row claim allows the
+sibling, late release frees only its own row · same-row reclaim after 121 s, old token → token_mismatch · buyer/anon
+UPDATE of claim columns 0 rows, authenticated EXECUTE denied.
+| # | Severity | Finding |
+|---|---|---|
+| E-1 | MEDIUM (money) | `_shared/stripe.ts:22/51` fetch has no timeout; a claimed supersede stalled past 120 s resumes after its claim went stale and another request claimed the group → double-charge interleave reopens under latency. Fix: AbortSignal budget < 120 s or re-verify the token before inserting P2 / returning a secret |
+| Q3 | LOW (question) | a fresh claim on a row that left `pending` no longer blocks the group; the edge's sold/succeeded checks precede the claim (TOCTOU) — confirm settlement neutralises a second success, else drop the status filter |
+| Q4 | info | buyer and seller can read `supersede_claim_token` via SELECT policies (useless without service_role) |
+Pin readiness from D: ready once E-1 is fixed or explicitly dispositioned by A and B.
+
 ## 129 `public.revoke_push_token` (A's staged working tree) — attacked, no findings
 Clone of cd1f03c + 129: IDOR by token string → `{revoked:0}`, victim row untouched · own revoke → `{revoked:1}`,
 is_active false, reason signed_out, hash kept · repeat → 0 · anon and service_role EXECUTE denied · ACL exactly
