@@ -36,7 +36,7 @@
  * a guarantee.
  */
 
-import { markSessionEnd, type SessionEndReason } from '@/src/lib/auth/sessionEnd';
+import { consumeSessionEnd, markSessionEnd, type SessionEndReason } from '@/src/lib/auth/sessionEnd';
 import { supabase } from '@/src/lib/supabase';
 import { getRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import type { ErrorLike } from '@/src/lib/push/registration';
@@ -98,6 +98,19 @@ export async function revokeDeviceToken(deps: RevokeDeps, token: string): Promis
 
 export type RevokeOutcome = 'revoked' | 'no_token' | 'no_session' | 'no_match' | 'failed' | 'timed_out';
 
+/**
+ * F-K2-3 (D, verified by A against auth-js): `supabase.auth.signOut` keeps the
+ * local session on a network error (it discards it only on 401/403/404), so
+ * a sign-out can FAIL while the user is still signed in. The result says so;
+ * callers keep the user on the screen with this exact copy and a retry, and
+ * the registration record is cleared only after the sign-out succeeded.
+ */
+export const SIGN_OUT_FAILED_COPY = "Couldn't sign out — check your connection and try again.";
+
+export type SignOutResult =
+  | { signedOut: true; revoke: RevokeOutcome }
+  | { signedOut: false; revoke: RevokeOutcome; error: string };
+
 export interface SignOutDeps {
   /** The device's registered Expo push token, if any. */
   getToken: () => string | null;
@@ -105,10 +118,10 @@ export interface SignOutDeps {
   getUserId: () => Promise<string | null>;
   /** Runs the deactivation; resolves to the number of rows updated. */
   revoke: (token: string, userId: string) => Promise<number>;
-  /** Forgets this device's registration record so the next sign-in registers again. */
+  /** Forgets this device's registration record so the next sign-in registers again (after success only). */
   clearRegistration?: () => Promise<void>;
-  /** The actual sign-out. */
-  signOut: () => Promise<void>;
+  /** The actual sign-out; resolves to the SDK's error, null on success. */
+  signOut: () => Promise<{ error: ErrorLike | null } | void>;
   timeoutMs?: number;
   now?: () => Date;
 }
@@ -117,7 +130,7 @@ export interface SignOutDeps {
  * Deactivate this device's token for this user, then sign out. Pure over its
  * dependencies so the sequencing and the never-blocks rule are testable.
  */
-export async function revokeThenSignOut(deps: SignOutDeps): Promise<{ revoke: RevokeOutcome }> {
+export async function revokeThenSignOut(deps: SignOutDeps): Promise<SignOutResult> {
   let outcome: RevokeOutcome = 'failed';
   try {
     const token = deps.getToken();
@@ -141,11 +154,21 @@ export async function revokeThenSignOut(deps: SignOutDeps): Promise<{ revoke: Re
   } catch {
     outcome = 'failed';
   }
-  // Whatever the revoke did, the local record is stale once we sign out.
-  try { await deps.clearRegistration?.(); } catch { /* never blocks */ }
   // The sign-out itself is never gated on the revoke.
-  await deps.signOut();
-  return { revoke: outcome };
+  let signOutError: ErrorLike | null = null;
+  try {
+    const r = await deps.signOut();
+    signOutError = r && r.error ? r.error : null;
+  } catch (e) {
+    signOutError = { message: e instanceof Error ? e.message : String(e) };
+  }
+  if (signOutError) {
+    // Still signed in (auth-js kept the session). Nothing local changes.
+    return { signedOut: false, revoke: outcome, error: signOutError.message ?? 'sign_out_failed' };
+  }
+  // Signed out: the local record is stale now, and only now.
+  try { await deps.clearRegistration?.(); } catch { /* never blocks */ }
+  return { signedOut: true, revoke: outcome };
 }
 
 /** The live revoke binding: the public verb (contract v2 §2.4, erratum). */
@@ -157,7 +180,7 @@ const liveRevokeDeps: RevokeDeps = {
 };
 
 /** The one sign-out implementation; the two exported acts below choose the scope. */
-async function performSignOut(opts: SignOutOptions): Promise<{ revoke: RevokeOutcome }> {
+async function performSignOut(opts: SignOutOptions): Promise<SignOutResult> {
   const { scope, reason } = resolveSignOutOptions(opts);
   const result = await revokeThenSignOut({
     getToken: getRegisteredPushToken,
@@ -170,17 +193,21 @@ async function performSignOut(opts: SignOutOptions): Promise<{ revoke: RevokeOut
     signOut: async () => {
       // The user chose this; the login screen must not call it an expiry (CFT-607).
       markSessionEnd(reason);
-      await supabase.auth.signOut({ scope });
+      const { error } = await supabase.auth.signOut({ scope });
+      // No sign-out happened: the mark must not describe one later.
+      if (error) consumeSessionEnd();
+      return { error };
     },
   });
   if (result.revoke !== 'revoked' && result.revoke !== 'no_token') {
     console.warn('[signOut] push token not deactivated:', result.revoke);
   }
+  if (!result.signedOut) console.warn('[signOut] sign-out failed, session kept:', result.error);
   return result;
 }
 
 /** Sign out THIS device only. Every ordinary sign-out site calls this and nothing else. */
-export function signOutThisDevice(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome }> {
+export function signOutThisDevice(opts: { reason?: SessionEndReason } = {}): Promise<SignOutResult> {
   return performSignOut({ scope: 'local', reason: opts.reason });
 }
 
@@ -222,7 +249,7 @@ export async function revokeAllBindings(
  * server (bounded; failure or timeout is logged and never blocks), then end
  * every session.
  */
-export async function signOutAllDevices(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome; revokedAll: number | null }> {
+export async function signOutAllDevices(opts: { reason?: SessionEndReason } = {}): Promise<SignOutResult & { revokedAll: number | null }> {
   const revokedAll = await revokeAllBindings(async () => {
     const { data, error } = await supabase.rpc(REVOKE_ALL_RPC);
     return { data, error };

@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn(), auth: { signOut: vi.fn(), getSession: vi.fn() } } }));
 
-import { resolveSignOutOptions, revokeAllBindings, REVOKE_ALL_RPC, SIGN_OUT_REVOKE_TIMEOUT_MS } from '@/src/lib/auth/signOut';
+import { resolveSignOutOptions, revokeAllBindings, revokeThenSignOut, REVOKE_ALL_RPC, SIGN_OUT_FAILED_COPY, SIGN_OUT_REVOKE_TIMEOUT_MS, type SignOutDeps } from '@/src/lib/auth/signOut';
 import { SESSION_END_NOTICE } from '@/src/lib/auth/sessionEnd';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
@@ -74,6 +74,41 @@ describe('K-2: two named sign-outs', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+
+  it('F-K2-3: a failed SDK sign-out keeps the session — the record is not cleared and the result says so', async () => {
+    const calls: string[] = [];
+    const base: SignOutDeps = {
+      getToken: () => 'ExponentPushToken[abc]',
+      getUserId: async () => 'user-1',
+      revoke: vi.fn(async () => { calls.push('revoke'); return 1; }),
+      clearRegistration: vi.fn(async () => { calls.push('clear'); }),
+      signOut: vi.fn(async () => { calls.push('signOut'); return { error: { message: 'Network request failed' } }; }),
+      timeoutMs: 50,
+    };
+    const failed = await revokeThenSignOut(base);
+    expect(failed.signedOut).toBe(false);
+    expect(failed.revoke).toBe('revoked');
+    expect(calls).toEqual(['revoke', 'signOut']);
+    const thrown = await revokeThenSignOut({ ...base, signOut: vi.fn(async () => { throw new Error('boom'); }) });
+    expect(thrown.signedOut).toBe(false);
+    const ok = await revokeThenSignOut({ ...base, signOut: vi.fn(async () => { calls.push('signOut'); return { error: null }; }) });
+    expect(ok.signedOut).toBe(true);
+    expect(calls.slice(-2)).toEqual(['signOut', 'clear']);
+  });
+
+  it('F-K2-3: every screen keeps the user in place with the exact copy on failure, and the mark is reset', () => {
+    expect(SIGN_OUT_FAILED_COPY).toBe("Couldn't sign out — check your connection and try again.");
+    const so = stripComments(read('src/lib/auth/signOut.ts'));
+    expect(so).toContain('if (error) consumeSessionEnd();');
+    const settings = stripComments(read('app/settings/index.tsx'));
+    expect(settings.match(/if \(!r\.signedOut\) \{ alertWeb\(SIGN_OUT_FAILED_COPY\); return; \}/g)?.length).toBe(2);
+    expect(settings).not.toContain('Failed to sign out. Please try again.');
+    const profile = stripComments(read('app/(tabs)/profile.tsx'));
+    expect(profile).toContain("if (!r.signedOut) Alert.alert('Sign out', SIGN_OUT_FAILED_COPY);");
+    const reset = stripComments(read('app/(auth)/reset-password.tsx'));
+    expect(reset).toContain("text: 'Try again', onPress: () => { void signOutAfterPasswordChange(); }");
+    expect(reset).toContain('could not sign out');
   });
 
   it('the login screen explains a password change', () => {

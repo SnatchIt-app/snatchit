@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
+import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
 import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
@@ -124,10 +124,12 @@ export default function SettingsScreen() {
         onPress: async () => {
           setSigningOut(true);
           try {
-            await signOutThisDevice();
+            const r = await signOutThisDevice();
+            // F-K2-3: still signed in on failure — stay here, say so, let them retry.
+            if (!r.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }
             router.replace('/(auth)/login');
           } catch {
-            alertWeb('Failed to sign out. Please try again.');
+            alertWeb(SIGN_OUT_FAILED_COPY);
           } finally {
             setSigningOut(false);
           }
@@ -149,10 +151,13 @@ export default function SettingsScreen() {
           onPress: async () => {
             setSigningOut(true);
             try {
-              await signOutAllDevices();
+              const r = await signOutAllDevices();
+              // F-K2-3: the server may already have revoked every binding; the
+              // user stays here with the exact state and retries when online.
+              if (!r.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }
               router.replace('/(auth)/login');
             } catch {
-              alertWeb('Failed to sign out. Please try again.');
+              alertWeb(SIGN_OUT_FAILED_COPY);
             } finally {
               setSigningOut(false);
             }
