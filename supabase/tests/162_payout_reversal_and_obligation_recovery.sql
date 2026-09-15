@@ -695,12 +695,12 @@ SELECT ok((SELECT bool_and(pg_get_functiondef(p.oid) !~ 'release_payout')
 -- rehearsal_reset.sh baseline read, which runs before pgtap exists); tables/
 -- policies/triggers carry no such pollution and need no filter.
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='public' AND c.relkind='r'), 31,
-  'P1: GATE-2 tables=31 — 096 adds no public table (27 through 109; +3 from 20260906120000: payout_attempts, payment_refunds, account_deletions; +1 from 128: push_token_rebind_epoch)');
+            WHERE n.nspname='public' AND c.relkind='r'), 32,
+  'P1: GATE-2 tables=32 — 096 adds no public table (27 through 109; +3 from 20260906120000: payout_attempts, payment_refunds, account_deletions; +1 from 128: push_token_rebind_epoch; +1 from 132: checkout_group_claim)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public'
-              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 96,
-  'P2: GATE-2 functions=96 — 096 adds no public function (70 through 20260902003623; +1 from 119''s guard_listing_seller_not_blocked; +1 P1, +2 P2, +12 P3, +1 20260906130000; +1 from 20260909000000''s public.get_my_tickets; +1 from 127: release_reservation_for_payment; +4 from 128: register_push_token, unbind_push_token, guard_push_token_secret_hash, guard_push_token_rebind_epoch; +1 from 129: revoke_push_token; +2 from 130: claim_checkout_supersede, release_checkout_supersede; pgtap''s own extension-owned functions excluded)');
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 98,
+  'P2: GATE-2 functions=98 — 096 adds no public function (70 through 20260902003623; +1 from 119''s guard_listing_seller_not_blocked; +1 P1, +2 P2, +12 P3, +1 20260906130000; +1 from 20260909000000''s public.get_my_tickets; +1 from 127: release_reservation_for_payment; +4 from 128: register_push_token, unbind_push_token, guard_push_token_secret_hash, guard_push_token_rebind_epoch; +1 from 129: revoke_push_token; +2 from 130: claim_checkout_supersede, release_checkout_supersede; +2 from 132: claim_checkout_group, release_checkout_group; pgtap''s own extension-owned functions excluded)');
 SELECT is((SELECT count(*)::int FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='public'), 37,
   'P3: GATE-2 policies=37 — 096 adds no public policy');

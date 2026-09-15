@@ -172,6 +172,9 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   -- Service-role only: a client that could move applied_at would reopen the
   -- legacy rebind path for every hash-less row.
   ('push_token_rebind_epoch',      'no-client-access'),
+  -- 132: the pre-mint checkout group record. Service-role only: a client that
+  -- could write it could wedge or free another buyer's checkout serialization.
+  ('checkout_group_claim',         'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -362,6 +365,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- calls them, a client never does.
   ('claim_checkout_supersede(uuid, uuid, uuid)',                     'no-client-execute'),
   ('release_checkout_supersede(uuid, uuid)',                         'no-client-execute'),
+  -- 132 (fresh-mint double charge): the pre-mint group claim and its
+  -- token-bound release. service_role only; the edge calls them, a client never does.
+  ('claim_checkout_group(uuid, uuid, text)',                         'no-client-execute'),
+  ('release_checkout_group(uuid, uuid, text, uuid)',                 'no-client-execute'),
   ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),
