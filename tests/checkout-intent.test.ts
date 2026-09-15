@@ -93,6 +93,7 @@ async function scenario(opts: ScenarioOpts) {
             const col = f[1] as string;
             if (f[0] === 'eq')  rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[col] === f[2]);
             if (f[0] === 'neq') rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[col] !== f[2]);
+            if (f[0] === 'in')  rows = rows.filter((r) => (f[2] as unknown[]).includes((r as unknown as Record<string, unknown>)[col]));
           }
           return { data: q.terminal === 'list' ? rows : rows[0] ?? null };
         }
@@ -388,9 +389,10 @@ describe('create-payment-intent — minting for the entitled buyer retires OTHER
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ clientSecret: 'pi_new_secret' });
     expect(piCreates(s.stripe.calls)).toHaveLength(1);
-    expect(otherPendingLookup(s.sb.queries)?.filters).toEqual([['eq', 'listing_id', LISTING], ['neq', 'buyer_id', HOLDER], ['eq', 'status', 'pending']]);
+    // 132 (D review F-132-2, 2026-09-15): the other-buyer lookup and retire also cover `processing` rows.
+    expect(otherPendingLookup(s.sb.queries)?.filters).toEqual([['eq', 'listing_id', LISTING], ['neq', 'buyer_id', HOLDER], ['in', 'status', ['pending', 'processing']]]);
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
-    expect(paymentUpdates(s.sb.queries).map((q) => [q.body, q.filters])).toEqual([[{ status: 'failed' }, [['eq', 'id', 'pay_other'], ['eq', 'status', 'pending']]]]);
+    expect(paymentUpdates(s.sb.queries).map((q) => [q.body, q.filters])).toEqual([[{ status: 'failed' }, [['eq', 'id', 'pay_other'], ['in', 'status', ['pending', 'processing']]]]]);
     expect(stages(s.edge.logs)).toContain('other-buyer-pending-retired');
   });
 
@@ -412,11 +414,15 @@ describe('create-payment-intent — minting for the entitled buyer retires OTHER
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
   });
 
-  it('X3d: a refused cancel never fails the request and never marks the other row failed', async () => {
+  // 132 (D review F-132-2, 2026-09-15): REVERSED. A refused cancel used to be best-effort and the
+  // request minted anyway, handing out a second secret while the other buyer's intent could still
+  // capture. It now fails closed: 409, no mint, no secret, the other row left as it is.
+  it('X3d: a refused cancel fails the request closed — 409, no mint, no secret, the other row not marked failed', async () => {
     const s = await scenario({ listing: listing({ status: 'reserved', reserved_by: HOLDER, reserved_until: inFuture() }), user: HOLDER, payments: [otherPending], cancelRefused: true });
     const { res, body } = await s.run({ listing_id: LISTING, mode: 'buy_now' });
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ clientSecret: 'pi_new_secret' });
+    expect(res.status).toBe(409);
+    expect(body.clientSecret).toBeUndefined();
+    expect(piCreates(s.stripe.calls)).toHaveLength(0);
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_other/cancel']);
     expect(paymentUpdates(s.sb.queries)).toHaveLength(0);
   });

@@ -135,7 +135,8 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   const groupOf = new Map<string, string>();
   const groupLog: string[] = [];
   let groupHeldLeft = init.groupHeldTimes ?? 0;
-  const gkey = (l: unknown, b: unknown, m: unknown) => `${String(l)}|${String(b)}|${String(m)}`;
+  // the group spans both modes (D F-132-1): keyed on (listing, buyer) only
+  const gkey = (l: unknown, b: unknown, _m?: unknown) => `${String(l)}|${String(b)}`;
 
   const rpc: RpcHandler = (name, params) => {
     if (name === 'check_rate_limit') return { data: true };
@@ -726,6 +727,128 @@ describe('132 — no two concurrent requests of one (listing, buyer, mode) group
     const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
     expect(res.status).toBe(409);
     expect(secretOf(body)).toBeNull();
+  });
+
+  // ── D review F-132-1: one buyer, one listing, BOTH modes entitled ──────────
+  const bothEntitled = (w: W) => { w.listing.auction_status = 'ended'; w.listing.winner_user_id = HOLDER as never; w.listing.winning_bid_amount = 60 as never; };
+
+  it('X1 (F-132-1, sequential): a live Buy Now attempt blocks the same buyer\'s auction checkout — 409, no secret, no mint, Buy Now intent untouched', async () => {
+    const w = world({ payments: [pay('pi_bn', 'pending')], pis: [pi('pi_bn', 'requires_payment_method', 22000)] });
+    bothEntitled(w);
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'auction', expected_total_cents: 6600 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create') || e.startsWith('stripe:cancel'))).toHaveLength(0);
+    expect([w.pis.get('pi_bn')?.status, w.row('pi_bn')?.status]).toEqual(['requires_payment_method', 'pending']);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  });
+
+  it('X2 (F-132-1, reverse order): a live auction attempt blocks the same buyer\'s Buy Now checkout', async () => {
+    const w = world({ payments: [pay('pi_au', 'pending', { mode: 'auction', total: 6600, amount: 6000 })], pis: [pi('pi_au', 'requires_payment_method', 6600)] });
+    bothEntitled(w);
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('X3 (F-132-1): the buyer\'s succeeded payment in the OTHER mode answers "already completed" — no mint', async () => {
+    const w = world({ payments: [pay('pi_bn_paid', 'succeeded')], pis: [pi('pi_bn_paid', 'succeeded', 22000)] });
+    bothEntitled(w);
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'auction', expected_total_cents: 6600 });
+    expect(res.status).toBe(400);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('X4 (F-132-1): a processing attempt in the OTHER mode blocks the checkout', async () => {
+    const w = world({ payments: [pay('pi_bn_proc', 'processing')], pis: [pi('pi_bn_proc', 'processing', 22000)] });
+    bothEntitled(w);
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'auction', expected_total_cents: 6600 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('X5 (F-132-1, concurrent): the auction checkout arriving while the Buy Now checkout mints gets no secret — one live secret in total', async () => {
+    const w = world({ payments: [], pis: [], idempotentStripe: true });
+    bothEntitled(w);
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCreate = async () => { second = await w.checkout({ listing_id: LISTING, mode: 'auction', expected_total_cents: 6600 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(secretsHandedOut(first.body, second!.body)).toHaveLength(1);
+    expect(confirmable(w)).toHaveLength(1);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  }, 15_000);
+
+  // ── D review F-132-2: another buyer's intent that is not provably cancelled ──
+  const X = 'buyer-x';
+  it('Y1 (F-132-2): another buyer\'s pending intent that Stripe refuses to cancel (processing) blocks the entitled buyer — 409, no secret, no mint', async () => {
+    const w = world({ payments: [pay('pi_x', 'pending', { buyer_id: X })], pis: [pi('pi_x', 'processing', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+    expect(w.row('pi_x')?.status).toBe('pending');
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  });
+
+  it('Y2 (F-132-2): another buyer\'s cancel that errors blocks — 409, no mint', async () => {
+    const w = world({ payments: [pay('pi_x', 'pending', { buyer_id: X })], pis: [pi('pi_x', 'requires_payment_method', 22000)] });
+    w.cancelThrowsFor = 'pi_x';
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('Y3 (F-132-2): another buyer\'s cancel that stalls past the per-call timeout blocks — 409, no mint', async () => {
+    const w = world({ payments: [pay('pi_x', 'pending', { buyer_id: X })], pis: [pi('pi_x', 'requires_payment_method', 22000)],
+                      stall: { match: /POST \/payment_intents\/pi_x\/cancel/, ms: 400 }, checkoutEnv: { CHECKOUT_STRIPE_TIMEOUT_MS: '100' } });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('Y4 (F-132-2): another buyer\'s row already PROCESSING in the database blocks — 409, no mint', async () => {
+    const w = world({ payments: [pay('pi_x', 'processing', { buyer_id: X })], pis: [pi('pi_x', 'processing', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('Y5 (preservation): another buyer\'s cancellable intent is cancelled and retired, and the entitled buyer is served', async () => {
+    const w = world({ payments: [pay('pi_x', 'pending', { buyer_id: X })], pis: [pi('pi_x', 'requires_payment_method', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(secretOf(body)).not.toBeNull();
+    expect([w.pis.get('pi_x')?.status, w.row('pi_x')?.status]).toEqual(['canceled', 'failed']);
+  });
+
+  it('Y6: another buyer\'s processing row whose intent Stripe already cancelled is retired and no longer blocks', async () => {
+    const w = world({ payments: [pay('pi_x', 'processing', { buyer_id: X })], pis: [pi('pi_x', 'canceled', 22000)] });
+    const { res } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(w.row('pi_x')?.status).toBe('failed');
+  });
+
+  // ── D question (4): a processing refusal consults Stripe, it does not wait on the webhook ──
+  it('P2: the buyer\'s own processing row whose intent Stripe already cancelled is retired and the checkout proceeds', async () => {
+    const w = world({ payments: [pay('pi_proc', 'processing')], pis: [pi('pi_proc', 'canceled', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(secretOf(body)).not.toBeNull();
+    expect(w.row('pi_proc')?.status).toBe('failed');
+  });
+
+  it('P3: the buyer\'s own processing row whose intent Stripe reports succeeded answers "already completed" — no mint', async () => {
+    const w = world({ payments: [pay('pi_proc', 'processing')], pis: [pi('pi_proc', 'succeeded', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(400);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
   });
 
   it('P1: a group attempt still processing blocks a fresh mint — 409, no Stripe create, no secret', async () => {
