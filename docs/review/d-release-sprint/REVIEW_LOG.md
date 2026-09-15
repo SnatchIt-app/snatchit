@@ -100,6 +100,23 @@ forwarding; ordinary single-device sign-out; every send path honours revocation 
 only — revocation must set `is_active = false`); account deletion; rollback does not resurrect; hosted auth hook
 needs its own authorisation.
 
+## D-INT1 — candidate snapshot `release/candidate-20260918 @ cd1f03c` (2026-09-15)
+Byte identity vs reviewed heads (migration + rollback): 121/030a922, 123-124/26b8e2e, 125/fc4f113, 126/db2f95f,
+127-128/f22c1a3 — all SAME. Harness PASS 20 · FAIL 0 · WARN 2 (declared: 20260906120000 archive 102, 128 epoch + notify
+grant 10) · replay 147 · census 31|93|37|35 · grants = fixture (68) · manifest PASS · pgTAP 4918/4918 (189 19, 190 30,
+191 15, 192 11, 193 63, 194 30, 195 58) · production order 135 → PAY → TIX → 121 → 123 → 124 → 125 → 126 → 127 → 128 ·
+rollback identity exact for 121/123/124/125/126/127 · S1/S2/S3 identical. Not yet in the tree: B's #64 edge, 130, C's client.
+
+## 129 design §4c — reclaim (X1 option i) is not safe as written
+| # | Path | Why |
+|---|---|---|
+| R1 | attacker self-deletes its own seized row (tombstone with its own hash) before the victim's credential change, then reclaims after the victim re-registers | reclaim keys only on "secret matches a tombstoned hash"; attacker's own password change satisfies any epoch condition |
+| R2 | ping-pong: eviction by reclaim writes a tombstone for the evicted holder | §4c writes tombstones on rebinds |
+| R3 | pre-registration squat + self-delete → capture after the genuine device registers | converts V3's DoS-only squat into a session-less capture |
+Constraints a) evicted/cross-user-taken holders never get reclaimable tombstones, b) earliest proof wins, c) take-away tombstones carry the acting session, invalidated by the previous owner's epoch — close R1/R2, **not R3**.
+Disposition: no DB-only reclaim closes X1 without opening R3; options for the owner: provider proof (c) before production;
+129 without reclaim with completed redirects stated UNCLOSED (support unbind + client error); or reclaim with a–c and R3 stated.
+
 ## 129 design — first pass (A's `SESSION_BOUND_PUSH_BINDINGS_129_DESIGN.md`, working tree; no SQL yet)
 | # | Severity | Finding | Evidence |
 |---|---|---|---|
