@@ -825,7 +825,7 @@ batch 3's head `d48c290`:
 | `513adb0` | detailState: "Confirming result" at zero (kind `confirming_result`; the existing client finalize also reads as confirming); liveState: bounded SELECT poll schedule (3 s, then 10 s, ≤16 attempts) and the connection notice; useListingRealtime exposes `connection`; usePulseOnChange + TransactionPanel in-place amount change; bidState `endingSoon`, `compareBidRows`, `endingSoonLabel`, injectable clock; BidCard urgency line; Bids tab order | 501 (client), 502, 504, 505 |
 | `59fb928` | Static previews follow the split progress copy | previews |
 
-**Gates.** tsc clean after the test-type fix (next commit); vitest 1861 / 83;
+**Gates at `9e671db`.** tsc clean; vitest 1861 / 83;
 `expo lint` 0 errors (baseline 29 warnings). Gated files: only
 `payControl.ts` differs from batch 1 (the CFT-306 change, with A);
 `setupDecision.ts`, `holdState.ts`, `payments.ts`, `signOut.ts` byte-identical.
