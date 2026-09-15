@@ -69,7 +69,7 @@ describe('CFT-607 — session expiry says so on the login screen', () => {
   });
   it('the sign-out helper otherwise revokes only through the verb (contract v2 §2.4), marking the user reason first', () => {
     const so = stripComments(read('src/lib/auth/signOut.ts'));
-    expect(so).toContain("supabase.schema(REVOKE_RPC_SCHEMA).rpc(REVOKE_RPC, { p_token: token })");
+    expect(so).toContain("supabase.rpc(REVOKE_RPC, { p_token: token })");
     expect(so).not.toMatch(/revoked_reason|\.from\('push_tokens'\)/);
     expect(so.indexOf("markSessionEnd('user')")).toBeLessThan(so.indexOf('await supabase.auth.signOut()'));
   });

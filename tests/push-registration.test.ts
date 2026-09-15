@@ -324,9 +324,9 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(hook).not.toMatch(/signOut|revoke/);
   });
 
-  it('sign-out revokes through notify.revoke_push_token with the token only — never the secret, never a table write', () => {
+  it('sign-out revokes through public.revoke_push_token (129) with the token only — never the secret, never a table write', () => {
     const so = read('src/lib/auth/signOut.ts');
-    expect(so).toContain("supabase.schema(REVOKE_RPC_SCHEMA).rpc(REVOKE_RPC, { p_token: token })");
+    expect(so).toContain("supabase.rpc(REVOKE_RPC, { p_token: token })");
     expect(so).not.toMatch(/secret|register_push_token|\.from\('push_tokens'\)/);
   });
 

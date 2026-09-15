@@ -10,15 +10,15 @@
  * account being signed out. Best-effort, bounded by a short timeout, and it
  * never blocks or fails the sign-out: an offline device still signs out.
  *
- * HOW (contract v2 §2.4, FROZEN 2026-09-15). The revoke is the server verb
- * `notify.revoke_push_token(p_token)` → `{ "revoked": 0|1 }`, called through
- * the `notify` schema. `revoked_at` / `revoked_reason` are NOT client-writable
- * on a 128 database (a client that could write `revoked_reason='signed_out'`
- * on its own row could forge rule 5's precondition), so there is no direct
- * table write here at all — not even as a fallback. Any verb error is a
- * failure that is logged and never blocks the sign-out. DEPENDENCY: the verb
- * is reachable only while `notify` is in PostgREST's exposed schemas (a
- * dashboard setting, not in git); A confirms it per environment.
+ * HOW (contract v2 §2.4 with the 2026-09-15 erratum). The revoke is the
+ * server verb `public.revoke_push_token(p_token)` → `{ "revoked": 0|1 }`
+ * (migration 129: a SECURITY DEFINER wrapper over notify's writer, EXECUTE for
+ * authenticated only, so nothing depends on which schemas PostgREST exposes).
+ * `revoked_at` / `revoked_reason` are NOT client-writable on a 128 database (a
+ * client that could write `revoked_reason='signed_out'` on its own row could
+ * forge rule 5's precondition), so there is no direct table write here at all
+ * — not even as a fallback. Any verb error (PGRST202 where 129 is absent,
+ * 42501, network) is a failure that is logged and never blocks the sign-out.
  *
  * After the revoke — whatever its outcome — the device's registration record
  * is cleared, so the next sign-in registers again ('first') and re-activates
@@ -44,8 +44,7 @@ import { EMPTY_REGISTRATION_STATE, saveRegistrationState } from '@/src/lib/push/
 
 export const SIGN_OUT_REVOKE_TIMEOUT_MS = 3_000;
 
-/** Contract v2 §2.4: the revoke verb and the schema it lives in. */
-export const REVOKE_RPC_SCHEMA = 'notify';
+/** Contract v2 §2.4 (erratum 2026-09-15): the public revoke verb, migration 129. */
 export const REVOKE_RPC = 'revoke_push_token';
 
 export interface RevokeDeps {
@@ -122,10 +121,10 @@ export async function revokeThenSignOut(deps: SignOutDeps): Promise<{ revoke: Re
   return { revoke: outcome };
 }
 
-/** The live revoke binding: the verb through the `notify` schema (contract v2 §2.4). */
+/** The live revoke binding: the public verb (contract v2 §2.4, erratum). */
 const liveRevokeDeps: RevokeDeps = {
   rpc: async (token) => {
-    const { data, error } = await supabase.schema(REVOKE_RPC_SCHEMA).rpc(REVOKE_RPC, { p_token: token });
+    const { data, error } = await supabase.rpc(REVOKE_RPC, { p_token: token });
     return { data, error };
   },
 };

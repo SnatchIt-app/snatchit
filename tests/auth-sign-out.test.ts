@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 
 vi.mock('@/src/lib/supabase', () => ({ supabase: {} }));
 
-import { revokeDeviceToken, revokeThenSignOut, REVOKE_RPC, REVOKE_RPC_SCHEMA, SIGN_OUT_REVOKE_TIMEOUT_MS, type RevokeDeps, type SignOutDeps } from '../src/lib/auth/signOut';
+import { revokeDeviceToken, revokeThenSignOut, REVOKE_RPC, SIGN_OUT_REVOKE_TIMEOUT_MS, type RevokeDeps, type SignOutDeps } from '../src/lib/auth/signOut';
 import { getRegisteredPushToken, setRegisteredPushToken } from '../src/lib/push/registeredToken';
 
 const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -102,7 +102,7 @@ describe('every sign-out site uses the helper', () => {
   });
 });
 
-describe('contract v2 §2.4: sign-out revokes through notify.revoke_push_token and never writes revoked_*', () => {
+describe('contract v2 §2.4 (erratum): sign-out revokes through public.revoke_push_token (129) and never writes revoked_*', () => {
   function rdeps(over: Partial<RevokeDeps> = {}) {
     const d: RevokeDeps = { rpc: vi.fn(async () => ({ data: { revoked: 1 }, error: null })), ...over };
     return d;
@@ -120,10 +120,9 @@ describe('contract v2 §2.4: sign-out revokes through notify.revoke_push_token a
     expect(await revokeDeviceToken(rdeps({ rpc: vi.fn(async () => ({ data: { ok: true }, error: null })) }), 'tok')).toBe(0);
   });
 
-  it('every verb error is a failure — a missing verb or unexposed schema included; the table is never written', async () => {
+  it('every verb error is a failure — a missing verb (no 129 here) included; the table is never written', async () => {
     for (const error of [
-      { code: 'PGRST202', message: 'Could not find the function notify.revoke_push_token' },
-      { code: 'PGRST106', message: 'The schema must be one of the following: public' },
+      { code: 'PGRST202', message: 'Could not find the function public.revoke_push_token' },
       { code: '42501', message: 'permission denied' },
     ]) {
       await expect(revokeDeviceToken(rdeps({ rpc: vi.fn(async () => ({ data: null, error })) }), 'tok')).rejects.toBeTruthy();
@@ -139,11 +138,11 @@ describe('contract v2 §2.4: sign-out revokes through notify.revoke_push_token a
     expect(failing.signOut).toHaveBeenCalled();
   });
 
-  it('the live binding calls the verb through the notify schema and holds no push_tokens write', () => {
+  it('the live binding calls the public verb on the default schema and holds no push_tokens write', () => {
     const src = stripComments(readFileSync(resolve(__dirname, '..', 'src/lib/auth/signOut.ts'), 'utf8'));
-    expect(REVOKE_RPC_SCHEMA).toBe('notify');
     expect(REVOKE_RPC).toBe('revoke_push_token');
-    expect(src).toContain("supabase.schema(REVOKE_RPC_SCHEMA).rpc(REVOKE_RPC, { p_token: token })");
+    expect(src).toContain("supabase.rpc(REVOKE_RPC, { p_token: token })");
+    expect(src).not.toContain('schema(');
     expect(src).not.toContain(".from('push_tokens')");
     expect(src).not.toMatch(/revoked_reason|revoked_at/);
     expect(src).toContain('clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE)');
