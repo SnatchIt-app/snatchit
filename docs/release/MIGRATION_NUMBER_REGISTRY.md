@@ -31,6 +31,11 @@ banners; it authorizes nothing.
 >
 > **Sandbox ordering consequence:** `126`/`127`/`128` must NOT be applied to the shared sandbox before `125` either. The GitHub guard is base-branch-relative, but the sandbox ledger is not — applying 128 there would put the sandbox tip above 125 and break the same ordering for any later sandbox apply.
 
+> **Hazard on record (D, 2026-09-15; pre-existing, not this release):** migrations `032, 033, 034, 035, 087, 099`
+> hardcode the production project URL in `net.http_post` trigger bodies. Fresh replays with a live pg_net point those
+> triggers at production's `notify-*` edge functions; the shared sandbox's copies were rewritten out of band
+> (unrecorded drift). A future numbered migration should make the URL configuration-driven; number allocated when written.
+
 ## How 122 was resolved
 
 Both Claude B's remaining-path report and this line initially claimed 122. Only this branch had actually

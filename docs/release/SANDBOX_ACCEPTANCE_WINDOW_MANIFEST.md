@@ -245,3 +245,20 @@ versions above 109 = 123, 124, 125 only; schemas catalog/kernel/notify/venue, no
 `pgrst.db_schemas = public, graphql_public, kernel`, `db_pre_request = public.sandbox_pre_request`. Venue phase
 unaffected, checked: `20260910120000` references none of the 113 objects 110–120 create and they add no columns to
 catalog/venue/kernel tables; every venue-side sandbox result to date is likewise on a chain without 110–120.
+
+**Catalog-gap diff (D, 2026-09-15, read-only; local replay of the sandbox's exact 132-version ledger vs the full
+chain, ACLs stripped):** no unexplained drift for the sandbox's own ledger (policy sets identical; five functions
+differ only by project URL/comments; platform-internal functions only). The gap to the full candidate chain is 379
+identity lines: **323 are the `ops` schema (115–120)**; the rest are 110–114 signing recovery, 121 door functions,
+**119's `public.guard_listing_seller_not_blocked` + its trigger on `public.listings`**, and 127–130. Two flags:
+- **(a) Evidence limit, marketplace-relevant:** the sandbox lacks 119's listing-block insert guard (production has
+  had it since 2026-09-08). Any sandbox result that creates a listing as a blocked seller is not representative.
+  Build 16's matrix as recorded (D1–D11, T, F) and the candidate DV plan do not exercise that path. 119 is a
+  `public`-only migration and could be applied to the sandbox on its own under the owner's authorization, without
+  the native-track 110–114.
+- **(b) Pre-existing hazard, out of sprint scope:** six migrations hardcode the PRODUCTION project URL inside
+  `net.http_post` trigger bodies (`032, 033, 034, 035, 087, 099` → `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/notify-*`).
+  The sandbox's copies were rewritten out of band to the sandbox ref — unrecorded drift, benign in effect there —
+  but **any fresh replay with a live pg_net (CI's Supabase stack, a new environment, a restored sandbox) points
+  those triggers at production's edge functions**; whether a call would land depends on the auth header the
+  trigger sends (unverified). Registry note filed; a later migration should read the URL from config.
