@@ -1,11 +1,11 @@
-# 129 — session-bound push bindings: lifecycle design (A, 2026-09-15, for D's independent review)
+# 131 — session-bound push bindings: lifecycle design (A, 2026-09-15, for D's independent review)
 
 **Why:** owner decision O-3 = option (b). The persistent notification-capture residual (session compromise ⇒
 redirect/forwarding/dormant plant, surviving credential revocation — `O3_128_RESIDUAL_DECISION_BRIEF.md`) is **not
 accepted for production**. This is a **production security gate**; sandbox acceptance and the candidate build do
 not waive it. Local implementation, tests and review are authorized; nothing hosted.
 
-**Number:** `129` (free; the 126→129 renumber was withdrawn). pgTAP `196`. Branch `fix/129-session-bound-push`.
+**Number:** `131` (moved from 129 on 2026-09-15: 129 became the `public.revoke_push_token` wrapper, which must sort below this in the same candidate for the merge guard). pgTAP `198`. Branch `fix/131-session-bound-push`.
 
 ## 1. Required properties (owner's words, made testable)
 | # | Property | Test shape |
@@ -93,7 +93,7 @@ on their next real sign-in. **Trigger count +1 in `public` (census 36).**
 **Delivery paths (S9):** revocation sets `is_active = false`, which is the only filter the legacy
 `supabase/functions/send-push/index.ts:66-71` reader applies (called by five senders); `notify.claim_deliveries`
 D checks. Because writes are serialized above, `is_active` is truthful and no delivery-time epoch check is
-needed in the edge — which keeps 129 migration-only, no edge deploy.
+needed in the edge — which keeps 131 migration-only, no edge deploy.
 
 ## 4b. D's criteria S1–S12 → where each is met
 | S | Met by | Note |
@@ -121,14 +121,14 @@ needed in the edge — which keeps 129 migration-only, no edge deploy.
 | **X5 — MEDIUM** | S2 relied on an updated client calling the verb; old clients, a failed call, and dashboard revocation leave forwarding rows and plants **active** (writes refused, rows not) | add an `AFTER DELETE` trigger on `auth.sessions` that invalidates **only when the deleted session was live** (`not_after` null or future) **and the user has no live session left** — distinguishable from expiry cleanup, which deletes expired rows. The verb stays as the fast path |
 | **X6 — LOW, release note** | old-client users lose push silently after a password change until they sign out/in | documented; the old code swallows the error; C's new client re-auths |
 
-Revised object list for 129: `kernel.identity_ext.push_binding_epoch`; `kernel.invalidate_push_bindings_for(uuid, text)`;
+Revised object list for 131: `kernel.identity_ext.push_binding_epoch`; `kernel.invalidate_push_bindings_for(uuid, text)`;
 trigger on `auth.users` (password) and on `auth.sessions` (live-session delete, none left); `public.revoke_all_push_bindings()`;
 `public.push_token_tombstone` (no-client-access) + tombstone writes in the verb's rebind paths and a `BEFORE DELETE`
 tombstone trigger; the write-time guard on `push_tokens` (`BEFORE INSERT OR UPDATE OR DELETE`); reclaim logic in
 `register_push_token` (rule 3′: tombstoned-hash match → revoke current holder, rebind to previous owner). Census:
 +1 table, +2–3 functions, +2 triggers in `public`; manifest rows; expected_grants row; rollback stated as non-restoring.
 
-## 5. Tests (pgTAP 196; all valid states, every assertion with a negative control against 128-only)
+## 5. Tests (pgTAP 198; all valid states, every assertion with a negative control against 128-only)
 Added for X1–X5: completed-redirect reclaim (attacker row revoked, victim rebinds with the genuine secret; a
 planted-only device does NOT reclaim — the unclosed slice, asserted as such); old-JWT DELETE refused; two-connection
 lock-order race (D's probe; pgTAP cannot open two sessions — recorded as D's evidence, not a pgTAP assertion);
@@ -152,7 +152,34 @@ it). Fixture: `auth.sessions` rows inserted as postgres; `tap.login` extended to
 - Ordinary sign-out: unchanged.
 
 ## 7. Effect on dates
-Candidate (Fri): **none** — 129 is not in the candidate. Production: gated on 129 reviewed + tested + integrated
+Candidate (Fri): **none** — 131 is not in the candidate. Production: gated on 131 reviewed + tested + integrated
 (a second candidate or a delta build, because the client delta is required for P7 to be usable). Estimate: SQL +
 196 Tue–Wed (A, 5–8 h), D review Wed–Thu, C delta Wed–Thu, then a build carrying it. **Realistic production
 readiness: the week of 21 Sept**, not Friday.
+
+## 4d. X1 — D's second pass (2026-09-15): reclaim REJECTED; the owner's choice
+D reasoned from §4c that any reclaim keyed on "presented secret matches a tombstoned hash" cannot distinguish a
+genuine earlier proof from an attacker-chosen one: **R1** a previous holder self-deletes to manufacture a tombstone
+and reclaims later with no victim session; **R2** ping-pong if evictions write tombstones; **R3** a squat (rule 1,
+token knowledge only) followed by self-delete becomes a **session-less capture** once the genuine device registers —
+worse than V3's accepted DoS-only squat. Constraints (evicted holders get non-reclaimable tombstones; earliest
+proof wins; acting-session recorded) close R1/R2 but not R3. **Disposition adopted: 131 ships WITHOUT reclaim.**
+X1 — a redirect *completed* during the compromise — stays **UNCLOSED by 131**, mitigated by support
+`unbind_push_token` plus the client's terminal "contact support" state, and closed only by provider-side proof
+(option c, client v3). **Owner choice, stated in `O3_128_RESIDUAL_DECISION_BRIEF.md` §10.**
+
+## 4e. P6 corrected for the shipped clients (C and D, independently, 2026-09-15)
+Every shipped build signs out with auth-js's default **global** scope: one device's sign-out ends every session.
+So "ordinary sign-out leaves other devices untouched" has never been true, and today those other devices keep
+**active, hash-bearing rows with no live session — push keeps arriving on signed-out devices** (a current
+production leak, pre-128). Under 131's live-session trigger (X5) every such sign-out revokes all bindings, clears
+hashes and bumps the epoch — consistent, and it closes that leak. P6 is therefore **per client version**:
+- old and current builds: sign-out ≡ sign-out-everywhere for push; re-sign-in on each device re-registers;
+- C's delta: ordinary sign-out becomes scope **`local`** (one device), and **"Sign out of all devices"** is the
+  distinct action that calls `revoke_all_push_bindings()` first. **This is the one product change** in the client
+  delta; it is the owner's to confirm.
+New cases for 198: **S13** a device whose session was ended by another device's global sign-out has its row revoked
+and hash cleared at that moment; **S14** it signs back in on a new session → rule 2 re-activates with its genuine
+secret, never the old hash; an old JWT cannot; **S15** the device that changed the password signs out globally then
+re-registers on a new session — the +2 s margin must not be a hard failure (client retry succeeds); **S16** a
+registration racing the trigger loses with 42501 and leaves no half-written row.

@@ -47,11 +47,18 @@ There is **no distinct sunset error and no other message text**. Any other error
 3. **Pin `contract_version`**: treat a reply without `contract_version: 2` as `contract_mismatch` — terminal until a
    new build. (A v1-shaped reply without the field cannot come from this verb; if seen, the client is talking to
    the wrong function.)
-4. **Sign-out** revokes through `notify.revoke_push_token(p_token)` → `{ "revoked": 0|1 }`. Never by writing
-   `revoked_at`/`revoked_reason` directly — those columns are not client-writable (below), and a direct write is refused.
-5. **On `insufficient_privilege`** at registration: stop, surface the terminal "contact support" state, keep the
+4. **Sign-out** revokes through **`public.revoke_push_token(p_token)`** (`supabase.rpc('revoke_push_token', { p_token })`)
+   → `{ "revoked": 0|1 }`. Never by writing `revoked_at`/`revoked_reason` directly — those columns are not
+   client-writable (below), and a direct write is refused. A failure (PGRST202, 42501, network) never blocks sign-out.
+   > **ERRATUM 2026-09-15 (A's defect, found by C):** this clause originally named `notify.revoke_push_token`. The
+   > `notify` schema is not PostgREST-exposed (sandbox: `public, graphql_public, kernel`) and Build 16 never calls it,
+   > so the frozen text was unreachable. Migration **129** adds the public wrapper with the identical reply shape; the
+   > contract version stays 2. Server: `129_public_revoke_push_token.sql`; test 196.
+5. **Rate limit:** `precondition_failed: too many registration attempts` is **not terminal** — back off, retry on
+   the next cold launch or after 600 s (C's reading, adopted).
+6. **On `insufficient_privilege`** at registration: stop, surface the terminal "contact support" state, keep the
    secret. Do not delete the row (it is not yours) and do not regenerate the secret (it would not help).
-6. **Recovery from a lost secret** (still your row): `DELETE FROM push_tokens WHERE token = <token>` under RLS
+7. **Recovery from a lost secret** (still your row): `DELETE FROM push_tokens WHERE token = <token>` under RLS
    (owner-delete), then register → `registered`. This is the only recovery path; rotation does not exist.
 
 ## 3. Table access the client may rely on (`public.push_tokens`, RLS owner-scoped)

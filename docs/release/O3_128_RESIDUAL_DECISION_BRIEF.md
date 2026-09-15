@@ -139,3 +139,23 @@ Neither changes the acceptance question, which is (a) vs (b).
 > - Rebind audit + previous-owner in-app notice (~2–3 h): worth having, but narrow. It fires on rules 3 and 5 only, so it covers plant-then-claim. It does NOT cover delete-then-register, which isn't a rebind. On forwarding, the "previous owner" is the attacker. Take it this candidate only if it adds no client or contract change; otherwise next candidate.
 > - The mitigation that addresses persistence for all three paths is session-bound bindings: revoke a user's push bindings and clear their hashes on password change or sign-out-everywhere. Server only. My estimate is 1–2 working days, uncertain; the auth-hook design needs checking. I recommend it before production.
 > - Provider-side proof (a data-only nonce push required for every bind, rebind and adoption) prevents redirects by anyone without the victim's phone. It needs a client v3; ~3–4 working days; next candidate.
+
+## 10. Owner decision (b) — what 131 closes, and the slice it cannot (2026-09-15, after D's second pass)
+The owner chose **(b) session-bound bindings before production** and does not accept the persistent capture
+residual. Design: `SESSION_BOUND_PUSH_BINDINGS_131_DESIGN.md` (renumbered from 129). D's second pass established
+that **no DB-only reclaim can close a redirect completed during the compromise (X1) without opening a session-less
+capture (R3)** — so 131 will ship without reclaim. Stated in the owner's terms:
+
+| Path | After 131 |
+|---|---|
+| Dormant planted hash | **closed** — cleared at password change / sign-out-everywhere / any global sign-out; cannot be re-planted from an old session |
+| Forwarding (attacker's phone bound to the victim) | **closed** — revoked at the same events; recreation needs a post-epoch session, i.e. the new password |
+| Old-session re-registration or direct INSERT after the credential change | **closed** — write-time guard on every path incl. DELETE |
+| **Redirect completed during the compromise** (victim's row deleted and re-bound to the attacker before the victim changes credentials) | **NOT closed.** The row is the attacker's; the victim's epoch cannot touch it. Recovery: support `unbind_push_token`; the victim's client shows the terminal "contact support" state on its next launch. Closed only by provider-side proof (option c) |
+| Signed-out devices still receiving push (pre-existing leak, found while defining P6) | **closed** by the live-session trigger |
+
+**The owner's choice for the production gate — one of:**
+- **(b1)** 131 as designed, with the completed-redirect slice **disclosed as unclosed** and support-recoverable; provider-side proof (c) scheduled for the next candidate. *(A's and D's recommendation.)*
+- **(b2)** 131 **plus** provider-side proof (c) before production — client v3, ~3–4 working days after 131, one more build.
+- **(b3)** 131 with a constrained reclaim (D's a–c) — closes R1/R2 but **introduces R3**, a session-less capture via squat; neither A nor D recommends it.
+No acceptance is implied by this section; it records the choice to be made.

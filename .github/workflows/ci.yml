@@ -626,7 +626,7 @@ jobs:
           # the tree carries both, so the value below is read from the catalog of
           # an actual replay, never inherited from either side.
           EXPECT_TABLES: 31
-          EXPECT_FUNCS: 93
+          EXPECT_FUNCS: 94
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 35
 
