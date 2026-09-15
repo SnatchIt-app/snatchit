@@ -1099,3 +1099,12 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   identical to Build 16; delta since 4b012fd = docs, the rehearsal tripwire and
   the 193 fixture only). Tag moves after D's re-run; build HELD until A sends
   the moved tag and states CI green at it. Plan §1a updated.
+- **PIN DECLARED (A, 2026-09-15): `candidate/2026-09-18-pin` → `aabe029`** (tag
+  force-moved and pushed; verified by C from origin). CI green at exactly that
+  commit: run 34932209458, five jobs, migrations job pgTAP Files=80 Tests=4980
+  PASS on the real stack. D re-pinned there (incremental D-5 PASS 22/0, 193
+  fixture re-review OK). C's pre-flight at aabe029 stands. **Submission:
+  Thursday morning after SBX-2, not before** — the owner authorised ONE build,
+  and a Wednesday sandbox finding needing a code change would waste it; A
+  says when SBX-2 is clean, then C submits first thing Thursday with
+  `--message` naming aabe029. Nothing else from C until then.
