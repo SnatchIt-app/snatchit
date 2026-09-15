@@ -67,3 +67,16 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
 - **Pre-existing leak closed by 131 only:** signed-out devices still receiving push.
 - Promise.race timeouts do not abort the underlying Stripe fetch (orphaned intent, idempotent replay recovers).
 - Evidence limits: `verify_jwt` parity, `notify-transfer`, push routing need a production-parity environment; populated Tickets and D9c stay untested by ruling.
+
+### Added 2026-09-15 — live hazard found while checking the sandbox gap (not a candidate change)
+- **CI POSTs production on every migrations job.** Six migrations hardcode the production URL in `net.http_post`
+  bodies; 032's `*/2` cron fires unconditionally with a null bearer. Proven on CI run 34933664373: the cron ran once,
+  `net._http_response` = one row, **401**. Production's `enforce-transfer-expiry` refuses it (its own constant-time
+  bearer check), so the effect today is log noise from GitHub IPs — but it becomes a production trigger the day that
+  check is loosened or a CI vault secret ever matches production's. **Remedy (owner to place): a numbered migration
+  making the URL configuration-driven and the cron a no-op when unset** (087's `where exists` pattern), plus a CI
+  step that leaves the setting unset. Number allocated when written; the sandbox's out-of-band URL rewrites become
+  recorded once that lands.
+- **Sandbox is not production-parity for 110–120** (manifest §10): 126 cannot be verified there without 115–120;
+  119's listing-block guard is absent (marketplace evidence limit); door/scan acceptance non-representative. Options
+  (a)/(b) with the owner.
