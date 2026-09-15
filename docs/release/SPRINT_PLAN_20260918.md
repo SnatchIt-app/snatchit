@@ -41,10 +41,10 @@ or the owner explicitly accepts a clearly explained release risk.
 | A-2 ✔ | A | D pass 3 on `f22c1a3`: **no blocking findings** (harness PASS 17/0; 4806/4806; both orders identical) | A-1b, D-3 | Tue | done |
 | A-3 ✔ | A | **Contract v2 FROZEN** — `PUSH_TOKEN_CONTRACT_V2.md` @ `f22c1a3`, sent to C **Tue** (a day early) | A-2 | Wed AM | C ack pending |
 | **A-3b** | A | **O-3 decision brief** (`O3_128_RESIDUAL_DECISION_BRIEF.md`) — for the owner's release decision, **separate from test authorization** | — | Tue | brief filed; D disposition attached |
-| A-5 | A | D-AR1 review of `64f26f9` (separate track; must not delay money/notification work) | — | Tue | recorded |
+| A-5 ✔ | A | D-AR1 **APPROVED** (A re-ran gates: tsc 0, lint 0, vitest 136/136, build 0; admin/ only; existing ops reads; AN-2 mapping note) | — | Tue | package section |
 | A-6 | A | Integrate 121 → 123 → 124 → 125 onto the release branch; CI green | PR #58, PR #62 | Tue/Wed | CI id |
 | A-7 | A | Merge 126 after D-4 findings closed; merge B-2 after review | B-1/D-4; B-2 | Wed / Thu AM | CI green |
-| A-8 | A | Merge C-4 with line-level review of C-1/C-2 | C-4 | Thu AM | gated-diff evidence |
+| A-8 ✔ | A | C-4 merged **Tue** (`37213e7`): signOut.ts reviewed line by line; app/src byte-identical to the approved head; vitest 1896/1896, tsc 0 | C-4 | Thu AM | done early |
 | A-9 | A | **Candidate pin**; registry/manifest updated | A-6..A-8 | Thu midday | one commit; CI green |
 | A-10 | A | SBX-1 / SBX-2 hosted phases, serialized; baselines re-read immediately before; 123 verify-only; stop on unexpected state | **authorized**; A-9 for SBX-2 | Wed / Thu | manifest §7 state; sandbox tip 128; edge parity; DV-611 |
 | **A-10b** | A | **Hosted build** (EAS `preview`, sandbox) from the pin; verify compiled env; record source + build IDs | **authorized**; A-9, D-5 | **Thu** | build record in the packet |
