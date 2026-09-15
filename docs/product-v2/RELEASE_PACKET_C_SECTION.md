@@ -32,6 +32,13 @@ D1–D8 as recorded; D9a PASS; D9b PASS on payment safety (D9-UX-1 open → clos
 - Static previews were supporting evidence only.
 - Deferred Premium items: see the backlog's 54-item coverage.
 
+- **Offline sign-out on the candidate (pre-existing, found by D as F-K2-3 on the production-gate branch):** `supabase.auth.signOut`
+  keeps the local session on a network error, and the candidate's helper does not read that error, so a tap on
+  "Sign out" with no connection silently does nothing (Build 16 behaved the same); the candidate additionally clears
+  the device's registration record first, which is harmless (the next foreground re-registers). Fixed on
+  `frontend/logout-scope @ 7dbe940` for the production-gate candidate; not in build 17. DV-204 should include one
+  offline "Sign out" tap on build 17 and record the observed behaviour as this limitation.
+
 ## Owner authorisations that were required (record which were given, when)
 - hosted candidate build: `____` · handset install: `____` · sandbox window: `____` · 128 on sandbox: `____`
 

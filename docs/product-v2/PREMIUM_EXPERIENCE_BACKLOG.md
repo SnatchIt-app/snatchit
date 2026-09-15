@@ -1178,3 +1178,23 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   fires only when the LAST live session goes, so a failed/timed-out this-device
   revoke leaves that binding deliverable while other sessions live — A fixes
   on 131 (session-stamped bindings); no client change, copy unchanged.
+- **D's K-2 contract review → two client findings (A-verified against auth-js):**
+  **F-K2-3 (MEDIUM)** — the SDK keeps the session on a network error (drops it
+  only on 401/403/404); the helper ignored the error, so an offline "Sign out"
+  silently did nothing after the record was cleared, and an offline "Sign out
+  of all devices" left a device signed in after the server had bumped the
+  epoch. Fixed on `frontend/logout-scope @ 7dbe940` (result carries
+  `signedOut`; record cleared only after success; session-end mark reset on
+  failure; Settings/profile keep the user in place with "Couldn't sign out —
+  check your connection and try again."; reset-password offers Try again) and
+  carried to `frontend/session-bound-131-r2 @ b48f4e9` (a failed forced
+  stale-session sign-out may retry). **S-13 copy (LOW)** — bound-to-another-
+  account remedy now uses D's wording ("This device is still linked to another
+  account. Sign in to that account and sign out of this device, or reinstall.
+  If that isn't possible, contact support.") on the 131 branch. Gates:
+  logout-scope tsc clean / vitest 1919 / 86; 131-r2 tsc clean / vitest 1928 /
+  87; lint 0 errors on both. D's verdicts on record: all-devices and password
+  change HOLD; this-device sign-out has the server gap A fixes (A-131-K2);
+  scope 'others' deliberately not offered. Candidate (build 17) carries the
+  pre-existing offline sign-out behaviour — recorded in the packet as a known
+  limitation, with a DV-204 offline tap to observe it.
