@@ -54,6 +54,35 @@ identity FAIL (push_tokens ACL) · rollback diffs: 20260906120000 102 (declared 
 | G-4 | LOW | 127 rollback restores 0590's logic but not its text → post-rollback hash ≠ pre-127 | body diff vs `0590_strict_auth_on_listing_checkout_rpcs.sql` | sent to A |
 | — | pass | GUC reset after return; epoch UPDATE/DELETE/TRUNCATE refused (service_role), second row 23505, client SELECT denied | `probe_128_foldins.sql` G1, G4–G6 | — |
 
+## O-3 — independent disposition (128 residual, verified at `cf73d7b`)
+
+Probes: `probe_128_o3_attacks.sql`, `probe_128_o3_delete_register.sql`. Attacker access in every case: the victim's
+authenticated session (stolen token, unlocked signed-in phone, malware); no password, no victim device.
+
+| Attack | Result | Survives revocation | Cold-launch effect |
+|---|---|---|---|
+| Plant-then-claim on a hash-less row | plant "refreshed"; victim's real cold launch also "refreshed", hash stays the attacker's; claim from attacker's account "rebound"; victim then 42501 on every launch, cannot delete the row | yes (nothing clears bindings/hashes) | none on a planted row |
+| Delete-then-register (hashed row) | victim row deleted with the session; attacker registers "registered"; victim 42501 | yes | none |
+| Forwarding | attacker's own phones bound to the victim (verb rule 3 with the attacker's secret, or direct INSERT) — victim's notifications route to them | yes | none |
+
+Affected: plant — every hash-less row (all rows at 128 apply; old app versions indefinitely; rule-2 adoption has no
+epoch/sunset bound). Delete-then-register and forwarding — every user, before and after 128. 128 closes the
+token-knowledge-only claim (F7, 42501 verified). NULL-hash monitoring measures plantable rows; it cannot see a
+completed plant, claim or forwarding.
+
+**Disposition:** do not accept O-3 as worded. Ship 128 to sandbox/build and freeze v2 (testing is not acceptance).
+Production: (a) accept the restated session-compromise residual, or (b) session-bound bindings before production
+(revoke bindings + clear hashes on password change / sign-out-everywhere; server-only; D estimate 1–2 wd, uncertain),
+or (c) + provider-side nonce proof for every bind/rebind/adoption (client v3; ~3–4 wd; next candidate).
+Recommendation: (b) before production, (c) next candidate.
+
+**Sandbox sequencing flag:** applying `20260910120000` (venue, Phase B of SBX-1) before 125–128 puts the sandbox
+tip above 125 — the hazard A's registry forbids for 126–128. Run SBX-2 first or give venue its own window.
+
+## D-1 — venue kit, local end to end (2026-09-15)
+Kit `62ec887` · app `venue/read-slice1-fixes @ 2665a20` rebuilt · local stack with `venue_api` exposed:
+**138 PASS / 0 FAIL**, exit 0. No marketplace steps added to the kit (A's hosted steps; would duplicate the manifest).
+
 ## D-3 — 126 refund exactness (pre-review of A's part 1 `048eeb1`, now B's)
 
 | # | Severity | Finding | Evidence | Disposition |
