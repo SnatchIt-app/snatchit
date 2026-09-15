@@ -191,3 +191,39 @@ that differs from the expected one below.
 and 131 with their declared exceptions); edges redeployed from `df9e0d3` only if a rollback below 127 is run.
 **Nothing here is production.** The production apply sequence is §3 of the release package and needs its own
 authorizations.
+
+## 10. EXECUTION RECORD — 2026-09-15 (A; sandbox `ofaidukbieeekqaboscm` only; STOPPED on unexpected state)
+
+**Pre-flight (read-only, 05:3x Z):** ledger **130**; 123 present, 124 absent (`bids_bidder_id_fkey → auth.users`);
+listings 49, payments 51, transfers 33, bids 0, reserved 0, pending 3, push_tokens 1; `kernel.tickets` 0,
+`kernel.signing_key` 0; native flags issuance/scanning/resale all **false**; `pgrst.db_schemas = public,
+graphql_public, kernel`, `db_pre_request = public.sandbox_pre_request`; 126's L-1 precondition **0**; `venue_api`
+absent; none of 127/128/129/130 present. **All equal to §1.**
+
+**Phase A — 124:** applied from the pinned tree (`candidate/2026-09-18-pin @ aabe029`) via
+`scripts/release/apply_sandbox_migration.sh 124 apply`; ledger row recorded with the file's exact bytes, md5
+`b3811582ef668b614f598daa47f11865` == pinned file; effect `bids_bidder_id_fkey → profiles(id) ON DELETE CASCADE`,
+bids 0. **Ledger 131.** ✔
+**SBX-2 — 125:** applied the same way; md5 `5c41a89405bed7bb1b1a0c1b7c0d1ca5` == pinned file; the body's md5 on
+the sandbox is `6beca316…` (B's expected value). **Ledger 132.** ✔
+**SBX-2 — 126: STOPPED.** `psql: 126_ops_console_refund_exactness.sql:173: ERROR: schema "ops" does not exist`.
+126 is a single `begin; … commit;` so psql rolled it back: no `ops` schema, no `refund_facts`, no ledger row. **Nothing
+partial.** 127/128 **not attempted** — the authorized sequence "125 → 126 → 127 → 128 in order" cannot be
+followed, and the owner's rule is to stop on unexpected state.
+
+**The unexpected state, now on record:** the sandbox ledger goes `… 109, 123, 124, 125, <timestamped>` — **it has
+never received 110–120** (110 signing-key insert guard, 111 two-person recovery, 112/113 door-manifest headers and
+authority, 114 key delivery + manifest signing context, 115–118 ops console, 119 listing block guard, 120 ops refund
+semantics), which production has carried since 2026-09-08/09. No prior record noticed it; the Build 16 matrix
+never needed them (marketplace paths only) and `123` was applied on top of `109`. Consequences: (i) **126 cannot
+apply on this sandbox** without 115–120; (ii) 125 is applied on a sandbox without 112/113 — dormant: scanning is
+off, native counts are 0, and `venue.get_door_manifest(uuid, integer)` exists from 086 with the signature 125 calls,
+but its payload is 086's, not 113's (B to confirm safe-dormant); (iii) the sandbox has **not** mirrored production's
+numeric tip for a week — an evidence limit for every sandbox result since 2026-09-08, marketplace-scoped or not.
+
+**Options for the owner:** (a) bring the sandbox to production parity by applying 110–120 (dark objects only — no
+key, no activation; it is the native track and needs its own authorization), then 126 → 130; (b) skip 126 on the
+sandbox (it is admin-only and is verified by GitHub CI on a real Supabase stack replaying the full chain with pgTAP
+193, by the certified local harness, and by D's review) and continue 127 → 128 (→ 129 → 130 with the O-1 extension)
+so the marketplace verifications run; parity for a later window is then a separate decision. **A recommends (b) now
+and (a) as its own item.** Nothing further is applied until the owner rules.

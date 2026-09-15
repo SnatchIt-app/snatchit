@@ -46,7 +46,7 @@ or the owner explicitly accepts a clearly explained release risk.
 | A-7 | A | Merge 126 after D-4 findings closed; merge B-2 after review | B-1/D-4; B-2 | Wed / Thu AM | CI green |
 | A-8 ✔ | A | C-4 merged **Tue** (`37213e7`): signOut.ts reviewed line by line; app/src byte-identical to the approved head; vitest 1896/1896, tsc 0 | C-4 | Thu AM | done early |
 | A-9 ✔ | A | **PINNED at `aabe029`** = tag `candidate/2026-09-18-pin` (re-pinned Tue night after the 193 CI fix): CI green at the commit (5/5 jobs, pgTAP 4980 PASS on the real stack), D-5 incremental PASS 22/0, D's 193 fixture re-review OK, C's pre-flight OK. Build tree for O-2 | — | done | done |
-| A-10 | A | SBX-1 / SBX-2 hosted phases, serialized; baselines re-read immediately before; 123 verify-only; stop on unexpected state | **authorized**; A-9 for SBX-2 | Wed / Thu | manifest §7 state; sandbox tip 128; edge parity; DV-611 |
+| A-10 ◐ | A | SBX-2 begun Tue night from the pin: **124 ✔, 125 ✔** (ledger 130 → 132, md5-verified); **126 STOPPED — the sandbox lacks 110–120 (no `ops` schema)**; 127/128 not attempted; owner rules (a) parity 110–120 first or (b) skip 126 on the sandbox and continue; 129/130 still need the O-1 extension; venue last | owner | Wed | manifest §10 |
 | **A-10b** | A | **Hosted build** (EAS `preview`, sandbox) from the pin; verify compiled env; record source + build IDs | **authorized**; A-9, D-5 | **Thu** | build record in the packet |
 | A-11 | A | Release packet | A-9, D-5, C-5 | Fri | packet section |
 | B-1 | B | 126 parts 2–3 + rollback + 193 (A8 cap; `mixed` + `legacy_upper_bound_cents`) | `048eeb1` | **Tue** review-ready | certified harness full suite; negative controls vs 120/part 1 |
