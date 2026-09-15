@@ -128,6 +128,13 @@ Disposition: no DB-only reclaim closes X1 without opening R3; options for the ow
 | X6 | LOW | After any password change, old-client users lose push silently until they re-login (release note) | design §4 |
 Closed as designed: S1 (hosted trigger privilege flagged), S5 (with X6), S6 dormant plants, S7 forwarding, S8, S9, S10 (FK cascade verified, 000:881), S11, S12 flagged.
 
+Client facts from C (`frontend/candidate-recovery @ 656b3ee`, C's report): shipped and old builds sign out with auth-js
+default scope **global**, so 129's P6 ("other devices untouched") is false as shipped and today signed-out devices keep
+active hashed rows (push continues after sign-out). A's live-session AFTER DELETE trigger would fire on every such
+sign-out. Added cases S13 (row revoked when another device's global sign-out ends this session), S14 (re-login adopts
+the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
+and client retry), S16 (in-flight registration racing the trigger; no half-written row).
+
 ## D-4 — 126 review of B's `db2f95f` (PR #63): PASSED, no blocking findings
 Harness PASS 15 · pgTAP 4755/4755 (193 63/63) · 126 rollback identity exact · orders converge · census 30|88|37|33.
 Negative control: 193 against rolled-back (120) bodies → 18 ok / 45 not ok. `probes/probe_126_review_db2f95f.sql`:
