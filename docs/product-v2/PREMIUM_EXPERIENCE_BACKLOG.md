@@ -1198,3 +1198,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   scope 'others' deliberately not offered. Candidate (build 17) carries the
   pre-existing offline sign-out behaviour — recorded in the packet as a known
   limitation, with a DV-204 offline tap to observe it.
+- **Compiled-env evidence decided (A, 2026-09-15): no artifact download.** On record:
+  envGuard at Block 0 + A's sign-in read-back (URL + anon key) + the first
+  create-payment-intent call in the sandbox edge logs (functions URL); bundle
+  inspection is the stronger check, pending the owner's permission (owner item
+  in A's checkpoint). A approved `logout-scope @ 74b9c48` (F-K2-2 closed);
+  F-K2-3 and S-13 already carried (7dbe940 / b48f4e9), awaiting A's review of
+  7dbe940.
