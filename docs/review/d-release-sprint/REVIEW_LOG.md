@@ -12,7 +12,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 
 | Id | Task | Depends on | Status |
 |---|---|---|---|
-| D-1 | admin/analytics-redesign @ 64f26f9 on its own track; AN-1/2/3 deferred to backlog | A review (D-AR1) | waiting on A |
+| D-1 | admin/analytics-redesign @ 64f26f9 on its own track; AN-1/2/3 deferred to backlog | A review (D-AR1) | **APPROVED by A** (independent gates: tsc 0, lint 0, vitest 136/136, build 0; merge-tree clean; reads ops.money_overview/today/whoami only). Deployment owner-gated. AN-2 backlog note: `types.ts` toCertainty maps only exact/uncertain; 126 emits known/uncertain/mixed + known_cents → safe degradation, exact part of mixed hidden until AN-2 |
 | D-2 | automated sandbox acceptance + cleanup, venue kit 62ec887; marketplace phase steps if cheap | owner window, serialized via A | local prep |
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
