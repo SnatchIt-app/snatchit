@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed; O-3 + K-2 sent; **132 awaiting B's branch**; item 6 **not yet evidenced** (vacuous gate) |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 awaiting B's branch**; item 6 CI VERIFIED at 10194d3 (negative control pending); 133 review pending |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -72,6 +72,14 @@ production) polled to a NULL-status refused/reset error; gate also fails on a no
 one-off negative control without the rules. Limits: CI only (other fresh replays unprotected until 133); 133 cannot close the
 in-replay window between 032 and 133 (~108 files) — it should purge queued production-host requests at apply, and only
 environment egress control makes "zero" hold during a replay; production-side confirmation needs an authorized production log read.
+**Re-run with positive control — run 34979345542 @ 10194d3: VERIFIED for CI (negative control pending, A).** All jobs success;
+migrations-job steps identical to the 30956ed run (so = baseline + the two steps); Gate-2 31/96/37/35; pgTAP Files=80 Tests=4980
+PASS; masking 0. Probe `net.http_get('https://example.com/')` #8 → `(none)|Couldn't connect to server` (curl connect failure =
+TCP reset from the REJECT rule; a DNS failure would read "Couldn't resolve host name") → refused at the runner; answered 0,
+refused 1 (the probe), queue 0. No cron ran during this job, so the enforce-transfer-expiry attempt itself was again not
+observed — the probe proves the path it would take (db container → outside 443) is refused for the whole job. Hardening (LOW):
+the probe's case accepts any error text; require a connect/reset error and fail on resolve/timeout. Pending: A's one-off
+negative control (rules removed → probe answered). Limits (a)(b)(c) above stand.
 
 ### O-3 — D's independent b1/b2/b3 disposition (sent to A for §12, verbatim there)
 Path = completed redirect by either route: delete-then-register (rule 1, works on proven rows) or plant-then-claim (hash-less).
