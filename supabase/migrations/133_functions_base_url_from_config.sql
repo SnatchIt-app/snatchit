@@ -25,13 +25,32 @@
 --
 -- PRECONDITION for a live environment (production, sandbox): insert the Vault
 -- secret `project_url` = 'https://<ref>.supabase.co' (no trailing slash)
--- BEFORE applying, or the crons/triggers go silent until it exists. The
--- production preflight package carries that step as an owner ceremony. CI
--- leaves it unset — that is the point.
+-- BEFORE applying. ENFORCED in §0: where Vault carries service_role_key (a
+-- live environment) and no project_url, the migration refuses. CI leaves both
+-- unset — that is the point. The production preflight read must also count
+-- function bodies / cron commands naming the production host (expected 4 / 5):
+-- §4's proof aborts on any unrecorded object carrying that literal.
 -- Rollback: supabase/rollbacks/133_functions_base_url_from_config_rollback.sql
 -- restores the four bodies and five commands byte-for-byte (md5-proven).
 -- =============================================================================
 begin;
+
+-- ── 0. precondition (D's F-133-1): an environment that carries the service-role
+--       key in Vault is LIVE and must carry project_url too — otherwise every
+--       http cron and notification trigger below goes silent with no error and
+--       no failed cron row. CI and the local harness carry neither and apply.
+do $pre$
+declare v_key boolean; v_url text;
+begin
+  select exists (select 1 from vault.decrypted_secrets where name = 'service_role_key') into v_key;
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url' order by created_at desc limit 1;
+  if v_key and v_url is null then
+    raise exception '133 REFUSED: Vault carries service_role_key but no project_url — insert project_url (https://<ref>.supabase.co, no trailing slash) BEFORE applying, or transfer expiry, Phase 0 refunds, the executor ticks, the notify triggers, the signing-monitor alert and CRM export all go silent';
+  end if;
+  if v_url is not null and v_url !~ '^https://[a-z0-9]{20}\.supabase\.co$' then
+    raise exception '133 REFUSED: Vault project_url has an unexpected shape (%) — expected https://<20-char ref>.supabase.co with no trailing slash', v_url;
+  end if;
+end $pre$;
 
 -- ── 1. the four function bodies (from pg_get_functiondef at the 130 tip; only the
 --       URL read and its guard change — diff the rollback against this file)
@@ -404,9 +423,16 @@ select cron.schedule('payout-execute-tick', '*/10 * * * *', $$select case when c
 --       window may already have QUEUED a request to the production host. Drop any
 --       such queued request here so it can never leave after this point. (The
 --       local harness has no pg_net queue table; guarded.)
+--       Guarded (D's F-133-2): on PRODUCTION itself — Vault project_url IS the
+--       production host — those queued requests are production's own (notify
+--       posts, a cron tick) and must not be dropped. CI / the harness (no
+--       project_url) and any other environment purge them.
 do $purge$
+declare v_url text;
 begin
-  if to_regclass('net.http_request_queue') is not null then
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url' order by created_at desc limit 1;
+  if to_regclass('net.http_request_queue') is not null
+     and coalesce(v_url, '') <> 'https://hqycwntpfoztoinemqns.supabase.co' then
     execute $q$delete from net.http_request_queue where url like 'https://hqycwntpfoztoinemqns.supabase.co/%'$q$;
   end if;
 end $purge$;
