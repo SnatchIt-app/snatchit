@@ -181,3 +181,47 @@ recoverable and discloses it. **b3** closes the specific redirect and opens R3. 
 before production, the option is b2 and the date moves by about a week; if the owner requires 131 plus detection with
 the path disclosed, the option is b1 and the date holds. The choice between them is the owner's; A does not accept
 either residual on the owner's behalf.
+
+## 12. D's independent disposition on b1/b2/b3 (verbatim; Claude D, 2026-09-15)
+Evidence: 131 @ f102ce2 (content = a8ea025), probes probe_129_design_completed_redirect.sql, probe_131_lifecycle.sql, probe_131_k2_signout.sql; reclaim analysis R1–R3.
+
+THE PATH. During a compromise, someone holding the victim's authenticated session can move the victim's phone's push binding into an account they control. Two routes: (1) delete the victim's row (owner-delete), then register the token from the attacker's account (a fresh bind; works on rows WITH a genuine device proof); (2) on a hash-less row, plant a secret and later claim it. After either, the row belongs to the attacker's account. The victim's phone receives the attacker account's notifications and none of the victim's own, mandatory ones included (outbid, payment-due, transfer-expiry). The attacker can also make notifications from their own account appear on the victim's phone. The victim's genuine app is refused (42501) on every launch. None of this is undone by the victim changing the password or signing out everywhere, because 131 only touches the victim's own rows. A's §11 describes the path through route (2). Route (1) is the same path and needs no plant; any option must close both.
+
+b1 — 131 as built, the path disclosed as open, plus detection (A's §7 audit row + in-app notice to the previous owner; the plant sunset).
+- Closes the path? NO. It neither prevents nor undoes the redirect: detection tells the victim, and support's unbind_push_token recovers them. Two conditions for the detection to be real: route (1) is visible only if the server records deleted bindings (a tombstone, which is not in push_tokens today); and the notice must be in-app, never push, because the victim's push is exactly what was taken.
+- Incremental work: A's estimate, about half a day server-side, plus a support runbook for unbind with identity checks. No build of its own.
+- Verification: pgTAP for audit/notice on each cross-account route, including rule 1 after a delete; negative controls; 198 unchanged; a two-handset device row.
+
+b2 — 131 plus provider-side proof of possession: a one-time nonce sent through the push provider to the token, echoed back by the app.
+- Closes the path? YES, but only if all six conditions below hold. If any is missing, I would report the path as still open.
+  C1. Proof is required on EVERY route that makes a token deliverable for an account other than its current proven owner: rule 3, rule 5, and rule 1 for any token with any prior binding, with no time window. A "recently owned, 30 days" window re-opens route (1) for an inactive victim whose app does not re-register inside the window. The simplest sound rule is a proof on every bind except a same-account refresh.
+  C2. The direct-table paths cannot bypass it. authenticated and anon still hold INSERT and DELETE on push_tokens. Either a client DELETE writes a tombstone (or becomes a revoke), and a client INSERT of a token with history is refused, or those grants go.
+  C3. A confirmation counts only from the same user AND session that asked for the challenge, with a single-use nonce stored hashed and a short TTL. Otherwise the victim's own app, which receives the nonce, would confirm the attacker's claim for them.
+  C4. A pending claim never changes the existing row. The current binding stays active and deliverable until the proof succeeds; otherwise a challenge alone is a denial of the victim's push.
+  C5. A successful proof is sufficient to take the binding back from ANY account, even when the device's stored secret no longer matches. Otherwise a victim redirected before b2 shipped, or through any route the proof does not cover, still needs support. This is also the reclaim that the database-only approach could not do safely (R3), made safe because only the physical device receives the nonce.
+  C6. Challenges are rate-limited per user and per token (our send path must not become a push-spam relay). Any visible-code fallback for iOS says "never share this code", because a visible code is phishable.
+- What b2 does not close: an attacker holding the victim's unlocked phone at bind time (C5 lets the victim take the binding back later from that phone); an attacker who knows the new password; the notification content itself.
+- Incremental work: A's breakdown (DB about 1 day, edge about half a day, client v3 1–1.5 days, D review about 1 day), plus C1–C6. It needs a new contract version, one more pin and one more build beyond any build carrying 131/K-2. The owner's current one-build authorization does not cover it.
+- Verification I would require: pgTAP per route with and without a valid proof (expired, replayed, wrong nonce, wrong user, wrong session, wrong token), each with a negative control that removes the check and reopens the path; the direct INSERT/DELETE refusal; the completed-redirect probe ending with the victim's device reclaiming and the attacker's binding revoked; an R3 squat probe showing that a squatter cannot bind without the device; race probes (two proofs at once, a proof racing 131's invalidator, lock order); 198 and my K-2 probe unchanged; edge tests (service role only, nonce never logged, rate limit). Device rows on iOS and Android through the real provider: foreground registration; background/killed during registration; notifications permission denied; silent-push throttling fallback; reinstall with a new token; two accounts on one install; a plant-then-claim attempt from a second handset that never activates. Hosted proof requires a sandbox apply and edge deploy. Evidence limit today: sandbox APNs environment only.
+
+b3 — 131 plus a database-only reclaim.
+- Closes the path? PARTIALLY, and it opens a new one. Without the device, the database cannot tell the genuine phone from anyone who knows the token string and holds some secret. So every database-only reclaim rule I tested (R1–R3) either leaves the path open for planted-first or hash-less rows, or lets a session-less squatter capture a binding (R3). A's b3 (reclaim at the victim's credential change) is a different mechanism from the one I tested; it needs its own R3 reproduction before its claims are relied on. I do not recommend b3 in either form.
+- Incremental work: about half to one day DB, no client or build. Verification would include an R3 reproduction that is expected to show the exposure.
+
+WHICH CLOSES IT: only b2, and only under C1–C6. b1 discloses and detects; it does not close. b3 trades the path for a session-less one.
+
+CORRECTION TO §10 CAUSED BY K-2 (independent of b1/b2/b3). §10's row "signed-out devices still receiving push — closed by the live-session trigger" is no longer true once ordinary sign-out is this-device-only. The trigger fires only when the user's LAST live session goes. A this-device sign-out whose revoke call fails, times out (the client's 3 s budget, never blocking) or comes from a pre-129 build leaves that device's binding active and deliverable while any other session lives (probe K2). Server-only fix, no client or contract change: stamp the session id on each binding at registration (verb and direct-insert trigger), and have the sessions trigger revoke bindings whose own session was deleted. My estimate: 3–4 h plus tests, uncertain. Until then §10 should say "closed for sign-out-everywhere, password change and a device's last session; best-effort client revoke for single-device sign-out."
+
+No option above is accepted on the owner's behalf.
+
+### A's reconciliation with §12 (2026-09-15)
+- **Agreed:** only b2 closes the path, and only under D's C1–C6. §11's "rule 1 on a recently-owned token" is replaced by
+  C1 (proof on every bind except a same-account refresh); §11's b2 work estimate stands but now includes C2 (client
+  INSERT of a token with history refused; client DELETE becomes a tombstoning revoke) and C5 (proof-based reclaim).
+- **Route (1) is added to §11's definition of the path** (delete-then-fresh-bind needs no plant). b1's detection must
+  therefore include a tombstone on client DELETE, or it cannot see route (1) — added to b1's incremental work (~1 h).
+- **§10 correction accepted:** with K-2 (ordinary sign-out = this device), the live-session trigger closes the
+  signed-out-device leak only for sign-out-everywhere, password change and a device's *last* session. A's 131 amendment
+  (A-131-K2, on the 131 branch, D re-reviews): stamp `session_id` on every binding at registration (verb and direct-insert
+  trigger) and revoke a binding whose own session was deleted, in the existing sessions trigger. Server-only; no contract
+  or client change; census unchanged; 198 extended with a negative control.
