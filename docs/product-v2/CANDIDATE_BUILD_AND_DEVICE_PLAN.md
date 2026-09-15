@@ -67,6 +67,14 @@ DV-302 hold row + Pay withdrawn in the margin · DV-301 hold ran out · DV-304 p
 ### Block 2b — sprint-specific integration risks (A's C-3; in the same window)
 DV-L1 failed attempt then retry on the same listing · DV-L2 leaving checkout after success · DV-607b cancelled listing · DV-607c delayed transfer · DV-607d unavailable account + F3 labels · DV-F8 partial refund. No-window: DV-607a session expiry · DV-605 listing gone · DV-611C cold-launch registration · DV-T.
 
+### Sandbox state and the rows it blocks (A, 2026-09-15 evening)
+Applied on the sandbox: 124, 125. 126 stopped (the sandbox never received 110–120, so it lacks the `ops` schema;
+admin-only, no effect on the app). **127 and 128 not applied; 129 and 130 wait on the owner's window
+extension.** Consequences for Friday: **DV-L1 / DV-L2** (need 127 + the two edges) and **DV-611 L/S/R/C** (need
+128 + 129) cannot run until the owner rules and A resumes; every other Block 1, 2 and 2b row is unaffected. If the
+ruling comes after Thursday's build, those rows run later in the same build (no code change is needed for them);
+if it never comes this week, they are reported UNTESTED with this reason, not skipped silently.
+
 ### Block 3 — only if the owner authorises 128 on the sandbox
 DV-611R registration/refresh/rebind/recovery outcomes per the frozen contract.
 

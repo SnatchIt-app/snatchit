@@ -1108,3 +1108,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   and a Wednesday sandbox finding needing a code change would waste it; A
   says when SBX-2 is clean, then C submits first thing Thursday with
   `--message` naming aabe029. Nothing else from C until then.
+- **Sandbox state (A, 2026-09-15 evening):** 124, 125 applied; 126 stopped (no `ops`
+  schema on the sandbox; admin-only); 127/128 not applied; 129/130 wait on the
+  owner's window extension. Blocked DV rows: DV-L1/L2 (127 + edges), DV-611
+  L/S/R/C (128 + 129). Pin and Thursday submission unchanged. Owner action:
+  rule on the extension (apply 127–130 + deploy the two edges) so those rows
+  can run Friday; otherwise they are reported UNTESTED with the reason. Plan
+  updated (§2, before Block 3).
