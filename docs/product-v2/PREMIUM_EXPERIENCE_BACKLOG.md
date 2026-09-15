@@ -901,3 +901,41 @@ an old link shows an outcome, not an error).
   and never-blocks untouched. Gated surface since batch 1: that string and the
   approved payControl.ts change, nothing else. Third review round running;
   versioned text follows when it clears.
+
+---
+
+## Release sprint (owner directive 2026-09-14; target Fri 2026-09-18) — C's track
+
+Scope frozen to the focused candidate: batches 1–4 as approved; required
+recovery/error-state corrections; 128 client finalised on A's frozen v2
+contract; targeted device plan and candidate build configuration. No new
+Premium batch. Deferred items keep their rows above.
+
+A's assignment to C: C-1 128 rebind (Wed, after freeze); C-2 recovery/error
+states (CFT-607, D9-UX-1, F3, F8); C-3 device plan + build config (Tue);
+C-4 rebase batches 1→4→recovery onto A's integrated pin (Thu). Branch:
+`frontend/candidate-recovery` from batch 4's head `9091397` (A accepted the
+stack over a cut from `release/convergence-135`).
+
+| Deliverable | State | Where |
+|---|---|---|
+| C-3 device plan + build config | done | `CANDIDATE_BUILD_AND_DEVICE_PLAN.md` (7a5e225); `DEVICE_VERIFICATION_CHECKLIST.md` sprint rows DV-L1, DV-L2, DV-607a–d, DV-605, DV-F8, DV-611C, DV-T (8a009f3) |
+| C-2 CFT-607 cancelled bid state, session-expiry notice; CFT-605 not-found outcome; CFT-604 pinned; F3 all ten labels | done | `3a43ca8` (+ gated `6659ed9`: one line in signOut.ts, with A) |
+| C-2 D9-UX-1 | closed in batch 1 (holdState + Back to listing) | DV-301 |
+| C-2 F8 partial refund | closed in batch 1 (`partially_refunded` kind) | DV-F8 |
+| C-1 prep: cold-launch registration, `contract_version` pin (provisional, v2 = 2) | done | `d90db6b` |
+| C-1 rebind to frozen v2 | waiting on A (Tue EOD / Wed AM) | needs: sunset SQLSTATE/message, rule-5 message texts |
+| C-4 rebase onto the integrated pin | Thu, when A publishes | gated-diff proof per commit |
+
+Gates at `d90db6b`: tsc clean; vitest 1877 / 84; expo lint 0 errors / 29
+warnings. Regression tests for the cancelled state and F3 verified RED against
+the previous files. Gated surface vs batch 4: `signOut.ts` +3 only.
+
+**Owner decisions carried to A's board (with C's recommendation):** pending-face
+kicker wording (A's recommendation stands); F10 → defer past the candidate;
+CFT-303 quantity → defer (label-only shipped); A-15 → defer; refund wording →
+ship current REFUND_COPY unless objected; A-08(d) + 128-on-sandbox for
+DV-611R; hosted candidate build, handset install, sandbox window.
+
+**Still unverified:** everything native (the plan's Blocks 0–3) until the
+authorised candidate build; 128 RPC path until 128 exists on the sandbox.
