@@ -45,7 +45,7 @@ or the owner explicitly accepts a clearly explained release risk.
 | A-6 | A | Integrate 121 → 123 → 124 → 125 onto the release branch; CI green | PR #58, PR #62 | Tue/Wed | CI id |
 | A-7 | A | Merge 126 after D-4 findings closed; merge B-2 after review | B-1/D-4; B-2 | Wed / Thu AM | CI green |
 | A-8 ✔ | A | C-4 merged **Tue** (`37213e7`): signOut.ts reviewed line by line; app/src byte-identical to the approved head; vitest 1896/1896, tsc 0 | C-4 | Thu AM | done early |
-| A-9 | A | **Candidate pin**; registry/manifest updated | A-6..A-8 | Thu midday | one commit; CI green |
+| A-9 | A | **Candidate pin** — content-complete at `4b012fd` (Tue night): 121–130 incl. 130 amended (#67), edges #64/#66/#67, 129, C's stack; certified 4972/4972, S1–S5, vitest 1911, tsc 0. **Pin declared on D-5's incremental re-run** | D-5 on `4b012fd` | **Wed AM** (was Thu midday) | one commit; CI green at head |
 | A-10 | A | SBX-1 / SBX-2 hosted phases, serialized; baselines re-read immediately before; 123 verify-only; stop on unexpected state | **authorized**; A-9 for SBX-2 | Wed / Thu | manifest §7 state; sandbox tip 128; edge parity; DV-611 |
 | **A-10b** | A | **Hosted build** (EAS `preview`, sandbox) from the pin; verify compiled env; record source + build IDs | **authorized**; A-9, D-5 | **Thu** | build record in the packet |
 | A-11 | A | Release packet | A-9, D-5, C-5 | Fri | packet section |
@@ -59,7 +59,7 @@ or the owner explicitly accepts a clearly explained release risk.
 | D-3 | D | 128 pass 3 on A-1b commit | A-1b | Tue | findings |
 | **D-3b** | D | **Independent O-3 disposition** | A-3b | Tue | written, attached to the brief |
 | D-4 | D | 126 review | B-1 | Tue/Wed | findings |
-| D-5 | D | Full chain rehearsal + regression on the pin (`d_candidate_rehearsal.sh`) | A-9 | Thu | counts |
+| D-5 | D | Full chain rehearsal + regression: PASS 22/0 on `927b46d`; **incremental re-run on `4b012fd` requested** (E-1, 130 amendment) | A-9 | **Wed AM** | counts per check; pin follows |
 
 ## Sandbox sequencing — what genuinely couples, what doesn't
 - **Genuine dependency:** SBX-2 (125→128) must follow Phase A (124) — ledger order. 125 is native-track but a
