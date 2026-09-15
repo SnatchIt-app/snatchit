@@ -1205,3 +1205,14 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   in A's checkpoint). A approved `logout-scope @ 74b9c48` (F-K2-2 closed);
   F-K2-3 and S-13 already carried (7dbe940 / b48f4e9), awaiting A's review of
   7dbe940.
+- **A approved `frontend/logout-scope @ 7dbe940`** (gated signOut.ts, +120/−13 vs the
+  pin): discriminated result, clear-after-success order, `consumeSessionEnd()`
+  on error. **Documented consequence (no change asked), kept next to F-K2-3:**
+  on "Sign out of all devices", `revoke_all_push_bindings` bumps the epoch
+  before the global sign-out, so if that sign-out then fails offline this
+  device is pre-epoch until the retry succeeds — its next registration is
+  refused with the 42501 `session predates a credential change`, which the 131
+  branch handles with the neutral notice and a retry (on the K-2 branch alone
+  it would read as bound-to-another-account; the two ship together in the
+  production-gate candidate). Nothing else pending from A; DV rows on build 17
+  are C's from here.
