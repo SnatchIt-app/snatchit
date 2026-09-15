@@ -227,3 +227,13 @@ sandbox (it is admin-only and is verified by GitHub CI on a real Supabase stack 
 193, by the certified local harness, and by D's review) and continue 127 → 128 (→ 129 → 130 with the O-1 extension)
 so the marketplace verifications run; parity for a later window is then a separate decision. **A recommends (b) now
 and (a) as its own item.** Nothing further is applied until the owner rules.
+
+**Addendum (B, verified 2026-09-15): 125 on a sandbox without 112/113.** B built a local replay shaped like the
+sandbox ledger (pinned tree minus 110–122 and 126–130; `sync_scan_device_manifest` md5 `6beca316…` = the deployed
+body; `get_door_manifest` md5 `806b9f01…` = 086's) and ran pgTAP 190 on it. **Safe-dormant, in the closed direction:**
+no error; authorization, grants, shape, not-found and 42501 paths pass; but 086's `get_door_manifest` returns no
+`open` key, so 125's `coalesce((v_res->>'open')::boolean, false)` is never true and **no device binding is ever
+recorded there** — 190 gives 17 ok / 13 not ok, every failure a "bound"/"open:true" expectation. It cannot bind to an
+expired episode either. Scanning is off, native counts are 0, no edge calls it. **Consequence:** door/scan-device
+acceptance on this sandbox is non-representative until 112/113 exist; marketplace acceptance does not touch it.
+If the owner chooses parity (option a), B prepares the 110–120 dark apply package under its own authorization.
