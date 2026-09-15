@@ -73,3 +73,36 @@ migration) · Supabase auth/URL configuration.
 - `docs/archive/` — superseded doc versions
 - Root keeps only: README, AGENTS, CLAUDE, ARCHITECTURE_FREEZE, BRANCHES,
   PHASE_2_MIGRATION_HISTORY_RECONCILIATION (moves with its owning workstream).
+
+## Skill selection and session ownership — Claude C half (added 2026-09-14)
+**Merge note:** B's general half (ownership map, the six per-prompt rules, hosted-skill
+inventory) is on `feature/venue-native-and-product-v2` (`8640af6`) and A's half on the
+converge branch (`d28e277`); this half adds only what is C-specific. At merge the three
+collapse under one heading, append-only. Coordinate edits with A.
+
+- **C's role skill:** `~/.claude/skills/snatchit-consumer-experience/SKILL.md` (tracked
+  copy `docs/operations/claude-skills/C-consumer-experience.SKILL.md`). Consolidated
+  registry of every skill across the four sessions, with source, commit, date and real
+  path: `docs/operations/CLAUDE_SKILLS_REGISTRY.md`.
+- **C's records of truth:** the Premium backlog, rulings A-01…A-17, findings F1…F10 and
+  the 54-item coverage — `docs/product-v2/PREMIUM_EXPERIENCE_BACKLOG.md` on
+  `frontend/premium-experience-backlog` (worktree `snatchit-premium`); the next
+  candidate's device checklist `docs/product-v2/DEVICE_VERIFICATION_CHECKLIST.md`; the
+  closed Build 16 matrix under `docs/security/PAYMENTS_RELIABILITY_2026-09/`.
+- **Gated client surface — every change goes to A before merge:** `src/lib/payments.ts`,
+  `src/lib/checkout/{setupDecision,payControl,holdState}.ts`, `src/lib/auth/signOut.ts`,
+  and any authoritative-state read. Prove the surface with
+  `git diff --stat <batch-base>..HEAD -- <those files>`.
+- **Product truths C enforces:** no success shown before authoritative confirmation
+  (leading bid, reservation, payment, receipt, payout); cached data never authorises a
+  transaction; returning from another app never confirms or releases anything; "Payment
+  refunded" only for a confirmed refund; the device clock is not an authority on whether
+  an auction closed; a server reply asserts only what it says.
+- **C-installed skills** (`~/.claude/skills/`, each with `INSTALL_SOURCE.txt`; MIT;
+  inspected before install): `expo-router`, `expo-animation`, `expo-data-fetching` from
+  expo/skills `c180b05` (2026-09-14) and `vercel-react-native-skills` from
+  vercel-labs/agent-skills `063bee9` (2026-08-28). Reused, not duplicated: B's `supabase`
+  and D's `vercel-react-best-practices`. Not installed: expo `eas-simulator` (paid EAS
+  cloud simulators — a preview option only the owner can authorise) and the ship/release
+  skills (A's lane). Static previews are supporting evidence; native acceptance needs an
+  authorised candidate build.
