@@ -142,7 +142,7 @@ describe('registration decisions', () => {
     expect(decideRegistration({ userId: 'u1', token: 'tok2', record: null, failure: f('rpc'), rpcAvailable: true, now })).toMatchObject({ action: 'register', reason: 'first' });
     // a legacy failure does not block the rpc method once 128 is available
     expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f('legacy'), rpcAvailable: true, now })).toMatchObject({ action: 'register' });
-    expect(REGISTRATION_REMEDY.bound_to_other).toMatch(/sign out here first/);
+    expect(REGISTRATION_REMEDY.bound_to_other).toMatch(/sign in here and then sign out from this device/); // 131: shared-install edge
   });
 
   it('a precondition refusal is terminal until the inputs change — never a timer', () => {
