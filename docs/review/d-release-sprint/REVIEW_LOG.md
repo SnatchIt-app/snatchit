@@ -135,6 +135,23 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## 131 session-bound push bindings — `fix/131-session-bound-push @ 38c4d8d` (production gate)
+Harness (auth.sessions stand-in via `SHIM_EXTRA`, WARN): PASS 23 · FAIL 0 · WARN 3 · replay 150 · census 31|99|37|37 · pgTAP
+5010/5010 (198 43/43) · 131 rollback identity exact · S1/S2/S3 identical. Probes `probe_131_lifecycle.sql`,
+`probe_131_user_delete.sql`, `race_131.sh`.
+Held: P1 revoke + hash clear + epoch · S3/X2 old session refused on verb/INSERT/UPDATE-activate/DELETE · revoke_all from the
+old session ok · P4 planted claim 42501 · P5 forwarding re-bind 42501 · P7 new session refreshed · X5 expired-only no epoch,
+one-of-two live keeps bindings, last live revokes · races R1 (2523 ms → 42501), R2 (2538 ms → 42501), R3 (password change
+waits 2537 ms then revokes the committed new binding), R4 no 40P01 · S9 send paths honour is_active / revoked_at.
+X1 **UNCLOSED** confirmed on real code (redirected tablet stays attacker's; victim's new session 42501).
+| # | Severity | Finding |
+|---|---|---|
+| F-131-1 | MEDIUM | DELETE auth.users of a user with a live session and no identity_ext row aborts: sessions cascade → sessions-gone trigger → invalidator inserts identity_ext for the user being deleted → FK violation (dashboard / GoTrue admin deleteUser) |
+| F-131-2 | LOW | sessions-gone trigger loops users without ORDER BY → per-user advisory locks in arbitrary order on multi-user deletes |
+| hosted | verify | GoTrue clock for updated_at vs sessions.created_at (X4); session cleanup with NULL not_after counts as live → dormant users' bindings revoked on cleanup (product effect) |
+Correction: D-4 passed 193 on the local superuser harness and missed a superuser-only `session_replication_role` fixture
+that aborts on CI; A added a tripwire in `rehearsal_test.sh` (c8cf6ea). 193 fixture reachability re-review pending B's fix.
+
 ## D-5 incremental — pin candidate `4b012fd` (#66 E-1, #67 130 any-status): **PIN from D**
 Harness (clean re-run from a frozen copy; a first run was invalidated because the script was edited while bash executed it —
 every run now copies its harness first): PASS 22 · FAIL 0 · WARN 2 declared · replay 149 · census 31|96|37|35 · grants = fixture ·
