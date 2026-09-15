@@ -36,11 +36,13 @@
 -- production already holds. now() is frozen per transaction, so each ledger
 -- row's created_at (and the completing refunded_at) is shifted to an explicit
 -- timestamp immediately after it is recorded — the state the same call would
--- have produced at that instant. Windows are fixed UTC days D-10..D+1 with
+-- have produced at that instant — using only owner-level trigger disabling and
+-- the repo's app.bypass_payment_guard GUC, both available to CI's non-superuser
+-- postgres role (never session_replication_role). Windows are fixed UTC days D-10..D+1 with
 -- D = today - 3, disjoint from every seed_core timestamp.
 -- ============================================================================
 BEGIN;
-SELECT plan(63);
+SELECT plan(65);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_193 (k text PRIMARY KEY, v jsonb);
@@ -95,13 +97,20 @@ begin
   select stripe_payment_intent_id into v_pi from public.payments where id = tap._pay193(p_n);
   r := public.record_payment_refund(v_pi, p_refund, p_dispute, p_amount, p_source);
   if (r ->> 'recorded')::boolean then
-    perform set_config('session_replication_role', 'replica', true);
+    -- Time placement only, never a state the writer cannot produce. Owner-level
+    -- and transaction-local, so it runs as Supabase's non-superuser postgres
+    -- role in CI (session_replication_role is superuser-only and must not be
+    -- used): the append-only ledger guard has no bypass GUC, so it is disabled
+    -- for this one UPDATE (the pattern of suites 142/143/177/178); the payments
+    -- guard honours the repo's app.bypass_payment_guard (reset after the statement).
+    execute 'alter table public.payment_refunds disable trigger trg_payment_refunds_append_only';
     update public.payment_refunds set created_at = p_at
      where payment_id = tap._pay193(p_n) and created_at = now()
        and stripe_refund_id is not distinct from nullif(p_refund, '')
        and stripe_dispute_id is not distinct from nullif(p_dispute, '');
+    execute 'alter table public.payment_refunds enable trigger trg_payment_refunds_append_only';
+    perform set_config('app.bypass_payment_guard', 'on', true);
     update public.payments set refunded_at = p_at where id = tap._pay193(p_n) and refunded_at = now();
-    perform set_config('session_replication_role', 'origin', true);
   end if;
   return r;
 end $f$;
@@ -171,6 +180,11 @@ SELECT is((SELECT count(*)::int FROM public.payment_refunds WHERE payment_id = t
   'F.5: A8 — one refund row and one chargeback row; the replayed chargeback is not recorded again');
 SELECT is((SELECT sum(r.amount_cents) || '/' || p.amount_refunded_cents FROM public.payment_refunds r JOIN public.payments p ON p.id = r.payment_id WHERE p.id = tap._pay193(11) GROUP BY p.amount_refunded_cents), '16000/10000',
   'F.6: A9'' is real — $60 then an amount-less full refund ledgers 16000 against a record of 10000');
+
+SELECT is((SELECT tgenabled::text FROM pg_trigger WHERE tgname = 'trg_payment_refunds_append_only' AND tgrelid = 'public.payment_refunds'::regclass), 'O',
+  'F.7: the append-only ledger trigger disabled for the fixture time shift is enabled again (tgenabled = O)');
+SELECT is(coalesce(current_setting('app.bypass_payment_guard', true), 'off'), 'off',
+  'F.8: the payments guard bypass used by the fixture time shift is off again');
 
 -- ── P9: the unrecorded refund (A10), inserted after the ledger fixtures ──────
 -- Recorded AFTER a first refresh_metrics run below, so the snapshot is probed
