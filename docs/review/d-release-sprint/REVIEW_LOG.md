@@ -155,6 +155,7 @@ monitor daily 05:23 + alerts + verify_jwt → very unlikely; **032 `enforce-tran
 with a NULL bearer → likely ~1 POST per 2 min of each CI migrations job to production, answered 401 by the function's own
 bearer check (deployed --no-verify-jwt), no side effects; unknown whether pg_net accepts a null header. Definitive CI-only
 check proposed: print `cron.job_run_details` and `net._http_response` status codes at the end of the migrations job.
+**Confirmed** by A's CI run 34933664373 (3fa94d3): enforce-transfer-expiry cron ran once (enqueue succeeded), `net._http_response` one row status 401, queue 0 — live, benign, contingent on the function's bearer check. D advice: no CI-only unschedule/deactivate/DNS block (migrations apply inside `supabase start`, so any later step races the first tick and alters parity-tested cron state); add an edge unit test that null/empty/wrong bearer → 401 with zero Supabase/Stripe calls (none exists); real fix = config-driven URL migration, no-op when unset.
 
 ## Pin at `aabe029` (A, 2026-09-15/16); 131 rebased to `f102ce2` (content = a8ea025)
 
