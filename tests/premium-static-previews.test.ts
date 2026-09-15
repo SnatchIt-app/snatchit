@@ -62,7 +62,8 @@ describe('static previews are labelled and pinned to source', () => {
     expect(html).toContain(REFUND_COPY.refund_pending.body);
     expect(html).toContain(partialRefundBody('$20'));
     const base = { authLoading: false, paymentLoading: false, confirming: false, paymentReady: false, paymentError: false, formattedTotal: '$88' };
-    expect(html).toContain(payControl({ ...base, confirming: true }).label);          // Processing
+    expect(html).toContain(payControl({ ...base, confirming: true }).label);          // Confirming payment
+    expect(html).toContain(payControl({ ...base, finalizing: true }).label);          // Finalizing your order
     expect(html).toContain(payControl({ ...base, checking: true }).label);            // Checking your payment
     expect(html).toContain(payControl({ ...base, paymentReady: true, reservationMsLeft: 5_000 }).label); // Checking your hold
     expect(html).toContain(payControl({ ...base, paymentReady: true }).label);        // Pay $88
