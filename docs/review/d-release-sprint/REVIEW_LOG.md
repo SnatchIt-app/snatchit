@@ -149,6 +149,12 @@ normalising project URL and comments). Gap vs full 74e51cf chain: 379 identity l
 121 door; **119 listing-block insert guard**; 127–130). Flags: sandbox lacks 119 (evidence limit for blocked-seller listing
 paths); six migrations (032/033/034/035/087/099) hardcode the production functions URL in `net.http_post` triggers — the
 sandbox was adapted out of band; fresh replays with live pg_net point at production.
+CI exposure of the hardcoded production URL (source reasoning at 74e51cf, not executed on CI): triggers 033/034/035 post only
+with a vault `service_role_key` (none in CI; pgTAP rolls back) → no; 087 ticks gated on `crm_export_worker_secret` → no; 099
+monitor daily 05:23 + alerts + verify_jwt → very unlikely; **032 `enforce-transfer-expiry` cron `*/2` posts unconditionally**
+with a NULL bearer → likely ~1 POST per 2 min of each CI migrations job to production, answered 401 by the function's own
+bearer check (deployed --no-verify-jwt), no side effects; unknown whether pg_net accepts a null header. Definitive CI-only
+check proposed: print `cron.job_run_details` and `net._http_response` status codes at the end of the migrations job.
 
 ## Pin at `aabe029` (A, 2026-09-15/16); 131 rebased to `f102ce2` (content = a8ea025)
 
