@@ -22,7 +22,7 @@
 -- would leave).
 -- ============================================================================
 BEGIN;
-SELECT plan(40);
+SELECT plan(45);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_197 (k text PRIMARY KEY, v jsonb);
@@ -145,6 +145,38 @@ SELECT is(tap._release197(tap._id197(11), tap._get197('s1')->>'claim_token')->>'
 SELECT ok(tap._col197(tap._id197(11)) ? 'token' AND tap._col197(tap._id197(11))->>'token' = tap._get197('s4')->>'claim_token', 'S.6: …the reclaim''s token is still in place');
 SELECT is(tap._release197(tap._id197(12), tap._get197('s_tok_old') #>> '{}')->>'reason', 'released',
   'S.7: the stale holder may still clear its OWN row with its own token (no lingering state)');
+
+-- ── Q. a fresh claim on a row that has LEFT pending still blocks its group ────
+-- (D-5 Q3.) Mid-supersede the holder's claimed P1 can settle (or fail) while
+-- its replacement P2 is pending; if P1's claim stopped counting, a second
+-- request could claim P2 and hand out its secret before the holder withdraws
+-- P2. A second success on the listing is not prevented by settlement — it is
+-- recorded 'unfulfillable' and refunded — so the claim must keep blocking.
+INSERT INTO public.listings
+  (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
+   starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
+VALUES (tap._id197(2), tap.seller(), 'Fixture 197 Q', 'Club 197', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+        'mobile_transfer', 100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/197.jpg', 'active');
+INSERT INTO public.payments (id, listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
+                             stripe_payment_intent_id, status, mode, created_at, stripe_livemode)
+VALUES (tap._id197(21), tap._id197(2), tap.buyer(), tap.seller(), 20000, 2000, 2000, 22000, 'pi_197_q1', 'pending', 'buy_now', now(), false),
+       (tap._id197(22), tap._id197(2), tap.buyer(), tap.seller(), 30000, 3000, 3000, 33000, 'pi_197_q2', 'pending', 'buy_now', now(), false),
+       (tap._id197(23), tap._id197(2), tap.buyer(), tap.seller(), 30000, 3000, 3000, 33000, 'pi_197_q3', 'pending', 'buy_now', now(), false);
+SELECT tap._store197('q1', tap._claim197(tap._id197(2), tap.buyer(), tap._id197(21)));
+UPDATE public.payments SET status = 'succeeded', paid_at = now() WHERE id = tap._id197(21);   -- P1 settles mid-supersede
+SELECT tap._store197('q2', tap._claim197(tap._id197(2), tap.buyer(), tap._id197(22)));
+SELECT is(concat_ws('/', tap._get197('q2')->>'claimed', tap._get197('q2')->>'reason', tap._get197('q2')->>'holder_payment_id'),
+  'false/claim_held/' || tap._id197(21), 'Q.1: a fresh claim on a row that has SETTLED still blocks the replacement P2 (no second hand-out)');
+SELECT is(tap._release197(tap._id197(21), tap._get197('q1')->>'claim_token')->>'reason', 'released',
+  'Q.2: the holder releases its claim on the settled row with its token');
+SELECT is(tap._claim197(tap._id197(2), tap.buyer(), tap._id197(22))->>'reason', 'claimed',
+  'Q.3: once released, the group is claimable again');
+SELECT tap._store197('q4', tap._claim197(tap._id197(2), tap.buyer(), tap._id197(23)));
+SELECT is(tap._get197('q4')->>'reason', 'claim_held', 'Q.4: …and that new claim on P2 blocks P3 as before');
+UPDATE public.payments SET status = 'failed' WHERE id = tap._id197(22);                        -- the claimed row fails
+SELECT tap._age197(tap._id197(22), 121);
+SELECT is(tap._claim197(tap._id197(2), tap.buyer(), tap._id197(23))->>'reason', 'claimed',
+  'Q.5: a STALE claim on a row that left pending does not block (a crashed holder still lapses at 120 s)');
 
 -- ── N. refusals ──────────────────────────────────────────────────────────────
 SELECT is(tap._claim197(tap._id197(1), tap.buyer(), tap._id197(15))->>'reason', 'not_pending', 'N.1: a failed row is not claimable');
