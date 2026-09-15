@@ -416,7 +416,8 @@ function SettingsList({ settings }: { settings: Setting[] }) {
       {settings.map((s) => {
         const kind = settingKind(s.value);
         const field = settingFieldName(s.value);
-        const inputId = `setting-${s.key}`;
+        // The <li> carries the #setting-<key> anchor; the control needs its own id, or its <label> resolves to the <li>.
+        const inputId = `setting-${s.key}-value`;
         return (
           <li key={s.key} id={`setting-${s.key}`} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
