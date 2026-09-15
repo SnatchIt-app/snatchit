@@ -1420,9 +1420,27 @@ jobs:
           DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
         run: |
           set -euo pipefail
+          # 1. Deterministic probe, so this gate is never vacuous (a run in which
+          #    no cron happened to fire proves nothing): enqueue one pg_net GET
+          #    from inside the database to a neutral, side-effect-free outside
+          #    host. With the egress block it must be REFUSED at the runner; if
+          #    it is ever answered, the block is broken and the run fails.
+          probe_id="$(psql "$DB_URL" -tA -c "select net.http_get('https://example.com/');")"
+          for i in $(seq 1 30); do
+            row="$(psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)')||'|'||coalesce(error_msg,'') from net._http_response where id = ${probe_id};")"
+            [ -n "$row" ] && break
+            sleep 1
+          done
+          echo "probe #${probe_id} → ${row:-<no response row after 30 s>}"
+          case "${row:-}" in
+            "(none)|"*) echo "probe refused at the runner (no HTTP status): OK";;
+            "") echo "::error::the pg_net probe produced no response row in 30 s — the worker is not running, so this gate cannot prove anything"; exit 1;;
+            *) echo "::error::the pg_net probe to an outside host was ANSWERED (${row%%|*}) — the CI egress block is not effective"; exit 1;;
+          esac
+          # 2. Nothing else during the job was answered from outside either.
           answered="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is not null;")"
           refused="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is null;")"
-          echo "pg_net responses: answered_from_outside=${answered} refused_or_failed=${refused}"
+          echo "pg_net responses: answered_from_outside=${answered} refused_or_failed=${refused} (includes the probe)"
           psql "$DB_URL" -tA -c "select left(coalesce(error_msg,''),100), count(*) from net._http_response where status_code is null group by 1 order by 2 desc;" || true
           if [ "$answered" != "0" ]; then
             echo "::error::${answered} pg_net request(s) were answered by an outside server during this CI run — CI must never reach production (owner item 6, 2026-09-15). Check the egress block step."
