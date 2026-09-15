@@ -1165,3 +1165,16 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   within budget; gates tsc clean / vitest 1916 / 86 / lint 0 errors) and
   cherry-picked as `frontend/session-bound-131-r2 @ 269aabe` (gates tsc clean /
   vitest 1924 / 87 / lint 0 errors). Both on origin, non-force.
+- **BUILD 17 FINISHED (2026-09-15 14:05Z):** EAS `53e5e98b-…`, gitCommitHash `aabe029`,
+  profile `preview` / INTERNAL, appVersion 1.0.0, SDK 54; artifact retained to
+  2026-09-29. Compiled-env verification pending (bundle inspection needs the
+  owner's permission to download the artifact; otherwise proven on the handset
+  at Block 0 by `envGuard` + A's sign-in read-back, and the functions URL by the
+  first edge call in Block 2). Packet updated. **A approved
+  `frontend/logout-scope @ 066625e`** (gated signOut.ts); nit F-K2-2 (orphaned
+  raced promise) fixed at `74b9c48` and cherry-picked as
+  `frontend/session-bound-131-r2 @ 74881f5` (gates: tsc clean; vitest 1917 / 86
+  and 1925 / 87; lint 0 errors). A's server-side note: the sessions trigger
+  fires only when the LAST live session goes, so a failed/timed-out this-device
+  revoke leaves that binding deliverable while other sessions live — A fixes
+  on 131 (session-stamped bindings); no client change, copy unchanged.
