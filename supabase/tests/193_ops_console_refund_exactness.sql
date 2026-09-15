@@ -42,7 +42,7 @@
 -- D = today - 3, disjoint from every seed_core timestamp.
 -- ============================================================================
 BEGIN;
-SELECT plan(63);
+SELECT plan(65);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_193 (k text PRIMARY KEY, v jsonb);
@@ -180,6 +180,11 @@ SELECT is((SELECT count(*)::int FROM public.payment_refunds WHERE payment_id = t
   'F.5: A8 — one refund row and one chargeback row; the replayed chargeback is not recorded again');
 SELECT is((SELECT sum(r.amount_cents) || '/' || p.amount_refunded_cents FROM public.payment_refunds r JOIN public.payments p ON p.id = r.payment_id WHERE p.id = tap._pay193(11) GROUP BY p.amount_refunded_cents), '16000/10000',
   'F.6: A9'' is real — $60 then an amount-less full refund ledgers 16000 against a record of 10000');
+
+SELECT is((SELECT tgenabled::text FROM pg_trigger WHERE tgname = 'trg_payment_refunds_append_only' AND tgrelid = 'public.payment_refunds'::regclass), 'O',
+  'F.7: the append-only ledger trigger disabled for the fixture time shift is enabled again (tgenabled = O)');
+SELECT is(coalesce(current_setting('app.bypass_payment_guard', true), 'off'), 'off',
+  'F.8: the payments guard bypass used by the fixture time shift is off again');
 
 -- ── P9: the unrecorded refund (A10), inserted after the ledger fixtures ──────
 -- Recorded AFTER a first refresh_metrics run below, so the snapshot is probed
