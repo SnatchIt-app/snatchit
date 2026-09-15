@@ -219,7 +219,7 @@ export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>>
   // signed out. The way back is that account signing in here and then signing
   // out from this device (keeps the proof), support unbinding, or a reinstall.
   bound_to_other:
-    "Notifications aren't set up for this account on this device yet. The account that used this device before needs to sign in here and then sign out from this device, or contact support.",
+    'This device is still linked to another account. Sign in to that account and sign out of this device, or reinstall. If that isn\'t possible, contact support.',
   secret_unavailable:
     "Notifications can't be set up on this device right now because secure storage is unavailable.",
   session_stale:

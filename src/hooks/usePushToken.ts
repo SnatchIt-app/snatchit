@@ -166,7 +166,7 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
           void handleSessionStale({
             clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE),
             markEnd: markSessionEnd,
-            signOutLocal: async () => { await signOutThisDevice({ reason: 'credential_change' }); },
+            signOutLocal: async () => (await signOutThisDevice({ reason: 'credential_change' })).signedOut,
           });
           return;
         }

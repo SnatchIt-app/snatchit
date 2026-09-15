@@ -13,7 +13,8 @@
 export interface SessionStaleDeps {
   clearRegistration: () => Promise<void>;
   markEnd: (reason: 'credential_change') => void;
-  signOutLocal: () => Promise<void>;
+  /** Resolves true when the device is signed out; false when the SDK kept the session (offline). */
+  signOutLocal: () => Promise<boolean>;
 }
 
 let handled = false;
@@ -24,7 +25,9 @@ export async function handleSessionStale(deps: SessionStaleDeps): Promise<boolea
   handled = true;
   try { await deps.clearRegistration(); } catch { /* the sign-out still proceeds */ }
   deps.markEnd('credential_change');
-  await deps.signOutLocal();
+  const done = await deps.signOutLocal();
+  // F-K2-3: a failed sign-out keeps the session; let the next refusal retry.
+  if (!done) handled = false;
   return true;
 }
 

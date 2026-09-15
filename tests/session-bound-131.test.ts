@@ -32,9 +32,8 @@ describe('131 P3 on the client: a session that predates a credential change is t
 
   it('the bound-to-another-account remedy fits the shared-install-after-global-sign-out edge (A, 131 @ f102ce2)', () => {
     const r = REGISTRATION_REMEDY.bound_to_other ?? '';
-    expect(r).toMatch(/sign in here and then sign out from this device/i);
-    expect(r).toMatch(/contact support/i);
-    expect(r).not.toMatch(/sign out here first/i);
+    expect(r).toBe("This device is still linked to another account. Sign in to that account and sign out of this device, or reinstall. If that isn't possible, contact support.");
+    expect(r.endsWith('contact support.')).toBe(true);
   });
 
   it('has a neutral remedy the Notifications screen can show (K-4: no cause named)', () => {
@@ -48,7 +47,7 @@ describe('131 P3 on the client: a session that predates a credential change is t
     const deps = {
       clearRegistration: vi.fn(async () => { calls.push('clear'); }),
       markEnd: vi.fn((r: 'credential_change') => { calls.push(`mark:${r}`); }),
-      signOutLocal: vi.fn(async () => { calls.push('signOut'); }),
+      signOutLocal: vi.fn(async () => { calls.push('signOut'); return true; }),
     };
     expect(await handleSessionStale(deps)).toBe(true);
     expect(calls).toEqual(['clear', 'mark:credential_change', 'signOut']);
@@ -58,15 +57,26 @@ describe('131 P3 on the client: a session that predates a credential change is t
 
   it('a failing clear never stops the sign-out', async () => {
     resetSessionStaleForTests();
-    const deps = { clearRegistration: vi.fn(async () => { throw new Error('storage'); }), markEnd: vi.fn(), signOutLocal: vi.fn(async () => {}) };
+    const deps = { clearRegistration: vi.fn(async () => { throw new Error('storage'); }), markEnd: vi.fn(), signOutLocal: vi.fn(async () => true) };
     expect(await handleSessionStale(deps)).toBe(true);
     expect(deps.signOutLocal).toHaveBeenCalled();
+  });
+
+  it('F-K2-3: when the forced sign-out fails (offline), a later refusal may try again', async () => {
+    resetSessionStaleForTests();
+    const deps = { clearRegistration: vi.fn(async () => {}), markEnd: vi.fn(), signOutLocal: vi.fn(async () => false) };
+    expect(await handleSessionStale(deps)).toBe(true);
+    expect(await handleSessionStale(deps)).toBe(true);
+    expect(deps.signOutLocal).toHaveBeenCalledTimes(2);
+    const ok = { ...deps, signOutLocal: vi.fn(async () => true) };
+    expect(await handleSessionStale(ok)).toBe(true);
+    expect(await handleSessionStale(ok)).toBe(false);
   });
 
   it('the hook routes session_stale to handleSessionStale with a this-device, credential_change sign-out', () => {
     const h = stripComments(read('src/hooks/usePushToken.ts'));
     expect(h).toContain("if (result.kind === 'session_stale')");
-    expect(h).toContain("signOutThisDevice({ reason: 'credential_change' })");
+    expect(h).toContain("(await signOutThisDevice({ reason: 'credential_change' })).signedOut");
     expect(h).toContain('clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE)');
   });
 
