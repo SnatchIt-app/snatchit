@@ -3067,3 +3067,29 @@ existing row, i.e. **insert the pending row before minting** — a design change
 **D is checking independently whether each path can end in two captured charges or only an orphaned intent that
 is retired**; that determines whether this is recorded as "disclosed residual" or "open money defect". No change
 to the candidate for this.
+
+### 130 hardened before the pin: E-1 (holder-bound window) and Q3 (any-status sibling) — D-5 findings, closed (2026-09-15)
+
+D-5 on `927b46d` passed 22/0 but found two money defects in 130 as merged; both closed the same night, both
+reviewed by A with RED evidence reproduced independently, both in the candidate at **`4b012fd`**:
+
+- **E-1 (MEDIUM, money) — PR #66 `b1d787b`, edge-only.** The 120 s stale window was enforced only against a
+  *reclaimer*; nothing stopped the request that *held* the claim from acting after 120 s (the Stripe calls had no
+  timeout), which reopened the double-charge interleave under latency. Now every Stripe call inside the claimed
+  section is bounded (per-call, capped by a 90 s section budget), a timed-out cancel counts as not cancelled, and
+  the holder re-reads its claim token before inserting a replacement, before cancelling the superseded intent and
+  before every secret hand-out; lost/expired → 409 without a secret, read error → 503. RED against #65: E1–E6.
+  Note: `Promise.race` bounds the wait without aborting the underlying fetch, so a stalled create can still
+  complete at Stripe after the request gave up — an orphaned intent with no local row, returned by the idempotent
+  replay on the buyer's next request; not a double-charge path.
+- **Q3 (money) — PR #67 `8e02a95`, 130 amended in place.** The sibling check counted only *pending* rows' claims,
+  so a holder's P1 that settled mid-supersede stopped blocking the group and a second request could take P2's
+  secret while the holder withdrew P2. B verified that settlement does **not** neutralize a second success:
+  `settle_verified_payment` collides with `idx_payments_one_success_per_listing`, records `unfulfillable`, and
+  reconciliation refunds — the buyer is charged then refunded. The check now blocks on a fresh claim in **any**
+  status; the claimed row itself must still be pending. 130 was applied nowhere, so it was amended rather than
+  renumbered. RED on 130 as merged: 197 Q.1/Q.3; two-session S5 added.
+
+**Deploy coupling (packet):** 127 **and** 130 applied before `stripe-webhook` and `create-payment-intent` ship; if
+130 is absent the edge degrades to #64 behaviour with a Sentry capture; any other claim error fails closed (503).
+Blast radius of the claim: a crashed edge answers that buyer's checkout 409 "try again" for up to 120 s.
