@@ -1088,3 +1088,9 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   checks pass" is unmet, so no EAS submission until A reports CI green at the
   pin. Pre-flight and the one-command submission are in the plan §1a; if the
   pin moves, the pre-flight is re-run against the new tag.
+- **CI failure at the pin explained (A, 2026-09-15):** one server test file
+  (pgTAP 193) sets a superuser-only parameter that passes on the local harness
+  and fails on Supabase's CI stack; nothing in app/ or src/ is involved, so C's
+  stack does not move. B is fixing 193; the pin moves to that merge commit and
+  A sends the new tag with a green migrations job (expected Wed 09-16). C
+  re-runs plan §1a's pre-flight against the new tag before any submission.
