@@ -72,7 +72,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- Re-derived from the live catalog, not accepted as a delta.
   'B1: the five phase-2 schemas hold exactly 79 relations of ANY kind (111''s kernel.signing_key_recovery_approval + 69 post-091 + 092''s six notify tables + 094''s kernel.organization_obligation + 096''s two payout-reversal/obligation-recovery tables)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 296,
+            WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 300,
   -- 2026-09-05 (package 114): 294 -> 296 (+2 venue: get_signing_keys_door, get_manifest_signing_context).
   -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core, get_door_manifest_door).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
@@ -119,7 +119,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- 2026-09-03 (package 096): +9 kernel (payout reversal + obligation recovery). 097/098: +0
   -- (body-only re-creates). 099: +1 kernel (check_signing_key_invariants). 270 -> 280.
   -- Still venue/catalog/market/notify unmoved at 79/16/22/17. Re-derived from the live catalog.
-  'B2: the five phase-2 schemas hold exactly 296 routines (153+87+17+22+17 — plus 108''s four venue scan cores/machine entrypoints, 109''s force_close_session_manifests (kernel) and tg_session_terminal_force_close (catalog), 110''s guard_signing_key_insert (kernel), 113''s manifest core/machine entrypoint (venue), 114''s M1 door read/manifest signing context (venue))');
+  'B2: the five phase-2 schemas hold exactly 300 routines [131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (153+87+17+22+17 — plus 108''s four venue scan cores/machine entrypoints, 109''s force_close_session_manifests (kernel) and tg_session_terminal_force_close (catalog), 110''s guard_signing_key_insert (kernel), 113''s manifest core/machine entrypoint (venue), 114''s M1 door read/manifest signing context (venue))');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72,
@@ -136,7 +136,7 @@ SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polr
 SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='kernel' AND c.relkind='r') = 32
        AND (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-            WHERE n.nspname='kernel') = 153,
+            WHERE n.nspname='kernel') = 157,
   -- 2026-09-03 (package 094, ORG OBLIGATION — 094_organization_obligation.sql): kernel TABLES
   -- 28 -> 29 and kernel functions 132 -> 136. Re-derived from the LIVE CATALOG by replaying the
   -- chain twice, once with this file removed. The table is kernel.organization_obligation, the
@@ -174,7 +174,7 @@ SELECT ok((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   -- and kernel functions 136 -> 145 (nine, R-1 through R-7). 097/098: +0 functions (body-only
   -- re-creates). 2026-09-03 (package 099): kernel functions 145 -> 146 (check_signing_key_invariants).
   -- Re-derived from the LIVE CATALOG, not accepted as a delta.
-  'B4: kernel per-schema census (32 tables post-111, 153 functions post-111)');
+  'B4: kernel per-schema census (32 tables post-111, 157 functions post-131)');
 SELECT ok((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='venue') = 87
        AND (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

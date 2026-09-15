@@ -11,8 +11,8 @@
 -- Design and D's two adversarial passes: docs/release/SESSION_BOUND_PUSH_BINDINGS_131_DESIGN.md.
 --
 -- WHAT. (1) a per-user credential epoch, kernel.identity_ext.push_binding_epoch;
--- (2) one invalidator that revokes every binding, CLEARS every device proof,
--- marks the push channel unreachable and bumps the epoch; (3) it fires from a
+-- (2) one invalidator that revokes every binding, CLEARS every device proof
+-- and bumps the epoch; (3) it fires from a
 -- DB trigger on auth.users when encrypted_password changes (server-
 -- authoritative, not a hosted auth hook) and from a statement-level trigger on
 -- auth.sessions when a user's LAST live session is deleted (a global sign-out,
@@ -44,10 +44,10 @@
 -- pattern is the documented handle_new_user one; the harness's auth tables are
 -- postgres-owned, so hosted privilege is proven only by the sandbox apply.
 --
--- Census (public): +2 functions (revoke_all_push_bindings, the two guard
--- functions count as +2 → total +3? no: guard_push_token_session_stmt and
--- guard_push_token_session_row are 2, plus the verb = 3), +2 triggers on
--- push_tokens. kernel/auth objects are not counted. Applied nowhere.
+-- Census (public): +3 functions (revoke_all_push_bindings,
+-- guard_push_token_session_stmt, guard_push_token_session_row), +2 triggers on
+-- push_tokens → 99 / 37. Four kernel routines (157 A46 → 300). auth objects
+-- are not counted. Applied nowhere.
 -- ============================================================================
 begin;
 
@@ -97,12 +97,13 @@ begin
     insert into kernel.identity_ext (identity_id, push_binding_epoch) values (p_uid, v_epoch);
   end if;
 
-  -- S9: the legacy send path filters on is_active only (already false above);
-  -- the notify path also honours the channel state. Mark it, so a send that
-  -- races this commit is suppressed rather than delivered to a revoked device.
-  update notify.identity_channel_state s
-     set state = 'unreachable', since = now(), reason = p_reason
-   where s.identity_id = p_uid and s.channel = 'push' and s.state = 'ok';
+  -- S9: every send path selects push_tokens with is_active = true (the legacy
+  -- supabase/functions/send-push reader and notify's claim path), so the
+  -- revocation above is what stops delivery. The identity's channel state is
+  -- deliberately NOT written from here: 092's seam rule (157 A48) allows no
+  -- routine outside `notify` to touch notify's tables, and a revoked device
+  -- needs no channel marker — the next failed send records it, and the next
+  -- registration heals it.
 
   return v_n;
 end;

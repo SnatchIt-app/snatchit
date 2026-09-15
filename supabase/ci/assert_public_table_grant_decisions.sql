@@ -357,6 +357,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_push_token_rebind_epoch()',                                'no-client-execute'),
   -- 129: the client's sign-out revoke, reachable through public (notify is not exposed).
   ('revoke_push_token(text)',                                        'authenticated-execute'),
+  -- 131: sign-out-everywhere fast path (client verb) and the session guard pair on push_tokens.
+  ('revoke_all_push_bindings()',                                     'authenticated-execute'),
+  ('guard_push_token_session_stmt()',                                'no-client-execute'),
+  ('guard_push_token_session_row()',                                 'no-client-execute'),
   -- 130 (L1 concurrency): the checkout's per-(listing, buyer, mode) secret
   -- hand-out claim and its token-bound release. service_role only; the edge
   -- calls them, a client never does.
