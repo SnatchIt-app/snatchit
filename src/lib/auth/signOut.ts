@@ -6,13 +6,20 @@
  * `push_tokens`. Every path just called `supabase.auth.signOut()`.
  *
  * WHAT THIS DOES. Before the session is dropped — while the JWT is still
- * valid, because RLS lets a user update only their own token rows — it asks
- * the server to deactivate THIS device's token for the account being signed
- * out: `is_active=false`, `revoked_at=now()`, `revoked_reason='signed_out'`
- * — the one spelling the server's own writer (notify.revoke_push_token) uses
- * and the value migration 128's legacy path keys on (A, 2026-09-14).
- * Best-effort, bounded by a short timeout, and it never blocks or fails the
- * sign-out: an offline device still signs out.
+ * valid — it asks the server to mark THIS device's token signed out for the
+ * account being signed out. Best-effort, bounded by a short timeout, and it
+ * never blocks or fails the sign-out: an offline device still signs out.
+ *
+ * HOW (128 G-2, A 2026-09-15 — PROVISIONAL until A's freeze names the verb).
+ * On a database with migration 128, `revoked_at` / `revoked_reason` are
+ * deliberately NOT client-writable: a client that could write
+ * `revoked_reason='signed_out'` on its own row could forge rule 5's
+ * precondition. So the revoke goes through the server verb first
+ * (`REVOKE_RPC`, which writes the one spelling 'signed_out' itself). Only when
+ * the verb does not exist (PGRST202: a database without 128, i.e. every
+ * database today) does it fall back to Build 16's direct update, which the
+ * owner-update policy still permits there. Any other error from the verb —
+ * a 42501 included — is a failure, never a reason to try the table write.
  *
  * WHAT THIS CANNOT DO (A-08d, server side, owner's decision). A token already
  * bound to a DIFFERENT account (reinstall, expired session, deleted account)
@@ -28,8 +35,45 @@
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
 import { supabase } from '@/src/lib/supabase';
 import { getRegisteredPushToken } from '@/src/lib/push/registeredToken';
+import { classifyRegistrationError, type ErrorLike } from '@/src/lib/push/registration';
 
 export const SIGN_OUT_REVOKE_TIMEOUT_MS = 3_000;
+
+/**
+ * The client-callable revoke verb. PROVISIONAL: `notify.revoke_push_token` is
+ * not reachable from the client (the `notify` schema is unexposed), so this
+ * names a `public` wrapper; A's frozen 128 text decides the final name/schema.
+ */
+export const REVOKE_RPC = 'revoke_push_token';
+
+export interface RevokeDeps {
+  /** The server verb: marks the caller's row for this token signed out. */
+  rpc: (token: string) => Promise<{ data: unknown; error: ErrorLike | null }>;
+  /** Pre-128 databases only: Build 16's direct update through the owner-update policy. */
+  legacyUpdate: (token: string, userId: string) => Promise<number>;
+}
+
+/** Rows the verb reports as revoked; a bare success without a count is taken as one. */
+function revokedCount(data: unknown): number {
+  if (typeof data === 'number') return data;
+  if (typeof data === 'boolean') return data ? 1 : 0;
+  if (data && typeof data === 'object') {
+    const o = data as Record<string, unknown>;
+    for (const k of ['revoked', 'count', 'rows']) if (typeof o[k] === 'number') return o[k] as number;
+  }
+  return 1;
+}
+
+/**
+ * Verb first; the direct table write only when the verb is absent (no 128
+ * here). A 42501 or any other verb error propagates as a failure.
+ */
+export async function revokeDeviceToken(deps: RevokeDeps, token: string, userId: string): Promise<number> {
+  const r = await deps.rpc(token);
+  if (!r.error) return revokedCount(r.data);
+  if (classifyRegistrationError(r.error) !== 'rpc_missing') throw r.error;
+  return deps.legacyUpdate(token, userId);
+}
 
 export type RevokeOutcome = 'revoked' | 'no_token' | 'no_session' | 'no_match' | 'failed' | 'timed_out';
 
@@ -79,6 +123,26 @@ export async function revokeThenSignOut(deps: SignOutDeps): Promise<{ revoke: Re
   return { revoke: outcome };
 }
 
+/** The live revoke bindings: the verb, then Build 16's direct update as the pre-128 fallback. */
+const liveRevokeDeps: RevokeDeps = {
+  rpc: async (token) => {
+    const { data, error } = await supabase.rpc(REVOKE_RPC, { p_token: token });
+    return { data, error };
+  },
+  // Legacy fallback only (see header): on a 128 database this write is refused
+  // for the revoked columns, and it is never reached there.
+  legacyUpdate: async (token, userId) => {
+    const { data, error } = await supabase
+      .from('push_tokens')
+      .update({ is_active: false, revoked_at: new Date().toISOString(), revoked_reason: 'signed_out' })
+      .eq('token', token)
+      .eq('user_id', userId)
+      .select('id');
+    if (error) throw error;
+    return data?.length ?? 0;
+  },
+};
+
 /** The app's sign-out. Every sign-out site calls this and nothing else. */
 export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
   const result = await revokeThenSignOut({
@@ -87,16 +151,7 @@ export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
       const { data: { session } } = await supabase.auth.getSession();
       return session?.user?.id ?? null;
     },
-    revoke: async (token, userId) => {
-      const { data, error } = await supabase
-        .from('push_tokens')
-        .update({ is_active: false, revoked_at: new Date().toISOString(), revoked_reason: 'signed_out' })
-        .eq('token', token)
-        .eq('user_id', userId)
-        .select('id');
-      if (error) throw error;
-      return data?.length ?? 0;
-    },
+    revoke: (token, userId) => revokeDeviceToken(liveRevokeDeps, token, userId),
     signOut: async () => {
       // The user chose this; the login screen must not call it an expiry (CFT-607).
       markSessionEnd('user');

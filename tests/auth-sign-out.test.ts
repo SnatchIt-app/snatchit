@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 
 vi.mock('@/src/lib/supabase', () => ({ supabase: {} }));
 
-import { revokeThenSignOut, SIGN_OUT_REVOKE_TIMEOUT_MS, type SignOutDeps } from '../src/lib/auth/signOut';
+import { revokeDeviceToken, revokeThenSignOut, REVOKE_RPC, SIGN_OUT_REVOKE_TIMEOUT_MS, type RevokeDeps, type SignOutDeps } from '../src/lib/auth/signOut';
 import { getRegisteredPushToken, setRegisteredPushToken } from '../src/lib/push/registeredToken';
 
 function deps(over: Partial<SignOutDeps> = {}) {
@@ -105,5 +105,66 @@ describe('revoked_reason spelling (migration 128 legacy path, A 2026-09-14)', ()
     const src = readFileSync(resolve(__dirname, '..', 'src/lib/auth/signOut.ts'), 'utf8');
     expect(src).toContain("revoked_reason: 'signed_out'");
     expect(src).not.toContain("revoked_reason: 'sign_out'");
+  });
+});
+
+describe('128 G-2: the revoke goes through the server verb; the table write is the pre-128 fallback only', () => {
+  function rdeps(over: Partial<RevokeDeps> = {}) {
+    const calls: string[] = [];
+    const d: RevokeDeps & { calls: string[] } = {
+      calls,
+      rpc: vi.fn(async () => { calls.push('rpc'); return { data: 1, error: null }; }),
+      legacyUpdate: vi.fn(async () => { calls.push('legacy'); return 1; }),
+      ...over,
+    };
+    return d;
+  }
+
+  it('uses the verb and never touches the table when the verb exists', async () => {
+    const d = rdeps();
+    expect(await revokeDeviceToken(d, 'tok', 'user-1')).toBe(1);
+    expect(d.calls).toEqual(['rpc']);
+    expect(d.rpc).toHaveBeenCalledWith('tok');
+  });
+
+  it('falls back to the direct update only when the verb is missing (PGRST202 = no 128 here)', async () => {
+    const d = rdeps({ rpc: vi.fn(async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.revoke_push_token' } })) });
+    expect(await revokeDeviceToken(d, 'tok', 'user-1')).toBe(1);
+    expect(d.legacyUpdate).toHaveBeenCalledWith('tok', 'user-1');
+  });
+
+  it('a 42501 (or any other verb error) is a failure, never a reason to write the table', async () => {
+    const d = rdeps({ rpc: vi.fn(async () => ({ data: null, error: { code: '42501', message: 'permission denied' } })) });
+    await expect(revokeDeviceToken(d, 'tok', 'user-1')).rejects.toBeTruthy();
+    expect(d.legacyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reads a count from the verb reply when it gives one', async () => {
+    expect(await revokeDeviceToken(rdeps({ rpc: vi.fn(async () => ({ data: { revoked: 0 }, error: null })) }), 'tok', 'u')).toBe(0);
+    expect(await revokeDeviceToken(rdeps({ rpc: vi.fn(async () => ({ data: 2, error: null })) }), 'tok', 'u')).toBe(2);
+  });
+
+  it('the live binding calls the verb by name before any push_tokens write', () => {
+    const src = readFileSync(resolve(__dirname, '..', 'src/lib/auth/signOut.ts'), 'utf8');
+    expect(REVOKE_RPC).toBe('revoke_push_token');
+    const rpcAt = src.indexOf("supabase.rpc(REVOKE_RPC, { p_token: token })");
+    const tableAt = src.indexOf(".from('push_tokens')");
+    expect(rpcAt).toBeGreaterThan(-1);
+    expect(tableAt).toBeGreaterThan(rpcAt);
+    // The revoke columns appear once, inside the legacy fallback only.
+    expect(src.match(/revoked_reason: 'signed_out'/g)?.length).toBe(1);
+  });
+
+  it('nothing else in app/ or src/ updates push_tokens, and the legacy touch writes only scoped columns', () => {
+    const root = resolve(__dirname, '..');
+    const { execSync } = require('node:child_process') as typeof import('node:child_process');
+    const hits = execSync("grep -rl \"from('push_tokens')\" app src --include='*.ts' --include='*.tsx'", { cwd: root, encoding: 'utf8' })
+      .trim().split('\n').filter(Boolean).sort();
+    expect(hits).toEqual(['src/lib/auth/signOut.ts', 'src/lib/push/registerToken.ts']);
+    const reg = readFileSync(resolve(root, 'src/lib/push/registerToken.ts'), 'utf8');
+    // G-2 scope: platform, device_name, last_used, is_active. The touch writes two of them and nothing else.
+    expect(reg).toContain(".update({ last_used: nowIso, is_active: true })");
+    expect(reg.match(/\.update\(/g)?.length).toBe(1);
+    expect(reg).not.toMatch(/revoked_at|revoked_reason|user_id:\s*[^,}]+\}\)\.eq/);
   });
 });
