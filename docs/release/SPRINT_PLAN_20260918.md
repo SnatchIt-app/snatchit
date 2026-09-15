@@ -50,10 +50,10 @@ or the owner explicitly accepts a clearly explained release risk.
 | **A-10b** | A | **Hosted build** (EAS `preview`, sandbox) from the pin; verify compiled env; record source + build IDs | **authorized**; A-9, D-5 | **Thu** | build record in the packet |
 | A-11 | A | Release packet | A-9, D-5, C-5 | Fri | packet section |
 | B-1 | B | 126 parts 2–3 + rollback + 193 (A8 cap; `mixed` + `legacy_upper_bound_cents`) | `048eeb1` | **Tue** review-ready | certified harness full suite; negative controls vs 120/part 1 |
-| B-2 | B | L1 edge coupling + concurrency/delayed/duplicate/rollback tests | **B-1 review-ready — not merged** | **Wed EOD** | tests fail against `df9e0d3`; A review |
+| B-2 ✔ | B | L1 edge (#64) merged Tue; **130** supersede claim (#65) reviewed by A and merged Tue — 4967/4967, S1–S4 concurrency, RED evidence | — | Wed EOD | done a day early |
 | C-1 | C | 128 client: **provisional now**, final delta at freeze | A-3 | Wed | unit; DV-611 |
 | C-3 ✔ | C | Device plan + build config (`7a5e225`) | — | Tue | done |
-| C-4 | C | F1 → 1..4 → recovery rebased onto the pin (30 commits, rehearsed clean) | A-9 | Thu | gated diff |
+| C-4 ✔ | C | F1 → 1..4 → recovery rebased onto `57b3a00` (33 commits, `231f120`), merged Tue | A-9 | Thu | done |
 | C-5 | C | Handset verification | A-10b | Fri | DV rows PASS with read-backs |
 | D-1 | D | Automated sandbox runner incl. SBX-2 steps | — | Tue | dry run |
 | D-3 | D | 128 pass 3 on A-1b commit | A-1b | Tue | findings |
