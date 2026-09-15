@@ -29,7 +29,13 @@
 
 import { supabase } from '@/src/lib/supabase';
 
-import { classifyRegistrationError, type ErrorLike, type RegistrationErrorKind, type RpcOutcome } from './registration';
+import {
+  classifyRegistrationError,
+  EXPECTED_128_CONTRACT_VERSION,
+  type ErrorLike,
+  type RegistrationErrorKind,
+  type RpcOutcome,
+} from './registration';
 
 export type PushPlatform = 'ios' | 'android';
 
@@ -44,6 +50,8 @@ export interface RpcReply {
   token_id: string;
   outcome: RpcOutcome;
   platform: PushPlatform;
+  /** v2 carries the contract version on every reply; v1 replies have none. */
+  contract_version?: number;
 }
 
 export interface RegisterDeps {
@@ -57,7 +65,7 @@ export interface RegisterDeps {
 }
 
 export type RegisterResult =
-  | { ok: true; method: 'rpc'; outcome: RpcOutcome; tokenId: string | null }
+  | { ok: true; method: 'rpc'; outcome: RpcOutcome; tokenId: string | null; contractVersion: number | null }
   | { ok: true; method: 'legacy'; outcome: 'registered' | 'refreshed'; tokenId: string | null }
   | { ok: false; kind: RegistrationErrorKind };
 
@@ -84,7 +92,15 @@ export async function registerWithRpc(
   }
   if (reply.error) return { ok: false, kind: classifyRegistrationError(reply.error) };
   if (!isRpcReply(reply.data)) return { ok: false, kind: 'unknown' };
-  return { ok: true, method: 'rpc', outcome: reply.data.outcome, tokenId: typeof reply.data.token_id === 'string' ? reply.data.token_id : null };
+  // A reply that names a contract this build was not written for is not a
+  // success: the server may have changed what `refreshed` or `rebound` mean.
+  const cv = reply.data.contract_version;
+  if (cv != null && cv !== EXPECTED_128_CONTRACT_VERSION) return { ok: false, kind: 'contract_mismatch' };
+  return {
+    ok: true, method: 'rpc', outcome: reply.data.outcome,
+    tokenId: typeof reply.data.token_id === 'string' ? reply.data.token_id : null,
+    contractVersion: cv ?? null,
+  };
 }
 
 export interface RecoveryContext {

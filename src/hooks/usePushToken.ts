@@ -49,6 +49,8 @@ type PushTokenResult = {
 
 /** Known for the life of the process: probed by the first RPC attempt. */
 let rpcAvailable: boolean | undefined;
+/** The first decision of this process registers regardless of the daily TTL (A's v2 clause). */
+let coldLaunchPending = true;
 
 export function usePushToken(userId: string | undefined): PushTokenResult {
   const [pushToken, setPushToken]                   = useState<string | null>(null);
@@ -107,7 +109,9 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         const state = await loadRegistrationState();
         const decision = decideRegistration({
           userId: uid, token, record: state.record, failure: state.failure, rpcAvailable, now: Date.now(),
+          coldLaunch: coldLaunchPending,
         });
+        coldLaunchPending = false;
         if (decision.action === 'skip') {
           if (state.record && state.record.userId === uid && state.record.token === token) {
             publishRegistrationStatus({ state: 'registered', method: state.record.method, outcome: state.record.outcome, at: state.record.at });
@@ -139,7 +143,10 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         }
 
         if (result.ok) {
-          const record: RegistrationRecord = { token, userId: uid, method: result.method, outcome: result.outcome, at: now };
+          const record: RegistrationRecord = {
+            token, userId: uid, method: result.method, outcome: result.outcome, at: now,
+            contractVersion: result.method === 'rpc' ? result.contractVersion : null,
+          };
           await saveRegistrationState({ record, failure: null });
           publishRegistrationStatus({ state: 'registered', method: result.method, outcome: result.outcome, at: now });
           console.log('[usePushToken] Registered:', result.method, result.outcome);
