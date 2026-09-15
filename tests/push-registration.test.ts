@@ -324,11 +324,22 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(hook).not.toMatch(/signOut|revoke/);
   });
 
-  it('sign-out is unchanged: the batch 1 helper still revokes by token AND user_id, without the secret', () => {
+  it('sign-out revokes through notify.revoke_push_token with the token only — never the secret, never a table write', () => {
     const so = read('src/lib/auth/signOut.ts');
-    expect(so).toContain(".eq('token', token)");
-    expect(so).toContain(".eq('user_id', userId)");
-    expect(so).not.toMatch(/secret|register_push_token/);
+    expect(so).toContain("supabase.schema(REVOKE_RPC_SCHEMA).rpc(REVOKE_RPC, { p_token: token })");
+    expect(so).not.toMatch(/secret|register_push_token|\.from\('push_tokens'\)/);
+  });
+
+  it('contract v2: "too many registration attempts" backs off for the server window and retries; other preconditions stay terminal', () => {
+    expect(classifyRegistrationError({ code: 'P0001', message: 'precondition_failed: too many registration attempts' })).toBe('rate_limited');
+    const failure = { kind: 'rate_limited' as const, userId: 'u', token: 't', method: 'rpc' as const, at: 1_000, attempts: 1 };
+    const base = { userId: 'u', token: 't', record: null, rpcAvailable: true };
+    const early = decideRegistration({ ...base, failure, now: 1_000 + 599_000, coldLaunch: true });
+    expect(early.action).toBe('wait');
+    expect(early.retryAt).toBe(1_000 + 600_000);
+    expect(decideRegistration({ ...base, failure, now: 1_000 + 600_001 }).action).toBe('register');
+    const shape = { ...failure, kind: 'precondition' as const };
+    expect(decideRegistration({ ...base, failure: shape, now: 1_000 + 7 * 24 * 3_600_000, coldLaunch: true }).action).toBe('wait');
   });
 
   it('Settings › Notifications explains a device that is not registered for this account', () => {

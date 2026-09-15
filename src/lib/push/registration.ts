@@ -58,6 +58,7 @@ export type RegistrationErrorKind =
   | 'rpc_missing'        // 128 not deployed here: PostgREST cannot find the function
   | 'bound_to_other'     // terminal: another account holds this token on the server (F7)
   | 'precondition'       // P0001 precondition_failed: a client-side shape bug — terminal until inputs change
+  | 'rate_limited'       // P0001 precondition_failed: too many registration attempts — back off, retry next launch
   | 'contract_mismatch'  // the reply's contract_version is not the one this client is built against — terminal until a new build
   | 'auth'               // no valid session
   | 'secret_unavailable' // Keychain or CSPRNG unavailable on this device
@@ -111,6 +112,8 @@ export const REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
 /** Backoff: 30 s, 1 m, 2 m, … capped at 6 h. */
 export const BACKOFF_BASE_MS = 30_000;
 export const BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
+/** Contract v2: the server's window is 600 s per user; never retry inside it. */
+export const RATE_LIMIT_WAIT_MS = 600_000;
 
 export function backoffMs(attempts: number): number {
   const n = Math.max(1, Math.min(attempts, 20));
@@ -145,7 +148,9 @@ export function decideRegistration(i: DecisionInput): Decision {
     // A different contract on the server means this build must not proceed on
     // assumptions; only a new build (new inputs) can change the answer.
     if (failure.kind === 'contract_mismatch') return { action: 'wait', method, reason: 'precondition' };
-    const retryAt = failure.at + backoffMs(failure.attempts);
+    // Rate-limited: wait out the server's window (floor), then the usual backoff.
+    const floor = failure.kind === 'rate_limited' ? RATE_LIMIT_WAIT_MS : 0;
+    const retryAt = failure.at + Math.max(floor, backoffMs(failure.attempts));
     if (i.now < retryAt) return { action: 'wait', method, reason: 'backoff', retryAt };
     return { action: 'register', method, reason: 'retry' };
   }
@@ -183,6 +188,8 @@ export function classifyRegistrationError(err: ErrorLike | null | undefined): Re
   }
   // Legacy path: unique_violation on push_tokens(token) is the same fact (F7).
   if (code === '23505' || /duplicate key/.test(msg)) return 'bound_to_other';
+  // Contract v2: > 20 calls per 600 s per user. Not a shape bug — back off and retry.
+  if (code === 'P0001' && /too many registration attempts/.test(msg)) return 'rate_limited';
   if (code === 'P0001' && /precondition_failed/.test(msg)) return 'precondition';
   if (code === 'PGRST301' || err.status === 401 || /jwt|not authenticated|invalid claim/.test(msg)) return 'auth';
   if (/network request failed|failed to fetch|timeout|timed out|abort/.test(msg)) return 'network';
