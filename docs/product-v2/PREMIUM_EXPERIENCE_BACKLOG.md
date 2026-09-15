@@ -1216,3 +1216,11 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   it would read as bound-to-another-account; the two ship together in the
   production-gate candidate). Nothing else pending from A; DV rows on build 17
   are C's from here.
+- **132 (B, PR #70 @ ebbd1c0; D's battery pending) — no client delta:**
+  `create-payment-intent` reuses the existing 409 body ("checkout is being
+  updated") for two more situations. The client never enumerates 409 reasons:
+  `src/lib/payments.ts` surfaces the function's `{ error }` / `{ message }`
+  body generically (only the price-change case is special-cased into
+  `PriceChangedError`), and the only tests asserting 409 bodies are the
+  edge-function tests (A/B's). Same body, same handling; nothing to do on any
+  branch. Not in build 17's server (sandbox at 130).
