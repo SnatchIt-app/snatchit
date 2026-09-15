@@ -46,6 +46,8 @@ case "$DB" in
   *rehears*) : ;;
   *) die "database name '$DB' must contain 'rehears'." ;;
 
+esac
+command -v psql >/dev/null || die "psql not on PATH (try: export PATH=/opt/homebrew/opt/postgresql@17/bin:\$PATH)"
 # --- superuser-only GUC tripwire (2026-09-15) -------------------------------
 # This harness runs pgTAP as a REAL superuser; Supabase's CI `postgres` role is
 # not one. A suite that sets a superuser-only parameter passes here for the
@@ -56,8 +58,6 @@ if grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_
   grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_system_table_mods)" "$ROOT"/supabase/tests/*.sql | sed 's|^|    |'
   exit 1
 fi
-esac
-command -v psql >/dev/null || die "psql not on PATH (try: export PATH=/opt/homebrew/opt/postgresql@17/bin:\$PATH)"
 
 guard="$(psql -d "$DB" -tAc "
   select coalesce(host(inet_server_addr()),'socket')
