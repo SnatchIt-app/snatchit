@@ -35,6 +35,7 @@ banners; it authorizes nothing.
 > hardcode the production project URL in `net.http_post` trigger bodies. Fresh replays with a live pg_net point those
 > triggers at production's `notify-*` edge functions; the shared sandbox's copies were rewritten out of band
 > (unrecorded drift). A future numbered migration should make the URL configuration-driven; number allocated when written.
+> **D's reading (2026-09-15):** the 033/034/035 trigger paths and 087 no-op without a vault secret (CI has none) and pgTAP rolls back; **032's `*/2` cron fires unconditionally with a NULL bearer**, so a live pg_net on the CI runner probably POSTs to production's `enforce-transfer-expiry` every two minutes of a migrations job — 401'd by the function's own bearer check, no side effect, log noise from GitHub IPs. A CI-only diagnostic step now prints cron runs and pg_net responses at the end of the migrations job to settle it. Remedy with the config-driven migration: no-op when the URL setting is unset (087's `where exists` pattern); in CI, unschedule after replay.
 
 ## How 122 was resolved
 

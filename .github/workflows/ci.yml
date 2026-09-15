@@ -1366,6 +1366,24 @@ jobs:
   # mobile quality job uses Node 20. Vendored @snatchit/* tarballs live in
   # web/vendor/ and resolve from the committed lockfile.
   # ---------------------------------------------------------------------------
+      - name: Diagnostic — did the replay's cron/pg_net reach outside? (CI-only, read-only; D 2026-09-15)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          # Six migrations hardcode the production project URL in net.http_post
+          # bodies (032, 033, 034, 035, 087, 099). D's reading: 032's */2 cron fires
+          # UNCONDITIONALLY with a NULL bearer, so a live pg_net on this runner may
+          # POST to production's enforce-transfer-expiry (expected 401, no effect).
+          # This step only PRINTS what pg_cron ran and what pg_net answered on THIS
+          # stack; it never fails the job and reads nothing outside it.
+          echo "--- cron runs during this job ---"
+          psql "$DB_URL" -tA -c "select jobname, status, left(coalesce(return_message,''),120) from cron.job_run_details d join cron.job j using (jobid) order by start_time;" 2>/dev/null || echo "(cron.job_run_details unavailable)"
+          echo "--- pg_net responses by status ---"
+          psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)') as status, count(*) from net._http_response group by 1 order by 1;" 2>/dev/null || echo "(net._http_response unavailable)"
+          echo "--- pg_net queue still pending ---"
+          psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;" 2>/dev/null || echo "(net.http_request_queue unavailable)"
+
   web:
     name: Web build (Next.js)
     runs-on: ubuntu-latest
