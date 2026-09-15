@@ -24,7 +24,7 @@
 -- No superuser-only settings are used.
 -- ============================================================================
 BEGIN;
-SELECT plan(38);
+SELECT plan(39);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._try199(p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $f$
@@ -83,6 +83,10 @@ SELECT ok(to_regclass('public.checkout_group_claim') IS NOT NULL AND NOT EXISTS 
             SELECT 1 FROM unnest(ARRAY['anon', 'authenticated']) r(role), unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']) p(priv)
              WHERE has_table_privilege(r.role, 'public.checkout_group_claim', p.priv)),
   'A.5: anon and authenticated hold no table privilege');
+SELECT is((SELECT string_agg(g.privilege_type, ',' ORDER BY g.privilege_type) FROM information_schema.role_table_grants g
+            WHERE g.table_schema = 'public' AND g.table_name = 'checkout_group_claim' AND g.grantee = 'service_role'),
+          'DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE',
+  'A.5b: service_role holds the explicit table grant (the edge''s E-1 guard SELECTs the token; a CI replay has no default ACL)');
 SELECT ok(to_regprocedure('public.claim_checkout_group(uuid,uuid,text)') IS NOT NULL, 'A.6: claim_checkout_group(uuid,uuid,text) exists');
 SELECT ok(to_regprocedure('public.release_checkout_group(uuid,uuid,text,uuid)') IS NOT NULL, 'A.7: release_checkout_group(uuid,uuid,text,uuid) exists');
 SELECT ok(coalesce((SELECT bool_and(p.prosecdef AND p.proconfig = ARRAY['search_path=""'] AND (p.prorettype::regtype)::text = 'jsonb')

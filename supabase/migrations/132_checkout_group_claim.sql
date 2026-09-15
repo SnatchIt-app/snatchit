@@ -61,6 +61,13 @@ comment on table public.checkout_group_claim is
 
 alter table public.checkout_group_claim enable row level security;
 revoke all on public.checkout_group_claim from public, anon, authenticated;
+-- Explicit, not inherited (as 128): a CI replay has no Supabase default ACL, so
+-- service_role would hold only REFERENCES, TRIGGER, TRUNCATE. The edge's E-1
+-- guard SELECTs this table as service_role before every hand-out; without the
+-- grant that read errors and every checkout fails closed (503). The full set
+-- matches what production's default ACL gives service_role on a new table.
+grant delete, insert, references, select, trigger, truncate, update
+  on public.checkout_group_claim to service_role;
 
 create or replace function public.claim_checkout_group(
   p_listing_id uuid,
