@@ -1050,3 +1050,12 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   A and D both want it recorded as a product decision. D confirms S15/S16
   handled on the client; no reclaim UX exists (D's R1–R3 against A's tombstone
   reclaim). Gates: tsc clean; vitest 1893 / 85; lint 0 errors / 29 warnings.
+- **D verified K-1/K-3/K-4 at `b538f1d`** (read and run locally, 2026-09-15):
+  deletion and the row call `signOutAllDevices`; no `signOutEverywhere` left in
+  app/ or src/; one `supabase.auth.signOut({ scope })` call site; neither
+  stale-session string names a password; D's own run: the four touched suites
+  63 / 63, tsc exit 0. K-2 stays with the owner. D's note to A for the 131 SQL:
+  reset-password calls `revoke_all_push_bindings` from the device's OLD session
+  (pre-epoch), so the verb must not apply the session-age check; the client
+  already treats a refusal there as non-blocking (logged), so no client change
+  either way.
