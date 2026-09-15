@@ -80,8 +80,12 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
   job set `132_replay_parity` asserts and races `supabase start` (the first `*/2` tick fires before any later step —
   the run shows exactly one). **Interim guard, non-blocking (B, ~1 h):** an edge unit test on `enforce-transfer-expiry`'s
   bearer check — null, empty, wrong token and the service-role key each get 401 with zero Supabase/Stripe calls;
-  negative control = the check removed. Confirm while writing it whether the service-role-key branch is still intended
-  (the `:149` comment "pg_cron sends the service_role_key" is stale against 032's vault header).
+  negative control = the check removed. **DONE — PR #69 (B, `f9ebf0c`, test-only, CI green on the head, merged at
+  `3fe942a`): 10 cases — no header, empty bearer, Basic scheme with the real secret, wrong token, prefix, same-length
+  token, "Bearer null", empty bearer with the secret unset → 401 with zero Supabase/Stripe/outbound calls; the cron
+  secret and the service-role key accepted (032's SQL sends `Bearer <vault service_role_key>`, so refusing it would stop
+  production's sweep — kept by design, comment at `:149` corrected as stale about the mechanism only). Mutants: check
+  removed → 8 failures; service-role branch removed → 1; empty-secret guard removed → 1.**
 - **Sandbox is not production-parity for 110–120** (manifest §10): 126 cannot be verified there without 115–120;
   119's listing-block guard is absent (marketplace evidence limit); door/scan acceptance non-representative. Options
   (a)/(b) with the owner.
