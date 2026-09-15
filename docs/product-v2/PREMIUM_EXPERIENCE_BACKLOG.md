@@ -946,3 +946,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   kept): tsc clean, vitest 1877 / 84 on the replayed head; gated diff vs the base
   = batch 1's approved surface + `ac31172` + `9091397`/`6659ed9`, nothing
   unreviewed. Release-packet C section skeleton: `RELEASE_PACKET_C_SECTION.md`.
+- **Schedule (A, 2026-09-14 late):** 128 contract freeze moves to **Wed 09-16 AM**
+  (D's cold read found a HIGH functional regression in 128 — the new verb did
+  not heal `notify.identity_channel_state`, so one DeviceNotRegistered silenced
+  a user permanently; A fixing, back through D). C-1 rebind follows the freeze
+  the same day. C's carried owner decisions are in A's batch with C's
+  recommendations; A-08(d) is already the authorised 128 work; 128-on-sandbox
+  for DV-611R rides the window authorisation.
