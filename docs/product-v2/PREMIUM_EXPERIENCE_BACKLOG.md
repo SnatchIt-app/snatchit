@@ -953,3 +953,40 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the same day. C's carried owner decisions are in A's batch with C's
   recommendations; A-08(d) is already the authorised 128 work; 128-on-sandbox
   for DV-611R rides the window authorisation.
+- **Owner corrections to the sprint board (2026-09-15):** (1) deferring L1 is
+  not a "safe scope cut" — L1 stays required unless an independent review
+  demonstrates an effective mitigation or the owner explicitly accepts a clearly
+  explained release risk; a pin and a packet alone do not make the candidate
+  deployment-ready. (2) Sandbox/build authorisation (O-1/O-2) is separate from
+  production acceptance of 128's residual risk (O-3): testing 128 accepts
+  nothing. The board is A's file; the corrected wording went to A.
+- **O-3 brief (C, 2026-09-15):** `O3_128_RESIDUAL_BRIEF_C.md` — verifies A's
+  `docs/release/O3_128_RESIDUAL_DECISION_BRIEF.md` against 128 @ `cf73d7b`,
+  pgTAP 195 and the client at `d90db6b`; differs on "adds no capability" (the
+  plant is a deferred, signal-less trigger); proposes a `mismatch` outcome on
+  rule 2 so the cold-launch clause actually undoes a plant. D's independent
+  disposition requested. Monitoring detects exposure; it prevents nothing.
+- **G-2 (A's column-scoped UPDATE on `push_tokens`, in flight):** the client
+  updates `last_used`/`is_active` (`registerToken.ts:174`) and, on sign-out,
+  `is_active`/`revoked_at`/`revoked_reason` (`signOut.ts:92-94`). The last two
+  are outside the proposed scope and `notify.revoke_push_token` is unexposed, so
+  as stated G-2 would make every sign-out revoke fail silently (`failed`) and
+  rule 5's `signed_out` precondition unreachable from the client. Sent to A:
+  scope in those two columns or expose a public revoke verb; C-1 follows the
+  freeze text.
+- **Sunset branch (A, 2026-09-15; frozen unless the freeze text differs):** past
+  the sunset a hash-less legacy row raises the rule-4 error verbatim (42501,
+  "insufficient_privilege: token is bound to another account"); no distinct
+  sunset error by design. The client's single terminal branch already covers it
+  — no code change; DV-611R wording stands.
+- **Schedule (owner, 2026-09-15):** hosted build submitted **Thu** after the
+  candidate checks; **Fri = handset verification and corrections only**. Plan §3
+  updated. The EAS submission is ready to fire on A's pin + O-2 (profile
+  `preview`, commit = A's pin, expected build 17); C continues against the
+  reviewed v2 interface with provisional markers and takes the final delta at
+  the freeze. B-2 starts when 126 is review-ready, in parallel with D-4.
+- **Sandbox sequencing dependency (flagged):** SBX-2 (apply through 128, deploy
+  `stripe-webhook` + `create-payment-intent`, DV-611) needs 124 applied first
+  only because the ledger is linear; it does not need the venue-kit acceptance,
+  the MFA step or the checkout previews. Those ride D's track and are not on the
+  money/notification path.

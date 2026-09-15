@@ -46,8 +46,8 @@ Populated native Tickets (issuance disabled, CFT-801) and D9c (no further attemp
 Per row: PASS / FAIL / UNTESTED, the on-screen text observed, and A's read-back where marked. A FAIL on a money or privacy row blocks the candidate; a FAIL on a presentation row is logged and triaged (fix on the sprint branch → A re-integrates → re-run that row only). Exit: every Block 1 and Block 2 row has a result; UNTESTED rows carry their reason.
 
 ## 3. Time budget (deadline-backward)
-- Fri 09-18: release packet inputs from C (verification results, limitations, exact restart instructions if anything is left running). Reserve the day; no new code.
-- Thu 09-17: candidate build (owner-authorised), Block 0–1 on the handset, Block 2 in A's window, fixes and re-runs of changed rows.
-- Wed 09-16: 128 rebind to the frozen contract (2–4 active hours) + tests; integration fixes from A's snapshot.
+- Fri 09-18 (owner, 2026-09-15: handset verification and corrections only): Block 0 (15 min) → Block 1 (≈60–75 min) → Blocks 2/2b in A's SBX-2 window (≈90–120 min) → Block 3 if 128 is on the sandbox; corrections only for a failing row (fix → A re-integrates → re-run that row); packet inputs from C by EOD (results, limitations, restart instructions).
+- Thu 09-17: A's pin by midday → candidate checks on the pin (fresh `tsc` / `vitest` / lint counts, `envGuard` sandbox ref, `eas.json` `preview` profile diff vs Build 16, expected build number) → EAS preview build submitted (owner O-2) → install on the handset Thu evening.
+- Wed 09-16: 128 rebind to the frozen contract (2–4 active hours) + tests; C-4 rebase started on A's Wed integrated head, finished on the pin.
 - Tue 09-15: candidate-recovery slice landed and reviewed (error/empty/failed states, cancelled listing in Bids, expired-session notice, not-found outcome); gates green.
 - Mon 09-14 (now): this plan; sprint branch open.
