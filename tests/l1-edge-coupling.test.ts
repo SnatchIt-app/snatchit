@@ -1,0 +1,373 @@
+/**
+ * tests/l1-edge-coupling.test.ts — L1 (B-2, release sprint 2026-09): a stale
+ * cancellation or failure must never free the Buy-Now hold that the buyer's
+ * REPLACEMENT attempt is using.
+ *
+ * Loads the REAL stripe-webhook and create-payment-intent handlers
+ * (tests/helpers/edge-vm.ts) against ONE shared in-memory world — payments
+ * rows, the listing's hold, Stripe PaymentIntents — so the two handlers race
+ * exactly as production can: Stripe may deliver payment_intent.canceled
+ * before create-payment-intent's next statement runs.
+ *
+ * The world's RPCs model the database contracts the edges rely on:
+ *   * release_reservation(listing, buyer)        — pre-127, buyer-scoped: frees
+ *     the hold whenever the buyer holds it (the L1 defect's mechanism).
+ *   * release_reservation_for_payment(l, b, pay) — 127: bound to one payment,
+ *     refuses while another buy_now attempt by the buyer is pending/processing
+ *     (live_sibling_attempt). Only that rule is modelled here; 127's full SQL
+ *     is pinned by pgTAP 194.
+ *
+ * Contract under test (docs/release/PRODUCTION_RELEASE_PACKAGE.md, "127's
+ * required edge changes and deployment coupling"):
+ *   W. stripe-webhook claims only pending/processing rows and releases through
+ *      release_reservation_for_payment(listing, buyer, payment.id); an absent RPC
+ *      (DB without 127) is logged and non-fatal, with no fallback to the
+ *      buyer-scoped release.
+ *   C. create-payment-intent inserts the replacement (P2) pending row BEFORE it
+ *      cancels the superseded intent (P1); P2's secret is returned only after P1
+ *      is provably cancelled; on refusal P2 is cancelled and ALWAYS retired
+ *      locally (its secret was never exposed), and the 409 is unchanged.
+ * Every case here fails against the pre-sprint handlers at df9e0d3 except the
+ * ones labelled "preservation".
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  authedJsonRequest, json, loadEdgeHandler, mockStripe, mockSupabase, signedStripeWebhookRequest,
+  type QueryCall, type RpcHandler, type StripeCall,
+} from './helpers/edge-vm';
+import { dollarsToCents, feeBreakdown, totalMismatch } from '../supabase/functions/_shared/money';
+
+const SECRET = 'whsec_test_only';
+const LISTING = 'listing-0001';
+const SELLER = 'seller-0001';
+const HOLDER = 'buyer-holder';
+const CUSTOMER = 'cus_test_1';
+
+type Status = 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded';
+interface PaymentRow {
+  id: string; stripe_payment_intent_id: string | null; status: Status; listing_id: string; buyer_id: string;
+  seller_id: string; mode: string; total: number; amount: number; created_at: string;
+}
+interface Pi { id: string; status: string; amount: number; currency: string; client_secret: string }
+
+const inFuture = () => new Date(Date.now() + 5 * 60_000).toISOString();
+
+function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbsent?: boolean }) {
+  const payments = init.payments.map((p) => ({ ...p }));
+  const pis = new Map(init.pis.map((p) => [p.id, { ...p }]));
+  const listing = {
+    id: LISTING, seller_id: SELLER, current_bid: 100, buy_now_price: init.price ?? 200, buy_now_enabled: true,
+    status: 'reserved', auction_status: 'active', winner_user_id: null, winning_bid_amount: null,
+    reserved_by: HOLDER as string | null, reserved_until: inFuture() as string | null, ends_at: inFuture(),
+  };
+  const timeline: string[] = [];
+  const completedEvents = new Set<string>();
+  let nextPi = 1;
+
+  const match = (row: Record<string, unknown>, filters: unknown[][]) => filters.every((f) => {
+    const [op, col] = f as [string, string];
+    if (op === 'eq') return row[col] === f[2];
+    if (op === 'neq') return row[col] !== f[2];
+    if (op === 'in') return (f[2] as unknown[]).includes(row[col]);
+    if (op === 'not' && f[2] === 'in') {
+      const list = String(f[3]).replace(/[()"]/g, '').split(',');
+      return !list.includes(String(row[col]));
+    }
+    throw new Error(`world: unmodelled filter ${JSON.stringify(f)}`);
+  });
+
+  const paymentsTable = (q: QueryCall) => {
+    const rows = payments as unknown as Record<string, unknown>[];
+    if (q.op === 'insert') {
+      const body = q.body as Record<string, unknown>;
+      if (rows.some((r) => r.stripe_payment_intent_id === body.stripe_payment_intent_id)) {
+        return { data: null, error: { message: 'duplicate key', code: '23505' } };
+      }
+      if (insertFails) { timeline.push(`db:insert-failed:${String(body.stripe_payment_intent_id)}`); return { data: null, error: { message: 'insert boom', code: 'XX000' } }; }
+      const row = { id: `pay_${String(body.stripe_payment_intent_id)}`, created_at: new Date().toISOString(), ...body } as unknown as PaymentRow;
+      payments.push(row);
+      timeline.push(`db:insert:${row.stripe_payment_intent_id}`);
+      return { data: null };
+    }
+    const hit = rows.filter((r) => match(r, q.filters));
+    if (q.op === 'update') {
+      for (const r of hit) Object.assign(r, q.body as Record<string, unknown>);
+      for (const r of hit) timeline.push(`db:update:${String(r.stripe_payment_intent_id)}->${String((q.body as Record<string, unknown>).status)}`);
+      return { data: q.terminal === 'list' ? hit : hit[0] ?? null };
+    }
+    return { data: q.terminal === 'list' ? hit : hit[0] ?? null };
+  };
+
+  const rpc: RpcHandler = (name, params) => {
+    if (name === 'check_rate_limit') return { data: true };
+    if (name === 'claim_stripe_webhook_event') return { data: completedEvents.has(String(params.p_event_id)) ? 'already_processed' : 'claimed' };
+    if (name === 'complete_stripe_webhook_event') { completedEvents.add(String(params.p_event_id)); return { data: true }; }
+    if (name === 'fail_stripe_webhook_event') return { data: true };
+    if (name === 'release_reservation') {
+      timeline.push(`rpc:release_reservation:${String(params.p_user_id)}`);
+      if (listing.status === 'reserved' && listing.reserved_by === params.p_user_id) {
+        listing.status = 'active'; listing.reserved_by = null; listing.reserved_until = null;
+      }
+      return { data: null };
+    }
+    if (name === 'release_reservation_for_payment') {
+      timeline.push(`rpc:release_reservation_for_payment:${String(params.p_payment_id)}`);
+      if (init.rpcAbsent) return { data: null, error: { message: 'Could not find the function public.release_reservation_for_payment', code: 'PGRST202' } };
+      const pay = payments.find((p) => p.id === params.p_payment_id);
+      if (!pay) return { data: { released: false, reason: 'unknown_payment' } };
+      if (pay.listing_id !== params.p_listing_id || pay.buyer_id !== params.p_user_id) return { data: { released: false, reason: 'payment_not_for_listing_buyer' } };
+      if (listing.status !== 'reserved' || listing.reserved_by !== params.p_user_id) return { data: { released: false, reason: 'not_held_by_buyer' } };
+      const sibling = payments.some((p) => p.id !== pay.id && p.listing_id === pay.listing_id && p.buyer_id === pay.buyer_id
+        && p.mode === 'buy_now' && (p.status === 'pending' || p.status === 'processing'));
+      if (sibling) return { data: { released: false, reason: 'live_sibling_attempt' } };
+      listing.status = 'active'; listing.reserved_by = null; listing.reserved_until = null;
+      return { data: { released: true, reason: 'released' } };
+    }
+    return { data: null };
+  };
+
+  let insertFails = false;
+  let fastWebhook = false;
+  let cancelThrowsFor: string | null = null;
+
+  const webhookSb = mockSupabase({ rpc, tables: { payments: paymentsTable, listings: () => ({ data: { event_name: 'Fixture' } }) } });
+  const webhook = async () => loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
+    supabase: webhookSb,
+    env: { STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_SECRET_KEY: 'sk_test_only', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+    provide: { stripeFetchRaw: async () => ({ ok: false, status: 500, data: {} }) },
+  });
+  let evtSeq = 0;
+  const deliver = async (type: string, piId: string, eventId?: string) => {
+    const edge = await webhook();
+    const pi = pis.get(piId);
+    const event = {
+      id: eventId ?? `evt_${++evtSeq}_${type}_${piId}`, type,
+      data: { object: {
+        id: piId, object: 'payment_intent', status: pi?.status ?? 'canceled', amount: pi?.amount ?? 0, amount_received: 0,
+        currency: 'usd', livemode: false, metadata: { mode: 'buy_now', listing_id: LISTING, buyer_id: HOLDER, seller_id: SELLER },
+      } },
+    };
+    timeline.push(`webhook:${type}:${piId}`);
+    const res = await edge.handler(signedStripeWebhookRequest(SECRET, event));
+    return { res, body: await json(res), edge };
+  };
+
+  const stripe = mockStripe(async (c: StripeCall) => {
+    if (c.method === 'GET' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
+    if (c.method === 'POST' && c.path === '/ephemeral_keys') return { ok: true, data: { secret: 'ek_test_secret' } };
+    if (c.method === 'POST' && c.path === '/payment_intents') {
+      const id = `pi_new${nextPi++}`;
+      const body = c.body as Record<string, string>;
+      const pi = { id, status: 'requires_payment_method', amount: Number(body.amount), currency: 'usd', client_secret: `${id}_secret` };
+      pis.set(id, pi);
+      timeline.push(`stripe:create:${id}`);
+      return { ok: true, data: { ...pi, livemode: false } };
+    }
+    if (c.method === 'POST' && c.path.endsWith('/cancel')) {
+      const id = c.path.split('/')[2];
+      const pi = pis.get(id);
+      if (cancelThrowsFor === id) { timeline.push(`stripe:cancel-threw:${id}`); throw new Error('network'); }
+      if (!pi || pi.status === 'processing' || pi.status === 'succeeded') {
+        timeline.push(`stripe:cancel-refused:${id}`);
+        return { ok: false, status: 400, data: { error: { code: 'payment_intent_unexpected_state', message: `This PaymentIntent cannot be canceled because it has a status of ${pi?.status ?? 'unknown'}.` } } };
+      }
+      pi.status = 'canceled';
+      timeline.push(`stripe:cancel:${id}`);
+      if (fastWebhook) await deliver('payment_intent.canceled', id);
+      return { ok: true, data: { id, status: 'canceled' } };
+    }
+    if (c.method === 'GET' && c.path.startsWith('/payment_intents/')) {
+      const pi = pis.get(c.path.split('/')[2]);
+      return pi ? { ok: true, data: { ...pi } } : { ok: false, status: 404, data: { error: { message: 'no such pi' } } };
+    }
+    return { ok: false, status: 404, data: { error: { message: `unmocked ${c.method} ${c.path}` } } };
+  });
+
+  const checkoutSb = mockSupabase({
+    user: { id: HOLDER, email: `${HOLDER}@example.test` },
+    rpc,
+    tables: {
+      listings: (q) => (q.filters.some((f) => f[0] === 'eq' && f[1] === 'id' && f[2] === LISTING) ? { data: { ...listing } } : { data: null, error: { message: 'not found' } }),
+      profiles: () => ({ data: { stripe_customer_id: CUSTOMER } }),
+      payments: paymentsTable,
+    },
+  });
+  const checkout = async (body: Record<string, unknown>) => {
+    const edge = await loadEdgeHandler('supabase/functions/create-payment-intent/index.ts', {
+      supabase: checkoutSb,
+      env: { STRIPE_SECRET_KEY: 'sk_test_only', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      provide: { feeBreakdown, dollarsToCents, totalMismatch, stripeFetch: stripe.stripeFetch, stripeFetchRaw: stripe.stripeFetchRaw, STRIPE_MOBILE_API_VERSION: '2024-04-10' },
+    });
+    const res = await edge.handler(authedJsonRequest(body));
+    return { res, body: await json(res), edge };
+  };
+
+  return {
+    payments, pis, listing, timeline, stripe, webhookSb, deliver, checkout,
+    set fastWebhook(v: boolean) { fastWebhook = v; },
+    set insertFails(v: boolean) { insertFails = v; },
+    set cancelThrowsFor(v: string | null) { cancelThrowsFor = v; },
+    holdIntact: () => listing.status === 'reserved' && listing.reserved_by === HOLDER,
+    row: (pi: string) => payments.find((p) => p.stripe_payment_intent_id === pi),
+    rpcCalls: (name: string) => webhookSb.rpcs.filter((r) => r.name === name),
+  };
+}
+
+const pay = (pi: string, status: Status, over: Partial<PaymentRow> = {}): PaymentRow => ({
+  id: `pay_${pi}`, stripe_payment_intent_id: pi, status, listing_id: LISTING, buyer_id: HOLDER, seller_id: SELLER,
+  mode: 'buy_now', total: 22000, amount: 20000, created_at: new Date(Date.now() - 60_000).toISOString(), ...over,
+});
+const pi = (id: string, status = 'requires_payment_method', amount = 22000): Pi => ({ id, status, amount, currency: 'usd', client_secret: `${id}_secret` });
+const logged = (edge: { logs: Array<{ args: unknown[] }> }) => edge.logs.map((l) => l.args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')).join('\n');
+
+describe('L1 — stripe-webhook claims only live attempts and releases per payment', () => {
+  it('W1: a canceled event for a row create-payment-intent already retired claims nothing and leaves the replacement\'s hold', async () => {
+    const w = world({ payments: [pay('pi_old', 'failed'), pay('pi_p2', 'pending')], pis: [pi('pi_old', 'canceled'), pi('pi_p2')] });
+    const { res } = await w.deliver('payment_intent.canceled', 'pi_old');
+    expect(res.status).toBe(200);
+    expect(w.holdIntact()).toBe(true);
+    expect(w.rpcCalls('release_reservation')).toHaveLength(0);
+    expect(w.rpcCalls('release_reservation_for_payment')).toHaveLength(0);
+    expect(w.row('pi_old')?.status).toBe('failed');
+  });
+
+  it('W2: a claimable pending row releases through release_reservation_for_payment bound to THAT payment, never the buyer-scoped RPC', async () => {
+    const w = world({ payments: [pay('pi_only', 'pending')], pis: [pi('pi_only')] });
+    const { res, edge } = await w.deliver('payment_intent.payment_failed', 'pi_only');
+    expect(res.status).toBe(200);
+    expect(w.rpcCalls('release_reservation')).toHaveLength(0);
+    const calls = w.rpcCalls('release_reservation_for_payment');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].params).toEqual({ p_listing_id: LISTING, p_user_id: HOLDER, p_payment_id: 'pay_pi_only' });
+    expect(w.listing.status).toBe('active');
+    expect(logged(edge)).toMatch(/release_reservation_for_payment/);
+    expect(logged(edge)).toMatch(/"released":true/);
+  });
+
+  it('W3: a failure on P1 while the buyer\'s P2 is still pending keeps the hold (live_sibling_attempt), logged, 200', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending'), pay('pi_p2', 'pending')], pis: [pi('pi_old'), pi('pi_p2')] });
+    const { res, edge } = await w.deliver('payment_intent.payment_failed', 'pi_old');
+    expect(res.status).toBe(200);
+    expect(w.holdIntact()).toBe(true);
+    expect(w.row('pi_old')?.status).toBe('failed');
+    expect(logged(edge)).toMatch(/live_sibling_attempt/);
+  });
+
+  it('W4 (preservation): a late payment_failed after success claims nothing and releases nothing', async () => {
+    const w = world({ payments: [pay('pi_paid', 'succeeded')], pis: [pi('pi_paid', 'succeeded')] });
+    const { res } = await w.deliver('payment_intent.payment_failed', 'pi_paid');
+    expect(res.status).toBe(200);
+    expect(w.row('pi_paid')?.status).toBe('succeeded');
+    expect(w.rpcCalls('release_reservation')).toHaveLength(0);
+    expect(w.rpcCalls('release_reservation_for_payment')).toHaveLength(0);
+    expect(w.holdIntact()).toBe(true);
+  });
+
+  it('W5 (preservation): the same event delivered twice releases at most once', async () => {
+    const w = world({ payments: [pay('pi_dup', 'pending')], pis: [pi('pi_dup')] });
+    await w.deliver('payment_intent.payment_failed', 'pi_dup', 'evt_same');
+    const again = await w.deliver('payment_intent.payment_failed', 'pi_dup', 'evt_same');
+    expect(again.res.status).toBe(200);
+    expect([...w.rpcCalls('release_reservation'), ...w.rpcCalls('release_reservation_for_payment')]).toHaveLength(1);
+  });
+
+  it('W6: payment_failed then a DISTINCT canceled event for the same intent, with a replacement hold taken in between, frees nothing the second time', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old')] });
+    await w.deliver('payment_intent.payment_failed', 'pi_old');
+    // the buyer re-reserves and mints a replacement attempt
+    w.listing.status = 'reserved'; w.listing.reserved_by = HOLDER; w.listing.reserved_until = inFuture();
+    w.payments.push(pay('pi_p2', 'pending'));
+    const second = await w.deliver('payment_intent.canceled', 'pi_old');
+    expect(second.res.status).toBe(200);
+    expect(w.holdIntact()).toBe(true);
+  });
+
+  it('W7: a database without 127 (RPC absent) is logged, stays 200, and never falls back to the buyer-scoped release', async () => {
+    const w = world({ payments: [pay('pi_only', 'pending')], pis: [pi('pi_only')], rpcAbsent: true });
+    const { res, edge } = await w.deliver('payment_intent.payment_failed', 'pi_only');
+    expect(res.status).toBe(200);
+    expect(w.rpcCalls('release_reservation')).toHaveLength(0);
+    expect(w.rpcCalls('release_reservation_for_payment')).toHaveLength(1);
+    expect(w.holdIntact()).toBe(true); // degraded: the sweep frees it at TTL
+    expect(logged(edge)).toMatch(/PGRST202|release_reservation_for_payment/);
+  });
+});
+
+describe('L1 — create-payment-intent mints the replacement before cancelling the superseded intent', () => {
+  // The seller re-priced (22000 -> 33000) while the holder's P1 was pending: the reuse path supersedes P1.
+  const repriced = () => world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300 });
+
+  it('C1 (the race): Stripe delivers P1\'s cancel webhook before checkout\'s next statement — the hold survives and P2 is live', async () => {
+    const w = repriced();
+    w.fastWebhook = true;
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ total: 33000 });
+    const p2 = String(body.paymentIntentId);
+    expect(w.holdIntact()).toBe(true);
+    expect(w.row(p2)?.status).toBe('pending');
+    expect(w.row('pi_old')?.status).toBe('failed');
+    expect(w.pis.get('pi_old')?.status).toBe('canceled');
+  });
+
+  it('C2: order of effects — P2 minted and its row inserted before P1 is cancelled', async () => {
+    const w = repriced();
+    const { body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    const p2 = String(body.paymentIntentId);
+    const t = w.timeline;
+    expect(t.indexOf(`stripe:create:${p2}`)).toBeGreaterThanOrEqual(0);
+    expect(t.indexOf(`db:insert:${p2}`)).toBeGreaterThan(t.indexOf(`stripe:create:${p2}`));
+    expect(t.indexOf('stripe:cancel:pi_old')).toBeGreaterThan(t.indexOf(`db:insert:${p2}`));
+    expect(t.indexOf('db:update:pi_old->failed')).toBeGreaterThan(t.indexOf('stripe:cancel:pi_old'));
+  });
+
+  it('C3: Stripe refuses to cancel P1 (processing) — 409 price changed, no secret returned, P1 still pending, P2 cancelled and retired, hold untouched', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'processing', 22000)], price: 300 });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(String(body.error)).toMatch(/price changed/i);
+    expect(body.server_total_cents).toBe(33000);
+    expect(body.clientSecret).toBeUndefined();
+    expect(w.row('pi_old')?.status).toBe('pending');
+    const minted = w.payments.filter((p) => p.stripe_payment_intent_id !== 'pi_old');
+    expect(minted).toHaveLength(1);
+    for (const p of minted) {
+      expect(p.status).toBe('failed');
+      expect(w.pis.get(String(p.stripe_payment_intent_id))?.status).toBe('canceled');
+    }
+    expect(w.holdIntact()).toBe(true);
+  });
+
+  it('C4: refusal when P2\'s own cancel also fails — P2 is still retired locally, so a retry can never reuse its secret', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'processing', 22000)], price: 300 });
+    w.cancelThrowsFor = 'pi_new1';
+    const { res } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(w.row('pi_new1')?.status).toBe('failed');
+    expect(w.row('pi_old')?.status).toBe('pending');
+    // a retry must not hand back pi_new1
+    const retry = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(retry.body.paymentIntentId).not.toBe('pi_new1');
+  });
+
+  it('C5: P2\'s row insert fails — P1 is not cancelled and stays reusable, P2 is cancelled, 500 unchanged', async () => {
+    const w = repriced();
+    w.insertFails = true;
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(500);
+    expect(String(body.error)).toMatch(/Failed to record payment/);
+    expect(w.pis.get('pi_old')?.status).toBe('requires_payment_method');
+    expect(w.row('pi_old')?.status).toBe('pending');
+    expect(w.pis.get('pi_new1')?.status).toBe('canceled');
+    expect(w.holdIntact()).toBe(true);
+  });
+
+  it('C6 (preservation): a pending row whose intent Stripe already cancelled is retired locally with no new cancel call, and a fresh P2 is minted', async () => {
+    const w = world({ payments: [pay('pi_dead', 'pending')], pis: [pi('pi_dead', 'canceled', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(w.row('pi_dead')?.status).toBe('failed');
+    expect(w.timeline.filter((e) => e.startsWith('stripe:cancel'))).toHaveLength(0);
+    expect(w.row(String(body.paymentIntentId))?.status).toBe('pending');
+  });
+});
