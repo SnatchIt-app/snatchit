@@ -15,6 +15,9 @@
 #      the same payment: no deadlock; the claim completes after settlement.
 #   S4 a claim holding the listing while settlement-order locks arrive on a
 #      sibling payment: no deadlock.
+#   S5 the holder's claimed row SETTLES inside its transaction while a second
+#      request claims the replacement: after the wait the settled row's fresh
+#      claim still blocks -> claim_held (D-5 Q3).
 #   C1 CONTROL — the inverted order (listings first, then the payment) against
 #      settlement order DOES deadlock (40P01): the reason 130 locks payments first.
 # Fixture rows are committed under fixed ids and removed at the end.
@@ -82,6 +85,14 @@ reset_fixture
 sleep 0.3
 r=$(psql -X -At -d "$DB" -c "begin; select 1 from public.payments where id='$P2' for update; select 1 from public.listings where id='$L' for update; commit;" 2>&1); wait
 if grep -q deadlock "$T/s4a" || echo "$r" | grep -q deadlock; then report S4 FAIL "deadlock: $(cat "$T/s4a") / $r"; else report S4 PASS "no deadlock; claim=$(head -2 "$T/s4a" | tail -1)"; fi
+
+# S5: the claimed row settles while its claim is fresh; the replacement's claim must still be refused
+reset_fixture
+( psql -X -At -d "$DB" -c "begin; select public.claim_checkout_supersede('$L','$BUYER','$P1')->>'reason'; update public.payments set status = 'succeeded', paid_at = now() where id = '$P1'; select pg_sleep(3); commit;" > "$T/s5a" 2>&1 ) &
+sleep 0.5; t0=$(ms)
+r=$(q "select public.claim_checkout_supersede('$L','$BUYER','$P2')->>'reason'"); t1=$(ms); wait
+w=$((t1 - t0)); a=$(head -2 "$T/s5a" | tail -1)
+[ "$a" = "claimed" ] && [ "$r" = "claim_held" ] && [ $w -ge 2000 ] && report S5 PASS "holder=$a then settled; replacement claim waited ${w}ms then $r" || report S5 FAIL "holder=$a replacement=$r waited=${w}ms"
 
 # C1: CONTROL — inverted order (listing, then payment) against settlement order deadlocks
 reset_fixture

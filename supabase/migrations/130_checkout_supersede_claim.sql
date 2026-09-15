@@ -20,15 +20,38 @@
 --   claim_checkout_supersede(listing, buyer, payment)
 --       -> {claimed, claim_token, holder_payment_id, reason}
 --     Succeeds only when the payment is a pending attempt of that listing and
---     buyer AND no pending row of the same (listing, buyer, mode) group holds a
---     claim younger than 120 s. The edge calls it before superseding AND before
+--     buyer AND no row of the same (listing, buyer, mode) group — in ANY status
+--     — holds a claim younger than 120 s. The edge calls it before superseding AND before
 --     reusing a pending intent's secret, so every hand-out is serialized.
 --   release_checkout_supersede(payment, claim_token) -> {released, reason}
 --     Clears the claim only when the token matches, so the late release of a
 --     request whose claim went stale can never free a newer reclaim.
 -- A claim older than 120 s is reclaimable: a crashed edge cannot wedge the
--- buyer for longer than that. 120 s exceeds the edge's worst mint -> insert ->
--- cancel path by a wide margin; a claim that outlives it is abandoned.
+-- buyer for longer than that.
+--
+-- THE 120 s WINDOW IS NOT A GUARANTEE BY ITSELF. The RPC only decides when a
+-- claim may be RECLAIMED; nothing here stops the request that HOLDS a claim
+-- from continuing past 120 s. That bound is enforced on the holder by the edge
+-- (create-payment-intent, D-5 finding E-1): every Stripe call in the claimed
+-- section is timed out, the section has a 90 s budget, and the holder re-reads
+-- its claim token before inserting a replacement, cancelling the superseded
+-- intent, or handing out any secret. A caller that does not do the same gets
+-- no protection from this window.
+--
+-- ANY-STATUS SIBLING CHECK (amended in place 2026-09-15, D-5 Q3; 130 was
+-- merged into the candidate but applied nowhere). The first version counted
+-- only PENDING rows' claims. Mid-supersede the holder's claimed P1 can settle
+-- (the buyer confirmed it just before) while its replacement P2 is pending; P1
+-- then left 'pending', its fresh claim stopped blocking, and a second request
+-- could claim P2 and receive its secret before the holder saw P1's cancel
+-- refused and withdrew P2 — racing that client's confirmation of P2. Settlement
+-- does NOT neutralize the second success: settle_verified_payment's promotion
+-- collides with idx_payments_one_success_per_listing and records outcome
+-- 'unfulfillable' (20260906110000:72-75), which reconciliation refunds — the
+-- buyer is charged and then refunded. A fresh claim now blocks its group
+-- whatever the claimed row's status; the claimed row itself must still be
+-- pending. A holder always resolves its replacement (hand-out or withdrawal)
+-- before its release, and a crashed holder still lapses at 120 s.
 --
 -- LOCKING (the part that makes it atomic). One RPC call is one transaction:
 --   1. the claimed payments row FOR UPDATE;
@@ -99,14 +122,15 @@ begin
   -- 2. the listing: serializes every claim on this listing
   perform 1 from public.listings l where l.id = p_listing_id for update;
 
-  -- 3. a fresh claim anywhere in the group refuses this one (new statement,
-  --    so its snapshot sees a claim committed while we waited)
+  -- 3. a fresh claim anywhere in the group, on a row in ANY status, refuses
+  --    this one (new statement, so its snapshot sees a claim committed while
+  --    we waited; a claimed row that settled or failed mid-supersede still
+  --    counts — see ANY-STATUS SIBLING CHECK in the header)
   select p.id into v_holder
     from public.payments p
    where p.listing_id = p_listing_id
      and p.buyer_id   = p_buyer_id
      and p.mode       = v_pay.mode
-     and p.status     = 'pending'
      and p.supersede_claimed_at is not null
      and p.supersede_claimed_at > now() - v_stale
    order by p.supersede_claimed_at desc
@@ -127,7 +151,7 @@ end;
 $$;
 
 comment on function public.claim_checkout_supersede(uuid, uuid, uuid) is
-  '130: serialize PaymentIntent secret hand-out per (listing, buyer, mode). Claims a pending attempt of that listing and buyer unless any pending row of the same group holds a claim younger than 120 s. Locks payments then listings (repo order). Returns {claimed, claim_token, holder_payment_id, reason}; never raises. service_role only.';
+  '130: serialize PaymentIntent secret hand-out per (listing, buyer, mode). Claims a pending attempt of that listing and buyer unless any row of the same group, in any status, holds a claim younger than 120 s. Locks payments then listings (repo order). The 120 s window only governs reclaim; the holder is bounded by the edge (E-1). Returns {claimed, claim_token, holder_payment_id, reason}; never raises. service_role only.';
 
 revoke execute on function public.claim_checkout_supersede(uuid, uuid, uuid) from public, anon, authenticated;
 grant  execute on function public.claim_checkout_supersede(uuid, uuid, uuid) to service_role;
