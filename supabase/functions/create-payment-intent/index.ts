@@ -579,6 +579,9 @@ serve(async (req: Request) => {
     }
 
     let failedAttempts = existingPayments.filter((p) => p.status === 'failed').length;
+    // L1: a pending attempt this request supersedes (amount/currency changed).
+    // It is cancelled only AFTER the replacement's row exists — see below.
+    let superseded: { id: string; stripe_payment_intent_id: string } | null = null;
 
     // This buyer is entitled and is about to receive a confirmable secret
     // (reused or freshly minted). Retire every OTHER buyer's pending
@@ -625,32 +628,20 @@ serve(async (req: Request) => {
           // I1 amount binding on the REUSE path (review round 1, MINOR-4): the
           // seller can re-price on UPDATE (072). Handing back a PI minted at
           // the old amount would charge the buyer a number the UI no longer
-          // shows. Cancel it, retire the row, and mint fresh at today's total.
+          // shows. Supersede it with a fresh PI at today's total.
+          //
+          // L1 ORDER: the replacement's `pending` row is inserted BEFORE the old
+          // intent is cancelled. Cancelling first makes Stripe emit
+          // payment_intent.canceled while no sibling attempt exists, so a fast
+          // webhook's release_reservation_for_payment finds no live sibling and
+          // frees the hold this buyer is about to pay against. The old PI is
+          // therefore cancelled after the insert below; the salt counts it now
+          // so the replacement never replays the old idempotency key.
           logStage('reuse-rejected-amount-mismatch', {
             pi_id: existingPiData.id, pi_amount: existingPiData.amount ?? null, pi_currency: existingPiData.currency ?? null,
             server_total_cents: totalCents,
           });
-          const canceled = await cancelPaymentIntentBestEffort(pendingPayment.stripe_payment_intent_id, 'reuse-rejected-amount-mismatch');
-          if (!canceled) {
-            // The old PI could not be cancelled (e.g. already processing).
-            // Minting a second live PI now would risk a double charge; leave
-            // the row pending for the webhook and let the client retry.
-            return new Response(
-              JSON.stringify({
-                error: 'Price changed. Please review the updated total and try again.',
-                server_total_cents: totalCents,
-              }),
-              { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
-            );
-          }
-          const { error: retireErr } = await supabase
-            .from('payments')
-            .update({ status: 'failed' })
-            .eq('id', pendingPayment.id)
-            .eq('status', 'pending');
-          if (retireErr) {
-            console.warn('Failed to retire amount-mismatched pending payment (continuing):', retireErr.message);
-          }
+          superseded = { id: pendingPayment.id, stripe_payment_intent_id: pendingPayment.stripe_payment_intent_id };
           failedAttempts += 1;
         } else if (existingPiData.client_secret) {
           logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
@@ -836,6 +827,48 @@ serve(async (req: Request) => {
       );
     }
     logStage('db-insert-ok', { pi_id: stripeData.id, status: 'pending' });
+
+    if (superseded) {
+      // L1: the replacement row exists, so the cancel event Stripe emits now
+      // sees a live sibling attempt. The replacement's secret is returned only
+      // once the old intent is provably cancelled.
+      const oldCanceled = await cancelPaymentIntentBestEffort(superseded.stripe_payment_intent_id, 'reuse-rejected-amount-mismatch');
+      if (!oldCanceled) {
+        // The old PI could not be cancelled (e.g. already processing) and may
+        // still charge. Withdraw the replacement — its secret was never
+        // returned — and ALWAYS retire its row, even if Stripe's cancel of it
+        // fails: an unexposed secret can confirm nothing, but a `pending` row
+        // would be reused (and its secret handed out) on the next request.
+        await cancelPaymentIntentBestEffort(stripeData.id, 'withdraw-replacement');
+        const { error: withdrawErr } = await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('stripe_payment_intent_id', stripeData.id)
+          .eq('status', 'pending');
+        if (withdrawErr) {
+          await captureException(
+            'create-payment-intent',
+            new Error(`withdraw-replacement: row retire failed for ${stripeData.id}: ${withdrawErr.message}`),
+          );
+        }
+        logStage('replacement-withdrawn', { pi_id: stripeData.id, superseded_pi: superseded.stripe_payment_intent_id });
+        return new Response(
+          JSON.stringify({
+            error: 'Price changed. Please review the updated total and try again.',
+            server_total_cents: totalCents,
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } }
+        );
+      }
+      const { error: retireErr } = await supabase
+        .from('payments')
+        .update({ status: 'failed' })
+        .eq('id', superseded.id)
+        .eq('status', 'pending');
+      if (retireErr) {
+        console.warn('Failed to retire amount-mismatched pending payment (continuing):', retireErr.message);
+      }
+    }
 
     return new Response(
       JSON.stringify({

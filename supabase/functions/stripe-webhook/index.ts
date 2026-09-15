@@ -361,16 +361,18 @@ serve(async (req: Request) => {
     } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
       // Claim guard: Stripe does NOT guarantee event ordering, and one PI
       // legitimately goes failed→succeeded when the buyer retries in the
-      // same PaymentSheet. A late-arriving payment_failed / canceled must
-      // never overwrite a payment that already succeeded (which would freeze
-      // its payout and release the reservation on a sold listing) or one
-      // already refunded. One predicate, `status NOT IN (succeeded, refunded)`,
-      // so Package 3's transition guard (refunded is terminal) never fires.
+      // same PaymentSheet. Only a LIVE attempt (pending | processing) is
+      // claimed. A late payment_failed / canceled must never overwrite a
+      // payment that already succeeded (it would freeze the payout and release
+      // the hold on a sold listing) or one already refunded — and (L1) never
+      // re-claim a row that is already `failed`: create-payment-intent retires
+      // a superseded intent itself, and Stripe's cancel event for it arrives
+      // while the buyer's REPLACEMENT attempt is using the same hold.
       const { data: payment, error: lookupErr } = await supabase
         .from('payments')
         .update({ status: 'failed' })
         .eq('stripe_payment_intent_id', piId)
-        .not('status', 'in', '("succeeded","refunded")')
+        .in('status', ['pending', 'processing'])
         .select('id, listing_id')
         .maybeSingle();
 
@@ -381,33 +383,46 @@ serve(async (req: Request) => {
         return await finish(false, { stage: 'payment_failed_update' }, `${event.type}: ${lookupErr.message}`);
       }
       if (!payment) {
-        // No claimable row — unknown PI, or the payment already
-        // succeeded/refunded/failed (out-of-order or duplicate delivery).
+        // No claimable row — unknown PI, or the payment is no longer a live
+        // attempt: succeeded / refunded / already failed (out-of-order,
+        // duplicate, or a stale cancel of an intent checkout already retired).
         // Benign no-op: genuinely nothing left to do.
         console.log('Webhook: payment_failed/canceled ignored (no claimable row)', { pi_id: piId, event_type: event.type });
         return await finish(true, { skipped: 'no_claimable_row' });
       }
 
       if (metadata.mode === 'buy_now') {
-        // Free the Buy-Now hold so the listing is purchasable again. Best
-        // effort with a bounded backstop: the reservation is server-owned
-        // (10-minute TTL, Package 1) and cleanup_expired_reservations frees
-        // it when it lapses, so a failure here is logged, not retried — a
-        // retry could not redo the failed-write above (already claimed) and
-        // release_reservation is a no-op once the hold is gone.
-        const { error: rpcErr } = await supabase.rpc('release_reservation', {
+        // Free the Buy-Now hold THIS payment was using — and only that (L1,
+        // migration 127). release_reservation_for_payment is bound to the
+        // payment: it refuses while another buy_now attempt by the buyer is
+        // still pending/processing, when the hold is newer than the payment,
+        // or when the listing has a succeeded payment, and reports why as
+        // {released, reason}. The buyer-scoped release_reservation cannot
+        // tell this payment's hold from the replacement's and is never called.
+        // Best effort with a bounded backstop: the hold is server-owned
+        // (10-minute TTL) and cleanup_expired_reservations frees it when it
+        // lapses, so an RPC error — including a database that does not have
+        // 127 yet (PGRST202) — is logged, not retried and not fatal.
+        const { data: release, error: rpcErr } = await supabase.rpc('release_reservation_for_payment', {
           p_listing_id: metadata.listing_id,
           p_user_id:    metadata.buyer_id,
+          p_payment_id: payment.id,
         });
         if (rpcErr) {
           console.error('Webhook RPC failed:', {
             listing_id: metadata.listing_id,
             payment_id: payment.id,
-            rpc_name:   'release_reservation',
+            rpc_name:   'release_reservation_for_payment',
             error:      rpcErr,
           });
         } else {
-          console.log('Webhook: release_reservation succeeded', { listing_id: metadata.listing_id });
+          const r = (release ?? {}) as { released?: boolean; reason?: string };
+          console.log('Webhook: release_reservation_for_payment', {
+            listing_id: metadata.listing_id,
+            payment_id: payment.id,
+            released:   r.released ?? null,
+            reason:     r.reason ?? null,
+          });
         }
       }
       return await finish(true, { path: event.type === 'payment_intent.canceled' ? 'canceled' : 'payment_failed', payment_id: payment.id });
