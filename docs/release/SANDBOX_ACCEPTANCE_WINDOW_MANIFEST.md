@@ -162,3 +162,32 @@ value or an uncertain mutation outcome.
 **Expected after:** ledger 131 + (Phase A's 124) as the manifest counts them; both edges byte-identical to the pin
 (`git show candidate/2026-09-18-pin:supabase/functions/<fn>/index.ts` vs the deployed source); no flag moved;
 counts back to baseline after DV cleanup.
+
+## 9. SBX-2 — command-level runbook (A executes; D witnesses ledger/census; C runs DV rows)
+
+All against **`ofaidukbieeekqaboscm` only**; `--project-ref` on every command; never `--linked` to production.
+Every mutation is preceded by the read it changes and followed by the read that proves it. **Stop** on any value
+that differs from the expected one below.
+
+| # | Step | Command / query | Expected |
+|---|---|---|---|
+| 0 | Source | `git checkout candidate/2026-09-18-pin` (the tag; `git rev-parse HEAD` = the pinned commit) | tree = pin |
+| 1 | Ledger before | `select version from supabase_migrations.schema_migrations order by version` | 123 present, 124 present (Phase A done), 125–130 **absent** |
+| 2 | Planned list | `supabase db push --project-ref ofaidukbieeekqaboscm --include-all --dry-run` | exactly `125 126 127 128 129 130` (if the owner's O-1 extension covers 129/130; otherwise `125 126 127 128` and stop after 128) |
+| 3 | 126 precondition (B's L-1) | `select count(*) from public.payments where status='refunded' and refunded_at is null` | **0** |
+| 4 | Flags / native | `feature.native_*` all false; `kernel.tickets`, `kernel.signing_key` = 0 | unchanged |
+| 5 | Apply | `supabase db push --project-ref ofaidukbieeekqaboscm --include-all` | 6 (or 4) applied, in order |
+| 6 | Ledger after | as 1 | 125–130 present exactly once each |
+| 7 | Census after | tables/functions/policies/triggers in `public` | **31 / 96 / 37 / 35** (matches ci.yml at the pin) |
+| 8 | Object spot-checks | `release_reservation_for_payment`, `register_push_token` (comment says 128 v2), `revoke_push_token`, `claim_checkout_supersede`, `push_token_rebind_epoch` 1 row, `push_tokens` grants: anon/authenticated `DELETE,INSERT` only | present / as stated |
+| 9 | Edge deploy | `supabase functions deploy stripe-webhook --project-ref ofaidukbieeekqaboscm` then `create-payment-intent` | both deployed |
+| 10 | Edge parity | compare deployed source (`supabase functions download` or the dashboard's source) to `git show candidate/2026-09-18-pin:supabase/functions/<fn>/index.ts` | byte-identical |
+| 11 | DV-611 L/S/R/C (C, with a device on the sandbox build) and DV-L1/L2 read-backs (A) | per `CANDIDATE_BUILD_AND_DEVICE_PLAN.md`; server read-backs via `execute_sql` and `edge_logs` (wait ≥ 10 min before calling a request absent) | rows as planned |
+| 12 | Cleanup | release any preview hold via `release_reservation`; delete DV fixture tokens by exact id | counts back to §1 baseline (+ledger rows) |
+| 13 | Closing read-back | 1, 4, 7 again; write the result in this file | recorded |
+
+**Rollback, if a step fails after 5:** the per-migration rollbacks under `supabase/rollbacks/` in reverse order
+(130 → 125), each proven locally to restore the previous catalog byte-for-byte (127/129/130 md5-identical; 128
+and 131 with their declared exceptions); edges redeployed from `df9e0d3` only if a rollback below 127 is run.
+**Nothing here is production.** The production apply sequence is §3 of the release package and needs its own
+authorizations.
