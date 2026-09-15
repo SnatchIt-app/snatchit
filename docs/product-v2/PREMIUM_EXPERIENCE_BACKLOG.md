@@ -990,3 +990,45 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   only because the ledger is linear; it does not need the venue-kit acceptance,
   the MFA step or the checkout previews. Those ride D's track and are not on the
   money/notification path.
+- **Contract v2 FROZEN (A, 2026-09-15; `docs/release/PUSH_TOKEN_CONTRACT_V2.md`,
+  server `f22c1a3`, D pass 3 clean).** C-1 final delta done at **`656b3ee`** on
+  `frontend/candidate-recovery`: sign-out revokes only through the server verb
+  (§2.4) — no direct write of `revoked_*` remains anywhere in app/ or src/ (the
+  d90db6b direct write was a freeze blocker, found by A's G-2 question); the
+  registration record is cleared at sign-out so a same-process re-login
+  registers again; `too many registration attempts` is `rate_limited` (600 s
+  wait, then retry) instead of terminal; the sunset refusal is the rule-4 branch
+  (no change). Gates: tsc clean; vitest 1883 / 84; lint 0 errors / 29 warnings.
+  Gated diff vs d90db6b: `signOut.ts` +60/−17 (to A, A-8).
+  **Open (A):** §2.4 names `notify.revoke_push_token`, but `notify` is not in
+  PostgREST's exposed schemas on the sandbox — A is choosing between a `public`
+  wrapper (one-line client change, likely migration 129) and exposing `notify`
+  per environment; 656b3ee holds until the addendum. DV-611 depends on it.
+- **Rehearsal on A's snapshot `release/candidate-20260918 @ cd1f03c`:** the
+  32-commit stack (F1 + batches 1–4 + recovery through 656b3ee) replays with no
+  conflicts (`--onto cd1f03c 2ba5281^`, throwaway worktree, removed); tsc
+  clean, vitest 1883 / 84 on the replayed head. Nothing under app/ or src/
+  changed between c55ea50 and cd1f03c.
+- **Origin push refused:** `git push origin frontend/*` was denied by this
+  session's permission classifier; the branches are on this machine only
+  (`snatchit-batch1`, `snatchit-premium`, `snatchit-129`). Reported to the
+  owner as their action; A reads the stack from the local path for A-8.
+- **O-3 decided by the owner (2026-09-15): option (b), session-bound push
+  bindings, a PRODUCTION gate.** Not accepted for production; sandbox
+  acceptance and the candidate build do not waive it. A's design:
+  `docs/release/SESSION_BOUND_PUSH_BINDINGS_129_DESIGN.md` (number moving to
+  131 per A). **C's provisional client delta: `627ee62` on
+  `frontend/session-bound-129`** (worktree `snatchit-129`; NOT in the candidate
+  stack): `session_stale` terminal kind + forced local re-auth
+  (`src/lib/push/sessionStale.ts`), ordinary sign-out → scope 'local',
+  `signOutAllDevices()` (revoke_all_push_bindings → global sign-out) + Settings
+  row "Sign out of all devices", reset-password → global sign-out with a
+  'password_changed' notice, two new login notices. Gates: tsc clean; vitest
+  1893 / 85; lint 0 errors / 29 warnings. **Product change put to the owner
+  (A concurs):** the app's ordinary sign-out was global-scope (auth-js
+  default) and left other devices with live push rows and no session; P6
+  requires local scope + a distinct all-devices act. No reclaim UX (D's R1–R3).
+  D reviewing the client side against S13–S16.
+- **Effect on dates (C's view):** Friday candidate unchanged (Thu build after
+  the candidate checks; Fri handset Blocks 0–3). Production readiness waits
+  on 131 + its client delta in a later build: earliest the week of 21 Sept.
