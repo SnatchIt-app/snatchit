@@ -65,6 +65,12 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   insertStallMs?: number;
   /** extra env for create-payment-intent (e.g. shrunken E-1 budgets) */
   checkoutEnv?: Record<string, string>;
+  /** migration 132 absent (PGRST202) or erroring for the group claim RPCs */
+  groupRpc?: 'present' | 'absent' | 'error';
+  /** the first N group claims see another request's brief claim */
+  groupHeldTimes?: number;
+  /** Stripe replays an intent for a repeated idempotency key (returning its current state) */
+  idempotentStripe?: boolean;
 }) {
   const payments = init.payments.map((p) => ({ ...p }));
   const pis = new Map(init.pis.map((p) => [p.id, { ...p }]));
@@ -125,8 +131,33 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   const claimOf = new Map<string, string>();
   const claimLog: string[] = [];
 
+  // migration 132 model: one durable record per (listing, buyer, mode) group, token-bound release
+  const groupOf = new Map<string, string>();
+  const groupLog: string[] = [];
+  let groupHeldLeft = init.groupHeldTimes ?? 0;
+  const gkey = (l: unknown, b: unknown, m: unknown) => `${String(l)}|${String(b)}|${String(m)}`;
+
   const rpc: RpcHandler = (name, params) => {
     if (name === 'check_rate_limit') return { data: true };
+    if (name === 'claim_checkout_group' || name === 'release_checkout_group') {
+      if ((init.groupRpc ?? 'present') === 'absent') return { data: null, error: { message: `Could not find the function public.${name}`, code: 'PGRST202' } };
+      if (init.groupRpc === 'error') return { data: null, error: { message: 'connection reset', code: '08006' } };
+      const k = gkey(params.p_listing_id, params.p_buyer_id, params.p_mode);
+      if (name === 'claim_checkout_group') {
+        if (groupHeldLeft > 0) { groupHeldLeft--; groupLog.push(`group-held:${String(params.p_mode)}`); timeline.push('db:group-held'); return { data: { claimed: false, claim_token: null, reason: 'claim_held' } }; }
+        if (groupOf.has(k)) { groupLog.push(`group-held:${String(params.p_mode)}`); timeline.push('db:group-held'); return { data: { claimed: false, claim_token: null, reason: 'claim_held' } }; }
+        const tok = `gtok_${++tokenSeq}`;
+        groupOf.set(k, tok);
+        groupLog.push(`group-claim:${String(params.p_mode)}`); timeline.push('db:group-claim');
+        return { data: { claimed: true, claim_token: tok, reason: 'claimed' } };
+      }
+      const cur = groupOf.get(k);
+      if (!cur) return { data: { released: false, reason: 'not_claimed' } };
+      if (cur !== params.p_claim_token) return { data: { released: false, reason: 'token_mismatch' } };
+      groupOf.delete(k);
+      groupLog.push(`group-release:${String(params.p_mode)}`); timeline.push('db:group-release');
+      return { data: { released: true, reason: 'released' } };
+    }
     if (name === 'claim_stripe_webhook_event') return { data: completedEvents.has(String(params.p_event_id)) ? 'already_processed' : 'claimed' };
     if (name === 'complete_stripe_webhook_event') { completedEvents.add(String(params.p_event_id)); return { data: true }; }
     if (name === 'fail_stripe_webhook_event') return { data: true };
@@ -209,6 +240,7 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   };
 
   let stallUsed = false;
+  const idemKeys = new Map<string, string>();
   let onCreate: (() => Promise<void>) | null = null;
   const stripe = mockStripe(async (c: StripeCall) => {
     if (init.stall && !stallUsed && init.stall.match.test(`${c.method} ${c.path}`)) {
@@ -221,7 +253,13 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     if (c.method === 'POST' && c.path === '/ephemeral_keys') return { ok: true, data: { secret: 'ek_test_secret' } };
     if (c.method === 'POST' && c.path === '/payment_intents') {
       if (onCreate) { const hook = onCreate; onCreate = null; await hook(); }
+      if (init.idempotentStripe && c.idempotencyKey && idemKeys.has(c.idempotencyKey)) {
+        const replay = pis.get(idemKeys.get(c.idempotencyKey)!)!;
+        timeline.push(`stripe:replay:${replay.id}`);
+        return { ok: true, data: { ...replay, livemode: false } };
+      }
       const id = `pi_new${nextPi++}`;
+      if (c.idempotencyKey) idemKeys.set(c.idempotencyKey, id);
       const body = c.body as Record<string, string>;
       const pi = { id, status: 'requires_payment_method', amount: Number(body.amount), currency: 'usd', client_secret: `${id}_secret` };
       pis.set(id, pi);
@@ -256,6 +294,11 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
       listings: (q) => (q.filters.some((f) => f[0] === 'eq' && f[1] === 'id' && f[2] === LISTING) ? { data: { ...listing } } : { data: null, error: { message: 'not found' } }),
       profiles: () => ({ data: { stripe_customer_id: CUSTOMER } }),
       payments: paymentsTable,
+      checkout_group_claim: (q) => {
+        const f = (col: string) => q.filters.find((x) => x[0] === 'eq' && x[1] === col)?.[2];
+        const tok = groupOf.get(gkey(f('listing_id'), f('buyer_id'), f('mode')));
+        return { data: tok ? { claim_token: tok } : null };
+      },
     },
   });
   const checkout = async (body: Record<string, unknown>) => {
@@ -285,6 +328,12 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     },
     claimsOutstanding: () => claimOf.size,
     claimLog,
+    groupLog,
+    groupClaimsOutstanding: () => groupOf.size,
+    /** simulate the group claim going stale and another request reclaiming it */
+    stealGroupClaim: (mode = 'buy_now') => { groupOf.set(gkey(LISTING, HOLDER, mode), `gtok_stolen_${++tokenSeq}`); groupLog.push('group-stolen'); },
+    /** seed Stripe's idempotency cache: `key` replays intent `piId` */
+    seedIdempotency: (key: string, piId: string) => { idemKeys.set(key, piId); },
     checkoutSb,
     holdIntact: () => listing.status === 'reserved' && listing.reserved_by === HOLDER,
     row: (pi: string) => payments.find((p) => p.stripe_payment_intent_id === pi),
@@ -536,6 +585,157 @@ describe('L1 / 130 — every secret hand-out on a pending attempt holds the (lis
     expect(w.claimLog).toEqual(['held:pi_same', 'held:pi_same', 'claim:pi_same', 'release:pi_same']);
   });
 
+});
+
+describe('132 — no two concurrent requests of one (listing, buyer, mode) group can each mint (fresh-mint double charge)', () => {
+  // Stripe replays an intent for a repeated idempotency key, so two requests only
+  // mint twice when their keys diverge. D's disposition names three divergences;
+  // each test drives one through the REAL handler with the second request running
+  // while the first is inside Stripe's create. RED on the pin (aabe029): both
+  // requests hand out a different live secret.
+  const secretOf = (b: Record<string, unknown>) => (typeof b.clientSecret === 'string' ? b.clientSecret : null);
+  const KEY0 = `pi_${LISTING}_${HOLDER}_buy_now_22000_c${CUSTOMER}`;
+  type W = ReturnType<typeof world>;
+  const confirmable = (w: W) => [...w.pis.values()].filter((p) => p.status === 'requires_payment_method' && w.row(p.id)?.status === 'pending').map((p) => p.id);
+  const secretsHandedOut = (...bodies: Array<Record<string, unknown> | undefined>) => [...new Set(bodies.map((b) => (b ? secretOf(b) : null)).filter(Boolean))];
+
+  it('F1 (re-price between the two reads): the second request is refused before it mints — one secret, one recorded live intent', async () => {
+    const w = world({ payments: [], pis: [], idempotentStripe: true });
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCreate = async () => { w.listing.buy_now_price = 300; second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(second).not.toBeNull();
+    expect(secretsHandedOut(first.body, second!.body)).toHaveLength(1);
+    expect(confirmable(w)).toHaveLength(1);
+    expect(second!.res.status).toBe(409);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  }, 15_000);
+
+  it('F2 (failedAttempts flips between the two reads): one secret, one recorded live intent', async () => {
+    const w = world({ payments: [pay('pi_f1', 'failed')], pis: [pi('pi_f1', 'canceled')], idempotentStripe: true });
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCreate = async () => { w.payments.push(pay('pi_f2', 'failed')); second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(secretsHandedOut(first.body, second!.body)).toHaveLength(1);
+    expect(confirmable(w)).toHaveLength(1);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  }, 15_000);
+
+  it('F3 (the canceled-replay `_u` retry): one secret, one recorded live intent', async () => {
+    const w = world({ payments: [], pis: [pi('pi_dead', 'canceled')], idempotentStripe: true });
+    w.seedIdempotency(KEY0, 'pi_dead');
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCreate = async () => { second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(secretsHandedOut(first.body, second!.body)).toHaveLength(1);
+    expect(confirmable(w)).toHaveLength(1);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  }, 15_000);
+
+  it('F4 (preservation): an identical double tap still ends with exactly one intent and at most one distinct secret', async () => {
+    const w = world({ payments: [], pis: [], idempotentStripe: true });
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCreate = async () => { second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(first.res.status).toBe(200);
+    expect(secretsHandedOut(first.body, second!.body)).toHaveLength(1);
+    expect([...w.pis.keys()]).toHaveLength(1);
+  }, 15_000);
+
+  it('G1: the group record is taken before any Stripe create and released after the hand-out', async () => {
+    const w = world({ payments: [], pis: [] });
+    const { res } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    const claimAt = w.timeline.indexOf('db:group-claim');
+    const createAt = w.timeline.findIndex((e) => e.startsWith('stripe:create'));
+    expect(claimAt).toBeGreaterThanOrEqual(0);
+    expect(claimAt).toBeLessThan(createAt);
+    expect(w.timeline.indexOf('db:group-release')).toBeGreaterThan(w.timeline.findIndex((e) => e.startsWith('db:insert')));
+    expect(w.groupLog).toEqual(['group-claim:buy_now', 'group-release:buy_now']);
+  });
+
+  it('G2: the group record is released on every exit — fresh mint, reuse, supersede refusal, 130 claim error, insert failure, already-succeeded', async () => {
+    const cases: Array<[string, W, number, number]> = [];
+    const fresh = world({ payments: [], pis: [] });
+    cases.push(['fresh', fresh, 22000, 200]);
+    const reuse = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)] });
+    cases.push(['reuse', reuse, 22000, 200]);
+    const refused = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'processing', 22000)], price: 300 });
+    cases.push(['supersede-refused', refused, 33000, 409]);
+    const claimErr = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], claimRpc: 'error' });
+    cases.push(['130-claim-error', claimErr, 22000, 503]);
+    const ins = world({ payments: [], pis: [] });
+    ins.insertFails = true;
+    cases.push(['insert-failure', ins, 22000, 500]);
+    const paid = world({ payments: [pay('pi_paid_pending_row', 'pending')], pis: [pi('pi_paid_pending_row', 'succeeded', 22000)] });
+    cases.push(['already-succeeded', paid, 22000, 400]);
+    for (const [label, w, total, status] of cases) {
+      const { res } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: total });
+      expect([label, res.status]).toEqual([label, status]);
+      expect([label, w.groupClaimsOutstanding()]).toEqual([label, 0]);
+    }
+  });
+
+  it('G3: migration 132 absent (PGRST202) fails closed — 503, no Stripe create or cancel, no secret, reported', async () => {
+    const w = world({ payments: [], pis: [], groupRpc: 'absent' });
+    const { res, body, edge } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(503);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create') || e.startsWith('stripe:cancel'))).toHaveLength(0);
+    expect(edge.sentry.some((s) => /claim_checkout_group/.test(String((s.error as Error)?.message ?? s.error)))).toBe(true);
+  });
+
+  it('G4: any other group claim error fails closed — 503, no mint', async () => {
+    const w = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)], groupRpc: 'error' });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(503);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+  });
+
+  it('G5: a group record held only briefly is waited out — the retry mints once and returns the secret', async () => {
+    const w = world({ payments: [], pis: [], groupHeldTimes: 2 });
+    const { res } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(w.groupLog).toEqual(['group-held:buy_now', 'group-held:buy_now', 'group-claim:buy_now', 'group-release:buy_now']);
+  });
+
+  it('G6: a group record that stays held answers 409 with no secret, no prior-payments read and no Stripe create', async () => {
+    const w = world({ payments: [], pis: [], groupHeldTimes: 99 });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(body.error).toBe('Your checkout is being updated. Please try again.');
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+    expect(w.checkoutSb.queries.filter((q) => q.table === 'payments' && q.op === 'select' && /stripe_payment_intent_id/.test(String(q.select)))).toHaveLength(0);
+  }, 15_000);
+
+  it('G7 (E-1): the group record is reclaimed while Stripe creates — no row, no secret, the minted intent withdrawn', async () => {
+    const w = world({ payments: [], pis: [] });
+    w.onCreate = async () => { w.stealGroupClaim(); };
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.payments.filter((p) => p.status === 'pending')).toHaveLength(0);
+    expect(w.pis.get('pi_new1')?.status).toBe('canceled');
+  });
+
+  it('G8 (E-1): the group record is reclaimed while the superseded intent is being cancelled — no secret handed out', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300 });
+    w.onCancel = async (id) => { if (id === 'pi_old') w.stealGroupClaim(); };
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+  });
+
+  it('P1: a group attempt still processing blocks a fresh mint — 409, no Stripe create, no secret', async () => {
+    const w = world({ payments: [pay('pi_proc', 'processing')], pis: [pi('pi_proc', 'processing', 22000)], idempotentStripe: true });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create'))).toHaveLength(0);
+    expect(w.groupClaimsOutstanding()).toBe(0);
+  });
 });
 
 describe('E-1 — the request holding the claim cannot act after it lost the claim or ran past its budget', () => {

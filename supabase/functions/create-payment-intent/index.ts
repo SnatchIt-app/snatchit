@@ -337,6 +337,56 @@ async function releaseCheckout(supabase: SupabaseClient, claim: CheckoutClaim | 
   }
 }
 
+// ── Migration 132: pre-mint checkout group record ─────────────────────────────
+// 130's claim lives on a pending payment row, so two concurrent requests that
+// both find NO pending row both mint; when their idempotency keys diverge (the
+// `_u` replay retry, a re-price between reads, a failedAttempts flip) that is two
+// intents, two secrets and two captured charges. Every request therefore takes
+// the (listing, buyer, mode) group record BEFORE it reads prior payments and
+// holds it through every mint and hand-out. claim_held is retried briefly and
+// then answered 409 without a mint or a secret. There is no degraded mode: if
+// 132 is absent (PGRST202) or the claim errors, the request fails closed (503),
+// so migration 132 must be applied before this edge ships.
+type GroupClaim = { listingId: string; buyerId: string; mode: string; token: string };
+type GroupClaimResult =
+  | { kind: 'held'; claim: GroupClaim }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'error'; message: string };
+
+async function claimCheckoutGroup(
+  supabase: SupabaseClient, listingId: string, buyerId: string, mode: string,
+): Promise<GroupClaimResult> {
+  for (let attempt = 0; attempt < CLAIM_RETRY_ATTEMPTS; attempt++) {
+    const { data, error } = await supabase.rpc('claim_checkout_group', {
+      p_listing_id: listingId, p_buyer_id: buyerId, p_mode: mode,
+    });
+    if (error) {
+      const e = error as { code?: string; message?: string };
+      if (e.code === 'PGRST202') {
+        await captureException('create-payment-intent', new Error(`claim_checkout_group unavailable (migration 132 not applied): ${e.message ?? ''}`));
+      }
+      return { kind: 'error', message: `${e.code ?? '?'} ${e.message ?? ''}` };
+    }
+    const r = (data ?? null) as { claimed?: boolean; claim_token?: string | null; reason?: string } | null;
+    if (!r || typeof r.claimed !== 'boolean') return { kind: 'error', message: 'claim_checkout_group returned no result' };
+    if (r.claimed && r.claim_token) return { kind: 'held', claim: { listingId, buyerId, mode, token: r.claim_token } };
+    if (r.reason !== 'claim_held') return { kind: 'refused', reason: r.reason ?? 'unknown' };
+    if (attempt < CLAIM_RETRY_ATTEMPTS - 1) await new Promise((res) => setTimeout(res, CLAIM_RETRY_DELAY_MS));
+  }
+  return { kind: 'refused', reason: 'claim_held' };
+}
+
+async function releaseCheckoutGroup(supabase: SupabaseClient, claim: GroupClaim): Promise<void> {
+  const { data, error } = await supabase.rpc('release_checkout_group', {
+    p_listing_id: claim.listingId, p_buyer_id: claim.buyerId, p_mode: claim.mode, p_claim_token: claim.token,
+  });
+  const r = (data ?? null) as { released?: boolean; reason?: string } | null;
+  if (error || !r?.released) {
+    // Not fatal: an unreleased group record lapses after 120 s. Surfaced so it is visible.
+    console.warn('release_checkout_group did not release:', { mode: claim.mode, reason: r?.reason ?? null, error: error?.message ?? null });
+  }
+}
+
 // ── E-1: the 120 s stale window must bind the request that HOLDS the claim ────
 // claim_checkout_supersede treats a claim older than 120 s as abandoned, so a
 // holder that is still running past that point could act after another request
@@ -359,11 +409,13 @@ class ClaimedSectionTimeout extends Error {}
 
 type ClaimGuard = {
   bound: <T>(p: Promise<T>, label: string) => Promise<T>;
-  /** 'held' also when no claim is in force (degraded / fresh mint): nothing to guard. */
+  /** checks the 132 group record, then 130's row claim when one is in force (reuse / supersede). */
   check: () => Promise<'held' | 'lost' | 'expired' | 'error'>;
 };
 
-function makeClaimGuard(supabase: SupabaseClient, getClaim: () => CheckoutClaim | null, startedMs: number): ClaimGuard {
+function makeClaimGuard(
+  supabase: SupabaseClient, group: GroupClaim, getClaim: () => CheckoutClaim | null, startedMs: number,
+): ClaimGuard {
   const callMs = positiveMsFromEnv('CHECKOUT_STRIPE_TIMEOUT_MS', DEFAULT_STRIPE_CALL_TIMEOUT_MS);
   const budgetMs = positiveMsFromEnv('CHECKOUT_CLAIM_BUDGET_MS', DEFAULT_CLAIM_BUDGET_MS);
   const remaining = () => budgetMs - (Date.now() - startedMs);
@@ -377,9 +429,18 @@ function makeClaimGuard(supabase: SupabaseClient, getClaim: () => CheckoutClaim 
       return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
     },
     check: async () => {
+      if (remaining() <= 0) return 'expired';
+      const { data: g, error: gErr } = await supabase
+        .from('checkout_group_claim')
+        .select('claim_token')
+        .eq('listing_id', group.listingId)
+        .eq('buyer_id', group.buyerId)
+        .eq('mode', group.mode)
+        .maybeSingle();
+      if (gErr) return 'error';
+      if ((g as { claim_token?: string | null } | null)?.claim_token !== group.token) return 'lost';
       const claim = getClaim();
       if (!claim || claim.kind !== 'held') return 'held';
-      if (remaining() <= 0) return 'expired';
       const { data, error } = await supabase
         .from('payments')
         .select('supersede_claim_token')
@@ -656,6 +717,26 @@ serve(async (req: Request) => {
     );
     logStage('stripe-customer', { customer_id: customerCtx.customerId });
 
+    // 132: the group record precedes the prior-payments read and every mint.
+    const groupClaim = await claimCheckoutGroup(supabase, listing_id, buyerId, mode);
+    if (groupClaim.kind === 'error') {
+      logStage('checkout-group-claim-error', { listing_id, mode, error: groupClaim.message });
+      return new Response(
+        JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+        { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } }
+      );
+    }
+    if (groupClaim.kind === 'refused') {
+      logStage('checkout-group-claim-refused', { listing_id, mode, reason: groupClaim.reason });
+      return new Response(
+        JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+        { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '2', ...getResponseHeaders(req) } }
+      );
+    }
+    // E-1: the section budget starts when the group record is taken.
+    const sectionStartedMs = Date.now();
+    try {
+
     // Fetch EVERY prior payment row for this (listing, buyer, mode), terminal
     // ones included. Failed attempts don't block a retry, but they MUST salt
     // the Stripe idempotency key below: after a failed attempt this function
@@ -703,7 +784,7 @@ serve(async (req: Request) => {
     const pendingPayment = existingPayments.find((p) => p.status === 'pending');
     // 130: hold the group claim before reusing or superseding this attempt.
     let checkoutClaim: CheckoutClaim | null = null;
-    const claimGuard = makeClaimGuard(supabase, () => checkoutClaim, Date.now());
+    const claimGuard = makeClaimGuard(supabase, groupClaim.claim, () => checkoutClaim, sectionStartedMs);
     // E-1: a guard verdict other than 'held' never hands out a secret.
     const claimLost = (verdict: 'lost' | 'expired' | 'error', stage: string): Response => {
       logStage('checkout-claim-lost', { stage, verdict });
@@ -1054,6 +1135,10 @@ serve(async (req: Request) => {
     } finally {
       // 130: every exit after the claim — success, 400/409/500, or a throw — releases it.
       await releaseCheckout(supabase, checkoutClaim);
+    }
+    } finally {
+      // 132: every exit after the group record — including the 130 claim's own refusals — releases it.
+      await releaseCheckoutGroup(supabase, groupClaim.claim);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
