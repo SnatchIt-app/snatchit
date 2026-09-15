@@ -63,3 +63,26 @@ Each divergence yields **two intents with two secrets and two captured charges**
 
 ## 5. Owner decision
 Place 132 **in this candidate** (about one day including review and CI; the build waits), **or** at the **production gate** alongside 131. In either case, decide whether the interim alerts (a) and (b) ship with the candidate.
+
+## 6. Addendum 2026-09-15 — owner ruling, mechanism choice, as-built (B)
+**Owner ruling (2026-09-15):** 132 is **required before production**. The owner does not accept a known double-charge path on the basis that a later job may refund it. B implements and locally verifies the "pending-record-before-intent" fix on an isolated branch. D reviews concurrency, retries, uncertain Stripe outcomes and duplicate prevention; A owns integration. Development and review are authorized; production application is not.
+
+**Mechanism: Option B, a pre-mint group record, not a payments row.** The ruling names a property: a durable, serialized record exists before any mint, and no path mints twice. B re-checked §2's Option A rejection reasons against the code:
+- **No longer holds:** #64's P2-before-cancel order. A unique index restricted to intent-less rows would not conflict with P1, which already has an intent.
+- **Still holds:** `enforce-transfer-expiry`'s `get_unsettled_payments` consumer calls Stripe retrieve with the row's intent id, which would be null.
+- **Still holds:** the account-deletion blockers count any pending row, so a crashed intent-less attempt blocks deletion until something retires it.
+- **Still holds:** 127's live-sibling rule would count an abandoned intent-less row as a live attempt.
+
+Option A would move changes onto A's surface (sweep, blockers, 127) days before the release date. Option B satisfies the same property with none of those readers touched. A confirmed Option B and carries "mechanism: pre-mint group record" in the owner checkpoint so the owner can redirect.
+
+**As built** (branch `fix/132-pending-before-intent`, base `aabe029`):
+- **SQL:** `public.checkout_group_claim` as §3, with no foreign keys (no lock interaction) and mode limited to `buy_now`/`auction`. `claim_checkout_group` and `release_checkout_group` return `{claimed, claim_token, reason}` and `{released, reason}`.
+- **Edge, changed from §3:**
+  - 130's row claim is **kept** on reuse and supersede, so a mixed-version deploy stays serialized. The E-1 guard checks the group token first, then the row claim.
+  - PGRST202 fails **closed** (503) instead of degrading. Deploy order is 132 before the edge.
+- **Added (P1):** a group attempt still `processing` blocks any mint, reuse or supersede with a 409. That is the same money class, found while writing 132: a processing intent may still capture, so a second confirmable secret would collide. It is a separate commit, so it can be dropped on review.
+- **Coupling (confirmed for A's packet):**
+  - Edge before 132: 503 on every checkout (by design).
+  - 132 before edge: the table is unused, and 130's row claim still serializes reuse and supersede. The fresh-mint defect stays open until the edge ships.
+
+**Out of scope, for D to confirm unreachable:** the group is (listing, buyer, mode). Two concurrent checkouts by one buyer in *different* modes, or by two *different* buyers, on one listing are not serialized by 132. They are gated by entitlement and reservation authority, and a collision still ends at `idx_payments_one_success_per_listing` (unfulfillable, refunded).
