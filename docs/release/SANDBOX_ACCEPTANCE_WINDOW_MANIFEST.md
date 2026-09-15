@@ -165,7 +165,7 @@ counts back to baseline after DV cleanup.
 
 ## 9. SBX-2 — command-level runbook (A executes; D witnesses ledger/census; C runs DV rows)
 
-All against **`ofaidukbieeekqaboscm` only**; `--project-ref` on every command; never `--linked` to production.
+All against **`ofaidukbieeekqaboscm` only**; `--project-ref` on every command. **Never `--linked`: `/Users/josetascon/snatchit` is linked to PRODUCTION (`supabase/.temp/project-ref` = `hqycwntpfoztoinemqns`, found by D 2026-09-15); run every sandbox command with the explicit sandbox ref or through `apply_sandbox_migration.sh`, which asserts the sandbox ref twice and refuses the production ref.**
 Every mutation is preceded by the read it changes and followed by the read that proves it. **Stop** on any value
 that differs from the expected one below.
 
@@ -173,10 +173,10 @@ that differs from the expected one below.
 |---|---|---|---|
 | 0 | Source | `git checkout candidate/2026-09-18-pin` (the tag; `git rev-parse HEAD` = the pinned commit) | tree = pin |
 | 1 | Ledger before | `select version from supabase_migrations.schema_migrations order by version` | 123 present, 124 present (Phase A done), 125–130 **absent** |
-| 2 | Planned list | `supabase db push --project-ref ofaidukbieeekqaboscm --include-all --dry-run` | exactly `125 126 127 128 129 130` (if the owner's O-1 extension covers 129/130; otherwise `125 126 127 128` and stop after 128) |
+| 2 | Planned set | **NOT `db push --include-all`** — it would also plan 121 (never authorized for the sandbox) and 126 (cannot apply there). Per version: `scripts/release/apply_sandbox_migration.sh <v> preflight /tmp/wt-pin` from the pinned worktree | preflight OK for each version in the authorized set, in order |
 | 3 | 126 precondition (B's L-1) | `select count(*) from public.payments where status='refunded' and refunded_at is null` | **0** |
 | 4 | Flags / native | `feature.native_*` all false; `kernel.tickets`, `kernel.signing_key` = 0 | unchanged |
-| 5 | Apply | `supabase db push --project-ref ofaidukbieeekqaboscm --include-all` | 6 (or 4) applied, in order |
+| 5 | Apply | per version, in order: `apply_sandbox_migration.sh <v> apply /tmp/wt-pin` then `… verify` (ledger row from the pinned file's exact bytes; md5 must match) | each version recorded once, md5 == pinned file |
 | 6 | Ledger after | as 1 | 125–130 present exactly once each |
 | 7 | Census after | tables/functions/policies/triggers in `public` | **31 / 96 / 37 / 35** (matches ci.yml at the pin) |
 | 8 | Object spot-checks | `release_reservation_for_payment`, `register_push_token` (comment says 128 v2), `revoke_push_token`, `claim_checkout_supersede`, `push_token_rebind_epoch` 1 row, `push_tokens` grants: anon/authenticated `DELETE,INSERT` only | present / as stated |
@@ -237,3 +237,11 @@ recorded there** — 190 gives 17 ok / 13 not ok, every failure a "bound"/"open:
 expired episode either. Scanning is off, native counts are 0, no edge calls it. **Consequence:** door/scan-device
 acceptance on this sandbox is non-representative until 112/113 exist; marketplace acceptance does not touch it.
 If the owner chooses parity (option a), B prepares the 110–120 dark apply package under its own authorization.
+
+**Independent witness read-back (D, read-only, 2026-09-15):** every field above confirmed — ledger 132; numbered
+versions above 109 = 123, 124, 125 only; schemas catalog/kernel/notify/venue, no `ops`, no `venue_api`; none of the
+127–130 objects; `bids_bidder_id_fkey → profiles(id) ON DELETE CASCADE`, bids 0; sync body md5 `6beca316…`; counts
+49/51/33/0, reserved 0, pending 3, push_tokens 1; `kernel.tickets` 0, `signing_key` 0; authenticator
+`pgrst.db_schemas = public, graphql_public, kernel`, `db_pre_request = public.sandbox_pre_request`. Venue phase
+unaffected, checked: `20260910120000` references none of the 113 objects 110–120 create and they add no columns to
+catalog/venue/kernel tables; every venue-side sandbox result to date is likewise on a chain without 110–120.
