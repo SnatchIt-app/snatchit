@@ -1446,7 +1446,14 @@ jobs:
             echo "::error::${answered} pg_net request(s) were answered by an outside server during this CI run — CI must never reach production (owner item 6, 2026-09-15). Check the egress block step."
             exit 1
           fi
-          echo "OK: no pg_net request was answered from outside this runner."
+          # 3. Nothing may still be in flight: a queued request could otherwise
+          #    pass as "0 answered" and leave after this gate (D, 2026-09-15).
+          queued="$(psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;")"
+          if [ "$queued" != "0" ]; then
+            echo "::error::${queued} pg_net request(s) still queued at the end of the job — cannot certify that nothing leaves this runner"
+            exit 1
+          fi
+          echo "OK: no pg_net request was answered from outside this runner, and none is queued."
 
   web:
     name: Web build (Next.js)
