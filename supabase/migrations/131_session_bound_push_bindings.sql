@@ -57,6 +57,14 @@ alter table kernel.identity_ext
 comment on column kernel.identity_ext.push_binding_epoch is
   '131: the instant of this identity''s last credential change (password change / sign-out-everywhere). A session created before it may not create, activate or delete a push binding. NULL = never bumped.';
 
+-- [A-131-K2] (D's K2-S1, 2026-09-15) each binding remembers the session that made
+-- or last re-activated it. With K-2 (ordinary sign-out = this device only) the
+-- sessions trigger below revokes exactly that binding when its session is
+-- deleted — server-side, even when the client's best-effort revoke never arrived.
+alter table public.push_tokens add column if not exists session_id uuid;
+comment on column public.push_tokens.session_id is
+  '131 (A-131-K2): auth.sessions.id of the session that created or last re-activated this binding; stamped by public.register_push_token and, on the client INSERT / re-activation path, by the row guard. NULL for rows written before 131 or by service paths. When that session is deleted the binding is revoked (reason signed_out; proof kept). Not client-readable, not client-writable.';
+
 -- ── 2. the invalidator (kernel, definer; the only writer of the epoch) ────────
 create or replace function kernel.invalidate_push_bindings_for(p_uid uuid, p_reason text, p_epoch timestamptz default null)
 returns integer
@@ -142,18 +150,33 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 declare r record;
 begin
   for r in
-    select distinct d.user_id
+    select d.user_id,
+           bool_or(d.not_after is null or d.not_after > now()) as any_live_gone,
+           array_agg(d.id)                                        as gone_ids
       from old_table d
-     where d.not_after is null or d.not_after > now()
+     group by d.user_id
      order by d.user_id                                            -- F-131-2 (D): deterministic per-user lock order
   loop
-    if not exists (
+    perform pg_advisory_xact_lock(hashtext('push_bindings:' || r.user_id::text));   -- one lock order everywhere
+    if r.any_live_gone and not exists (
       select 1 from auth.sessions s
        where s.user_id = r.user_id
          and (s.not_after is null or s.not_after > now())
     ) then
       perform kernel.invalidate_push_bindings_for(r.user_id, 'signed_out_everywhere');
     end if;
+    -- [A-131-K2] the deleted sessions' OWN bindings: revoked with the proof kept and
+    -- no epoch bump (this is a device signing out, not a credential change). Rows the
+    -- global invalidation above already revoked are inactive and untouched here.
+    perform set_config('app.push_token_verb', 'on', true);
+    update public.push_tokens t
+       set is_active      = false,
+           revoked_at     = coalesce(t.revoked_at, now()),
+           revoked_reason = 'signed_out'
+     where t.user_id = r.user_id
+       and t.is_active
+       and t.session_id = any (r.gone_ids);
+    perform set_config('app.push_token_verb', '', true);
   end loop;
   return null;
 end;
@@ -174,16 +197,18 @@ declare
   v_sid   uuid;
   v_made  timestamptz;
 begin
-  select push_binding_epoch into v_epoch from kernel.identity_ext where identity_id = p_uid;
-  if v_epoch is null then return false; end if;                  -- never bumped: nothing to predate
   begin
     v_sid := (auth.jwt() ->> 'session_id')::uuid;
   exception when others then
     v_sid := null;
   end;
+  if v_sid is not null then
+    select created_at into v_made from auth.sessions where id = v_sid;
+    if v_made is null then return true; end if;                  -- [A-131-K2 / K2-S2] the session is GONE (signed out,
+  end if;                                                        -- revoked, deleted): fail closed even with no epoch
+  select push_binding_epoch into v_epoch from kernel.identity_ext where identity_id = p_uid;
+  if v_epoch is null then return false; end if;                  -- never bumped: nothing to predate
   if v_sid is null then return true; end if;                     -- no session claim: fail closed
-  select created_at into v_made from auth.sessions where id = v_sid;
-  if v_made is null then return true; end if;                    -- session gone (revoked): fail closed
   return v_made < v_epoch;
 end;
 $$;
@@ -223,7 +248,7 @@ $$;
 -- Row-level: the check, after the lock, under the statement's snapshot.
 create or replace function public.guard_push_token_session_row()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare v_uid uuid;
+declare v_uid uuid; v_sid uuid;
 begin
   if coalesce(current_setting('app.push_token_verb', true), '') = 'on' then
     return case when tg_op = 'DELETE' then old else new end;
@@ -237,6 +262,16 @@ begin
       raise exception 'insufficient_privilege: session predates a credential change'
         using errcode = '42501';
     end if;
+  end if;
+  -- [A-131-K2] stamp the caller's session on a client INSERT or re-activation;
+  -- the client cannot choose it (overwritten here; UPDATE is column-scoped).
+  if tg_op = 'INSERT' or (tg_op = 'UPDATE' and new.is_active and not coalesce(old.is_active, false)) then
+    begin
+      v_sid := (auth.jwt() ->> 'session_id')::uuid;
+    exception when others then
+      v_sid := null;
+    end;
+    new.session_id := v_sid;
   end if;
   return case when tg_op = 'DELETE' then old else new end;
 end;
@@ -280,6 +315,7 @@ declare
   v_row_revoked timestamptz;
   v_id         uuid;
   v_outcome    text;
+  v_sid        uuid;                                             -- [A-131-K2]
 begin
   if v_uid is null then
     raise exception 'not_authenticated' using errcode = '42501';
@@ -305,6 +341,12 @@ begin
       using errcode = '42501';
   end if;
 
+  begin                                                          -- [A-131-K2] the session this binding belongs to
+    v_sid := (auth.jwt() ->> 'session_id')::uuid;
+  exception when others then
+    v_sid := null;
+  end;
+
   v_hash  := encode(pg_catalog.sha256(pg_catalog.convert_to(p_device_secret, 'utf8')), 'hex');
   select applied_at into v_epoch from public.push_token_rebind_epoch;
 
@@ -319,8 +361,8 @@ begin
     exit when found;
 
     insert into public.push_tokens
-      (user_id, token, platform, device_name, last_used, is_active, device_secret_hash)
-    values (v_uid, p_token, p_platform, left(p_device_name, 120), now(), true, v_hash)
+      (user_id, token, platform, device_name, last_used, is_active, device_secret_hash, session_id)
+    values (v_uid, p_token, p_platform, left(p_device_name, 120), now(), true, v_hash, v_sid)
     on conflict (token) do nothing
     returning id into v_id;
 
@@ -340,7 +382,8 @@ begin
            is_active          = true,
            revoked_at         = null,
            revoked_reason     = null,
-           device_secret_hash = coalesce(device_secret_hash, v_hash)
+           device_secret_hash = coalesce(device_secret_hash, v_hash),
+           session_id         = v_sid
      where token = p_token
      returning id into v_id;
     v_outcome := 'refreshed';
@@ -354,7 +397,8 @@ begin
            is_active          = true,
            revoked_at         = null,
            revoked_reason     = null,
-           device_secret_hash = v_hash
+           device_secret_hash = v_hash,
+           session_id         = v_sid
      where token = p_token
      returning id into v_id;
     v_outcome := 'rebound';
@@ -374,7 +418,8 @@ begin
            is_active          = true,
            revoked_at         = null,
            revoked_reason     = null,
-           device_secret_hash = v_hash
+           device_secret_hash = v_hash,
+           session_id         = v_sid
      where token = p_token
      returning id into v_id;
     v_outcome := 'rebound_legacy';

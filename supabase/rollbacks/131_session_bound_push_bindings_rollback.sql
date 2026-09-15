@@ -30,6 +30,7 @@ drop function if exists kernel.push_session_predates_epoch(uuid);
 drop function if exists kernel.invalidate_push_bindings_for(uuid, text, timestamptz);
 
 alter table kernel.identity_ext drop column if exists push_binding_epoch;
+alter table public.push_tokens drop column if exists session_id;                 -- A-131-K2
 
 -- register_push_token: 128 @ f22c1a3 body, verbatim (the [131] block removed).
 create or replace function public.register_push_token(

@@ -9,7 +9,7 @@
 -- named in request.jwt.claims.session_id exactly as a Supabase access token
 -- carries it.
 BEGIN;
-SELECT plan(45);
+SELECT plan(56);
 SELECT tap.seed_core();
 
 -- ── helpers (test-local; dropped by the ROLLBACK) ───────────────────────────
@@ -177,7 +177,10 @@ SELECT is((public.register_push_token('ExponentPushToken[198-buyer-aaaaaaaaaaaa]
   'refreshed', 'I1: re-registered on a fresh session (precondition)');
 SELECT tap.logout();
 DELETE FROM auth.sessions WHERE id = tap._u198('S4');
-SELECT ok((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).is_active, 'I2: one device signing out while another session is live does NOT revoke');
+-- [A-131-K2] one device signing out while another session lives revokes ONLY its own
+-- binding (registered on S4 in I1): reason signed_out, proof kept, no epoch bump.
+SELECT is((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).revoked_reason, 'signed_out', 'I2: one device signing out while another session is live revokes only that device''s binding (server-side)');
+SELECT isnt((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).device_secret_hash, NULL, 'I2b: ...with the device proof kept (not a credential change)');
 SELECT tap._s198('E_i', tap._epoch198(tap.buyer())::text);
 DELETE FROM auth.sessions WHERE id = tap._u198('S5');
 SELECT is((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).revoked_reason, 'signed_out_everywhere', 'I3: the last live session gone = sign-out-everywhere → every binding revoked');
@@ -200,6 +203,40 @@ SELECT is((public.register_push_token('ExponentPushToken[198-other-eeeeeeeeeeee]
 SELECT is((public.revoke_push_token('ExponentPushToken[198-other-eeeeeeeeeeee]') ->> 'revoked'), '1', 'K1: the ordinary per-device revoke still works');
 SELECT tap.logout();
 SELECT is(tap._epoch198(tap.other_user()), NULL, 'K2: ...and it does not touch the epoch — other devices keep their bindings');
+
+-- ── M. A-131-K2: bindings are session-stamped; a device's own sign-out revokes only its binding
+-- (row reads go through tap._row198 = select *, so they run as postgres, after tap.logout())
+SELECT tap._s198('SM1', tap._sess198(tap.other_user(), clock_timestamp())::text);
+SELECT tap._s198('SM2', tap._sess198(tap.other_user(), clock_timestamp())::text);
+SELECT tap._login198(tap.other_user(), tap._u198('SM1'));
+SELECT is((public.register_push_token('ExponentPushToken[198-other-ffffffffffff]', 'ios', 'secret-198-other-ffff-0123456789', 'iPhone') ->> 'outcome'),
+  'registered', 'M1: registration on session SM1');
+SELECT tap.logout();
+SELECT is((tap._row198('ExponentPushToken[198-other-ffffffffffff]')).session_id, tap._u198('SM1'), 'M2: the verb stamps the caller''s session on the binding');
+SELECT tap._login198(tap.other_user(), tap._u198('SM2'));
+INSERT INTO public.push_tokens (user_id, token, platform, is_active) VALUES (tap.other_user(), 'ExponentPushToken[198-other-gggggggggggg]', 'android', true);
+SELECT tap.logout();
+SELECT is((tap._row198('ExponentPushToken[198-other-gggggggggggg]')).session_id, tap._u198('SM2'), 'M3: the client INSERT path is stamped by the row guard (the client cannot choose it)');
+DELETE FROM auth.sessions WHERE id = tap._u198('SM1');                  -- device 1 signs out (this device only); SM2 lives
+SELECT is((tap._row198('ExponentPushToken[198-other-ffffffffffff]')).revoked_reason, 'signed_out', 'M4: deleting a binding''s own session revokes it server-side (K2-S1 closed)');
+SELECT ok((tap._row198('ExponentPushToken[198-other-gggggggggggg]')).is_active AND tap._epoch198(tap.other_user()) IS NULL,
+  'M5: the other device''s binding stays live and no epoch is bumped');
+SELECT tap._s198('SM3', tap._sess198(tap.other_user(), clock_timestamp())::text);
+SELECT tap._login198(tap.other_user(), tap._u198('SM3'));
+SELECT is((public.register_push_token('ExponentPushToken[198-other-ffffffffffff]', 'ios', 'secret-198-other-ffff-0123456789', 'iPhone') ->> 'outcome'),
+  'refreshed', 'M6a: re-login on a new session re-activates the binding');
+SELECT tap.logout();
+SELECT is((tap._row198('ExponentPushToken[198-other-ffffffffffff]')).session_id, tap._u198('SM3'), 'M6b: ...and re-stamps it with the new session');
+
+-- ── N. K2-S2: a still-valid JWT for a DELETED session fails closed even with no epoch
+DELETE FROM auth.sessions WHERE id = tap._u198('SM2');                  -- device 2 signs out; SM3 lives; other_user still has NO epoch
+SELECT tap._login198(tap.other_user(), tap._u198('SM2'));               -- the deleted session's access token, still within exp
+SELECT throws_ok($$ SELECT public.register_push_token('ExponentPushToken[198-other-hhhhhhhhhhhh]', 'ios', 'secret-198-other-hhhh-0123456789', 'iPhone') $$,
+  '42501', 'insufficient_privilege: session predates a credential change', 'N1: the verb refuses a deleted session''s token on a never-bumped account (K2-S2 closed)');
+SELECT is(tap._try198($$ INSERT INTO public.push_tokens (user_id, token, platform, is_active) VALUES (tap.other_user(), 'ExponentPushToken[198-other-iiiiiiiiiiii]', 'ios', true) $$),
+  '42501 insufficient_privilege: session predates a credential change', 'N2: ...and so does the direct INSERT path');
+SELECT lives_ok($$ SELECT public.revoke_push_token('ExponentPushToken[198-other-gggggggggggg]') $$, 'N3: revocation from a deleted session is still allowed (it only reduces exposure)');
+SELECT tap.logout();
 
 -- ── L. account deletion still works (D, F-131-1) ─────────────────────────────
 -- DELETE auth.users cascades to auth.sessions, which fires the invalidator for a
