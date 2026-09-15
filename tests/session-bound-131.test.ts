@@ -1,6 +1,6 @@
 /**
- * tests/session-bound-129.test.ts — 129 (PROVISIONAL) client delta for A's
- * session-bound push bindings design (docs/release/SESSION_BOUND_PUSH_BINDINGS_129_DESIGN.md §6).
+ * tests/session-bound-131.test.ts — 131 (PROVISIONAL) client delta for A's
+ * session-bound push bindings design (docs/release/SESSION_BOUND_PUSH_BINDINGS_131_DESIGN.md §6).
  * Not part of the Friday candidate.
  */
 
@@ -18,7 +18,7 @@ import { resolveSignOutOptions, REVOKE_ALL_RPC } from '@/src/lib/auth/signOut';
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-describe('P3 on the client: a session that predates a credential change is terminal until re-auth', () => {
+describe('131 P3 on the client: a session that predates a credential change is terminal until re-auth', () => {
   it('classifies the exact 42501 message as session_stale, not bound_to_other', () => {
     expect(classifyRegistrationError({ code: '42501', message: 'insufficient_privilege: session predates a credential change' })).toBe('session_stale');
     expect(classifyRegistrationError({ code: '42501', message: 'insufficient_privilege: token is bound to another account' })).toBe('bound_to_other');
@@ -31,7 +31,7 @@ describe('P3 on the client: a session that predates a credential change is termi
   });
 
   it('has a remedy the Notifications screen can show', () => {
-    expect(REGISTRATION_REMEDY.session_stale).toMatch(/password was changed/i);
+    expect(REGISTRATION_REMEDY.session_stale).toMatch(/signed out on this device/i);
   });
 
   it('handleSessionStale: clear record → mark credential_change → local sign-out, once per process', async () => {
@@ -58,7 +58,7 @@ describe('P3 on the client: a session that predates a credential change is termi
   it('the hook routes session_stale to handleSessionStale with a local, credential_change sign-out', () => {
     const h = stripComments(read('src/hooks/usePushToken.ts'));
     expect(h).toContain("if (result.kind === 'session_stale')");
-    expect(h).toContain("signOutEverywhere({ scope: 'local', reason: 'credential_change' })");
+    expect(h).toContain("signOutThisDevice({ reason: 'credential_change' })");
     expect(h).toContain('clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE)');
   });
 });
@@ -73,7 +73,7 @@ describe('P6 / P2: ordinary sign-out is this device; all-devices is a distinct a
     const so = stripComments(read('src/lib/auth/signOut.ts'));
     expect(REVOKE_ALL_RPC).toBe('revoke_all_push_bindings');
     const rpcAt = so.indexOf('supabase.rpc(REVOKE_ALL_RPC)');
-    const outAt = so.indexOf("signOutEverywhere({ scope: 'global' })");
+    const outAt = so.indexOf("performSignOut({ scope: 'global', reason: opts.reason })");
     expect(rpcAt).toBeGreaterThan(-1);
     expect(outAt).toBeGreaterThan(rpcAt);
     expect(so).toContain('await supabase.auth.signOut({ scope })');
@@ -84,13 +84,18 @@ describe('P6 / P2: ordinary sign-out is this device; all-devices is a distinct a
     const settings = read('app/settings/index.tsx');
     expect(settings).toContain('label="Sign out"');
     expect(settings).toContain('label="Sign out of all devices"');
-    expect(settings).toContain('await signOutAllDevices()');
+    // K-1: the all-devices act is used by the row AND by account deletion; nothing calls the old name.
+    expect(settings.match(/await signOutAllDevices\(\)/g)?.length).toBe(2);
+    expect(settings).not.toContain('signOutEverywhere');
+    expect(settings).toContain('await signOutThisDevice()');
     const reset = stripComments(read('app/(auth)/reset-password.tsx'));
-    expect(reset).toContain("signOutEverywhere({ scope: 'global', reason: 'password_changed' })");
+    expect(reset).toContain("signOutAllDevices({ reason: 'password_changed' })");
   });
 
-  it('the login screen has a sentence for both new reasons', () => {
-    expect(SESSION_END_NOTICE.credential_change).toMatch(/password was changed/i);
+  it('the login screen has a sentence for both new reasons; the stale-session one names no cause (K-4)', () => {
+    expect(SESSION_END_NOTICE.credential_change).toMatch(/signed out on this device/i);
+    expect(SESSION_END_NOTICE.credential_change).not.toMatch(/password/i);
+    expect(REGISTRATION_REMEDY.session_stale).not.toMatch(/password/i);
     expect(SESSION_END_NOTICE.password_changed).toMatch(/new password/i);
     expect(sessionEndNotice('credential_change')).toBe(SESSION_END_NOTICE.credential_change);
   });

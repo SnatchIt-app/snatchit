@@ -11,9 +11,12 @@
  */
 
 /**
- * 129 (PROVISIONAL — session-bound push bindings, A's design, not frozen):
+ * 131 (PROVISIONAL — session-bound push bindings, A's design, not frozen):
  * 'credential_change' = the server refused push registration because this
- * session predates a password change, so the app signed this device out;
+ * session predates a credential change OR a sign-out everywhere from another
+ * device (or its session row is gone), so the app signed this device out. The
+ * notice is deliberately neutral (D's K-4): naming a password change would be
+ * false in the other cases and would train users to ignore real notices;
  * 'password_changed' = this device just set a new password and signed out
  * everywhere on purpose.
  */
@@ -41,7 +44,7 @@ export function consumeSessionEnd(): SessionEndReason | null {
 export const SESSION_END_NOTICE: Record<SessionEndReason, string | null> = {
   user: null,
   expired: 'Your session expired. Sign in to pick up where you left off.',
-  credential_change: 'Your password was changed. Sign in again to keep notifications on this device.',
+  credential_change: 'You were signed out on this device. Sign in again to keep notifications on.',
   password_changed: 'Password updated. Sign in with your new password.',
 };
 

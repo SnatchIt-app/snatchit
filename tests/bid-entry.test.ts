@@ -117,7 +117,7 @@ describe('Profile — shipped-source guards', () => {
       "'create-connect-account'",        // non-blocking payout probe
       'status_only',
       "from('profiles')",                // avatar path update
-      'signOutEverywhere(',
+      'signOutThisDevice(', // 131 (provisional): the ordinary sign-out is named for its scope
     ]) {
       expect(screen, `${marker} must survive`).toContain(marker);
     }

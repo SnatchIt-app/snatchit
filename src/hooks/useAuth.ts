@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
 import { markSessionEndIfUnmarked } from '@/src/lib/auth/sessionEnd';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { signOutThisDevice } from '@/src/lib/auth/signOut';
 
 type AuthState = {
   session: Session | null;
@@ -63,7 +63,7 @@ async function clearStaleSession(reason: string): Promise<void> {
   // Ignore any network / auth error from signOut itself.
   // The refresh token is already invalid here, so no token deactivation is
   // possible; the helper skips it when there is no session and still signs out.
-  await signOutEverywhere().catch(() => {});
+  await signOutThisDevice().catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

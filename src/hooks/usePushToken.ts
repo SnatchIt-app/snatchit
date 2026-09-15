@@ -15,7 +15,8 @@
  * another account; a deterministic precondition refusal) until the account,
  * the token or the method changes. A lost device secret is recovered by
  * deleting the row this device owns and registering afresh, under the gates in
- * registerToken.ts. Sign-out is elsewhere (signOutEverywhere) and unchanged.
+ * registerToken.ts. Sign-out is elsewhere (signOutThisDevice / signOutAllDevices);
+ * the hook only triggers the forced local re-auth on session_stale (131).
  * The 128 contract is not frozen (A, f7b31ad); a further delta is expected.
  *
  * - Skips silently on simulators / emulators (push tokens require real devices)
@@ -34,7 +35,7 @@ import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { signOutThisDevice } from '@/src/lib/auth/signOut';
 import {
   decideRegistration,
   recordFailure,
@@ -160,12 +161,12 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         await saveRegistrationState({ record: state.record, failure });
         publishRegistrationStatus({ state: 'failed', kind: result.kind, at: now });
         console.warn('[usePushToken] Not registered:', result.kind);
-        // 129 (provisional): this session can never register again — re-auth.
+        // 131 (provisional): this session can never register again — re-auth.
         if (result.kind === 'session_stale') {
           void handleSessionStale({
             clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE),
             markEnd: markSessionEnd,
-            signOutLocal: async () => { await signOutEverywhere({ scope: 'local', reason: 'credential_change' }); },
+            signOutLocal: async () => { await signOutThisDevice({ reason: 'credential_change' }); },
           });
           return;
         }

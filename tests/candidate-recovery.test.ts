@@ -60,7 +60,7 @@ describe('CFT-607 — session expiry says so on the login screen', () => {
   });
   it('the sign-out helper marks before the SDK call, useAuth marks the unmarked case, login reads once', () => {
     const so = stripComments(read('src/lib/auth/signOut.ts'));
-    expect(so).toMatch(/markSessionEnd\(reason\);\s*await supabase\.auth\.signOut\(\{ scope \}\);/); // 129 (provisional): reason defaults to 'user', scope to 'local'
+    expect(so).toMatch(/markSessionEnd\(reason\);\s*await supabase\.auth\.signOut\(\{ scope \}\);/); // 131 (provisional): reason defaults to 'user', scope to 'local'
     const auth = stripComments(read('src/hooks/useAuth.ts'));
     expect(auth).toContain("if (event === 'SIGNED_OUT' && newSession === null) markSessionEndIfUnmarked('expired');");
     const login = stripComments(read('app/(auth)/login.tsx'));

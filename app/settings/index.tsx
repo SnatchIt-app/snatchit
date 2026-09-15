@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutAllDevices, signOutEverywhere } from '@/src/lib/auth/signOut';
+import { signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
 import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
@@ -124,7 +124,7 @@ export default function SettingsScreen() {
         onPress: async () => {
           setSigningOut(true);
           try {
-            await signOutEverywhere();
+            await signOutThisDevice();
             router.replace('/(auth)/login');
           } catch {
             alertWeb('Failed to sign out. Please try again.');
@@ -136,7 +136,7 @@ export default function SettingsScreen() {
     ]);
   }
 
-  // 129 (provisional): a distinct act from "Sign out" (this device only).
+  // 131 (provisional): a distinct act from "Sign out" (this device only).
   async function handleSignOutAllDevices() {
     Alert.alert(
       'Sign out of all devices',
@@ -225,7 +225,8 @@ export default function SettingsScreen() {
       // completion is not immediate. `pending_obligations` is additive — an
       // older edge simply omits it.
       await notifyDeletionAccepted(parsed);
-      await signOutEverywhere();
+      // 131 (D's K-1): a deleted account ends every session and revokes every binding.
+      await signOutAllDevices();
       router.replace('/(auth)/login');
     } catch {
       alertWeb('Something went wrong. Please try again.');

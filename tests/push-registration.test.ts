@@ -321,9 +321,9 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(hook).toContain('const failure = recordFailure(state.failure, result.kind, { userId: uid, token, method, now });');
     expect(hook).toMatch(/AppState\.addEventListener\('change', \(st\) => \{ if \(st === 'active'\) void attempt\(\); \}\)/);
     expect(hook).toContain('setRegisteredPushToken(token);');
-    // 129 (provisional): the only sign-out the hook performs is the forced local re-auth on session_stale.
+    // 131 (provisional): the only sign-out the hook performs is the forced local re-auth on session_stale.
     expect(hook).not.toMatch(/revoke/);
-    expect(hook.match(/signOutEverywhere\(/g)?.length).toBe(1);
+    expect(hook.match(/signOutThisDevice\(/g)?.length).toBe(1);
   });
 
   it('sign-out revokes through public.revoke_push_token (129) with the token only — never the secret, never a table write', () => {

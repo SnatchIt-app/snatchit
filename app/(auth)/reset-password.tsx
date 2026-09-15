@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { signOutAllDevices } from '@/src/lib/auth/signOut';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
@@ -32,9 +32,9 @@ export default function ResetPasswordScreen() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
-    // 129 (provisional): the server has just invalidated every push binding of
+    // 131 (provisional): the server has just invalidated every push binding of
     // this user; end every session too, and say why on the login screen.
-    await signOutEverywhere({ scope: 'global', reason: 'password_changed' });
+    await signOutAllDevices({ reason: 'password_changed' });
     Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
       { text: 'OK', onPress: () => router.replace('/(auth)/login') },
     ]);
