@@ -533,6 +533,30 @@ jobs:
             ss -ltnp 2>/dev/null | grep ':54322 ' || true
           fi
 
+      # CI-only egress block (A, 2026-09-15, owner item 6). Four function bodies
+      # and five cron commands still hardcode the PRODUCTION project URL in
+      # net.http_post calls (032/033/034/035/087/099); 032's */2 cron fires
+      # unconditionally, so a live pg_net on this runner POSTs production
+      # (proven: run 34933664373, one 401). Until the config-driven migration
+      # (133) lands, containers on this runner may not reach port 80/443 outside
+      # private ranges. Host-originated traffic (CLI, image pulls) is untouched;
+      # inter-container traffic stays on private addresses and non-web ports. No
+      # DB state changes, so 132_replay_parity's job set is exactly production's.
+      # The gate step at the end of this job fails the run if any pg_net
+      # response carries an HTTP status (= a request was answered from outside).
+      - name: CI egress block — containers may not reach the outside web (CI-only)
+        run: |
+          set -euo pipefail
+          sudo iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+          for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do
+            sudo iptables -I DOCKER-USER 1 -d "$net" -j RETURN
+          done
+          if command -v ip6tables >/dev/null 2>&1; then
+            sudo ip6tables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null \
+              || sudo ip6tables -I FORWARD 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null || true
+          fi
+          echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
+
       - name: Apply migration chain on fresh DB
         run: |
           set -euo pipefail
@@ -1383,6 +1407,61 @@ jobs:
           psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)') as status, count(*) from net._http_response group by 1 order by 1;" 2>/dev/null || echo "(net._http_response unavailable)"
           echo "--- pg_net queue still pending ---"
           psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;" 2>/dev/null || echo "(net.http_request_queue unavailable)"
+
+      # GATE (A, 2026-09-15, owner item 6): CI never reaches production. A pg_net
+      # response row WITH an HTTP status means a request left this runner and a
+      # real server answered — the egress block above failed. Rows with a NULL
+      # status and an error message are the block working (the cron attempted,
+      # the runner refused). Zero rows is also fine (after 133 the crons no-op
+      # without a configured URL). A query error fails the gate (closed).
+      - name: CI egress gate — no pg_net request was answered from outside (fails closed)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set -euo pipefail
+          # 1. Deterministic probe, so this gate is never vacuous (a run in which
+          #    no cron happened to fire proves nothing): enqueue one pg_net GET
+          #    from inside the database to a neutral, side-effect-free outside
+          #    host. With the egress block it must be REFUSED at the runner; if
+          #    it is ever answered, the block is broken and the run fails.
+          probe_id="$(psql "$DB_URL" -tA -c "select net.http_get('https://example.com/');")"
+          for i in $(seq 1 30); do
+            row="$(psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)')||'|'||coalesce(error_msg,'') from net._http_response where id = ${probe_id};")"
+            [ -n "$row" ] && break
+            sleep 1
+          done
+          echo "probe #${probe_id} → ${row:-<no response row after 30 s>}"
+          case "${row:-}" in
+            "") echo "::error::the pg_net probe produced no response row in 30 s — the worker is not running, so this gate cannot prove anything"; exit 1;;
+            "(none)|"*)
+              err="${row#(none)|}"
+              # Only a REFUSED/RESET connection proves the block (D, 2026-09-15): a DNS
+              # failure or a timeout would pass without the firewall having done anything.
+              case "$(printf '%s' "$err" | tr '[:upper:]' '[:lower:]')" in
+                *resolve*|*timeout*|*timed\ out*) echo "::error::the probe failed for a reason other than the egress block (${err}) — the block was not exercised"; exit 1;;
+                *refused*|*reset*|*"failed to connect"*|*"couldn't connect"*|*"could not connect"*) echo "probe refused at the runner (${err}): OK";;
+                *) echo "::error::the probe failed with an unrecognised error (${err}); refusing to treat it as proof"; exit 1;;
+              esac;;
+            *) echo "::error::the pg_net probe to an outside host was ANSWERED (${row%%|*}) — the CI egress block is not effective"; exit 1;;
+          esac
+          # 2. Nothing else during the job was answered from outside either.
+          answered="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is not null;")"
+          refused="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is null;")"
+          echo "pg_net responses: answered_from_outside=${answered} refused_or_failed=${refused} (includes the probe)"
+          psql "$DB_URL" -tA -c "select left(coalesce(error_msg,''),100), count(*) from net._http_response where status_code is null group by 1 order by 2 desc;" || true
+          if [ "$answered" != "0" ]; then
+            echo "::error::${answered} pg_net request(s) were answered by an outside server during this CI run — CI must never reach production (owner item 6, 2026-09-15). Check the egress block step."
+            exit 1
+          fi
+          # 3. Nothing may still be in flight: a queued request could otherwise
+          #    pass as "0 answered" and leave after this gate (D, 2026-09-15).
+          queued="$(psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;")"
+          if [ "$queued" != "0" ]; then
+            echo "::error::${queued} pg_net request(s) still queued at the end of the job — cannot certify that nothing leaves this runner"
+            exit 1
+          fi
+          echo "OK: no pg_net request was answered from outside this runner, and none is queued."
 
   web:
     name: Web build (Next.js)
