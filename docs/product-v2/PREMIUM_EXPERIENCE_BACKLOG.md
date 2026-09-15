@@ -850,3 +850,30 @@ auction item, but it touches the increment rule's presentation and waits for
 F10. Without F10: CFT-604 (empty / failed / filtered states distinguished on
 Home, Bids, Explore, Tickets) and CFT-605 (ended or sold listing opened from
 an old link shows an outcome, not an error).
+
+### Batch 4 — A's review (2026-09-14)
+
+- **`ac31172` APPROVED.** A verified: across batch 4 the only gated file that
+  changed is `payControl.ts` (+13/−1); `setupDecision.ts`, `holdState.ts`,
+  `payments.ts`, `signOut.ts` byte-identical to batch 1. Precedence (finalizing
+  before confirming) confirmed right.
+- **Owner copy decision raised by A (pending-face kicker).** The button's
+  "Finalizing your order" means "work is happening now, wait a moment"; the
+  confirmation screen's `pending` face means "we do not know yet, nothing is
+  lost, the webhook and sweep settle it, you do not need to wait". They must
+  not share the words. The button stays; the pending kicker (SETTLEMENT_COPY
+  in `payments.ts`, gated + owner's settlement copy) is the one to change. A
+  recommends wording that conveys "landed or not, this resolves without you".
+  **C does not change it without the owner's word.**
+- Batch 4 awareness items accepted; A names "Confirming result" as A-17
+  applied to the auction clock, and the SELECT-only bounded poll with the
+  single finalize call as the right shape.
+- **128 — do not re-bind yet.** Contract version 2 is written (every reply
+  will carry `contract_version`, so the client can pin it) and is under
+  independent re-review; A sends it only once that clears. Material for the
+  client: rule 5 (the no-secret path the fallback relies on) becomes gated
+  four ways; both sign-out spellings are accepted because the client helper
+  writes `revoked_reason='sign_out'` while the server writes `signed_out`
+  (no client change needed; noted for the day the contract is pinned).
+- Device checklist: A will act on the A-marked rows only when an authorised
+  candidate build exists; no pre-approved read-backs.
