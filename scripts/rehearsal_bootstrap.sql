@@ -113,34 +113,7 @@ $bootstrap$;
 -- below is fully schema-qualified on purpose.
 -- --------------------------------------------------------------------------
 
--- 3a. authenticator: PostgREST's NOINHERIT connection role. -------------------
-DO $bootstrap$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticator') THEN
-    CREATE ROLE authenticator LOGIN NOINHERIT;
-  END IF;
-END
-$bootstrap$;
-GRANT anon, authenticated, service_role TO authenticator;
-
--- 3b. cron.job: pg_cron's real column set. ------------------------------------
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS nodename text    DEFAULT 'localhost';
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS nodeport integer DEFAULT 5432;
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS "database" text  DEFAULT pg_catalog.current_database();
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS username text    DEFAULT CURRENT_USER;
-
--- 3c. Extensions the Supabase platform pre-installs. --------------------------
-CREATE EXTENSION IF NOT EXISTS pgcrypto    WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
-
--- 3d. auth.sessions: column subset of GoTrue's table (see the ledger). ---------
-CREATE TABLE IF NOT EXISTS auth.sessions (
-  id           uuid        PRIMARY KEY,
-  user_id      uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at   timestamptz,
-  updated_at   timestamptz,
-  not_after    timestamptz,
-  refreshed_at timestamp,
-  aal          text
-);
-CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON auth.sessions (user_id);
+-- 3. Fidelity supplements — ONE file shared with the production-order script.
+--    (authenticator role, cron.job columns, extensions, auth.sessions stand-in;
+--    ledger entries above.) Path relative to THIS file.
+\ir local/replay_shim_supplements.sql
