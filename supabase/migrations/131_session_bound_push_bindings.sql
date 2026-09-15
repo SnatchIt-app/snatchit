@@ -168,11 +168,16 @@ begin
     -- [A-131-K2] the deleted sessions' OWN bindings: revoked with the proof kept and
     -- no epoch bump (this is a device signing out, not a credential change). Rows the
     -- global invalidation above already revoked are inactive and untouched here.
+    -- Reason is 'session_ended', NOT 'signed_out' (D's F-131-K2a): 'signed_out' is
+    -- 128's rule-5 precondition, and a hash-less pre-128 row revoked here would
+    -- otherwise become claimable by any account that knows the token string.
+    -- revoked_at is set to now() (a stale value from before a client re-activation
+    -- must not survive here either).
     perform set_config('app.push_token_verb', 'on', true);
     update public.push_tokens t
        set is_active      = false,
-           revoked_at     = coalesce(t.revoked_at, now()),
-           revoked_reason = 'signed_out'
+           revoked_at     = now(),
+           revoked_reason = 'session_ended'
      where t.user_id = r.user_id
        and t.is_active
        and t.session_id = any (r.gone_ids);

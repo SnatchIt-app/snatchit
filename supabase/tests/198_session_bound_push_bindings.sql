@@ -9,7 +9,7 @@
 -- named in request.jwt.claims.session_id exactly as a Supabase access token
 -- carries it.
 BEGIN;
-SELECT plan(56);
+SELECT plan(60);
 SELECT tap.seed_core();
 
 -- ── helpers (test-local; dropped by the ROLLBACK) ───────────────────────────
@@ -179,7 +179,7 @@ SELECT tap.logout();
 DELETE FROM auth.sessions WHERE id = tap._u198('S4');
 -- [A-131-K2] one device signing out while another session lives revokes ONLY its own
 -- binding (registered on S4 in I1): reason signed_out, proof kept, no epoch bump.
-SELECT is((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).revoked_reason, 'signed_out', 'I2: one device signing out while another session is live revokes only that device''s binding (server-side)');
+SELECT is((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).revoked_reason, 'session_ended', 'I2: one device signing out while another session is live revokes only that device''s binding (server-side)');
 SELECT isnt((tap._row198('ExponentPushToken[198-buyer-aaaaaaaaaaaa]')).device_secret_hash, NULL, 'I2b: ...with the device proof kept (not a credential change)');
 SELECT tap._s198('E_i', tap._epoch198(tap.buyer())::text);
 DELETE FROM auth.sessions WHERE id = tap._u198('S5');
@@ -218,7 +218,7 @@ INSERT INTO public.push_tokens (user_id, token, platform, is_active) VALUES (tap
 SELECT tap.logout();
 SELECT is((tap._row198('ExponentPushToken[198-other-gggggggggggg]')).session_id, tap._u198('SM2'), 'M3: the client INSERT path is stamped by the row guard (the client cannot choose it)');
 DELETE FROM auth.sessions WHERE id = tap._u198('SM1');                  -- device 1 signs out (this device only); SM2 lives
-SELECT is((tap._row198('ExponentPushToken[198-other-ffffffffffff]')).revoked_reason, 'signed_out', 'M4: deleting a binding''s own session revokes it server-side (K2-S1 closed)');
+SELECT is((tap._row198('ExponentPushToken[198-other-ffffffffffff]')).revoked_reason, 'session_ended', 'M4: deleting a binding''s own session revokes it server-side (K2-S1 closed; reason session_ended)');
 SELECT ok((tap._row198('ExponentPushToken[198-other-gggggggggggg]')).is_active AND tap._epoch198(tap.other_user()) IS NULL,
   'M5: the other device''s binding stays live and no epoch is bumped');
 SELECT tap._s198('SM3', tap._sess198(tap.other_user(), clock_timestamp())::text);
@@ -236,6 +236,28 @@ SELECT throws_ok($$ SELECT public.register_push_token('ExponentPushToken[198-oth
 SELECT is(tap._try198($$ INSERT INTO public.push_tokens (user_id, token, platform, is_active) VALUES (tap.other_user(), 'ExponentPushToken[198-other-iiiiiiiiiiii]', 'ios', true) $$),
   '42501 insufficient_privilege: session predates a credential change', 'N2: ...and so does the direct INSERT path');
 SELECT lives_ok($$ SELECT public.revoke_push_token('ExponentPushToken[198-other-gggggggggggg]') $$, 'N3: revocation from a deleted session is still allowed (it only reduces exposure)');
+SELECT tap.logout();
+
+-- ── P. F-131-K2a (D): a legacy hash-less row revoked by its session's END is not claimable by another account
+-- (the session-end path must not write 'signed_out', which is 128's rule-5 precondition)
+SELECT tap._s198('SP1', tap._sess198(tap.other_user(), clock_timestamp())::text);
+SELECT tap._s198('SP2', tap._sess198(tap.other_user(), clock_timestamp())::text);
+INSERT INTO public.push_tokens (user_id, token, platform, is_active, created_at)                       -- as postgres: a pre-128 row, no proof
+  VALUES (tap.other_user(), 'ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', false, now() - interval '400 days');
+SELECT tap._login198(tap.other_user(), tap._u198('SP1'));
+UPDATE public.push_tokens SET is_active = true WHERE token = 'ExponentPushToken[198-other-jjjjjjjjjjjj]';  -- an old build re-activates it
+SELECT tap.logout();
+SELECT is((tap._row198('ExponentPushToken[198-other-jjjjjjjjjjjj]')).session_id, tap._u198('SP1'), 'P1: the old-client re-activation is stamped with its session');
+DELETE FROM auth.sessions WHERE id = tap._u198('SP1');                  -- that session ends by itself; SP2 lives
+SELECT is((tap._row198('ExponentPushToken[198-other-jjjjjjjjjjjj]')).revoked_reason, 'session_ended', 'P2: the session-end revoke writes session_ended (never rule 5''s signed_out)');
+SELECT tap._s198('SPA', tap._fresh198(tap.buyer())::text);              -- another account, post-epoch session, its own secret
+SELECT tap._login198(tap.buyer(), tap._u198('SPA'));
+SELECT throws_ok($$ SELECT public.register_push_token('ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', 'squatter-secret-0123456789', 'iPhone') $$,
+  '42501', 'insufficient_privilege: token is bound to another account', 'P3: another account cannot claim the legacy row after its session ended (F-131-K2a closed)');
+SELECT tap.logout();
+SELECT tap._login198(tap.other_user(), tap._u198('SP2'));
+SELECT is((public.register_push_token('ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', 'secret-198-other-jjjj-0123456789', 'iPhone') ->> 'outcome'),
+  'refreshed', 'P4: ...while the owning account re-adopts it from a live session and gains a proof');
 SELECT tap.logout();
 
 -- ── L. account deletion still works (D, F-131-1) ─────────────────────────────
