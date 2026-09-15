@@ -183,3 +183,11 @@ and hash cleared at that moment; **S14** it signs back in on a new session → r
 secret, never the old hash; an old JWT cannot; **S15** the device that changed the password signs out globally then
 re-registers on a new session — the +2 s margin must not be a hard failure (client retry succeeds); **S16** a
 registration racing the trigger loses with 42501 and leaves no half-written row.
+
+## 4f. Scope of the session-age check (D, 2026-09-15)
+The check in §2d/§4 applies **only to acts that create or activate a binding** (the verb's rules 1/2/3/5, and the
+table guard on INSERT / UPDATE-to-active / DELETE). **`revoke_all_push_bindings()` and `notify.revoke_push_token`
+must succeed from any authenticated session**, including one that predates the epoch: C's reset-password flow calls
+`revoke_all` from the device's pre-change session immediately after `updateUser` bumps the epoch, and a refusal there
+(logged, never blocking) would silently lose the verb's fast path in exactly the flow that matters. Revocation can
+only reduce exposure, so it needs no session-age proof. Asserted in 198.
