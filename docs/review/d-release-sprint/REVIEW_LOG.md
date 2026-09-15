@@ -149,6 +149,7 @@ UPDATE of claim columns 0 rows, authenticated EXECUTE denied.
 | Q3 | LOW (question) | a fresh claim on a row that left `pending` no longer blocks the group; the edge's sold/succeeded checks precede the claim (TOCTOU) — confirm settlement neutralises a second success, else drop the status filter |
 | Q4 | info | buyer and seller can read `supersede_claim_token` via SELECT policies (useless without service_role) |
 Pin readiness from D: ready once E-1 is fixed or explicitly dispositioned by A and B.
+A (2026-09-15): E-1 accepted as **pin-blocking**; B to add AbortSignal budgets (< 90 s section) + claim-token re-check before P2 insert and secret hand-out, with a stalled-Stripe test failing against #65. Pending: D incremental re-run on the fix; D independent check of B's three fresh-mint residual paths (replay-canceled `_u{uuid}` retry, re-price between reads, failedAttempts flip) before they reach the owner as disclosed.
 
 ## 129 `public.revoke_push_token` (A's staged working tree) — attacked, no findings
 Clone of cd1f03c + 129: IDOR by token string → `{revoked:0}`, victim row untouched · own revoke → `{revoked:1}`,
