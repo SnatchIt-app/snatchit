@@ -135,6 +135,21 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## Sandbox marketplace phase STOPPED (A, SBX-2 under O-1) — D independent read-back and catalog gap
+Read-only, `supabase db query --linked --project-ref ofaidukbieeekqaboscm` from the unlinked kit worktree (**hazard: the
+main checkout `/Users/josetascon/snatchit` is linked to production `hqycwntpfoztoinemqns`**). Matches A on every field:
+ledger 132 (max 20260909000000); numbered 110–132 only 123/124/125; schemas catalog/kernel/notify/venue (no ops, no
+venue_api); no refund_facts / 127–130 objects; bids FK → profiles ON DELETE CASCADE, bids 0; sync_scan md5 6beca316;
+listings 49 / payments 51 / transfers 33 / bids 0, reserved 0, pending 3, push_tokens 1; kernel.tickets 0, signing_key 0;
+authenticator db_schemas public, graphql_public, kernel; db_pre_request public.sandbox_pre_request.
+Venue phase unaffected: 20260910120000 references none of the 113 objects created in 110–120; 110–120 add no columns to
+catalog/venue/kernel tables; kit preflight passed 8/8 on this sandbox 2026-09-14.
+Catalog gap (probes/sandbox/): sandbox = repo for its own ledger (policy text deparse only; 5 function bodies identical after
+normalising project URL and comments). Gap vs full 74e51cf chain: 379 identity lines (ops 323; 110–114 signing recovery;
+121 door; **119 listing-block insert guard**; 127–130). Flags: sandbox lacks 119 (evidence limit for blocked-seller listing
+paths); six migrations (032/033/034/035/087/099) hardcode the production functions URL in `net.http_post` triggers — the
+sandbox was adapted out of band; fresh replays with live pg_net point at production.
+
 ## Pin at `aabe029` (A, 2026-09-15/16); 131 rebased to `f102ce2` (content = a8ea025)
 
 ## 132 interim alerts — D costing (ops framework 115/117/118, deployed console)
