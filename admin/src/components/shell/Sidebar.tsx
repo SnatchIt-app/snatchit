@@ -2,17 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV, isNavActive } from "@/lib/nav";
 
-export const NAV = [
-  { href: "/", label: "Today", key: "t" },
-  { href: "/cases", label: "Cases", key: "c" },
-  { href: "/orders", label: "Orders & Transfers", key: "o" },
-  { href: "/money", label: "Money", key: "m" },
-  { href: "/users", label: "Users", key: "u" },
-  { href: "/marketplace", label: "Marketplace", key: "k" },
-  { href: "/reports", label: "Reports", key: "r" },
-  { href: "/system", label: "System", key: "s" },
-] as const;
+export { NAV };
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -26,7 +18,7 @@ export function Sidebar() {
       </div>
       <ul className="flex-1 py-2">
         {NAV.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const active = isNavActive(pathname, item.href);
           return (
             <li key={item.href}>
               <Link
