@@ -1032,3 +1032,21 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
 - **Effect on dates (C's view):** Friday candidate unchanged (Thu build after
   the candidate checks; Fri handset Blocks 0–3). Production readiness waits
   on 131 + its client delta in a later build: earliest the week of 21 Sept.
+- **Wrapper decided (A, 2026-09-15): migration 129 = `public.revoke_push_token(text)`**
+  (SECURITY DEFINER over notify's writer, authenticated only; contract v2 §2.4
+  erratum, version stays 2). Recovery head is now **`db5bddf`**: one call-site
+  change to `supabase.rpc('revoke_push_token', { p_token })`; gates tsc clean,
+  vitest 1883 / 84, lint 0 errors / 29 warnings; gated diff vs d90db6b
+  `signOut.ts` +59/−17 (A's A-8 line review covers the file end to end). A:
+  nothing else outstanding from C for the candidate. Session-bound bindings
+  renumbered **131** (pgTAP 198).
+- **131 provisional client delta at `b538f1d` on `frontend/session-bound-131`**
+  (worktree `snatchit-131`, rebased onto db5bddf, not in the candidate stack)
+  after D's read-only review of 627ee62: K-1 account deletion → all-devices
+  sign-out; K-3 two named acts `signOutThisDevice` / `signOutAllDevices` (old
+  name removed on that branch); K-4 neutral stale-session copy (no cause
+  named). **K-2 is the owner's decision:** ordinary "Sign out" becomes this
+  device only, so a user who suspects misuse must use "Sign out of all devices";
+  A and D both want it recorded as a product decision. D confirms S15/S16
+  handled on the client; no reclaim UX exists (D's R1–R3 against A's tombstone
+  reclaim). Gates: tsc clean; vitest 1893 / 85; lint 0 errors / 29 warnings.
