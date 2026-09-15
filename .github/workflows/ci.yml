@@ -1440,7 +1440,7 @@ jobs:
               # failure or a timeout would pass without the firewall having done anything.
               case "$(printf '%s' "$err" | tr '[:upper:]' '[:lower:]')" in
                 *resolve*|*timeout*|*timed\ out*) echo "::error::the probe failed for a reason other than the egress block (${err}) — the block was not exercised"; exit 1;;
-                *refused*|*reset*|*"failed to connect"*) echo "probe refused at the runner (${err}): OK";;
+                *refused*|*reset*|*"failed to connect"*|*"couldn't connect"*|*"could not connect"*) echo "probe refused at the runner (${err}): OK";;
                 *) echo "::error::the probe failed with an unrecognised error (${err}); refusing to treat it as proof"; exit 1;;
               esac;;
             *) echo "::error::the pg_net probe to an outside host was ANSWERED (${row%%|*}) — the CI egress block is not effective"; exit 1;;
