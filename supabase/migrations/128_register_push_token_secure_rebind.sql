@@ -54,21 +54,28 @@
 --   (a) `created_at < ` the epoch recorded when 128 first applied — so a
 --       hash-less row written AFTER 128 (i.e. by the legacy client path) is
 --       never claimable, which is what makes rule 5 transitional;
---   (b) `revoked_reason` is a SIGN-OUT, not a provider signal. Both spellings
---       are accepted: `notify.revoke_push_token` writes 'signed_out', while the
---       shipped client's own sign-out helper writes 'sign_out'. Accepting one
---       only would have failed silently for half the fleet;
+--   (b) `revoked_reason = 'signed_out'` — a sign-out, not a provider signal.
+--       ONE spelling: `notify.revoke_push_token` is the only server writer and it
+--       writes 'signed_out'. An earlier revision also accepted 'sign_out' for an
+--       unshipped client helper; re-review found no writer of it in this tree, and
+--       a second accepted value that only a client can author is surface for
+--       nothing. The client helper is being changed to match.
 --   (c) revoked within the last 30 days — a long-dead row is not a handover;
---   (d) `is_active` still false.
+--   (d) `is_active` still false;
+--   (e) SUNSET (V12): the whole rule stops working 90 days after the epoch.
+--       Without it "transitional" was untrue — `revoked_at` is re-armed by EVERY
+--       sign-out, and the pre-128 cohort never shrinks, so the door re-opened at
+--       every sign-out indefinitely.
 --
 -- ── §3 WHAT THIS MIGRATION CANNOT CLOSE (review finding V3, recorded) ────────
 -- Rule 1 binds an UNCLAIMED token with no proof, because no proof exists: the
 -- database cannot tell who physically holds a token nobody has registered. So a
 -- caller can squat a token they do not hold and lock the real device out. This
--- migration makes that impractical rather than impossible — registration is rate
--- limited (§1), and targeted squatting needs the victim's exact high-entropy
--- token — and adds `public.unbind_push_token` (service_role only) so support can
--- recover a squatted token. A real fix needs provider-side proof, which is
+-- migration adds `public.unbind_push_token` (service_role only) so support can
+-- recover a squatted token. NOTE, corrected by re-review: the rate limit inside
+-- this verb is NOT a mitigation, because the shipping client squats through the
+-- direct table INSERT it already uses, which never reaches this function. Do not
+-- cite rate limiting as the defence. A real fix needs provider-side proof, which is
 -- outside the database.
 -- ============================================================================
 begin;
@@ -85,6 +92,16 @@ create table if not exists public.push_token_rebind_epoch (
 );
 insert into public.push_token_rebind_epoch (singleton) values (true)
   on conflict (singleton) do nothing;
+
+-- V11 (re-review, CRITICAL): a table created in `public` inherits the default
+-- ACL that grants anon/authenticated DML, and `public` is the PostgREST-exposed
+-- schema. Without this the epoch — the ONLY thing making rule 5 transitional —
+-- was writable with the anon key: push `applied_at` into the future and every
+-- hash-less row becomes claimable on token knowledge alone, which is V2 restored.
+-- The repo's own CI gate (supabase/ci/assert_public_table_grant_decisions.sql)
+-- fails on any public table with no recorded decision; this one is no-client-access.
+alter table public.push_token_rebind_epoch enable row level security;
+revoke all on public.push_token_rebind_epoch from public, anon, authenticated;
 
 comment on table public.push_token_rebind_epoch is
   '128: when the device-proof rule first applied. Rule 5 (claiming a hash-less binding) is allowed only for rows created BEFORE this instant, which is what makes it transitional. Survives the 128 rollback on purpose — see the rollback header.';
@@ -184,6 +201,8 @@ begin
   -- pgcrypto dependency that would resolve only at call time (finding V10).
   v_hash  := encode(pg_catalog.sha256(pg_catalog.convert_to(p_device_secret, 'utf8')), 'hex');
   select applied_at into v_epoch from public.push_token_rebind_epoch;
+  -- A NULL epoch (row deleted) makes every rule-5 comparison NULL, so the rule
+  -- fails CLOSED. Verified by re-review; deleting it is a DoS on handover, not a bypass.
 
   perform set_config('app.push_token_verb', 'on', true);
 
@@ -243,9 +262,10 @@ begin
   elsif v_row_hash is null
         and v_row_active is not true
         and v_row_made   <  v_epoch                                -- (a) transitional only
-        and v_row_reason in ('signed_out', 'sign_out')              -- (b) a sign-out, not a provider signal
+        and v_row_reason = 'signed_out'                             -- (b) a sign-out, not a provider signal
         and v_row_revoked is not null
-        and v_row_revoked > now() - interval '30 days' then         -- (c) a recent handover
+        and v_row_revoked > now() - interval '30 days'              -- (c) a recent handover
+        and now() < v_epoch + interval '90 days' then               -- (e) sunset
     -- 5. A pre-128 binding the previous owner signed out of, recently.
     update public.push_tokens
        set user_id            = v_uid,
@@ -285,7 +305,9 @@ set search_path = ''
 as $$
 declare v_n integer;
 begin
-  perform set_config('app.push_token_verb', 'on', true);
+  -- No set_config here (V15): the write guard is BEFORE INSERT OR UPDATE and this
+  -- only DELETEs, so setting it would merely disarm the guard for the rest of the
+  -- caller's transaction.
   delete from public.push_tokens where token = p_token;
   get diagnostics v_n = row_count;
   return jsonb_build_object('unbound', v_n, 'contract_version', 2);

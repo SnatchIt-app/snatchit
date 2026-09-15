@@ -13,7 +13,7 @@
 -- reason. §I is the exception — it acts as a real client, which is the point.
 -- ============================================================================
 BEGIN;
-SELECT plan(38);
+SELECT plan(41);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_195 (k text PRIMARY KEY, v text);
@@ -52,6 +52,10 @@ CREATE FUNCTION tap._hash195() RETURNS text LANGUAGE sql SECURITY DEFINER AS
 $f$ SELECT device_secret_hash FROM public.push_tokens WHERE token = tap._f195('tok') $f$;
 CREATE FUNCTION tap._active195() RETURNS boolean LANGUAGE sql SECURITY DEFINER AS
 $f$ SELECT is_active AND revoked_at IS NULL FROM public.push_tokens WHERE token = tap._f195('tok') $f$;
+CREATE FUNCTION tap._agee195() RETURNS void LANGUAGE sql SECURITY DEFINER AS
+$f$ UPDATE public.push_token_rebind_epoch SET applied_at = now() - interval '120 days' $f$;
+CREATE FUNCTION tap._resete195() RETURNS void LANGUAGE sql SECURITY DEFINER AS
+$f$ UPDATE public.push_token_rebind_epoch SET applied_at = now() - interval '1 day' $f$;
 CREATE FUNCTION tap._del195() RETURNS void LANGUAGE sql SECURITY DEFINER AS
 $f$ DELETE FROM public.push_tokens WHERE token = tap._f195('tok') $f$;
 -- Capture the message so §C can assert the paths are indistinguishable.
@@ -71,9 +75,10 @@ SELECT ok(NOT has_function_privilege('anon', 'public.register_push_token(text,te
   'A3: anon may NOT');
 SELECT ok(NOT has_function_privilege('service_role', 'public.register_push_token(text,text,text,text)', 'EXECUTE'),
   'A4: service_role may NOT — no server path registers a handset');
-SELECT ok((SELECT p.prosecdef AND p.proconfig::text LIKE '%search_path=%' AND (p.prorettype::regtype)::text = 'jsonb'
+-- `LIKE '%search_path=%'` would pass for search_path=public, so assert the value.
+SELECT ok((SELECT p.prosecdef AND p.proconfig @> ARRAY['search_path=""'] AND (p.prorettype::regtype)::text = 'jsonb'
              FROM pg_proc p WHERE p.oid = 'public.register_push_token(text,text,text,text)'::regprocedure),
-  'A5: SECURITY DEFINER, search_path pinned, returns jsonb');
+  'A5: SECURITY DEFINER, search_path pinned to EMPTY, returns jsonb');
 SELECT has_column('public'::name, 'push_tokens'::name, 'device_secret_hash'::name, 'A6: the proof column exists');
 SELECT has_table('public'::name, 'push_token_rebind_epoch'::name, 'A7: the epoch table exists');
 SELECT ok(has_function_privilege('service_role', 'public.unbind_push_token(text)', 'EXECUTE'),
@@ -83,6 +88,24 @@ SELECT ok(NOT has_function_privilege('authenticated', 'public.unbind_push_token(
 -- 128's headline claim, previously asserted nowhere.
 SELECT ok(NOT has_function_privilege('authenticated', 'notify.register_push_token(text,text,text,text)', 'EXECUTE'),
   'A10: the insecure notify verb is REVOKED from authenticated — the claim is enforced, not left to a setting');
+
+-- The epoch is the ONLY thing making rule 5 transitional. A table created in
+-- `public` inherits the default ACL granting anon/authenticated DML, and `public`
+-- is PostgREST-exposed — so without an explicit REVOKE this gate was writable
+-- with the anon key, which restores V2 entirely. These two assertions are the
+-- ones whose absence let that ship.
+SELECT ok((SELECT NOT has_table_privilege('authenticated','public.push_token_rebind_epoch', priv)
+             FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) priv
+            ORDER BY 1 LIMIT 1) IS NOT FALSE
+          AND NOT has_table_privilege('authenticated','public.push_token_rebind_epoch','UPDATE')
+          AND NOT has_table_privilege('authenticated','public.push_token_rebind_epoch','INSERT')
+          AND NOT has_table_privilege('authenticated','public.push_token_rebind_epoch','DELETE')
+          AND NOT has_table_privilege('anon','public.push_token_rebind_epoch','UPDATE')
+          AND NOT has_table_privilege('anon','public.push_token_rebind_epoch','INSERT')
+          AND NOT has_table_privilege('anon','public.push_token_rebind_epoch','DELETE'),
+  'A11: the epoch table holds NO client DML — anon/authenticated cannot move the gate');
+SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.push_token_rebind_epoch'::regclass),
+  'A12: ...and RLS is enabled on it');
 
 -- ── B. the owning device ────────────────────────────────────────────────────
 SELECT tap._del195();
@@ -127,11 +150,12 @@ SELECT is(left(tap._try195(tap._f195('bad')), 5), '42501',
 SELECT tap._mkrow195(tap.buyer(), NULL, false, 'signed_out', interval '1 hour', interval '90 days');
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'),
   'rebound_legacy', 'E2: a pre-epoch hash-less binding, signed out recently, IS claimable');
--- The shipped client writes 'sign_out'; notify.revoke_push_token writes
--- 'signed_out'. Accepting one spelling only would fail silently for half the fleet.
+-- ONE spelling. 'signed_out' is what notify.revoke_push_token writes and the only
+-- server writer there is; a second accepted value only a client can author would
+-- be surface for nothing.
 SELECT tap._mkrow195(tap.buyer(), NULL, false, 'sign_out', interval '1 hour', interval '90 days');
-SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'),
-  'rebound_legacy', 'E3: BOTH sign-out spellings are honoured (client ''sign_out'', server ''signed_out'')');
+SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
+  'E3: the client-only ''sign_out'' spelling is NOT honoured — one spelling only');
 
 -- ── F. PROVIDER REVOCATION — the V2 core ────────────────────────────────────
 -- notify.record_delivery_result revokes on device_not_registered with no user
@@ -156,15 +180,25 @@ SELECT tap._mkrow195(tap.buyer(), NULL, true, NULL, NULL, interval '90 days');
 SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
   'G3: an ACTIVE hash-less binding is not claimable');
 
+-- The sunset: without it, revoked_at is re-armed by every sign-out and the
+-- pre-128 cohort never shrinks, so "transitional" would be untrue forever.
+SELECT tap._agee195();
+SELECT tap._mkrow195(tap.buyer(), NULL, false, 'signed_out', interval '1 hour', interval '200 days');
+SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
+  'G4: past the 90-day sunset the legacy path is closed for good');
+SELECT tap._resete195();
+
 -- ── H. LOST LOCAL SECRET ────────────────────────────────────────────────────
 SELECT tap._mkrow195(tap.buyer(), tap._h195(tap._f195('sec')), true, NULL, NULL, interval '1 day');
 SELECT tap.login(tap.buyer());
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('bad'), 'iPhone') ->> 'outcome'),
   'refreshed', 'H1: an owner presenting a new secret is refreshed (the reply cannot reveal the mismatch)');
 SELECT is(tap._hash195(), tap._h195(tap._f195('sec')), 'H2: ...and the stored hash is still the original');
-SELECT tap._del195();
+-- Deleted as the CLIENT, under RLS, because the RLS owner-delete policy is what
+-- the whole recovery story rests on. A definer helper here would prove nothing.
+DELETE FROM public.push_tokens WHERE token = tap._f195('tok');
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('bad'), 'iPhone') ->> 'outcome'),
-  'registered', 'H3: recovery is delete-your-own-row then register — never rotation');
+  'registered', 'H3: recovery is delete-your-own-row under RLS, then register — never rotation');
 
 -- ── I. THE PROOF COLUMN IS NOT CLIENT-WRITABLE (acts as a real client) ──────
 SELECT tap._mkrow195(tap.buyer(), tap._h195(tap._f195('sec')), true, NULL, NULL, interval '1 day');

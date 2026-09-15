@@ -166,6 +166,7 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   -- 20260906120000 (Package 3): payout attempt ledger, append-only refund
   -- facts, account-deletion phase ledger. All service_role only.
   ('account_deletions',            'no-client-access'),
+  ('push_token_rebind_epoch',      'no-client-access'),
   ('payment_refunds',              'no-client-access'),
   ('payout_attempts',              'no-client-access'),
 
