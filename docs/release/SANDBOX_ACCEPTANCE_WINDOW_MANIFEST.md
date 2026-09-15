@@ -135,3 +135,30 @@ bids **0**, push_tokens **1**. A records the closing read-back.
 **Stop immediately if:** any pre-flight value differs; any native flag changes; `kernel.tickets` or
 `kernel.signing_key` becomes non-zero; any count moves outside the fixture writes declared above; or `123`
 appears to need reapplying.
+
+## 8. SBX-2 — marketplace phase, as authorized 2026-09-15 and reconciled to the pin (A, 2026-09-15)
+
+**Authorization text (owner, 2026-09-15):** "migrations 125→126→127→128 in order; sandbox deployment of
+stripe-webhook and create-payment-intent; and the documented verification, including notification registration."
+**Reconciliation:** the pinned candidate (`4b012fd`) also carries **129** (`public.revoke_push_token` — the client's
+sign-out revoke; without it DV-611's sign-out read-back fails by construction) and **130** (checkout supersede claim,
+which the deployed `create-payment-intent` calls; absent, the edge degrades to #64 behaviour and DV-L1/L2 do not
+exercise the claim). **Applying 129 and 130 to the sandbox is NOT covered by the authorization as written** — A asks
+the owner to extend O-1 to `125 → 126 → 127 → 128 → 129 → 130`, or SBX-2 runs 125–128 only with the two
+verifications above recorded as not exercised.
+
+**Order on the shared sandbox (D's sequencing flag, confirmed):** Phase A (124) → **SBX-2** (125→130 in `LC_ALL=C`
+order, then deploy `stripe-webhook` and `create-payment-intent` from the pin, then DV-611 L/S/R/C and DV-L1/L2
+read-backs) → Phase C previews → **venue Phase B last** (its timestamped migration sorts above every numeric one and
+would otherwise drop later numeric applies out of the default plan). Owner MFA is needed only at the venue exposure
+step, the last act.
+
+**Pre-flight for SBX-2 (A, read-only, immediately before):** ledger count and the exact planned list from a dry run
+must equal `125,126,127,128,129,130` and nothing else; 123 present (verify-only); native flags all `false`;
+`kernel.tickets` 0; `kernel.signing_key` 0. **126's L-1 precondition (B):**
+`select count(*) from public.payments where status='refunded' and refunded_at is null` must be **0** on the sandbox
+before 126 applies (the same read on production is a separate owner-authorized item). **Stop** on any unexpected
+value or an uncertain mutation outcome.
+**Expected after:** ledger 131 + (Phase A's 124) as the manifest counts them; both edges byte-identical to the pin
+(`git show candidate/2026-09-18-pin:supabase/functions/<fn>/index.ts` vs the deployed source); no flag moved;
+counts back to baseline after DV cleanup.

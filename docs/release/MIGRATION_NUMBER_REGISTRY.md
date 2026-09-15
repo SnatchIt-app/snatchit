@@ -1,6 +1,8 @@
 # Migration and pgTAP number registry
 
-One owner per number. Updated 2026-09-12. Check here before claiming a number.
+One owner per number. Updated 2026-09-15. Check here before claiming a number.
+
+**Candidate pinned 2026-09-15:** `release/candidate-20260918 @ 4b012fd` = tag `candidate/2026-09-18-pin` — 121, 123, 124, 125, 126, 127, 128, 129, 130 (amended) + edges #64/#66/#67 + C's client stack. Applied nowhere; not a release. Anything numbered from here (131 session-bound, 132 if the fresh-mint structural fix is wanted) is outside the pin.
 
 **Canonical production state:** `docs/release/PHASE2_PRODUCTION_STATE_20260912.md` (Claude B, commit
 `55d37f5`, currently only on `origin/feature/venue-native-and-product-v2`). Production ledger **135**, numeric
