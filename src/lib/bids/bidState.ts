@@ -21,6 +21,7 @@ export type BidStatus =
   | 'outbid'
   | 'won'                // auction ended, this user won, payment not yet completed
   | 'lost'
+  | 'cancelled'          // the seller or the platform cancelled the listing (CFT-607)
   | 'sold'               // the listing sold via Buy Now to someone (or this user, pre-transfer)
   | 'awaiting_transfer'  // purchased; transfer.status = 'pending'
   | 'seller_sent'        // transfer.status = 'seller_sent'
@@ -65,6 +66,9 @@ export function bidStatusOf(row: BidRowInput, userId: string, now: number = Date
   const l = row.listing;
   if (!l) return 'lost';
   if (l.status === 'sold') return 'sold';
+  // A cancelled listing is neither live nor won: without this, a bid on it
+  // read as "Winning" until its clock ran out (CFT-607).
+  if (l.auction_status === 'cancelled') return 'cancelled';
   if (l.auction_status === 'ended') {
     return l.winner_user_id === userId ? 'won' : 'lost';
   }
@@ -85,6 +89,7 @@ export function bidGroupOf(status: BidStatus): BidGroup {
   switch (status) {
     case 'lost':
     case 'sold':
+    case 'cancelled':
     case 'purchase_confirmed':
       return 'past';
     default:
@@ -200,6 +205,9 @@ export function bidPresentation(row: BidRowInput, userId: string, now: number = 
     case 'sold':
       return base({ label: 'Sold', tone: 'neutral', actionHint: 'View listing', priority: 7,
         priceLabel: 'Sold for', priceDollars: l ? saleDollars(l) : row.amount });
+    case 'cancelled':
+      return base({ label: 'Cancelled', tone: 'neutral', actionHint: 'Listing was cancelled', priority: 8,
+        priceLabel: 'Your max', priceDollars: row.amount });
     case 'lost':
     default:
       return base({ label: 'Ended', tone: 'neutral', actionHint: 'View listing', priority: 8,
