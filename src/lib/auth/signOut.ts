@@ -36,13 +36,37 @@
  * a guarantee.
  */
 
-import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
+import { markSessionEnd, type SessionEndReason } from '@/src/lib/auth/sessionEnd';
 import { supabase } from '@/src/lib/supabase';
 import { getRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import type { ErrorLike } from '@/src/lib/push/registration';
 import { EMPTY_REGISTRATION_STATE, saveRegistrationState } from '@/src/lib/push/registrationStore';
 
 export const SIGN_OUT_REVOKE_TIMEOUT_MS = 3_000;
+
+/**
+ * 131 (PROVISIONAL — session-bound push bindings, A's design, not frozen).
+ * Two sign-outs, named for what they do (D's K-3):
+ *  - `signOutThisDevice`: scope 'local'. Before 131 the app used auth-js's
+ *    default `{ scope: 'global' }`, which ended every session of the user on
+ *    every sign-out and left the other devices with live push rows and no
+ *    session. This is the product change put to the owner (D's K-2): a user
+ *    who suspects their account is used elsewhere must now use the other act.
+ *  - `signOutAllDevices`: asks the server to revoke every push binding of
+ *    this user first (`public.revoke_all_push_bindings`), then ends every
+ *    session (scope 'global'). Account deletion uses it too (D's K-1).
+ */
+export type SignOutScope = 'local' | 'global';
+export interface SignOutOptions {
+  scope?: SignOutScope;
+  /** Why, for the login screen (default 'user'). */
+  reason?: SessionEndReason;
+}
+export function resolveSignOutOptions(opts: SignOutOptions = {}): Required<SignOutOptions> {
+  return { scope: opts.scope ?? 'local', reason: opts.reason ?? 'user' };
+}
+/** 131 §2c: `public.revoke_all_push_bindings()` → `{ revoked, contract_version }`, own user only; not pinned (additive). */
+export const REVOKE_ALL_RPC = 'revoke_all_push_bindings';
 
 /** Contract v2 §2.4 (erratum 2026-09-15): the public revoke verb, migration 129. */
 export const REVOKE_RPC = 'revoke_push_token';
@@ -129,8 +153,9 @@ const liveRevokeDeps: RevokeDeps = {
   },
 };
 
-/** The app's sign-out. Every sign-out site calls this and nothing else. */
-export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
+/** The one sign-out implementation; the two exported acts below choose the scope. */
+async function performSignOut(opts: SignOutOptions): Promise<{ revoke: RevokeOutcome }> {
+  const { scope, reason } = resolveSignOutOptions(opts);
   const result = await revokeThenSignOut({
     getToken: getRegisteredPushToken,
     getUserId: async () => {
@@ -141,12 +166,38 @@ export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
     clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE),
     signOut: async () => {
       // The user chose this; the login screen must not call it an expiry (CFT-607).
-      markSessionEnd('user');
-      await supabase.auth.signOut();
+      markSessionEnd(reason);
+      await supabase.auth.signOut({ scope });
     },
   });
   if (result.revoke !== 'revoked' && result.revoke !== 'no_token') {
     console.warn('[signOut] push token not deactivated:', result.revoke);
   }
   return result;
+}
+
+/** Sign out THIS device only. Every ordinary sign-out site calls this and nothing else. */
+export function signOutThisDevice(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome }> {
+  return performSignOut({ scope: 'local', reason: opts.reason });
+}
+
+/**
+ * Sign out of ALL devices: revoke every push binding of this user on the
+ * server (its failure is logged and never blocks), then end every session.
+ * The server's per-user epoch moves, so no session created before now — this
+ * one included — can register a device again. Used by "Sign out of all
+ * devices", by account deletion, and after a password change.
+ */
+export async function signOutAllDevices(opts: { reason?: SessionEndReason } = {}): Promise<{ revoke: RevokeOutcome; revokedAll: number | null }> {
+  let revokedAll: number | null = null;
+  try {
+    const { data, error } = await supabase.rpc(REVOKE_ALL_RPC);
+    if (error) throw error;
+    const n = data && typeof data === 'object' ? (data as Record<string, unknown>).revoked : undefined;
+    revokedAll = typeof n === 'number' ? n : null;
+  } catch (e) {
+    console.warn('[signOut] revoke_all_push_bindings failed:', e instanceof Error ? e.message : e);
+  }
+  const result = await performSignOut({ scope: 'global', reason: opts.reason });
+  return { ...result, revokedAll };
 }

@@ -32,7 +32,9 @@ export default function ResetPasswordScreen() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { Alert.alert('Error', friendlyAuthError(error.message)); return; }
-    await signOutEverywhere();
+    // 129 (provisional): the server has just invalidated every push binding of
+    // this user; end every session too, and say why on the login screen.
+    await signOutEverywhere({ scope: 'global', reason: 'password_changed' });
     Alert.alert('Password updated', 'Your password has been updated. Please sign in.', [
       { text: 'OK', onPress: () => router.replace('/(auth)/login') },
     ]);

@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { signOutAllDevices, signOutEverywhere } from '@/src/lib/auth/signOut';
 import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
@@ -134,6 +134,32 @@ export default function SettingsScreen() {
         },
       },
     ]);
+  }
+
+  // 129 (provisional): a distinct act from "Sign out" (this device only).
+  async function handleSignOutAllDevices() {
+    Alert.alert(
+      'Sign out of all devices',
+      'This ends your session on every device and stops notifications everywhere until you sign in again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out everywhere',
+          style: 'destructive',
+          onPress: async () => {
+            setSigningOut(true);
+            try {
+              await signOutAllDevices();
+              router.replace('/(auth)/login');
+            } catch {
+              alertWeb('Failed to sign out. Please try again.');
+            } finally {
+              setSigningOut(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   // Human labels for the live-rail obligation tokens returned by delete-account
@@ -312,6 +338,7 @@ export default function SettingsScreen() {
         {/* ── Account actions ───────────────────────────────── */}
         <View style={s.actions}>
           <Button label="Sign out" variant="secondary" onPress={handleSignOut} loading={signingOut} disabled={signingOut} block />
+          <Button label="Sign out of all devices" variant="secondary" onPress={handleSignOutAllDevices} disabled={signingOut} block />
           <Button label="Delete account" variant="destructive" onPress={handleDeleteAccount} loading={deleting} disabled={deleting} block />
         </View>
       </ScrollView>

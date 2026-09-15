@@ -10,7 +10,14 @@
  * login screen says nothing stale. Process memory only; nothing persisted.
  */
 
-export type SessionEndReason = 'user' | 'expired';
+/**
+ * 129 (PROVISIONAL — session-bound push bindings, A's design, not frozen):
+ * 'credential_change' = the server refused push registration because this
+ * session predates a password change, so the app signed this device out;
+ * 'password_changed' = this device just set a new password and signed out
+ * everywhere on purpose.
+ */
+export type SessionEndReason = 'user' | 'expired' | 'credential_change' | 'password_changed';
 
 let pending: SessionEndReason | null = null;
 
@@ -34,6 +41,8 @@ export function consumeSessionEnd(): SessionEndReason | null {
 export const SESSION_END_NOTICE: Record<SessionEndReason, string | null> = {
   user: null,
   expired: 'Your session expired. Sign in to pick up where you left off.',
+  credential_change: 'Your password was changed. Sign in again to keep notifications on this device.',
+  password_changed: 'Password updated. Sign in with your new password.',
 };
 
 export function sessionEndNotice(reason: SessionEndReason | null): string | null {

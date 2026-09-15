@@ -59,6 +59,7 @@ export type RegistrationErrorKind =
   | 'bound_to_other'     // terminal: another account holds this token on the server (F7)
   | 'precondition'       // P0001 precondition_failed: a client-side shape bug — terminal until inputs change
   | 'rate_limited'       // P0001 precondition_failed: too many registration attempts — back off, retry next launch
+  | 'session_stale'      // 129 (provisional): 42501 'session predates a credential change' — terminal until this device re-authenticates
   | 'contract_mismatch'  // the reply's contract_version is not the one this client is built against — terminal until a new build
   | 'auth'               // no valid session
   | 'secret_unavailable' // Keychain or CSPRNG unavailable on this device
@@ -102,7 +103,7 @@ export interface Decision {
   reason:
     | 'signed_out' | 'no_token' | 'fresh'
     | 'first' | 'token_changed' | 'account_changed' | 'method_changed' | 'stale' | 'retry' | 'cold_launch'
-    | 'backoff' | 'bound_to_other' | 'precondition';
+    | 'backoff' | 'bound_to_other' | 'precondition' | 'session_stale';
   /** For `wait` with `backoff`: epoch ms when a retry may run. */
   retryAt?: number;
 }
@@ -141,6 +142,9 @@ export function decideRegistration(i: DecisionInput): Decision {
     // token. Only a sign-out on that account, a new token, or a different user
     // changes the answer — all of which invalidate this failure record.
     if (failure.kind === 'bound_to_other') return { action: 'wait', method, reason: 'bound_to_other' };
+    // 129: only a new session changes the answer; the hook signs this device
+    // out (handleSessionStale), and the next sign-in starts with no record.
+    if (failure.kind === 'session_stale') return { action: 'wait', method, reason: 'session_stale' };
     // Deterministic refusal: the same inputs can never succeed, so a timer
     // would only burn battery. A fixed build recovers on its next token or
     // method change.
@@ -183,6 +187,8 @@ export function classifyRegistrationError(err: ErrorLike | null | undefined): Re
   if (code === 'PGRST202' || code === '42883' || /could not find the function/.test(msg)) return 'rpc_missing';
   if (code === '42501') {
     if (/not_authenticated/.test(msg)) return 'auth';
+    // 129 (provisional): the session was created before the user's last credential change.
+    if (/session predates a credential change/.test(msg)) return 'session_stale';
     // "insufficient_privilege: token is bound to another account" — the one terminal branch.
     return 'bound_to_other';
   }
@@ -211,4 +217,6 @@ export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>>
     "Notifications aren't set up for this account on this device yet. The account that used this device before needs to sign out here first.",
   secret_unavailable:
     "Notifications can't be set up on this device right now because secure storage is unavailable.",
+  session_stale:
+    'Your password was changed. Sign out and back in to turn notifications back on.',
 };
