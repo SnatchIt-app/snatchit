@@ -1384,3 +1384,17 @@ Fresh-mint residual (three paths: the `_u` replay retry, a re-price between read
   - **GitHub CI run 34980015844: every job passes, migrations `Files=81, Tests=5019, Result: PASS`.** The guard is blocked at the attestation gate.
 - **CI-only miss:** the first run, 34979637600, failed privilege parity. A CI replay has no default ACL, so service_role lacked SELECT on the new table; the local harness hid it, and 128 had hit the same failure. Fixed with an explicit grant, pinned by A.5b with a negative control.
 - **Status:** review-ready. D reviews next (concurrency, retries, uncertain Stripe outcomes, duplicate prevention), then A integrates. Nothing applied anywhere shared; sandbox or production application and the edge deploy need owner authorization.
+**D review of 132 at `acbd5dd`: two BLOCKING money findings, both confirmed by B, both fixed.**
+- **F-132-1, cross-mode.** B reproduced D's probe on the branch replay. One buyer is entitled to both modes after a bid, `reserve_buy_now` while the auction runs, and the finalizer ending the auction under the live hold. The mode-keyed group and the mode-filtered read let both checkouts mint.
+- **F-132-2, cross-buyer.** Confirmed from source: the other-buyer retirement was best-effort and skipped `processing` rows.
+- **Correction to B's earlier claim:** the §6 "cross-mode and cross-buyer unreachable" statement was wrong.
+- **Fixes on PR #70:**
+  - `54ce175`: group key `(listing, buyer)`; 199 Z.1–Z.5 replay D's sequence; the negative control (mode-keyed) fails 5; two-session G6.
+  - `ebbd1c0`: prior read across modes, with 409 on a live other-mode attempt. Other-buyer retirement fails closed and covers processing rows under E-1's bound. The processing refusal consults Stripe (nothing sweeps processing rows).
+- **Evidence:**
+  - Local: pgTAP 5018/5018; 11 edge tests RED at `acbd5dd`; 6 new edge mutants and 5 SQL mutants killed; vitest 1937/1937; rollback identical.
+  - **GitHub CI run 34982027295 at `ebbd1c0`: every job passes, migrations `Files=81, Tests=5024, Result: PASS`.**
+- **Design correction:** `docs/132-checkout-group-claim-design` @ `e77f32c`.
+- **Status:** D re-runs the full battery at `ebbd1c0`, then A integrates.
+- **Residual (disclosed):** a DB-processing row whose intent returned to `requires_payment_method` refuses until the `payment_failed` webhook lands.
+- **Pre-existing root cause and product question (reserve during a winning auction):** A and the owner.
