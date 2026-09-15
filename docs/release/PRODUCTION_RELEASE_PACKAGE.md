@@ -2975,3 +2975,57 @@ error, and a free-vs-bound oracle that compounds squatting. Error paths, grants,
 both cases the tests passed because the fixture constructed a state the real system cannot produce. Tests built
 from the same mental model as the code inherit its blind spot; only an adversary with the real producers in hand
 finds that.
+
+### 127/128 review rounds two and three; 127's deployment coupling; 128's residual dispositions (2026-09-14, A)
+
+Rounds two and three were commissioned after the first (previous section) and had been recorded only in commit
+messages. Recorded here so the durable record matches the tree. Applied nowhere; nothing here is authorized.
+
+**Round two (`a85bbb0`).** 127 **D1 — A had silently reverted 0590.** The new `release_reservation` body was rebuilt
+from `000_baseline_schema.sql` rather than the applied body, dropping 0590's removal of the `coalesce(auth.uid(),
+p_user_id)` identity fallback; the rollback carried the same regression and falsely claimed to restore "000_baseline".
+Both fixed (rollback now restores the 0590 body); pinned by assertions A8/A9. 128 **V11 — the epoch table was
+client-writable**: created in `public` with no RLS and no REVOKE, so the anon key could move `applied_at` and reopen
+rule 5. Fixed with RLS + REVOKE + a `no-client-access` manifest row (the repo's own CI gate would have caught it).
+Also: A's "regression proof" had run the *new* 195 against the *old* version, which aborted at a
+`has_function_privilege` on a missing function so 31 assertions never ran; replaced with a version-agnostic probe.
+
+**Round three (`6383b8f`).** Every prior finding verified fixed except the L1 producer race (below). Three blocking CI
+omissions, all A's — no function-manifest rows for four new functions, Gate-2 census not bumped (tables 30→31,
+functions 88→92, triggers 33→34), `expected_grants.txt` missing the new table's `service_role` row — plus D4 (row
+misfiled under another migration's provenance block) and **D5** (the live-sibling check was not mode-scoped while
+the subject payment was, so a pending *auction* payment refused a legitimate buy-now release). **Six assertions
+passed for the wrong reason**, most seriously **F4, which was vacuous**: `now()` is frozen per transaction, so the
+recomputed hold window is bit-identical with or without the early-RETURN branch it claimed to defend — the reviewer
+removed the branch and F4 still passed. F4 now asserts the branch; a negative control confirms it fails when the
+branch is removed. Also anchored A7 (an unanchored TTL regex accepted a 10× drift), A5 (`LIKE` on `search_path`), A8
+(case/space-sensitive negative regex), C9 (any refusal reason), and removed F7's dead setup. **194 is 30/30, 195 is
+41/41, the CI table gate is green.** Neither migration is integration-ready until a round returns clean.
+
+**127's required edge changes and deployment coupling — a migration-only test does not close L1.**
+
+| Where | Today (`df9e0d3`) | Required change |
+|---|---|---|
+| `stripe-webhook/index.ts:369-375` | claim predicate `status NOT IN (succeeded, refunded)` — **also matches `failed`**, so a row `create-payment-intent` already retired is re-claimed and its cancel event releases the hold the buyer's *replacement* attempt is using | claim only `pending`/`processing`; an already-retired row is a no-op (`no_claimable_row`) |
+| `stripe-webhook/index.ts:398-401` | `release_reservation(p_listing_id, p_user_id)` — buyer-scoped, cannot tell this payment's hold from a newer one | `release_reservation_for_payment(listing, buyer, payment.id)` (`payment.id` is already in hand at `:374`); log `{released, reason}` |
+| `create-payment-intent/index.ts:419-426, :588` | `retirePendingIntents` cancels P1 at Stripe (emitting `payment_intent.canceled`) **before** P2's row exists, so a fast webhook finds no live sibling | insert P2's `pending` row before cancelling P1 — defense in depth once the predicate above is fixed; required if the local `failed` write after a Stripe cancel ever fails |
+
+Coupling: **127 must be applied before the webhook deploy that names `release_reservation_for_payment`** (otherwise
+the RPC is absent; today's code only logs `rpcErr`, so holds would wait for the sweep — degraded, not broken), and
+**the webhook deploy is what closes L1** — applying 127 alone delivers L2 only, which the 127 header now states.
+Both belong in the same migrate-then-deploy window as §3. The edge change is **not written**; it needs its own
+review and a sandbox deploy, which the acceptance-window manifest excludes and which therefore needs its own
+authorization. Related owner decision: the Stripe `payment_intent.canceled` subscription (P0 #4) — the handler
+exists, Stripe does not send the event until subscribed.
+
+**128's three residual findings — severity and proposed disposition.** They were labelled informational by the
+reviewer; that label is not a disposition.
+
+| Residual | Impact | Severity | Proposed disposition |
+|---|---|---|---|
+| `device_secret_hash` is client-**readable** (`push_tokens` is `client-dml`: `authenticated` holds SELECT; RLS scopes rows to the owner). The value is an unsalted SHA-256 of a client-chosen secret | The row's owner can read the hash of a secret they already hold, so no direct capture. Exposure is conditional: if RLS ever widens, or the client chooses a low-entropy secret, the hash is an offline-guessable oracle | Low | **Fold into 128 before freeze**: column-level `REVOKE SELECT (device_secret_hash)` from `anon, authenticated` (the repo's `column-grants` decision) + one assertion. ~30 min. Server-generated secrets are a later contract version, not this one |
+| Plant-then-claim is closed only for rows that already carry a hash. Rule 2's `coalesce(hash, v_hash)` lets the *first* secret presented for a legacy NULL-hash row stick — an attacker with momentary access to the victim's session and their token can plant a hash before the victim's own client does, then claim from another account | Silent capture of a **legacy** device binding. Preconditions: session compromise *and* token knowledge; the window closes the moment the victim's client re-registers on a 128-aware build, because that plants the genuine hash first | Medium-low, transitional | **Accept as transitional, with two conditions written into the contract**: (1) C's client calls `register_push_token` on **every cold launch**, not only first install, so legacy rows convert on the first post-upgrade launch; (2) a `service_role` count of NULL-hash rows is added to ops monitoring so the tail is visible and the 90-day sunset can be judged. Owner to confirm the acceptance |
+| Deleting the epoch row and re-applying 128 moves the epoch forward and reopens rule 5 for 90 days | Requires DB-owner/`service_role` access (clients are REVOKEd), so it is an **operator** hazard, not an attacker path. In that interval every revoked-`signed_out` legacy row is again claimable by token knowledge | Low likelihood, high consequence | **Fold into 128 before freeze**: the migration refuses to *advance* an existing epoch (`on conflict do nothing`, and raise if the proof column exists while the epoch table is empty); a pgTAP assertion that exactly one epoch row exists; the rollback header states the hazard explicitly. ~1 h |
+
+Sequencing consequence: the two "fold in" items are small and cheap and reopen no design question, so they ride in
+the same clean-review round rather than a fourth; the transitional acceptance is the owner's.
