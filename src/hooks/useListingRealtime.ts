@@ -35,12 +35,21 @@ import type { Bid } from '@/src/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Connection health of the bids channel (CFT-504, item 19). `reconnecting`
+ * means the socket dropped and the SDK is retrying: the screen must say so,
+ * because a frozen screen must not look live. Catch-up on SUBSCRIBED is the
+ * existing behaviour and unchanged.
+ */
+export type RealtimeConnection = 'connecting' | 'live' | 'reconnecting';
+
 type RealtimeResult = {
   bids:            Bid[];
   currentBid:      number;
   bidCount:        number;
   highestBidderId: string | null;
   loading:         boolean;
+  connection:      RealtimeConnection;
 };
 
 type Options = {
@@ -72,6 +81,7 @@ export function useListingRealtime(
 ): RealtimeResult {
   const [bids, setBids]       = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
+  const [connection, setConnection] = useState<RealtimeConnection>('connecting');
 
   // Always-current list — prevents stale-closure reads in async callbacks.
   const bidsRef = useRef<Bid[]>([]);
@@ -189,6 +199,7 @@ export function useListingRealtime(
         channelStatusRef.current = status;
 
         if (status === 'SUBSCRIBED') {
+          setConnection('live');
           // ── Reconnect catch-up ──────────────────────────────────────────
           // Fetch any bids that arrived while the WebSocket was down.
           // onNewBid is intentionally NOT called for catch-up bids so haptics
@@ -209,11 +220,18 @@ export function useListingRealtime(
 
         if (status === 'CHANNEL_ERROR') {
           // Do NOT call removeChannel — the SDK retries automatically.
+          setConnection('reconnecting');
           console.warn(`[realtime] CHANNEL_ERROR bids: ${listingId}`, err ?? '');
         }
 
         if (status === 'TIMED_OUT') {
+          setConnection('reconnecting');
           console.warn(`[realtime] TIMED_OUT bids: ${listingId}`);
+        }
+
+        if (status === 'CLOSED') {
+          // Closed by us on unmount, or by the server; either way not live.
+          setConnection('reconnecting');
         }
       });
 
@@ -246,5 +264,6 @@ export function useListingRealtime(
     bidCount:        bids.length,
     highestBidderId,
     loading,
+    connection,
   };
 }
