@@ -1154,3 +1154,14 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   with two failing pins (push-registration, premium-static-previews) because
   the commit was chained after the run without checking it; corrected in
   dece6cf, full suite 1923 / 87 green. No candidate branch was affected.
+- **BUILD SUBMITTED (2026-09-15, on A's call after SBX-2 verified):** EAS preview build
+  `53e5e98b-dbe9-405d-a7c8-159375c3fbc6` from tag `candidate/2026-09-18-pin` =
+  `aabe029`, clean worktree (`npm ci`, 0 dirty files), `--no-wait`; the one
+  build the owner authorised. Build number and the compiled env are read from
+  EAS / the bundle when it finishes; packet §"Pinned source and artifact"
+  filled. **A's F-K2-1** (all-devices revoke unbounded): fixed —
+  `frontend/logout-scope @ 066625e` (revokeAllBindings raced against the 3 s
+  sign-out budget; hang → null, logged; test: never-resolving rpc completes
+  within budget; gates tsc clean / vitest 1916 / 86 / lint 0 errors) and
+  cherry-picked as `frontend/session-bound-131-r2 @ 269aabe` (gates tsc clean /
+  vitest 1924 / 87 / lint 0 errors). Both on origin, non-force.
