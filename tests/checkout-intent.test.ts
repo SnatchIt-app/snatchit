@@ -73,11 +73,16 @@ async function scenario(opts: ScenarioOpts) {
       // (contention and degradation are pinned in tests/l1-edge-coupling.test.ts).
       if (name === 'claim_checkout_supersede') return { data: { claimed: true, claim_token: 'tok_ci', holder_payment_id: params.p_payment_id, reason: 'claimed' } };
       if (name === 'release_checkout_supersede') return { data: { released: true, reason: 'released' } };
+      // migration 132: the pre-mint group record is likewise always free here.
+      if (name === 'claim_checkout_group') return { data: { claimed: true, claim_token: 'gtok_ci', reason: 'claimed' } };
+      if (name === 'release_checkout_group') return { data: { released: true, reason: 'released' } };
       return { data: null };
     },
     tables: {
       listings: (q) => (q.filters.some((f) => f[0] === 'eq' && f[1] === 'id' && f[2] === opts.listing.id) ? { data: opts.listing } : { data: null, error: { message: 'not found' } }),
       profiles: () => ({ data: { stripe_customer_id: CUSTOMER } }),
+      // E-1 (132): the holder re-reads its group record token before any hand-out.
+      checkout_group_claim: () => ({ data: { claim_token: 'gtok_ci' } }),
       payments: (q) => {
         // E-1: the holder re-reads its own claim token before any hand-out; single-request
         // scenarios still own the token the claim mock issued.

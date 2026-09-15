@@ -769,6 +769,20 @@ serve(async (req: Request) => {
       );
     }
 
+    // 132 (P1): an attempt of this group that is still `processing` may yet
+    // capture. Minting, reusing or superseding another attempt now would hand out
+    // a second confirmable secret whose capture collides with it (recorded
+    // unfulfillable and refunded later). Refuse without a secret until the
+    // processing attempt settles or fails; the group record makes this read
+    // race-free against a concurrent request of the same group.
+    if (existingPayments.some((p) => p.status === 'processing')) {
+      logStage('checkout-refused-processing', { listing_id, mode });
+      return new Response(
+        JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+        { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } }
+      );
+    }
+
     let failedAttempts = existingPayments.filter((p) => p.status === 'failed').length;
     // L1: a pending attempt this request supersedes (amount/currency changed).
     // It is cancelled only AFTER the replacement's row exists — see below.
