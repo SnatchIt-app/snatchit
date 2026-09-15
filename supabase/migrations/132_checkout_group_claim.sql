@@ -12,10 +12,14 @@
 -- collides with idx_payments_one_success_per_listing, is recorded unfulfillable
 -- and is refunded only by a later sweep. The owner does not accept that path.
 --
--- FIX. A durable record of the checkout group (listing, buyer, mode) that the
+-- FIX. A durable record of the checkout group (listing, buyer) that the
 -- create-payment-intent edge takes BEFORE it reads prior payments and BEFORE
--- any mint, and holds through every secret hand-out:
---   public.checkout_group_claim            one row per claimed group
+-- any mint, and holds through every secret hand-out. The group spans BOTH modes
+-- (D review F-132-1): one buyer can be entitled to Buy Now and to the auction on
+-- the same listing at once (a live hold taken while the auction ran, then the
+-- finalizer ended the auction under it), so a mode-keyed group let the two
+-- checkouts each mint. `mode` is recorded for diagnostics, not part of the key.
+--   public.checkout_group_claim            one row per claimed (listing, buyer)
 --   public.claim_checkout_group(l, b, m)   -> {claimed, claim_token, reason}
 --   public.release_checkout_group(l, b, m, token) -> {released, reason}
 -- A second concurrent request of the same group is refused (claim_held) and
@@ -54,10 +58,10 @@ create table if not exists public.checkout_group_claim (
   mode        text        not null constraint checkout_group_claim_mode_ck check (mode in ('buy_now', 'auction')),
   claim_token uuid        not null,
   claimed_at  timestamptz not null default now(),
-  constraint checkout_group_claim_pkey primary key (listing_id, buyer_id, mode)
+  constraint checkout_group_claim_pkey primary key (listing_id, buyer_id)
 );
 comment on table public.checkout_group_claim is
-  '132: durable pre-mint record of the checkout group (listing, buyer, mode). A row means one create-payment-intent request holds the right to read prior payments, mint and hand out a secret for that group; older than 120 s it is abandoned and reclaimable. Written only by claim_checkout_group / release_checkout_group. service_role only.';
+  '132: durable pre-mint record of the checkout group (listing, buyer), spanning both modes; mode records the holder''s request. A row means one create-payment-intent request holds the right to read prior payments, mint and hand out a secret for that group; older than 120 s it is abandoned and reclaimable. Written only by claim_checkout_group / release_checkout_group. service_role only.';
 
 alter table public.checkout_group_claim enable row level security;
 revoke all on public.checkout_group_claim from public, anon, authenticated;
@@ -92,7 +96,8 @@ begin
   insert into public.checkout_group_claim as g (listing_id, buyer_id, mode, claim_token, claimed_at)
   values (p_listing_id, p_buyer_id, p_mode, gen_random_uuid(), now())
   on conflict on constraint checkout_group_claim_pkey do update
-     set claim_token = excluded.claim_token,
+     set mode        = excluded.mode,
+         claim_token = excluded.claim_token,
          claimed_at  = excluded.claimed_at
    where g.claimed_at < now() - interval '120 seconds'
   returning g.claim_token into v_token;
@@ -104,7 +109,7 @@ begin
 end;
 $$;
 comment on function public.claim_checkout_group(uuid, uuid, text) is
-  '132: take the pre-mint checkout group record for (listing, buyer, mode) unless a claim younger than 120 s holds it. One atomic statement on the primary key; no payments or listings lock. Returns {claimed, claim_token, reason} with reason claimed | claim_held | missing_argument | invalid_mode; never raises on those. service_role only.';
+  '132: take the pre-mint checkout group record for (listing, buyer) — either mode — unless a claim younger than 120 s holds it; p_mode is recorded. One atomic statement on the primary key; no payments or listings lock. Returns {claimed, claim_token, reason} with reason claimed | claim_held | missing_argument | invalid_mode; never raises on those. service_role only.';
 revoke execute on function public.claim_checkout_group(uuid, uuid, text) from public, anon, authenticated;
 grant  execute on function public.claim_checkout_group(uuid, uuid, text) to service_role;
 
@@ -126,21 +131,21 @@ begin
     return jsonb_build_object('released', false, 'reason', 'missing_argument');
   end if;
   delete from public.checkout_group_claim g
-   where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id and g.mode = p_mode
+   where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id
      and g.claim_token = p_claim_token
   returning g.claim_token into v_token;
   if v_token is not null then
     return jsonb_build_object('released', true, 'reason', 'released');
   end if;
   if exists (select 1 from public.checkout_group_claim g
-              where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id and g.mode = p_mode) then
+              where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id) then
     return jsonb_build_object('released', false, 'reason', 'token_mismatch');
   end if;
   return jsonb_build_object('released', false, 'reason', 'not_claimed');
 end;
 $$;
 comment on function public.release_checkout_group(uuid, uuid, text, uuid) is
-  '132: delete the checkout group record only when the token matches, so a late release by an abandoned holder never frees a reclaim. Returns {released, reason} with reason released | token_mismatch | not_claimed | missing_argument; never raises on those. service_role only.';
+  '132: delete the (listing, buyer) checkout group record only when the token matches (p_mode is not part of the match), so a late release by an abandoned holder never frees a reclaim. Returns {released, reason} with reason released | token_mismatch | not_claimed | missing_argument; never raises on those. service_role only.';
 revoke execute on function public.release_checkout_group(uuid, uuid, text, uuid) from public, anon, authenticated;
 grant  execute on function public.release_checkout_group(uuid, uuid, text, uuid) to service_role;
 

@@ -24,7 +24,7 @@
 -- No superuser-only settings are used.
 -- ============================================================================
 BEGIN;
-SELECT plan(39);
+SELECT plan(44);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._try199(p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $f$
@@ -43,6 +43,9 @@ CREATE FUNCTION tap._release199(p_listing uuid, p_buyer uuid, p_mode text, p_tok
 -- the group row, read without depending on the table existing
 CREATE FUNCTION tap._row199(p_listing uuid, p_buyer uuid, p_mode text) RETURNS jsonb LANGUAGE sql
   AS $m$ SELECT tap._try199(format('SELECT coalesce((SELECT jsonb_build_object(''token'', claim_token, ''age_s'', extract(epoch FROM now() - claimed_at)::int) FROM public.checkout_group_claim WHERE listing_id = %L::uuid AND buyer_id = %L::uuid AND mode = %L), ''{}''::jsonb)', p_listing, p_buyer, p_mode)) $m$;
+-- the group row regardless of the mode that holds it
+CREATE FUNCTION tap._any199(p_listing uuid, p_buyer uuid) RETURNS jsonb LANGUAGE sql
+  AS $m$ SELECT tap._try199(format('SELECT jsonb_build_object(''mode'', max(mode), ''n'', count(*)) FROM public.checkout_group_claim WHERE listing_id = %L::uuid AND buyer_id = %L::uuid', p_listing, p_buyer)) $m$;
 -- move a group claim back in time
 CREATE FUNCTION tap._age199(p_listing uuid, p_buyer uuid, p_mode text, p_seconds int) RETURNS jsonb LANGUAGE sql
   AS $m$ SELECT tap._try199(format('WITH u AS (UPDATE public.checkout_group_claim SET claimed_at = now() - make_interval(secs => %s) WHERE listing_id = %L::uuid AND buyer_id = %L::uuid AND mode = %L RETURNING 1) SELECT jsonb_build_object(''aged'', count(*)) FROM u', p_seconds, p_listing, p_buyer, p_mode)) $m$;
@@ -69,8 +72,8 @@ SELECT is((SELECT array_agg(a.attname::text ORDER BY k.ord)
              CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
              JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
             WHERE i.indrelid = to_regclass('public.checkout_group_claim') AND i.indisprimary),
-          ARRAY['listing_id', 'buyer_id', 'mode'],
-  'A.2: primary key is exactly (listing_id, buyer_id, mode)');
+          ARRAY['listing_id', 'buyer_id'],
+  'A.2: primary key is exactly (listing_id, buyer_id) — one group across both modes (D F-132-1)');
 SELECT is((SELECT array_agg(c.column_name::text || ':' || c.is_nullable ORDER BY c.column_name)
              FROM information_schema.columns c
             WHERE c.table_schema = 'public' AND c.table_name = 'checkout_group_claim'),
@@ -115,7 +118,7 @@ SELECT is(concat_ws('|', tap._get199('c2')->>'claimed', tap._get199('c2')->>'rea
           'false|claim_held|null',
   'C.4: INTERLEAVE — a concurrent second request of the same group is refused before any mint, with no token');
 SELECT ok(tap._get199('c1')->>'claim_token' IS NOT NULL AND tap._row199(tap._id199(1), tap.buyer(), 'buy_now')->>'token' = tap._get199('c1')->>'claim_token', 'C.5: a refused claim leaves the holder''s token untouched');
-SELECT is(tap._claim199(tap._id199(1), tap.buyer(), 'auction')->>'claimed', 'true', 'C.6: another mode of the same listing and buyer is a separate group');
+SELECT is(tap._claim199(tap._id199(1), tap.buyer(), 'auction')->>'reason', 'claim_held', 'C.6: CROSS-MODE — the other mode of the same listing and buyer is the SAME group and is refused (D F-132-1)');
 SELECT is(tap._claim199(tap._id199(1), tap.other_user(), 'buy_now')->>'claimed', 'true', 'C.7: another buyer of the same listing is a separate group');
 SELECT tap._age199(tap._id199(1), tap.buyer(), 'buy_now', 119);
 SELECT is(tap._claim199(tap._id199(1), tap.buyer(), 'buy_now')->>'reason', 'claim_held', 'C.8: a 119 s old claim still holds');
@@ -138,8 +141,36 @@ SELECT is(tap._release199(tap._id199(1), tap.buyer(), 'buy_now', tap._get199('c3
 SELECT is(tap._row199(tap._id199(1), tap.buyer(), 'buy_now'), '{}'::jsonb, 'R.5: release deletes the group row');
 SELECT is(tap._release199(tap._id199(1), tap.buyer(), 'buy_now', tap._get199('c3')->>'claim_token')->>'reason', 'not_claimed', 'R.6: a second release reports not_claimed');
 SELECT is(tap._claim199(tap._id199(1), tap.buyer(), 'buy_now')->>'claimed', 'true', 'R.7: the next request claims the released group at once');
-SELECT is(tap._release199(tap._id199(1), tap.buyer(), 'auction', tap._get199('c1')->>'claim_token')->>'reason', 'token_mismatch',
-  'R.8: a token from one group never releases another group');
+SELECT is(tap._release199(tap._id199(1), tap.other_user(), 'buy_now', tap._get199('c3')->>'claim_token')->>'reason', 'token_mismatch',
+  'R.8: a token from one group never releases another buyer''s group');
+
+-- ── Z. D's reachable cross-mode state (probe_132_cross_mode.sql), real writers ─
+-- An auction with Buy Now enabled: the buyer bids, takes a Buy Now hold while the
+-- auction runs, and the finalizer ends the auction under the live hold. Both of
+-- the edge's entitlement predicates are then true for the same buyer.
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+INSERT INTO public.listings
+  (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
+   starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
+VALUES (tap._id199(2), tap.seller(), 'Fixture 199 Z', 'Club 199', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+        'mobile_transfer', 50, true, 150, 24, now() - interval '1 hour', now() + interval '1 hour', 0, 'fixtures/199z.jpg', 'active');
+SELECT tap.login(tap.buyer());
+INSERT INTO public.bids (listing_id, bidder_id, amount) VALUES (tap._id199(2), auth.uid(), 60);
+SELECT public.reserve_buy_now(tap._id199(2), auth.uid(), 10);
+SELECT tap.logout();
+SELECT set_config('app.bypass_listing_guard', 'on', true);
+UPDATE public.listings SET ends_at = now() - interval '1 second' WHERE id = tap._id199(2);
+SELECT public.auto_finalize_expired_auctions();
+SELECT is((SELECT concat_ws('|', status, auction_status, (winner_user_id = tap.buyer())::text, (reserved_by = tap.buyer())::text, (reserved_until > now())::text)
+             FROM public.listings WHERE id = tap._id199(2)),
+          'reserved|ended|true|true|true',
+  'Z.1: reachable state — reserved by the buyer (live) AND auction ended with the buyer as winner');
+SELECT is(tap._claim199(tap._id199(2), tap.buyer(), 'buy_now')->>'claimed', 'true', 'Z.2: the Buy Now checkout claims the group');
+SELECT is(tap._claim199(tap._id199(2), tap.buyer(), 'auction')->>'reason', 'claim_held',
+  'Z.3: the auction checkout of the same buyer on the same listing is refused before any mint (RED on the mode-keyed claim)');
+SELECT is(tap._any199(tap._id199(2), tap.buyer()), '{"mode": "buy_now", "n": 1}'::jsonb, 'Z.4: one group row, recorded with the holder''s mode');
+SELECT tap._age199(tap._id199(2), tap.buyer(), 'buy_now', 121);
+SELECT is(tap._claim199(tap._id199(2), tap.buyer(), 'auction')->>'claimed', 'true', 'Z.5: once abandoned, the other mode reclaims the same group row');
 
 -- ── N. arguments ─────────────────────────────────────────────────────────────
 SELECT is(tap._try199('SELECT public.claim_checkout_group(NULL, NULL, NULL)')->>'reason', 'missing_argument', 'N.1: NULL claim arguments');

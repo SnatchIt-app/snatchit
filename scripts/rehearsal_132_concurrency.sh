@@ -18,6 +18,9 @@
 #   G4 no lock interaction with settlement: while a session holds the payment
 #      and listing rows FOR UPDATE (settlement order), a group claim completes
 #      without waiting.
+#   G6 CROSS-MODE (D F-132-1): a Buy Now checkout's claim is uncommitted while
+#      the same buyer's AUCTION checkout claims the same listing: the auction
+#      request waits, then -> claim_held. The group is (listing, buyer).
 #   G5 no lock interaction with 130: while a session holds 130's row claim
 #      transaction open on the group's pending payment, a group claim completes
 #      without waiting.
@@ -107,6 +110,14 @@ reset_fixture with-pending
 sleep 0.5; t0=$(ms); r=$(psql -X -At -d "$DB" -c "$(claim)" 2>&1); t1=$(ms); wait
 w=$((t1 - t0)); a=$(head -2 "$T/g5a" | tail -1)
 if [ "$a" != "claimed" ] || [ "$r" != "claimed" ] || [ $w -ge 1000 ]; then report G5 FAIL "130 claim=$a group claim=$r waited=${w}ms"; else report G5 PASS "130 row claim=$a open; group claim=$r after ${w}ms"; fi
+
+# G6: cross-mode, same buyer and listing
+reset_fixture no-pending
+( psql -X -At -d "$DB" -c "begin; select public.claim_checkout_group('$L','$BUYER','buy_now')->>'reason'; select pg_sleep(3); commit;" > "$T/g6a" 2>&1 ) &
+sleep 0.5; t0=$(ms); r=$(q "select public.claim_checkout_group('$L','$BUYER','auction')->>'reason'"); t1=$(ms); wait
+w=$((t1 - t0)); a=$(head -2 "$T/g6a" | tail -1)
+[ "$a" = "claimed" ] && [ "$r" = "claim_held" ] && [ $w -ge 2000 ] \
+  && report G6 PASS "buy_now=$a (uncommitted), auction request waited ${w}ms then $r" || report G6 FAIL "buy_now=$a auction=$r waited=${w}ms"
 
 # C1: CONTROL — mutant without the staleness condition
 reset_fixture no-pending
