@@ -50,6 +50,7 @@ import { supabase } from '@/src/lib/supabase';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
@@ -290,6 +291,40 @@ export default function ListingDetailScreen({ id }: Props) {
   // ── Countdown ──────────────────────────────────────────────────────────────
   const countdown = useAuctionCountdown(listing?.ends_at ?? null);
   const ended     = listing ? new Date(listing.ends_at) <= new Date() : false;
+
+  // ── Result at zero (CFT-501) ───────────────────────────────────────────────
+  // This device's clock ran out; the server decides. Re-read the row on the
+  // liveState schedule until auction_status leaves 'active' (the finalize cron
+  // runs every two minutes). Reads only — no finalize call is added here and
+  // nothing about the auction's timing moves.
+  const pollAttemptRef = useRef(0);
+  const auctionStatusNow = listing?.auction_status;
+  const listingStatusNow = listing?.status;
+  useEffect(() => {
+    const active = !!listing && shouldPollForResult({
+      clockEnded: ended, auctionStatus: auctionStatusNow, sold: listingStatusNow === 'sold',
+    });
+    if (!active) { pollAttemptRef.current = 0; return; }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = () => {
+      const delay = resultPollDelayMs(++pollAttemptRef.current);
+      if (delay == null) return;
+      timer = setTimeout(async () => {
+        const { data } = await supabase
+          .from('listings')
+          .select('auction_status, status, winner_user_id, winning_bid_amount, current_bid, bid_count')
+          .eq('id', id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (data) setListing((prev) => (prev ? { ...prev, ...(data as Partial<Listing>) } : prev));
+        if (!data || (data as { auction_status?: string | null }).auction_status === 'active') tick();
+      }, delay);
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ended, auctionStatusNow, listingStatusNow, id]);
 
   // ── Derived render values ──────────────────────────────────────────────────
   // Gate on authReady so banner/derived state never shows while auth is
@@ -1081,6 +1116,10 @@ export default function ListingDetailScreen({ id }: Props) {
     buyNowAllIn,
   });
 
+  // A frozen screen must not look live (CFT-504): say when the bids channel is
+  // reconnecting, while there is still a clock to be wrong about.
+  const liveNotice = connectionNotice(rt.connection, state.mode);
+
   // The reservation status carries a live clock, which a pure function cannot.
   const status = state.status && state.status.kind === 'reserved_by_you'
     ? { ...state.status, detail: `${fmtCountdownMs(reservationMsLeft)} left to finish checkout.` }
@@ -1180,6 +1219,12 @@ export default function ListingDetailScreen({ id }: Props) {
           onOverflow={openListingActions}
         />
 
+        {liveNotice ? (
+          <View style={s.liveNotice} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            <Text style={[textStyle('label'), s.liveNoticeText]} numberOfLines={1}>{liveNotice}</Text>
+          </View>
+        ) : null}
+
         {status ? (
           <View style={s.statusWrap}>
             <ListingStatusBanner status={status} />
@@ -1274,6 +1319,11 @@ export default function ListingDetailScreen({ id }: Props) {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  liveNotice: {
+    paddingVertical: v2.space.sm, paddingHorizontal: v2.space.lg,
+    borderLeftWidth: 2, borderLeftColor: v2.status.warning, backgroundColor: v2.surface.surface,
+  },
+  liveNoticeText: { color: v2.status.warning },
   safe: { flex: 1, backgroundColor: v2.surface.canvas },
 
   // The artwork runs under the status bar: the hero is the first thing on the

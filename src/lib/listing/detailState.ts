@@ -60,6 +60,7 @@ export type StatusKind =
   | 'reserved_by_you'
   | 'reserved_by_other'
   | 'ended'
+  | 'confirming_result'
   | 'cancelled'
   | 'winning'
   | 'outbid'
@@ -156,7 +157,7 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
   const iAmWinner = auctionEnded && !!userId && listing.winner_user_id === userId;
 
   if (finalizing) {
-    return { kind: 'finalizing', label: 'Closing the auction', tone: 'neutral' };
+    return { kind: 'finalizing', label: 'Confirming result', detail: 'Closing the auction.', tone: 'neutral' };
   }
 
   if (listing.status === 'sold') {
@@ -204,7 +205,12 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
     return { kind: 'ended', label: 'Auction ended', tone: 'neutral' };
   }
 
-  if (clockEnded) return { kind: 'ended', label: 'Auction ended', tone: 'neutral' };
+  // The clock ran out on this device but the server has not finalized. Neither
+  // "ended" nor a winner can be claimed yet (CFT-501, item 17): say that the
+  // result is being confirmed, and nothing more.
+  if (clockEnded) {
+    return { kind: 'confirming_result', label: 'Confirming result', detail: 'The auction has closed. Waiting for the final result.', tone: 'neutral' };
+  }
 
   if (reservationActive && listing.reserved_by) {
     if (listing.reserved_by === userId) {

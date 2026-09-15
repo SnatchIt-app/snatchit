@@ -32,7 +32,7 @@ import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
 import { BidCard } from '@/src/components/bids/BidCard';
-import { bidPresentation, bidGroupOf, bidStatusOf, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
+import { bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -264,9 +264,11 @@ export default function BidsScreen() {
       if (needsAction(status)) n++;
       (bidGroupOf(status) === 'active' ? a : p).push(bid);
     }
-    // Most urgent first within Active; Past keeps newest-first from the query.
+    // Most urgent first within Active, then the auction closing soonest
+    // (CFT-505); Past keeps newest-first from the query.
+    const now = Date.now();
     a.sort((x, y) =>
-      bidPresentation(toInput(x), userId).priority - bidPresentation(toInput(y), userId).priority);
+      compareBidRows(bidPresentation(toInput(x), userId, now), bidPresentation(toInput(y), userId, now)));
     return { active: a, past: p, needsActionCount: n };
   }, [bids, userId]);
 
@@ -346,6 +348,7 @@ export default function BidsScreen() {
                 presentation={p}
                 priceAllIn={allInFromDollars(p.priceDollars)}
                 secondaryAllIn={p.secondaryDollars != null ? allInFromDollars(p.secondaryDollars) : null}
+                urgencyLabel={p.endingSoon ? endingSoonLabel(p.endsAtMs) : null}
                 onPress={() => router.push(target as never)}
               />
             );

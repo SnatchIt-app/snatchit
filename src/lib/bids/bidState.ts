@@ -53,7 +53,7 @@ export interface BidRowInput {
  * behaviour, made pure and testable. Purchase state takes precedence over bid
  * state: once the user owns the ticket, the transfer is the source of truth.
  */
-export function bidStatusOf(row: BidRowInput, userId: string): BidStatus {
+export function bidStatusOf(row: BidRowInput, userId: string, now: number = Date.now()): BidStatus {
   switch (row.purchaseTransferStatus) {
     case 'pending':         return 'awaiting_transfer';
     case 'seller_sent':     return 'seller_sent';
@@ -69,7 +69,7 @@ export function bidStatusOf(row: BidRowInput, userId: string): BidStatus {
     return l.winner_user_id === userId ? 'won' : 'lost';
   }
   // Clock run out but not finalised yet — conservative until finalize_auction.
-  if (new Date(l.ends_at).getTime() <= Date.now()) return 'lost';
+  if (new Date(l.ends_at).getTime() <= now) return 'lost';
   return row.amount >= l.current_bid ? 'winning' : 'outbid';
 }
 
@@ -119,6 +119,27 @@ export interface BidPresentation {
   /** Optional secondary amount (e.g. the user's own max under the current bid). */
   secondaryLabel?: string;
   secondaryDollars?: number;
+  /** A live auction the user is in that closes within ENDING_SOON_MS (CFT-505). */
+  endingSoon: boolean;
+  /** Secondary order within a priority: the auction closing first sorts first. */
+  endsAtMs: number;
+}
+
+/** "Ending soon" threshold. Presentation only; nothing about the auction moves. */
+export const ENDING_SOON_MS = 60 * 60 * 1000;
+
+/** "Ends in 42m" / "Ends in under a minute" — shown only when endingSoon. */
+export function endingSoonLabel(endsAtMs: number, now: number = Date.now()): string {
+  const left = endsAtMs - now;
+  if (left < 60_000) return 'Ends in under a minute';
+  const m = Math.floor(left / 60_000);
+  return `Ends in ${m}m`;
+}
+
+/** Two rows in the same group: urgency first, then the auction closing soonest. */
+export function compareBidRows(a: BidPresentation, b: BidPresentation): number {
+  if (a.priority !== b.priority) return a.priority - b.priority;
+  return a.endsAtMs - b.endsAtMs;
 }
 
 /** Sale price by the same priority the rest of the app uses (see salePrice.ts). */
@@ -128,16 +149,20 @@ function saleDollars(l: NonNullable<BidRowInput['listing']>): number {
   return l.current_bid;
 }
 
-export function bidPresentation(row: BidRowInput, userId: string): BidPresentation {
-  const status = bidStatusOf(row, userId);
+export function bidPresentation(row: BidRowInput, userId: string, now: number = Date.now()): BidPresentation {
+  const status = bidStatusOf(row, userId, now);
   const group = bidGroupOf(status);
   const l = row.listing;
+  const endsAtMs = l ? new Date(l.ends_at).getTime() : Number.POSITIVE_INFINITY;
+  const live = status === 'winning' || status === 'outbid';
+  const endingSoon = live && Number.isFinite(endsAtMs) && endsAtMs - now > 0 && endsAtMs - now <= ENDING_SOON_MS;
 
   const base = (over: Partial<BidPresentation>): BidPresentation => ({
     status, group,
     label: '', tone: 'neutral', actionHint: 'View listing',
     routesToTransfer: false, priority: 9,
     priceLabel: 'Current bid', priceDollars: l?.current_bid ?? 0,
+    endingSoon, endsAtMs: Number.isFinite(endsAtMs) ? endsAtMs : Number.MAX_SAFE_INTEGER,
     ...over,
   });
 
