@@ -135,6 +135,16 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## D-5 incremental — pin candidate `4b012fd` (#66 E-1, #67 130 any-status): **PIN from D**
+Harness (clean re-run from a frozen copy; a first run was invalidated because the script was edited while bash executed it —
+every run now copies its harness first): PASS 22 · FAIL 0 · WARN 2 declared · replay 149 · census 31|96|37|35 · grants = fixture ·
+manifest PASS · pgTAP 4972/4972 (197 45/45) · production order through 130 · amended 130 rollback identity exact · S1/S2/S3
+identical. 130 probe Q3 now `claim_held`; concurrency S1–S5 + C1 PASS. E-1: vitest l1-edge-coupling + checkout-intent
+51/51 at 4b012fd; the same tests against #65's edge (927b46d index.ts) fail E1–E6 (independent RED). LOW: per-call bound
+is Promise.race without AbortSignal — a timed-out create may complete at Stripe as an unrecorded orphan intent (no secret).
+131 harness gap: `scripts/local/replay_shim.sql` lacks the `auth.sessions` stand-in (also affects A's certified
+production-order script); D's harness gained `SHIM_EXTRA`.
+
 ## D-5 — candidate `release/candidate-20260918 @ 927b46d` (121–130 + #64/#65 edges + C's stack)
 Harness PASS 22 · FAIL 0 · WARN 2 (declared) · replay 149 · census 31|96|37|35 · grants = fixture (68) · manifest PASS ·
 pgTAP 4967/4967 (130_storage 18, 190 30, 191 15, 192 11, 193 63, 194 30, 195 58, 196 9, 197 40) · production order
