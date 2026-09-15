@@ -939,3 +939,10 @@ DV-611R; hosted candidate build, handset install, sandbox window.
 
 **Still unverified:** everything native (the plan's Blocks 0–3) until the
 authorised candidate build; 128 RPC path until 128 exists on the sandbox.
+- **C-4 rehearsal (2026-09-14):** the integration stack is **F1 (`2ba5281`) +
+  batches 1–4 + recovery = 30 commits**; `release/convergence-135` @ `c55ea50`
+  lacks F1, so a replay of batches alone conflicts at `bcbb106` on F1's files.
+  With F1 included the replay onto `c55ea50` is clean (throwaway worktree, not
+  kept): tsc clean, vitest 1877 / 84 on the replayed head; gated diff vs the base
+  = batch 1's approved surface + `ac31172` + `9091397`/`6659ed9`, nothing
+  unreviewed. Release-packet C section skeleton: `RELEASE_PACKET_C_SECTION.md`.
