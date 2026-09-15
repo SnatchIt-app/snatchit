@@ -887,5 +887,17 @@ an old link shows an outcome, not an error).
 - Coming in contract v2 (A, not yet released): the legacy path gets a 90-day
   sunset from the migration's apply time (previously re-armed by every
   sign-out, so it would have stayed open forever); the table holding that
-  epoch was created without access controls (anon-writable) — caught in
-  re-review, fixed, CI gate passes. Client unchanged until the versioned text.
+  epoch was created by A in `public` with no RLS and no REVOKE — writable by
+  anon and authenticated under production's default grants — and was **found
+  by the independent review of A's migration**, not by A (A's correction to
+  this record; the project's CI gate would also have caught it, and the
+  migration was simply not CI-clean). Fixed; CI gate passes. The same
+  attribution applies to the 0590 identity hardening reverted in 127: A's,
+  found by review. A's stated lesson: every defect sat in code with passing
+  tests written from the same assumptions as the code — green tests were not
+  the evidence they appeared to be. Client unchanged until the versioned text.
+- **`9091397` CONFIRMED by A** (2026-09-14): diff over signOut.ts since batch 1
+  is the string and its header comment only; token AND user_id match, timeout
+  and never-blocks untouched. Gated surface since batch 1: that string and the
+  approved payControl.ts change, nothing else. Third review round running;
+  versioned text follows when it clears.
