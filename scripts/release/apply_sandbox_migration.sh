@@ -38,14 +38,21 @@ echo "ledger rows: $LEDGER | $VER recorded as: '${EXIST:-<absent>}'"
 # deferred hardening, never part of a sandbox authorization, and the sandbox
 # has carried 123 without it since 2026-09-10 (a "below the tip" migration is
 # only omitted from the default plan, never rejected — registry, CLI note).
-FROM="${ORDER_GUARD_FROM:-123}"; MISSING=""; BELOW=""
+FROM="${ORDER_GUARD_FROM:-123}"; MISSING=""; BELOW=""; DEFERRED=""
+# ORDER_GUARD_SKIP: versions the OWNER deferred on this sandbox (space-separated).
+# 2026-09-15 ruling, path (b): "126" — it cannot apply without 115–120 and is
+# verified by CI / the certified harness / D's review instead. Printed on every
+# run so the deferral is never implied; nothing else may be skipped this way.
+SKIP=" ${ORDER_GUARD_SKIP:-} "
 for f in "$TREE"/supabase/migrations/1[2-9][0-9]_*.sql; do
   v="$(basename "$f" | cut -d_ -f1)"; [ "$v" -lt "$VER" ] && [ "$v" -gt 120 ] || continue
   r="$(q "select count(*) from supabase_migrations.schema_migrations where version='$v'")"
   if [ "$v" -lt "$FROM" ]; then [ "$r" = "1" ] || BELOW="$BELOW $v"; continue; fi
+  case "$SKIP" in *" $v "*) [ "$r" = "1" ] || DEFERRED="$DEFERRED $v"; continue;; esac
   [ "$r" = "1" ] || MISSING="$MISSING $v"
 done
 [ -z "$BELOW" ] || echo "note: below the window and absent on the sandbox (expected, not applied here):$BELOW"
+[ -z "$DEFERRED" ] || echo "note: DEFERRED by owner ruling on this sandbox (ORDER_GUARD_SKIP) — absent and NOT validated here:$DEFERRED"
 [ -z "$MISSING" ] || { echo "STOP: lower-numbered migration(s) in the window not recorded on the sandbox:$MISSING — apply in order"; exit 1; }
 case "$MODE" in
   preflight) [ -z "$EXIST" ] && echo "PREFLIGHT OK — $VER absent, order guard satisfied, nothing written" || echo "PREFLIGHT: $VER already recorded"; exit 0;;
