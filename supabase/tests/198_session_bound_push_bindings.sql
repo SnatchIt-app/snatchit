@@ -9,7 +9,7 @@
 -- named in request.jwt.claims.session_id exactly as a Supabase access token
 -- carries it.
 BEGIN;
-SELECT plan(43);
+SELECT plan(45);
 SELECT tap.seed_core();
 
 -- ── helpers (test-local; dropped by the ROLLBACK) ───────────────────────────
@@ -200,6 +200,20 @@ SELECT is((public.register_push_token('ExponentPushToken[198-other-eeeeeeeeeeee]
 SELECT is((public.revoke_push_token('ExponentPushToken[198-other-eeeeeeeeeeee]') ->> 'revoked'), '1', 'K1: the ordinary per-device revoke still works');
 SELECT tap.logout();
 SELECT is(tap._epoch198(tap.other_user()), NULL, 'K2: ...and it does not touch the epoch — other devices keep their bindings');
+
+-- ── L. account deletion still works (D, F-131-1) ─────────────────────────────
+-- DELETE auth.users cascades to auth.sessions, which fires the invalidator for a
+-- user who is mid-deletion. At 38c4d8d the invalidator INSERTed identity_ext for
+-- that user and the FK aborted the WHOLE delete: a user with a live session and
+-- no identity_ext row (077 creates it lazily — many users) could not be deleted
+-- by GoTrue's admin API or the Dashboard. identity_ext rows themselves block a
+-- delete pre-131 (ON DELETE RESTRICT), so the fixture user must have none.
+INSERT INTO auth.users (id, email) VALUES ('11111111-1111-1111-1111-000000000198', 'del198@example.test');
+SELECT tap._s198('SD', tap._sess198('11111111-1111-1111-1111-000000000198', now() - interval '1 hour')::text);
+SELECT is((SELECT count(*)::int FROM kernel.identity_ext WHERE identity_id = '11111111-1111-1111-1111-000000000198'), 0,
+  'L1: the fixture user has a live session and no identity_ext row (the failing shape)');
+SELECT lives_ok($$ DELETE FROM auth.users WHERE id = '11111111-1111-1111-1111-000000000198' $$,
+  'L2: deleting that user succeeds — the cascade-fired invalidator does not insert an epoch for a user being deleted');
 
 SELECT * FROM finish();
 ROLLBACK;

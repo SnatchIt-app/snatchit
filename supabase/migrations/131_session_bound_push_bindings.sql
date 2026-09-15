@@ -90,11 +90,17 @@ begin
   get diagnostics v_n = row_count;
   perform set_config('app.push_token_verb', '', true);
 
-  update kernel.identity_ext
-     set push_binding_epoch = greatest(coalesce(push_binding_epoch, '-infinity'::timestamptz), v_epoch)
-   where identity_id = p_uid;
-  if not found then
-    insert into kernel.identity_ext (identity_id, push_binding_epoch) values (p_uid, v_epoch);
+  -- F-131-1 (D): this also fires from DELETE auth.users → cascade to auth.sessions.
+  -- For a user mid-deletion there is no row to bump, and an INSERT into
+  -- identity_ext would violate its FK and abort the WHOLE delete. A user that is
+  -- gone needs no epoch: nothing of theirs can register again.
+  if exists (select 1 from auth.users u where u.id = p_uid) then
+    update kernel.identity_ext
+       set push_binding_epoch = greatest(coalesce(push_binding_epoch, '-infinity'::timestamptz), v_epoch)
+     where identity_id = p_uid;
+    if not found then
+      insert into kernel.identity_ext (identity_id, push_binding_epoch) values (p_uid, v_epoch);
+    end if;
   end if;
 
   -- S9: every send path selects push_tokens with is_active = true (the legacy
@@ -139,6 +145,7 @@ begin
     select distinct d.user_id
       from old_table d
      where d.not_after is null or d.not_after > now()
+     order by d.user_id                                            -- F-131-2 (D): deterministic per-user lock order
   loop
     if not exists (
       select 1 from auth.sessions s
