@@ -17,6 +17,97 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed; O-3 + K-2 sent; **132 awaiting B's branch**; item 6 **not yet evidenced** (vacuous gate) |
+
+## Owner direction 2026-09-15 (resumed sprint) — D's part
+Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
+required before production (B implements; D reviews concurrency, retries, uncertain Stripe outcomes, duplicate prevention;
+development and review authorized, production application not). O-3: session-bound protection required; A and D define b1/b2/b3
+and which closes the persistent-redirection path. K-2 approved: ordinary sign-out = this device; separate "Sign out of all
+devices"; A and D verify the server contract. Item 6: D verifies a fresh replay sends no production request before 133 takes
+effect. No production read is authorized. Existing one-build authorization unchanged.
+
+### SBX-2 path (b) — dependency and source verification before apply (local, read-only)
+**This sandbox validates neither 126 nor its admin surfaces** (126 deferred by owner ruling); the full-chain rehearsal (D-5 at
+4b012fd/74e51cf, CI) stays the separate evidence for 126.
+- Source: tag `candidate/2026-09-18-pin` = `aabe029`; migrations/rollbacks/functions/tests trees identical at 74e51cf, aabe029,
+  candidate tip 9de26e9 (02c56c9 / 6b0beaa / 3c41798 / 958dbdb). 127–130 + rollbacks + stripe-webhook, create-payment-intent,
+  _shared byte-identical to reviewed `4b012fd` (127–128 also to `f22c1a3`).
+- Shape: `probes/sandbox/build_sbx_shape.sh` replays the sandbox's exact 132-version ledger (`sandbox_ledger_132_versions.txt`;
+  numbered >109 only 123/124/125) from the frozen pin; then 127→128→129→130 with ON_ERROR_STOP: all applied, no warnings.
+- pgTAP on that shape: 194 30/30 · 195 58/58 · 196 9/9 · 197 45/45. Full suite 4249 ok / 73 not ok; rolled back 130→127 and
+  re-ran the failing files: identical set except 157 (+18 pre-127, all 128-verb assertions) → every failure is the 110–121/126
+  absence (census counts naming 111/117 objects; 176–186/189/190/193), none caused by 127–130.
+- Rollback identity on the shape: 130, 129 exact; 128/127 differ only by the declared 128 exception (epoch table, 10 lines).
+- Edges: every RPC called by stripe-webhook / create-payment-intent (+ _shared) exists after 130 with matching parameter
+  names and service_role EXECUTE; tables disputes/listings/payments/profiles/transfers/webhook_retries present; no ops/126 use.
+- 127–130 replace none of the five out-of-band sandbox-rewritten functions (production-URL triggers).
+
+### SBX-2 witness read-back (sandbox, read-only, after A's apply) — MATCHES
+`probes/sandbox/readback_sbx2.sql`, unlinked `snatchit-venue-accept`, `--project-ref ofaidukbieeekqaboscm`: ledger 136 (max
+20260909000000); numbered 110–139 = 123,124,125,127,128,129,130; ledger md5 (statements) 127 b7b76ba8 · 128 a1b4c094 · 129
+11b27f36 · 130 91f7720d = pinned files minus trailing newline (my computation); schemas catalog/kernel/notify/venue; the 127–130
+objects present, epoch 1 row; absent as expected ops.refund_facts, guard_listing_seller_not_blocked (119), revoke_all_push_bindings
+(131); payments.supersede_claim_token uuid / supersede_claimed_at timestamptz; push_tokens table privs anon/authenticated
+DELETE,INSERT; column-scoped authenticated SELECT (all but device_secret_hash) and UPDATE (device_name,is_active,last_used,platform);
+ACL/definer/search_path of nine push/checkout functions and push_tokens grants identical to the local shape; native flags false;
+counts 49/51/33/0, reserved 0, pending 3, push_tokens 1, supersede claims 0; tickets 0, signing_key 0; L-1 0; authenticator config
+unchanged. Census 31/97/37/34 explained: pin CI 31/96/37/35 − 119 function and trigger + sandbox-only `sandbox_gucs()`,
+`sandbox_pre_request()` (local shape 31/95/37/34). Production ref in 0 function bodies and 0 cron commands; 21 cron jobs — the
+sandbox lacks `enforce-transfer-expiry` (pre-existing drift). Evidence limits: no 110–121/126 (blocked-seller listing path
+non-representative; door/scan per B's addendum).
+### Row 10 edge parity — PASS
+`supabase functions download --use-api` (unlinked scratch) vs `git archive aabe029`, cmp: stripe-webhook/index.ts 813b23f7,
+create-payment-intent/index.ts 591b2213, _shared/stripe.ts 3ffcfbcc, sentry.ts 14d03f9d, money.ts a990098f identical;
+native.ts/native-dispute.ts not in the bundle (not imported by index.ts — vitest-only). `functions list`: stripe-webhook v4 ezbr
+897283ef, create-payment-intent v4 ezbr 4f0e9142, ACTIVE, verify_jwt false; enforce-transfer-expiry v3 unchanged.
+
+### Item 6 — CI egress block `ci/egress-block-20260915 @ 30956ed`, run 34978570107: **NOT YET EVIDENCE**
+Placement correct (after `supabase stop`, before `supabase start`); DOCKER-USER chain as intended; rest of the job unchanged vs
+candidate run 34934718293 (steps identical + the two new steps; Gate-2 31/96/37/35; pgTAP Files=80 Tests=4980 PASS; masking 0).
+**Vacuous:** cron runs `crm-export-build-tick` only, pg_net responses 0, queue 0 → gate "answered 0 / refused 0"; the */2
+enforce-transfer-expiry tick never fell in the window (032 at 14:00:25, last query 14:01:04); baseline run had 0 too; the 401 in
+34933664373 was a timing hit (~1 run in 3). Proposed: CI-only positive control `net.http_get('https://example.com/')` (never
+production) polled to a NULL-status refused/reset error; gate also fails on a non-empty `net.http_request_queue`; optional
+one-off negative control without the rules. Limits: CI only (other fresh replays unprotected until 133); 133 cannot close the
+in-replay window between 032 and 133 (~108 files) — it should purge queued production-host requests at apply, and only
+environment egress control makes "zero" hold during a replay; production-side confirmation needs an authorized production log read.
+
+### O-3 — D's independent b1/b2/b3 disposition (sent to A for §12, verbatim there)
+Path = completed redirect by either route: delete-then-register (rule 1, works on proven rows) or plant-then-claim (hash-less).
+b1 (131 + disclosure + detection): does NOT close; detection needs a deletion tombstone for route 1 and an in-app (never push)
+notice. b2 (131 + provider proof of possession): closes ONLY with C1 proof on every ownership-changing bind incl. rule 1 on any
+token with history, no time window · C2 direct INSERT/DELETE paths cannot bypass (tombstone/revoke or grants removed) · C3
+confirmation bound to initiating user AND session, single-use hashed nonce, short TTL · C4 pending claim never modifies the
+live row · C5 a successful proof takes the binding back from any account (recovery of pre-existing redirects) · C6 rate limits
+and "never share" copy on a visible-code fallback. Not closed by b2: attacker holding the unlocked phone at bind time (C5
+recovers), new-password holder. Needs a contract version, one more pin and build beyond any 131/K-2 build — outside the current
+one-build authorization. b3 (DB-only reclaim): partial and opens a session-less path (R1–R3); A's variant (reclaim at credential
+change) needs its own R3 reproduction. Only b2 closes, under C1–C6. Gaps in A's §11 b2 wording vs C1/C3/C4/C5 raised with A.
+§10 correction from K-2: the "signed-out devices still receiving push — closed" row is not true for this-device sign-out (K2-S1).
+
+### K-2 — server sign-out contract on 131 @ f102ce2 (`probes/probe_131_k2_signout.sql`)
+131 migration/rollback/198 byte-identical to a8ea025 (198 45/45 there). Holds: K1 this-device sign-out with revoke (phone
+inactive, proof kept, signed_out; tablet active; epoch NULL) · K3 sign out of all devices (revoke_all {revoked:2} + one-statement
+global delete: all inactive, proofs cleared, epoch set; other accounts untouched) · K3a post-epoch re-login refreshed · K3b inside
+2 s margin 42501 · K4 password change revokes all · K5 old session refused on verb/INSERT/UPDATE-activate/DELETE, revoke allowed ·
+K7 only-session this-device sign-out = everywhere semantics · K3o scope=others revokes nothing (not offered by the client).
+| # | Severity | Finding |
+|---|---|---|
+| K2-S1 | MEDIUM | this-device sign-out whose best-effort revoke fails/times out (3 s) or comes from a pre-129 build, with another session live: the device's binding stays active and deliverable (probe K2). Server fix: stamp session id on each binding; sessions trigger revokes bindings of deleted sessions (~3–4 h + tests) |
+| K2-S2 | LOW | `push_session_predates_epoch` returns false before checking session existence when the epoch is NULL: a still-valid JWT of a DELETED session can revoke/register (K2b refreshed). Fix: fail closed when the session_id claim's session is absent |
+| S-13 | by design (LOW product) | after sign out of all devices, another account on the same install → 42501 (proof cleared; allowing a proof-less claim = R3). Recovery verified: r1 original account re-login + this-device sign-out → rebound; r2 support unbind → registered; r3 reinstall (device row). Copy should name the recovery, not only "contact support" |
+| client | for C | `performSignOut` ignores `supabase.auth.signOut`'s `{error}`; auth-js 2.98.0 keeps the local session on network errors → offline sign-out silently no-ops; for all-devices the epoch is already bumped |
+198 does not cover: K2-S1, one-statement global delete, scope=others, margin boundary, cross-account hand-off and S-13 recovery,
+deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
+deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
+
+### 132 — independent review: waiting
+No 132 branch on origin at 2026-09-15 ~14:10Z (only `docs/132-checkout-group-claim-design`). Review plan: concurrency (two
+requests, same buyer/listing, all interleavings with 130 claim), retries (edge retry after DB commit / before Stripe create),
+uncertain Stripe outcomes (timeout after create, network error before response, idempotency key reuse, duplicate and out-of-order
+webhooks), duplicate prevention (one live intent per checkout group; unique index vs pending row), regression test RED on the
+130-only chain and GREEN with 132, rollback identity, four-file rule.
 
 ## D-INT0 — dry run on A's head `e104c87` (2026-09-15)
 
