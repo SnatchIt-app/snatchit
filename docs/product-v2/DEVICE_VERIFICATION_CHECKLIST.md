@@ -64,6 +64,21 @@ owner asks), the server read-back A performs, and PASS / FAIL / UNTESTED.
 | DV-611S | Account switch, legacy path | Sign out (DV-611), sign in as seller on the same device | Read-back: the buyer's row revoked; seller's attempt: insert conflicts (23505) → **no takeover**, remedy banner "…needs to sign out here first" is NOT shown for a revoked row — record the exact outcome observed | device, A |
 | DV-611R | Registration, RPC path | **128-RPC** — only if the owner authorises applying 128 to the sandbox | Outcomes `registered` → `refreshed` (relaunch) → `rebound` (account switch, same device) per A's contract; a lost secret (A clears the Keychain value under supervision) recovers by delete-then-register → `registered` | **owner authorisation**, A |
 
+## Sprint additions (A's C-3, 2026-09-14) — changed behaviour and integration risks
+
+| ID | Check | Steps | Expected | Needs |
+|---|---|---|---|---|
+| DV-L1 | Failed attempt then retry on the SAME listing | In the window: start Buy Now, fail the card (test decline), then pay again on the same listing | Second attempt creates a replacement intent before the old one is cancelled (B's L1 work); the hold stays the buyer's; one settled payment row at the end (A read-back) | **window**, A, B's L1 landed |
+| DV-L2 | Leaving checkout after success | Complete a purchase, then navigate back to the listing and to Home | No release_reservation call is made for a paid order (L2 guard); the listing shows Sold; Bids shows the purchase (A read-back: no release event) | **window**, A |
+| DV-607a | Session expiry | A invalidates the session server-side (or the refresh token is made stale) while the app is backgrounded; foreground | Login screen shows "Your session expired. Sign in to pick up where you left off."; a normal Sign out shows no such notice | device, A |
+| DV-607b | Cancelled listing | A cancels a listing the buyer bid on (window) | Bids shows "Cancelled · Listing was cancelled" under Past, never "Winning"; the listing banner reads "Listing cancelled" | **window**, A |
+| DV-607c | Delayed transfer | View a transfer past its window | "Transfer window expired" on the countdown; buyer states read from the shared vocabulary | **window** |
+| DV-607d | Unavailable account | Request deletion (sandbox account), then attempt to bid | Settings shows the pending-deletion view; Place bid refuses with the deletion-pending alert; the blockers list names every kind with a label (F3) | **window**, A |
+| DV-605 | Listing gone from a notification | Open a deleted listing's id from a cold start | "Listing not found" with "Browse live listings" that lands on Home (no dead Back) | device |
+| DV-F8 | Partial refund | A stages a succeeded payment with amount_refunded_cents > 0 | Checkout re-entry shows "Partial refund issued" with the amount, never "You're in." | **window**, A |
+| DV-611C | Cold-launch registration | Kill and relaunch the app while signed in | A read-back: register_push_token called on the relaunch (v2 clause), outcome refreshed; on a database without 128, the legacy touch updates last_used | device, A (+128 on the sandbox for the RPC path) |
+| DV-T | T re-run | The Build 16 Tickets empty-state procedure, on this build | Same PASS criteria as the matrix; no full-page spinner on refocus | device |
+
 ## Batch 4 — progress copy, live auction presentation
 
 | ID | Check | Steps | Expected | Needs |

@@ -33,6 +33,9 @@ DV-101 card handoff · DV-103 quiet refresh + **T re-run** (Tickets loading chan
 ### Block 2 — sandbox window rows (A serializes; ≈90–120 min in one window)
 DV-302 hold row + Pay withdrawn in the margin · DV-301 hold ran out · DV-304 price change (A stages) · DV-305 interruption ("Checking your payment"; **no new attempt at D9c**) · DV-306 "Confirming payment" → "Finalizing your order" · DV-308 refund faces (A stages rows) · DV-202 bid/purchase/receipt haptics · DV-203b bid outcome with a staged outbid · DV-205 double tap (A read-back: one row each) · DV-402 claim vs possession through a full transfer · DV-404 / DV-404b provider return · DV-501 at-zero "Confirming result" (A read-back: no client finalize) · DV-502 in-place bid · DV-504 connection health · DV-505 My Bids order · DV-611S account switch on the legacy path (A read-back).
 
+### Block 2b — sprint-specific integration risks (A's C-3; in the same window)
+DV-L1 failed attempt then retry on the same listing · DV-L2 leaving checkout after success · DV-607b cancelled listing · DV-607c delayed transfer · DV-607d unavailable account + F3 labels · DV-F8 partial refund. No-window: DV-607a session expiry · DV-605 listing gone · DV-611C cold-launch registration · DV-T.
+
 ### Block 3 — only if the owner authorises 128 on the sandbox
 DV-611R registration/refresh/rebind/recovery outcomes per the frozen contract.
 
