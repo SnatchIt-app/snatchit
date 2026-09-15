@@ -547,6 +547,8 @@ jobs:
       - name: CI egress block — containers may not reach the outside web (CI-only)
         run: |
           set -euo pipefail
+          echo "NEGATIVE CONTROL (throwaway branch): egress block intentionally NOT installed — the gate must FAIL on this run"
+          exit 0
           sudo iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
           for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do
             sudo iptables -I DOCKER-USER 1 -d "$net" -j RETURN
