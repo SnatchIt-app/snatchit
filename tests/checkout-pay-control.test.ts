@@ -25,9 +25,18 @@ function input(over: Partial<PayControlInput> = {}): PayControlInput {
 }
 
 describe('pay control precedence', () => {
-  it('an in-flight charge outranks everything', () => {
+  it('an in-flight charge outranks everything, and names the real step', () => {
     const p = payControl(input({ confirming: true, paymentReady: true, paymentError: true }));
-    expect(p).toEqual({ label: 'Processing', loading: true, disabled: true, action: 'none' });
+    expect(p).toEqual({ label: 'Confirming payment', loading: true, disabled: true, action: 'none' });
+  });
+
+  it('finalizing (the settlement record after the charge) is its own state and outranks confirming', () => {
+    const p = payControl(input({ finalizing: true, confirming: true, paymentReady: true }));
+    expect(p).toEqual({ label: 'Finalizing your order', loading: true, disabled: true, action: 'none' });
+    // no invented progress anywhere in the vocabulary
+    for (const i of [input({ confirming: true }), input({ finalizing: true }), input({ checking: true })]) {
+      expect(payControl(i).label).not.toMatch(/%|\d+ ?s\b|Processing/);
+    }
   });
 
   it('setup states are loading and not payable', () => {

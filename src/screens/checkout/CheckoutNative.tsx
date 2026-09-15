@@ -139,6 +139,8 @@ export default function CheckoutScreen() {
   >(null);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
+  // CFT-306: the settlement record after the charge is a step of its own.
+  const [finalizing, setFinalizing] = useState(false);
   // The server could not be reached to confirm a payment: no Pay is offered
   // until a reachable check says the money did not land.
   const [checkUnreachable, setCheckUnreachable] = useState(false);
@@ -515,12 +517,18 @@ export default function CheckoutScreen() {
         }
       }
 
-      const result = await finalizePurchase({
-        listingId,
-        userId: user.id,
-        paymentIntentId,
-        mode,
-      });
+      setFinalizing(true);
+      let result: Awaited<ReturnType<typeof finalizePurchase>>;
+      try {
+        result = await finalizePurchase({
+          listingId,
+          userId: user.id,
+          paymentIntentId,
+          mode,
+        });
+      } finally {
+        setFinalizing(false);
+      }
 
       if (result.outcome === 'failed') {
         Sentry.captureMessage(
@@ -614,14 +622,14 @@ export default function CheckoutScreen() {
     if (!user || !paymentIntentId) return;
     const verdict = await reconcileAfterSheetError();
     if (verdict === 'verified') {
-      setConfirming(true);
+      setFinalizing(true);
       try {
         const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: isBuyNow ? 'buy_now' : 'auction' });
         if (result.transferId) setPostPurchaseTransferId(result.transferId);
         confirmedRef.current = result.outcome === 'completed';
         setSettlement(result.outcome);
       } finally {
-        setConfirming(false);
+        setFinalizing(false);
       }
       return;
     }
@@ -730,6 +738,7 @@ export default function CheckoutScreen() {
     authLoading,
     paymentLoading,
     confirming,
+    finalizing,
     checking,
     paymentReady,
     paymentError: !!paymentError,
