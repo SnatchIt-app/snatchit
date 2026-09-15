@@ -67,5 +67,8 @@ overflow 0, unnamed controls 0** · F9 mobile menu **14/14**.
 `04-money-data-table-open-desktop.png`, `05-money-empty-range-desktop.png`, `06-login-desktop.png`.
 All figures are **sample data** from the local synthetic harness (13 fixture payments).
 
+Interim trend reads were measured locally at 10 k / 100 k / 1 M synthetic payments; whether they are acceptable in
+production depends on production's payment count, **which has not been measured** (see the contract).
+
 Data definitions, incomplete-data behaviour, measured interim cost and backend dependencies:
 [`ANALYTICS_DATA_CONTRACT.md`](ANALYTICS_DATA_CONTRACT.md).

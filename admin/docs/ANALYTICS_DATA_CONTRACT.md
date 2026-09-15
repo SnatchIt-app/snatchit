@@ -42,9 +42,16 @@ One `ops.money_overview` call as the harness operator, today's schema (no index 
 Findings: (1) every call also runs the point-in-time *seller funds pending* join, which a per-bucket series
 repeats and discards — with an unrealistic 40 % pending set it alone took 1.7 s at 1 M rows; (2) with candidate
 date indexes short ranges drop to 0.4–1.1 s at 1 M rows but the pending join remains; (3) no single call
-approached the 8 s timeout. **Recommendation:** the interim path is acceptable at current volume; AN-1 (one
-set-based query, no point-in-time pending, with the date indexes) should land before ~100 k payments. The
-measurement database was a throwaway copy and has been dropped.
+approached the 8 s timeout. (4) Correctness, not only cost: *seller funds pending* has no date predicate
+(`from`/`to` null, basis `now()`), so rendered per bucket it would show today's pending on every day — which is
+why it is excluded from charts, comparisons and AN-1.
+
+**Conclusion — conditional.** The interim path is acceptable **at the volumes measured here, which are not
+production's**: production's payment count has not been read (the sandbox has 51 rows; a read of production needs
+the owner's authorization — A will ask). If production is well below ~50 k payments the interim is fine; at ~100 k a
+30-point trend costs ≈ 6 s of database work; at ~1 M it is not viable. AN-1 (one set-based query, no point-in-time
+pending, the three date indexes) should land before production reaches ~100 k payments — re-check this line
+whenever the count is known. The measurement database was a throwaway copy and has been dropped.
 
 ## 2. Operational counts — `ops.today()` (migration 116) — unchanged
 
