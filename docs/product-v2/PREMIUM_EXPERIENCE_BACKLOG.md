@@ -1115,3 +1115,26 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   rule on the extension (apply 127–130 + deploy the two edges) so those rows
   can run Friday; otherwise they are reported UNTESTED with the reason. Plan
   updated (§2, before Block 3).
+- **Owner sprint direction (2026-09-15, evening) — C's items done:**
+  (4) **K-2 APPROVED** and implemented as its own client branch cut from the
+  pin: `frontend/logout-scope @ ba9cf6c` (signOutThisDevice = revoke own token
+  via 129 then local sign-out; signOutAllDevices = revoke_all_push_bindings
+  (131; PGRST202 swallowed elsewhere) then global sign-out; Settings row "Sign
+  out of all devices"; deletion and password change use the all-devices act;
+  gates tsc clean / vitest 1915 / 86 / lint 0 errors). **NOT in the pinned
+  build (aabe029): shipping it needs a new pin and its own build
+  authorisation.** The 131-only client parts are rebuilt on top of it as
+  `frontend/session-bound-131-r2 @ f2c1a1c` (session_stale, forced this-device
+  re-auth, neutral notices; gates tsc clean / vitest 1922 / 87 / lint 0
+  errors). `frontend/session-bound-131 @ b538f1d` stays on origin as history
+  (no force pushes). (5) **Pushes done, non-force:** f1, premium-batch-1..4,
+  candidate-recovery @ 231f120, session-bound-131 @ b538f1d,
+  session-bound-131-r2 @ f2c1a1c, logout-scope @ ba9cf6c, and this backlog
+  branch. (1) Sandbox path (b): 127→130 + the two edges tonight via A; 126
+  deferred on the sandbox (DV rows needing `ops` are not-run-on-sandbox, not
+  failed). (2) Migration 132 (B): pending-record-before-intent; client
+  unaffected unless the create-payment-intent contract changes — A owns any
+  companion edge change and tells C. (3) O-3 b1/b2/b3: A and D. Device
+  checklist: DV-611 spelling corrected to `signed_out` (+129 dependency);
+  production-gate rows DV-P1..P4 added (not Thursday). Checkpoint sent
+  through A.

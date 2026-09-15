@@ -36,7 +36,7 @@ owner asks), the server read-back A performs, and PASS / FAIL / UNTESTED.
 | DV-305 | Interruption | Background during the payment sheet, return | "Checking your payment" then the server's verdict; no second Pay before reconciliation. D9c stays UNTESTED; no new attempt at that case | **window** |
 | DV-308 | Refund faces | A-staged refunded / pending / partial payment rows | "Payment refunded" / "Refund in progress" / "Partial refund issued"; never "You're in." | **window**, A, owner wording |
 | DV-609 | Seller proceeds | Create listing, quantity 2 | "$X for all 2 tickets", no "per ticket" | device |
-| DV-611 | Sign-out revoke | Sign out on the device | Read-back: this device's token row is_active=false, revoked_reason='sign_out' (A) | device, A |
+| DV-611 | Sign-out revoke | Sign out on the device | Read-back: this device's token row is_active=false, revoked_reason='signed_out' (A); on the candidate the revoke goes through `public.revoke_push_token` (129) — a PGRST202 on a server without 129 is swallowed and the row stays active: record which | device, A (+129 on the sandbox) |
 
 ## Batch 2 — controls, pending states, haptics, accessibility
 
@@ -88,6 +88,19 @@ owner asks), the server read-back A performs, and PASS / FAIL / UNTESTED.
 | DV-502 | In-place bid | Seller account bids while buyer watches | Amount dips and returns; "Next bid from" updates; scroll position unchanged | **window** |
 | DV-504 | Connection health | Toggle airplane mode on a live auction | "Reconnecting — bid status may be delayed" appears; disappears on reconnect; catch-up brings missed bids without a second outbid haptic | **window** |
 | DV-505 | My Bids order | Two live auctions, one ending within the hour | Won unpaid first; within outbid/winning the sooner auction first; "Ends in Nm" line on the soon one | **window** |
+
+## Production-gate rows (K-2 + 131; NOT Thursday's build — they need the production-gate candidate's own pin and build)
+Server contract per A (131 @ f102ce2, verified by A and D): this device = `public.revoke_push_token(p_token)` then
+`auth.signOut({ scope: 'local' })`, other devices untouched; all devices = `public.revoke_all_push_bindings()` then
+`auth.signOut({ scope: 'global' })`, the sessions-gone trigger as the slow path. Client: `frontend/logout-scope @
+ba9cf6c` (K-2) + `frontend/session-bound-131-r2 @ f2c1a1c` (131).
+
+| ID | What | Steps | Evidence | Needs |
+|---|---|---|---|---|
+| DV-P1 | Sign out of all devices | Two devices signed in as the same buyer. On device A: Settings › "Sign out of all devices" → confirm | A read-back: every push_tokens row of the user is_active=false with reason `signed_out_everywhere`, hashes NULL, epoch set; device B receives **no** push on the next test send and is signed out on its next foreground (login shows no "expired" mis-statement — record the exact notice); device A signs in again → registers (A read-back: outcome per the migration — C expects `refreshed` from rule 2 with a NULL hash; A verifies which) | two devices, A, 131 on the sandbox |
+| DV-P2 | Sign out (this device only) | Two devices signed in. On device A: Settings › "Sign out" → confirm | A read-back: only device A's row revoked (`signed_out`); device B keeps its session and still receives the next test send; device A signs in again → `refreshed` | two devices, A, 129 on the sandbox |
+| DV-P3 | Password change ends every session | Two devices signed in. On device A: reset the password | A read-back: the trigger revoked every row (`password_changed`), hashes NULL; device A's login shows "Password updated. Sign in with your new password."; device B is signed out on next foreground; device A signs in with the new password → registers from the new session (no `session predates a credential change` on a fresh session) | two devices, A, 131 on the sandbox |
+| DV-P4 | Stale session refused, then healed | Device B still holding an old session after DV-P3 (before it foregrounds): trigger a registration (relaunch) | Device B: register refused 42501 `session predates a credential change` → the app signs this device out with "You were signed out on this device. Sign in again to keep notifications on." (no password mentioned); after re-login it registers | two devices, A, 131 on the sandbox |
 
 ## Out of scope for this candidate
 
