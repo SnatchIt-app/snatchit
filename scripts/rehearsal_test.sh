@@ -50,12 +50,17 @@ esac
 command -v psql >/dev/null || die "psql not on PATH (try: export PATH=/opt/homebrew/opt/postgresql@17/bin:\$PATH)"
 # --- superuser-only GUC tripwire (2026-09-15) -------------------------------
 # This harness runs pgTAP as a REAL superuser; Supabase's CI `postgres` role is
-# not one. A suite that sets a superuser-only parameter passes here for the
+# not one. A suite that SETS a superuser-only parameter passes here for the
 # wrong reason and aborts in CI ("permission denied to set parameter") — 193
 # did exactly that (run 34931325069). Refuse to certify such a suite locally.
-if grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_system_table_mods)" "$ROOT"/supabase/tests/*.sql 2>/dev/null | grep -q .; then
-  echo "[rehearsal-test] ABORT: a test file sets a SUPERUSER-ONLY parameter — it would pass here and fail on CI:"
-  grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_system_table_mods)" "$ROOT"/supabase/tests/*.sql | sed 's|^|    |'
+# Comment lines are stripped first: a comment that NAMES the parameter (as 193's
+# fix does, to say why it must not be used) is not a violation.
+_guc_hits="$(for _f in "$ROOT"/supabase/tests/*.sql; do
+  sed -E 's/--.*$//' "$_f" | grep -qiE "set_config\('(session_replication_role|allow_system_table_mods|zero_damaged_pages)'|^\s*set\s+(session_replication_role|allow_system_table_mods|zero_damaged_pages)\b" && echo "    $_f"
+done)"
+if [ -n "$_guc_hits" ]; then
+  echo "[rehearsal-test] ABORT: a test file SETS a SUPERUSER-ONLY parameter — it would pass here and fail on CI:"
+  echo "$_guc_hits"
   exit 1
 fi
 
