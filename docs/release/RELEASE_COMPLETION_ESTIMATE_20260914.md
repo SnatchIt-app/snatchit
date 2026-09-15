@@ -1,5 +1,9 @@
 # Release completion estimate — A/B/C/D (2026-09-14, A)
 
+> **SUPERSEDED the same day by `SPRINT_PLAN_20260918.md`** (owner sprint directive: four-session parallel
+> allocation, scope freeze, Fri 18 Sept target). This file's serial-A staffing assumption no longer holds; kept
+> for history, not for planning.
+
 Owner-requested. Inputs: the release package (through `1b3e603`), the registry, the sandbox manifest, and status
 messages from B, C and D on 2026-09-14/15 (each from their own records; their estimates are labelled theirs).
 **Nothing here is authorized; no production change.** Ranges, not percentages. `wd` = elapsed working days;
