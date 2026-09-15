@@ -45,6 +45,17 @@ case "$DB" in
   postgres|template0|template1) die "'$DB' is not a rehearsal database." ;;
   *rehears*) : ;;
   *) die "database name '$DB' must contain 'rehears'." ;;
+
+# --- superuser-only GUC tripwire (2026-09-15) -------------------------------
+# This harness runs pgTAP as a REAL superuser; Supabase's CI `postgres` role is
+# not one. A suite that sets a superuser-only parameter passes here for the
+# wrong reason and aborts in CI ("permission denied to set parameter") — 193
+# did exactly that (run 34931325069). Refuse to certify such a suite locally.
+if grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_system_table_mods)" "$ROOT"/supabase/tests/*.sql 2>/dev/null | grep -q .; then
+  echo "[rehearsal-test] ABORT: a test file sets a SUPERUSER-ONLY parameter — it would pass here and fail on CI:"
+  grep -lE "session_replication_role|set_config\('(log_|lc_|zero_damaged|allow_system_table_mods)" "$ROOT"/supabase/tests/*.sql | sed 's|^|    |'
+  exit 1
+fi
 esac
 command -v psql >/dev/null || die "psql not on PATH (try: export PATH=/opt/homebrew/opt/postgresql@17/bin:\$PATH)"
 

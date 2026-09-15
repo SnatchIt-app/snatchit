@@ -3093,3 +3093,26 @@ reviewed by A with RED evidence reproduced independently, both in the candidate 
 **Deploy coupling (packet):** 127 **and** 130 applied before `stripe-webhook` and `create-payment-intent` ship; if
 130 is absent the edge degrades to #64 behaviour with a Sentry capture; any other claim error fails closed (503).
 Blast radius of the claim: a crashed edge answers that buyer's checkout 409 "try again" for up to 120 s.
+
+### Pin CONDITIONAL — CI red on the candidate: 193 uses a superuser-only GUC (2026-09-15, A)
+
+D's D-5 re-run pinned `4b012fd` (tag `candidate/2026-09-18-pin`), but GitHub CI on the branch is **red** at every
+push since 126 merged: the migrations job's pgTAP step aborts at
+`supabase/tests/193_ops_console_refund_exactness.sql:122: ERROR: permission denied to set parameter
+"session_replication_role"` — planned 63, ran 0 (run 34931325069; the same at `5c4cfa4` and `03f03bd`). 193's
+fixture helper sets `session_replication_role` to bypass triggers; that parameter is superuser-only. The local
+certified harness runs pgTAP as a real superuser, so 193 passed here and in D's review **for the wrong reason**;
+Supabase's `postgres` role in CI is not a superuser. Every other step of the job (replay, Gate-2, manifest, parity)
+and every other job (deno, admin, typecheck/lint/unit, web) is green. 193 is the only file in the repo that touches
+the parameter.
+
+**Integrator miss, on the record:** PR #63's own CI was red on both runs at `db2f95f` for this reason; A merged it
+on local-harness and D-review evidence without checking the PR's CI. From here, no merge onto the candidate without
+a green migrations job on the PR head, and the pin is declared only with CI green at the pinned commit.
+
+**Disposition:** B rewrites 193's fixtures through the real writer (`record_payment_refund`) and the repo's
+transaction-local bypass GUCs (`app.bypass_payment_guard`, `app.bypass_transfer_guard`, `app.allow_test_mode_money`)
+— never a superuser parameter — keeping the negative control against 120's bodies; D re-reviews fixture
+reachability; the pin moves to the merge commit. `scripts/rehearsal_test.sh` now refuses to certify a suite that sets
+a superuser-only parameter, so the class cannot pass locally again. The build stays held (C confirmed) until CI is
+green at the pin.
