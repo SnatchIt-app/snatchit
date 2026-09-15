@@ -32,13 +32,21 @@ echo "target: $SANDBOX_REF | version: $VER ($NAME) | mode: $MODE | tree: $TREE"
 EXIST="$(q "select coalesce((select name from supabase_migrations.schema_migrations where version='$VER'),'')")" || { echo "STOP: ledger unreachable"; exit 1; }
 LEDGER="$(q "select count(*) from supabase_migrations.schema_migrations")"
 echo "ledger rows: $LEDGER | $VER recorded as: '${EXIST:-<absent>}'"
-# order guard: every numbered file in the tree between 121 and VER-1 must already be recorded
-MISSING=""
+# order guard, scoped to THIS WINDOW: every numbered file in the tree from
+# ORDER_GUARD_FROM (default 123 — the sandbox's own first post-120 apply) up to
+# VER-1 must already be recorded. 121 is deliberately below the window: B's
+# deferred hardening, never part of a sandbox authorization, and the sandbox
+# has carried 123 without it since 2026-09-10 (a "below the tip" migration is
+# only omitted from the default plan, never rejected — registry, CLI note).
+FROM="${ORDER_GUARD_FROM:-123}"; MISSING=""; BELOW=""
 for f in "$TREE"/supabase/migrations/1[2-9][0-9]_*.sql; do
   v="$(basename "$f" | cut -d_ -f1)"; [ "$v" -lt "$VER" ] && [ "$v" -gt 120 ] || continue
-  r="$(q "select count(*) from supabase_migrations.schema_migrations where version='$v'")"; [ "$r" = "1" ] || MISSING="$MISSING $v"
+  r="$(q "select count(*) from supabase_migrations.schema_migrations where version='$v'")"
+  if [ "$v" -lt "$FROM" ]; then [ "$r" = "1" ] || BELOW="$BELOW $v"; continue; fi
+  [ "$r" = "1" ] || MISSING="$MISSING $v"
 done
-[ -z "$MISSING" ] || { echo "STOP: lower-numbered migration(s) not recorded on the sandbox:$MISSING — apply in order"; exit 1; }
+[ -z "$BELOW" ] || echo "note: below the window and absent on the sandbox (expected, not applied here):$BELOW"
+[ -z "$MISSING" ] || { echo "STOP: lower-numbered migration(s) in the window not recorded on the sandbox:$MISSING — apply in order"; exit 1; }
 case "$MODE" in
   preflight) [ -z "$EXIST" ] && echo "PREFLIGHT OK — $VER absent, order guard satisfied, nothing written" || echo "PREFLIGHT: $VER already recorded"; exit 0;;
   verify)
