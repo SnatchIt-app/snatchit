@@ -204,7 +204,7 @@ describe('registerWithRpc — the p_ names, every outcome, every error', () => {
     const { deps } = fakeDeps({ rpc: async (args) => { sent = args; return { data: { token_id: 'x', outcome: 'rebound', platform: 'ios' }, error: null }; } });
     const r = await registerWithRpc(deps, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: 'Jose’s iPhone' });
     expect(sent).toEqual({ p_token: 'tok', p_platform: 'ios', p_device_secret: 's'.repeat(43), p_device_name: 'Jose’s iPhone' });
-    expect(r).toEqual({ ok: true, method: 'rpc', outcome: 'rebound', tokenId: 'x' });
+    expect(r).toEqual({ ok: true, method: 'rpc', outcome: 'rebound', tokenId: 'x', contractVersion: null });
   });
   it('classifies the error and never throws', async () => {
     const { deps } = fakeDeps({ rpc: async () => ({ data: null, error: { code: '42501', message: 'insufficient_privilege: token is bound to another account' } }) });

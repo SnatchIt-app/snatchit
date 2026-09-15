@@ -43,12 +43,22 @@ export interface RegistrationRecord {
   outcome: RpcOutcome;
   /** Epoch ms of the last successful registration. */
   at: number;
+  /** `contract_version` the server reported (rpc method only); null on the legacy path. */
+  contractVersion?: number | null;
 }
+
+/**
+ * The 128 contract version this client is built against. PROVISIONAL until A
+ * freezes v2 after independent review; a reply carrying any other version is
+ * not treated as a success (see registerToken.ts).
+ */
+export const EXPECTED_128_CONTRACT_VERSION = 2;
 
 export type RegistrationErrorKind =
   | 'rpc_missing'        // 128 not deployed here: PostgREST cannot find the function
   | 'bound_to_other'     // terminal: another account holds this token on the server (F7)
   | 'precondition'       // P0001 precondition_failed: a client-side shape bug — terminal until inputs change
+  | 'contract_mismatch'  // the reply's contract_version is not the one this client is built against — terminal until a new build
   | 'auth'               // no valid session
   | 'secret_unavailable' // Keychain or CSPRNG unavailable on this device
   | 'network'
@@ -74,6 +84,13 @@ export interface DecisionInput {
   /** Whether the 128 RPC is known to exist here; undefined until probed. */
   rpcAvailable: boolean | undefined;
   now: number;
+  /**
+   * First attempt of this process (A's v2 clause): register on EVERY cold
+   * launch, not only on first install — that is what converts legacy
+   * hash-less rows and bounds the residual risk the owner is asked to accept.
+   * Terminal failures and backoff still apply; only the daily TTL is bypassed.
+   */
+  coldLaunch?: boolean;
 }
 
 export type RegistrationAction = 'register' | 'skip' | 'wait';
@@ -83,7 +100,7 @@ export interface Decision {
   method: RegistrationMethod;
   reason:
     | 'signed_out' | 'no_token' | 'fresh'
-    | 'first' | 'token_changed' | 'account_changed' | 'method_changed' | 'stale' | 'retry'
+    | 'first' | 'token_changed' | 'account_changed' | 'method_changed' | 'stale' | 'retry' | 'cold_launch'
     | 'backoff' | 'bound_to_other' | 'precondition';
   /** For `wait` with `backoff`: epoch ms when a retry may run. */
   retryAt?: number;
@@ -125,6 +142,9 @@ export function decideRegistration(i: DecisionInput): Decision {
     // would only burn battery. A fixed build recovers on its next token or
     // method change.
     if (failure.kind === 'precondition') return { action: 'wait', method, reason: 'precondition' };
+    // A different contract on the server means this build must not proceed on
+    // assumptions; only a new build (new inputs) can change the answer.
+    if (failure.kind === 'contract_mismatch') return { action: 'wait', method, reason: 'precondition' };
     const retryAt = failure.at + backoffMs(failure.attempts);
     if (i.now < retryAt) return { action: 'wait', method, reason: 'backoff', retryAt };
     return { action: 'register', method, reason: 'retry' };
@@ -136,6 +156,7 @@ export function decideRegistration(i: DecisionInput): Decision {
   if (r.userId !== i.userId) return { action: 'register', method, reason: 'account_changed' };
   if (r.method !== method) return { action: 'register', method, reason: 'method_changed' };
   if (i.now - r.at > REGISTRATION_TTL_MS) return { action: 'register', method, reason: 'stale' };
+  if (i.coldLaunch) return { action: 'register', method, reason: 'cold_launch' };
   return { action: 'skip', method, reason: 'fresh' };
 }
 
