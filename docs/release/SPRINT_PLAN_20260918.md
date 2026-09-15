@@ -38,8 +38,8 @@ or the owner explicitly accepts a clearly explained release risk.
 |---|---|---|---|---|---|
 | A-1 ✔ | A | 128 fold-ins + F1 heal (`cf73d7b`) | — | Mon | done; D pass 2 found G-1..G-4 |
 | **A-1b** | A | G-1 parity re-grant; G-2 column-scoped UPDATE; G-3a rollback inverse; G-4 verbatim 0590 body; **certified-harness evidence** | — | Tue | full suite on `rehearsal_reset.sh` path; grant matrix = fixture; rollback md5 = pre-127 |
-| A-2 | A | D pass 3; corrections | A-1b, D-3 | Tue | no blocking finding |
-| A-3 | A | **Freeze contract v2** to C (sunset = rule-4 refusal, no new messages, every-cold-launch clause) | A-2 | **Wed AM** | contract file; C ack |
+| A-2 ✔ | A | D pass 3 on `f22c1a3`: **no blocking findings** (harness PASS 17/0; 4806/4806; both orders identical) | A-1b, D-3 | Tue | done |
+| A-3 ✔ | A | **Contract v2 FROZEN** — `PUSH_TOKEN_CONTRACT_V2.md` @ `f22c1a3`, sent to C **Tue** (a day early) | A-2 | Wed AM | C ack pending |
 | **A-3b** | A | **O-3 decision brief** (`O3_128_RESIDUAL_DECISION_BRIEF.md`) — for the owner's release decision, **separate from test authorization** | — | Tue | brief filed; D disposition attached |
 | A-5 | A | D-AR1 review of `64f26f9` (separate track; must not delay money/notification work) | — | Tue | recorded |
 | A-6 | A | Integrate 121 → 123 → 124 → 125 onto the release branch; CI green | PR #58, PR #62 | Tue/Wed | CI id |
