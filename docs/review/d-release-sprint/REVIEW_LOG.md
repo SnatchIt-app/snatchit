@@ -135,6 +135,15 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## 129 client delta — C's `frontend/session-bound-129 @ 627ee62` (provisional, not in the candidate)
+| # | Severity | Finding |
+|---|---|---|
+| K-1 | MEDIUM | account deletion (`app/settings/index.tsx:228`) calls `signOutEverywhere()` with defaults → now scope `local`; other devices keep sessions and active push after a deletion request → use `signOutAllDevices()` |
+| K-2 | MEDIUM (decision) | ordinary "Sign out" (settings:127, profile:205) moves global → local: correct for P6, but a user reacting to suspected compromise no longer ends other sessions; gated file (`signOut.ts`) → A line review + recorded decision |
+| K-3 | LOW | `signOutEverywhere` now defaults to local — name contradicts behaviour |
+| K-4 | LOW–MEDIUM | "Your password was changed" copy is false when `session_stale` comes from another device's sign-out-everywhere (X5) or a missing session row |
+Correct: S15 (changing device registers only from the new session), S16 (no client write after 42501), reset-password global + server trigger, stale-refresh local, revoke_all failure non-blocking.
+
 ## D-4 — 126 review of B's `db2f95f` (PR #63): PASSED, no blocking findings
 Harness PASS 15 · pgTAP 4755/4755 (193 63/63) · 126 rollback identity exact · orders converge · census 30|88|37|33.
 Negative control: 193 against rolled-back (120) bodies → 18 ok / 45 not ok. `probes/probe_126_review_db2f95f.sql`:
