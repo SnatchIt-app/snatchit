@@ -73,3 +73,32 @@ migration) · Supabase auth/URL configuration.
 - `docs/archive/` — superseded doc versions
 - Root keeps only: README, AGENTS, CLAUDE, ARCHITECTURE_FREEZE, BRANCHES,
   PHASE_2_MIGRATION_HISTORY_RECONCILIATION (moves with its owning workstream).
+
+## Skill selection and session ownership — Claude D half (added 2026-09-14)
+**Merge note:** append-only. B's general half (roles A–D, six-step per-prompt checklist) is on
+`feature/venue-native-and-product-v2` (`8640af6`); A owns A's half; the installed-skills registry is
+`docs/operations/CLAUDE_SKILLS_REGISTRY.md` (C). At merge A collapses the halves under one heading.
+
+- **D's role skill:** `~/.claude/skills/snatchit-d-dashboards-venue/SKILL.md` (tracked copy:
+  `docs/operations/claude-skills/D-dashboards-venue.SKILL.md`; `skills/` dirs are gitignored). Scope: `admin/`,
+  `venue/`, the `venue_api` read slices, venue hosted acceptance.
+- **Triggers → skills (bare names):** failing check or unexpected result → `systematic-debugging` · review
+  feedback from A, the owner or CI → `receiving-code-review`, checked against the data contract and source ·
+  before "done / ready" → `verification-before-completion` · charts, KPIs → `dataviz` · Next.js data fetching,
+  Suspense, bundles → `vercel-react-best-practices` (vercel-labs/agent-skills `063bee9`) · `venue_api` views,
+  RLS, index specs → `supabase-postgres-best-practices` (reference only, as A's half states).
+- **D-specific gates:** the owner authorises each sandbox window and any production read, even a count; the
+  acceptance kit's `--window` / `VENUE_ACCEPT_WINDOW` guard is not authorisation. Never push or merge
+  `admin/operating-console` (the console's Vercel production branch). Charts show database aggregates over each
+  exact period — never history derived from current or rolling totals, never a second y-axis, never
+  cross-request caching of `ops.*` or `venue_api` reads.
+- **Proportional verification:** copy or label → the asserting test + typecheck; UI change → + lint, the
+  affected browser checks, ui-audit on affected pages; integration-ready → typecheck, lint, test, build, full
+  ui-audit, mobile-nav check.
+- **Considered, not installed:** vercel-labs `web-design-guidelines` (fetches unpinned rules from `main` at run
+  time, so it cannot be pinned or reviewed); anthropics `webapp-testing` (D's CDP kit covers it);
+  anthropics `frontend-design` (the owner set the visual direction).
+- Changing facts — branches, commits, pins, window state, AN-* status — live in
+  `admin/docs/ANALYTICS_DATA_CONTRACT.md`, `admin/docs/ANALYTICS_REDESIGN.md`,
+  `docs/venue-dashboard/HOSTED_ACCEPTANCE_RUNBOOK.md`, `docs/venue-dashboard/SANDBOX_WINDOW_MANIFEST_VENUE.md` and
+  A's `docs/release/` records, never here or in the skill.
