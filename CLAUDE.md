@@ -89,9 +89,11 @@ migration-number registry and merge order, so B/C/D numbers route through A.
 - **A's role skill:** `~/.claude/skills/snatchit-a-payment-release/SKILL.md` (personal
   dir; its description scopes it to payment/release work). B's is
   `~/.claude/skills/snatchit-b-signing-ceremonies/SKILL.md`.
-- **Invoke skills by bare name.** There is no `superpowers` / `anthropic-skills` plugin
-  installed on this machine; the superpowers-derived set ships with the Claude desktop
-  skills plugin. A prefixed name is not guaranteed to resolve.
+- **Prefer bare skill names.** Both bare and `anthropic-skills:`-prefixed names resolve in
+  the Claude desktop Code tab (verified by invocation by A and B, 2026-09-14). The prefix is
+  a client namespace alias for the desktop skills-plugin, not a marketplace plugin — so the
+  bare name is the portable form across clients. A missing `~/.claude/plugins` entry does
+  **not** mean a prefixed name fails; test it rather than inferring.
 - **`supabase` 0.1.2 and `supabase-postgres-best-practices` 1.1.1** (supabase/agent-skills
   `8331f910`, `~/.claude/skills/`) are **reference only**. The authority order in
   AGENTS.md, this repo's numbered imperative migrations, and the `SECURITY DEFINER` +
