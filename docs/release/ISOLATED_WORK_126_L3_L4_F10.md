@@ -40,9 +40,13 @@ rows above are wrong as written, and part 1 implements the wrong reading:
 | **A8** | sums every ledger row | a full refund (10 000) **and** a `dispute_lost` (10 000) on the same 10 000 payment sum to **20 000** `known`; the payment fact is correctly 10 000. `payment_refunds_payment_dispute_uniq` dedupes dispute-vs-dispute, not refund-vs-dispute | **cap per payment at its cumulative `payments.amount_refunded_cents`** — the window is the slice of the running sum that landed in it, never more than the payment has actually refunded |
 | **A5 / certainty** | an empty ledger window is `0 known` | refunds recorded **before** the ledger existed were never backfilled (`20260906120000:303-305`), so a legacy refunded payment is invisible and the window still claims `known`. Production has pre-RC refunds | when any `payments.status = 'refunded'` row in the window lacks a ledger row: **certainty `mixed`**, exact cents from the ledger, and a **separate `legacy_upper_bound_cents`** = Σ `payments.total` over those rows. `known` only when every refunded payment in the window is ledgered |
 
-The output shape therefore gains `mixed` and `legacy_upper_bound_cents`; `build_daily_summary` / `money_overview`
-carry both through; the client already handles `uncertain`/`known` and must be told about `mixed` (C, one line).
-pgTAP 193 needs both cases with negative controls against part 1's body.
+The output shape therefore gains `mixed`, `legacy_upper_bound_cents` and `legacy_count`; `build_daily_summary` /
+`money_overview` carry them through. **As built by B (PR #63), two refinements to the above, accepted by A:**
+the legacy predicate is "`refunded_at` precedes every ledger row", not "no ledger row" — otherwise a legacy refund
+followed by a recorded chargeback reads as `known` (193 U.3); and `money_overview.value_cents` is set **only when
+`known`**, because the money page headlines `value_cents` without reading certainty — the exact part is in
+`known_cents`. The app never reads certainty (C verified: no reference in `app/` or `src/`). pgTAP 193 carries
+both cases with negative controls against part 1's body.
 
 **Status: part 1 written by A and superseded on the two points above; parts 2–3 owned by B.** It touches four `ops` functions
 (`build_daily_summary`, `money_overview`, the `money.refunded` metric snapshot, `latest_summary` /
