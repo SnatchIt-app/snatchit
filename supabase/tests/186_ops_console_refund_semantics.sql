@@ -12,6 +12,11 @@
 --     are normalised on read by ops.latest_summary() and rewritten in place by
 --     ops.normalize_summary_body(); the underlying payment is untouched.
 --   Section D: grants.
+--   126 (2026-09-15, Claude B): the fixture's refund has NO ledger row, so 126
+--     reports it as certainty 'mixed' (exact ledger part 0 + legacy bound) instead
+--     of 120's 'uncertain'; an empty window is a KNOWN zero (126 acceptance A5).
+--     A2/A5/A6/A10/A14/B4 updated in place; their intent — an unrecorded amount is
+--     never stated as fact — is unchanged. 126's own contract: pgTAP 193.
 -- ============================================================================
 BEGIN;
 SELECT plan(27);
@@ -38,15 +43,15 @@ SELECT tap.logout();
 CREATE TEMP TABLE memo186 AS
   SELECT body #> '{money,live_24h}' AS live FROM ops.daily_summary ORDER BY summary_date DESC LIMIT 1;
 
-SELECT is((SELECT jsonb_typeof(live -> 'refunded_cents') FROM memo186), 'null',
-  'A2: refunded_cents is JSON null — the amount is not stated');
+SELECT is((SELECT (live ->> 'refunded_cents') || '/' || (live ->> 'refunded_certainty') FROM memo186), '0/mixed',
+  'A2: refunded_cents is only the recorded part (0) and certainty is mixed — the unrecorded amount is not stated (126)');
 SELECT is((SELECT (live ->> 'refunded_count')::int FROM memo186), 1,
   'A3: refunded_count = 1 (the count of status changes is reliable)');
 SELECT is((SELECT (live ->> 'refunded_upper_bound_cents')::int FROM memo186), 10000,
   'A4: refunded_upper_bound_cents = 10000 = Σ payments.total (labelled bound, not $100 refunded)');
-SELECT is((SELECT live ->> 'refunded_certainty' FROM memo186), 'uncertain', 'A5: refunded_certainty = uncertain');
-SELECT ok((SELECT live ->> 'refunded_note' FROM memo186) ILIKE '%partial%',
-  'A6: the note explains partial refunds are indistinguishable locally');
+SELECT is((SELECT live ->> 'refunded_certainty' FROM memo186), 'mixed', 'A5: refunded_certainty = mixed (126; never known while a refund is unrecorded)');
+SELECT ok((SELECT live ->> 'refunded_note' FROM memo186) ILIKE '%no recorded amount%',
+  'A6: the note explains the refunded payment has no recorded amount (126)');
 SELECT is((SELECT (live ->> 'captured_cents')::int FROM memo186) >= 10000, true,
   'A7: captured volume still includes the refunded row (captured ≠ refunded)');
 
@@ -59,8 +64,8 @@ SELECT ok((ops.run_job('daily_summary','manual') ->> 'status') = 'succeeded', 'A
 SELECT tap.logout();
 SELECT is((SELECT (body #>> '{money,live_24h,refunded_count}')::int FROM ops.daily_summary ORDER BY summary_date DESC LIMIT 1), 1,
   'A9: mixed statuses — refunded_count still 1');
-SELECT is((SELECT jsonb_typeof(body #> '{money,live_24h,refunded_cents}') FROM ops.daily_summary ORDER BY summary_date DESC LIMIT 1), 'null',
-  'A10: mixed statuses — amount still null');
+SELECT is((SELECT body #>> '{money,live_24h,refunded_certainty}' FROM ops.daily_summary ORDER BY summary_date DESC LIMIT 1), 'mixed',
+  'A10: mixed payment statuses — the refund amount is still not stated as known (126)');
 
 -- Empty window: build the summary for a date with no payments. The builder is
 -- an internal (owner-only) function that run_job wraps, so it is called from
@@ -71,8 +76,8 @@ SELECT is((SELECT (body #>> '{money,live_24h,refunded_count}')::int FROM ops.dai
   'A12: empty window — refunded_count 0');
 SELECT is((SELECT (body #>> '{money,live_24h,refunded_upper_bound_cents}')::int FROM ops.daily_summary WHERE summary_date = date '2001-01-01'), 0,
   'A13: empty window — upper bound 0');
-SELECT is((SELECT jsonb_typeof(body #> '{money,live_24h,refunded_cents}') FROM ops.daily_summary WHERE summary_date = date '2001-01-01'), 'null',
-  'A14: empty window — amount is null, never 0 stated as a refunded amount');
+SELECT is((SELECT (body #>> '{money,live_24h,refunded_cents}') || '/' || (body #>> '{money,live_24h,refunded_certainty}') FROM ops.daily_summary WHERE summary_date = date '2001-01-01'), '0/known',
+  'A14: empty window — a KNOWN zero now that refunds are recorded (126 acceptance A5)');
 
 -- ── Section B — the three surfaces agree ────────────────────────────────────
 SELECT tap.login_service();
@@ -90,8 +95,8 @@ SELECT is(jsonb_typeof(ops.money_overview(NULL, NULL) #> '{metrics,refunded_volu
 SELECT is((ops.money_overview(NULL, NULL) #>> '{metrics,refunded_volume,count}')::int, tap._fetch186('expected_refunded'),
   'B3: money_overview counts exactly the refunded payments in its window (incl. the $100 one)');
 SELECT tap.logout();
-SELECT is((SELECT value ->> 'certainty' FROM ops.metric_snapshot WHERE key = 'money.refunded'), 'uncertain',
-  'B4: snapshot money.refunded is uncertain');
+SELECT is((SELECT value ->> 'certainty' FROM ops.metric_snapshot WHERE key = 'money.refunded'), 'mixed',
+  'B4: snapshot money.refunded is mixed while an unrecorded refund exists (126)');
 SELECT is((SELECT jsonb_typeof(value -> 'value_cents') FROM ops.metric_snapshot WHERE key = 'money.refunded'), 'null',
   'B5: snapshot money.refunded.value_cents is null');
 SELECT is((SELECT (value #>> '{all_time,upper_bound_cents}')::int FROM ops.metric_snapshot WHERE key = 'money.refunded'),

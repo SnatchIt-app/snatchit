@@ -269,14 +269,16 @@ SELECT tap.login(tap.admin_user()); SELECT tap._aal2();
 SELECT tap._store184('r_g1', (ops.money_overview(NULL, NULL) -> 'metrics' -> 'refunded_volume')::text);
 SELECT tap.logout();
 SELECT is(jsonb_typeof(tap._j184('r_g1') -> 'value_cents'), 'null', 'G1: refunded_volume.value_cents is jsonb null');
-SELECT is((tap._j184('r_g1') ->> 'certainty'), 'uncertain', 'G2: refunded_volume.certainty = uncertain');
+-- 126 (2026-09-15): the fixture's refund is status-only (no ledger row), so its amount is
+-- unrecorded — certainty is 'mixed' (was 120's 'uncertain'); value_cents stays null (G1).
+SELECT is((tap._j184('r_g1') ->> 'certainty'), 'mixed', 'G2: refunded_volume.certainty = mixed (an unrecorded refund is never known; 126)');
 SELECT is((jsonb_typeof(tap._j184('r_g1') -> 'upper_bound_cents'), jsonb_typeof(tap._j184('r_g1') -> 'count')), ('number'::text, 'number'::text),
   'G3: upper_bound_cents and count are numbers');
 SELECT is(((tap._j184('r_g1') ->> 'upper_bound_cents')::int, (tap._j184('r_g1') ->> 'count')::int), (11000, 1),
   'G4: upper bound = Σ total of the refunded payment, count 1');
 SELECT is(tap._run184('refresh_metrics', 'manual') ->> 'status', 'succeeded', 'G5: refresh_metrics runs through run_job');
 SELECT is((SELECT (value ->> 'certainty', jsonb_typeof(value -> 'value_cents')) FROM ops.metric_snapshot WHERE key = 'money.refunded'),
-  ('uncertain'::text, 'null'::text), 'G6: snapshot money.refunded is uncertain with value_cents null');
+  ('mixed'::text, 'null'::text), 'G6: snapshot money.refunded is mixed with value_cents null (126: unrecorded refund present)');
 
 -- ── Section H — founder evidence access ─────────────────────────────────────
 SELECT tap._store184('ev_name', tap.seller()::text || '/ev-184.jpg');
