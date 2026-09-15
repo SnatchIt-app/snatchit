@@ -100,6 +100,17 @@ forwarding; ordinary single-device sign-out; every send path honours revocation 
 only — revocation must set `is_active = false`); account deletion; rollback does not resurrect; hosted auth hook
 needs its own authorisation.
 
+## 129 design — first pass (A's `SESSION_BOUND_PUSH_BINDINGS_129_DESIGN.md`, working tree; no SQL yet)
+| # | Severity | Finding | Evidence |
+|---|---|---|---|
+| X1 | **NOT CLOSED** | A redirect completed during the compromise (delete-then-register, or plant-then-claim after the claim) lives in a row owned by the attacker's account; §2e invalidates only the victim's rows, so it survives P1/P2 and the victim's new-session device gets 42501 until support unbinds. Options: (i) proof-carrying reclaim via token tombstones (previous user + hash) — closes seizures of already-proven devices, not planted-first or hash-less ones; (ii) provider proof (option c); (iii) support unbind + client error path | `probes/probe_129_design_completed_redirect.sql` on 128 @ f22c1a3 with §2e applied by hand: binding stays attacker|active|hashed; victim new-session register → 42501 |
+| X2 | HIGH | Guard covers INSERT/UPDATE only; an old JWT can DELETE the victim's rows after the epoch, then rule 1 from the attacker's account → fresh redirect after the credential change (S3 open) | design §4 text; owner-delete RLS policy |
+| X3 | MEDIUM | Lock-order deadlock: client UPDATE holds row lock → waits advisory; invalidator holds advisory → waits row lock; detection may abort GoTrue's password change. Fix: invalidator updates rows first, then bumps epoch under the advisory lock | design §4 |
+| X4 | MEDIUM | epoch = now() (tx start, Postgres clock) vs `auth.sessions.created_at` (GoTrue clock); in-flight old-password sign-in or skew passes. Suggest greatest(NEW.updated_at, clock_timestamp()) + margin | design §2d/§2e |
+| X5 | MEDIUM | S2 relies on an updated client calling `revoke_all_push_bindings` first; old clients / failed call / admin revocation leave forwarding and plants active. Live-session deletion leaving none is distinguishable from expiry cleanup | design §2c |
+| X6 | LOW | After any password change, old-client users lose push silently until they re-login (release note) | design §4 |
+Closed as designed: S1 (hosted trigger privilege flagged), S5 (with X6), S6 dormant plants, S7 forwarding, S8, S9, S10 (FK cascade verified, 000:881), S11, S12 flagged.
+
 ## D-4 — 126 review of B's `db2f95f` (PR #63): PASSED, no blocking findings
 Harness PASS 15 · pgTAP 4755/4755 (193 63/63) · 126 rollback identity exact · orders converge · census 30|88|37|33.
 Negative control: 193 against rolled-back (120) bodies → 18 ok / 45 not ok. `probes/probe_126_review_db2f95f.sql`:
