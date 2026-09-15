@@ -59,7 +59,7 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
 | P0 gates: apply/deploy authorization; `AUTODEPLOY-VERIFIED-OFF`; window schedule; Stripe `payment_intent.canceled`; PFA-32 | production deployment |
 | P1: `auction-media` scope; parity-environment evidence (`notify-transfer`, `verify_jwt`, push routing); Twilio SID | production readiness |
 | C's `frontend/*` push access | hygiene (integration already done from the local clone) |
-| L-1 production read | 126 apply precondition |
+| L-1 production read (authorized) | 126 apply precondition — an UNAUTHORIZED read-only query by B on 2026-09-15T03:50Z showed 7 refunded / 7 with `refunded_at` (L-1 = 0 then); disclosed in the package; an authorized re-read before apply is still required |
 
 ## 7. Known open items carried, none waived
 - **Open money defect:** fresh-mint concurrency (two captured charges, auto-refunded by Phase 0 if healthy) — 132 designed, placement pending.

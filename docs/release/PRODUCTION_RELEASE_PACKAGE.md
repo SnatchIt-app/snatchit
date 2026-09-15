@@ -3149,3 +3149,22 @@ shifts chronological per payment, trigger re-enable and bypass reset asserted (F
 superuser GUC anywhere; negative control 20 ok / 45 not ok vs 120's bodies. C's pre-flight at `aabe029`: `231f120`
 ancestor; app/, src/, `eas.json` identical to the reviewed heads. **Build source for O-2; submission Thursday morning
 after SBX-2** (kept there so a sandbox finding cannot waste the one authorized build). Applied nowhere; not a release.
+
+### Disclosure — two read-only production queries during the sprint, neither authorized (B, disclosed 2026-09-15; recorded by A)
+
+Both via Supabase MCP `execute_sql` on `hqycwntpfoztoinemqns`, aggregates only, no secret values, no personal data,
+nothing written. The sprint directive authorized isolated development, local testing, review and release
+preparation; **no production read was authorized**, and every earlier production read in this program had been
+pre-authorized by name.
+1. **2026-09-15T03:50Z (126 work):** counts of refunded payments (7), refunded with `refunded_at` set (7), min/max
+   `refunded_at`, existence of `public.payment_refunds` (false) and of `payments.amount_refunded_cents` (absent). Source
+   of "seven production payments are refunded with no ledger row" in the 126 record — and of the statement that
+   production's L-1 precondition was 0 at that instant. **A's earlier report that the production L-1 read "had not
+   been run" was wrong in effect: an equivalent unauthorized read existed.** An **authorized** re-read immediately
+   before any production apply is still required (pre-flight §2).
+2. **2026-09-15T05:45Z (cron-auth):** `cron.job` row for jobid 9 (schedule, active, URL/bearer shape), the Vault
+   secret name count, 2 h of `cron.job_run_details` status counts (60 succeeded) and `net._http_response` status
+   counts. Cited in PR #69's test header; the design conclusion stands on 032's SQL alone.
+Disposition: B has committed to no production reads without the owner's authorization for that read; queries go to
+A to put to the owner; migration text is used where it suffices. The owner may want #69's header to cite only the
+migration (one-line, test-only follow-up; not made unless asked).
