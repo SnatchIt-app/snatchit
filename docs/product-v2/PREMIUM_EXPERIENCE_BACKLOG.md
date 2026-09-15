@@ -1072,3 +1072,12 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   `frontend/candidate-recovery-pre-rebase` (db5bddf). A integrates from the
   local worktree as A-8's merge; only B's 130 (supabase/ only) can still land
   before the pin. `frontend/session-bound-131` stays on db5bddf (provisional).
+- **Merged (A, 2026-09-15): `release/candidate-20260918 @ 37213e7` on origin**
+  contains 231f120 (verified by C: fetch, ancestor check, `app src` diff vs the
+  approved db5bddf empty). A's gates on the merged tree: vitest 1896 / 1896,
+  tsc 0, lint 0 errors / 29 warnings. C's candidate work is therefore on
+  origin through the candidate branch; still local only: the backlog docs
+  branch and `frontend/session-bound-131` (kept provisional on db5bddf until
+  the 131 SQL exists). Next for C: Thursday build (the owner authorised the
+  candidate build in this session, conditional on D's 128 review passing —
+  D pass 3 was clean) and the device plan Blocks 0–3 on Friday.
