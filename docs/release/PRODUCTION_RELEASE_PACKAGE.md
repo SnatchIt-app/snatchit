@@ -3116,3 +3116,25 @@ transaction-local bypass GUCs (`app.bypass_payment_guard`, `app.bypass_transfer_
 reachability; the pin moves to the merge commit. `scripts/rehearsal_test.sh` now refuses to certify a suite that sets
 a superuser-only parameter, so the class cannot pass locally again. The build stays held (C confirmed) until CI is
 green at the pin.
+
+### Fresh-mint concurrency — D's independent disposition: OPEN MONEY DEFECT with automated remediation (2026-09-15)
+
+D checked B's three paths from source at `4b012fd`. **Two live intents with two distinct client secrets can both
+be captured** in all three: nothing between mint and confirm ties an intent to "the one" attempt for a
+(listing, buyer, mode) when no pending row exists yet — 130's claim needs a row, `UNIQUE(stripe_payment_intent_id)`
+does not collide when the PIs differ, and there is no partial unique index on pending rows per group. Two
+PaymentSheets confirmed = **two captured charges** (double tap across two devices, app plus web, a client retry after
+a timeout). The second charge is **not retained but not prevented**: its promotion collides with
+`idx_payments_one_success_per_listing`, `settle_verified_payment` records `unfulfillable:one_success_per_listing`
+(20260906110000:72-78), and `enforce-transfer-expiry` Phase 0 refunds it on the next sweep — if (a) the sweep is
+scheduled and healthy, (b) the Stripe refund succeeds (else one attempt then a review row), (c) the payments RC
+migrations are applied (true for this release; **not true for today's production, which has no auto-refund at all**).
+The buyer sees two charges and a refund.
+
+**Disposition: an open money defect, narrow triggers, bounded exposure (one extra charge, automatically refunded),
+customer-visible, dependent on sweep health. Not waived. For the owner:** structural fix = a claim not keyed on an
+existing row / insert the pending row before minting — **allocated as migration 132 / pgTAP 199 (B, proposed)**;
+interim detection = Phase 0 alerts on any `unfulfillable:one_success_per_listing` row so an unrefunded double charge
+cannot sit silently. A's recommendation: keep Friday's candidate (the defect is pre-existing and *worse* in today's
+production), and make 132 part of the **production gate alongside 131**, so production deploys with neither the
+notification-capture residual nor a preventable double charge. The owner decides.
