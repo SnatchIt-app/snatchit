@@ -102,6 +102,37 @@ insert into public.push_token_rebind_epoch (singleton) values (true)
 -- fails on any public table with no recorded decision; this one is no-client-access.
 alter table public.push_token_rebind_epoch enable row level security;
 revoke all on public.push_token_rebind_epoch from public, anon, authenticated;
+-- Explicit, not inherited: a CI replay has no Supabase default ACL, so without
+-- this the privilege-parity step saw service_role holding only REFERENCES,
+-- TRIGGER, TRUNCATE and failed the build (run 34926241630). The trigger below
+-- still makes the row immutable at runtime; this is what the manifest's
+-- no-client-access ("service_role only") and expected_grants.txt both state.
+grant delete, insert, references, select, trigger, truncate, update
+  on public.push_token_rebind_epoch to service_role;
+
+-- Third-review residual, closed structurally: if the epoch ROW were deleted and
+-- this file re-applied, the `on conflict do nothing` insert above would mint a
+-- NEW epoch = now(), and every revoked hash-less row created in between would
+-- become claimable under rule 5 for another 90 days. Clients cannot delete it
+-- (REVOKEd above); this closes the operator path too. The row is immutable:
+-- no UPDATE, DELETE or TRUNCATE by anyone short of dropping the trigger, which
+-- is a deliberate act that a rollback does not perform (see the rollback header).
+create or replace function public.guard_push_token_rebind_epoch()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  raise exception 'push_token_rebind_epoch is immutable: moving or removing the epoch would reopen the legacy rebind path (128). Restore from the ledger instead.'
+    using errcode = '42501';
+end;
+$$;
+
+drop trigger if exists trg_guard_push_token_rebind_epoch on public.push_token_rebind_epoch;
+create trigger trg_guard_push_token_rebind_epoch
+  before update or delete or truncate on public.push_token_rebind_epoch
+  for each statement execute function public.guard_push_token_rebind_epoch();
 
 comment on table public.push_token_rebind_epoch is
   '128: when the device-proof rule first applied. Rule 5 (claiming a hash-less binding) is allowed only for rows created BEFORE this instant, which is what makes it transitional. Survives the 128 rollback on purpose — see the rollback header.';
@@ -225,12 +256,17 @@ begin
     returning id into v_id;
 
     if v_id is not null then
-      return jsonb_build_object('token_id', v_id, 'outcome', 'registered',
-                                'platform', p_platform, 'contract_version', 2);
+      v_outcome := 'registered';
+      exit;
     end if;
   end loop;
 
-  if v_row_user = v_uid then
+  if v_outcome = 'registered' then
+    -- 1. A fresh binding. Falls through to the heal below on purpose: after a
+    -- DeviceNotRegistered the reinstalled app arrives with a NEW token, and
+    -- binding it while leaving the channel unreachable would keep the user silenced.
+    null;
+  elsif v_row_user = v_uid then
     -- 2. Already ours. coalesce, NOT assignment — see PLANT-THEN-CLAIM.
     update public.push_tokens
        set platform           = p_platform,
@@ -284,9 +320,33 @@ begin
     -- 4, and every rule-5 condition that failed. Knowing the token is not
     -- authority. Nothing is written, and nothing about the current owner — or
     -- about how close a guessed secret was — is disclosed.
+    perform set_config('app.push_token_verb', '', true);
     raise exception 'insufficient_privilege: token is bound to another account'
       using errcode = '42501';
   end if;
+
+  -- §17.24 HEAL (independent review, finding F1 — a HIGH functional regression
+  -- three security-focused rounds missed). The legacy verb cleared the provider
+  -- error and reset the identity's push channel to `ok` on every registration.
+  -- notify.enqueue (092:462-467) suppresses EVERY push — mandatory included —
+  -- while the channel is not `ok`, so a verb that binds the token but leaves
+  -- the channel `unreachable` silences the user permanently after a single
+  -- DeviceNotRegistered. Every success path heals the CALLER. The previous
+  -- owner on rules 3/5 is deliberately not touched here: the legacy verb did not
+  -- either, and record_delivery_result marks them unreachable on the next failed
+  -- send — parity, not a new behaviour.
+  update public.push_tokens
+     set last_provider_error = null
+   where id = v_id and last_provider_error is not null;
+  update notify.identity_channel_state s
+     set state = 'ok', since = now(), reason = 'token_registered'
+   where s.identity_id = v_uid and s.channel = 'push' and s.state = 'unreachable';
+
+  -- The write-guard bypass is transaction-local, and PostgREST cannot batch —
+  -- but pg_graphql runs a multi-field mutation in ONE transaction, so a
+  -- registerPushToken followed by a push_tokens update in the same request
+  -- would have found the guard still disarmed. Disarm before every return.
+  perform set_config('app.push_token_verb', '', true);
 
   return jsonb_build_object('token_id', v_id, 'outcome', v_outcome,
                             'platform', p_platform, 'contract_version', 2);
@@ -294,7 +354,7 @@ end;
 $$;
 
 comment on function public.register_push_token(text, text, text, text) is
-  '128 v2 (F7): registers or rebinds this device''s push token. Rebinding requires the device-held secret, never mere knowledge of the token string. A hash-less binding is claimable only when it predates the 128 epoch, was revoked by a SIGN-OUT (not a provider signal) within 30 days, and is still inactive. Raises 42501 otherwise, writing nothing. notify.register_push_token is revoked from authenticated by this migration — it rebinds on the token alone.';
+  '128 v2 (F7): registers or rebinds this device''s push token. Rebinding requires the device-held secret, never mere knowledge of the token string. A hash-less binding is claimable only when it predates the 128 epoch, was revoked by a SIGN-OUT (not a provider signal) within 30 days, and is still inactive. Raises 42501 otherwise, writing nothing. Every success clears last_provider_error and heals the caller''s push channel (notify.identity_channel_state unreachable -> ok, §17.24), exactly as the legacy verb did. notify.register_push_token is revoked from authenticated by this migration — it rebinds on the token alone.';
 
 -- ── 4. Support recovery for a squatted token (review finding V3) ────────────
 create or replace function public.unbind_push_token(p_token text)
@@ -325,6 +385,21 @@ revoke execute on function public.unbind_push_token(text) from public, anon, aut
 grant  execute on function public.unbind_push_token(text) to service_role;
 
 revoke execute on function public.guard_push_token_secret_hash() from public, anon, authenticated, service_role;
+revoke execute on function public.guard_push_token_rebind_epoch() from public, anon, authenticated, service_role;
+
+-- Third-review residual: the proof column was client-READABLE. `push_tokens` is
+-- client-dml, so `authenticated` held table-level SELECT and could read the
+-- unsalted SHA-256 of a client-chosen secret from its own rows — an offline
+-- guessing oracle if RLS ever widened or a secret were weak. Postgres column
+-- privileges are additive, so the only way to withhold ONE column is to drop the
+-- table-level SELECT and grant the rest by name. The shipped client selects only
+-- `id` (src/hooks/usePushToken.ts:71-75); inserts and updates return minimal.
+-- Table-level INSERT/UPDATE/DELETE are untouched: the write guard above covers
+-- the column, and narrowing them is not this finding.
+revoke select on public.push_tokens from anon, authenticated;
+grant  select (id, user_id, token, platform, device_name, created_at, last_used, is_active,
+               revoked_at, revoked_reason, provider_receipt_checked_at, last_provider_error)
+  on public.push_tokens to authenticated;
 
 -- The insecure verb this migration exists to replace. `authenticated` still held
 -- EXECUTE on it plus USAGE on the schema (092:207, 092:1178); only the PostgREST

@@ -13,7 +13,7 @@
 -- reason. §I is the exception — it acts as a real client, which is the point.
 -- ============================================================================
 BEGIN;
-SELECT plan(41);
+SELECT plan(53);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_195 (k text PRIMARY KEY, v text);
@@ -107,6 +107,36 @@ SELECT ok((SELECT NOT has_table_privilege('authenticated','public.push_token_reb
 SELECT ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.push_token_rebind_epoch'::regclass),
   'A12: ...and RLS is enabled on it');
 
+-- Third-review residuals, closed in the fold-in round. The proof column must not
+-- be READABLE by a client (an unsalted hash of a client-chosen value is an
+-- offline oracle), and the epoch row must not be MOVABLE by anyone — deleting it
+-- and re-applying 128 would mint a new epoch and reopen rule 5 for 90 days.
+SELECT ok(NOT has_table_privilege('authenticated','public.push_tokens','SELECT')
+      AND NOT has_table_privilege('anon','public.push_tokens','SELECT'),
+  'A13: push_tokens carries no table-level client SELECT (column-scoped instead)');
+SELECT ok(has_column_privilege('authenticated','public.push_tokens','token','SELECT')
+      AND has_column_privilege('authenticated','public.push_tokens','id','SELECT')
+      AND NOT has_column_privilege('authenticated','public.push_tokens','device_secret_hash','SELECT')
+      AND NOT has_column_privilege('anon','public.push_tokens','device_secret_hash','SELECT'),
+  'A14: the client may read its row columns but NOT device_secret_hash');
+SELECT has_trigger('public','push_token_rebind_epoch','trg_guard_push_token_rebind_epoch',
+  'A15: the epoch table carries the immutability trigger');
+SELECT throws_ok($$ DELETE FROM public.push_token_rebind_epoch $$, '42501',
+  'push_token_rebind_epoch is immutable: moving or removing the epoch would reopen the legacy rebind path (128). Restore from the ledger instead.',
+  'A16: the epoch row cannot be deleted — even as postgres');
+SELECT throws_ok($$ UPDATE public.push_token_rebind_epoch SET applied_at = now() $$, '42501',
+  'push_token_rebind_epoch is immutable: moving or removing the epoch would reopen the legacy rebind path (128). Restore from the ledger instead.',
+  'A17: the epoch row cannot be moved — even as postgres');
+SELECT is((SELECT count(*) FROM public.push_token_rebind_epoch), 1::bigint,
+  'A18: exactly one epoch row exists');
+-- ...and the same two facts observed as a REAL client, not from the catalog.
+SELECT tap.login('11111111-1111-1111-1111-000000000195');
+SELECT throws_ok($$ SELECT device_secret_hash FROM public.push_tokens $$, '42501',
+  NULL, 'A19: a signed-in client selecting device_secret_hash is refused (permission denied for column)');
+SELECT lives_ok($$ SELECT id, token, is_active FROM public.push_tokens $$,
+  'A20: ...while its ordinary columns stay readable, so the shipped client (select id) survives');
+SELECT tap.logout();
+
 -- ── B. the owning device ────────────────────────────────────────────────────
 SELECT tap._del195();
 SELECT tap.logout();
@@ -124,6 +154,26 @@ SELECT is(tap._hash195(), tap._h195(tap._f195('sec')),
   'B6: ...but the stored hash is UNCHANGED — plant-then-claim is blocked');
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec')) ->> 'contract_version'), '2',
   'B7: every reply carries contract_version 2');
+SELECT is(current_setting('app.push_token_verb', true), '',
+  'B8: the write-guard bypass is disarmed before the verb returns (pg_graphql runs a multi-field mutation in one transaction)');
+-- §17.24 heal — independent review finding F1. Valid state, produced the way
+-- production produces it: a provider DeviceNotRegistered leaves the row with a
+-- provider error and the identity push-unreachable; notify.enqueue then
+-- suppresses EVERY push. Registration must heal both, as the legacy verb did.
+SELECT tap.logout();
+UPDATE public.push_tokens SET last_provider_error = 'DeviceNotRegistered' WHERE token = tap._f195('tok');
+INSERT INTO notify.identity_channel_state (identity_id, channel, state, since, reason)
+VALUES (tap.buyer(), 'push', 'unreachable', now(), 'device_not_registered')
+ON CONFLICT (identity_id, channel) DO UPDATE SET state = 'unreachable', reason = 'device_not_registered';
+SELECT tap.login(tap.buyer());
+SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'), 'refreshed',
+  'B9: the owner re-registers after a provider failure');
+SELECT tap.logout();
+SELECT is((SELECT last_provider_error FROM public.push_tokens WHERE token = tap._f195('tok')), NULL,
+  'B10 (§17.24): ...the provider error is cleared');
+SELECT is((SELECT state FROM notify.identity_channel_state WHERE identity_id = tap.buyer() AND channel = 'push'), 'ok',
+  'B11 (§17.24): ...and the identity''s push channel is healed to ok — without this every later push, mandatory included, is suppressed');
+SELECT tap.login(tap.buyer());
 
 -- ── C. UNAUTHORIZED CAPTURE ─────────────────────────────────────────────────
 SELECT tap.login(tap.other_user());
@@ -182,11 +232,18 @@ SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
 
 -- The sunset: without it, revoked_at is re-armed by every sign-out and the
 -- pre-128 cohort never shrinks, so "transitional" would be untrue forever.
+-- Ageing the epoch is exactly the write trg_guard_push_token_rebind_epoch
+-- exists to refuse (A15–A17), so the sunset can only be exercised by the
+-- deliberate act the guard demands of an operator: the trigger is disabled for
+-- these two statements only, as postgres, inside this rolled-back transaction.
+SELECT tap.logout();
+ALTER TABLE public.push_token_rebind_epoch DISABLE TRIGGER trg_guard_push_token_rebind_epoch;
 SELECT tap._agee195();
 SELECT tap._mkrow195(tap.buyer(), NULL, false, 'signed_out', interval '1 hour', interval '200 days');
 SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
   'G4: past the 90-day sunset the legacy path is closed for good');
 SELECT tap._resete195();
+ALTER TABLE public.push_token_rebind_epoch ENABLE TRIGGER trg_guard_push_token_rebind_epoch;
 
 -- ── H. LOST LOCAL SECRET ────────────────────────────────────────────────────
 SELECT tap._mkrow195(tap.buyer(), tap._h195(tap._f195('sec')), true, NULL, NULL, interval '1 day');

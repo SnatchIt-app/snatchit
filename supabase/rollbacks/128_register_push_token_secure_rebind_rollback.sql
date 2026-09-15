@@ -36,6 +36,12 @@ drop function if exists public.register_push_token(text, text, text, text);
 alter table public.push_tokens
   drop column if exists device_secret_hash;
 
--- public.push_token_rebind_epoch intentionally retained — see the header.
+-- True inverse of 128's column-scoped SELECT: the column it withheld is gone, so
+-- the pre-128 table-level SELECT is restored (expected_grants.txt at the base).
+grant select on public.push_tokens to anon, authenticated;
+
+-- public.push_token_rebind_epoch intentionally retained — see the header — and
+-- so is trg_guard_push_token_rebind_epoch with its function: the trigger is what
+-- keeps the retained epoch from being moved, which is the whole reason to retain it.
 
 commit;

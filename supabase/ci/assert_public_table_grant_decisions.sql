@@ -353,6 +353,8 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- support unbind for a squatted token. Neither is a client verb.
   ('guard_push_token_secret_hash()',                                 'no-client-execute'),
   ('unbind_push_token(text)',                                        'no-client-execute'),
+  -- 128 fold-in: the epoch row is immutable (BEFORE UPDATE/DELETE/TRUNCATE raises).
+  ('guard_push_token_rebind_epoch()',                                'no-client-execute'),
   ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),

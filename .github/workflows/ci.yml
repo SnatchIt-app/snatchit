@@ -626,9 +626,9 @@ jobs:
           # the tree carries both, so the value below is read from the catalog of
           # an actual replay, never inherited from either side.
           EXPECT_TABLES: 31
-          EXPECT_FUNCS: 92
+          EXPECT_FUNCS: 93
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 34
+          EXPECT_TRIGGERS: 35
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so

@@ -260,9 +260,12 @@ SELECT is((SELECT count(DISTINCT p.proname)::int FROM pg_proc p CROSS JOIN LATER
   'B16: …and every one of the six is EXECUTE: service_role (RLS §11)');
 SELECT is((SELECT count(DISTINCT p.proname)::int FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
             WHERE p.pronamespace='notify'::regnamespace AND a.privilege_type='EXECUTE'
-              AND p.proname IN ('get_inbox','get_unread_count','mark_read','mark_all_read','dismiss','get_preference_matrix','set_preference','register_push_token','revoke_push_token')
-              AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname='authenticated')), 9,
-  'B17: the nine consumer RPCs — EXECUTE: authenticated');
+              AND p.proname IN ('get_inbox','get_unread_count','mark_read','mark_all_read','dismiss','get_preference_matrix','set_preference','revoke_push_token')
+              AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname='authenticated'))
+          + (SELECT count(*)::int FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
+              WHERE p.pronamespace='public'::regnamespace AND p.proname='register_push_token' AND a.privilege_type='EXECUTE'
+                AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname='authenticated')), 9,
+  'B17: the nine consumer RPCs — EXECUTE: authenticated (128 moved register_push_token to public; notify''s is revoked)');
 SELECT is((SELECT count(*)::int FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
             WHERE p.pronamespace='notify'::regnamespace AND a.privilege_type='EXECUTE'
               AND (a.grantee = 0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname='anon'))), 0,
@@ -502,14 +505,14 @@ SELECT throws_ok($$SELECT notify.record_delivery_result(tap._u157('d_nt'), 'bogu
 SELECT throws_ok($$SELECT notify.record_delivery_result('00000000-0000-0000-0000-0000000000ff', 'sent', NULL, NULL, NULL, NULL, NULL)$$, 'P0002', NULL, 'F24: an unknown delivery is not_found');
 -- device_not_registered → token revoked → identity unreachable → re-registration heals
 SELECT tap.login(tap.other_user());
-SELECT lives_ok($$SELECT notify.register_push_token('ExponentPushToken[other-1]', 'ios', 'iPhone', 'en-US')$$, 'F25: other_user registers a device');
+SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[other-1]', 'ios', 'secret-other-1-0123456789', 'iPhone')$$, 'F25: other_user registers a device (128 verb)');
 SELECT tap.logout();
 SELECT tap._store157('d_dnr', (tap._d157((tap._nrow157(tap.other_user(),'payout_on_hold')).notification_id,'push')).delivery_id::text);
 SELECT is((notify.record_delivery_result(tap._u157('d_dnr'), 'device_not_registered', NULL, NULL, NULL, 'DeviceNotRegistered', 'ExponentPushToken[other-1]') ->> 'state'), 'failed', 'F26: device_not_registered → failed');
 SELECT is((tap._tok157('ExponentPushToken[other-1]')).revoked_reason, 'device_not_registered', 'F27: the named token is revoked with the reason');
 SELECT is(tap._ics157(tap.other_user(), 'push'), 'unreachable', 'F28: no live token remains → the identity is push-unreachable');
 SELECT tap.login(tap.other_user());
-SELECT lives_ok($$SELECT notify.register_push_token('ExponentPushToken[other-1]', 'ios', 'iPhone', NULL)$$, 'F29: the device re-registers');
+SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[other-1]', 'ios', 'secret-other-1-0123456789', 'iPhone')$$, 'F29: the device re-registers (128 verb, same secret)');
 SELECT tap.logout();
 SELECT is(tap._ics157(tap.other_user(), 'push'), 'ok', 'F30 (§17.24): re-registration resets unreachable → ok');
 SELECT ok((tap._tok157('ExponentPushToken[other-1]')).revoked_at IS NULL AND (tap._tok157('ExponentPushToken[other-1]')).is_active, 'F31: …and revives the token');
@@ -580,15 +583,15 @@ UPDATE kernel.identity_ext SET locale = NULL WHERE identity_id = tap.buyer();
 -- SECTION H — PUSH TOKENS (D-4/D-5/D-6; IDOR)
 -- ============================================================================
 SELECT tap.login(tap.buyer());
-SELECT lives_ok($$SELECT notify.register_push_token('ExponentPushToken[shared-1]', 'android', 'Pixel', 'en-US')$$, 'H1: buyer registers');
+SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel')$$, 'H1: buyer registers (128 verb)');
 SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.buyer(), 'H2: the row belongs to auth.uid()');
 SELECT ok((tap._tok157('ExponentPushToken[shared-1]')).last_used IS NOT NULL AND (tap._tok157('ExponentPushToken[shared-1]')).is_active, 'H3 (D-5): last_used set on first insert');
-SELECT throws_ok($$SELECT notify.register_push_token('ExponentPushToken[shared-1]', 'web', NULL, NULL)$$, 'P0001', NULL, 'H4: platform must be ios|android');
-SELECT throws_ok($$SELECT notify.register_push_token('short', 'ios', NULL, NULL)$$, 'P0001', NULL, 'H5: token length is validated');
-SELECT throws_ok($$SELECT notify.register_push_token('ExponentPushToken[shared-1]', 'ios', NULL, 'not a locale!')$$, 'P0001', NULL, 'H6: locale tag is validated (and otherwise not persisted — E-157)');
+SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'web', 'secret-shared-1-0123456789', NULL)$$, 'P0001', NULL, 'H4: platform must be ios|android');
+SELECT throws_ok($$SELECT public.register_push_token('short', 'ios', 'secret-shared-1-0123456789', NULL)$$, 'P0001', NULL, 'H5: token length is validated');
+SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'ios', 'tiny', NULL)$$, 'P0001', NULL, 'H6: device secret length is validated (128; the legacy locale check has no equivalent — the verb takes no locale, E-157 unchanged)');
 SELECT tap.logout();
 SELECT tap.login(tap.other_user());
-SELECT lives_ok($$SELECT notify.register_push_token('ExponentPushToken[shared-1]', 'android', 'Pixel', NULL)$$, 'H7: the device changes hands');
+SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel')$$, 'H7: the device changes hands — same device secret, new account (128 rule 3)');
 SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.other_user(), 'H8 (D-4): …and user_id ALWAYS follows auth.uid()');
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
@@ -601,7 +604,7 @@ SELECT is((tap._tok157('ExponentPushToken[shared-1]')).revoked_reason, 'signed_o
 SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H13: idempotent');
 SELECT tap.logout();
 SELECT tap.login_anon();
-SELECT throws_ok($$SELECT notify.register_push_token('ExponentPushToken[anon-1]', 'ios', NULL, NULL)$$, '42501', NULL, 'H14: anon cannot register');
+SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[anon-1]', 'ios', 'secret-anon-1-0123456789', NULL)$$, '42501', NULL, 'H14: anon cannot register');
 SELECT throws_ok($$SELECT notify.revoke_push_token('ExponentPushToken[shared-1]')$$, '42501', NULL, 'H15: anon cannot revoke');
 SELECT tap.logout();
 SELECT is((SELECT count(*)::int FROM public.push_tokens WHERE user_id = tap.other_user() AND revoked_at IS NULL), 1, 'H16: other_user keeps exactly one live token (other-1)');
