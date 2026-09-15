@@ -191,3 +191,16 @@ must succeed from any authenticated session**, including one that predates the e
 `revoke_all` from the device's pre-change session immediately after `updateUser` bumps the epoch, and a refusal there
 (logged, never blocking) would silently lose the verb's fast path in exactly the flow that matters. Revocation can
 only reduce exposure, so it needs no session-age proof. Asserted in 198.
+
+## 8. A-131-K2 amendment (2026-09-15, after the owner approved K-2; D's K2-S1 / K2-S2)
+With ordinary sign-out = this device only, §2's live-session trigger covered a signed-out device only when it was the
+user's LAST live session. Amendment on `fix/131-session-bound-push @ f72e2d3`: `public.push_tokens.session_id` (not
+client-readable or -writable) is stamped by the verb on every success path and by the row guard on the client INSERT /
+re-activation path; the sessions trigger takes the per-user advisory lock, keeps the last-live-session global
+invalidation, then revokes the deleted sessions' own bindings (reason `signed_out`, proof kept, no epoch). K2-S2:
+`kernel.push_session_predates_epoch` reads the session claim first — a claim naming a deleted session fails closed even
+on a never-bumped account; no claim on a never-bumped account stays untouched (J2). P6 now reads: a device's sign-out
+(client revoke OR its session's deletion) ends delivery to that device; sign-out-everywhere / password change / last
+session end everything and bump the epoch. S-13 (shared install after global sign-out → 42501 for another account) is
+deliberate (D): clearing the proof is what kills a plant; recovery = original account re-login + this-device sign-out,
+support unbind, or reinstall. 198 → plan 56 with two negative controls; census unchanged; rollback drops the column.
