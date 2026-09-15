@@ -197,7 +197,11 @@ export async function revokeAllBindings(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<'timed_out'>((res) => { timer = setTimeout(() => res('timed_out'), timeoutMs); });
   try {
-    const r = await Promise.race([rpc(), timeout]);
+    // F-K2-2 (A): when the timeout wins, the losing call must not surface a
+    // later rejection as unhandled; the race still sees an early rejection.
+    const call = rpc();
+    call.catch(() => {});
+    const r = await Promise.race([call, timeout]);
     if (r === 'timed_out') {
       console.warn('[signOut] revoke_all_push_bindings timed out');
       return null;

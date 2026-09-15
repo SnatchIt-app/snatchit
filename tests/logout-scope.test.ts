@@ -60,6 +60,22 @@ describe('K-2: two named sign-outs', () => {
     expect(await revokeAllBindings(async () => { throw new Error('network'); })).toBeNull();
   });
 
+  it('F-K2-2: a call that rejects after the timeout won is not an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      let rejectLater: (e: Error) => void = () => {};
+      const late = new Promise<{ data: unknown; error: null }>((_, rej) => { rejectLater = rej; });
+      expect(await revokeAllBindings(() => late, 10)).toBeNull();
+      rejectLater(new Error('aborted fetch'));
+      await new Promise((res) => setTimeout(res, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('the login screen explains a password change', () => {
     expect(SESSION_END_NOTICE.password_changed).toMatch(/new password/i);
   });
