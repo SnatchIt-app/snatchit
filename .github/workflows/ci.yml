@@ -626,7 +626,11 @@ jobs:
           # the tree carries both, so the value below is read from the catalog of
           # an actual replay, never inherited from either side.
           EXPECT_TABLES: 31
-          EXPECT_FUNCS: 94
+          # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
+          # +2 public.claim_checkout_supersede, public.release_checkout_supersede
+          # (on top of 129's revoke_push_token). Two nullable columns on payments;
+          # no table, policy or trigger.
+          EXPECT_FUNCS: 96
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 35
 

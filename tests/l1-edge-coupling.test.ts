@@ -52,7 +52,14 @@ interface Pi { id: string; status: string; amount: number; currency: string; cli
 
 const inFuture = () => new Date(Date.now() + 5 * 60_000).toISOString();
 
-function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbsent?: boolean }) {
+function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbsent?: boolean;
+  /** migration 130 absent (PGRST202) or erroring for the checkout claim RPCs */
+  claimRpc?: 'present' | 'absent' | 'error';
+  /** an unordered SELECT may legitimately return the newest row first (Postgres heap order) */
+  unorderedNewestFirst?: boolean;
+  /** the first N claim calls see another request's brief claim (e.g. a double tap mid-reuse) */
+  claimHeldTimes?: number;
+}) {
   const payments = init.payments.map((p) => ({ ...p }));
   const pis = new Map(init.pis.map((p) => [p.id, { ...p }]));
   const listing = {
@@ -95,14 +102,52 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
       for (const r of hit) timeline.push(`db:update:${String(r.stripe_payment_intent_id)}->${String((q.body as Record<string, unknown>).status)}`);
       return { data: q.terminal === 'list' ? hit : hit[0] ?? null };
     }
-    return { data: q.terminal === 'list' ? hit : hit[0] ?? null };
+    let out = hit;
+    const ord = q.order.find((o) => o[0] === 'created_at');
+    const desc = ord ? (ord[1] as { ascending?: boolean } | undefined)?.ascending === false : !!init.unorderedNewestFirst;
+    if (ord || init.unorderedNewestFirst) {
+      out = [...hit].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || rows.indexOf(a) - rows.indexOf(b));
+      if (desc) out.reverse();
+    }
+    return { data: q.terminal === 'list' ? out : out[0] ?? null };
   };
+
+  // migration 130 model: one fresh claim per (listing, buyer, mode) group, token-bound release
+  let tokenSeq = 0;
+  let heldLeft = init.claimHeldTimes ?? 0;
+  const claimOf = new Map<string, string>();
+  const claimLog: string[] = [];
 
   const rpc: RpcHandler = (name, params) => {
     if (name === 'check_rate_limit') return { data: true };
     if (name === 'claim_stripe_webhook_event') return { data: completedEvents.has(String(params.p_event_id)) ? 'already_processed' : 'claimed' };
     if (name === 'complete_stripe_webhook_event') { completedEvents.add(String(params.p_event_id)); return { data: true }; }
     if (name === 'fail_stripe_webhook_event') return { data: true };
+    if (name === 'claim_checkout_supersede' || name === 'release_checkout_supersede') {
+      if ((init.claimRpc ?? 'present') === 'absent') return { data: null, error: { message: `Could not find the function public.${name}`, code: 'PGRST202' } };
+      if (init.claimRpc === 'error') return { data: null, error: { message: 'connection reset', code: '08006' } };
+    }
+    if (name === 'claim_checkout_supersede') {
+      const payRow = payments.find((p) => p.id === params.p_payment_id);
+      if (!payRow) return { data: { claimed: false, claim_token: null, holder_payment_id: null, reason: 'unknown_payment' } };
+      if (payRow.status !== 'pending') return { data: { claimed: false, claim_token: null, holder_payment_id: null, reason: 'not_pending' } };
+      if (heldLeft > 0) { heldLeft--; claimLog.push(`held:${payRow.stripe_payment_intent_id}`); return { data: { claimed: false, claim_token: null, holder_payment_id: payRow.id, reason: 'claim_held' } }; }
+      const holder = payments.find((p) => p.listing_id === payRow.listing_id && p.buyer_id === payRow.buyer_id && p.mode === payRow.mode
+        && p.status === 'pending' && claimOf.has(p.id));
+      if (holder) { claimLog.push(`held:${payRow.stripe_payment_intent_id}`); return { data: { claimed: false, claim_token: null, holder_payment_id: holder.id, reason: 'claim_held' } }; }
+      const tok = `tok_${++tokenSeq}`;
+      claimOf.set(payRow.id, tok);
+      claimLog.push(`claim:${payRow.stripe_payment_intent_id}`);
+      return { data: { claimed: true, claim_token: tok, holder_payment_id: payRow.id, reason: 'claimed' } };
+    }
+    if (name === 'release_checkout_supersede') {
+      const tok = claimOf.get(String(params.p_payment_id));
+      if (!tok) return { data: { released: false, reason: 'not_claimed' } };
+      if (tok !== params.p_claim_token) return { data: { released: false, reason: 'token_mismatch' } };
+      claimOf.delete(String(params.p_payment_id));
+      claimLog.push(`release:${payments.find((p) => p.id === params.p_payment_id)?.stripe_payment_intent_id}`);
+      return { data: { released: true, reason: 'released' } };
+    }
     if (name === 'release_reservation') {
       timeline.push(`rpc:release_reservation:${String(params.p_user_id)}`);
       if (listing.status === 'reserved' && listing.reserved_by === params.p_user_id) {
@@ -129,6 +174,7 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   let insertFails = false;
   let fastWebhook = false;
   let cancelThrowsFor: string | null = null;
+  let onCancel: ((id: string) => Promise<void>) | null = null;
 
   const webhookSb = mockSupabase({ rpc, tables: { payments: paymentsTable, listings: () => ({ data: { event_name: 'Fixture' } }) } });
   const webhook = async () => loadEdgeHandler('supabase/functions/stripe-webhook/index.ts', {
@@ -165,6 +211,7 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     }
     if (c.method === 'POST' && c.path.endsWith('/cancel')) {
       const id = c.path.split('/')[2];
+      if (onCancel) { const hook = onCancel; onCancel = null; await hook(id); }
       const pi = pis.get(id);
       if (cancelThrowsFor === id) { timeline.push(`stripe:cancel-threw:${id}`); throw new Error('network'); }
       if (!pi || pi.status === 'processing' || pi.status === 'succeeded') {
@@ -207,6 +254,10 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     set fastWebhook(v: boolean) { fastWebhook = v; },
     set insertFails(v: boolean) { insertFails = v; },
     set cancelThrowsFor(v: string | null) { cancelThrowsFor = v; },
+    set onCancel(v: ((id: string) => Promise<void>) | null) { onCancel = v; },
+    claimsOutstanding: () => claimOf.size,
+    claimLog,
+    checkoutSb,
     holdIntact: () => listing.status === 'reserved' && listing.reserved_by === HOLDER,
     row: (pi: string) => payments.find((p) => p.stripe_payment_intent_id === pi),
     rpcCalls: (name: string) => webhookSb.rpcs.filter((r) => r.name === name),
@@ -369,5 +420,91 @@ describe('L1 — create-payment-intent mints the replacement before cancelling t
     expect(w.row('pi_dead')?.status).toBe('failed');
     expect(w.timeline.filter((e) => e.startsWith('stripe:cancel'))).toHaveLength(0);
     expect(w.row(String(body.paymentIntentId))?.status).toBe('pending');
+  });
+});
+
+describe('L1 / 130 — every secret hand-out on a pending attempt holds the (listing, buyer, mode) claim', () => {
+  const secretOf = (b: Record<string, unknown>) => (typeof b.clientSecret === 'string' ? b.clientSecret : null);
+
+  it('C7 (the reported gap): a second request that would REUSE the replacement P2 while the first request\'s P1 cancel is refused gets no secret', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'processing', 22000)], price: 300, unorderedNewestFirst: true });
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCancel = async (id) => { if (id === 'pi_old') second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(first.res.status).toBe(409);
+    expect(second).not.toBeNull();
+    // P1 may still charge: no request may hold a live secret for another intent on this listing
+    expect(secretOf(second!.body)).toBeNull();
+    expect(secretOf(first.body)).toBeNull();
+    expect(w.claimsOutstanding()).toBe(0);
+  });
+
+  it('C8: two concurrent supersedes of P1 — only ONE live secret is handed out', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300 });
+    let second: { res: Response; body: Record<string, unknown> } | null = null;
+    w.onCancel = async (id) => { if (id === 'pi_old') second = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 }); };
+    const first = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    const secrets = [secretOf(first.body), secretOf(second!.body)].filter(Boolean);
+    expect(secrets).toHaveLength(1);
+    const live = [...w.pis.values()].filter((p) => p.id !== 'pi_old' && p.status === 'requires_payment_method'
+      && w.row(p.id)?.status === 'pending');
+    expect(live).toHaveLength(1);
+    expect(w.claimsOutstanding()).toBe(0);
+  });
+
+  it('C9: the plain reuse path claims, returns the secret, and releases', async () => {
+    const w = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)] });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(body.paymentIntentId).toBe('pi_same');
+    expect(w.claimLog).toEqual(['claim:pi_same', 'release:pi_same']);
+    expect(w.claimsOutstanding()).toBe(0);
+  });
+
+  it('C10: the claim is released on every exit — success, refusal, insert failure, already-succeeded', async () => {
+    const ok = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300 });
+    expect((await ok.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 })).res.status).toBe(200);
+    expect(ok.claimsOutstanding()).toBe(0);
+    const refused = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'processing', 22000)], price: 300 });
+    expect((await refused.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 })).res.status).toBe(409);
+    expect(refused.claimsOutstanding()).toBe(0);
+    const ins = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300 });
+    ins.insertFails = true;
+    expect((await ins.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 })).res.status).toBe(500);
+    expect(ins.claimsOutstanding()).toBe(0);
+    const paid = world({ payments: [pay('pi_paid_pending_row', 'pending')], pis: [pi('pi_paid_pending_row', 'succeeded', 22000)] });
+    expect((await paid.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 })).res.status).toBe(400);
+    expect(paid.claimsOutstanding()).toBe(0);
+  });
+
+  it('C11: migration 130 absent (PGRST202) degrades to the unclaimed #64 behaviour and reports it', async () => {
+    const w = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)], claimRpc: 'absent' });
+    const { res, body, edge } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(body.paymentIntentId).toBe('pi_same');
+    expect(edge.sentry.length + edge.logs.filter((l) => /claim_checkout_supersede/.test(l.args.map(String).join(' '))).length).toBeGreaterThan(0);
+  });
+
+  it('C12: any other claim error fails closed — 503, no secret, no mint, no cancel', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300, claimRpc: 'error' });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(503);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('stripe:create') || e.startsWith('stripe:cancel'))).toHaveLength(0);
+  });
+
+  it('C13 (R-2): the pending attempt is chosen newest-first, never by heap order', async () => {
+    const w = world({ payments: [pay('pi_old', 'pending'), pay('pi_newer', 'pending', { created_at: new Date(Date.now() - 1000).toISOString() })],
+                      pis: [pi('pi_old', 'requires_payment_method', 22000), pi('pi_newer', 'requires_payment_method', 22000)] });
+    const { body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(body.paymentIntentId).toBe('pi_newer');
+  });
+
+  it('C14: a claim held only briefly (a double tap mid-reuse) is waited out — the retry returns the secret instead of a 409', async () => {
+    const w = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)], claimHeldTimes: 2 });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(200);
+    expect(body.paymentIntentId).toBe('pi_same');
+    expect(w.claimLog).toEqual(['held:pi_same', 'held:pi_same', 'claim:pi_same', 'release:pi_same']);
   });
 });
