@@ -1081,3 +1081,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the 131 SQL exists). Next for C: Thursday build (the owner authorised the
   candidate build in this session, conditional on D's 128 review passing —
   D pass 3 was clean) and the device plan Blocks 0–3 on Friday.
+- **Pin (A, 2026-09-15): tag `candidate/2026-09-18-pin` = `4b012fd`.** Verified by C
+  (fetch; 231f120 is an ancestor; `app src` identical to db5bddf; `eas.json`
+  identical to Build 16). **Build HELD:** CI at the pin has not passed (docs-tip
+  run failed, pin runs cancelled by later pushes); O-2's "after required
+  checks pass" is unmet, so no EAS submission until A reports CI green at the
+  pin. Pre-flight and the one-command submission are in the plan §1a; if the
+  pin moves, the pre-flight is re-run against the new tag.

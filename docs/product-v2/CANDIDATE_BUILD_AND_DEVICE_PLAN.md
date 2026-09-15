@@ -20,6 +20,28 @@ Build 16 (`df9e0d3`, profile `preview`) stays the historical tested pin.
 
 Record in the release packet: EAS build id, assigned build number, pinned commit, profile, date, device (model, iOS version), tester.
 
+### 1a. Pin pre-flight and the one-command submission (2026-09-15)
+
+Pin: tag `candidate/2026-09-18-pin` = `4b012fd` on `release/candidate-20260918` (A). Verified by C from origin:
+`231f120` (C's rebased stack) is an ancestor; `app/` and `src/` are byte-identical to the approved head `db5bddf`
+(0 differing files); `eas.json` is identical to Build 16's (`df9e0d3`); the `preview` profile is `distribution:
+internal`, `EXPO_PUBLIC_APP_ENV=sandbox`, the sandbox Supabase URL, `ios.autoIncrement: true`,
+`appVersionSource: remote`, Sentry auto-upload off, public-class values only; `envGuard.ts` carries the sandbox ref;
+`app.json` `expo.version` 1.0.0.
+
+**HOLD:** GitHub CI at the pin has not passed (the run at the docs tip failed; runs at the pin were cancelled by
+later pushes). O-2 reads "after the required checks pass", so the build is NOT submitted until A reports CI green
+at the pin. If a fix moves the pin, A names the new tag and this pre-flight is re-run against it.
+
+When A reports green, the submission is, from a clean worktree at the tag (the owner's EAS login; nothing else
+changes):
+
+```bash
+git fetch origin "refs/tags/candidate/2026-09-18-pin:refs/tags/candidate/2026-09-18-pin" && git worktree add /Users/josetascon/snatchit-candidate candidate/2026-09-18-pin && cd /Users/josetascon/snatchit-candidate && npm ci && git rev-parse --short HEAD && eas build --platform ios --profile preview --non-interactive --message "candidate 2026-09-18 pin 4b012fd"
+```
+
+Record afterwards: the EAS build id and the assigned build number (expected 17), in `RELEASE_PACKET_C_SECTION.md`.
+
 ## 2. Targeted device test plan (ordered, time-boxed; rows from `DEVICE_VERIFICATION_CHECKLIST.md`)
 
 Principles (directive rule 8): retest changed behaviour and integration risks; do not repeat the Build 16 matrix. Closed Build 16 results and their limitations stand. Sandbox writes only inside A's serialized window; every write row names A.
