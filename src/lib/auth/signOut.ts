@@ -8,7 +8,9 @@
  * WHAT THIS DOES. Before the session is dropped — while the JWT is still
  * valid, because RLS lets a user update only their own token rows — it asks
  * the server to deactivate THIS device's token for the account being signed
- * out: `is_active=false`, `revoked_at=now()`, `revoked_reason='sign_out'`.
+ * out: `is_active=false`, `revoked_at=now()`, `revoked_reason='signed_out'`
+ * — the one spelling the server's own writer (notify.revoke_push_token) uses
+ * and the value migration 128's legacy path keys on (A, 2026-09-14).
  * Best-effort, bounded by a short timeout, and it never blocks or fails the
  * sign-out: an offline device still signs out.
  *
@@ -87,7 +89,7 @@ export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
     revoke: async (token, userId) => {
       const { data, error } = await supabase
         .from('push_tokens')
-        .update({ is_active: false, revoked_at: new Date().toISOString(), revoked_reason: 'sign_out' })
+        .update({ is_active: false, revoked_at: new Date().toISOString(), revoked_reason: 'signed_out' })
         .eq('token', token)
         .eq('user_id', userId)
         .select('id');

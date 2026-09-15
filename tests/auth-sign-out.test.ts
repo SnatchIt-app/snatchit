@@ -99,3 +99,11 @@ describe('every sign-out site uses the helper', () => {
     expect(read('src/hooks/usePushToken.ts')).toMatch(/setRegisteredPushToken\(token\)/);
   });
 });
+
+describe('revoked_reason spelling (migration 128 legacy path, A 2026-09-14)', () => {
+  it("writes 'signed_out' — the one value the server's own writer uses and 128 keys on", () => {
+    const src = readFileSync(resolve(__dirname, '..', 'src/lib/auth/signOut.ts'), 'utf8');
+    expect(src).toContain("revoked_reason: 'signed_out'");
+    expect(src).not.toContain("revoked_reason: 'sign_out'");
+  });
+});
