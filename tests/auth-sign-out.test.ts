@@ -86,7 +86,7 @@ describe('every sign-out site uses the helper', () => {
   it('no screen or hook calls supabase.auth.signOut directly', () => {
     for (const p of SITES) {
       expect(read(p)).not.toMatch(/supabase\.auth\.signOut\(/);
-      expect(read(p)).toMatch(/signOutEverywhere\(/);
+      expect(read(p)).toMatch(/signOut(ThisDevice|AllDevices)\(/); // K-2: two named acts
     }
   });
 
