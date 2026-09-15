@@ -1062,7 +1062,9 @@ export default function ListingDetailScreen({ id }: Props) {
       <EmptyState
         title="Listing not found"
         body="It may have been sold or taken down."
-        action={{ label: 'Go back', onPress: () => router.back() }}
+        // From a notification or a cold start there is nothing to go back to
+        // (CFT-605): the live feed is the outcome that always works.
+        action={{ label: 'Browse live listings', onPress: () => router.replace('/(tabs)/home') }}
       />
     </View>
   );

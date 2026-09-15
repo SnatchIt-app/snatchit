@@ -139,6 +139,8 @@ export default function SettingsScreen() {
   // Human labels for the live-rail obligation tokens returned by delete-account
   // (public.account_deletion_blockers → { kind, ref_id }). Unknown kinds fall
   // back to the token itself.
+  // F3 (Build 16 finding): every kind public.account_deletion_blockers can
+  // return has a label; `reversal_required` was never a server kind and is gone.
   const OBLIGATION_LABELS: Record<string, string> = {
     pending_payment: 'a payment that is still processing',
     paid_no_transfer: 'a paid order whose ticket transfer has not been created',
@@ -146,7 +148,9 @@ export default function SettingsScreen() {
     unsettled_transfer: 'a ticket transfer that has not completed',
     unpaid_seller_obligation: 'a seller payout that has not been paid',
     pending_refund: 'a refund that is still processing',
-    reversal_required: 'a payout under review',
+    open_dispute: 'a transfer with an open issue report',
+    unresolved_review: 'a transfer under review',
+    open_payout_attempt: 'a payout that is still being sent',
     open_manual_review: 'a payout under review',
   };
   function notifyDeletionAccepted(parsed: any): Promise<void> {

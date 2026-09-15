@@ -26,6 +26,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/src/lib/supabase';
 import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateLogin } from '@/src/lib/auth/authForms';
+import { consumeSessionEnd, sessionEndNotice } from '@/src/lib/auth/sessionEnd';
 import {
   canResend,
   classifyOtpError,
@@ -62,6 +63,9 @@ export default function LoginScreen() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Why the user is on this screen, if the app knows (session expiry). Read
+  // once on mount; a later visit says nothing stale.
+  const [sessionNotice] = useState<string | null>(() => sessionEndNotice(consumeSessionEnd()));
 
   useEffect(() => () => { if (cooldownRef.current) clearInterval(cooldownRef.current); }, []);
 
@@ -166,6 +170,10 @@ export default function LoginScreen() {
     <Text style={[textStyle('bodySm'), s.error]} accessibilityRole="alert">{error}</Text>
   ) : null;
 
+  const noticeRow = sessionNotice ? (
+    <Text style={[textStyle('bodySm'), s.notice]} accessibilityRole="alert">{sessionNotice}</Text>
+  ) : null;
+
   const signUpLink = (
     <Link href="/(auth)/signup" asChild>
       <Pressable style={s.link} accessibilityRole="button">
@@ -181,6 +189,7 @@ export default function LoginScreen() {
       {method === 'phone' && step === 'enter_phone' ? (
         <>
           <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Sign in</Text>
+          {noticeRow}
 
           <Input
             label="Mobile number"
@@ -248,6 +257,7 @@ export default function LoginScreen() {
       {method === 'email' ? (
         <>
           <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Sign in</Text>
+          {noticeRow}
 
           <View style={s.fields}>
             <Input
@@ -301,6 +311,7 @@ const s = StyleSheet.create({
   forgot: { alignSelf: 'flex-end', marginTop: v2.space.md },
   forgotText: { color: v2.text.muted },
   error: { color: v2.status.error, marginTop: v2.space.md },
+  notice: { color: v2.status.warning, marginBottom: v2.space.md },
   cta: { marginTop: v2.space.xl },
   secondaryCta: { marginTop: v2.space.lg },
   alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
