@@ -30,6 +30,13 @@ describe('131 P3 on the client: a session that predates a credential change is t
     expect(d).toEqual({ action: 'wait', method: 'rpc', reason: 'session_stale' });
   });
 
+  it('the bound-to-another-account remedy fits the shared-install-after-global-sign-out edge (A, 131 @ f102ce2)', () => {
+    const r = REGISTRATION_REMEDY.bound_to_other ?? '';
+    expect(r).toMatch(/sign in here and then sign out from this device/i);
+    expect(r).toMatch(/contact support/i);
+    expect(r).not.toMatch(/sign out here first/i);
+  });
+
   it('has a neutral remedy the Notifications screen can show (K-4: no cause named)', () => {
     expect(REGISTRATION_REMEDY.session_stale).toMatch(/signed out on this device/i);
     expect(REGISTRATION_REMEDY.session_stale).not.toMatch(/password/i);

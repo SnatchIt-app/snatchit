@@ -213,8 +213,13 @@ export function recordFailure(
 
 /** What the user can be told when the device is not registered for this account. */
 export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>> = {
+  // 131: after a "Sign out of all devices" the previous account's device proof
+  // is cleared, so a different account on this install is refused (42501) and
+  // "sign out here first" would be false advice — that account is already
+  // signed out. The way back is that account signing in here and then signing
+  // out from this device (keeps the proof), support unbinding, or a reinstall.
   bound_to_other:
-    "Notifications aren't set up for this account on this device yet. The account that used this device before needs to sign out here first.",
+    "Notifications aren't set up for this account on this device yet. The account that used this device before needs to sign in here and then sign out from this device, or contact support.",
   secret_unavailable:
     "Notifications can't be set up on this device right now because secure storage is unavailable.",
   session_stale:
