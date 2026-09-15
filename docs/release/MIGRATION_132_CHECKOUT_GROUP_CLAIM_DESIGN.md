@@ -86,3 +86,25 @@ Option A would move changes onto A's surface (sweep, blockers, 127) days before 
   - 132 before edge: the table is unused, and 130's row claim still serializes reuse and supersede. The fresh-mint defect stays open until the edge ships.
 
 **Out of scope, for D to confirm unreachable:** the group is (listing, buyer, mode). Two concurrent checkouts by one buyer in *different* modes, or by two *different* buyers, on one listing are not serialized by 132. They are gated by entitlement and reservation authority, and a collision still ends at `idx_payments_one_success_per_listing` (unfulfillable, refunded).
+
+## 7. Correction 2026-09-15 — D review F-132-1 and F-132-2 (B)
+§6's "out of scope, for D to confirm unreachable" paragraph was **wrong on both counts**. D refuted it, and B reproduced the finding before changing anything.
+- **F-132-1, cross-mode (HIGH, money).** One buyer can be entitled to both modes at once, with no race needed:
+  1. The buyer bids and calls `reserve_buy_now` while the auction runs.
+  2. `auto_finalize_expired_auctions` then ends the auction under the live hold.
+  3. The mode-keyed group admitted both checkouts, and the auction request's mode-filtered prior read found nothing.
+
+  The result was two live secrets for different amounts.
+
+  **Fix:** the group is `(listing, buyer)`, and `mode` is a recorded column. The prior read spans both modes. A succeeded payment in either mode means "already completed". A live pending attempt in the other mode answers 409 with no secret. Reuse and supersede stay within one mode.
+- **F-132-2, cross-buyer (HIGH, money).** `retirePendingIntents('other-buyers')` was best-effort, so an intent it could not provably cancel stayed live while the entitled buyer minted. Causes include Stripe reporting it processing or succeeded, a cancel error or timeout, or a row already `processing` (which the lookup did not select).
+
+  **Fix:** the retirement fails closed. It covers `processing` rows and runs under E-1's per-call bound. Anything not provably retired answers 409 with no mint.
+- **D question 4, P1 liveness.** Nothing sweeps `processing` rows: `get_unsettled_payments` covers only unfulfillable reviews, paid-unsettled and pending 15 minutes to 2 hours old. The refusal now asks Stripe instead:
+  - canceled: the row is retired and checkout proceeds;
+  - succeeded: "already completed";
+  - anything else, or no answer: 409.
+
+  **Residual:** a DB-processing row whose intent went back to `requires_payment_method` keeps refusing until the `payment_failed` webhook lands (Stripe retries for up to 3 days).
+
+**Pre-existing root cause (A records):** `reserve_buy_now` accepts a hold on an auction the buyer is winning, and the finalizer ends an auction under a live hold (baseline / `20260906100000`). Whether both entitlements should coexist is a product question for the owner. The money property no longer depends on the answer.
