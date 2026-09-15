@@ -3029,3 +3029,20 @@ reviewer; that label is not a disposition.
 
 Sequencing consequence: the two "fold in" items are small and cheap and reopen no design question, so they ride in
 the same clean-review round rather than a fourth; the transitional acceptance is the owner's.
+
+### D-AR1 — admin analytics redesign `admin/analytics-redesign @ 64f26f9`: A review APPROVED, separate track (2026-09-15)
+
+Reviewed as asked in D's hand-off (`admin/docs/ANALYTICS_REDESIGN.md`). **Verified by A, not taken from D's table:**
+based on `release/convergence-135 @ c55ea50` (ancestor) and `merge-tree` clean; 118 files, **all under `admin/`**,
+no `supabase/`, migration, `ops` function, grant or route-permission change; the only data reads are the existing
+`ops.money_overview` (4 sites), `ops.today`, `ops.whoami`; gates re-run in a fresh worktree of `64f26f9`: `tsc` 0,
+lint 0, vitest **136/136**, `next build` **0** (with placeholder public env — the console refuses to build without
+`NEXT_PUBLIC_SUPABASE_URL/ANON_KEY/SITE_URL`, which is correct behaviour). It supersedes `admin/light-theme-integration`,
+`admin/f9-mobile-nav`, `admin/a11y-responsive-fixes` (ancestry checked by D).
+
+**One integration note for D's AN-2, not a defect:** the adapter (`admin/src/lib/types.ts:1246 toCertainty`) maps only
+`'exact' | 'uncertain'`; 126's `money_overview` (B, PR #63) now emits `certainty = 'known' | 'uncertain' | 'mixed'`,
+`value_cents` only when known, the exact part in `known_cents`, plus `legacy_upper_bound_cents`. Unknown values map to
+`null` → the UI's "unknown, at most X" state — **safe degradation** (D verified the same on the deployed console), but
+the known part of a `mixed` window is not shown until AN-2 maps the new fields. Not required for the marketplace
+release; the console deploys on its own path (`admin/operating-console`, SHA-pinned, owner-gated).
