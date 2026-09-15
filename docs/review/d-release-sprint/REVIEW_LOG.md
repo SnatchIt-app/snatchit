@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control pending); 133 review pending |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; **133 NOT PASSED (F-133-1 HIGH, F-133-2)** |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -109,6 +109,32 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 198 does not cover: K2-S1, one-statement global delete, scope=others, margin boundary, cross-account hand-off and S-13 recovery,
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
+
+### 131 re-review — A-131-K2 at `f72e2d3` (CI 34980745488 green): K2-S1 / K2-S2 CLOSED; **F-131-K2a open**
+Harness (`scripts/review/d_candidate_rehearsal.sh`, frozen copy): PASS 23 · FAIL 0 · WARN 2 declared · replay 150 · census
+31|99|37|37 · grants = fixture (68) · manifest PASS · pgTAP 5030/5030 · 131 rollback exact · S1/S2/S3 identical. Local: 195 58/58,
+196 9/9, 157 294/294, 198 56/56. K-2 probe: K2 now inactive/proof kept/signed_out, only the other device deliverable; K2b gone-session
+register 42501; K3o scope=others now revokes the others; all other rows unchanged. `probes/race_131_k2.sh` KR1–KR5 PASS (register
+holds lock → delete waits 2498 ms then revokes; delete holds lock → register waits 2555 ms then 42501; old-client INSERT both orders;
+no 40P01). `probes/probe_131_k2_amend.sql`: forged client session_id overwritten with the caller's session; SELECT/UPDATE of
+session_id 42501.
+| # | Severity | Finding |
+|---|---|---|
+| F-131-K2a | MEDIUM (security) | per-session revoke writes `revoked_reason='signed_out'` (rule 5's precondition): a hash-less pre-128 row re-activated by an old client, whose own session ends while another lives, becomes claimable by any account knowing the token (probe B3 → `rebound_legacy`); at f102ce2 it stayed active, not claimable. `coalesce(revoked_at, now())` also keeps a stale revoked_at. Fix: distinct reason (e.g. `session_ended`) + `revoked_at = now()`; 198 case with negative control |
+| note | by design | expired-session cleanup revokes that device's binding with the proof kept (probe C2); epoch unchanged |
+| cosmetic | LOW | a gone session gets "session predates a credential change" |
+
+### 133 review — `fix/133-config-driven-functions-url @ 5fa1fa0` (CI 34980799558 green): **NOT PASSED — 2 findings**
+Correct for its purpose (four bodies + five crons read Vault `project_url`, no URL ⇒ no post; in-migration proof of no production
+host; rollback declared md5-identical).
+| # | Severity | Finding |
+|---|---|---|
+| F-133-1 | HIGH (operational/money) | `project_url` precondition is prose only: a live environment applied without it silently stops enforce-transfer-expiry (transfer expiry + Phase 0 unfulfillable refunds), refund/payout executor ticks, notify triggers, signing-monitor egress, CRM export — crons "succeed" matching nothing, invisible to job health. Fix: abort when Vault has `service_role_key` but not `project_url` (CI has neither); optional format check; post-apply read that a post happened |
+| F-133-2 | MEDIUM | the queue purge also runs on production, dropping production's own queued posts at apply. Fix: purge only when `project_url` is absent or is not the production host. Purge narrows, cannot close, the in-replay window |
+Preflight (not defects): (a) the in-migration proof aborts on any environment with unrecorded functions/crons naming the production host
+— the authorized production preflight read must count both; (b) the sandbox lacks enforce-transfer-expiry and 133 creates it (starts
+expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
+name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
 ### 132 — independent review of B's PR #70 (`fix/132-pending-before-intent`; probed at b20ee46, review-ready head acbd5dd = b20ee46 + service_role grant; CI 34980015844 green): **NOT PASSED — 2 blocking findings**
 Mechanism: pre-mint `checkout_group_claim` row keyed (listing, buyer, mode) — a record before the intent, not a pending payments
