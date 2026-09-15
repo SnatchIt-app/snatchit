@@ -111,7 +111,28 @@ needed in the edge — which keeps 129 migration-only, no edge deploy.
 | S11 | rollback drops the column, triggers, verb and reverts `register_push_token` to 128's body; **cleared hashes and revoked rows are not restorable** — stated in the rollback header | |
 | S12 | **No hosted auth hook.** One DB trigger on `auth.users` (same class as `handle_new_user`) and reads of `auth.sessions` from a postgres-owned definer. Supabase-compatibility: creating triggers on `auth.users` as `postgres` is the documented pattern; `auth.sessions` SELECT by `postgres` is the dashboard's own access. **Hosted privilege not provable locally** (the harness's auth stand-ins are postgres-owned) — flagged for the owner; first hosted apply is the sandbox under an authorization that names it | |
 
+## 4c. D's first-pass findings X1–X6 (2026-09-15) and the revised design
+| | Finding | Disposition |
+|---|---|---|
+| **X1 — NOT CLOSED by §2e alone** | a redirect **completed** during the compromise (delete-then-register, or a claimed plant) lives in a row now owned by the **attacker**; the victim's epoch never touches it; the victim's genuine device on a new session gets 42501 forever. D probed it | **Adopt D's (i), proof-carrying reclaim:** when a token leaves an account (owner DELETE, rule 3/5 rebind), write a tombstone `(token, previous_user, previous_hash, at)`; a device presenting a secret whose hash matches the tombstoned hash for that token **reclaims** it — the attacker's row is revoked and the token rebinds to the previous owner. Closes delete-then-register and any seizure of a device that had **already proven itself**. **What it cannot close, stated for the owner:** seizure of a device whose only hash was planted by the attacker, or of a hash-less legacy row — no genuine proof exists to reclaim with. That slice is closed only by provider-side proof (option c, client v3, next candidate) and, until then, by support unbind + a client error that tells the user. +0.5–1 day, uncertain |
+| **X2 — HIGH** | DELETE was unguarded: an old JWT can delete the victim's revoked rows, then rule 1 from the attacker's account binds the token after the credential change | guard `BEFORE DELETE` with the same session/epoch check; the owner's post-epoch session still deletes (recovery kept) |
+| **X3 — MEDIUM** | lock-order deadlock: a client UPDATE holds the row lock then its trigger wants the advisory lock; the invalidator holds the advisory lock then wants row locks — GoTrue's password change could abort | invalidator takes **row locks first** (the UPDATE), **then** bumps the epoch under the advisory lock; racing UPDATE waits on the row and re-evaluates; racing INSERT waits on the advisory lock and reads the committed epoch. No cycle |
+| **X4 — MEDIUM** | epoch = `now()` is transaction-start time on Postgres's clock; `auth.sessions.created_at` is GoTrue's clock; a session minted in flight or skew can read as "after" | epoch = `greatest(new.updated_at, clock_timestamp()) + 2 s`; legitimate re-login retries on 42501 (client). Hosted verification is part of S12 |
+| **X5 — MEDIUM** | S2 relied on an updated client calling the verb; old clients, a failed call, and dashboard revocation leave forwarding rows and plants **active** (writes refused, rows not) | add an `AFTER DELETE` trigger on `auth.sessions` that invalidates **only when the deleted session was live** (`not_after` null or future) **and the user has no live session left** — distinguishable from expiry cleanup, which deletes expired rows. The verb stays as the fast path |
+| **X6 — LOW, release note** | old-client users lose push silently after a password change until they sign out/in | documented; the old code swallows the error; C's new client re-auths |
+
+Revised object list for 129: `kernel.identity_ext.push_binding_epoch`; `kernel.invalidate_push_bindings_for(uuid, text)`;
+trigger on `auth.users` (password) and on `auth.sessions` (live-session delete, none left); `public.revoke_all_push_bindings()`;
+`public.push_token_tombstone` (no-client-access) + tombstone writes in the verb's rebind paths and a `BEFORE DELETE`
+tombstone trigger; the write-time guard on `push_tokens` (`BEFORE INSERT OR UPDATE OR DELETE`); reclaim logic in
+`register_push_token` (rule 3′: tombstoned-hash match → revoke current holder, rebind to previous owner). Census:
++1 table, +2–3 functions, +2 triggers in `public`; manifest rows; expected_grants row; rollback stated as non-restoring.
+
 ## 5. Tests (pgTAP 196; all valid states, every assertion with a negative control against 128-only)
+Added for X1–X5: completed-redirect reclaim (attacker row revoked, victim rebinds with the genuine secret; a
+planted-only device does NOT reclaim — the unclosed slice, asserted as such); old-JWT DELETE refused; two-connection
+lock-order race (D's probe; pgTAP cannot open two sessions — recorded as D's evidence, not a pgTAP assertion);
+session minted in flight refused by the margin; live-session-delete trigger fires, expiry cleanup does not.
 P1: update `auth.users.encrypted_password` → bindings revoked, hashes NULL, epoch set, channel unreachable ·
 P2: verb → same · P3: register from a session with `created_at < epoch` → 42501; from a session ≥ epoch → ok;
 missing session row → 42501 · P4: plant (attacker hash on victim row) → P1 → attacker claim from own account →
