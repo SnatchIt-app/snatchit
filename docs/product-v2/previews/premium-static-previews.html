@@ -171,7 +171,7 @@
 
   <!-- ───────────────────────── 4. Checkout ───────────────────────── -->
   <h2>4 · Checkout: hold, pay states, reconciliation, price change (batch 1 + 2)</h2>
-  <p class="sub">The hold row with tabular digits and the absolute deadline; payControl's labels now visible beside the spinner; the states that withdraw Pay.</p>
+  <p class="sub">The hold row with tabular digits and the absolute deadline; payControl's labels visible beside the spinner — now naming the two real steps (batch 4, CFT-306); the states that withdraw Pay.</p>
   <div class="grid">
     <div class="phone"><span class="tag">static</span>
       <div class="hdr"><div class="glyph">←</div><div class="t">Checkout</div><div style="width:44px"></div></div>
@@ -188,8 +188,10 @@
         <div class="micro">Pay withdrawn inside the 15 s margin</div>
         <div class="hold" style="margin-top:8px">Checking your hold</div>
         <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Checking your hold</button></div>
-        <div class="micro">Charge in flight</div>
-        <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Processing</button></div>
+        <div class="micro">Card being confirmed with Stripe</div>
+        <div style="margin:8px 0 12px"><button class="btn block pending"><span class="spin"></span>Confirming payment</button></div>
+        <div class="micro">Charge made; settlement being recorded</div>
+        <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Finalizing your order</button></div>
         <div class="micro">Result being reconciled — no Pay, no retry</div>
         <div style="margin:8px 0 20px"><button class="btn block pending"><span class="spin"></span>Checking your payment</button></div>
         <div class="micro">Reconciliation unreachable</div>
