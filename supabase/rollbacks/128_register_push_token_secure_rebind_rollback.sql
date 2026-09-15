@@ -36,9 +36,15 @@ drop function if exists public.register_push_token(text, text, text, text);
 alter table public.push_tokens
   drop column if exists device_secret_hash;
 
--- True inverse of 128's column-scoped SELECT: the column it withheld is gone, so
--- the pre-128 table-level SELECT is restored (expected_grants.txt at the base).
-grant select on public.push_tokens to anon, authenticated;
+-- Inverse of 128's column-scoped SELECT/UPDATE. REVOKE first: a table-level
+-- REVOKE also drops the per-column ACL entries 128 granted (D review G-3a —
+-- a GRANT alone left twelve column ACLs behind), then the pre-128 table-level
+-- privileges return. Verify with information_schema.column_privileges = 0
+-- rows for authenticated on push_tokens.
+revoke select, update on public.push_tokens from anon, authenticated;
+grant  select, update on public.push_tokens to anon, authenticated;
+-- NOT restored, on purpose: notify.register_push_token EXECUTE for
+-- authenticated — header item 2. A rollback does not reopen the hole.
 
 -- public.push_token_rebind_epoch intentionally retained — see the header — and
 -- so is trg_guard_push_token_rebind_epoch with its function: the trigger is what

@@ -394,11 +394,20 @@ revoke execute on function public.guard_push_token_rebind_epoch() from public, a
 -- privileges are additive, so the only way to withhold ONE column is to drop the
 -- table-level SELECT and grant the rest by name. The shipped client selects only
 -- `id` (src/hooks/usePushToken.ts:71-75); inserts and updates return minimal.
--- Table-level INSERT/UPDATE/DELETE are untouched: the write guard above covers
--- the column, and narrowing them is not this finding.
 revoke select on public.push_tokens from anon, authenticated;
 grant  select (id, user_id, token, platform, device_name, created_at, last_used, is_active,
                revoked_at, revoked_reason, provider_receipt_checked_at, last_provider_error)
+  on public.push_tokens to authenticated;
+-- UPDATE is column-scoped too (D review G-2): the write guard refuses a CHANGED
+-- hash but lets an unchanged one through, so a table-level UPDATE was an online
+-- equality oracle — `SET device_secret_hash = <guess>` succeeds only when the
+-- guess is right. Withholding the column from UPDATE removes the oracle; the
+-- guard stays as defense in depth. The shipped client updates only last_used
+-- and is_active (usePushToken.ts:79-81). INSERT and DELETE stay table-level:
+-- the guard refuses a non-null hash on INSERT, and RLS owner-DELETE is the
+-- documented recovery path.
+revoke update on public.push_tokens from anon, authenticated;
+grant  update (platform, device_name, last_used, is_active)
   on public.push_tokens to authenticated;
 
 -- The insecure verb this migration exists to replace. `authenticated` still held

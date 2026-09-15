@@ -21,58 +21,31 @@ begin;
 
 drop function if exists public.release_reservation_for_payment(uuid, uuid, uuid);
 
-create or replace function public.release_reservation(
-  p_listing_id uuid,
-  p_user_id    uuid
-)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_caller_id   uuid;        -- resolved identity: auth.uid() or p_user_id
-  v_status      text;
-  v_reserved_by uuid;
-begin
-  -- SECURITY (0590): auth.uid() is authoritative. p_user_id is honoured ONLY for a
-  -- verified service-role caller. 0590 removed the last
-  -- identity-fallback coalesces precisely so a future re-GRANT
-  -- could not silently reopen that hole. Do not reintroduce one.
+-- 0590:64-84 VERBATIM (D review G-4): a reformatted body restores the logic but
+-- not the text, so pg_get_functiondef's md5 after rollback differed from the
+-- pre-127 value and a hash read-back could not prove the rollback. Byte-for-byte
+-- from 0590_strict_auth_on_listing_checkout_rpcs.sql; do not tidy it.
+CREATE OR REPLACE FUNCTION public.release_reservation(p_listing_id uuid, p_user_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE v_caller_id uuid; v_status text; v_reserved_by uuid;
+BEGIN
   v_caller_id := auth.uid();
-  if v_caller_id is null and public.request_is_service_role() then
-    v_caller_id := p_user_id;
-  end if;
+  IF v_caller_id IS NULL AND public.request_is_service_role() THEN v_caller_id := p_user_id; END IF;
+  -- Intentionally no NULL guard (preserved): if identity is unresolved we
+  -- simply match nothing below and no-op.
 
-  -- 1) Lock the listing row.
-  select status, reserved_by
-    into v_status, v_reserved_by
-    from public.listings
-   where id = p_listing_id
-     for update;
+  SELECT status, reserved_by INTO v_status, v_reserved_by
+    FROM public.listings WHERE id = p_listing_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN; END IF;
+  IF v_status = 'sold' THEN RETURN; END IF;
 
-  if not found then
-    return;  -- nothing to release
-  end if;
-
-  -- 2) Already sold — no-op (purchase went through on another device / tab).
-  if v_status = 'sold' then
-    return;
-  end if;
-
-  -- 3) Only release if still reserved by this same caller.
-  if v_status = 'reserved' and v_reserved_by = v_caller_id then
-    perform set_config('app.bypass_listing_guard', 'on', true);
-    update public.listings
-       set status         = 'active',
-           reserved_by    = null,
-           reserved_until = null
-     where id = p_listing_id;
-  end if;
-
-  -- Any other state (active, reserved by someone else) — no-op.
-end;
-$$;
+  IF v_status = 'reserved' AND v_reserved_by = v_caller_id THEN
+    PERFORM set_config('app.bypass_listing_guard', 'on', true);
+    UPDATE public.listings SET status='active', reserved_by=null, reserved_until=null
+     WHERE id = p_listing_id;
+  END IF;
+END; $function$;
 
 comment on function public.release_reservation(uuid, uuid) is null;
 

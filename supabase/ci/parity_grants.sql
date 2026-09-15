@@ -91,7 +91,11 @@ GRANT DELETE, INSERT, SELECT, UPDATE ON public.notification_preferences TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payments TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_decisions TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_policy TO anon;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.push_tokens TO anon;
+-- push_tokens: 128 withdraws table-level SELECT and UPDATE from the client
+-- roles (both column-scoped for authenticated, granted by 128 itself). This
+-- file runs AFTER the chain, so it must state post-128 production or it
+-- silently re-grants what 128 revoked (D review G-1: fresh order ended arwdm).
+GRANT DELETE, INSERT ON public.push_tokens TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.reports TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.saved_listings TO anon;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.seller_flags TO anon;
@@ -114,7 +118,7 @@ GRANT SELECT ON public.notifications TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payments TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_decisions TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.payout_policy TO authenticated;
-GRANT DELETE, INSERT, SELECT, UPDATE ON public.push_tokens TO authenticated;
+GRANT DELETE, INSERT ON public.push_tokens TO authenticated;  -- SELECT/UPDATE column-scoped by 128
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.reports TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.saved_listings TO authenticated;
 GRANT DELETE, INSERT, SELECT, UPDATE ON public.seller_flags TO authenticated;

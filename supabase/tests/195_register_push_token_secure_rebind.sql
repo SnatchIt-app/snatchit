@@ -13,7 +13,7 @@
 -- reason. §I is the exception — it acts as a real client, which is the point.
 -- ============================================================================
 BEGIN;
-SELECT plan(53);
+SELECT plan(58);
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_195 (k text PRIMARY KEY, v text);
@@ -135,7 +135,22 @@ SELECT throws_ok($$ SELECT device_secret_hash FROM public.push_tokens $$, '42501
   NULL, 'A19: a signed-in client selecting device_secret_hash is refused (permission denied for column)');
 SELECT lives_ok($$ SELECT id, token, is_active FROM public.push_tokens $$,
   'A20: ...while its ordinary columns stay readable, so the shipped client (select id) survives');
+-- D review G-2: the write guard lets an UNCHANGED hash through, so with a
+-- table-level UPDATE `SET device_secret_hash = <guess>` succeeded exactly when
+-- the guess was right — an online equality oracle on the secret. UPDATE is now
+-- column-scoped; the refusal must come from the GRANT, for any value.
+SELECT throws_ok($$ UPDATE public.push_tokens SET device_secret_hash = device_secret_hash $$, '42501',
+  NULL, 'A21: a client cannot UPDATE device_secret_hash even to its current value — the equality oracle is closed by grant, not by the guard');
+SELECT lives_ok($$ UPDATE public.push_tokens SET last_used = now(), is_active = true WHERE user_id = '11111111-1111-1111-1111-000000000195' $$,
+  'A22: ...while the shipped client''s own writes (last_used, is_active) still work');
 SELECT tap.logout();
+SELECT ok(NOT has_table_privilege('authenticated','public.push_tokens','UPDATE')
+      AND has_column_privilege('authenticated','public.push_tokens','last_used','UPDATE')
+      AND has_column_privilege('authenticated','public.push_tokens','is_active','UPDATE')
+      AND NOT has_column_privilege('authenticated','public.push_tokens','device_secret_hash','UPDATE')
+      AND NOT has_column_privilege('authenticated','public.push_tokens','user_id','UPDATE')
+      AND NOT has_column_privilege('authenticated','public.push_tokens','token','UPDATE'),
+  'A23: UPDATE is column-scoped — last_used/is_active/platform/device_name only; never the hash, the owner, or the token');
 
 -- ── B. the owning device ────────────────────────────────────────────────────
 SELECT tap._del195();
@@ -272,10 +287,18 @@ SELECT throws_ok(
   format('INSERT INTO public.push_tokens (user_id, token, platform, device_secret_hash) VALUES (%L, %L, %L, %L)',
          tap.buyer(), 'ExponentPushToken[195-other-bbbbbbbbbbbb]', 'ios', 'deadbeef'),
   '42501', NULL, 'I2: a client cannot insert a row carrying a hash of its choosing');
--- Sign-out must keep working: it touches is_active/revoked_*, never the hash.
-UPDATE public.push_tokens SET is_active = false, revoked_at = now(), revoked_reason = 'sign_out'
- WHERE token = tap._f195('tok');
-SELECT ok(NOT tap._active195(), 'I3: the client CAN still revoke its own binding — sign-out is unaffected');
+-- Sign-out must keep working. The shipped client signs out through the server
+-- verb notify.revoke_push_token (src/lib/auth/signOut.ts), which is the ONLY
+-- writer of revoked_at/revoked_reason — and since the fold-in those two columns
+-- are outside the client's column-scoped UPDATE on purpose (a client that could
+-- write revoked_reason = 'signed_out' could forge rule 5's precondition on its
+-- own row). So this exercises the real path, not a direct UPDATE.
+SELECT is((notify.revoke_push_token(tap._f195('tok')) ->> 'revoked'), '1',
+  'I3: the client CAN still revoke its own binding through the server verb — sign-out is unaffected');
+SELECT ok(NOT tap._active195(), 'I4: ...and the binding is inactive afterwards');
+SELECT throws_ok(
+  format('UPDATE public.push_tokens SET revoked_reason = %L WHERE token = %L', 'signed_out', tap._f195('tok')),
+  '42501', NULL, 'I5: ...while a DIRECT client write of revoked_reason is refused — rule 5''s precondition cannot be forged');
 SELECT tap.logout();
 
 SELECT * FROM finish();

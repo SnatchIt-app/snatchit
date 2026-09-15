@@ -7,7 +7,7 @@ anon|notification_preferences|DELETE,INSERT,SELECT,UPDATE
 anon|payments|DELETE,INSERT,SELECT,UPDATE
 anon|payout_decisions|DELETE,INSERT,SELECT,UPDATE
 anon|payout_policy|DELETE,INSERT,SELECT,UPDATE
-anon|push_tokens|DELETE,INSERT,UPDATE
+anon|push_tokens|DELETE,INSERT
 anon|reports|DELETE,INSERT,SELECT,UPDATE
 anon|saved_listings|DELETE,INSERT,SELECT,UPDATE
 anon|seller_flags|DELETE,INSERT,SELECT,UPDATE
@@ -26,7 +26,7 @@ authenticated|notifications|SELECT
 authenticated|payments|DELETE,INSERT,SELECT,UPDATE
 authenticated|payout_decisions|DELETE,INSERT,SELECT,UPDATE
 authenticated|payout_policy|DELETE,INSERT,SELECT,UPDATE
-authenticated|push_tokens|DELETE,INSERT,UPDATE
+authenticated|push_tokens|DELETE,INSERT
 authenticated|reports|DELETE,INSERT,SELECT,UPDATE
 authenticated|saved_listings|DELETE,INSERT,SELECT,UPDATE
 authenticated|seller_flags|DELETE,INSERT,SELECT,UPDATE
