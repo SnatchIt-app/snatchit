@@ -12,10 +12,8 @@ INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES
 INSERT INTO kernel.identity_ext (identity_id) VALUES ('d1310000-0000-4000-8000-0000000000e2') ON CONFLICT DO NOTHING;
 INSERT INTO o(k,v) SELECT 'fk', pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='identity_ext_identity_id_fkey';
 INSERT INTO o(k,v) SELECT 'e2_has_identity_ext', count(*)::text FROM kernel.identity_ext WHERE identity_id='d1310000-0000-4000-8000-0000000000e2';
-SAVEPOINT s1; DELETE FROM auth.users WHERE id='d1310000-0000-4000-8000-0000000000e1'; INSERT INTO o(k,v) VALUES ('delete_user_live_session_no_identity_ext','ok'); RELEASE SAVEPOINT s1;
-ROLLBACK TO SAVEPOINT s1;
-SAVEPOINT s2; DELETE FROM auth.users WHERE id='d1310000-0000-4000-8000-0000000000e2'; INSERT INTO o(k,v) VALUES ('delete_user_live_session_with_identity_ext','ok'); RELEASE SAVEPOINT s2;
-ROLLBACK TO SAVEPOINT s2;
+DO $$ BEGIN BEGIN DELETE FROM auth.users WHERE id='d1310000-0000-4000-8000-0000000000e1'; INSERT INTO o(k,v) VALUES ('delete_user_live_session_no_identity_ext','ok'); RAISE EXCEPTION 'undo'; EXCEPTION WHEN OTHERS THEN IF SQLERRM <> 'undo' THEN INSERT INTO o(k,v) VALUES ('delete_user_live_session_no_identity_ext', 'FAILED: '||SQLERRM); END IF; END; END $$;
+DO $$ BEGIN BEGIN DELETE FROM auth.users WHERE id='d1310000-0000-4000-8000-0000000000e2'; INSERT INTO o(k,v) VALUES ('delete_user_live_session_with_identity_ext','ok'); RAISE EXCEPTION 'undo'; EXCEPTION WHEN OTHERS THEN IF SQLERRM <> 'undo' THEN INSERT INTO o(k,v) VALUES ('delete_user_live_session_with_identity_ext (pre-131 RESTRICT expected)', 'FAILED: '||left(SQLERRM,60)); END IF; END; END $$;
 SAVEPOINT s3; DELETE FROM auth.users WHERE id='d1310000-0000-4000-8000-0000000000e3'; INSERT INTO o(k,v) VALUES ('delete_user_no_session','ok'); RELEASE SAVEPOINT s3;
 SELECT n, k, v FROM o ORDER BY n;
 ROLLBACK;

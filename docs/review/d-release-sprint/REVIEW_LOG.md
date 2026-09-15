@@ -135,6 +135,26 @@ sign-out. Added cases S13 (row revoked when another device's global sign-out end
 the genuine secret, never revives the old hash; old JWT refused), S15 (password-changing device through the +2 s margin
 and client retry), S16 (in-flight registration racing the trigger; no half-written row).
 
+## Re-pin — `aabe029` (code tree `74e51cf`: #68 193 fixtures without superuser GUCs): **PIN from D**
+193 fixture reachability OK: every ledger row via `record_payment_refund`; time shifts only move the row just written and the
+completing `refunded_at`, per-payment calls chronological (3, 4, 5, 11, 8), replay unshifted; U.3 legacy-then-chargeback
+ordered correctly; ledger trigger re-enabled (F.7), bypass reset by `trg_reset_payment_guard_bypass` (statement-level, fires
+on 0-row updates; F.8); guard validates only. No SET/set_config of superuser GUCs in any test. Negative control vs 120: 20 ok /
+45 not ok. D-5 incremental 74e51cf: PASS 22 · FAIL 0 · WARN 2 · pgTAP 4974/4974 (193 65, 197 45) · S1/S2/S3 identical.
+aabe029 vs 74e51cf: docs only. GitHub CI green at aabe029 (A: run 34932209458).
+
+## 131 re-verify — `a8ea025`
+Harness PASS 23 · pgTAP 5012/5012 · 131 rollback exact · F-131-1 closed (user with live session, no identity_ext row deletes) ·
+F-131-2 order by user_id · lifecycle unchanged · races R1–R4 PASS · X1 UNCLOSED as stated. A: GitHub CI run 34931148396
+applied triggers on auth.users/auth.sessions on Supabase's CI stack (S12 platform evidence; hosted project proof = sandbox).
+
+## Fresh-mint residual — D disposition (B's three paths, 5c4cfa4)
+**Open money defect with automated remediation**, not an orphaned-intent residual: each path yields two confirmable secrets
+for one buyer; two captures are possible; the second collides with `idx_payments_one_success_per_listing` →
+`unfulfillable` → enforce-transfer-expiry Phase 0 refunds once (manual review if a transfer exists). Buyer is charged twice
+until the sweep; depends on sweep health, Stripe refund success, and the payments RC being applied. Structural fix: pending
+row before minting (132 allocated to B, proposed; owner places it). A recommends 132 in the production gate beside 131.
+
 ## 131 session-bound push bindings — `fix/131-session-bound-push @ 38c4d8d` (production gate)
 Harness (auth.sessions stand-in via `SHIM_EXTRA`, WARN): PASS 23 · FAIL 0 · WARN 3 · replay 150 · census 31|99|37|37 · pgTAP
 5010/5010 (198 43/43) · 131 rollback identity exact · S1/S2/S3 identical. Probes `probe_131_lifecycle.sql`,
