@@ -1059,3 +1059,16 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   (pre-epoch), so the verb must not apply the session-age check; the client
   already treats a refusal there as non-blocking (logged), so no client change
   either way.
+- **A-8 approved (A, 2026-09-15):** `signOut.ts` d90db6b..db5bddf (+59/−17) approved
+  for the candidate; the four money files untouched since d90db6b. **C-4 done
+  early at A's request:** `frontend/candidate-recovery` rebased onto
+  `release/candidate-20260918 @ 57b3a00` (121→129 + #64; no app/ or src/
+  change on it) — head **`231f120`**, 33 commits, no conflicts; `git diff
+  db5bddf..231f120 -- app src` is empty (every client file byte-identical to
+  the approved head). Gates on 231f120: tsc clean; vitest 1896 / 85 (the extra
+  file and 13 tests come from 57b3a00); lint 0 errors / 29 warnings. Gated diff
+  vs 57b3a00: 5 files, +461/−18 (batch 1's approved surface + ac31172 +
+  signOut.ts). Pre-rebase head kept locally as
+  `frontend/candidate-recovery-pre-rebase` (db5bddf). A integrates from the
+  local worktree as A-8's merge; only B's 130 (supabase/ only) can still land
+  before the pin. `frontend/session-bound-131` stays on db5bddf (provisional).
