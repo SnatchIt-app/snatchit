@@ -267,10 +267,13 @@ async function retirePendingIntents(
 // Cancel a PaymentIntent at Stripe. Returns true only when Stripe confirms the
 // cancel (or it was already canceled); anything else — succeeded, processing,
 // network error — returns false so the caller leaves the row `pending`.
-async function cancelPaymentIntentBestEffort(piId: string | null, tag: string): Promise<boolean> {
+async function cancelPaymentIntentBestEffort(
+  piId: string | null, tag: string, bound: <T>(p: Promise<T>, label: string) => Promise<T> = (p) => p,
+): Promise<boolean> {
   if (!piId) return true;
   try {
-    const res = await stripeFetchRaw(`/payment_intents/${piId}/cancel`, { method: 'POST' });
+    // A timed-out cancel is NOT a cancel: the caller treats the intent as still live.
+    const res = await bound(stripeFetchRaw(`/payment_intents/${piId}/cancel`, { method: 'POST' }), `cancel ${piId}`);
     const err = (res.data as { error?: { code?: string; message?: string } } | null)?.error;
     const canceled = res.ok || /status of canceled|already.*cancel/i.test(err?.message ?? '');
     if (!canceled) {
@@ -332,6 +335,60 @@ async function releaseCheckout(supabase: SupabaseClient, claim: CheckoutClaim | 
     // Not fatal: an unreleased claim lapses after 120 s. Surfaced so it is visible.
     console.warn('release_checkout_supersede did not release:', { payment_id: claim.paymentId, reason: r?.reason ?? null, error: error?.message ?? null });
   }
+}
+
+// ── E-1: the 120 s stale window must bind the request that HOLDS the claim ────
+// claim_checkout_supersede treats a claim older than 120 s as abandoned, so a
+// holder that is still running past that point could act after another request
+// legitimately reclaimed the group. The RPC cannot stop that; this edge does:
+//   * every Stripe call inside the claimed section is bounded (per call, and
+//     never beyond what is left of the section budget, default 90 s < 120 s);
+//   * immediately before inserting a replacement, cancelling the superseded
+//     intent, and handing out any secret, the holder re-reads its claim token
+//     and checks its budget. A lost claim or a spent budget answers 409 without
+//     a secret; a failed read answers 503.
+const DEFAULT_STRIPE_CALL_TIMEOUT_MS = 20_000;
+const DEFAULT_CLAIM_BUDGET_MS = 90_000;
+
+function positiveMsFromEnv(name: string, fallback: number): number {
+  const v = Number(Deno.env.get(name));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+class ClaimedSectionTimeout extends Error {}
+
+type ClaimGuard = {
+  bound: <T>(p: Promise<T>, label: string) => Promise<T>;
+  /** 'held' also when no claim is in force (degraded / fresh mint): nothing to guard. */
+  check: () => Promise<'held' | 'lost' | 'expired' | 'error'>;
+};
+
+function makeClaimGuard(supabase: SupabaseClient, getClaim: () => CheckoutClaim | null, startedMs: number): ClaimGuard {
+  const callMs = positiveMsFromEnv('CHECKOUT_STRIPE_TIMEOUT_MS', DEFAULT_STRIPE_CALL_TIMEOUT_MS);
+  const budgetMs = positiveMsFromEnv('CHECKOUT_CLAIM_BUDGET_MS', DEFAULT_CLAIM_BUDGET_MS);
+  const remaining = () => budgetMs - (Date.now() - startedMs);
+  return {
+    bound: <T>(p: Promise<T>, label: string): Promise<T> => {
+      const ms = Math.max(1, Math.min(callMs, remaining()));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ClaimedSectionTimeout(`stripe call timed out after ${ms}ms: ${label}`)), ms);
+      });
+      return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+    },
+    check: async () => {
+      const claim = getClaim();
+      if (!claim || claim.kind !== 'held') return 'held';
+      if (remaining() <= 0) return 'expired';
+      const { data, error } = await supabase
+        .from('payments')
+        .select('supersede_claim_token')
+        .eq('id', claim.paymentId)
+        .maybeSingle();
+      if (error) return 'error';
+      return (data as { supersede_claim_token?: string | null } | null)?.supersede_claim_token === claim.token ? 'held' : 'lost';
+    },
+  };
 }
 
 serve(async (req: Request) => {
@@ -646,6 +703,18 @@ serve(async (req: Request) => {
     const pendingPayment = existingPayments.find((p) => p.status === 'pending');
     // 130: hold the group claim before reusing or superseding this attempt.
     let checkoutClaim: CheckoutClaim | null = null;
+    const claimGuard = makeClaimGuard(supabase, () => checkoutClaim, Date.now());
+    // E-1: a guard verdict other than 'held' never hands out a secret.
+    const claimLost = (verdict: 'lost' | 'expired' | 'error', stage: string): Response => {
+      logStage('checkout-claim-lost', { stage, verdict });
+      return verdict === 'error'
+        ? new Response(
+            JSON.stringify({ error: 'Service temporarily unavailable. Please try again shortly.' }),
+            { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...getResponseHeaders(req) } })
+        : new Response(
+            JSON.stringify({ error: 'Your checkout is being updated. Please try again.', server_total_cents: totalCents }),
+            { status: 409, headers: { 'Content-Type': 'application/json', 'Retry-After': '2', ...getResponseHeaders(req) } });
+    };
     if (pendingPayment) {
       checkoutClaim = await claimCheckout(supabase, listing_id, buyerId, pendingPayment.id);
       if (checkoutClaim.kind === 'error') {
@@ -666,9 +735,9 @@ serve(async (req: Request) => {
     try {
     if (pendingPayment) {
       // Retrieve existing PaymentIntent from Stripe
-      const existingPi = await stripeFetchRaw(
+      const existingPi = await claimGuard.bound(stripeFetchRaw(
         `/payment_intents/${pendingPayment.stripe_payment_intent_id}`,
-      );
+      ), 'retrieve pending intent');
       const existingPiData = existingPi.data as { id?: string; status?: string; client_secret?: string; amount?: number; currency?: string };
 
       if (existingPi.ok) {
@@ -717,6 +786,8 @@ serve(async (req: Request) => {
           superseded = { id: pendingPayment.id, stripe_payment_intent_id: pendingPayment.stripe_payment_intent_id };
           failedAttempts += 1;
         } else if (existingPiData.client_secret) {
+          const verdict = await claimGuard.check();
+          if (verdict !== 'held') return claimLost(verdict, 'before-reuse-secret');
           logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
           return new Response(
             JSON.stringify({
@@ -777,21 +848,21 @@ serve(async (req: Request) => {
     type PiResponse = { id: string; client_secret: string; status?: string; livemode?: boolean };
     let stripeData: PiResponse;
     try {
-      stripeData = await stripeFetch<PiResponse>('/payment_intents', {
+      stripeData = await claimGuard.bound(stripeFetch<PiResponse>('/payment_intents', {
         method: 'POST',
         idempotencyKey: piIdempotencyKey,
         body: piBody,
-      });
+      }), 'create intent');
       if (stripeData.status === 'canceled') {
         // Idempotency replay still returned a dead PI (possible if a failed
         // row was removed out-of-band, shifting the salt back onto a spent
         // key). One uniquely-salted retry breaks out of the replay window.
         logStage('pi-replay-canceled', { pi_id: stripeData.id });
-        stripeData = await stripeFetch<PiResponse>('/payment_intents', {
+        stripeData = await claimGuard.bound(stripeFetch<PiResponse>('/payment_intents', {
           method: 'POST',
           idempotencyKey: `${piIdempotencyKey}_u${crypto.randomUUID()}`,
           body: piBody,
-        });
+        }), 'create intent (replay retry)');
       }
     } catch (stripeErr) {
       const detail = stripeErr instanceof Error ? stripeErr.message : String(stripeErr);
@@ -816,6 +887,14 @@ serve(async (req: Request) => {
     //   seller_fee = 10% withheld at payout — seller will receive
     //                amount − seller_fee
     //   total      = amount + buyer_fee = card charge
+    {
+      // E-1: never record (and so never later expose) a replacement once the claim is gone.
+      const verdict = await claimGuard.check();
+      if (verdict !== 'held') {
+        await cancelPaymentIntentBestEffort(stripeData.id, 'claim-lost-before-insert', claimGuard.bound);
+        return claimLost(verdict, 'before-insert');
+      }
+    }
     const { error: insertErr } = await supabase
       .from('payments')
       .insert({
@@ -864,6 +943,8 @@ serve(async (req: Request) => {
           winner.mode === mode &&
           winner.status === 'pending'
         ) {
+          const verdict = await claimGuard.check();
+          if (verdict !== 'held') return claimLost(verdict, 'before-race-recovered-secret');
           logStage('db-insert-race-recovered', { pi_id: stripeData.id });
           return new Response(
             JSON.stringify({
@@ -890,7 +971,7 @@ serve(async (req: Request) => {
         new Error(`payments insert failed: code=${e.code ?? '?'} ${e.message ?? ''} ${e.details ?? ''}`),
       );
       try {
-        await stripeFetch(`/payment_intents/${stripeData.id}/cancel`, { method: 'POST' });
+        await claimGuard.bound(stripeFetch(`/payment_intents/${stripeData.id}/cancel`, { method: 'POST' }), 'cancel after insert failure');
       } catch (cancelErr) {
         console.warn('PI cancel after DB-insert-fail:', cancelErr);
       }
@@ -905,14 +986,18 @@ serve(async (req: Request) => {
       // L1: the replacement row exists, so the cancel event Stripe emits now
       // sees a live sibling attempt. The replacement's secret is returned only
       // once the old intent is provably cancelled.
-      const oldCanceled = await cancelPaymentIntentBestEffort(superseded.stripe_payment_intent_id, 'reuse-rejected-amount-mismatch');
+      // E-1: the claim must still be ours before touching the superseded intent;
+      // otherwise withdraw the (never exposed) replacement exactly as on a refusal.
+      const beforeCancel = await claimGuard.check();
+      const oldCanceled = beforeCancel === 'held'
+        && await cancelPaymentIntentBestEffort(superseded.stripe_payment_intent_id, 'reuse-rejected-amount-mismatch', claimGuard.bound);
       if (!oldCanceled) {
         // The old PI could not be cancelled (e.g. already processing) and may
         // still charge. Withdraw the replacement — its secret was never
         // returned — and ALWAYS retire its row, even if Stripe's cancel of it
         // fails: an unexposed secret can confirm nothing, but a `pending` row
         // would be reused (and its secret handed out) on the next request.
-        await cancelPaymentIntentBestEffort(stripeData.id, 'withdraw-replacement');
+        await cancelPaymentIntentBestEffort(stripeData.id, 'withdraw-replacement', claimGuard.bound);
         const { error: withdrawErr } = await supabase
           .from('payments')
           .update({ status: 'failed' })
@@ -924,7 +1009,8 @@ serve(async (req: Request) => {
             new Error(`withdraw-replacement: row retire failed for ${stripeData.id}: ${withdrawErr.message}`),
           );
         }
-        logStage('replacement-withdrawn', { pi_id: stripeData.id, superseded_pi: superseded.stripe_payment_intent_id });
+        logStage('replacement-withdrawn', { pi_id: stripeData.id, superseded_pi: superseded.stripe_payment_intent_id, claim: beforeCancel });
+        if (beforeCancel !== 'held') return claimLost(beforeCancel, 'before-cancel-superseded');
         return new Response(
           JSON.stringify({
             error: 'Price changed. Please review the updated total and try again.',
@@ -943,6 +1029,14 @@ serve(async (req: Request) => {
       }
     }
 
+    {
+      // E-1: the last word before a secret leaves this request. If the claim was
+      // lost after the superseded intent was cancelled, the replacement is the
+      // group's only live attempt and stays as it is; this request just does not
+      // hand it out.
+      const verdict = await claimGuard.check();
+      if (verdict !== 'held') return claimLost(verdict, 'before-secret');
+    }
     return new Response(
       JSON.stringify({
         clientSecret:               stripeData.client_secret,
