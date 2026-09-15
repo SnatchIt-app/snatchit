@@ -59,6 +59,12 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   unorderedNewestFirst?: boolean;
   /** the first N claim calls see another request's brief claim (e.g. a double tap mid-reuse) */
   claimHeldTimes?: number;
+  /** delay a Stripe call whose path matches, once (a stalled network call) */
+  stall?: { match: RegExp; ms: number };
+  /** delay the payments INSERT (a stalled database call) */
+  insertStallMs?: number;
+  /** extra env for create-payment-intent (e.g. shrunken E-1 budgets) */
+  checkoutEnv?: Record<string, string>;
 }) {
   const payments = init.payments.map((p) => ({ ...p }));
   const pis = new Map(init.pis.map((p) => [p.id, { ...p }]));
@@ -83,9 +89,10 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     throw new Error(`world: unmodelled filter ${JSON.stringify(f)}`);
   });
 
-  const paymentsTable = (q: QueryCall) => {
+  const paymentsTable = async (q: QueryCall) => {
     const rows = payments as unknown as Record<string, unknown>[];
     if (q.op === 'insert') {
+      if (init.insertStallMs) await new Promise((r) => setTimeout(r, init.insertStallMs));
       const body = q.body as Record<string, unknown>;
       if (rows.some((r) => r.stripe_payment_intent_id === body.stripe_payment_intent_id)) {
         return { data: null, error: { message: 'duplicate key', code: '23505' } };
@@ -137,6 +144,7 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
       if (holder) { claimLog.push(`held:${payRow.stripe_payment_intent_id}`); return { data: { claimed: false, claim_token: null, holder_payment_id: holder.id, reason: 'claim_held' } }; }
       const tok = `tok_${++tokenSeq}`;
       claimOf.set(payRow.id, tok);
+      (payRow as unknown as Record<string, unknown>).supersede_claim_token = tok;
       claimLog.push(`claim:${payRow.stripe_payment_intent_id}`);
       return { data: { claimed: true, claim_token: tok, holder_payment_id: payRow.id, reason: 'claimed' } };
     }
@@ -145,6 +153,8 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
       if (!tok) return { data: { released: false, reason: 'not_claimed' } };
       if (tok !== params.p_claim_token) return { data: { released: false, reason: 'token_mismatch' } };
       claimOf.delete(String(params.p_payment_id));
+      const relRow = payments.find((p) => p.id === params.p_payment_id);
+      if (relRow) (relRow as unknown as Record<string, unknown>).supersede_claim_token = null;
       claimLog.push(`release:${payments.find((p) => p.id === params.p_payment_id)?.stripe_payment_intent_id}`);
       return { data: { released: true, reason: 'released' } };
     }
@@ -198,10 +208,19 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     return { res, body: await json(res), edge };
   };
 
+  let stallUsed = false;
+  let onCreate: (() => Promise<void>) | null = null;
   const stripe = mockStripe(async (c: StripeCall) => {
+    if (init.stall && !stallUsed && init.stall.match.test(`${c.method} ${c.path}`)) {
+      stallUsed = true;
+      timeline.push(`stripe:stall:${c.method} ${c.path}`);
+      await new Promise((r) => setTimeout(r, init.stall!.ms));
+      timeline.push(`stripe:stall-end:${c.method} ${c.path}`);
+    }
     if (c.method === 'GET' && c.path === `/customers/${CUSTOMER}`) return { ok: true, data: { id: CUSTOMER } };
     if (c.method === 'POST' && c.path === '/ephemeral_keys') return { ok: true, data: { secret: 'ek_test_secret' } };
     if (c.method === 'POST' && c.path === '/payment_intents') {
+      if (onCreate) { const hook = onCreate; onCreate = null; await hook(); }
       const id = `pi_new${nextPi++}`;
       const body = c.body as Record<string, string>;
       const pi = { id, status: 'requires_payment_method', amount: Number(body.amount), currency: 'usd', client_secret: `${id}_secret` };
@@ -242,7 +261,7 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
   const checkout = async (body: Record<string, unknown>) => {
     const edge = await loadEdgeHandler('supabase/functions/create-payment-intent/index.ts', {
       supabase: checkoutSb,
-      env: { STRIPE_SECRET_KEY: 'sk_test_only', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test' },
+      env: { STRIPE_SECRET_KEY: 'sk_test_only', SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: 'service-test', ...(init.checkoutEnv ?? {}) },
       provide: { feeBreakdown, dollarsToCents, totalMismatch, stripeFetch: stripe.stripeFetch, stripeFetchRaw: stripe.stripeFetchRaw, STRIPE_MOBILE_API_VERSION: '2024-04-10' },
     });
     const res = await edge.handler(authedJsonRequest(body));
@@ -255,6 +274,15 @@ function world(init: { payments: PaymentRow[]; pis: Pi[]; price?: number; rpcAbs
     set insertFails(v: boolean) { insertFails = v; },
     set cancelThrowsFor(v: string | null) { cancelThrowsFor = v; },
     set onCancel(v: ((id: string) => Promise<void>) | null) { onCancel = v; },
+    set onCreate(v: (() => Promise<void>) | null) { onCreate = v; },
+    /** simulate the claim going stale and another request reclaiming the group */
+    stealClaim: (piId: string) => {
+      const row = payments.find((p) => p.stripe_payment_intent_id === piId)!;
+      const tok = `tok_stolen_${++tokenSeq}`;
+      claimOf.set(row.id, tok);
+      (row as unknown as Record<string, unknown>).supersede_claim_token = tok;
+      claimLog.push(`stolen:${piId}`);
+    },
     claimsOutstanding: () => claimOf.size,
     claimLog,
     checkoutSb,
@@ -506,5 +534,81 @@ describe('L1 / 130 — every secret hand-out on a pending attempt holds the (lis
     expect(res.status).toBe(200);
     expect(body.paymentIntentId).toBe('pi_same');
     expect(w.claimLog).toEqual(['held:pi_same', 'held:pi_same', 'claim:pi_same', 'release:pi_same']);
+  });
+
+});
+
+describe('E-1 — the request holding the claim cannot act after it lost the claim or ran past its budget', () => {
+  const secretOf = (b: Record<string, unknown>) => (typeof b.clientSecret === 'string' ? b.clientSecret : null);
+  const repricedEnv = (over: Partial<Parameters<typeof world>[0]> = {}) =>
+    world({ payments: [pay('pi_old', 'pending')], pis: [pi('pi_old', 'requires_payment_method', 22000)], price: 300, ...over });
+
+  it('E1: the claim is reclaimed by another request while Stripe creates P2 — no P2 row, no secret, P1 untouched, the minted PI withdrawn', async () => {
+    const w = repricedEnv();
+    w.onCreate = async () => { w.stealClaim('pi_old'); };
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.payments.filter((p) => p.stripe_payment_intent_id !== 'pi_old')).toHaveLength(0);
+    expect(w.pis.get('pi_old')?.status).toBe('requires_payment_method');
+    expect(w.row('pi_old')?.status).toBe('pending');
+    expect(w.pis.get('pi_new1')?.status).toBe('canceled');
+  });
+
+  it('E2: the claim is reclaimed while P1\'s cancel is in flight — no secret handed out', async () => {
+    const w = repricedEnv();
+    w.onCancel = async (id) => { if (id === 'pi_old') w.stealClaim('pi_old'); };
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+  });
+
+  it('E3: a Stripe create that stalls past the per-call timeout gives up — no P2 row, no secret', async () => {
+    const w = repricedEnv({ stall: { match: /^POST \/payment_intents$/, ms: 1500 }, checkoutEnv: { CHECKOUT_STRIPE_TIMEOUT_MS: '150', CHECKOUT_CLAIM_BUDGET_MS: '5000' } });
+    const t0 = Date.now();
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(Date.now() - t0).toBeLessThan(1200);
+    expect(res.status).toBeGreaterThanOrEqual(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.timeline.filter((e) => e.startsWith('db:insert'))).toHaveLength(0);
+    expect(w.row('pi_old')?.status).toBe('pending');
+  });
+
+  it('E4: P1\'s cancel stalls past the timeout — treated as NOT cancelled: P2 withdrawn and retired, 409, no secret', async () => {
+    const w = repricedEnv({ stall: { match: /^POST \/payment_intents\/pi_old\/cancel$/, ms: 1500 }, checkoutEnv: { CHECKOUT_STRIPE_TIMEOUT_MS: '150', CHECKOUT_CLAIM_BUDGET_MS: '5000' } });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.row('pi_new1')?.status).toBe('failed');
+    expect(w.row('pi_old')?.status).toBe('pending');
+  });
+
+  it('E5: a stalled database write spends the section budget — the superseded intent is not touched, the replacement is withdrawn, no secret', async () => {
+    const w = repricedEnv({ insertStallMs: 400, checkoutEnv: { CHECKOUT_STRIPE_TIMEOUT_MS: '2000', CHECKOUT_CLAIM_BUDGET_MS: '300' } });
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+    expect(w.pis.get('pi_old')?.status).toBe('requires_payment_method');
+    expect(w.row('pi_old')?.status).toBe('pending');
+    expect(w.row('pi_new1')?.status).toBe('failed');
+  });
+
+  it('E6: plain reuse — a claim lost before the secret is returned answers 409 with no secret', async () => {
+    const w = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)],
+      stall: { match: /^GET \/payment_intents\/pi_same$/, ms: 50 } });
+    // the GET stalls briefly; during it the claim is reclaimed
+    const run = w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    await new Promise((r) => setTimeout(r, 25));
+    w.stealClaim('pi_same');
+    const { res, body } = await run;
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
+  });
+
+  it('E7 (preservation): with the default budgets an unstalled supersede and a plain reuse still succeed', async () => {
+    const w = repricedEnv();
+    expect((await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 33000 })).res.status).toBe(200);
+    const r = world({ payments: [pay('pi_same', 'pending')], pis: [pi('pi_same', 'requires_payment_method', 22000)] });
+    expect((await r.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 })).res.status).toBe(200);
   });
 });

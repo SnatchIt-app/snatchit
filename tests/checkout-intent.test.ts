@@ -79,6 +79,9 @@ async function scenario(opts: ScenarioOpts) {
       listings: (q) => (q.filters.some((f) => f[0] === 'eq' && f[1] === 'id' && f[2] === opts.listing.id) ? { data: opts.listing } : { data: null, error: { message: 'not found' } }),
       profiles: () => ({ data: { stripe_customer_id: CUSTOMER } }),
       payments: (q) => {
+        // E-1: the holder re-reads its own claim token before any hand-out; single-request
+        // scenarios still own the token the claim mock issued.
+        if (q.op === 'select' && q.select === 'supersede_claim_token') return { data: { supersede_claim_token: 'tok_ci' } };
         if (q.op === 'select') {
           let rows = payments;
           for (const f of q.filters) {
