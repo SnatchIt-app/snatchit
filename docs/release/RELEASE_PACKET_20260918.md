@@ -76,7 +76,12 @@ authorization or decision). This packet is the deployment-ready deliverable; it 
   check is loosened or a CI vault secret ever matches production's. **Remedy (owner to place): a numbered migration
   making the URL configuration-driven and the cron a no-op when unset** (087's `where exists` pattern), plus a CI
   step that leaves the setting unset. Number allocated when written; the sandbox's out-of-band URL rewrites become
-  recorded once that lands.
+  recorded once that lands. **No CI-only mitigation** (D, A concur): unscheduling or deactivating the cron changes the
+  job set `132_replay_parity` asserts and races `supabase start` (the first `*/2` tick fires before any later step —
+  the run shows exactly one). **Interim guard, non-blocking (B, ~1 h):** an edge unit test on `enforce-transfer-expiry`'s
+  bearer check — null, empty, wrong token and the service-role key each get 401 with zero Supabase/Stripe calls;
+  negative control = the check removed. Confirm while writing it whether the service-role-key branch is still intended
+  (the `:149` comment "pg_cron sends the service_role_key" is stale against 032's vault header).
 - **Sandbox is not production-parity for 110–120** (manifest §10): 126 cannot be verified there without 115–120;
   119's listing-block guard is absent (marketplace evidence limit); door/scan acceptance non-representative. Options
   (a)/(b) with the owner.
