@@ -20,6 +20,12 @@
  * "Back to listing" (action 'back'), because only a fresh Buy Now can
  * re-reserve. "Try again" is kept for transient or unverifiable setup errors,
  * where the hold may still be live.
+ *
+ * PREMIUM BATCH 4 (CFT-306, item 26). The one "Processing" is split into the
+ * two steps that actually happen: "Confirming payment" while the payment
+ * sheet is confirming the card with Stripe, and "Finalizing your order" while
+ * finalizePurchase records the settlement after the charge. Both are real
+ * states, not invented progress; no percentage, no timer.
  */
 
 export type PayAction = 'pay' | 'retry' | 'back' | 'none';
@@ -33,7 +39,10 @@ export const PAY_EXPIRY_MARGIN_MS = 15_000;
 export interface PayControlInput {
   authLoading: boolean;
   paymentLoading: boolean;
+  /** The payment sheet is confirming the card with Stripe. */
   confirming: boolean;
+  /** The charge is made; finalizePurchase is recording the settlement. */
+  finalizing?: boolean;
   /** A payment result is being reconciled with the server. */
   checking?: boolean;
   paymentReady: boolean;
@@ -61,7 +70,10 @@ export function withinExpiryMargin(reservationMsLeft: number | null | undefined)
 export function payControl(i: PayControlInput): PayControl {
   // Order matters: an in-flight charge outranks every setup state, reconciling
   // outranks readiness, and a lost hold outranks both readiness and error.
-  if (i.confirming)     return { label: 'Processing',        loading: true,  disabled: true,  action: 'none' };
+  // Finalizing outranks confirming: it is the later step, and the two never
+  // overlap in the screen's sequence.
+  if (i.finalizing)     return { label: 'Finalizing your order', loading: true, disabled: true, action: 'none' };
+  if (i.confirming)     return { label: 'Confirming payment', loading: true,  disabled: true,  action: 'none' };
   if (i.checking)       return { label: 'Checking your payment', loading: true, disabled: true, action: 'none' };
   if (i.authLoading)    return { label: 'Authenticating',    loading: true,  disabled: true,  action: 'none' };
   if (i.paymentLoading) return { label: 'Setting up payment', loading: true, disabled: true,  action: 'none' };
