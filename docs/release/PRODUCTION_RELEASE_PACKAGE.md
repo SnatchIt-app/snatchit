@@ -3046,3 +3046,24 @@ lint 0, vitest **136/136**, `next build` **0** (with placeholder public env — 
 `null` → the UI's "unknown, at most X" state — **safe degradation** (D verified the same on the deployed console), but
 the known part of a `mixed` window is not shown until AN-2 maps the new fields. Not required for the marketplace
 release; the console deploys on its own path (`admin/operating-console`, SHA-pinned, owner-gated).
+
+### Residual: fresh-mint concurrency on `create-payment-intent` (B, 2026-09-15; disclosed, not waived)
+
+Migration 130 (PR #65) serializes secret hand-out per (listing, buyer, mode) **when a pending row exists**. Two
+concurrent requests by the same buyer with **no** pending row are outside the claim by construction. They are
+normally safe because the Stripe idempotency key
+`pi_{listing}_{buyer}_{mode}_{totalCents}_c{customerId}[_r{failedAttempts}]` (`create-payment-intent:753`) carries
+nothing request-unique: both mint the same PI and the second insert hits `UNIQUE(stripe_payment_intent_id)` (the
+23505 recovery returns the same secret). B enumerated **three narrow ways the keys differ**, so two live intents
+with two secrets exist:
+1. `:792` — the *pi-replay-canceled* retry salts with `_u{crypto.randomUUID()}`, request-unique; reached only when
+   the idempotency replay returns a canceled PI (a failed row removed out of band). If both requests hit it, each
+   mints its own PI.
+2. `totalCents` differs — the seller re-prices between the two requests' listing reads.
+3. `failedAttempts` differs — a payment row flips to `failed` (webhook or retirement) between the two requests'
+   reads of prior payments.
+Pre-existing in `df9e0d3`. Structural closure = a claim keyed on (listing, buyer, mode) that does not depend on an
+existing row, i.e. **insert the pending row before minting** — a design change, numbered if the owner wants it.
+**D is checking independently whether each path can end in two captured charges or only an orphaned intent that
+is retired**; that determines whether this is recorded as "disclosed residual" or "open money defect". No change
+to the candidate for this.
