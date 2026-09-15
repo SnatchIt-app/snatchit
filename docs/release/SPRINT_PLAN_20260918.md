@@ -45,7 +45,7 @@ or the owner explicitly accepts a clearly explained release risk.
 | A-6 | A | Integrate 121 → 123 → 124 → 125 onto the release branch; CI green | PR #58, PR #62 | Tue/Wed | CI id |
 | A-7 | A | Merge 126 after D-4 findings closed; merge B-2 after review | B-1/D-4; B-2 | Wed / Thu AM | CI green |
 | A-8 ✔ | A | C-4 merged **Tue** (`37213e7`): signOut.ts reviewed line by line; app/src byte-identical to the approved head; vitest 1896/1896, tsc 0 | C-4 | Thu AM | done early |
-| A-9 ◐ | A | **CI GREEN at `aabe029`** (run 34932209458: 5/5 jobs, pgTAP 4980 PASS on the real stack) after B's 193 fix (#68); pin re-tags at `aabe029` on D's 193 re-review + incremental D-5 | D | Wed AM | tag moved; CI green at it |
+| A-9 ✔ | A | **PINNED at `aabe029`** = tag `candidate/2026-09-18-pin` (re-pinned Tue night after the 193 CI fix): CI green at the commit (5/5 jobs, pgTAP 4980 PASS on the real stack), D-5 incremental PASS 22/0, D's 193 fixture re-review OK, C's pre-flight OK. Build tree for O-2 | — | done | done |
 | A-10 | A | SBX-1 / SBX-2 hosted phases, serialized; baselines re-read immediately before; 123 verify-only; stop on unexpected state | **authorized**; A-9 for SBX-2 | Wed / Thu | manifest §7 state; sandbox tip 128; edge parity; DV-611 |
 | **A-10b** | A | **Hosted build** (EAS `preview`, sandbox) from the pin; verify compiled env; record source + build IDs | **authorized**; A-9, D-5 | **Thu** | build record in the packet |
 | A-11 | A | Release packet | A-9, D-5, C-5 | Fri | packet section |

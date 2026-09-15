@@ -3138,3 +3138,14 @@ interim detection = Phase 0 alerts on any `unfulfillable:one_success_per_listing
 cannot sit silently. A's recommendation: keep Friday's candidate (the defect is pre-existing and *worse* in today's
 production), and make 132 part of the **production gate alongside 131**, so production deploys with neither the
 notification-capture residual nor a preventable double charge. The owner decides.
+
+### PINNED — `candidate/2026-09-18-pin` = `aabe029` (2026-09-15, re-pinned after the 193 CI fix)
+
+CI green at the pinned commit (run 34932209458: five jobs; migrations job through pgTAP on the real stack
+Files=80, Tests=4980, PASS). D-5 incremental on the code tree (`74e51cf`; `aabe029` adds docs only): PASS 22/0,
+replay 149, census 31|96|37|35, grant matrix = fixture, manifest PASS, 4974/4974, both orders identical, rollback
+identity exact for 126/129/130. D's 193 fixture re-review: every refund/dispute row from `record_payment_refund`,
+shifts chronological per payment, trigger re-enable and bypass reset asserted (F.7/F.8), no SET/set_config of a
+superuser GUC anywhere; negative control 20 ok / 45 not ok vs 120's bodies. C's pre-flight at `aabe029`: `231f120`
+ancestor; app/, src/, `eas.json` identical to the reviewed heads. **Build source for O-2; submission Thursday morning
+after SBX-2** (kept there so a sandbox finding cannot waste the one authorized build). Applied nowhere; not a release.
