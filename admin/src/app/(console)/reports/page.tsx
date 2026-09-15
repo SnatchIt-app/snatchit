@@ -48,7 +48,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       header: "Target",
       render: (r) => (
         <span className="flex flex-col">
-          <span className="text-[11px] uppercase tracking-wider text-dim">{r.target_type ?? "—"}</span>
+          <span className="text-[13px] text-dim">{r.target_type ?? "—"}</span>
           <IdLink kind={r.target_type} id={r.target_id} label={r.target_label ?? undefined} />
         </span>
       ),

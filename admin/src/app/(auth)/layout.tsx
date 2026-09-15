@@ -7,12 +7,14 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <p className="text-[17px] font-black uppercase tracking-[0.2em] text-primary-ink">Snatch It</p>
-            <p className="eyebrow text-dim">Operating console</p>
+            <p className="text-[18px] font-bold leading-tight text-ink">
+              Snatch It<span className="text-primary-ink">.</span>
+            </p>
+            <p className="text-[13px] text-dim">Operations console</p>
           </div>
           <EnvBadge />
         </div>
-        <div className="border border-line bg-card p-6">{children}</div>
+        <div className="rounded-[var(--radius-card)] border border-line bg-card p-6 shadow-[0_1px_2px_rgba(17,17,17,0.04)]">{children}</div>
       </div>
     </main>
   );

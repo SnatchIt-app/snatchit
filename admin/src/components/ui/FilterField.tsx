@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** Label + control used by every GET filter form. */
 export function FilterField({ label, children, className = "" }: { label: ReactNode; children: ReactNode; className?: string }) {
-  return <label className={`flex flex-col gap-1 text-[11px] uppercase tracking-wider text-dim ${className}`}>{label}{children}</label>;
+  return <label className={`flex flex-col gap-1 text-[13px] font-medium text-muted ${className}`}>{label}{children}</label>;
 }
 
 export function FilterSelect({
@@ -32,7 +32,7 @@ export function FilterSelect({
 
 export function FilterForm({ action, children, sticky }: { action: string; children: ReactNode; sticky?: Record<string, string | undefined> }) {
   return (
-    <form method="get" action={action} className="mb-4 flex flex-wrap items-end gap-3 border border-line-neutral bg-card p-3">
+    <form method="get" action={action} className="mb-4 flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-line bg-card p-4">
       {children}
       {sticky
         ? Object.entries(sticky).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))

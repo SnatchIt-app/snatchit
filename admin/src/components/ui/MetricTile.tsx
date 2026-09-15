@@ -39,23 +39,23 @@ export function MetricTile({
   );
   const body = (
     <>
-      <p className="eyebrow text-dim">{heading}</p>
-      <p className={`mt-1 ${unavailable ? "text-base font-semibold text-dim" : "text-xl font-bold text-ink"} tabular-nums`}>{headline}</p>
-      {note ? <p className="mt-1 text-[11px] text-warning">{note}</p> : null}
-      {sub ? <p className="mt-1 text-[11px] text-dim">{sub}</p> : null}
+      <p className="text-[13px] font-medium text-muted">{heading}</p>
+      <p className={`mt-1.5 ${unavailable ? "text-[15px] font-medium text-dim" : "text-[24px] font-semibold leading-tight text-ink"}`}>{headline}</p>
+      {note ? <p className="mt-1.5 text-[12px] text-warning">{note}</p> : null}
+      {sub ? <p className="mt-1 text-[12px] text-dim">{sub}</p> : null}
     </>
   );
   if (href) {
     return (
-      <Link href={href} className="block border-b border-r border-line-neutral bg-card p-3 transition-colors hover:bg-primary-soft focus-visible:bg-primary-soft">
+      <Link href={href} className="block rounded-[var(--radius-card)] border border-line bg-card p-4 transition-colors hover:border-line-strong hover:bg-raised focus-visible:bg-raised">
         {body}
       </Link>
     );
   }
-  return <div className={`border-b border-r border-line-neutral bg-card p-3 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(17,17,17,0.04)_6px_12px)]" : ""}`}>{body}</div>;
+  return <div className={`rounded-[var(--radius-card)] border border-line bg-card p-4 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(17,17,17,0.04)_6px_12px)]" : ""}`}>{body}</div>;
 }
 
 export function MetricGrid({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 | 6 }) {
   const md = cols === 6 ? "md:grid-cols-6" : cols === 3 ? "md:grid-cols-3" : cols === 2 ? "md:grid-cols-2" : "md:grid-cols-4";
-  return <div className={`grid grid-cols-2 border-l border-t border-line-neutral bg-card ${md}`}>{children}</div>;
+  return <div className={`grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 ${md}`}>{children}</div>;
 }

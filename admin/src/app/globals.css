@@ -1,28 +1,19 @@
 @import "tailwindcss";
 
 /*
- * Snatch It operating console — LIGHT appearance (owner request 2026-09-10: white
- * surfaces for easier navigation and analytics reading). Same brand system as
- * web/ (snatchitapp.com measured values) — #FF1A1A red accents with black-on-red
- * CTAs, red-tinted hairlines, radius 0 everywhere, Inter for everything — but
- * on a white canvas with dark ink. Every colour below is chosen for WCAG AA on
- * white: body/secondary text ≥ 4.5:1, status colours ≥ 4.5:1 as text and ≥ 3:1
- * as borders/fills, focus ring ≥ 3:1.
- *
- * Token roles:
- *   bg / card / field   white primary surfaces
- *   raised               very light gray — distinguishes sections, hover rows,
- *                        disabled fields
- *   ink / muted / dim    primary, secondary, tertiary text (#111 / #4a4a4a / #6b6b6b)
- *   primary              brand red for fills and borders (CTAs stay black-on-red)
- *   primary-ink          brand red darkened for TEXT on white (#c40000, 5.9:1)
- *   line*                red-tinted hairlines (brand) and neutral hairlines
- *   success/warning/danger/info  status colours legible as text on white
+ * Snatch It operations console — analytics appearance (owner direction 2026-09-14):
+ * white surfaces on a subtle neutral canvas, restrained neutral borders, generous
+ * spacing, sentence-case type with a clear hierarchy (Inter), monospace only for IDs
+ * and technical values, brand red reserved for primary actions and emphasis, clear
+ * operational status colours, and chart colours from a validated categorical palette.
+ * Contrast is enforced by tests/theme-contrast.test.ts.
  */
 @theme inline {
+  /* Surfaces: white cards and controls on a subtle neutral canvas. */
   --color-bg: #ffffff;
   --color-card: #ffffff;
   --color-field: #ffffff;
+  --color-canvas: #f7f7f8;
   --color-raised: #f5f5f6;
   --color-overlay: rgba(17, 17, 17, 0.45);
 
@@ -31,25 +22,42 @@
   --color-dim: #6b6b6b;
   --color-placeholder: #6b6b6b;
 
+  /* Brand red — primary actions, the active section, emphasis. Never a chart series or a border colour. */
   --color-primary: #ff1a1a;
   --color-primary-ink: #c40000;
   --color-primary-muted: #cc0000;
-  --color-primary-soft: rgba(255, 26, 26, 0.08);
+  --color-primary-soft: rgba(255, 26, 26, 0.07);
 
-  --color-line: rgba(255, 26, 26, 0.28);
-  --color-line-strong: rgba(204, 0, 0, 0.5);
-  --color-line-neutral: rgba(17, 17, 17, 0.12);
+  /* Restrained neutral borders (the red hairlines of the console era are retired). */
+  --color-line: #e6e6e9;
+  --color-line-strong: #d4d4d8;
+  --color-line-neutral: #ececef;
 
+  /* Operational status — text-safe on white; always paired with an icon or label. */
   --color-success: #15803d;
   --color-warning: #b45309;
   --color-danger: #c40000;
   --color-info: #1d4ed8;
+  --color-success-soft: #ecf8f0;
+  --color-warning-soft: #fdf4e7;
+  --color-danger-soft: #fdeeee;
+  --color-info-soft: #eef3fe;
+
+  /* Charts — validated categorical slots on white (dataviz validator: all checks pass; slot 3 needs visible labels/table). */
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-muted: #b9b9bf;
+  --color-grid: #ececef;
+  --color-axis: #d4d4d8;
 
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --radius-none: 0;
+  --radius-control: 8px;
+  --radius-card: 12px;
 }
 
 :root {
@@ -57,7 +65,6 @@
 }
 
 * {
-  border-radius: 0 !important;
   scrollbar-width: thin;
   scrollbar-color: #c4c4c4 transparent;
 }
@@ -73,56 +80,58 @@
 }
 
 body {
-  background: #ffffff;
+  background: #f7f7f8;
   color: #111111;
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.5;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: #ff1a1a;
-  color: #000;
+  background: rgba(255, 26, 26, 0.18);
+  color: #111111;
 }
 
 :focus-visible {
-  outline: 2px solid #ff1a1a;
+  outline: 2px solid #c40000;
   outline-offset: 2px;
 }
 
+/* Small contextual label above a heading or value: sentence case, no tracking. */
 .eyebrow {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* Form controls: flat, square, hairline. Hover darkens the hairline, focus is
-   red + a soft ring, disabled is gray-on-gray with a not-allowed cursor. */
+/* Form controls: soft radius, neutral hairline, red focus ring. */
 .field {
   width: 100%;
   background: #ffffff;
   color: #111111;
-  border: 1px solid rgba(17, 17, 17, 0.22);
+  border: 1px solid #d4d4d8;
+  border-radius: var(--radius-control);
   padding: 0.5rem 0.75rem;
   font-size: 14px;
 }
 .field:hover:not(:disabled):not(:focus):not(:focus-within) {
-  border-color: rgba(17, 17, 17, 0.4);
+  border-color: #a1a1aa;
 }
 .field:focus,
 .field:focus-within {
   /* :focus-within too: native date/time inputs move focus into internal segments, where :focus does not match. */
-  border-color: #ff1a1a;
-  box-shadow: 0 0 0 3px rgba(255, 26, 26, 0.15);
+  border-color: #c40000;
+  box-shadow: 0 0 0 3px rgba(196, 0, 0, 0.14);
   outline: none;
 }
 .field:disabled,
 .field[aria-disabled="true"] {
   background: #f5f5f6;
   color: #6b6b6b;
-  border-color: rgba(17, 17, 17, 0.12);
+  border-color: #e6e6e9;
   cursor: not-allowed;
 }
 .field::placeholder {
@@ -130,8 +139,8 @@ body {
 }
 select.field {
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #111 50%),
-    linear-gradient(135deg, #111 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, #4a4a4a 50%),
+    linear-gradient(135deg, #4a4a4a 50%, transparent 50%);
   background-position:
     calc(100% - 16px) 50%,
     calc(100% - 11px) 50%;
@@ -149,12 +158,12 @@ select.field:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  padding: 0.5rem 0.9rem;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
   border: 1px solid transparent;
+  border-radius: var(--radius-control);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -166,38 +175,39 @@ select.field:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* Primary = the important action on a view: brand red with white text (5.9:1). */
 .btn-primary {
-  background: #ff1a1a;
-  color: #000;
+  background: #c40000;
+  color: #ffffff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #d90000;
+  background: #a80000;
 }
 .btn-primary:active:not(:disabled) {
-  background: #b80000;
+  background: #8f0000;
 }
 .btn-ghost {
-  background: transparent;
+  background: #ffffff;
   color: #111111;
-  border-color: rgba(17, 17, 17, 0.3);
+  border-color: #d4d4d8;
 }
 .btn-ghost:hover:not(:disabled) {
-  border-color: #ff1a1a;
-  background: rgba(255, 26, 26, 0.06);
+  border-color: #a1a1aa;
+  background: #f5f5f6;
 }
 .btn-ghost:active:not(:disabled) {
-  background: rgba(255, 26, 26, 0.12);
+  background: #ececef;
 }
 .btn-sm {
   padding: 0.3rem 0.65rem;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .link {
   color: #111111;
   text-decoration: underline;
-  text-decoration-color: rgba(196, 0, 0, 0.5);
-  text-underline-offset: 2px;
+  text-decoration-color: #c4c4cc;
+  text-underline-offset: 3px;
 }
 .link:hover {
   color: #c40000;
@@ -206,15 +216,15 @@ select.field:disabled {
 
 kbd {
   font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 1px 5px;
-  border: 1px solid rgba(17, 17, 17, 0.25);
-  background: #f5f5f6;
-  color: #4a4a4a;
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px solid #e6e6e9;
+  border-radius: 4px;
+  background: #f7f7f8;
+  color: #6b6b6b;
 }
 
-/* Data tables. White rows, gray hairlines, red header rule; hover and
-   keyboard focus tint the row; a selected row is marked with aria-selected. */
+/* Data tables: sentence-case headers, neutral hairlines, tinted hover. */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -223,28 +233,29 @@ kbd {
 }
 .data-table th {
   text-align: left;
-  font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 500;
+  font-size: 12px;
   color: #4a4a4a;
   padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid rgba(204, 0, 0, 0.35);
+  border-bottom: 1px solid #e6e6e9;
   background: #fafafa;
   white-space: nowrap;
 }
 .data-table td {
-  padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #f0f0f2;
   vertical-align: top;
+}
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 .data-table tbody tr:hover,
 .data-table tbody tr:focus-within {
-  background: rgba(255, 26, 26, 0.05);
+  background: #fafafa;
 }
 .data-table tbody tr[aria-selected="true"] {
-  background: rgba(255, 26, 26, 0.09);
-  box-shadow: inset 2px 0 0 #ff1a1a;
+  background: rgba(255, 26, 26, 0.06);
+  box-shadow: inset 2px 0 0 #c40000;
 }
 .data-table .num {
   text-align: right;
@@ -261,17 +272,18 @@ summary:hover {
   background: #f5f5f6;
 }
 summary:focus-visible {
-  outline: 2px solid #ff1a1a;
+  outline: 2px solid #c40000;
   outline-offset: -2px;
 }
 details[open] > summary {
-  box-shadow: inset 0 -1px 0 rgba(17, 17, 17, 0.12);
+  box-shadow: inset 0 -1px 0 #ececef;
 }
 
 /* Inline code on white: a faint gray chip so identifiers stay scannable. */
 code {
   background: #f5f5f6;
-  padding: 0 0.2em;
+  border-radius: 4px;
+  padding: 0 0.25em;
 }
 pre code,
 .bg-field code {

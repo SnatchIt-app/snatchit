@@ -10,13 +10,15 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <nav aria-label="Console sections" className="flex h-full flex-col">
-      <div className="border-b border-line px-4 py-4">
+      <div className="px-5 pb-4 pt-5">
         <Link href="/" className="block">
-          <span className="block text-[17px] font-black uppercase tracking-[0.2em] text-primary-ink">Snatch It</span>
-          <span className="eyebrow block text-dim">Operating console</span>
+          <span className="block text-[17px] font-bold leading-tight text-ink">
+            Snatch It<span className="text-primary-ink">.</span>
+          </span>
+          <span className="block text-[13px] text-dim">Operations console</span>
         </Link>
       </div>
-      <ul className="flex-1 py-2">
+      <ul className="flex-1 space-y-0.5 px-3 py-2">
         {NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
           return (
@@ -24,8 +26,8 @@ export function Sidebar() {
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center justify-between border-l-2 px-4 py-2 text-[13px] font-medium transition-colors ${
-                  active ? "border-primary bg-primary-soft font-semibold text-ink" : "border-transparent text-muted hover:bg-raised hover:text-ink"
+                className={`flex items-center justify-between rounded-[var(--radius-control)] px-3 py-2 text-[14px] transition-colors ${
+                  active ? "bg-primary-soft font-semibold text-primary-ink" : "text-muted hover:bg-raised hover:text-ink"
                 }`}
               >
                 <span>{item.label}</span>
@@ -37,7 +39,7 @@ export function Sidebar() {
           );
         })}
       </ul>
-      <div className="border-t border-line-neutral px-4 py-3 text-[11px] text-dim">
+      <div className="border-t border-line px-5 py-3 text-[12px] text-dim">
         <p>
           <kbd>/</kbd> search · <kbd>g</kbd> then a key to jump
         </p>

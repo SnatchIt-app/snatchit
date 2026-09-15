@@ -1,12 +1,22 @@
 export type BadgeVariant = "neutral" | "ok" | "warn" | "danger" | "info" | "muted";
 
 const VARIANT_CLASS: Record<BadgeVariant, string> = {
-  neutral: "border-line-neutral text-ink",
-  ok: "border-success text-success",
-  warn: "border-warning text-warning",
-  danger: "border-danger text-danger",
-  info: "border-info text-info",
-  muted: "border-line-neutral text-dim",
+  neutral: "bg-raised text-ink",
+  ok: "bg-success-soft text-success",
+  warn: "bg-warning-soft text-warning",
+  danger: "bg-danger-soft text-danger",
+  info: "bg-info-soft text-info",
+  muted: "bg-raised text-dim",
+};
+
+/** A shape per variant so status never relies on colour alone. */
+const VARIANT_GLYPH: Record<BadgeVariant, string> = {
+  neutral: "•",
+  ok: "✓",
+  warn: "!",
+  danger: "✕",
+  info: "i",
+  muted: "–",
 };
 
 /**
@@ -85,13 +95,17 @@ export function StatusBadge({
   label?: string;
   variant?: BadgeVariant;
 }) {
-  const text = label ?? (status ? status.replace(/_/g, " ") : "—");
+  const raw = label ?? (status ? status.replace(/_/g, " ") : "—");
+  const text = /^p[1-4]$/i.test(raw) ? raw.toUpperCase() : raw.charAt(0).toUpperCase() + raw.slice(1);
   const v = variant ?? statusVariant(status);
   return (
     <span
-      className={`inline-flex items-center border px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${VARIANT_CLASS[v]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium ${VARIANT_CLASS[v]}`}
       data-status={status ?? ""}
     >
+      <span aria-hidden="true" className="text-[10px] font-bold leading-none">
+        {VARIANT_GLYPH[v]}
+      </span>
       {text}
     </span>
   );

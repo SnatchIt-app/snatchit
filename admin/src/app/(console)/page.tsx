@@ -4,9 +4,11 @@ import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { toToday, type OpsCase } from "@/lib/types";
 import { first, type SearchParams } from "@/lib/search-params";
-import { formatMoney, humanize } from "@/lib/format";
-import { metricHref } from "@/lib/routes";
-import { MetricGrid, MetricTile } from "@/components/ui/MetricTile";
+import { humanize } from "@/lib/format";
+import { Suspense } from "react";
+import { AttentionSummary, MoneyCharts, MoneyKpis, SampleDataNotice } from "@/components/analytics/sections";
+import { ChartSkeleton } from "@/components/charts/ChartCard";
+import { isoDay, DAY_MS } from "@/lib/analytics-core";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { OpsFailureAlert, Alert } from "@/components/ui/Alert";
@@ -37,16 +39,6 @@ const METRIC_DEFINITIONS: Record<string, string> = {
   alerts_firing: "ops.alert rows in 'firing' state.",
 };
 
-function tileValue(value: unknown, format?: string, key?: string): string {
-  if (value === null || value === undefined) return "—";
-  if (format === "money" || (typeof value === "number" && /(_cents|volume|amount|total|fee)/i.test(key ?? ""))) {
-    return formatMoney(value);
-  }
-  if (typeof value === "number") return value.toLocaleString("en-US");
-  if (typeof value === "string" || typeof value === "boolean") return String(value);
-  return "—";
-}
-
 export default async function TodayPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
   const me = await requireOperator();
@@ -56,7 +48,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   if (!res.ok) {
     return (
       <>
-        <PageHeader eyebrow="Attention" title="Today" />
+        <PageHeader eyebrow="Overview" title="Today" />
         <OpsFailureAlert failure={res} fn="today" retryHref="/" />
       </>
     );
@@ -65,7 +57,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   if (!today) {
     return (
       <>
-        <PageHeader eyebrow="Attention" title="Today" />
+        <PageHeader eyebrow="Overview" title="Today" />
         <Alert state="failed" title="Unrecognised payload from ops.today()" retryHref="/" />
       </>
     );
@@ -89,75 +81,105 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     </Link>
   );
 
+  const now = new Date();
+  const to = isoDay(now);
+  const from30 = isoDay(new Date(now.getTime() - 29 * DAY_MS));
+  const from14 = isoDay(new Date(now.getTime() - 13 * DAY_MS));
+
   return (
     <>
       <ReportFreshness at={today.computed_at} />
       <PageHeader
-        eyebrow="Attention"
+        eyebrow="Overview"
         title="Today"
-        description="What needs attention, who owns it, and what can we safely do."
+        description="Operational problems first, then how the business is doing."
         meta={
           <>
             Data as of <DateTime value={today.computed_at} withSeconds />
             {" · "}
             {today.attention.length} open item{today.attention.length === 1 ? "" : "s"}
+            {" · "}
+            <a href="#business" className="link">
+              Business snapshot
+            </a>
           </>
         }
-        actions={
-          <div className="flex gap-1" role="group" aria-label="Assignee filter">
-            {filterLink("all", "All")}
-            {filterLink("me", "Mine")}
-            {filterLink("unassigned", "Unassigned")}
-          </div>
-        }
       />
+      <SampleDataNotice />
 
-      {today.metrics.length ? (
-        <div className="mb-6">
-          <MetricGrid cols={4}>
-            {today.metrics.map((m) => (
-              <MetricTile
-                key={m.key}
-                label={humanize(m.label)}
-                value={tileValue(m.value, m.format, m.key)}
-                definition={m.definition ?? METRIC_DEFINITIONS[m.key] ?? null}
-                href={metricHref(m.key)}
-              />
-            ))}
-          </MetricGrid>
-        </div>
-      ) : null}
+      <section aria-labelledby="attention-heading" className="mb-10">
+        <h2 id="attention-heading" className="mb-2 text-[18px] font-semibold text-ink">
+          Needs attention
+        </h2>
+        <AttentionSummary metrics={today.metrics} definitions={METRIC_DEFINITIONS} />
+      </section>
 
-      {groups.size === 0 ? (
-        <Alert state="empty" title="Nothing needs attention in this view.">
-          {assignee !== "all" ? (
-            <Link href="/" className="link">
-              Show all
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <section aria-labelledby="cases-heading" className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 id="cases-heading" className="text-[18px] font-semibold text-ink">
+              Cases to act on
+            </h2>
+            <div className="flex gap-1" role="group" aria-label="Assignee filter">
+              {filterLink("all", "All")}
+              {filterLink("me", "Mine")}
+              {filterLink("unassigned", "Unassigned")}
+            </div>
+          </div>
+          {groups.size === 0 ? (
+            <Alert state="empty" title={assignee === "all" ? "No open cases." : "No open cases in this view."}>
+              {today.metrics.some((m) => typeof m.value === "number" && m.value > 0 && m.key !== "open_cases") ? (
+                <span className="block">Cases appear when the detectors run. The live signals under “Needs attention” link to their queues now.</span>
+              ) : null}
+              {assignee !== "all" ? (
+                <Link href="/" className="link">
+                  Show all
+                </Link>
+              ) : null}
+            </Alert>
+          ) : (
+            <div className="space-y-4">
+              {[...groups.entries()].map(([type, rows]) => (
+                <Panel
+                  key={type}
+                  title={
+                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="hover:text-primary-ink">
+                      {humanize(type)}
+                    </Link>
+                  }
+                  description={`${rows.length} open item${rows.length === 1 ? "" : "s"}`}
+                  actions={
+                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="link text-[13px]">
+                      All {humanize(type).toLowerCase()} cases
+                    </Link>
+                  }
+                >
+                  <CaseTable rows={rows} basePath="/" searchParams={sp} meId={me.id} />
+                </Panel>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section id="business" aria-labelledby="business-heading" className="min-w-0 xl:sticky xl:top-20 xl:self-start">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="business-heading" className="text-[18px] font-semibold text-ink">
+              Business · last 30 days
+            </h2>
+            <Link href="/money" className="link text-[13px]">
+              Money analytics
             </Link>
-          ) : null}
-        </Alert>
-      ) : (
-        <div className="space-y-6">
-          {[...groups.entries()].map(([type, rows]) => (
-            <Panel
-              key={type}
-              eyebrow={`${rows.length} item${rows.length === 1 ? "" : "s"}`}
-              title={
-                <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="hover:text-primary-ink">
-                  {humanize(type)}
-                </Link>
-              }
-              actions={
-                <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="link text-[12px]">
-                  All {humanize(type).toLowerCase()} cases
-                </Link>
-              }
-            >
-              <CaseTable rows={rows} basePath="/" searchParams={sp} meId={me.id} />
-            </Panel>
-          ))}
-        </div>
-      )}
+          </div>
+          <div className="space-y-4">
+            <Suspense fallback={<div className="h-[340px] animate-pulse rounded-[var(--radius-card)] bg-raised" role="status" aria-label="Loading business figures" />}>
+              <MoneyKpis from={from30} to={to} compact />
+            </Suspense>
+            <Suspense fallback={<ChartSkeleton title="Captured sales" />}>
+              <MoneyCharts from={from14} to={to} only="captured" />
+            </Suspense>
+          </div>
+        </section>
+      </div>
     </>
   );
 }

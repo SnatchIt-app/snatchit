@@ -4,16 +4,16 @@ import type { OpsFailure } from "@/lib/ops-errors";
 
 export type AlertState = "loading" | "empty" | "denied" | "failed" | "stale" | "mfa" | "info" | "success" | "warning";
 
-const STYLES: Record<AlertState, { border: string; label: string }> = {
-  loading: { border: "border-line-neutral", label: "Loading" },
-  empty: { border: "border-line-neutral", label: "Nothing here" },
-  denied: { border: "border-danger", label: "Access denied" },
-  failed: { border: "border-danger", label: "Failed" },
-  stale: { border: "border-warning", label: "Stale" },
-  mfa: { border: "border-warning", label: "Step-up required" },
-  info: { border: "border-info", label: "Info" },
-  success: { border: "border-success", label: "Done" },
-  warning: { border: "border-warning", label: "Warning" },
+const STYLES: Record<AlertState, { tone: string; label: string; glyph: string }> = {
+  loading: { tone: "bg-raised text-dim", label: "Loading", glyph: "…" },
+  empty: { tone: "bg-raised text-dim", label: "Nothing here", glyph: "–" },
+  denied: { tone: "bg-danger-soft text-danger", label: "Access denied", glyph: "✕" },
+  failed: { tone: "bg-danger-soft text-danger", label: "Failed", glyph: "✕" },
+  stale: { tone: "bg-warning-soft text-warning", label: "Stale", glyph: "!" },
+  mfa: { tone: "bg-warning-soft text-warning", label: "Step-up required", glyph: "!" },
+  info: { tone: "bg-info-soft text-info", label: "Info", glyph: "i" },
+  success: { tone: "bg-success-soft text-success", label: "Done", glyph: "✓" },
+  warning: { tone: "bg-warning-soft text-warning", label: "Warning", glyph: "!" },
 };
 
 /**
@@ -41,20 +41,25 @@ export function Alert({
     <div
       role={state === "failed" || state === "denied" ? "alert" : "status"}
       aria-live="polite"
-      className={`border-l-2 ${s.border} bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[13px]`}
+      className={`flex gap-3 rounded-[var(--radius-control)] border border-line bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[14px]`}
     >
-      <p className="font-semibold text-ink">
-        <span className="eyebrow mr-2 text-dim">{s.label}</span>
-        {title}
+      <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${s.tone}`}>
+        {s.glyph}
+      </span>
+      <div className="min-w-0">
+      <p className="font-medium text-ink">
+        <span className="sr-only">{s.label}: </span>
+        {title ?? s.label}
       </p>
-      {children ? <div className="mt-1 text-muted">{children}</div> : null}
+      {children ? <div className="mt-0.5 text-[13px] text-muted">{children}</div> : null}
       {retryHref ? (
         <p className="mt-2">
-          <Link href={retryHref} className="link text-[12px]">
+          <Link href={retryHref} className="link text-[13px]">
             {retryLabel}
           </Link>
         </p>
       ) : null}
+      </div>
     </div>
   );
 }

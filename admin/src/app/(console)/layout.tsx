@@ -43,7 +43,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
     <FreshnessProvider>
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[110] focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:uppercase focus:tracking-wider focus:text-black"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[110] focus:rounded-[var(--radius-control)] focus:bg-primary-ink focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
       >
         Skip to content
       </a>
@@ -56,7 +56,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         <div className="flex min-w-0 flex-1 flex-col">
           <Header email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
           {paused ? <PausedNotice /> : null}
-          <main id="main" className="min-w-0 flex-1 px-4 py-6 md:px-8">
+          <main id="main" className="mx-auto w-full min-w-0 max-w-[1400px] flex-1 px-4 py-6 md:px-8 md:py-8">
             {children}
           </main>
         </div>

@@ -67,7 +67,7 @@ export function DataTable<T>({
 
   return (
     <div id={id}>
-      <div className="overflow-x-auto border border-line-neutral">
+      <div className="overflow-x-auto rounded-[var(--radius-control)] border border-line">
         <table className={`data-table ${dense ? "text-[12px]" : ""}`}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
           <thead>

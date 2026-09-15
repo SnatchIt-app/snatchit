@@ -49,12 +49,10 @@ export function formatRelative(v: unknown, now: Date = new Date()): string {
   return future ? `in ${unit}` : `${unit} ago`;
 }
 
+/** "open_cases" → "Open cases" (sentence case; ids stay "ID"). */
 export function humanize(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b([a-z])/g, (c) => c.toUpperCase())
-    .replace(/\bId\b/g, "ID")
-    .replace(/\bAt\b/g, "at");
+  const s = key.replace(/_/g, " ").trim().toLowerCase().replace(/\bid\b/g, "ID");
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ---------------------------------------------------------------------------

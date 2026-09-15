@@ -45,7 +45,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
   const rows: OpsCase[] = page ? page.items.map(toCase).filter((c): c is OpsCase => c !== null) : [];
 
   const select = (name: string, options: string[], current: string | undefined, all: string) => (
-    <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-dim">
+    <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
       {name.replace("_", " ")}
       <select name={name} defaultValue={current ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
         <option value="">{all}</option>
@@ -73,11 +73,11 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       <form method="get" action="/cases" className="mb-4 flex flex-wrap items-end gap-3 border border-line-neutral bg-card p-3">
         {select("status", CASE_STATUSES, first(sp.status), "Any status")}
         {select("priority", CASE_PRIORITIES, first(sp.priority), "Any priority")}
-        <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-dim">
+        <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
           Type
           <input name="case_type" defaultValue={first(sp.case_type) ?? ""} placeholder="e.g. refund_pending" className="field min-w-[180px] py-1.5 text-[13px]" />
         </label>
-        <label className="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-dim">
+        <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
           Assignee
           <select name="assignee" defaultValue={assigneeRaw ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
             <option value="">Anyone</option>

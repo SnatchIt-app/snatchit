@@ -7,6 +7,7 @@ export function PageHeader({
   actions,
   meta,
 }: {
+  /** Short context above the title (section or record type), sentence case. */
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -15,12 +16,12 @@ export function PageHeader({
   meta?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div className="min-w-0">
-        {eyebrow ? <p className="eyebrow text-primary-ink">{eyebrow}</p> : null}
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink">{title}</h1>
-        {description ? <p className="mt-1 max-w-2xl text-[13px] text-muted">{description}</p> : null}
-        {meta ? <div className="mt-2 text-[12px] text-dim">{meta}</div> : null}
+        {eyebrow ? <p className="eyebrow text-dim">{eyebrow}</p> : null}
+        <h1 className="mt-0.5 text-[26px] font-semibold leading-tight tracking-[-0.01em] text-ink">{title}</h1>
+        {description ? <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-muted">{description}</p> : null}
+        {meta ? <div className="mt-2 text-[13px] text-dim">{meta}</div> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

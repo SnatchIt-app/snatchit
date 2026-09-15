@@ -3,12 +3,13 @@ import { signOutAction } from "@/lib/auth/actions";
 import { SearchBox } from "@/components/shell/SearchBox";
 import { FreshnessSlot } from "@/components/shell/Freshness";
 import { MobileNav } from "@/components/shell/MobileNav";
+import { humanize } from "@/lib/format";
 
 export function EnvBadge() {
   return (
     <span
-      className={`inline-flex items-center border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.2em] ${
-        IS_PRODUCTION_ENV_LABEL ? "border-primary bg-primary text-black" : "border-warning bg-warning/10 text-warning"
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${
+        IS_PRODUCTION_ENV_LABEL ? "bg-primary-ink text-white" : "bg-warning-soft text-warning"
       }`}
       title={`Environment: ${ENV_LABEL}`}
     >
@@ -32,9 +33,7 @@ export function Header({ email, role }: { email: string | null; role: string }) 
         <span className="text-muted" title="Signed-in operator">
           {email ?? "—"}
         </span>
-        <span className="border border-line-neutral px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim">
-          {role.replace("platform_", "")}
-        </span>
+        <span className="rounded-full bg-raised px-2 py-0.5 text-[12px] text-muted">{humanize(role.replace("platform_", ""))}</span>
         <form action={signOutAction}>
           <button type="submit" className="btn btn-ghost btn-sm">
             Sign out
