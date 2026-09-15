@@ -25,6 +25,7 @@
  * a guarantee.
  */
 
+import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
 import { supabase } from '@/src/lib/supabase';
 import { getRegisteredPushToken } from '@/src/lib/push/registeredToken';
 
@@ -97,6 +98,8 @@ export async function signOutEverywhere(): Promise<{ revoke: RevokeOutcome }> {
       return data?.length ?? 0;
     },
     signOut: async () => {
+      // The user chose this; the login screen must not call it an expiry (CFT-607).
+      markSessionEnd('user');
       await supabase.auth.signOut();
     },
   });
