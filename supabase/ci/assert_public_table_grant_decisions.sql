@@ -168,6 +168,10 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   ('account_deletions',            'no-client-access'),
   ('payment_refunds',              'no-client-access'),
   ('payout_attempts',              'no-client-access'),
+  -- 128 (F7): the epoch that makes the push-token legacy path transitional.
+  -- Service-role only: a client that could move applied_at would reopen the
+  -- legacy rebind path for every hash-less row.
+  ('push_token_rebind_epoch',      'no-client-access'),
 
   -- column-scoped only; never a table-level client grant.
   ('profiles',                     'column-grants'),
@@ -342,6 +346,15 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('apply_payout_hold(uuid, timestamp with time zone, text, text[])','no-client-execute'),
   ('auto_finalize_expired_auctions()',                               'no-client-execute'),
   ('check_rate_limit(uuid, text, integer, integer)',                 'no-client-execute'),
+  -- 127 (L1/L2): the webhook's payment-scoped hold release. service_role only;
+  -- a client never drives a release from a payment id.
+  ('release_reservation_for_payment(uuid, uuid, uuid)',              'no-client-execute'),
+  -- 128 (F7): the write guard behind push_tokens.device_secret_hash, and the
+  -- support unbind for a squatted token. Neither is a client verb.
+  ('guard_push_token_secret_hash()',                                 'no-client-execute'),
+  ('unbind_push_token(text)',                                        'no-client-execute'),
+  -- 128 fold-in: the epoch row is immutable (BEFORE UPDATE/DELETE/TRUNCATE raises).
+  ('guard_push_token_rebind_epoch()',                                'no-client-execute'),
   ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),
@@ -411,6 +424,9 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- Signed-in RPCs. Each derives caller identity from auth.uid() internally;
   -- anon is stripped so an unauthenticated key cannot reach them.
   ('buyer_dispute_transfer(uuid, uuid, text, text, text)',           'authenticated-execute'),
+  -- 128 (F7): the device-proof push-token registration verb. Client-callable by
+  -- design; rebinding requires the device secret, never token knowledge.
+  ('register_push_token(text, text, text, text)',                    'authenticated-execute'),
   ('can_create_listing(uuid)',                                       'authenticated-execute'),
   ('cancel_listing(uuid, uuid)',                                     'authenticated-execute'),
   ('complete_auction_payment(uuid, uuid)',                           'authenticated-execute'),

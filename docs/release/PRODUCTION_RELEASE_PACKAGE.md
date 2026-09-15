@@ -159,9 +159,9 @@ no dependency on them.
 | Compiled sandbox build environment | **PASSED** | one Supabase URL, one anon JWT, sandbox Stripe account, zero secrets | release integration |
 | Sandbox edge source parity | **PASSED** | all 9 deployed edges byte-identical to the release head | release integration |
 | **Build 15 device cold-launch gate** | **PASSED 2026-09-10** | installs, launches, badge visible, sign-in works on the real native RNG, session survives force-quit + cold launch; corroborated server-side (§13) | owner + release integration |
-| **Handset QA — 11 cases on the preview build** | **D8 NEXT** | D2, D5, D6, D6b, **D7 all passed** on build 16; D8–D11 outstanding (§20) | Claude C |
+| **Handset QA — 11 cases on the preview build** | **COMPLETE 2026-09-14** | D2, D5, D6, D6b, D7, D8, D9a, D9b, T, F passed on build 16; D10/D11 server-side PASS, handset wording not captured; D9c UNTESTED and closed; D1/D3/D4 passed on build 13 only. See "Build 16 consolidated QA verdict" | Claude C + release integration |
 | **Sandbox↔production FK drift on `transfers`** | **RESOLVED in the sandbox** | migration **123** applied and verified (§19); still to ride the normal release path to production, where it is a proven no-op | release integration |
-| **`bids_bidder_id_fkey` drifts the same way** | **OWNER DECISION** | latent — no code embeds profiles off bids today (§18) | release integration |
+| **`bids_bidder_id_fkey` drifts the same way** | **PREPARED, not applied** | migration 124 + pgTAP 192 written and rehearsed (P1–P6); production already correct; sandbox apply awaits authorization (F2) | release integration |
 | **False "Transfer not found" copy** | **IN REVIEW, isolated** | Claude C's `5569385` splits not_found / offline / unavailable; one blocking copy change requested (§20) | Claude C |
 | **Legacy transfer screens → V2 design system** | **IN PROGRESS, isolated** | owner-requested; must not touch the pinned candidate (§20) | Claude C |
 | **3-D Secure automatic return (`handleURLCallback`)** | **PASSED on device** | build 16: the browser returned automatically after Authorize and checkout reached success; single-payment invariant confirmed server-side (§16) | release integration |
@@ -171,7 +171,7 @@ no dependency on them.
 | **`notify-transfer` change is untested** | **PENDING EVIDENCE** | changed in this release but not deployed to the sandbox, so no QA covers it | Claude C / release integration |
 | **Edge auth parity (`verify_jwt`)** | **PENDING EVIDENCE** | sandbox runs `verify_jwt=false`; "edge rejects unauthenticated" cannot be signed off from sandbox | Claude C |
 | **Push routing on a real device** | **PENDING EVIDENCE** | `notify-transfer` absent in sandbox; push must be proven elsewhere | Claude C |
-| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | proposed `121_ops_console_refund_exactness`; server-only, client already supports `certainty:'known'`; §14 acceptance cases A1–A8 | release integration, after owner decision |
+| **Partial-refund exactness in ops** | **IMPLEMENTATION NEEDED** | server-only, client already supports `certainty:'known'`; acceptance cases **A1–A8 are in `CONVERGENCE_135_REPORT.md:541-548`** (§8 previously cited §14, which does not contain them — corrected 2026-09-14). Contract **resolved and implementable**; see `ISOLATED_WORK_126_L3_L4_F10.md`. Formerly drafted as `121_ops_console_refund_exactness`; `121` is B's (PR #58) per the registry, so this takes the next free number when written | release integration, after owner decision |
 | **Public `auction-media` evidence exposure** | **UNRESOLVED RELEASE RISK** | see below | owner + release integration |
 | Deletion amendment PFA-32 signature | **OWNER DECISION** | required before the deletion behaviour ships | owner |
 | Stripe `payment_intent.canceled` subscription | **OWNER DECISION** | webhook endpoint change | owner |
@@ -2433,3 +2433,599 @@ Control: `PHASE2_PRODUCTION_RUNBOOK.md` resolves present on `release/convergence
 its stale "G6 — Migration 122" reference does **not** reach the release path. It still awaits the owner's word,
 and it is the one reason the numbering record is not yet complete. C verified both note commits: `22c3547` +3/−0
 on each of its two files, and `a7efaf5` +3/−0.
+
+### T — Tickets empty state: PASS, handset and server (2026-09-14)
+
+**Handset (owner, Build 16).** "Your tickets", "No tickets yet", "Tickets you own will show up here.", no DEV
+label, and the same empty state after switching tabs and returning.
+
+**Server (A, C concurring; sandbox `ofaidukbieeekqaboscm`).** Every request came from `SnatchIt/16`:
+
+| Time (UTC) | Screen focus (attribution) | Requests |
+|---|---|---|
+| 05:04:57.5–58.3 | Settings (where the owner stayed after D11) | `GET auth/v1/user`, `GET identity_ext` |
+| 05:04:58.3–59.4 | Profile | `rpc/get_my_profile`, `HEAD listings`, `GET listings` |
+| **05:04:59.590** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+| 05:05:12.7–13.4 | Profile | same three |
+| **05:05:13.216** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+| 05:05:14.5–15.0 | Profile | same three |
+| **05:05:14.836** | **Tickets** | **`POST rpc/get_my_tickets` 200** |
+
+- **Attribution:** at `df9e0d3`, `HEAD listings` (count, `head: true`) comes only from `profile.tsx:117-120`. Its
+  `useFocusEffect` (`:176-183`) runs profile → count → listings in sequence. That gives three Tickets focus
+  events with Profile between them, where the steps asked for one return. That is not a defect, and the exact tap
+  sequence is inferred from requests, not observed.
+- **No writes:** `kernel.tickets` 0 total and 0 for the buyer, `feature.native_issuance_enabled` false. C's
+  checksums were unchanged at 05:07:59Z.
+- **No over-the-update-channel bundle:** `df9e0d3` has no `expo-updates` (package.json and lockfile contain only
+  the transitive `expo-updates-interface`), no `app.config.*`, and no `EXUpdates`/`u.expo.dev` in the tracked
+  `ios/`.
+- Only `development` has `developmentClient`. Build 16's profile is `preview` per the build-time record,
+  not re-read from EAS today. The no-DEV-label expectation therefore rests on source, not on a live build read.
+
+**Correction to A's own interim read — edge-log ingestion lag.** From 05:07Z to 05:11:24Z, A and C each found
+**no** `get_my_tickets` request in `edge_logs`. A briefly carried "request not corroborated" as the proposed
+wording and sent it to the owner. The rows were late, not missing: absent at 05:11:24Z, present at 05:14:49Z,
+roughly 8–10 minutes after they happened. `pg_stat_statements` could not settle it, because it has no timestamps
+and there was no pre-test baseline (the PostgREST form reads `calls = 12`, reset 2026-09-07). **Rule from here
+on: before reporting a request as absent, re-query `edge_logs` at least 10 minutes after the event.**
+
+**Remains unverified by construction:** the populated Tickets state. Native issuance is off and there are 0
+tickets. The `__DEV__` fixture toggle is compiled out of Build 16.
+
+**Latent, recorded for F:** the Home price filter compares `current_bid` (`home.tsx:333-334`), while a Buy Now card
+shows `buy_now_price`. The two can disagree. All three visible sandbox listings carry 100 for both, so this
+cannot be observed without writes.
+
+### Premium Experience P0 holds — A's rulings, and two new findings (2026-09-14)
+
+C opened the owner-assigned Premium Experience backlog (post–Build 16, `frontend/premium-experience-backlog`,
+`docs/product-v2/PREMIUM_EXPERIENCE_BACKLOG.md`), holding five P0 items for A. A re-read each at `df9e0d3` plus the
+sandbox, read-only. None of the frontend work needs a server change.
+
+| Hold | Status | Basis (`df9e0d3`) | Contract / next step |
+|---|---|---|---|
+| **A-01** quantity | **Held for the owner** | Server prices the whole listing: `create-payment-intent` charges `buy_now_price` once (`:477`), fees and payout come off that base (`:514-518`), and buyer detail shows one price (`ListingDetailScreen:1041`). Only the seller copy says per ticket (`CreateListingScreen:807`, `:846`). | A recommends ratifying whole-listing pricing and fixing the two seller strings. Per-ticket pricing would be a transaction change. Sandbox has 0 listings with quantity > 1; production not read. |
+| **A-02** price change | Unheld, frontend only | Stale total from route param (`CheckoutNative:87`, `:213`). Retry (`:517`) resends it and gets 409 every time. The message is missing from `EXPECTED_ERROR_PATTERNS` (`payments.ts:37-53`). Both 409s already return `server_total_cents` (`CPI:532-535`, `:640-647`). | Add the pattern; re-read the listing and require the computed all-in total to equal `server_total_cents`; show it and require an explicit re-accept; keep the accepted total in state. |
+| **A-03** refunded as settled | Unheld, frontend only; owner wording | `SETTLED_STATUSES` includes `refunded` (`setupDecision:52`), so a refund shows "You're in." (`:218-221`, `:672`). The lookup is unordered `limit(1)` over both statuses (`:188-195`). | Separate `refunded` decision kind; `already_settled` for succeeded only; check succeeded first; still never create an intent. |
+| **A-04** Pay gating | Unheld, frontend only | `payControl` has no expiry input (`:507-514`); `reservationExpired` (`:520`) is display only. | Pay leaves 'pay' at ≤ 15 s (A's margin). Re-check settled, then hold. After any non-Canceled sheet error run `confirmPaymentSuccess` first; if unreachable, no Pay. |
+| **A-08** privacy / push tokens | Frontend part unheld; server part and copy held for the owner | See F7. | Revoke own token before `signOut` via the owner UPDATE policy (best-effort). A public wrapper for `notify.register_push_token` needs owner authorization. |
+
+**L4 — a PaymentIntent outlives its hold (latent, A's).** Nothing cancels a PaymentIntent when a Buy Now hold
+expires. `cleanup_expired_reservations` is SQL-only, and CPI's `refuse()` retires a stale PI only when CPI is
+called again (`:419`). A PaymentSheet already set up can therefore confirm at Stripe after the lapse.
+Settlement then runs through `settle_listing_for_payment`. If the listing was taken meanwhile, the outcome is
+`unfulfillable` and the reconciliation sweep refunds it (migration `20260906110000` `:72-79`). There is no double
+sale, but charge-then-refund is possible. The A-04 client gating reduces exposure. A server-side cancel at expiry
+is a candidate transaction change that needs owner authorization. Not in Build 16's scope.
+
+**F7 — the device push token is bound to another account; Build 16 copy is untrue (reproduced in sandbox).**
+- Build 16's privacy screen says push tokens are "automatically marked inactive when you sign out". None of the
+  five `auth.signOut` sites touches `push_tokens`.
+- Sandbox `public.push_tokens` holds one row, an iOS token for user `1fcd0c69…` (not the sandbox buyer). It is
+  `is_active = true`, last used 2026-09-10.
+- The buyer's registration fails. `usePushToken` selects by token, RLS hides the other account's row, the code
+  falls through to insert, and `UNIQUE (token)` rejects it. Edge logs: `POST /rest/v1/push_tokens` **409** at
+  04:25:50.931Z and 04:41:20.813Z on 2026-09-14.
+- Effect: the handset would receive the other account's pushes (`send-push:70` filters `is_active = true`) and
+  none of the buyer's.
+- A correct rebind contract already exists and is unreachable. `notify.register_push_token` upserts
+  `on conflict (token)` to `auth.uid()` and resets `revoked_*`. `authenticated` has EXECUTE and `notify` USAGE,
+  but `pgrst.db_schemas` is `public, graphql_public, kernel`.
+- Production exposure is not read (needs read-only authorization).
+- Owner decisions: correct the privacy copy now or wait for the revoke fix; and authorize a narrow public wrapper
+  RPC (migration number from the registry), not exposing `notify`.
+
+### F — Filter sheet: PASS, handset and server (2026-09-14)
+
+**Handset (owner, Build 16).** All seven steps matched the expected results: Auction → "No matches"; Max 99 →
+"No matches"; Max 100 restored the three listings; the Max field read 99 on reopen; Clear → Apply reset the
+filters. Reported before 05:51Z; run on the handset at about 05:48–05:50Z per the server rows below.
+
+**Server (A after the agreed 15-minute ingestion wait; C's independent read compared).** Every row since
+05:15Z, realtime excluded, read at 06:06:30Z and again at 06:08Z (16 rows, no late arrivals; latest row
+05:49:27.558Z, 17 minutes before the first read):
+
+| Time (UTC) | Request | Attribution (`df9e0d3`) |
+|---|---|---|
+| 05:48:39.649 | `POST auth/v1/token` 200 | refresh — the 04:41:18 session's access token had expired at about 05:41 |
+| 05:48:41.132–42.273 | `GET auth/v1/user`, `POST rpc/get_my_profile`, `GET listings` | Home's `fetchListings` (`getUserNeighborhoods` → `auth.getUser` + `get_my_profile`, then `listings`, `home.tsx:60-64`, `:175-184`). One Home focus |
+| 05:49:13.108–.112 | six `GET storage/v1/render/image/public/auction-media/fixtures/{D7,D8,P1}.jpg` **400** | the three visible cards rendering (two requests per card); the 400 is the known sandbox fixture-image gap (CFT-106), not an F result |
+| 05:49:27.552–.558 | six more of the same | consistent with the cards unmounting on "No matches" and remounting when the three returned; the logs do not show which step |
+
+- **Absent, as expected:** `HEAD listings` (no Profile focus), `get_my_tickets`, `listings?auction_status=eq.ended`
+  and `listings?status=eq.sold` (Ended/Sold were not applied), any `POST`/`PATCH`/`DELETE` on a REST table, any
+  edge-function call. Filtering is client-side (`home.tsx:298-337`), so the sheet steps produce no requests.
+- **Database, 05:51:18Z and 06:06:30Z, identical:** listings 49 (max `updated_at` 2026-09-11 03:55:44), payments
+  51 (max `created_at` 2026-09-11 03:53:31), transfers 33 (max `created_at` 2026-09-11 01:19:01), bids 0,
+  push_tokens 1, `kernel.tickets` 0, reserved 0, pending payments 3, feed visible 3, sold 33, ended 13, buyer
+  `identity_ext.deletion_state` ACTIVE. Checksums at 06:06:30Z (md5 over `id||status[||reserved_by||reserved_until]`,
+  ordered by id): listings `85788bf1…`, payments `862f47f2…`, transfers `6c12538e…`. Nothing was written.
+- **Not covered by F:** ticket type, category, area, the Ended and Sold datasets, Your scene, the Min bound,
+  the single-select behaviour of the six group chips, and filter persistence across navigation.
+- **Latent (recorded under T):** the price filter compares `current_bid`, while a Buy Now card shows
+  `buy_now_price` (`home.tsx:333-334`). All three visible listings carry 100 for both.
+
+### Build 16 consolidated QA verdict (2026-09-14)
+
+Build 16 = EAS `66be8872-163a-43c6-99ed-71de752f5f16`, iOS build 16, preview profile per the build-time record,
+source **`df9e0d3`** (pinned, unchanged). Sandbox `ofaidukbieeekqaboscm` throughout; production read only where
+separately authorized. The owner's standing rulings are applied as given: **D9c stays UNTESTED and closed to
+further manual attempts; D10/D11 stay server-side PASS with the exact handset confirmation wording not captured.**
+This verdict is a record. It authorizes nothing: no migration, deployment, flag, or change to the pinned candidate.
+
+**1. Verified passes**
+
+| Case | Listing / account | Build | Result | Corroboration |
+|---|---|---|---|---|
+| D5 3-D Secure automatic return | Device D3 | 16 | PASS | single-payment invariant confirmed server-side (§16); a second 3DS completion on Device D2 (§17) |
+| D6 3-D Secure cancellation | Device D6 | 16 | PASS | no charge; the inline "hold released" line after closing the sheet was not observed (§17) |
+| D6b failed authentication | Device D6 | 16 | PASS | no charge, listing still buyable (§17) |
+| D7 order and listing state, View transfer | Device D3 | 16 after sandbox 123 | PASS, closed | View transfer opened on unchanged Build 16 after sandbox migration 123, a proven no-op in production; the original failure was sandbox schema drift, not an app defect (§18–§20) |
+| D8 force-quit after payment | Device D1 | 16 | PASS, closed | settlement written by `stripe-webhook` (§22); force-quit timing is owner-reported, not proven |
+| D9a offline before confirm | Phone P1 | 16 | PASS | no charge, no intent confirmed; hold released by path 3 (§23 Stage 1) |
+| D9b offline before Complete | Device D7 | 16 | PASS on payment safety (owner accepted) | first attempt UNTESTED (missed window); rerun: no authorization, no charge, no false success, no second intent; two deviations recorded — the rerun began before the first attempt's X close was verified, and the challenge page was reloaded; D9-UX-1 found (§23 Stage 2) |
+| D10 deletion request | sandbox buyer `919d511e` | 16 | **server-side PASS** | DELETION_PENDING held by BP-7 through three sweeps, no tombstone, no listing/payment/transfer change (A and C independently). **Handset wording not captured** |
+| D11 withdrawal | same | 16 | **server-side PASS** | ACTIVE restored, stable through two sweeps. **Handset wording not captured** |
+| T Tickets empty state | same | 16 | PASS | three `get_my_tickets` 200 at 05:04:59–05:05:15Z, no writes, 0 tickets |
+| F filter sheet | same | 16 | PASS | this section |
+
+**Passed on earlier builds, not scored on 16:** D1 (sign in, Home loads; build 13), D2 (fee total $110.00 with
+10%, Device D1; build 13, re-checked on 15), D3 (PaymentSheet cancellation, Phone P2), D4 (retry after
+cancellation, Phone P2; settled once). D2 sits here deliberately, per C's record, rather than being reclassified:
+build-16 evidence exists and is cited — "Pay $110" on the D9 sheets, "Paid $110" on Device D3's order in D7, and
+every build-16 checkout's 11 000-cent intent server-side (D5, D6, D8, D9a–c) — but no D2 run was scored on 16.
+Sign-in and Home load were likewise exercised incidentally on every build-16 session (password and refresh
+grants, Home fetches in the logs) without being scored as D1.
+
+**Settled exactly once and never to be retried or modified:** Device D1, D2, D3, D4, D5, D6; Phone P2, P3.
+
+**All planned handset checks are dispositioned.** No planned case remains open: each is PASS, or UNTESTED and
+closed by the owner. C confirms the same from its record (doc 18, matrix closure table).
+
+**2. Untested**
+
+| Item | Why | Status |
+|---|---|---|
+| **D9c** charge succeeding while offline | across three attempts the 3-D Secure authentication never succeeded at Stripe, so the D9c question was never reached (§"D9c reconciliation") | **UNTESTED, closed** — no further manual attempts. Residual risk accepted by the owner; server-side settlement is independent of the handset and was observed live on the settled devices |
+| Populated Tickets state | 0 native tickets, issuance disabled, `__DEV__` fixtures compiled out | untested by construction |
+| Build-13 legacy blob migration on hardware | build 14's deletion cleared storage (§13) | open known gap; owner decision |
+| `notify-transfer` change | not deployed to the sandbox | pending evidence |
+| Edge auth parity (`verify_jwt`) | sandbox runs `false` | pending evidence; needs production parity |
+| Push routing on a real device | `notify-transfer` absent in sandbox; and see F7 | pending evidence |
+| Transfer UI V2 visual acceptance | needs a device or simulator render (C's held-aside branch) | not met; owner decision on access |
+| F not-covered list | above | not planned |
+
+**3. Open defects — none financial, none fixed in Build 16's pin**
+
+| Id | Defect | Where | Fix status |
+|---|---|---|---|
+| D9-UX-1 | checkout conflates "hold released" with "reservation expired" and offers a dead "Try again" | `setupDecision.ts:87`, `CheckoutNative.tsx:228`, `:517` | fix direction agreed (CFT-301); not started |
+| F1 | checkout selects a column that exists in no environment; summary/countdown never load | `CheckoutNative.tsx:138` | C's `2ba5281` approved, unapplied |
+| F3 | three blocker kinds unmapped in `OBLIGATION_LABELS` | `app/settings/index.tsx` | not started |
+| F7 (C's record: A-08 / CFT-611) | device push token bound to another account; privacy copy claims sign-out revocation that does not exist | `usePushToken.ts:69-85`, `privacy.tsx`, five `signOut` sites | frontend revoke unheld (CFT-611); copy and server rebind held for the owner |
+| Image fallback | a failing image URL shows no designed fallback (sandbox render 400s reproduce it) | `EventMedia.tsx`, `SellerListingCard.tsx` | CFT-106, not started |
+| A-02 | price-change 409 is unrecoverable: retry resends the stale total | `CheckoutNative.tsx:87`, `:213`, `payments.ts:37-53` | contract issued; verified in source, not exercised by the matrix |
+| A-03 | a refunded payment renders the "You're in." success screen | `setupDecision.ts:52`, `CheckoutNative.tsx:218-221` | contract issued; verified in source, not exercised |
+| A-04 | Pay stays live after the hold countdown reaches zero | `payControl.ts`, `CheckoutNative.tsx:507-520` | contract issued; verified in source, not exercised |
+| A-01 copy | seller copy says "per ticket" while the server prices the whole listing | `CreateListingScreen.tsx:807`, `:846` | held for the owner's ruling |
+
+**4. Latent server gaps and risks — owner decisions on severity**
+
+| Id | Gap | Status |
+|---|---|---|
+| L1 | the webhook's claim predicate also matches `failed` rows, so a cancel of the hold owner's own PaymentIntent releases the live hold (deterministic; in `df9e0d3` only the amount-mismatch branch triggers it) | not observed; owner decision |
+| L2 | `release_reservation` has no succeeded-payment guard: leaving the listing screen after a payment succeeded, before the listing reads `sold`, could release a paid order's hold (recorded in this package under "D9 Stage 1 readiness"; now also in C's record). C's precision, verified at `df9e0d3`: `reservationExit.ts` never releases after a purchase the screen knows completed (its purchased gate), so the residual window is a client that does not yet know — a force-quit before the result, or a second session. No matrix case reached it | not observed; owner decision |
+| L3 | same-sheet retry after `payment_failed` runs without a hold; a conflict ends as `unfulfillable` and is refunded | observed once (D9b); owner decision |
+| L4 | nothing cancels a PaymentIntent when its hold expires; charge-then-refund possible, no double sale | new (2026-09-14); a server-side cancel at expiry needs owner authorization |
+| F2 | `bids_bidder_id_fkey` chain drift (production correct) | 124 + pgTAP 192 written and rehearsed (P1–P6); applied nowhere; sandbox apply awaits authorization |
+| F5 | cron success ≠ tick ran; 7 × 401 in production unattributed | monitoring blind spot; owner's call |
+| F6 | stale `account_deletion_pending` notification stored in `notify.notification`, not displayed | future integration risk (owner's final wording) |
+| Public `auction-media` evidence | 27 legacy objects publicly readable | unresolved release risk (§8); separate change |
+
+**5. Remaining release blockers** (unchanged in kind from §8; statuses current)
+
+1. Apply/deploy authorization for §3 — none given.
+2. `AUTODEPLOY-VERIFIED-OFF` on the merging PR, with `git_branch` empty at merge time.
+3. Deletion amendment PFA-32 signature.
+4. Stripe `payment_intent.canceled` webhook subscription.
+5. Legacy orphan reconciliation and the payout-cron pause inside the deploy window.
+6. Public `auction-media` evidence exposure — owner decision on scope.
+7. Ops-console partial-refund exactness — a server-only migration, implementation after the owner's decision.
+    Formerly named `121_ops_console_refund_exactness` (§8); migration number `121` now belongs to B's PR #58 per
+    the registry, so this takes the next free number when written. Not the pgTAP suite `121_settlement.sql`.
+8. Twilio Account SID rotation.
+9. Evidence gaps: `notify-transfer`, `verify_jwt` parity, push routing on a device.
+10. Merge order **121 → 123 → 124** is sequencing approval only. The scanning fix is reassigned **122 → 125**; the
+    re-issue of "AUTHORIZE PFA-18C MIGRATION 122" for 125, and the note on the third B document, await the
+    owner's word.
+11. C's held-aside branches (`5569385` transfer copy split; legacy transfer screens on V2) stay out of the pin.
+
+Not blockers, but owner decisions that shape the next build: severity of D9-UX-1, L1–L4, F3, F5, F7; whether
+the build-13 blob-migration gap is accepted; whether 124 is applied to the sandbox.
+
+**6. Premium Experience — owner decisions, listed separately from the release**
+
+None of these is approved by the test report, and the first batch has no go.
+
+1. **A-01 quantity meaning** — per ticket or whole listing; gates CFT-303 and CFT-609. A recommends whole-listing
+   (what the server already does) plus the two seller-copy fixes.
+2. **A-03 refunded-state wording** — the copy a buyer sees for a refunded purchase.
+3. **A-08(a) privacy copy** — correct the sign-out sentence now, or wait for the revoke fix.
+4. **A-08(d) push-token rebind** — authorize A to prepare a narrow public wrapper for
+   `notify.register_push_token` (a numbered migration; applied nowhere without separate authorization).
+5. **L4** — whether to authorize a server-side PaymentIntent cancel at hold expiry (a transaction change).
+6. **A-14** — `auto_release_at` in the buyer transfer query (already pending; gates CFT-401).
+7. **Device or simulator access** for visual acceptance (Transfer UI V2, CFT-705).
+8. **Go / no-go for the first batch** (`frontend/premium-batch-1` cut from `df9e0d3` plus the approved F1 commit).
+9. Optional read-only authorizations: production `push_tokens` exposure (F7) and production listings with
+   quantity > 1 (A-01).
+
+### Consolidated prioritized release checklist (2026-09-14, A owns)
+
+One list, priority-ordered, for the resale/marketplace release in §3. Detail lives in §8 and the sections named;
+this is the single tracker the owner asked release integration to keep. Nothing here is authorized yet.
+
+**P0 — blocks apply/deploy of the resale release**
+1. **Apply/deploy authorization** — nothing in §3 is authorized. Owner.
+2. **`AUTODEPLOY-VERIFIED-OFF`** on the merging PR, with `supabase branches list` showing an empty `git_branch` at merge (AUTODEPLOY-1). Owner + release integration.
+3. **Deploy-window sequencing** — migrate-then-deploy (edges 3b call RPCs that exist only after migrations 1–4); **pause the payout cron** for the window; run **legacy orphan reconciliation** inside it. A payout by old code mid-window creates a transfer with no attempt row (§5.7, §6). Owner schedules; release integration executes.
+4. **Stripe `payment_intent.canceled` subscription** — the webhook endpoint change the cancellation path depends on. Owner decision.
+5. **PFA-32 deletion amendment signature** — required before the deletion behaviour (migrations 3–4) ships. Owner.
+
+**P1 — must resolve; can be scheduled around the release, not inside the pin**
+6. **Public `auction-media` evidence exposure** — 27 legacy objects publicly readable; a separate data-movement change touching the tombstone machine, not bundled with the schema release (§8 detail). Owner decides scope; release integration executes as its own change.
+7. **Missing sandbox-unprovable evidence** — `notify-transfer` deploy + test, edge `verify_jwt` parity, push routing on a real device. Needs an environment with production parity.
+8. **Twilio Account SID rotation** — identifier, not a secret; local history still holds it. Owner.
+
+**P2 — latent / monitoring; owner decisions on severity, none blocking today**
+9. **F5** — a monitor that reads HTTP status, not cron job status (720/720 green hid 7 skipped ticks; 7 × 401 in production unattributed).
+10. **L1–L4** server correctness (mig 127 for L2; L1/L3/L4 mostly edge/webhook), **F3** unmapped blocker labels, **F7** push-token rebind (mig 128) + untrue privacy copy, **F2** chain drift (124 prepared).
+
+**Adjacent tracks, not part of this release's checklist** (tracked with their owners): B's `125` scanning fix; C's Premium batch 1; D's venue read-integration — where **applying the `venue_api` migration and exposing `venue_api` over PostgREST (adding it to the authenticator `pgrst.db_schemas`) are two distinct, separately-authorized steps**.
+
+
+### Migration 125 review — native/scanning track, review-only (2026-09-14, A)
+
+PR #62 (`fix/125-scan-device-sync-expired-episode @ fc4f1130` → `admin/operating-console`), Claude B. Reviewed by
+release integration; **review-only, applied nowhere**. This is the PFA-18C native/scanning track, **explicitly out
+of the resale release package (§7)** — it does not touch Build 16, payments, or the pinned candidate `df9e0d3`, and
+it rides its own separately-gated sequence.
+
+**What it is.** Body-only `create or replace` of `venue.sync_scan_device_manifest(uuid,uuid,integer)` (086:1040-1068).
+Same signature, `VOLATILE`/`SECURITY DEFINER`/`search_path=''`, grants and authorization; census 0; `086`/`112`/`113`
+are not edited. It reads `venue.get_door_manifest` first (the 112/113 contract: `status='open' AND not_after > now()`)
+and binds the device only when that payload reports `open:true`, to exactly the manifest returned — so an
+expired-but-still-`open` episode now leaves the device row untouched instead of binding it while the same call
+returns `open:false` (the 086 drift).
+
+**Verified in the tree, not taken on assertion.**
+- Base `562fda9` carries `110`–`120`, so `112`/`113` are present and the drift reproduces.
+- PR adds exactly three files (migration, rollback, pgTAP 190); nothing else changes.
+- Rollback restores the 086 body and nulls the comment (claimed md5 `666422e5…` = production; that md5 is the
+  definitive apply-time gate and must be re-checked against production immediately before any rollback is run).
+- pgTAP 190 = `plan(30)`; the count reconciles (A 5, B 4, C 16, D 3, E 2) and the C7–C11 block is the correct
+  regression for the expired-but-open case (payload `open:false`, device not bound, `door_manifest` untouched).
+
+**Two notes, neither blocking.**
+1. **Sequencing vs git base.** The PR bases on `admin/operating-console` (integer tip `120`), so the merge-guard
+   passes trivially (`125 > 120`) but that base does not contain `121`/`123`/`124`. The binding constraint is that
+   `125` lands **last**, after `121 → 123 → 124`, onto the integrated release base and never reaches production
+   ahead of them. B's overlay rehearsal (`120→121→123→124→125`, 139/139) already proves composition.
+2. **Defensive-only:** if `get_door_manifest` ever returned `open:true` with a null `manifest_id`, the bind would
+   null the device's `manifest_id`; the contract makes that impossible, so it is not a defect — an added
+   `and (v_res ? 'manifest_id')` guard would make it structurally impossible. Not held for this PR.
+
+### F8 — a partially refunded payment renders as a plain purchase success (2026-09-14, A)
+
+Found while reviewing C's Premium batch 1 against the server's own refund writer. **Present in Build 16 and not
+closed by A-03**, which addressed only the fully-refunded case.
+
+**The server's rule.** `public.record_payment_refund` (migration `20260906120000` `:515-522`) is the single writer
+of refund facts and sets them in one UPDATE under one predicate:
+
+```
+amount_refunded_cents = v_new_total
+status      = CASE WHEN v_new_total >= total THEN 'refunded' ELSE status END
+refunded_at = CASE WHEN v_new_total >= total THEN coalesce(refunded_at, now()) ELSE refunded_at END
+```
+
+- `status = 'refunded'` therefore **already implies** `refunded_at` set and `amount_refunded_cents >= total`. The
+  monotonicity trigger (`:419-427`) forbids unsetting `refunded_at` or decreasing the amount. A client rule of
+  "dated AND covers the total" is correct, and a "refunded-but-not-confirmed" state is unreachable through this
+  writer.
+- **A partial refund leaves `status = 'succeeded'`** with `amount_refunded_cents > 0` and no `refunded_at`. The
+  checkout route classifies that row as `already_settled` and shows the purchase-success screen, with nothing
+  indicating that money was returned.
+
+**Sandbox corroboration (read-only, 2026-09-14):** 12 `refunded` rows, all 12 dated and full, 0 dated-but-partial;
+21 `succeeded` rows, none carrying refund facts. So the full-refund path is clean and the partial path is simply
+not exercised there.
+
+**Exposure is low today** — ops-console refunds are disabled — which is why it is recorded rather than treated as
+a merge blocker. **Detection is nearly free:** the checkout settled-payment read already selects
+`amount_refunded_cents` and `total`, so a `succeeded` row with `amount_refunded_cents > 0` is partially refunded.
+
+**Owner decision:** whether this is handled inside Premium batch 1 or scheduled separately, and what a partially
+refunded order should say.
+
+### Simulator previews are blocked on this machine — cause established (2026-09-14)
+
+Recorded so the investigation is not repeated. This is the concrete cause behind "Transfer UI V2 visual
+acceptance / device or simulator render" in the Build 16 verdict's untested list.
+
+| Fact | Value |
+|---|---|
+| Installed simulator runtime | **iOS 26.2 only** (23C54), 11 devices, iPhone 17 Pro booted |
+| Installed simulator SDK | **iphonesimulator26.5 only** |
+| Project deployment target | **15.1** (`ios/Podfile:19`, `project.pbxproj` ×4) — far below 26.2, so NOT the constraint |
+| `xcodebuild -showdestinations` | **no simulator entries at all**; device entries ineligible with "iOS 26.5 is not installed" |
+| Explicit destination by device id, simulator booted | same "Unable to find a destination matching the provided destination specifier" |
+| Free disk | **~2.4 GB** (platform download needs ~9 GB, ~20 GB free) |
+
+Xcode 26.6 will not pair its 26.5 SDK with the installed 26.2 runtime for this scheme. It is not a destination
+specifier problem and not a deployment-target problem, so no free local workaround exists. Nothing was
+downloaded and Xcode was not modified.
+
+**Options (owner's):** free ~20 GB and install the 26.5 platform; a hosted EAS sandbox-profile build at a window,
+which needs explicit authorization and produces an artifact that is **not** Build 16; or static previews / defer.
+
+**Release integration's recommendation: defer.** Visual preview is not a gate on batch 1's correctness — the
+payment surface is covered by unit tests, source contracts and a line-level review — and the held-checkout
+previews need the shared-sandbox window regardless. The efficient moment to get previews is the next build that
+is authorized for another reason, when they ride along at no extra cost.
+
+### F9 — the live admin console has no navigation below 768 px (2026-09-14, reported by Claude D)
+
+Found by D while doing the admin white-background work, outside its lane and outside this release's scope.
+Recorded so it is not lost.
+
+- Below 768 px the sidebar is hidden and **no drawer replaces it**, so there is no navigation at all on a phone.
+- The admin/ops console is **LIVE in production** (since 2026-09-08), which makes this a live usability defect
+  rather than a pre-release one. Nothing was changed.
+- **Owner decision:** severity, and whether it is fixed alongside the admin white-background work
+  (`admin/light-theme`, dry-run merge clean, admin/ files only, 109/109 on the merged tree) or separately.
+
+### Venue slice-1: three defects found before hosted acceptance (2026-09-14, D; reviewed by A)
+
+Recorded because one of them was invisible to local testing and would have surfaced only once hosted.
+
+| Id | Defect | Disposition |
+|---|---|---|
+| F1 | No Next proxy, so a refreshed session was never written back to the browser. Hosted Supabase rotates refresh tokens and revokes a reused one, so staff would be signed out ~1 h after login. The local stub does not rotate, which is why local verification passed. | Fixed with the official `@supabase/ssr` proxy pattern; **A approved** — gated to database mode, refuses a privileged-looking key, makes no authorization decision and no redirect, so its try/catch cannot fail open |
+| F2 | A public Venue B event rendered under a Venue A route. | Fixed with `eventInScope` (event venue must equal route venue, case-insensitive, fail-closed to not-found, applied after grants); **A approved for that case**. **Open question to D's kit:** the entry policy never verifies the route's venue belongs to the route's org — `mapGrants` filters venue roles and org roles independently — so an org-B principal with no venue grant can pass entry at a venue outside org B, and only RLS closes it. D's cross-tenant case (C4) must cover org-grant-without-venue-grant, not only "no grants" and "venue A staff at venue B" |
+| F3 | Grant-less callers saw a capabilities line naming a role, fixture names in the header, nav linking to fixture ids, a banner describing a nonexistent role switch, and an empty mobile menu. | Fixed; **A approved**. `verifiedRole` now distinguishes a displayed role from a verified one |
+
+**Hosted acceptance should target the fixes build**, not the frozen slice — the frozen build fails H3/C4/P1 by
+construction. **Apply split for the window:** D runs the `venue_api` apply with its own kit (the 24-statement
+ledger-row handling lives there and was reviewed); A verifies ledger count and Gate-2 census immediately before
+and after, so neither is the sole witness. `123`/`124` stay A's.
+
+**`admin/light-theme` is unblocked for sequencing** — the Build 16 matrix is closed, and it carries no migration,
+so the ordering guard does not bind it and it is independent of 121 → 123 → 124 → 125. Owner sequences; not
+merged on a peer's request.
+
+**Addendum (2026-09-14): the F2 adjacent case was real, and is now closed as F4.** A raised it as a question
+rather than a finding; D's kit did not cover it, so D added case **C6** and ran it.
+
+- **Before any fix, on a local replay:** C6 **API 6/6 PASS** — RLS held, so no data was readable — but C6
+  **entry 0/3**: an Org A owner entered `/o/A/v/B` as "Org owner", and a Venue A manager entered `/o/B/v/A` as
+  "Venue manager". The defect was entry, not exposure; `mapGrants` matching venue and org grants independently
+  was exactly the cause.
+- **F4** (`venue/read-slice1-fixes @ 2665a20`, ~30 lines, no SQL/RLS change): `dbVenueScope` reads
+  `venue_api.venues (venue_id, org_id)` **as the caller**, in parallel with grants; `venueInRouteOrg()` runs
+  **before** `derivePrincipal`, so a genuine grant holder is still denied when the route's venue is not in the
+  route's org. Fail-closed on every branch — unreadable or absent row → denied, org mismatch → denied, and a read
+  failure → an explicit failure state, never a silent pass. **A approved.**
+- **Evidence:** vitest 102/102, kit **128/128** (C6 9/9) on `venue/slice1-integration @ aeb936e`.
+- **Outstanding:** sandbox confirmation of C6 in the window (api + browser phases). One availability edge to
+  watch there, flagged by A: entry now depends on the caller being able to read the venues row, so a manager at
+  an **unapproved** venue depends solely on the own-staff policy. It fails in the safe direction (denial, not
+  exposure); assert it in the window if cheap, otherwise record it as unexercised rather than proven.
+
+Worth recording as method: "denied entry" and "no data readable" are different guarantees. The kit now proves
+both separately, and only the second was ever true here.
+
+**Addendum 2 (2026-09-14): the unapproved-venue availability edge is proven, not assumed.** A flagged that F4
+makes entry depend on reading the venues row, so a manager at a **pending** venue would rest solely on the
+own-staff policy. D asserted it rather than leaving it unexercised — kit case **C7**
+(`venue/slice1-acceptance-kit @ 492d641`): a pending Venue C in Org A (`approval_status 'pending'`), with Venue
+A's manager also granted `venue_manager` there.
+
+- **API:** the manager reads the C row via the own-staff policy; Org A's owner reads it via the org plane;
+  finance B and the outsider cannot. So the row carries without the approved-venue policy, and closing the entry
+  hole did not open a different one.
+- **Browser:** the manager enters `/o/A/v/C` as Venue manager, Org A's owner as Org owner, the outsider denied.
+- **Revocation** now also asserts that removing the A grant leaves the pending-C grant untouched.
+- Local on fixes `@ 2665a20` (integration `d2c634a`): **135/135**. **No over-denial.**
+
+A verified that `venue/read-slice1-fixes` is still at `2665a20` — the approved commit — and that `492d641`
+touches only the runbook, the acceptance runner and the SQL fixtures, with **no `venue/src` change**, so this is
+added coverage rather than a change under an existing approval.
+
+Venue track outstanding: sandbox confirmation of C6 and C7 in the window. Nothing else.
+
+### L1/L2 and F7 implemented; L3/L4 scoped but not written (2026-09-14, A)
+
+Owner-authorized isolated work, applied nowhere. Both migrations were rehearsed on a clone of the local
+140-chain replay DB, and both rehearsals began by reproducing the defect so the fix is measured against a
+failure, not an assumption.
+
+| | `127` release guards (L1 + L2) | `128` device-proof token rebinding (F7) |
+|---|---|---|
+| Branch / commit | `fix/127-release-reservation-guards` `dd1c0fe` | same branch, `381da65` |
+| pgTAP | **194 — 20/20, 0 failures** | **195 — 25/25, 0 failures** |
+| Defect reproduced first | paid listing's hold **was** released pre-127 | `notify.register_push_token` confirmed to rebind on `on conflict (token)` alone |
+| Idempotent re-apply | yes, census `release_reservation=1 for_payment=1` | yes |
+| Rollback | true inverse — restores the body, drops the new function, **defect reproduces again** | drops function and column; `notify`'s function untouched |
+
+**127 — L2:** `release_reservation` gains the succeeded-payment guard the sweeps already apply (N1). **L1:** new
+service_role-only `release_reservation_for_payment(listing, user, payment)`. Same-buyer ownership cannot tell
+"this payment's hold" from "a hold taken after it", so the discriminator is time: a hold is always taken before
+its own payment row, hence `reserved_until <= payments.created_at + the 10-minute TTL`; anything later was taken
+afterwards and is refused. Returns `{released, reason}` and never raises. The TTL coupling to `reserve_buy_now`
+is pinned by assertion A7, so the two cannot drift apart silently.
+
+**128 — F7:** `public.register_push_token` requires the device's own secret (SHA-256 stored, never the raw
+value), not knowledge of the token string. Another account's token is claimable only with a matching secret, or
+when the row predates 128 **and** has already been revoked — so an ACTIVE legacy binding is not stealable, while
+a genuine handover works once the previous owner's sign-out revoke has run. `notify.register_push_token` stays
+unexposed precisely because it rebinds on the token alone. EXECUTE to `authenticated` only.
+
+**A note on how 195 is written:** its fixture helpers are SECURITY DEFINER deliberately. Read under the
+attacker's own RLS, "the victim's row was deleted" and "the victim's row is invisible to me" are
+indistinguishable, and the cross-account assertions would have passed for the wrong reason.
+
+**L3 — not written, and it is a product tradeoff, not an oversight.** The webhook releases the hold on
+`payment_failed` while Stripe still permits a same-sheet retry. Holding the reservation through the retry window
+would cut charge-then-refund cases but locks inventory longer on every genuine failure. That balance is the
+owner's, and C's client-side Pay gating already narrows the exposure.
+
+**L4 — not written; needs infrastructure, not a migration.** Nothing cancels a PaymentIntent when a hold lapses,
+and `cleanup_expired_reservations` cannot do it (SQL cannot call Stripe). Closing it means a scheduled
+Stripe-calling path — a new edge function plus a cron entry — which is a scheduled mutation and needs its own
+authorization. 127's L1 guard already removes the *release* half of the damage.
+
+**Sandbox ordering consequence, recorded because it is not obvious:** `126`/`127`/`128` must not be applied to
+the shared sandbox before `125` either. The GitHub merge guard is base-branch-relative, but the sandbox ledger
+is not — applying 128 there would put the sandbox tip above 125 and recreate the ordering problem locally.
+
+### Premium batch 2 reviewed; A-17 ruled; A-06 mostly closed; F10 (2026-09-14, A)
+
+**Batch 2 — `frontend/premium-batch-2 @ 3c78382`, seven commits.** Only `4b705c4` touches checkout, and it is
+display only: **APPROVED**. Verified beyond the claim — across the whole batch (`43e3a97..3c78382`) the diff over
+`payControl.ts`, `setupDecision.ts`, `holdState.ts`, `payments.ts` and `signOut.ts` is **empty**. The Pay button
+now shows a label payControl already computed, the success haptic is keyed on the already-approved
+`outcome === 'completed'`, and the rest is styling. Nit, not blocking: the haptic effect re-fired if the screen
+remounted while already completed (a 3-D Secure return onto a settled checkout), so one purchase could buzz twice.
+**Fixed and re-approved at `73a5f19`** — a module-level latch keyed by the listing, which survives the remount
+where a component ref would not. Gated surface re-verified empty across `43e3a97..73a5f19`. Batch 2 fully cleared.
+
+**A-17 — all four confirmation sources approved as implemented.** The load-bearing server claim was checked, not
+accepted: migration `047` raises on `NEW.amount <= v_current_bid`, so the rule is **strictly greater** and a
+successful insert was leading at that instant.
+
+| Confirmation | Source | Ruling |
+|---|---|---|
+| Bid accepted | `bids` insert returned no error | approved — 047 enforces strictly-greater |
+| Position | fresh `listings.current_bid` re-read, judged by the Bids tab's own `bidStatusOf` | approved; one rule, both screens |
+| Receipt | `confirm-and-release` returned success | approved — server-confirmed, not the tap |
+| Purchase | settlement outcome `completed` | approved, unchanged from batch 1 |
+
+Worth preserving: when the re-read is unavailable the client falls back to "Bid placed" — asserting the
+placement the server confirmed while refusing to assert a position it cannot know. That is the A-17 principle
+working, and it should not later be "improved" into a guess.
+
+**A-06 — the duplicate half is CLOSED server-side.** `047` already carries a per-(listing, bidder) cooldown
+(`NOW() - last_bid_at < INTERVAL '3 seconds'`) on top of the strictly-greater rule. Together they reject a
+duplicate of the same amount at any interval: inside 3 s the cooldown catches it, outside 3 s the first bid has
+already raised `current_bid`. The client's single-flight lock is the UX half, not the only guard.
+
+**F10 — the server does not enforce a minimum bid increment (new, latent).** `047` enforces only
+"greater than `current_bid`", so a bid one cent above it is accepted. The client's `MIN_BID_INCREMENT` is
+therefore a convention, not a rule, and anything bypassing the client (a retry, a crafted request) can bid below
+it. Harmless today; if the increment is meant to be a rule it needs a server change and a registry number.
+Owner decision on whether it is a rule or a suggestion.
+
+### Independent adversarial review of 127 and 128 — both found real defects in A's own work (2026-09-14)
+
+Commissioned by A at the owner's instruction, one reviewer per migration, read-only, rehearsing on clones of the
+local 140-chain replay. Both reviews found defects that A's own tests had missed, and in each case A's test had
+passed **for the wrong reason** — the failure mode A had been flagging in others' work.
+
+**127 — the timestamp discriminator did not close L1 at all.** `reserve_buy_now` returns early when the holder
+re-reserves its own live hold ("keeps the EXISTING window"), and `create-payment-intent` mints a buy-now row
+only while the caller IS the live holder. So when the amount-mismatch branch retires P1 and mints P2 in one
+invocation, both sit under ONE unchanged hold and `reserved_until <= created_at + TTL` is true for both — the
+guard released a hold the live attempt was still using. pgTAP 194 missed it because the fixture wrote
+`reserved_until` directly and the passing case backdated the payment 45 minutes, a state that cannot coexist
+with a live hold. Fixed at `d3761c4` with a **live-sibling check** (refuse while another attempt by this buyer
+is `pending`/`processing`) — the answerable question, where "whose hold is this?" is not. Timestamps kept as a
+complementary check. Also fixed: auction payments could drive a Buy Now release; a NULL window blamed the
+timestamps; an over-claiming L2 comment; and the header now states that on apply **only L2 takes effect** until
+the webhook is redeployed. **194 is 26/26, and 5 of the new assertions fail against the previous version.**
+
+**128 — A's own rotation "fix" was a HIGH-severity regression.** `4e29fde` made rule 2 replace the stored hash
+so an owner could rotate a lost secret. That converts momentary session access into permanent silent device
+capture: plant a chosen secret into the victim's still-active, still-victim-owned row, then claim the token
+later from your own account. It survives password reset and session revocation. **And the lockout it fixed was
+already self-recoverable** — the owner holds RLS DELETE on their own row. Reverted at `f7b31ad`; recovery is by
+deletion, never rotation. Also fixed there: `notify.register_push_token` (which rebinds on token knowledge
+alone) was still `EXECUTE`-granted to `authenticated` with schema USAGE, its unreachability rested only on a
+Dashboard setting — **128 now revokes it**; the pgcrypto dependency was unguarded and would have failed on every
+call, not at apply; and a NULL platform skipped its own guard. **195 is 28/28, and the new plant-then-claim
+assertion fails against the previous version.**
+
+**128 IS NOT READY. Four findings remain open:**
+
+| | Finding | Why it matters |
+|---|---|---|
+| V2 | Rule 5 (the no-secret path) is the **steady state, not a migration path** — the client never calls the verb, so the shipping app keeps writing NULL-hash rows; sign-out is the normal terminal state, not a handover signal; and a provider `device_not_registered` signal also revokes a row | The legacy branch is reachable with **token knowledge alone** — verbatim the harm 128 exists to prevent. Needs gating on an apply-epoch, on `revoked_reason`, and a bounded window |
+| V3 | **Squatting** — rule 1 binds an unclaimed token with no proof, so an attacker can claim a token they do not hold and lock the real device out permanently | No self-service recovery; would need a `service_role` unbind verb |
+| V4 | The proof column is **client-writable** (`authenticated` holds UPDATE via the table grant), so a client can forge a "revoked pre-128 legacy" row | The `NULL ⇒ predates 128` invariant the design rests on is forgeable |
+| V5 | **Rollback + re-apply** erases every stored hash, so in that interval every revoked row is claimable by token knowledge | The rollback header understates this |
+
+Lower severity and recorded: unsalted SHA-256 of a **client-chosen** value (server cannot distinguish a CSPRNG
+secret from a constant — server-generating it would be stronger), the raw secret reaching the Postgres log if
+parameter logging is ever enabled, an insert race surfacing an unhandled `23505` rather than the documented
+error, and a free-vs-bound oracle that compounds squatting. Error paths, grants, `SECURITY DEFINER` +
+`search_path = ''` and message indistinguishability were all found **correct**.
+
+**Method note worth keeping:** both reviews were commissioned against work that already had passing tests. In
+both cases the tests passed because the fixture constructed a state the real system cannot produce. Tests built
+from the same mental model as the code inherit its blind spot; only an adversary with the real producers in hand
+finds that.
+
+### 127/128 review rounds two and three; 127's deployment coupling; 128's residual dispositions (2026-09-14, A)
+
+Rounds two and three were commissioned after the first (previous section) and had been recorded only in commit
+messages. Recorded here so the durable record matches the tree. Applied nowhere; nothing here is authorized.
+
+**Round two (`a85bbb0`).** 127 **D1 — A had silently reverted 0590.** The new `release_reservation` body was rebuilt
+from `000_baseline_schema.sql` rather than the applied body, dropping 0590's removal of the `coalesce(auth.uid(),
+p_user_id)` identity fallback; the rollback carried the same regression and falsely claimed to restore "000_baseline".
+Both fixed (rollback now restores the 0590 body); pinned by assertions A8/A9. 128 **V11 — the epoch table was
+client-writable**: created in `public` with no RLS and no REVOKE, so the anon key could move `applied_at` and reopen
+rule 5. Fixed with RLS + REVOKE + a `no-client-access` manifest row (the repo's own CI gate would have caught it).
+Also: A's "regression proof" had run the *new* 195 against the *old* version, which aborted at a
+`has_function_privilege` on a missing function so 31 assertions never ran; replaced with a version-agnostic probe.
+
+**Round three (`6383b8f`).** Every prior finding verified fixed except the L1 producer race (below). Three blocking CI
+omissions, all A's — no function-manifest rows for four new functions, Gate-2 census not bumped (tables 30→31,
+functions 88→92, triggers 33→34), `expected_grants.txt` missing the new table's `service_role` row — plus D4 (row
+misfiled under another migration's provenance block) and **D5** (the live-sibling check was not mode-scoped while
+the subject payment was, so a pending *auction* payment refused a legitimate buy-now release). **Six assertions
+passed for the wrong reason**, most seriously **F4, which was vacuous**: `now()` is frozen per transaction, so the
+recomputed hold window is bit-identical with or without the early-RETURN branch it claimed to defend — the reviewer
+removed the branch and F4 still passed. F4 now asserts the branch; a negative control confirms it fails when the
+branch is removed. Also anchored A7 (an unanchored TTL regex accepted a 10× drift), A5 (`LIKE` on `search_path`), A8
+(case/space-sensitive negative regex), C9 (any refusal reason), and removed F7's dead setup. **194 is 30/30, 195 is
+41/41, the CI table gate is green.** Neither migration is integration-ready until a round returns clean.
+
+**127's required edge changes and deployment coupling — a migration-only test does not close L1.**
+
+| Where | Today (`df9e0d3`) | Required change |
+|---|---|---|
+| `stripe-webhook/index.ts:369-375` | claim predicate `status NOT IN (succeeded, refunded)` — **also matches `failed`**, so a row `create-payment-intent` already retired is re-claimed and its cancel event releases the hold the buyer's *replacement* attempt is using | claim only `pending`/`processing`; an already-retired row is a no-op (`no_claimable_row`) |
+| `stripe-webhook/index.ts:398-401` | `release_reservation(p_listing_id, p_user_id)` — buyer-scoped, cannot tell this payment's hold from a newer one | `release_reservation_for_payment(listing, buyer, payment.id)` (`payment.id` is already in hand at `:374`); log `{released, reason}` |
+| `create-payment-intent/index.ts:419-426, :588` | `retirePendingIntents` cancels P1 at Stripe (emitting `payment_intent.canceled`) **before** P2's row exists, so a fast webhook finds no live sibling | insert P2's `pending` row before cancelling P1 — defense in depth once the predicate above is fixed; required if the local `failed` write after a Stripe cancel ever fails |
+
+Coupling: **127 must be applied before the webhook deploy that names `release_reservation_for_payment`** (otherwise
+the RPC is absent; today's code only logs `rpcErr`, so holds would wait for the sweep — degraded, not broken), and
+**the webhook deploy is what closes L1** — applying 127 alone delivers L2 only, which the 127 header now states.
+Both belong in the same migrate-then-deploy window as §3. The edge change is **not written**; it needs its own
+review and a sandbox deploy, which the acceptance-window manifest excludes and which therefore needs its own
+authorization. Related owner decision: the Stripe `payment_intent.canceled` subscription (P0 #4) — the handler
+exists, Stripe does not send the event until subscribed.
+
+**128's three residual findings — severity and proposed disposition.** They were labelled informational by the
+reviewer; that label is not a disposition.
+
+| Residual | Impact | Severity | Proposed disposition |
+|---|---|---|---|
+| `device_secret_hash` is client-**readable** (`push_tokens` is `client-dml`: `authenticated` holds SELECT; RLS scopes rows to the owner). The value is an unsalted SHA-256 of a client-chosen secret | The row's owner can read the hash of a secret they already hold, so no direct capture. Exposure is conditional: if RLS ever widens, or the client chooses a low-entropy secret, the hash is an offline-guessable oracle | Low | **Fold into 128 before freeze**: column-level `REVOKE SELECT (device_secret_hash)` from `anon, authenticated` (the repo's `column-grants` decision) + one assertion. ~30 min. Server-generated secrets are a later contract version, not this one |
+| Plant-then-claim is closed only for rows that already carry a hash. Rule 2's `coalesce(hash, v_hash)` lets the *first* secret presented for a legacy NULL-hash row stick — an attacker with momentary access to the victim's session and their token can plant a hash before the victim's own client does, then claim from another account | Silent capture of a **legacy** device binding. Preconditions: session compromise *and* token knowledge; the window closes the moment the victim's client re-registers on a 128-aware build, because that plants the genuine hash first | Medium-low, transitional | **Accept as transitional, with two conditions written into the contract**: (1) C's client calls `register_push_token` on **every cold launch**, not only first install, so legacy rows convert on the first post-upgrade launch; (2) a `service_role` count of NULL-hash rows is added to ops monitoring so the tail is visible and the 90-day sunset can be judged. Owner to confirm the acceptance |
+| Deleting the epoch row and re-applying 128 moves the epoch forward and reopens rule 5 for 90 days | Requires DB-owner/`service_role` access (clients are REVOKEd), so it is an **operator** hazard, not an attacker path. In that interval every revoked-`signed_out` legacy row is again claimable by token knowledge | Low likelihood, high consequence | **Fold into 128 before freeze**: the migration refuses to *advance* an existing epoch (`on conflict do nothing`, and raise if the proof column exists while the epoch table is empty); a pgTAP assertion that exactly one epoch row exists; the rollback header states the hazard explicitly. ~1 h |
+
+Sequencing consequence: the two "fold in" items are small and cheap and reopen no design question, so they ride in
+the same clean-review round rather than a fourth; the transitional acceptance is the owner's.

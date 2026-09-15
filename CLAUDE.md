@@ -73,3 +73,40 @@ migration) · Supabase auth/URL configuration.
 - `docs/archive/` — superseded doc versions
 - Root keeps only: README, AGENTS, CLAUDE, ARCHITECTURE_FREEZE, BRANCHES,
   PHASE_2_MIGRATION_HISTORY_RECONCILIATION (moves with its owning workstream).
+
+## Skill selection and session ownership — Claude A half (added 2026-09-14)
+**Merge note:** Claude B appended a general "Skill selection and session ownership"
+section to this same file on `feature/venue-native-and-product-v2` (`8640af6b`,
+append-only). That half carries the A/B/C/D ownership map, the six-step per-prompt
+checklist, and the installed skill sources/versions; it is not repeated here. At merge
+the two collapse under one heading — B owns the general half, A owns this half.
+
+Four sessions share this repo: **A** payment correctness + release integration · **B**
+signing infrastructure + database ceremonies · **C** consumer experience + the 54-item
+Premium checklist · **D** vendor/admin dashboards + venue acceptance. A owns the
+migration-number registry and merge order, so B/C/D numbers route through A.
+
+- **A's role skill:** `~/.claude/skills/snatchit-a-payment-release/SKILL.md` (personal
+  dir; its description scopes it to payment/release work). B's is
+  `~/.claude/skills/snatchit-b-signing-ceremonies/SKILL.md`.
+- **Prefer bare skill names.** Both bare and `anthropic-skills:`-prefixed names resolve in
+  the Claude desktop Code tab (verified by invocation by A and B, 2026-09-14). The prefix is
+  a client namespace alias for the desktop skills-plugin, not a marketplace plugin — so the
+  bare name is the portable form across clients. A missing `~/.claude/plugins` entry does
+  **not** mean a prefixed name fails; test it rather than inferring.
+- **`supabase` 0.1.2 and `supabase-postgres-best-practices` 1.1.1** (supabase/agent-skills
+  `8331f910`, `~/.claude/skills/`) are **reference only**. The authority order in
+  AGENTS.md, this repo's numbered imperative migrations, and the `SECURITY DEFINER` +
+  `search_path=''` pattern win on conflict. Their declarative-schema and
+  `apply_migration` guidance never overrides the owner-gated deployment path above.
+- **Adding a DB object touches four files**, not one: the grant-decision manifest
+  (`supabase/ci/assert_public_table_grant_decisions.sql`, a row per new table *and*
+  function), the Gate-2 census in `ci.yml`, `supabase/ci/expected_grants.txt`, and a
+  rollback that restores the *applied* body rather than an older baseline.
+- **A green test is not evidence** until a negative control fails: remove the branch the
+  test defends and re-run. `now()` is frozen per transaction, so a recomputed time window
+  is bit-identical with or without the guard.
+- Changing facts — migration numbers, commits, production state, open tasks — live only
+  in `docs/release/` records (`MIGRATION_NUMBER_REGISTRY.md`,
+  `PRODUCTION_RELEASE_PACKAGE.md`, `ISOLATED_WORK_126_L3_L4_F10.md`,
+  `SANDBOX_ACCEPTANCE_WINDOW_MANIFEST.md`), never in skills or this file.
