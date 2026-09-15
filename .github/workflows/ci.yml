@@ -533,6 +533,30 @@ jobs:
             ss -ltnp 2>/dev/null | grep ':54322 ' || true
           fi
 
+      # CI-only egress block (A, 2026-09-15, owner item 6). Four function bodies
+      # and five cron commands still hardcode the PRODUCTION project URL in
+      # net.http_post calls (032/033/034/035/087/099); 032's */2 cron fires
+      # unconditionally, so a live pg_net on this runner POSTs production
+      # (proven: run 34933664373, one 401). Until the config-driven migration
+      # (133) lands, containers on this runner may not reach port 80/443 outside
+      # private ranges. Host-originated traffic (CLI, image pulls) is untouched;
+      # inter-container traffic stays on private addresses and non-web ports. No
+      # DB state changes, so 132_replay_parity's job set is exactly production's.
+      # The gate step at the end of this job fails the run if any pg_net
+      # response carries an HTTP status (= a request was answered from outside).
+      - name: CI egress block — containers may not reach the outside web (CI-only)
+        run: |
+          set -euo pipefail
+          sudo iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT --reject-with tcp-reset
+          for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do
+            sudo iptables -I DOCKER-USER 1 -d "$net" -j RETURN
+          done
+          if command -v ip6tables >/dev/null 2>&1; then
+            sudo ip6tables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null \
+              || sudo ip6tables -I FORWARD 1 -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null || true
+          fi
+          echo "--- DOCKER-USER chain ---"; sudo iptables -S DOCKER-USER
+
       - name: Apply migration chain on fresh DB
         run: |
           set -euo pipefail
@@ -1383,6 +1407,28 @@ jobs:
           psql "$DB_URL" -tA -c "select coalesce(status_code::text,'(none)') as status, count(*) from net._http_response group by 1 order by 1;" 2>/dev/null || echo "(net._http_response unavailable)"
           echo "--- pg_net queue still pending ---"
           psql "$DB_URL" -tA -c "select count(*) from net.http_request_queue;" 2>/dev/null || echo "(net.http_request_queue unavailable)"
+
+      # GATE (A, 2026-09-15, owner item 6): CI never reaches production. A pg_net
+      # response row WITH an HTTP status means a request left this runner and a
+      # real server answered — the egress block above failed. Rows with a NULL
+      # status and an error message are the block working (the cron attempted,
+      # the runner refused). Zero rows is also fine (after 133 the crons no-op
+      # without a configured URL). A query error fails the gate (closed).
+      - name: CI egress gate — no pg_net request was answered from outside (fails closed)
+        if: always()
+        env:
+          DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: |
+          set -euo pipefail
+          answered="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is not null;")"
+          refused="$(psql "$DB_URL" -tA -c "select count(*) from net._http_response where status_code is null;")"
+          echo "pg_net responses: answered_from_outside=${answered} refused_or_failed=${refused}"
+          psql "$DB_URL" -tA -c "select left(coalesce(error_msg,''),100), count(*) from net._http_response where status_code is null group by 1 order by 2 desc;" || true
+          if [ "$answered" != "0" ]; then
+            echo "::error::${answered} pg_net request(s) were answered by an outside server during this CI run — CI must never reach production (owner item 6, 2026-09-15). Check the egress block step."
+            exit 1
+          fi
+          echo "OK: no pg_net request was answered from outside this runner."
 
   web:
     name: Web build (Next.js)
