@@ -90,14 +90,17 @@ client waits for the current push). The client branches on `outcome` before trea
   the superseded nonce answers `stale_nonce` at no cost (D, M).
 - **Foreground-only delivery:** the client echoes from its foreground notification handler. No `UIBackgroundModes:
   remote-notification` (build-affecting config, out of scope). A backgrounded app re-requests on foreground; the same open challenge
-  re-dispatches (silent: same nonce; visible: same code) until it expires. The 60 s fallback timer runs only while foregrounded.
+  row is re-issued with a ROTATED nonce (silent) or code (visible) — the previous hash is kept one generation, so a late echo of
+  the superseded value is `stale_nonce` — until it expires. The 60 s fallback timer runs only while foregrounded.
 - The nonce is never logged anywhere (edge, DB, Sentry): B's suite carries a mutant that logs it, which must fail.
 - Fallback (iOS silent-push throttling): if no push arrives within 60 s the client calls
   `public.request_push_token_challenge(p_token text, p_device_secret text, p_mode text default 'visible') → jsonb` — it carries the
   device secret like the register verb (D, V3-3), so a challenge it creates always has `secret_hash`; if an open challenge exists for
   (token, caller) it switches that row to visible (same `secret_hash`, nonce re-issued as the code), otherwise it creates one
-  (same rules as `register_push_token`'s `challenge_required` branch, incl. the 131 session check) — (same challenge row, `mode := 'visible'`,
-  nonce re-issued as a 6-digit CSPRNG code — the code IS the nonce for §4): the push is an alert with the copy **"Snatch It
+  (same rules as `register_push_token`'s `challenge_required` branch, incl. the 131 session check). **Reply shape (pinned):**
+  `{token_id, outcome: 'challenge_required', contract_version: 3, challenge: {id, mode, expires_in_s}}` — identical to the register
+  verb's challenge reply; the client takes `challenge.id` from it (after P3-1 a fresh challenge has a NEW id). The row is switched
+  to `mode := 'visible'` with the nonce re-issued as a 6-digit CSPRNG code (the code IS the nonce for §4): the push is an alert with the copy **"Snatch It
   verification code: 123456. Never share this code."** The user types it in Settings › Notifications; the client echoes via §4.
   Bounds of the visible code (D, V3-2): 10^6 space, the **same 5-attempt counter and 5-minute expiry as the silent path** (one
   counter per challenge row, shared across modes), and §5's rate limits on issuance — a wrong code counts an attempt; the fifth
