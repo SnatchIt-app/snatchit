@@ -195,6 +195,19 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
+### Stack `@ d61970b` (= cb68811 + 134) — **final stack review PASSES**
+CI 35046570214 green. Harness: **PASS 26 · FAIL 0 · WARN 3** · replay **153** · Gate-2 **32|102|37|37** = the stack's ci.yml EXPECT_* ·
+grants = fixture (**69**) · manifest PASS · pgTAP **5123/5123** · production's 135-row line then the release chain · every release rollback
+exact (131, 132, 133 and 20260916000000 individually) · S1/S2/S3 identical. The third WARN is my harness noting the timestamped file is in
+neither production's 135 nor the default release list — A confirms its production position as the window's last migration (121 → … → 133 →
+20260916000000).
+Reverse-order rollback of all four (`probes/gate_reverse_rollback.sh`): candidate chain → apply 131, 132, 133, 20260916000000 (adds 31
+identity lines; census 32|102|37|37) → roll back **134 → 133 → 132 → 131** → **0 identity lines differ from the candidate**, census back to
+31|96|37|35.
+**Reviewed content of the production-gate stack is complete from D's side: 131 + 132 + 133 + 134, all PASS.** Not on the branch and not
+reviewed here: C's K-2/131 client delta. Not decided: the owner's b1/b2/b3 choice, and b2 itself if chosen. Nothing is applied anywhere and
+no pass of mine authorizes an apply.
+
 ### Stack `@ cb68811` (= 6b058d2 + 132's 74a4371) — re-run: **PASSES**
 CI 35045923123 green. Harness on the stack tree: PASS 25 · FAIL 0 · WARN 2 declared · replay 152 · Gate-2 32|102|37|37 · grants 69 ·
 manifest PASS · pgTAP 5114/5114 · production order + release chain · 131/132/133 rollbacks each exact · S1/S2/S3 identical. Unchanged from
