@@ -13,7 +13,7 @@ vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn() }
 
 import {
   beginChallenge, CHALLENGE_COPY, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, MAX_CODE_ATTEMPTS,
-  onBackground, onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, toCodeEntry,
+  interpretConfirmReply, onBackground, onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, onWrongCode, toCodeEntry,
   type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { ACCEPTED_REGISTER_CONTRACT_VERSIONS, EXPECTED_CHALLENGE_CONTRACT_VERSION, REGISTRATION_REMEDY } from '@/src/lib/push/registration';
@@ -133,6 +133,24 @@ describe('challenge lifecycle (pure)', () => {
     expect(onForeground({ phase: 'none' }, T0)).toEqual({ state: { phase: 'none' }, reRequest: false });
   });
 
+  it('a 200 from confirm is a bind only when it says rebound; nonce_mismatch and challenge_consumed are not', () => {
+    expect(interpretConfirmReply({ outcome: 'rebound', token_id: 'tok-1', contract_version: 3 })).toEqual({ kind: 'rebound', tokenId: 'tok-1' });
+    expect(interpretConfirmReply({ outcome: 'nonce_mismatch', attempts_left: 3 })).toEqual({ kind: 'nonce_mismatch', attemptsLeft: 3 });
+    expect(interpretConfirmReply({ outcome: 'challenge_consumed' })).toEqual({ kind: 'consumed' });
+    expect(interpretConfirmReply({ ok: true })).toEqual({ kind: 'unknown' });
+    expect(interpretConfirmReply(null)).toEqual({ kind: 'unknown' });
+    expect(interpretConfirmReply({ outcome: 'registered' })).toEqual({ kind: 'unknown' });
+  });
+
+  it('a wrong code in a 200 uses the server\'s attempts_left when given, else the local counter; zero is exhausted', () => {
+    const prior = toCodeEntry(beginChallenge(info, T0, true)) as Extract<ChallengeState, { phase: 'awaiting_code' }>;
+    const confirming: ChallengeState = { phase: 'confirming', challengeId: 'ch-1', via: 'code' };
+    expect(onWrongCode(confirming, prior, 2)).toEqual({ ...prior, attemptsLeft: 2, lastError: 'nonce_mismatch' });
+    expect(onWrongCode(confirming, prior, null)).toEqual({ ...prior, attemptsLeft: MAX_CODE_ATTEMPTS - 1, lastError: 'nonce_mismatch' });
+    expect(onWrongCode(confirming, prior, 0)).toEqual({ phase: 'failed', kind: 'exhausted', challengeId: 'ch-1' });
+    expect(onWrongCode({ phase: 'confirming', challengeId: 'ch-1', via: 'push' }, null, 4)).toEqual({ phase: 'failed', kind: 'nonce_mismatch', challengeId: 'ch-1' });
+  });
+
   it('classifies the confirm/request errors by the contract\'s exact texts', () => {
     expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: challenge expired' })).toBe('expired');
     expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: challenge consumed' })).toBe('consumed');
@@ -164,6 +182,11 @@ describe('wiring (source contract)', () => {
     expect(h).toContain('addNotificationReceivedListener');
     expect(h).toContain('onPushReceived(');
     expect(h).toContain('onFallbackDue(');
+    // A 200 that is not `rebound` must never reach `confirmed` or write a record.
+    expect(h).toContain('const reply = interpretConfirmReply(r.data);');
+    expect(h).toContain("if (reply.kind !== 'rebound') {");
+    expect(h.indexOf("if (reply.kind !== 'rebound') {")).toBeLessThan(h.indexOf('onConfirmOk(st, reply.tokenId)'));
+    expect(h.indexOf('onConfirmOk(st, reply.tokenId)')).toBeLessThan(h.indexOf('await saveRegistrationState({ record, failure: null });', h.indexOf('async function confirm(')));
     expect(h).toContain('onForeground(');
     expect(h).toContain("if (st === 'background') {");
     expect(h).not.toContain("st === 'inactive'");

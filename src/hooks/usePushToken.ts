@@ -34,8 +34,8 @@ import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import {
-  beginChallenge, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, onBackground, onCodeEntered,
-  onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, toCodeEntry, type ChallengeState,
+  beginChallenge, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, interpretConfirmReply, isChallengeExpired, onBackground,
+  onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, onWrongCode, toCodeEntry, type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
@@ -269,9 +269,24 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         publishChallenge();
         return;
       }
-      const d = r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>) : {};
-      const tokenId = typeof d.token_id === 'string' ? d.token_id : null;
-      challengeRef.current = onConfirmOk(st, tokenId);
+      // Only `rebound` is a bind. A 200 that says otherwise never confirms and never writes a record.
+      const reply = interpretConfirmReply(r.data);
+      if (reply.kind === 'nonce_mismatch') {
+        challengeRef.current = onWrongCode(st, prior, reply.attemptsLeft);
+        publishChallenge();
+        return;
+      }
+      if (reply.kind === 'consumed') {
+        challengeRef.current = onConfirmError(st, 'consumed', prior);
+        publishChallenge();
+        return;
+      }
+      if (reply.kind !== 'rebound') {
+        challengeRef.current = onConfirmError(st, 'unknown', prior);
+        publishChallenge();
+        return;
+      }
+      challengeRef.current = onConfirmOk(st, reply.tokenId);
       publishChallenge();
       const at = Date.now();
       const record: RegistrationRecord = { token, userId: uid, method: 'rpc', outcome: 'rebound', at, contractVersion: 3 };

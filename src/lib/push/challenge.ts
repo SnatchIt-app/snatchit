@@ -126,6 +126,37 @@ export function onBackground(state: ChallengeState, now: number): ChallengeState
   return { ...state, foreground: false, elapsedMs: state.elapsedMs + Math.max(0, now - state.startedAt) };
 }
 
+/**
+ * A 200 from `confirm_push_token_challenge` is a bind ONLY when it says
+ * `rebound` (D, 2026-09-16: A's 135 returns `nonce_mismatch` with
+ * `attempts_left`, and `challenge_consumed`, instead of raising — raising
+ * would roll back the attempt counter). Anything else is never a bind and
+ * never writes a record.
+ */
+export type ConfirmReply =
+  | { kind: 'rebound'; tokenId: string | null }
+  | { kind: 'nonce_mismatch'; attemptsLeft: number | null }
+  | { kind: 'consumed' }
+  | { kind: 'unknown' };
+
+export function interpretConfirmReply(data: unknown): ConfirmReply {
+  const d = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+  const outcome = d && typeof d.outcome === 'string' ? d.outcome : null;
+  if (outcome === 'rebound') return { kind: 'rebound', tokenId: d && typeof d.token_id === 'string' ? d.token_id : null };
+  if (outcome === 'nonce_mismatch') return { kind: 'nonce_mismatch', attemptsLeft: d && typeof d.attempts_left === 'number' ? d.attempts_left : null };
+  if (outcome === 'challenge_consumed') return { kind: 'consumed' };
+  return { kind: 'unknown' };
+}
+
+/** A wrong code reported in a 200: the server's counter is the authority when it gives one. */
+export function onWrongCode(state: ChallengeState, prior: AwaitingCode | null, attemptsLeft: number | null): ChallengeState {
+  const challengeId = state.phase === 'confirming' ? state.challengeId : prior?.challengeId ?? null;
+  if (!prior || state.phase !== 'confirming' || state.via !== 'code') return { phase: 'failed', kind: 'nonce_mismatch', challengeId };
+  const left = attemptsLeft ?? prior.attemptsLeft - 1;
+  if (left <= 0) return { phase: 'failed', kind: 'exhausted', challengeId };
+  return { ...prior, attemptsLeft: left, lastError: 'nonce_mismatch' };
+}
+
 /** Contract v3 §4/§5 texts, exact. */
 export function classifyChallengeError(err: ErrorLike | null | undefined): ChallengeErrorKind {
   if (!err) return 'unknown';
