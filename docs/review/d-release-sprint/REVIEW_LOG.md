@@ -536,6 +536,62 @@ Suggested to B, small: §4 tells the user what the verb does but not that the **
 itself. An agent who unbinds by mistake, or a user who changes their mind, currently has no documented way back;
 "open the app on the original phone" is the whole remedy and is worth one line.
 
+## Row 15 root-caused; row 17's sandbox limit; ceremony script cleared
+
+**Row 15 (04:12Z relaunch) is a deterministic re-entrancy defect in the shipped client, not a transient fetch
+failure.** A's sandbox API-log read carried the positive control I asked for (the 04:16:34.448Z
+`rpc/register_push_token` appears in the same query) and showed the 04:12 launch making six authenticated calls —
+`auth/v1/user`, `user_blocks`, `get_my_profile` ×2, `listings` ×2 — and **never calling the verb**. A's
+discriminator: the `auth/user` + `get_my_profile` pair appears **twice within five seconds** at 04:12 and **once**
+at 04:16.
+
+Reading `src/hooks/usePushToken.ts` at 9bef640 against that:
+- `attempt()` line 116 is `if (runningRef.current || !userId) return;` — a bare early return: no record, no publish,
+  nothing scheduled.
+- `obtainToken()` awaits `Notifications.getExpoPushTokenAsync(...)` with **no timeout**.
+- the effect cleanup (line 392) sets `alive = false` and clears timers but **never resets `runningRef`**.
+- `attempt()` **never consults `alive`** — the only two uses are the `setState` guards at 96 and 109.
+
+So a launch whose auth restores twice re-runs the `[userId]` effect while the first unbounded token fetch is still
+in flight; the second, *live* `attempt()` returns at line 116 having done nothing, and if the first fetch never
+resolves, `runningRef` stays true and **no registration can be attempted again for the rest of that launch**.
+Silent to the user, to Settings and to any server read — exactly the log's shape, and it predicts A's
+discriminator. **Not sandbox-specific and not new in 135:** it is in the shipped Build 17 client, so any user whose
+auth restores twice on a cold launch loses push registration for that launch.
+
+Sent to C, with the point that F-611C-1 as scoped would not close it — a bounded fetch, a persisted failure, a
+published state and a backoff all live *inside* `attempt()`, and the failing launch never gets past line 116, so
+the branch would improve instrumentation on the path that already worked. What closes it: the timeout (which is
+what releases `runningRef` through `finally`), resetting `runningRef` on cleanup or scoping it to the effect run,
+checking `alive` after each await, and making the line-116 early return schedule a re-check instead of ending the
+launch. Deterministic test, which "transient" would never have given us: hang `getExpoPushTokenAsync`, change
+`userId` mid-flight, assert the second attempt is not silently dropped. **It fails today** — that is the negative
+control for the whole fix.
+
+**Row 17 / DV-607a cannot test 131 on the sandbox.** 131 is not applied there (ledger 136 = 127–130; my SBX-2
+read-back agrees), and 131 is what creates `trg_push_bindings_on_sessions_gone`, the
+`after delete … for each statement` trigger on `auth.sessions` carrying the A-131-K2 behaviour. A server-side
+session delete on the sandbox therefore leaves the push binding untouched. Two opposite failure modes: expecting
+invalidation yields a false negative that costs a handset cycle and reads as a defect in what we just shipped; and
+if the token *is* revoked, it came from 129 via the client's `signOutThisDevice`, so recording it as evidence for
+the shipped behaviour is a false positive. Row 17 on the sandbox tests the client's reaction to a dead session and
+nothing more — written into the manifest row before it runs, and an argument for sequencing it after the B2
+application. As witness I capture, read-only: `auth.sessions` by id and count before/after; the handset's
+`push_tokens` row before/after (`is_active`, `revoked_at`, `revoked_reason`, proof presence, `session_id`); and the
+**absence** of the trigger at the moment of the delete, so the manifest carries proof of why the server did
+nothing rather than an inference.
+
+**Ceremony script cleared at `5bd47da`.** `require_server_is_sandbox` asserts identity on the server before any
+write in both `url` and `key` — ledger 130..141, `ops` absent, `public.sandbox_gucs` present (absence *and*
+presence) — and the output says what it checked instead of the vacuous `server_ref_ok=true`. `\bind :'srk'` taken;
+the env-exposure property and the DRY-length rationale are recorded. Nothing further from me on it.
+
+**Relayed rulings — the asymmetry I am applying.** C reports the owner deferred the sandbox push key and blocked
+b2 real-delivery verification; A has not had it directly and is asking the owner to confirm. A relayed message that
+*restricts* can be honoured at once, because stopping needs no authorisation; a relayed message that *permits*
+cannot. So the key is deferred and **(b) is the operating assumption** from here, the b2 device rows are
+**deferred, not failed**, and the apply-order confirmation remains outstanding.
+
 ## W-1 — the sandbox window cannot deliver a challenge as authorized (raised before execution)
 
 **Finding W-1 (HIGH for the window's purpose; not a defect in 135).** A's pre-flight reports the sandbox Vault
