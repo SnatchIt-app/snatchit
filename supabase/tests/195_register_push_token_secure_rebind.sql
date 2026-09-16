@@ -14,6 +14,13 @@
 -- ============================================================================
 BEGIN;
 SELECT plan(58);
+-- [135] a cross-account bind now requires a session claim and answers challenge_required; these helpers give the tests one
+CREATE FUNCTION tap._sess195(p_uid uuid) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v uuid := gen_random_uuid();
+BEGIN INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES (v, p_uid, clock_timestamp(), clock_timestamp(), 'aal1'); RETURN v; END $$;
+CREATE FUNCTION tap._login195s(p_uid uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN PERFORM tap.login(p_uid);
+  PERFORM set_config('request.jwt.claims', (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || jsonb_build_object('session_id', tap._sess195(p_uid)::text))::text, true); END $$;
 SELECT tap.seed_core();
 
 CREATE TABLE tap.memo_195 (k text PRIMARY KEY, v text);
@@ -200,9 +207,13 @@ SELECT is(tap._try195(tap._f195('nea')), tap._try195(tap._f195('bad')),
   'C4: a near-miss secret and a wild guess return the IDENTICAL error — no oracle');
 
 -- ── D. ACCOUNT SWITCHING on the same device ─────────────────────────────────
+-- [135, contract v3] presenting the device secret no longer rebinds by itself: every ownership change
+-- must be proven through the push provider (202 covers the confirm). The verb answers challenge_required
+-- and the row stays the owner's until then.
+SELECT tap._login195s(tap.other_user());
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'),
-  'rebound', 'D1: presenting the device secret rebinds — a real handover');
-SELECT is(tap._owner195(), tap.other_user(), 'D2: ...the token now belongs to the new account');
+  'challenge_required', 'D1 (under 135): presenting the device secret from another account starts a possession challenge, not a rebind');
+SELECT is(tap._owner195(), tap.buyer(), 'D2 (under 135): ...the token still belongs to its owner until the challenge is confirmed');
 SELECT is(tap._rows195(), 1, 'D3: ...still exactly one row; the client never fights UNIQUE(token)');
 
 -- ── E. ORDINARY SIGN-OUT ────────────────────────────────────────────────────
@@ -213,14 +224,15 @@ SELECT is(left(tap._try195(tap._f195('bad')), 5), '42501',
   'E1: a signed-out binding that HAS a hash is still not claimable without the secret');
 -- A pre-epoch binding with no proof, signed out recently, is the handover case.
 SELECT tap._mkrow195(tap.buyer(), NULL, false, 'signed_out', interval '1 hour', interval '90 days');
+SELECT tap._login195s(tap.other_user());
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'),
-  'rebound_legacy', 'E2: a pre-epoch hash-less binding, signed out recently, IS claimable');
+  'challenge_required', 'E2 (under 135): a pre-epoch hash-less binding, signed out recently, is claimable only by proof — a challenge, not rebound_legacy');
 -- ONE spelling. 'signed_out' is what notify.revoke_push_token writes and the only
 -- server writer there is; a second accepted value only a client can author would
 -- be surface for nothing.
 SELECT tap._mkrow195(tap.buyer(), NULL, false, 'sign_out', interval '1 hour', interval '90 days');
-SELECT is(left(tap._try195(tap._f195('sec')), 5), '42501',
-  'E3: the client-only ''sign_out'' spelling is NOT honoured — one spelling only');
+SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('sec'), 'iPhone') ->> 'outcome'),
+  'challenge_required', 'E3 (under 135): the client-only ''sign_out'' spelling grants nothing — the same possession challenge as any foreign row, never a bind');
 
 -- ── F. PROVIDER REVOCATION — the V2 core ────────────────────────────────────
 -- notify.record_delivery_result revokes on device_not_registered with no user
@@ -266,11 +278,13 @@ SELECT tap.login(tap.buyer());
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('bad'), 'iPhone') ->> 'outcome'),
   'refreshed', 'H1: an owner presenting a new secret is refreshed (the reply cannot reveal the mismatch)');
 SELECT is(tap._hash195(), tap._h195(tap._f195('sec')), 'H2: ...and the stored hash is still the original');
--- Deleted as the CLIENT, under RLS, because the RLS owner-delete policy is what
--- the whole recovery story rests on. A definer helper here would prove nothing.
+-- [135] a client DELETE under RLS is now a revoke with history (the row stays, tombstoned), so recovery is simply
+-- register again: the owner's row is re-activated (`refreshed`). The stored proof no longer decides ownership
+-- (every cross-account bind is a possession challenge, 202), so a stale stored hash after a lost local secret is
+-- harmless to the owner and grants nothing to anyone else.
 DELETE FROM public.push_tokens WHERE token = tap._f195('tok');
 SELECT is((public.register_push_token(tap._f195('tok'), 'ios', tap._f195('bad'), 'iPhone') ->> 'outcome'),
-  'registered', 'H3: recovery is delete-your-own-row under RLS, then register — never rotation');
+  'refreshed', 'H3 (under 135): a client delete is a revoke, not a removal; recovery is register → refreshed — never rotation, never a fresh registered');
 
 -- ── I. THE PROOF COLUMN IS NOT CLIENT-WRITABLE (acts as a real client) ──────
 SELECT tap._mkrow195(tap.buyer(), tap._h195(tap._f195('sec')), true, NULL, NULL, interval '1 day');

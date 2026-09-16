@@ -113,24 +113,24 @@ SELECT has_table('notify','delivery','A3: notify.delivery');
 SELECT has_table('notify','preference','A4: notify.preference');
 SELECT has_table('notify','template','A5: notify.template');
 SELECT has_table('notify','identity_channel_state','A6: notify.identity_channel_state');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='notify' AND c.relkind='r'), 7,
-  'A7: notify holds exactly 7 tables — 076''s outbox + the six (NO schedule, NO announcement: OR-5 [C])');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='notify' AND c.relkind='r'), 8,
+  'A7: notify holds exactly 8 tables — 076''s outbox + the six (NO schedule, NO announcement: OR-5 [C]) + 135''s push_token_challenges');
 SELECT has_column('notify','outbox','expand_cursor','A8: outbox.expand_cursor (RPC §17.24 (i))');
 SELECT has_column('notify','outbox','expanded_count','A9: outbox.expanded_count');
 SELECT has_column('public','push_tokens','revoked_at','A10: push_tokens.revoked_at (schema §13.4)');
 SELECT has_column('public','push_tokens','revoked_reason','A11: push_tokens.revoked_reason');
 SELECT has_column('public','push_tokens','provider_receipt_checked_at','A12: push_tokens.provider_receipt_checked_at');
 SELECT has_column('public','push_tokens','last_provider_error','A13: push_tokens.last_provider_error');
-SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace='notify'::regnamespace), 17,
-  'A14: notify holds 17 routines — 076''s emit pair + 092''s fifteen (the reduced 16 minus emit_event; no announcement RPC, no sweep_scheduled)');
+SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace='notify'::regnamespace), 20,
+  'A14: notify holds 20 routines — 076''s emit pair + 092''s fifteen (the reduced 16 minus emit_event; no announcement RPC, no sweep_scheduled) + 135''s issue_push_token_challenge, get_push_token_challenge and record_push_token_challenge_delivery');
 SELECT is((SELECT string_agg(p.oid::regprocedure::text, E'\n' ORDER BY p.oid::regprocedure::text COLLATE "C")
              FROM pg_proc p WHERE p.pronamespace='notify'::regnamespace AND p.proname NOT LIKE 'emit_event%'),
-  E'notify.channel_enabled(uuid,text,text)\nnotify.claim_deliveries(text,integer)\nnotify.dismiss(uuid[])\nnotify.drain_outbox(integer)\nnotify.enqueue(uuid,text,text,uuid,jsonb,text)\nnotify.get_inbox(timestamp with time zone,integer)\nnotify.get_preference_matrix()\nnotify.get_unread_count()\nnotify.mark_all_read()\nnotify.mark_read(uuid[])\nnotify.record_delivery_result(uuid,text,text,text,text,text,text)\nnotify.register_push_token(text,text,text,text)\nnotify.resolve_web_link(text,uuid)\nnotify.revoke_push_token(text)\nnotify.set_preference(text,text,boolean)',
-  'A15: the fifteen 092 routines by exact signature — OBJECTS EXTRA 0, MISSING 0');
+  E'notify.channel_enabled(uuid,text,text)\nnotify.claim_deliveries(text,integer)\nnotify.dismiss(uuid[])\nnotify.drain_outbox(integer)\nnotify.enqueue(uuid,text,text,uuid,jsonb,text)\nnotify.get_inbox(timestamp with time zone,integer)\nnotify.get_preference_matrix()\nnotify.get_push_token_challenge(uuid)\nnotify.get_unread_count()\nnotify.issue_push_token_challenge(uuid,uuid,uuid,text,text,text,text)\nnotify.mark_all_read()\nnotify.mark_read(uuid[])\nnotify.record_delivery_result(uuid,text,text,text,text,text,text)\nnotify.record_push_token_challenge_delivery(uuid,text,text,text)\nnotify.register_push_token(text,text,text,text)\nnotify.resolve_web_link(text,uuid)\nnotify.revoke_push_token(text)\nnotify.set_preference(text,text,boolean)',
+  'A15: the fifteen 092 routines + 135''s three by exact signature — OBJECTS EXTRA 0, MISSING 0');
 SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.pronamespace='notify'::regnamespace AND p.proname NOT LIKE 'emit_event%'
              AND p.prosecdef AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname='postgres')
-             AND 'search_path=""' = ANY(p.proconfig)), 15,
-  'A16: all fifteen are SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline)');
+             AND 'search_path=""' = ANY(p.proconfig)), 18,
+  'A16: all fifteen + 135''s three are SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline)');
 -- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
 SELECT is((SELECT count(*)::int FROM cron.job), 24, 'A17: cron census 24 — 18 post-091 + notify-drain-outbox + 099''s three signing/executor jobs + 117''s ops-detect-tick and ops-daily-summary (an absolute census)');
 SELECT is((SELECT schedule || ' | ' || command FROM cron.job WHERE jobname='notify-drain-outbox'), '*/2 * * * * | select notify.drain_outbox(200);',
@@ -153,17 +153,17 @@ SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname IN ('notify-dispatch
 SELECT is((SELECT count(DISTINCT key)::int FROM catalog.platform_config), 54, 'A20: config census 54 keys — 42 post-091 + notify.delivery_lease_interval + 093''s six + 099''s five (distinct keys: the fixture bumps two versions)');
 SELECT is((SELECT c.visibility || ':' || coalesce(c.value #>> '{}', '<null>') FROM catalog.platform_config c WHERE c.key='notify.delivery_lease_interval' ORDER BY c.version DESC LIMIT 1),
   'restricted:<null>', 'A21: the lease key is seeded OWNER-UNSET (PFA-22 shape, E-154) — no value invented');
-SELECT is((SELECT count(*)::int FROM notify.notification_type), 31, 'A22: registry seeds exactly the 31 reduced IN types (ODR-3 §1 + OR-15 + OR-17)');
-SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE delivery_class='mandatory'), 29, 'A23: 29 MANDATORY (21 ODR-3 + 6 N3 refund/approval + the OR-15 ninth + the OR-17 pair)');
+SELECT is((SELECT count(*)::int FROM notify.notification_type), 32, 'A22: registry seeds exactly the 31 reduced IN types + 135''s security_device_rebound (the 31 reduced IN types (ODR-3 §1 + OR-15 + OR-17)');
+SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE delivery_class='mandatory'), 30, 'A23: 30 MANDATORY (135''s security_device_rebound + 29: 29 MANDATORY (21 ODR-3 + 6 N3 refund/approval + the OR-15 ninth + the OR-17 pair)');
 SELECT is((SELECT string_agg(type_key, ',' ORDER BY type_key COLLATE "C") FROM notify.notification_type WHERE delivery_class <> 'mandatory'),
   'promoter_commission_accrued,wallet_pass_available', 'A24: exactly the two ON types; zero default_off');
 SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE legacy OR NOT active OR registry_version <> 1), 0, 'A25: no legacy row (ODR-114 silence), all active, registry_version 1');
 SELECT is((SELECT string_agg(type_key, ',' ORDER BY type_key COLLATE "C") FROM notify.notification_type),
-  'account_deletion_completed,account_deletion_pending,event_cancelled,event_postponed,event_time_changed,event_venue_changed,ownership_changed,payout_failed,payout_on_hold,payout_released,payout_request_pending_approval,promoter_commission_accrued,purchase_confirmed,purchase_failed,refund_completed,refund_failed,refund_request_approved,refund_request_cancelled,refund_request_denied,refund_request_expired,refund_request_parked,refund_requested,refund_submitted,security_org_role_granted,security_org_role_revoked,security_password_changed,security_payout_destination_changed,security_payout_method_added,staff_payout_failed,ticket_ready,wallet_pass_available',
+  'account_deletion_completed,account_deletion_pending,event_cancelled,event_postponed,event_time_changed,event_venue_changed,ownership_changed,payout_failed,payout_on_hold,payout_released,payout_request_pending_approval,promoter_commission_accrued,purchase_confirmed,purchase_failed,refund_completed,refund_failed,refund_request_approved,refund_request_cancelled,refund_request_denied,refund_request_expired,refund_request_parked,refund_requested,refund_submitted,security_device_rebound,security_org_role_granted,security_org_role_revoked,security_password_changed,security_payout_destination_changed,security_payout_method_added,staff_payout_failed,ticket_ready,wallet_pass_available',
   'A26: the type-key set equals the R2 classification''s 31 IN keys — catalogue/registry parity');
 SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE type_key LIKE 'announcement%' OR type_key IN ('transfer_received','transfer_accepted','listing_sold','attribution_recorded')), 0,
   'A27: no OUT type crossed the gate (announcements, resale/transfer rails, attribution_recorded)');
-SELECT is((SELECT count(*)::int FROM notify.template), 61, 'A28: 61 template rows — 31 in_app + 30 push (account_deletion_completed is E-only) + ZERO email (N1)');
+SELECT is((SELECT count(*)::int FROM notify.template), 62, 'A28: 62 template rows — 32 in_app (135''s security_device_rebound) + 30 push (account_deletion_completed is E-only) + ZERO email (N1)');
 SELECT is((SELECT count(*)::int FROM notify.template WHERE channel='email'), 0, 'A29: no email template exists — email is owner-gated (N1); nothing is invented');
 SELECT is((SELECT count(*)::int FROM notify.notification_type t WHERE NOT EXISTS (SELECT 1 FROM notify.template x WHERE x.template_key=t.template_key AND x.channel='in_app' AND x.locale='en-US')), 0,
   'A30: every registry row has an en-US in_app template (the centre can always render)');
@@ -189,12 +189,12 @@ SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='pr
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='kernel' AND c.relkind='r'), 32, 'A43: kernel tables 32 — 111''s signing_key_recovery_approval, 094''s kernel.organization_obligation and 096''s payout_reversal/organization_obligation_recovery are the only relations added since 091');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='venue' AND c.relkind='r'), 29, 'A44: venue tables unchanged at 29');
 -- 2026-09-03 (package 096): 76 -> 78 (kernel's two new tables).
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 79, 'A45: five-schema relations 79 (111''s kernel.signing_key_recovery_approval + 69 post-091 + 092''s 6 + 094''s kernel.organization_obligation + 096''s two)');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify') AND c.relkind IN ('r','p','v','m','S','f')), 80, 'A45: five-schema relations 80 (135''s notify.push_token_challenges + 111''s kernel.signing_key_recovery_approval + 69 post-091 + 092''s 6 + 094''s kernel.organization_obligation + 096''s two)');
 -- 2026-09-02 (package 093): 243 -> 250. RATIFIED CONTRACT CHANGE — SEVEN kernel routines:
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 300,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 303,
   -- 2026-09-05 (package 114): 294 -> 296 (+2 venue: get_signing_keys_door, get_manifest_signing_context).
   -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core, get_door_manifest_door).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
@@ -217,7 +217,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A46: five-schema routines 300 (131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
+  'A46: five-schema routines 303 (135''s 3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery + 131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,
@@ -244,7 +244,7 @@ SELECT is(has_table_privilege('authenticated','notify.preference','SELECT') AND 
 SELECT is(has_table_privilege('authenticated','notify.preference','DELETE'), false, 'B11: preference — no DELETE');
 SELECT is((SELECT count(*)::int FROM information_schema.role_table_grants WHERE table_schema='notify' AND table_name IN ('notification_type','template','delivery','identity_channel_state','outbox') AND grantee <> 'postgres'), 0,
   'B12: notification_type · template · delivery · identity_channel_state · outbox — deny-all, no client grant');
-SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='notify' AND c.relkind='r' AND c.relrowsecurity), 7, 'B13: RLS enabled on all seven notify tables');
+SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='notify' AND c.relkind='r' AND c.relrowsecurity), 8, 'B13: RLS enabled on all eight notify tables (incl. 135''s push_token_challenges)');
 SELECT is((SELECT string_agg(policyname, ',' ORDER BY policyname COLLATE "C") FROM pg_policies WHERE schemaname='notify'),
   'notify_notification_sel_owner,notify_notification_upd_owner,notify_preference_ins_owner,notify_preference_sel_owner,notify_preference_upd_owner',
   'B14: exactly the five §16.9 owner policies, by name; zero on the deny-all tables');
@@ -590,15 +590,21 @@ SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1
 SELECT throws_ok($$SELECT public.register_push_token('short', 'ios', 'secret-shared-1-0123456789', NULL)$$, 'P0001', NULL, 'H5: token length is validated');
 SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'ios', 'tiny', NULL)$$, 'P0001', NULL, 'H6: device secret length is validated (128; the legacy locale check has no equivalent — the verb takes no locale, E-157 unchanged)');
 SELECT tap.logout();
-SELECT tap.login(tap.other_user());
-SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel')$$, 'H7: the device changes hands — same device secret, new account (128 rule 3)');
-SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.other_user(), 'H8 (D-4): …and user_id ALWAYS follows auth.uid()');
-SELECT tap.logout();
-SELECT tap.login(tap.buyer());
-SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H9 (IDOR): the previous owner cannot revoke it');
+-- [135, contract v3] the hand-off is a possession CHALLENGE, never an immediate rebind: ownership and the revoke
+-- right stay with the current owner until confirm_push_token_challenge proves the device (202 covers the confirm).
+CREATE FUNCTION tap._sess157(p_uid uuid) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v uuid := gen_random_uuid();
+BEGIN INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES (v, p_uid, clock_timestamp(), clock_timestamp(), 'aal1'); RETURN v; END $$;
+CREATE FUNCTION tap._login157s(p_uid uuid) RETURNS void LANGUAGE plpgsql AS $$   -- not definer: tap.login sets the role
+BEGIN PERFORM tap.login(p_uid);
+  PERFORM set_config('request.jwt.claims', (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || jsonb_build_object('session_id', tap._sess157(p_uid)::text))::text, true); END $$;
+SELECT tap._login157s(tap.other_user());
+SELECT is((public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel') ->> 'outcome'), 'challenge_required', 'H7 (under 135): the device changes hands only by proof — a challenge, not a rebind');
+SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.buyer(), 'H8 (under 135): …user_id never moves without a confirmed challenge');
+SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H9 (IDOR): the challenger cannot revoke a binding that is not theirs');
 SELECT ok((tap._tok157('ExponentPushToken[shared-1]')).revoked_at IS NULL, 'H10: …still live');
 SELECT tap.logout();
-SELECT tap.login(tap.other_user());
+SELECT tap.login(tap.buyer());
 SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '1', 'H11 (D-6): the owner revokes on sign-out');
 SELECT is((tap._tok157('ExponentPushToken[shared-1]')).revoked_reason, 'signed_out', 'H12: reason signed_out');
 SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H13: idempotent');
