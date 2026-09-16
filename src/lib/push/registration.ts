@@ -33,7 +33,7 @@
 
 export type RegistrationMethod = 'rpc' | 'legacy';
 
-export type RpcOutcome = 'registered' | 'refreshed' | 'rebound' | 'rebound_legacy';
+export type RpcOutcome = 'registered' | 'refreshed' | 'rebound' | 'rebound_legacy' | 'challenge_required';
 
 export interface RegistrationRecord {
   token: string;
@@ -52,7 +52,15 @@ export interface RegistrationRecord {
  * freezes v2 after independent review; a reply carrying any other version is
  * not treated as a success (see registerToken.ts).
  */
-export const EXPECTED_128_CONTRACT_VERSION = 2;
+/**
+ * Contract v3 (DRAFT, b2, D's review 2026-09-16): the server stamps 2 on plain
+ * `registered` / `refreshed` replies and 3 only on replies carrying a
+ * `challenge` and on `confirm_push_token_challenge`. So this client accepts
+ * {2, 3} on plain outcomes (the installed base keeps registering on a v3
+ * server) and requires 3 wherever a challenge is involved.
+ */
+export const EXPECTED_CHALLENGE_CONTRACT_VERSION = 3;
+export const ACCEPTED_REGISTER_CONTRACT_VERSIONS: readonly number[] = [2, 3];
 
 export type RegistrationErrorKind =
   | 'rpc_missing'        // 128 not deployed here: PostgREST cannot find the function
@@ -224,4 +232,7 @@ export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>>
     "Notifications can't be set up on this device right now because secure storage is unavailable.",
   session_stale:
     'You were signed out on this device. Sign in again to turn notifications back on.',
+  // v3: the server speaks a contract this build was not written for (an old build on a newer server, or the reverse).
+  contract_mismatch:
+    "This version of the app can't set up notifications on this device. Update the app to continue.",
 };

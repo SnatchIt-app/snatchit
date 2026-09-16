@@ -18,7 +18,7 @@ vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn(), 
 
 import { bidGroupOf, bidPresentation, bidStatusOf, needsAction, type BidRowInput } from '@/src/lib/bids/bidState';
 import { consumeSessionEnd, markSessionEnd, markSessionEndIfUnmarked, sessionEndNotice } from '@/src/lib/auth/sessionEnd';
-import { classifyRegistrationError, decideRegistration, EXPECTED_128_CONTRACT_VERSION, type RegistrationFailure, type RegistrationRecord } from '@/src/lib/push/registration';
+import { classifyRegistrationError, decideRegistration, EXPECTED_CHALLENGE_CONTRACT_VERSION, type RegistrationFailure, type RegistrationRecord } from '@/src/lib/push/registration';
 import { registerWithRpc } from '@/src/lib/push/registerToken';
 
 const root = resolve(__dirname, '..');
@@ -134,10 +134,10 @@ describe('128 prep (C-1) — cold launch and contract_version pin, provisional u
     expect(decideRegistration({ ...base, failure: net, coldLaunch: true })).toMatchObject({ action: 'wait', reason: 'backoff' });
   });
   it('a reply with another contract_version is not a success and is terminal until a new build', async () => {
-    expect(EXPECTED_128_CONTRACT_VERSION).toBe(2);
-    const rpc = async () => ({ data: { token_id: 't', outcome: 'refreshed', platform: 'ios', contract_version: EXPECTED_128_CONTRACT_VERSION + 1 }, error: null });
+    expect(EXPECTED_CHALLENGE_CONTRACT_VERSION).toBe(3); // v3 (b2): plain outcomes accept 2 or 3; a challenge and confirm require 3
+    const rpc = async () => ({ data: { token_id: 't', outcome: 'refreshed', platform: 'ios', contract_version: EXPECTED_CHALLENGE_CONTRACT_VERSION + 1 }, error: null });
     expect(await registerWithRpc({ rpc }, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: null })).toEqual({ ok: false, kind: 'contract_mismatch' });
-    const v2 = async () => ({ data: { token_id: 't', outcome: 'rebound', platform: 'ios', contract_version: EXPECTED_128_CONTRACT_VERSION }, error: null });
+    const v2 = async () => ({ data: { token_id: 't', outcome: 'rebound', platform: 'ios', contract_version: 2 }, error: null }); // v3: plain outcomes accept 2
     expect(await registerWithRpc({ rpc: v2 }, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: null })).toMatchObject({ ok: true, outcome: 'rebound', contractVersion: 2 });
     const v1 = async () => ({ data: { token_id: 't', outcome: 'registered', platform: 'ios' }, error: null });
     expect(await registerWithRpc({ rpc: v1 }, { token: 'tok', platform: 'ios', secret: 's'.repeat(43), deviceName: null })).toMatchObject({ ok: true, contractVersion: null });

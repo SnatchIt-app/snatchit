@@ -29,9 +29,11 @@
 
 import { supabase } from '@/src/lib/supabase';
 
+import type { ChallengeInfo } from './challenge';
 import {
+  ACCEPTED_REGISTER_CONTRACT_VERSIONS,
   classifyRegistrationError,
-  EXPECTED_128_CONTRACT_VERSION,
+  EXPECTED_CHALLENGE_CONTRACT_VERSION,
   type ErrorLike,
   type RegistrationErrorKind,
   type RpcOutcome,
@@ -52,6 +54,8 @@ export interface RpcReply {
   platform: PushPlatform;
   /** v2 carries the contract version on every reply; v1 replies have none. */
   contract_version?: number;
+  /** v3: present with `challenge_required` — the proof-of-possession challenge to complete. */
+  challenge?: ChallengeInfo;
 }
 
 export interface RegisterDeps {
@@ -60,19 +64,23 @@ export interface RegisterDeps {
   legacySelect: (token: string) => Promise<{ data: { id: string } | null; error: ErrorLike | null }>;
   legacyTouch: (id: string, nowIso: string) => Promise<{ error: ErrorLike | null }>;
   legacyInsert: (row: { user_id: string; token: string; platform: PushPlatform; is_active: true }) => Promise<{ error: ErrorLike | null }>;
-  /** Deletes the caller's own row by id (RLS DELETE own). Recovery only. */
+  /** Deletes the caller's own row by id (RLS DELETE own). Recovery only. (v3: the server turns it into a revoke with history.) */
   deleteOwn: (id: string) => Promise<{ error: ErrorLike | null }>;
+  /** v3: echo the nonce (or the 6-digit code) for a challenge. */
+  confirmChallenge: (challengeId: string, nonce: string) => Promise<{ data: unknown; error: ErrorLike | null }>;
+  /** v3: ask for the visible-code form of the open challenge for this token (the device secret proves it is the same requester). */
+  requestChallenge: (token: string, secret: string) => Promise<{ data: unknown; error: ErrorLike | null }>;
 }
 
 export type RegisterResult =
-  | { ok: true; method: 'rpc'; outcome: RpcOutcome; tokenId: string | null; contractVersion: number | null }
+  | { ok: true; method: 'rpc'; outcome: RpcOutcome; tokenId: string | null; contractVersion: number | null; challenge?: ChallengeInfo }
   | { ok: true; method: 'legacy'; outcome: 'registered' | 'refreshed'; tokenId: string | null }
   | { ok: false; kind: RegistrationErrorKind };
 
 function isRpcReply(v: unknown): v is RpcReply {
   if (!v || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
-  return typeof o.outcome === 'string' && ['registered', 'refreshed', 'rebound', 'rebound_legacy'].includes(o.outcome);
+  return typeof o.outcome === 'string' && ['registered', 'refreshed', 'rebound', 'rebound_legacy', 'challenge_required'].includes(o.outcome);
 }
 
 export async function registerWithRpc(
@@ -95,11 +103,21 @@ export async function registerWithRpc(
   // A reply that names a contract this build was not written for is not a
   // success: the server may have changed what `refreshed` or `rebound` mean.
   const cv = reply.data.contract_version;
-  if (cv != null && cv !== EXPECTED_128_CONTRACT_VERSION) return { ok: false, kind: 'contract_mismatch' };
+  const withChallenge = reply.data.outcome === 'challenge_required' || reply.data.challenge != null;
+  // v3 stamping: a challenge is always version 3; plain outcomes may be 2 or 3.
+  if (withChallenge ? cv !== EXPECTED_CHALLENGE_CONTRACT_VERSION : cv != null && !ACCEPTED_REGISTER_CONTRACT_VERSIONS.includes(cv)) {
+    return { ok: false, kind: 'contract_mismatch' };
+  }
+  const ch = reply.data.challenge;
+  const challenge: ChallengeInfo | undefined =
+    reply.data.outcome === 'challenge_required' && ch && typeof ch === 'object' && typeof ch.id === 'string'
+      ? { id: ch.id, mode: ch.mode === 'visible' ? 'visible' : 'silent', expires_in_s: typeof ch.expires_in_s === 'number' ? ch.expires_in_s : 300 }
+      : undefined;
   return {
     ok: true, method: 'rpc', outcome: reply.data.outcome,
     tokenId: typeof reply.data.token_id === 'string' ? reply.data.token_id : null,
     contractVersion: cv ?? null,
+    ...(challenge ? { challenge } : {}),
   };
 }
 
@@ -181,5 +199,13 @@ export const supabaseRegisterDeps: RegisterDeps = {
   deleteOwn: async (id) => {
     const { error } = await supabase.from('push_tokens').delete().eq('id', id);
     return { error };
+  },
+  confirmChallenge: async (challengeId, nonce) => {
+    const { data, error } = await supabase.rpc('confirm_push_token_challenge', { p_challenge_id: challengeId, p_nonce: nonce });
+    return { data, error };
+  },
+  requestChallenge: async (token, secret) => {
+    const { data, error } = await supabase.rpc('request_push_token_challenge', { p_token: token, p_device_secret: secret, p_mode: 'visible' });
+    return { data, error };
   },
 };
