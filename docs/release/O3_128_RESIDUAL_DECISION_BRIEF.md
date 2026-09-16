@@ -268,3 +268,12 @@ an intermediate build 18 around Fri 19–Mon 22.
 **What b2 still does not close, stated next to the ask (D):** an attacker holding the victim's *unlocked* phone at bind
 time (C5 lets the victim take the binding back afterwards); an attacker who knows the new password; notification content
 on a lock screen. No acceptance of any residual is implied here; the choice is the owner's.
+
+### Evidence from acceptance (2026-09-16), placed next to the b1/b2 ask — in the owner's terms
+On build 17 the owner's handset met 128's lock-out benignly: the phone had been used with a staff account on Build 16, so
+the buyer's registration was refused ("token is bound to another account", the F7 protection working) and the app showed
+its terminal "contact support" state. Recovery took **four guided steps and the credentials of the account that previously
+held the device** (staff sign-in → `refreshed`, staff sign-out → `signed_out`, buyer sign-in → `rebound`; D read back the
+final row independently: same token row, the buyer's, proof present). **A real user in that position has no such account;
+their only route today is support `unbind_push_token`** — the launch runbook item under b1, and exactly the case b2 removes
+by proof of possession. Every Build 16 user who switches accounts on one phone is in that position at launch.
