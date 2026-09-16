@@ -15,7 +15,7 @@
  * another account; a deterministic precondition refusal) until the account,
  * the token or the method changes. A lost device secret is recovered by
  * deleting the row this device owns and registering afresh, under the gates in
- * registerToken.ts. Sign-out is elsewhere (signOutEverywhere) and unchanged.
+ * registerToken.ts. Sign-out is elsewhere (signOutThisDevice / signOutAllDevices).
  * The 128 contract is not frozen (A, f7b31ad); a further delta is expected.
  *
  * - Skips silently on simulators / emulators (push tokens require real devices)

@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
 import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
@@ -124,16 +124,47 @@ export default function SettingsScreen() {
         onPress: async () => {
           setSigningOut(true);
           try {
-            await signOutEverywhere();
+            const r = await signOutThisDevice();
+            // F-K2-3: still signed in on failure — stay here, say so, let them retry.
+            if (!r.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }
             router.replace('/(auth)/login');
           } catch {
-            alertWeb('Failed to sign out. Please try again.');
+            alertWeb(SIGN_OUT_FAILED_COPY);
           } finally {
             setSigningOut(false);
           }
         },
       },
     ]);
+  }
+
+  // K-2 (owner-approved): a distinct act from "Sign out" (this device only).
+  async function handleSignOutAllDevices() {
+    Alert.alert(
+      'Sign out of all devices',
+      'This ends your session on every device and stops notifications everywhere until you sign in again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out everywhere',
+          style: 'destructive',
+          onPress: async () => {
+            setSigningOut(true);
+            try {
+              const r = await signOutAllDevices();
+              // F-K2-3: the server may already have revoked every binding; the
+              // user stays here with the exact state and retries when online.
+              if (!r.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }
+              router.replace('/(auth)/login');
+            } catch {
+              alertWeb(SIGN_OUT_FAILED_COPY);
+            } finally {
+              setSigningOut(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   // Human labels for the live-rail obligation tokens returned by delete-account
@@ -199,7 +230,8 @@ export default function SettingsScreen() {
       // completion is not immediate. `pending_obligations` is additive — an
       // older edge simply omits it.
       await notifyDeletionAccepted(parsed);
-      await signOutEverywhere();
+      // K-1: a deleted account ends every session and revokes every binding.
+      await signOutAllDevices();
       router.replace('/(auth)/login');
     } catch {
       alertWeb('Something went wrong. Please try again.');
@@ -312,6 +344,7 @@ export default function SettingsScreen() {
         {/* ── Account actions ───────────────────────────────── */}
         <View style={s.actions}>
           <Button label="Sign out" variant="secondary" onPress={handleSignOut} loading={signingOut} disabled={signingOut} block />
+          <Button label="Sign out of all devices" variant="secondary" onPress={handleSignOutAllDevices} disabled={signingOut} block />
           <Button label="Delete account" variant="destructive" onPress={handleDeleteAccount} loading={deleting} disabled={deleting} block />
         </View>
       </ScrollView>

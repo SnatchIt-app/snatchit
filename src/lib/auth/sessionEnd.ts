@@ -10,7 +10,8 @@
  * login screen says nothing stale. Process memory only; nothing persisted.
  */
 
-export type SessionEndReason = 'user' | 'expired';
+/** 'password_changed' = this device just set a new password and signed out everywhere on purpose (K-2). */
+export type SessionEndReason = 'user' | 'expired' | 'password_changed';
 
 let pending: SessionEndReason | null = null;
 
@@ -34,6 +35,7 @@ export function consumeSessionEnd(): SessionEndReason | null {
 export const SESSION_END_NOTICE: Record<SessionEndReason, string | null> = {
   user: null,
   expired: 'Your session expired. Sign in to pick up where you left off.',
+  password_changed: 'Password updated. Sign in with your new password.',
 };
 
 export function sessionEndNotice(reason: SessionEndReason | null): string | null {

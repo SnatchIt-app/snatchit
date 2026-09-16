@@ -20,7 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
-import { signOutEverywhere } from '@/src/lib/auth/signOut';
+import { SIGN_OUT_FAILED_COPY, signOutThisDevice } from '@/src/lib/auth/signOut';
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
@@ -202,8 +202,10 @@ export default function ProfileScreen() {
 
   async function handleSignOut() {
     setSignOutBusy(true);
-    await signOutEverywhere();
+    const r = await signOutThisDevice();
     setSignOutBusy(false);
+    // F-K2-3: still signed in on failure — say so; the button stays for a retry.
+    if (!r.signedOut) Alert.alert('Sign out', SIGN_OUT_FAILED_COPY);
   }
 
   if (pageLoading) {

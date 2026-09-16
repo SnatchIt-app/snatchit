@@ -60,7 +60,7 @@ describe('CFT-607 — session expiry says so on the login screen', () => {
   });
   it('the sign-out helper marks before the SDK call, useAuth marks the unmarked case, login reads once', () => {
     const so = stripComments(read('src/lib/auth/signOut.ts'));
-    expect(so).toMatch(/markSessionEnd\('user'\);\s*await supabase\.auth\.signOut\(\);/);
+    expect(so).toMatch(/markSessionEnd\(reason\);\s*const \{ error \} = await supabase\.auth\.signOut\(\{ scope \}\);/); // K-2: reason defaults to 'user', scope to 'local'; F-K2-3: the error is read
     const auth = stripComments(read('src/hooks/useAuth.ts'));
     expect(auth).toContain("if (event === 'SIGNED_OUT' && newSession === null) markSessionEndIfUnmarked('expired');");
     const login = stripComments(read('app/(auth)/login.tsx'));
@@ -71,7 +71,7 @@ describe('CFT-607 — session expiry says so on the login screen', () => {
     const so = stripComments(read('src/lib/auth/signOut.ts'));
     expect(so).toContain("supabase.rpc(REVOKE_RPC, { p_token: token })");
     expect(so).not.toMatch(/revoked_reason|\.from\('push_tokens'\)/);
-    expect(so.indexOf("markSessionEnd('user')")).toBeLessThan(so.indexOf('await supabase.auth.signOut()'));
+    expect(so.indexOf('markSessionEnd(reason)')).toBeLessThan(so.indexOf('await supabase.auth.signOut({ scope })'));
   });
 });
 
