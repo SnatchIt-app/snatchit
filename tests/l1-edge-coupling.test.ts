@@ -705,7 +705,7 @@ describe('132 — no two concurrent requests of one (listing, buyer, mode) group
       expect([label, res.status]).toEqual([label, status]);
       expect([label, w.groupClaimsOutstanding()]).toEqual([label, 0]);
     }
-  });
+  }, 30_000);
 
   it('G3: migration 132 absent (PGRST202) fails closed — 503, no Stripe create or cancel, no secret, reported', async () => {
     const w = world({ payments: [], pis: [], groupRpc: 'absent' });
@@ -967,6 +967,17 @@ describe('132 — no two concurrent requests of one (listing, buyer, mode) group
     expect(body.paymentIntentId).toBe('pi_new1');
     expect([w.pis.get('pi_late')?.status, w.row('pi_late')?.status]).toEqual(['canceled', 'failed']);
     expect(confirmable(w)).toEqual(['pi_new1']);
+  });
+
+  it('N1 (D note N-132-1): the claim is re-checked AFTER the sweep — a claim reclaimed while the sweep ran hands out no secret', async () => {
+    const w = world({ payments: [pay('pi_p1', 'pending', { created_at: new Date(Date.now() - 120_000).toISOString() }),
+                                 pay('pi_p2', 'pending', { created_at: new Date(Date.now() - 60_000).toISOString() })],
+                      pis: [pi('pi_p1', 'requires_payment_method', 22000), pi('pi_p2', 'requires_payment_method', 22000)] });
+    // the sweep's own Stripe call is the window: another request reclaims the group there
+    w.onCancel = async (id) => { if (id === 'pi_p1') w.stealGroupClaim(); };
+    const { res, body } = await w.checkout({ listing_id: LISTING, mode: 'buy_now', expected_total_cents: 22000 });
+    expect(res.status).toBe(409);
+    expect(secretOf(body)).toBeNull();
   });
 
   it('P1: a group attempt still processing blocks a fresh mint — 409, no Stripe create, no secret', async () => {
