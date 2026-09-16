@@ -81,8 +81,14 @@ registration rows can. Options, one line each:
   but **b2 device verification is deferred**: the challenge → push → echo → rebind path stays unproven, the device matrix's core
   rows stay open, and the one build cannot be validated against the sandbox for the feature it was cut for. If (b) is chosen
   this file and the manifest say so in those words, so "sandbox application passed" is never read as "b2 works on a handset".
-**A's and D's recommendation: (a), performed by A from the environment value with D witnessing names only.** Three conditions
-travel with (a), agreed by A and D:
+**A's and D's recommendation: (a), performed by A from the environment value with D witnessing names only.** Mechanics if A
+performs it: `scripts/release/sandbox_vault_ceremony.sh` (converge branch; D read it in full), modes `check → url → verify-url →
+key → verify-key`; the server asserts its own sandbox identity before any write (ledger 130..141, no `ops` schema, sandbox-only
+`public.sandbox_gucs` present — CS-1, D); the insert is `vault.create_secret($1,$2,$3)` via psql `\bind` so the value is a
+protocol parameter, never statement text; the sandbox logs only DDL, no duration logging, no parameters on error (re-read by
+the script, STOP otherwise); `\getenv` (no argv, no subprocess), `PSQL_HISTORY=/dev/null`, no `set -x`; known property: the
+key sits in the script process's environment for its lifetime (same-user `ps eww`), accepted. The owner's dashboard paste
+avoids all of this on our side and is equally acceptable. Three conditions travel with (a), agreed by A and D:
 1. **Ceremony order is fixed: `project_url` first, verified, then `service_role_key`.** D verifies between the two steps that
    the URL row exists and its value has the sandbox host's shape (`https://ofaidukbieeekqaboscm.supabase.co`; shape only,
    never the secret), and again after the key lands. Reason: with the key present and a wrong URL the sandbox would send
