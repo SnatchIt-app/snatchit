@@ -241,7 +241,9 @@ immediately before each apply; A's spot-check and D's read after each.
 | Vault secrets | none (no `service_role_key`, no `project_url`) |
 | Routines / crons naming the production host | 0 / 0 (sandbox-host literals: 4 functions, 3 crons; `notify_outbid` via GUC) |
 | `enforce-transfer-expiry` cron | absent; 21 cron jobs |
-| `net.http_request_queue` / `net._http_response` (24 h) | 0 / 0 |
+| `net.http_request_queue` | 0 |
+| `net._http_response` | 2 rows total, both 401, both 2026-09-07 (16:04:00Z, 16:06:00Z: the old `*/2` sweep cron firing twice before it was removed); none within 24 h; newest pre-existing row `2026-09-07T16:06:00.257881Z` (D's V0 correction: the invariant is a timestamp, not a count) |
+| Close condition on responses | every row created after V0 (`2026-09-16T04:35:37Z`) is a refused (401) post to this sandbox's own `enforce-transfer-expiry` URL from the 133 cron; no row with a 2xx status, and none to any other host |
 | `push_tokens.session_id` column / `notify` tables | absent / 7 |
 | Server identity (ceremony `check`) | ledger 136, `ops` schema absent, `public.sandbox_gucs` present, role `postgres` |
 | Logging | `log_statement=ddl`, duration logging off, on-error parameter logging 0, pgaudit absent |
