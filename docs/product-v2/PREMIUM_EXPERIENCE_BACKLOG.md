@@ -1450,3 +1450,32 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   accept the previous nonce for one generation or not rotate within a
   challenge) and P3-1. Gates: tsc clean; vitest 1944 / 88 (guarded green run
   after one unrelated timing flake); lint 0 errors.
+- **D's review of state-views-refresh @ 71eaef0 (2026-09-16): approved with three
+  small findings; fixed at `frontend/state-views-refresh @ bf8b9ba`** (supersedes
+  71eaef0 for A's integration; gated surface 0 lines). **SV-1 (LOW–MED, honesty):**
+  `isNetworkError` treated `abort` as a connectivity failure, so an aborted or
+  timed-out request would have said "You're offline" on an online device
+  (regex from 9a0ecaf, pre-branch; nothing in the app aborts its own
+  requests, so the branch was latent) — abort/timeout now fall to the
+  server-error state (tests RED first, then green; also narrows the older
+  ListingDetail / my-listings / transfer callers consistently). **SV-3 (LOW,
+  copy):** the error sentence claimed a timeout; now "Something went wrong on
+  our side. Try again in a moment." (title unchanged: "Couldn't load this");
+  preview mirrored; test pins the body away from timeout wording. **SV-2
+  (LOW, device):** the view carries both `accessibilityRole="alert"` and an
+  explicit announcement; a double read is possible on Android TalkBack — kept
+  both (iOS handset; the explicit call is what speaks there) and added the
+  "announced exactly once" check to DV-ST4 with the drop-the-role remedy.
+  D's proposed reconnect row already exists in DV-ST1 ("airplane mode off →
+  the screen retries by itself"). Gates at bf8b9ba: tsc clean; vitest 1928 /
+  87; lint 0 errors / 29 warnings. D also verified 969ff20 (H-135-1 closed
+  client-side; push-proof-v3 16/16).
+- **Open (v3, waits on A's stale-nonce ruling; flagged by D 2026-09-16):** on
+  the PUSH path `prior` is null, so a `nonce_mismatch` is terminal `failed`
+  with the code-flavoured "That code didn't match." If A rotates the nonce on
+  re-issue, a stale silent echo lands there — a user who typed nothing is told
+  their code was wrong and the challenge ends. Preferred: A's 135 does not
+  charge an attempt for a stale-generation echo (D asked). Fallback if A keeps
+  rotation: the push-path mismatch becomes neutral and recoverable (stay in
+  `awaiting_push`, no attempt counted client-side, fallback timer continues).
+  No client change until A rules; must not ship as it reads today.
