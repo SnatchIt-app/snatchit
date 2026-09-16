@@ -1774,3 +1774,20 @@ reaching analytics.
   (revoke → sign-out order, K-2 scope, K-6 expiry mark, 131 stale handling).
   Device row DV-AUTH-1 (iOS, sandbox banner, large text): sign out online →
   sign in → Home and Profile load without a force-quit; no permanent spinner.
+  **Delivered: `frontend/auth-signout-deadlock @ a046568`** (pushed; +235/−29:
+  useAuth.ts, authStateHandler.ts, the test, one moved pin in
+  candidate-recovery). Gates: tsc clean; vitest 2067 / 94; lint 0 errors / 29
+  warnings; gated surface and `supabase/` 0 lines vs 9bef640. To A (integrate
+  into the combined candidate after review; no build/deploy until CI) and D
+  (review, mutants suggested). Evidence limit: the real-client test proves the
+  lock semantics; the handset proves the screens (DV-AUTH-1).
+- **Rows 17/18 restated by A (2026-09-16; 131 now applied on the sandbox,
+  ledger 137, verified by A and D):** row 17 (DV-607a) after the window's
+  server phase, expectation post-131 — on A's delete of the buyer's single
+  live session the trigger revokes that session's binding: is_active=false,
+  revoked_reason='session_ended', revoked_at set, device_secret_hash kept,
+  rebind epoch moves; client half: expiry notice on foreground. **Row 18
+  (DV-611S) deferred to the combined build, not attempted on Build 17:** once
+  135 lands, a different account claiming the same token gets
+  `challenge_required` with contract_version 3, which Build 17's v2 client
+  rejects. A signals when the server phase is closed.
