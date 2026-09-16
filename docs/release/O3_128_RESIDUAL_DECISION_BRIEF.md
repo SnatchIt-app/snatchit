@@ -225,3 +225,46 @@ No option above is accepted on the owner's behalf.
   (A-131-K2, on the 131 branch, D re-reviews): stamp `session_id` on every binding at registration (verb and direct-insert
   trigger) and revoke a binding whose own session was deleted, in the existing sessions trigger. Server-only; no contract
   or client change; census unchanged; 198 extended with a negative control.
+
+## 13. b2 — concrete implementation scope, owners, incremental timeline, build requirement (A + D, 2026-09-16)
+Owner's requirement: close the persistent-redirection path; b1 is not assumed accepted. This section is the plan for **b2**
+(131 + provider-side proof of possession), merged from A's §11 and D's scope; it commits nothing and authorizes nothing.
+
+**What b2 is.** A push binding becomes deliverable for an account only after the push provider proves the registering
+device holds the token: the server issues a one-time nonce, sends it to *that token*, and the device echoes it back. A
+plant-then-claim or delete-then-register from a second device never activates, because the nonce goes to the victim's
+phone. It ships as **migration 135 + pgTAP 202** (134 is the `processing` sweep arm), contract **v3**, and a client v3.
+
+| # | Work item | Condition it satisfies | Owner | Estimate |
+|---|---|---|---|---|
+| 1 | Challenge table (token, requesting user **and session**, nonce hash, purpose, expiry, single-use, attempt counter); `issue_push_token_challenge`; `confirm_push_token_challenge`; a `challenge_required` branch in `register_push_token` for every ownership-changing bind — rules 3/5 and a fresh bind (rule 1) of a token with **any** prior binding, no time window; confirmation counts only from the same user AND session that asked | C1, C3 | A | in 1–4: **1.5 days** |
+| 2 | Ownership history a client DELETE cannot erase: client DELETE writes a tombstone (or the client DELETE/INSERT grants on `push_tokens` are withdrawn and the verb is the only write path) — closes route (1), delete-then-register; most likely to touch old builds that still write the table directly | C2 | A (server); C if the grant withdrawal breaks an old build path | " |
+| 3 | A pending claim never touches the live row; the current binding stays deliverable until the proof lands; every send path excludes unconfirmed rows (S9 pattern) | C4 | A | " |
+| 4 | A successful proof supersedes the stored secret, so a device redirected before b2 takes its binding back without support — the reclaim the DB-only design could not do safely | C5 | A | " |
+| 5 | `send-push`: a challenge kind; per-user and per-token rate limits; the nonce never logged | C6 | A | **0.5 day**, parallel with 6 |
+| 6 | Client v3: request the challenge on the affected outcomes, receive the nonce in the foreground handler, echo it via `confirm_push_token_challenge`; a pending UI state; iOS fallback when silent pushes are throttled (a visible code, "never share this code"); refusal copy for old builds | C6 (fallback) | C | **1.5 days** |
+| 7 | `PUSH_TOKEN_CONTRACT` v3: new outcomes (`challenge_required`, `confirmed`), errors, the refusal text | — | A | in 1–4 |
+| 8 | Support runbook: `unbind_push_token` stays for cases proof cannot reach (a lost or destroyed device), with identity checks | — | A drafts, D reviews | 0.25 day |
+| 9 | Independent review: the C1–C6 matrix — each bind route with and without a valid proof; expired, replayed, wrong-nonce, wrong-user, wrong-session, wrong-token; direct INSERT/DELETE refusals; the completed-redirect probe ending with the victim reclaiming and the attacker's binding revoked; an R3 squat probe; races (two proofs at once, a proof racing 131's invalidator, lock order); 198 and the K-2 probe unchanged; edge tests; **negative controls that reopen each path** | all | D | **1 day**, starting when the DB lands, finishing after edge + client |
+| 10 | Device rows (iOS + Android, real provider): foreground registration; backgrounded/killed during registration; permission denied; throttling fallback; reinstall with a new token; two accounts on one install; a plant-then-claim from a second handset that **never activates** | acceptance | C runs, D reviews, A read-backs | **0.5 day, after a build** |
+
+**Incremental timeline (working days, after 131/132/133 are integrated):** items 1–4 (A) 1.5 d → item 5 (A) 0.5 d and item 6
+(C) 1.5 d in parallel from day 1 → item 9 (D) 1 d overlapping the tail → pin + build → item 10 0.5 d. **About 4–5 working
+days end to end** (D's revision of §11's 3–4: C2 and C5 were not in the earlier figure). The device rows sit behind a build.
+
+**Build requirement — the owner's choice between two shapes:**
+- **(i) One additional build (recommended if b2 is chosen now):** hold the production-gate pin until b2 is ready, so the
+  single production-gate build carries 131 + K-2 + 132 + 133 + b2. Fewer ceremonies, one device campaign; the production
+  gate is not deployable before b2 anyway under the owner's requirement.
+- **(ii) Two additional builds:** build 18 = 131 + K-2 + 132 + 133 now (device rows for those earlier), build 19 = b2 client
+  later. Earlier evidence on the money and session-bound work; one more pin, build and device session.
+Either way, a **hosted sandbox apply of 135 plus the `send-push` deploy needs its own authorization**, and the APNs
+**sandbox environment remains an evidence limit** for the device rows (packet §7).
+
+**Effect on dates:** with (i), earliest production readiness moves from Thu 24 Sept to **about Thu 2 Oct** (b2 work Thu 17 →
+Wed 24, D's review through Thu 25, pin + build Fri 26, device rows Mon 29, corrections). With (ii), the same end date with
+an intermediate build 18 around Fri 19–Mon 22.
+
+**What b2 still does not close, stated next to the ask (D):** an attacker holding the victim's *unlocked* phone at bind
+time (C5 lets the victim take the binding back afterwards); an attacker who knows the new password; notification content
+on a lock screen. No acceptance of any residual is implied here; the choice is the owner's.
