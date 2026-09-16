@@ -34,7 +34,7 @@ const CRON = 'cron-secret-test';
 const LISTING = 'listing-0001';
 
 interface WorkRow { payment_id: string; stripe_payment_intent_id: string; listing_id: string; mode: string; status: string; paid_at: string | null; kind: string }
-interface PayRow { id: string; status: string; stripe_refund_id: string | null; stripe_livemode: boolean | null; total: number; listing_id: string; amount_refunded_cents?: number | null }
+interface PayRow { id: string; status: string; stripe_refund_id: string | null; stripe_livemode: boolean | null; total: number; listing_id: string; amount_refunded_cents?: number | null; buyer_id?: string; mode?: string }
 interface PendingRow { id: string; stripe_payment_intent_id: string | null; buyer_id: string }
 
 function row(id: string, kind: string, status = 'succeeded'): WorkRow {
@@ -338,7 +338,7 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
   // ── 134: processing_stale — a buyer's own live attempt Stripe already moved on from ──
   const failUpdates = (sb: ReturnType<typeof mockSupabase>) => sb.queries.filter((q) => q.table === 'payments' && q.op === 'update' && (q.body as Record<string, unknown>)?.status === 'failed');
   const releases = (sb: ReturnType<typeof mockSupabase>) => sb.rpcs.filter((r) => r.name === 'release_reservation_for_payment');
-  const procRow = (): PayRow & { buyer_id: string; mode: string } => ({ id: 'p9', status: 'processing', stripe_refund_id: null, stripe_livemode: true, total: 22000, listing_id: LISTING, buyer_id: 'buyer-9', mode: 'buy_now' });
+  const procRow = (): PayRow => ({ id: 'p9', status: 'processing', stripe_refund_id: null, stripe_livemode: true, total: 22000, listing_id: LISTING, buyer_id: 'buyer-9', mode: 'buy_now' });
 
   it('134: processing_stale whose intent is requires_payment_method → the row is failed (guarded on pending|processing), the 127 hold release runs, no settle call', async () => {
     const s = await scenario({
