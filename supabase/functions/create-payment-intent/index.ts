@@ -865,6 +865,18 @@ serve(async (req: Request) => {
       await cancelPaymentIntentBestEffort(intentId, tag, claimGuard.bound);
     };
 
+    // E-1 (D note N-132-1): the sweep itself makes bounded Stripe calls, so the
+    // check that preceded it is stale by the sweep's duration. The claim is
+    // re-checked AFTER it, so the claim really is the last word before a secret
+    // leaves. Returns a refusal Response, or null when the hand-out may proceed.
+    const handOutBlocked = async (keepIntentId: string, stage: string): Promise<Response | null> => {
+      if (!await otherLiveAttemptsCleared(keepIntentId, stage)) {
+        return checkoutBusy('checkout-refused-other-attempt', { stage });
+      }
+      const verdict = await claimGuard.check();
+      return verdict === 'held' ? null : claimLost(verdict, `${stage}-after-sweep`);
+    };
+
     const checkoutBusy = (stage: string, detail: Record<string, unknown> = {}): Response => {
       logStage(stage, { listing_id, mode, ...detail });
       return new Response(
@@ -1019,9 +1031,8 @@ serve(async (req: Request) => {
         } else if (existingPiData.client_secret) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-reuse-secret');
-          if (!await otherLiveAttemptsCleared(existingPiData.id ?? '', 'before-reuse-secret')) {
-            return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-reuse-secret' });
-          }
+          const blocked = await handOutBlocked(existingPiData.id ?? '', 'before-reuse-secret');
+          if (blocked) return blocked;
           logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
           return new Response(
             JSON.stringify({
@@ -1175,9 +1186,8 @@ serve(async (req: Request) => {
         ) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-race-recovered-secret');
-          if (!await otherLiveAttemptsCleared(stripeData.id, 'before-race-recovered-secret')) {
-            return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-race-recovered-secret' });
-          }
+          const blocked = await handOutBlocked(stripeData.id, 'before-race-recovered-secret');
+          if (blocked) return blocked;
           logStage('db-insert-race-recovered', { pi_id: stripeData.id });
           return new Response(
             JSON.stringify({
@@ -1269,9 +1279,8 @@ serve(async (req: Request) => {
       // hand it out.
       const verdict = await claimGuard.check();
       if (verdict !== 'held') return claimLost(verdict, 'before-secret');
-      if (!await otherLiveAttemptsCleared(stripeData.id, 'before-secret')) {
-        return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-secret' });
-      }
+      const blocked = await handOutBlocked(stripeData.id, 'before-secret');
+      if (blocked) return blocked;
     }
     return new Response(
       JSON.stringify({
