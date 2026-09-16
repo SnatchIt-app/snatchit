@@ -235,8 +235,8 @@ carries only challenge_id, mode or outcome. Tests 20/20 at the head; **my own RE
 fails 16 of 20.
 | # | Severity | Finding |
 |---|---|---|
-| SP-1 | LOW | `await req.json()` is inside the try whose catch logs `err.message`; V8 puts an input snippet in JSON parse errors, so a malformed challenge body can put the nonce in a log. Parse in its own try with a fixed message |
-| **RB-1** | **MEDIUM (design, 135's to fix)** | `unbind_push_token` DELETEs the row (128). Under v3 history is what forces a challenge, so every support unbind erases it and the next bind is `registered` with no proof — support becomes the documented bypass of b2. Fix: revoke + tombstone (`is_active=false`, proof cleared, `revoked_reason='support_unbound'`, row retained). A replacement handset has a different token and is unaffected; if the old device cannot receive push, nobody can prove possession, which is the safe answer |
+| SP-1 | LOW — **FIXED at d710772, verified** | `await req.json()` was inside the try whose catch logs `err.message`; V8 quotes an input snippet, so a malformed challenge body could put the nonce in a log. Now parsed in its own guard that logs a fixed string and answers 400. 21/21 at d710772; **my own mutant** (restore `err.message` in that catch) kills A18. B's own sharpening is worth keeping: the runtime truncates the quoted snippet, so an assertion on the whole nonce passed by luck — A18 now asserts no part of the body appears, and the leaking shape is a body that fails at the FIRST token (form-encoded instead of JSON), the realistic caller bug |
+| **RB-1** | **MEDIUM (design) — ACCEPTED by A into 135** (unbind revokes + tombstones, consumes open challenges, keeps the row; rollback restores 128's delete; 202 G6–G9 with the delete as the negative control) | `unbind_push_token` DELETEs the row (128). Under v3 history is what forces a challenge, so every support unbind erases it and the next bind is `registered` with no proof — support becomes the documented bypass of b2. Fix: revoke + tombstone (`is_active=false`, proof cleared, `revoked_reason='support_unbound'`, row retained). A replacement handset has a different token and is unaffected; if the old device cannot receive push, nobody can prove possession, which is the safe answer |
 Runbook (`docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md`) — D's answers to B's four open points: (1) two-person rule on EVERY unbind,
 not just payout accounts — the harm is a redirect that survives a credential change, and volume is tiny by design; (2) no cool-down —
 proof of possession already gates the next bind (true once RB-1 lands); (3) the durable audit record is `kernel.admin_audit` with action
@@ -246,6 +246,15 @@ string — as an owner-gated admin-console read on D's surface, specced when 135
 lost device's behalf" claims more than the verb does.
 Also: C fixed P3-2 and P3-3 at `push-proof-v3 @ ac88e3a` (constant renamed; the 60 s fallback counts cumulative foreground time and `inactive`
 is no longer backgrounding). P3-1 waits on A's 135 ruling; P3-4 stands as the DV evidence limit.
+
+### 135 in progress — two consequences D raised before seeing the code (A accepted RB-1 and P3-1)
+A's 135 returns refusals from the confirm verb with 200 instead of raising (`{outcome:'nonce_mismatch', attempts_left}`, `challenge_consumed`)
+because a raise would roll back the attempt count — correct, but it changes the reply contract:
+| # | Severity | Item |
+|---|---|---|
+| H-135-1 | HIGH (lands in C's client) | the shipped v3 client treats ANY non-error reply as success (`usePushToken.confirm` checks only `r.error`, then `onConfirmOk`), so a wrong code would show "This device is confirmed" and save a `rebound` record while nothing is bound. The contract must name the confirm verb's success shape (only `rebound` binds; the rest are 200 refusals) and C must branch on `outcome` before success, preferring the server's `attempts_left` |
+| M-135-2 | MEDIUM (A's SQL) | re-issuing a LIVE challenge with a fresh nonce lets a push sent before the re-issue arrive after it; the client echoes any nonce whose challenge id matches, so a stale one costs a real attempt — and the client re-requests on every foreground. Either accept the previous nonce hash for one generation without counting an attempt, or do not rotate within the challenge's lifetime; say which in the contract |
+Both sent to A, and H-135-1 also to C so the client is coded once against the final list.
 
 ### Client v3 `frontend/push-proof-v3 @ b098a46` — reviewed (client's share of C1–C6): holds, 4 findings
 Local: push-proof-v3 13/13; the earlier client suites still green. C's four probes all clean:
