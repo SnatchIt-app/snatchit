@@ -23,7 +23,9 @@ CFT-901…908 in `PREMIUM_EXPERIENCE_BACKLOG.md`.
   tools. Enforced by a source pin (CFT-907): the field name may appear only in the signup profile step,
   Settings › Edit profile, and the profile read model.
 - Consent is **separate from the answer** and **declinable without consequence**: signup completes with
-  consent off. Withdrawing consent stops analytics inclusion from that moment.
+  consent off. Withdrawing consent stops analytics inclusion from that moment (D: aggregates are
+  computed per request from current consent state, so it is immediate; a consent-off row counts in the
+  "not disclosed" bucket, never dropped).
 - No public display in this proposal. A visibility opt-in is **not** proposed; it would be a separate
   owner decision.
 
@@ -78,7 +80,7 @@ Settings › Edit profile (`app/settings/edit-profile.tsx`) gets a "Gender" row 
 | Options | Woman · Man · Non-binary · Self-describe · Prefer not to say |
 | Self-describe field | label "Describe yourself (optional)" · placeholder "Your words" · counter "0/40" |
 | Consent checkbox | Include my answer in anonymous statistics |
-| Consent sub-line | Only in groups of at least N people, never on its own. You can turn this off any time. *(N = D's suppression threshold; placeholder until D defines it)* |
+| Consent sub-line | Only in groups of at least 20 people, never on its own. You can turn this off any time. *(20 = D's threshold, CFT-906. This sentence is a promise the implementation must keep: it is true only with D's complementary suppression and fixed period buckets — if either is cut in review, this copy changes with it.)* |
 | Validation | Choose one option. "Prefer not to say" is always fine. |
 | Profile row, cleared | Not set |
 | Clear confirmation | Clear gender? This removes your answer and turns off its use in statistics. · Clear · Keep |
@@ -125,15 +127,34 @@ No string names an inferred or guessed value; none uses "Other".
    call; the client never sends the value anywhere else (no analytics event carries it).
 6. **Audit:** whether writes need the existing audit pattern.
 
-## 8. Analytics questions for D
+## 8. Analytics questions for D — answered (CFT-906, D, 2026-09-16:
+`docs/review/d-release-sprint/GENDER_ANALYTICS_TREATMENT_D.md` on `review/d-release-sprint @ 1698926`)
 1. Dimension values: the five above, with **Self-describe shown only as the bucket "Self-described"** —
-   the free text never leaves the row.
-2. Suppression: minimum cell size (C proposes **≥ 20**), applied to every cut, including cross-tabs with
-   venue, event, city or time bucket; suppressed cells render as "—", never as 0.
-3. Consent filter: only `analytics_consent = true` rows count; "not disclosed" is its own bucket, not
-   dropped, so denominators stay honest.
-4. Opt-out behaviour: withdrawal removes the row from every future aggregate; no back-fill.
-5. Access: dashboards read one aggregate function/view; no row-level query path exists in admin tools.
+   the free text never leaves the row. **D:** agreed; `not_disclosed` absorbs three states — "prefer not
+   to say", cleared, AND consent-off (dropping consent-off rows would expose "declined to say" vs
+   "declined analytics" by subtracting two cuts); the free text must be **unreachable** by the aggregate
+   layer (a derived column with no privilege on the text; "we don't select it" is not a control) — for A's
+   CFT-901.
+2. Suppression: **k = 20 adopted**, plus D's three additions: **complementary suppression** (when any cell
+   is suppressed, the next-smallest is too, so subtraction yields only their sum), **fixed period
+   buckets** (no free date picker — differencing two ranges isolates a day), and a **denominator floor of
+   250** for a cut to publish at all. Suppressed cells render "—", never 0.
+3. Consent filter: only consented rows count; every figure reads **"of respondents who consented
+   (n = N)"**, never "of users" — a measured share, never a population estimate; the consent rate itself
+   is shown beside the breakdown.
+4. Opt-out: **every aggregate computed per request from current consent state, nothing cached** (the
+   analytics contract already requires this), so withdrawal is immediate everywhere with no back-fill
+   machinery; exports are frozen at generation and carry a timestamp and a "point-in-time, do not
+   re-circulate" rule.
+5. Access: **one SECURITY DEFINER function, `search_path=''`, returning already-suppressed rows** —
+   suppression is server-side, never in the UI (raw counts in a network response are a leak).
+6. Dashboard treatment (D §6): horizontal bars, not a pie; fixed category order, never sorted by size;
+   "—" for suppressed; no time series by gender in v1; not a pink/blue palette (colour follows the
+   entity; "Not disclosed" takes the neutral token because it is an absence, not a kind of person).
+7. **D's flag (§0 of D's doc), for the owner:** nothing given so far names which *decision* this dimension
+   informs. That bears on the 5.1.1 concern (a dimension nobody consumes is liability without benefit),
+   and D cannot choose the right cuts without it. D recommends the owner name one or two concrete
+   questions and that only those cuts are built. D proceeded with the full treatment regardless.
 
 ## 9. Task IDs (all *proposed*, none started; CFT-901 blocks the rest)
 | ID | Item | Owner | Blocked by |
