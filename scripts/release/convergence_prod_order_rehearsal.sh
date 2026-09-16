@@ -66,6 +66,7 @@ TIX="supabase/migrations/20260909000000_kernel_my_tickets_read.sql"
 echo "=== FRESH: canonical LC_ALL=C replay of the whole converged chain → $FRESH"
 dropdb --if-exists "$FRESH" 2>/dev/null; createdb "$FRESH" || exit 1
 psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim.sql >/dev/null 2>&1 || { echo "SHIM FAIL"; exit 1; }
+psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim_supplements.sql >/dev/null 2>&1 || { echo "SHIM SUPPLEMENTS FAIL"; exit 1; }
 nf=0; for f in $(ls supabase/migrations/*.sql | LC_ALL=C sort); do apply "$FRESH" "$f"; nf=$((nf+1)); done
 psql -X -q -d "$FRESH" -v ON_ERROR_STOP=1 -f supabase/ci/parity_grants.sql >/dev/null 2>&1 || { echo "parity grants FAIL"; exit 1; }
 check "$FRESH" "F1 every migration in the converged tree applied (140 = 135 production + 4 payments + 1 tickets)" "select $nf" "140"
@@ -81,6 +82,7 @@ echo
 echo "=== PROD: production's real order (135) then the payment migrations → $PROD"
 dropdb --if-exists "$PROD" 2>/dev/null; createdb "$PROD" || exit 1
 psql -X -q -d "$PROD" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim.sql >/dev/null 2>&1 || { echo "SHIM FAIL"; exit 1; }
+psql -X -q -d "$PROD" -v ON_ERROR_STOP=1 -f scripts/local/replay_shim_supplements.sql >/dev/null 2>&1 || { echo "SHIM SUPPLEMENTS FAIL"; exit 1; }
 np=0
 for f in $(numeric_between "" "075"); do apply "$PROD" "$f"; np=$((np+1)); done
 for f in supabase/migrations/20260714190445_investor_leads_website_form.sql \

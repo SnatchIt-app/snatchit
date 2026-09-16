@@ -78,6 +78,17 @@
 --                     (only gen_random_uuid() is used, built into PG13+), but
 --                     installing them keeps "no migration creates an extension"
 --                     assertions honest rather than vacuous.
+--     auth.sessions   COLUMN SUBSET of GoTrue's sessions table (id, user_id,
+--                     created_at, updated_at, not_after, refreshed_at, aal).
+--                     Added 2026-09-15 for migration 131 (session-bound push
+--                     bindings), which attaches a statement-level trigger to it
+--                     and reads created_at/not_after by the JWT's session_id.
+--                     FIDELITY RISK: GoTrue writes these rows; nothing here does.
+--                     Tests insert rows as postgres and set session_id in
+--                     request.jwt.claims. Ownership differs from hosted
+--                     (postgres here, supabase_auth_admin there): whether
+--                     `postgres` may create a trigger on auth.sessions/auth.users
+--                     on a hosted project is NOT provable by this harness.
 -- ===========================================================================
 
 \set ON_ERROR_STOP on
@@ -102,22 +113,7 @@ $bootstrap$;
 -- below is fully schema-qualified on purpose.
 -- --------------------------------------------------------------------------
 
--- 3a. authenticator: PostgREST's NOINHERIT connection role. -------------------
-DO $bootstrap$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'authenticator') THEN
-    CREATE ROLE authenticator LOGIN NOINHERIT;
-  END IF;
-END
-$bootstrap$;
-GRANT anon, authenticated, service_role TO authenticator;
-
--- 3b. cron.job: pg_cron's real column set. ------------------------------------
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS nodename text    DEFAULT 'localhost';
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS nodeport integer DEFAULT 5432;
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS "database" text  DEFAULT pg_catalog.current_database();
-ALTER TABLE cron.job ADD COLUMN IF NOT EXISTS username text    DEFAULT CURRENT_USER;
-
--- 3c. Extensions the Supabase platform pre-installs. --------------------------
-CREATE EXTENSION IF NOT EXISTS pgcrypto    WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+-- 3. Fidelity supplements — ONE file shared with the production-order script.
+--    (authenticator role, cron.job columns, extensions, auth.sessions stand-in;
+--    ledger entries above.) Path relative to THIS file.
+\ir local/replay_shim_supplements.sql
