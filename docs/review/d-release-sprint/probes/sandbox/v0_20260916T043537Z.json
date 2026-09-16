@@ -1,0 +1,54 @@
+{
+    "at": "2026-09-16T04:35:37.085271+00:00",
+    "counts": {
+        "bids": 0,
+        "listings": 49,
+        "payments": 51,
+        "transfers": 33,
+        "payments_pending": 3,
+        "listings_reserved": 0
+    },
+    "cron_jobs": 21,
+    "cron_names": "auto-finalize-auctions,crm-export-build-tick,crm-export-purge-tick,market-sweep-expired-p2p-transfers,market-sweep-paid-pending-sales,monitor-signing-key-invariants,notify-drain-outbox,payout-execute-tick,reconcile-holder-mix,refresh-holder-mix,refund-execute-tick,sweep-auth-password-changes,sweep-deletion-pending,sweep-expired-door-overrides,sweep-expired-door-sessions,sweep-expired-exports,sweep-expired-inventory-holds,sweep-expired-org-invites,sweep-expired-refund-requests,sweep-expired-ticket-atoms,sweep-implicit-door-freezes",
+    "ledger_rows": 136,
+    "flags_native": {
+        "feature.native_resale_enabled": false,
+        "feature.native_issuance_enabled": false,
+        "feature.native_scanning_enabled": false
+    },
+    "census_public": "31|97|37|34",
+    "identity_guard": true,
+    "kernel_tickets": 0,
+    "net_queue_rows": 0,
+    "versions_gt_109": [
+        "123",
+        "124",
+        "125",
+        "127",
+        "128",
+        "129",
+        "130",
+        "20260902003623",
+        "20260906100000",
+        "20260906110000",
+        "20260906120000",
+        "20260906130000",
+        "20260909000000"
+    ],
+    "INV1_vault_count": 0,
+    "INV1_vault_names": "(none)",
+    "push_tokens_rows": 1,
+    "net_response_rows": 2,
+    "kernel_signing_key": 0,
+    "L1_refunded_null_at": 0,
+    "INV4_prod_host_in_cron": 0,
+    "auth_sessions_triggers": "(none)",
+    "objects_expected_absent": {
+        "132 checkout_group_claim": false,
+        "135 push_token_challenges": false,
+        "131 revoke_all_push_bindings": false,
+        "135 confirm_push_token_challenge": false
+    },
+    "INV4_prod_host_in_routines": 0,
+    "push_tokens_has_session_id": 0
+}
