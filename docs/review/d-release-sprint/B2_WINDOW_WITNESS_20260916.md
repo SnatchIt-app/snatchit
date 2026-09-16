@@ -74,6 +74,48 @@ The newest pre-existing row is 2026-09-07 16:06:00.257881Z.** Sent to A to corre
 | **133 apply** (write 4) | 04:47:05Z | **04:48Z** | **OK** — ledger **139**, `md5 c08f8295…` (reproduced from the pin). Census unchanged **32\|103\|37\|36** (bodies only). INV4 **strengthened beyond production**: zero `https://<anything>.supabase.co` literals in any cron command or routine body across public/kernel/notify/venue/catalog — the out-of-band sandbox-host literals SBX-1/2 left are gone, which only a sandbox read can confirm. 22 crons, all active, all reading the URL from Vault. **Destination attested:** cron command → Vault `project_url` (verified = sandbox) → sandbox edge → 401. **Prediction held:** one tick, `enforce-transfer-expiry`, id 3, status **401**, 04:48:00.249691Z, `error_msg` null; no other job posted |
 | **135 apply** (write 5) | 04:49:56Z | **04:51Z** | **OK** — ledger **140**, `md5 28e01d25…` (reproduced). Census **32\|106\|37\|37**, reconciliation verified by naming objects not arithmetic: `sandbox_gucs` present, `sandbox_pre_request` present, 119's `guard_listing_seller_not_blocked` and its trigger **absent** ⇒ +1 function, −1 trigger against the pin's declared 32\|105\|37\|38. All six 135 surfaces present, challenges table empty. **`notify.push_token_challenges` carries no grants at all** to anon/authenticated/service_role — the 157 B9 premise B's send-push rests on, until now verified only on my local harness. `confirm` executable by `authenticated` not `anon`; `issue` not executable by `authenticated`; `get` executable by `service_role`. All four `push_tokens` triggers present incl. `trg_guard_push_token_client_delete`. `security_device_rebound` = `{}`/`{}`/mandatory, `in_app` template only. 3 ticks after V0, **all 401, non-401 count 0**; zero drift. Expected md5 for `20260916000000` given to A **in advance**: `b1fda89070efa7a9ba24f5aee4492064` |
 
+| **`20260916000000` apply** (write 6) | 04:53:14Z | **04:53Z** | **OK** — ledger **141**, `md5 b1fda89070efa7a9ba24f5aee4492064` **matching the value I gave A before the apply**. Census unchanged 32\|106\|37\|37 (adds no object) |
+| edge deploys (writes 7–9) | 04:54–04:55Z | **04:57Z** | **OK** — `create-payment-intent` v5, `send-push` v4, `enforce-transfer-expiry` v4; `stripe-webhook` untouched. Parity byte-identical to `/tmp/wt-pin` |
+| **CLOSING READ** | — | **04:57:13Z** | **PASS** — see below |
+
+## Closing state — 04:57:13Z, read by D
+
+| Reading | Value |
+|---|---|
+| ledger | **141**, holding exactly `131, 132, 133, 135, 20260916000000` |
+| census | **32\|106\|37\|37** (expected final) |
+| **INV1** | `vault.secrets` = `project_url` **alone**, count 1 — held at every checkpoint |
+| **INV3** | `project_url` names the sandbox host |
+| **INV4** | production refs 0/0; **zero `*.supabase.co` literals** in any cron command or routine body |
+| ticks after V0 | **5, all 401, zero 2xx**, at 04:48, 04:50, 04:52, 04:54, 04:56 — one job, on its two-minute schedule, no gaps, no extras. Queue 0 |
+| business drift | **zero** — 49/49, 51/51, 3/3 pending, 33/33, 0/0 bids, 0/0 reserved, 1/1 push_tokens |
+| new tables | `checkout_group_claim` 0 · `notify.push_token_challenges` 0 |
+| unchanged | kernel tickets 0 · signing_key 0 · L-1 0 · all three native flags false |
+| handset row | untouched from row 16 — inactive, `signed_out`, `session_id` null, **proof kept** |
+
+The tick **cadence** is itself evidence: a second posting job would appear as an off-beat row, and none exists.
+
+### Boundary statement (given to A verbatim, to carry unparaphrased)
+This window establishes that the five migrations apply cleanly in production order, that the resulting catalog
+matches the pin, that the grant matrix and the tombstone guard are live, that no production host is reachable from
+this database, and that no outbound request can authenticate. **It establishes nothing about whether b2 works.**
+Under option (b) the challenge path cannot be exercised: `send-push` refuses every dispatch by construction, no
+notification can reach a device, and the whole device matrix — challenge delivery, echo, rebind, two accounts on
+one install, plant-then-claim, recovery without support — is **deferred, not attempted and not passed**.
+"Sandbox application passed" must never be read as "b2 works on a handset".
+
+### Evidence limits recorded at the close
+- **Pre-deploy `verify_jwt` for the three redeployed edges was inferred, not read** — from the SBX-2 record and
+  from the five untouched functions' posture. The post-deploy read is real (all nine false). Security consequence
+  nil: all three authenticate their own callers, which I verified in source (`create-payment-intent` throws on a
+  missing `Authorization` header then validates via `supabase.auth.getUser(token)`; `enforce-transfer-expiry` and
+  `send-push` compare the bearer themselves). Recorded as a near-miss rather than rounded up.
+- **Deploy-time flags are undeclared state.** There is no `supabase/config.toml`; `verify_jwt` lives only in the
+  last deploy. Source parity does not cover it, so the production preflight needs it as a separate read-and-match.
+- **A's two parity false alarms** came from the harness, not the artefacts: a regex deriving an import set named a
+  file the function does not import, and a clause that ignored transitive imports. Every byte comparison passed
+  first time. Stopping at each until explained is what the abort rule is for.
+
 ### `net._http_response` is a 6-hour cache, not a log — the evidence self-deletes
 At V0 the table held 2 rows from 2026-09-07; after the first new tick it held **only** id 3. Attributed and benign:
 `pg_net.ttl = 6 hours`, and pg_net's worker purges only when it processes activity — there had been none since
