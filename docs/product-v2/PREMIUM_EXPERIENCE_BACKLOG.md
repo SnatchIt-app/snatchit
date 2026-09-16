@@ -1560,4 +1560,7 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   each string still classifies to the expected kind in both classifiers; dead
   v2 branches documented as not asserted. Negative control: a reworded raise
   fails by name. Gates: tsc clean; lint 0 errors / 29 warnings; vitest 2061 /
-  93. Sent to A to integrate before the pin; D informed.
+  93. Sent to A to integrate before the pin; D informed. **Integrated by A:
+  stack tip `9bef640`** (guard 17/17, vitest 2061/2061, typecheck 0; CI
+  queued; D confirms Gate 3 on this tip; then the pin). Nothing further from C
+  before the pin; rows 15–18 on C's triggers after the owner's row 14 checks.
