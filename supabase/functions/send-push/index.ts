@@ -62,21 +62,6 @@ type ChallengeRow = {
 
 type RateVerdict = 'allowed' | 'over_limit' | 'error';
 
-async function checkRateLimit(
-  supabase: ReturnType<typeof createClient>, userId: string, action: string, max: number, windowSeconds: number,
-): Promise<RateVerdict> {
-  try {
-    const { data, error } = await supabase.rpc('check_rate_limit', {
-      p_user_id: userId, p_action: action, p_max: max, p_window_seconds: windowSeconds,
-    });
-    // Never log the caller's payload here — only the verdict.
-    if (error) return 'error';
-    return data === true ? 'allowed' : 'over_limit';
-  } catch {
-    return 'error';
-  }
-}
-
 function getSecurityHeaders(): Record<string, string> {
   return {
     'X-Content-Type-Options': 'nosniff',
@@ -103,6 +88,21 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const notify   = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
 
+  // Closes over `supabase` so no client type has to be spelled out (the generic
+  // parameters of SupabaseClient differ per construction — deno check TS2345).
+  const checkRateLimit = async (action: string, max: number, windowSeconds: number): Promise<RateVerdict> => {
+    try {
+      const { data, error } = await supabase.rpc('check_rate_limit', {
+        p_user_id: userId, p_action: action, p_max: max, p_window_seconds: windowSeconds,
+      });
+      // Never log the caller's payload here — only the verdict.
+      if (error) return 'error';
+      return data === true ? 'allowed' : 'over_limit';
+    } catch {
+      return 'error';
+    }
+  };
+
   const { data: row, error: rowErr } = await notify
     .from('push_token_challenges')
     .select('id, token_id, token, requesting_user, mode, expires_at, confirmed_at, attempts')
@@ -127,7 +127,7 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
     [`push_challenge_edge_user:${userId}`, 5],
     [`push_challenge_edge_token:${challenge.token_id ?? challenge.id}:${userId}`, 3],
   ] as Array<[string, number]>) {
-    const verdict = await checkRateLimit(supabase, userId, action, max, 600);
+    const verdict = await checkRateLimit(action, max, 600);
     if (verdict === 'error') {
       console.warn('send-push challenge: rate limiter failed closed', { challenge_id: challengeId });
       return jsonResponse(503, { error: 'Service temporarily unavailable' });
