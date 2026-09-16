@@ -1,0 +1,119 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowCreateExactlyThisKindOfKey",
+      "Effect": "Allow",
+      "Action": "kms:CreateKey",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:KeySpec": "ECC_NIST_P256",
+          "kms:KeyUsage": "SIGN_VERIFY",
+          "kms:KeyOrigin": "AWS_KMS"
+        },
+        "Bool": {
+          "kms:MultiRegion": "false",
+          "kms:BypassPolicyLockoutSafetyCheck": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AllowTagAtCreate",
+      "Effect": "Allow",
+      "Action": "kms:TagResource",
+      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Condition": { "StringEquals": { "aws:RequestTag/snatchit:purpose": "ticket-signing" } }
+    },
+    {
+      "Sid": "AllowCeremonyReadAndPolicyOnTaggedKeyOnly",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetPublicKey",
+        "kms:GetKeyPolicy",
+        "kms:ListKeyPolicies",
+        "kms:ListResourceTags",
+        "kms:PutKeyPolicy"
+      ],
+      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Condition": { "StringEquals": { "aws:ResourceTag/snatchit:purpose": "ticket-signing" } }
+    },
+    {
+      "Sid": "AllowBindingProofSignOnTaggedKeyOnly",
+      "Effect": "Allow",
+      "Action": "kms:Sign",
+      "Resource": "arn:aws:kms:us-east-1:652872010073:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/snatchit:purpose": "ticket-signing",
+          "kms:SigningAlgorithm": "ECDSA_SHA_256"
+        }
+      }
+    },
+    {
+      "Sid": "AllowListAndIdentity",
+      "Effect": "Allow",
+      "Action": [ "kms:ListKeys", "kms:ListAliases", "sts:GetCallerIdentity" ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowAuditReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails", "cloudtrail:GetTrailStatus", "cloudtrail:GetEventSelectors", "cloudtrail:LookupEvents",
+        "s3:GetBucketObjectLockConfiguration", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration",
+        "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDefeatingTheAuditTrail",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:StopLogging", "cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors", "cloudtrail:PutInsightSelectors", "cloudtrail:RemoveTags",
+        "cloudtrail:CreateTrail", "cloudtrail:AddTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyErasingOrRewritingAuditObjects",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutObject", "s3:DeleteBucket",
+        "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning", "s3:PutObjectRetention", "s3:PutObjectLegalHold",
+        "s3:BypassGovernanceRetention", "s3:PutEncryptionConfiguration",
+        "s3:PutReplicationConfiguration", "s3:PutBucketObjectLockConfiguration",
+        "s3:PutBucketPublicAccessBlock", "s3:PutBucketAcl", "s3:PutBucketOwnershipControls"
+      ],
+      "Resource": [
+        "arn:aws:s3:::snatchit-audit-652872010073",
+        "arn:aws:s3:::snatchit-audit-652872010073/*"
+      ]
+    },
+    {
+      "Sid": "DenySelfEscalation",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole", "sts:AssumeRoleWithSAML", "sts:AssumeRoleWithWebIdentity",
+        "organizations:*", "account:*", "sso:*", "sso-directory:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyKeyLifecycleMutationDuringCeremony",
+      "Effect": "Deny",
+      "Action": [
+        "kms:ScheduleKeyDeletion", "kms:DisableKey", "kms:EnableKey", "kms:CreateAlias",
+        "kms:DeleteAlias", "kms:UpdateAlias", "kms:CreateGrant", "kms:RevokeGrant",
+        "kms:RetireGrant", "kms:ReplicateKey", "kms:UpdatePrimaryRegion", "kms:ImportKeyMaterial",
+        "kms:DeleteImportedKeyMaterial", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*",
+        "kms:ReEncrypt*", "kms:DeriveSharedSecret", "kms:Verify", "kms:UntagResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

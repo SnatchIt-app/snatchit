@@ -1,0 +1,52 @@
+{
+  "Version": "2012-10-17",
+  "Id": "snatchit-ticket-signing-key-policy-v1-binding-proof",
+  "Statement": [
+    {
+      "Sid": "AccountMayAdministerButNeverDelegateCryptoOps",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::652872010073:root" },
+      "NotAction": [
+        "kms:Sign", "kms:Verify", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:GenerateDataKeyPair",
+        "kms:GenerateDataKeyPairWithoutPlaintext", "kms:GenerateDataKeyWithoutPlaintext", "kms:ReEncryptFrom",
+        "kms:ReEncryptTo", "kms:DeriveSharedSecret", "kms:GenerateMac", "kms:VerifyMac"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CeremonyBindingProofSign_REMOVED_IN_V2",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony" },
+      "Action": "kms:Sign",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "kms:SigningAlgorithm": "ECDSA_SHA_256" } }
+    },
+    {
+      "Sid": "CeremonyMayApplyV2_PolicyLockoutSafety_REMOVED_IN_V2",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony" },
+      "Action": [ "kms:PutKeyPolicy", "kms:GetKeyPolicy", "kms:DescribeKey" ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RuntimeSignOnly",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime" },
+      "Action": "kms:Sign",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "kms:SigningAlgorithm": "ECDSA_SHA_256", "kms:MessageType": "RAW" } }
+    },
+    {
+      "Sid": "VerifierAndCeremonyReadPublicKeyAndPolicy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::652872010073:user/snatchit-kms-verifier",
+          "arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony"
+        ]
+      },
+      "Action": [ "kms:DescribeKey", "kms:GetPublicKey", "kms:GetKeyPolicy", "kms:ListKeyPolicies", "kms:ListResourceTags" ],
+      "Resource": "*"
+    }
+  ]
+}

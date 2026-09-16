@@ -73,3 +73,32 @@ migration) · Supabase auth/URL configuration.
 - `docs/archive/` — superseded doc versions
 - Root keeps only: README, AGENTS, CLAUDE, ARCHITECTURE_FREEZE, BRANCHES,
   PHASE_2_MIGRATION_HISTORY_RECONCILIATION (moves with its owning workstream).
+
+## Skill selection and session ownership (added 2026-09-14 by Claude B; coordinate edits with A)
+Four Claude sessions share this repo. Ownership: **A** payment correctness + release
+integration (migration-number registry, merge order, integrated-chain rehearsal) ·
+**B** signing infrastructure + database ceremonies (PFA-18C, KMS/ES256 trust root,
+signing monitor, dark door edges, door/scanning migrations) · **C** consumer experience +
+the 54-item Premium checklist · **D** vendor/admin dashboards + venue acceptance.
+On every prompt: (1) name the task, your ownership, the authorization in force and any
+dependency on the other sessions; (2) load only the skills that apply and follow their
+text, don't just name them; (3) investigations use `systematic-debugging`, review
+feedback is verified before acceptance (`receiving-code-review`), completion claims need
+evidence (`verification-before-completion`); (4) no planning/brainstorming/audit/full
+suite for a small request; (5) preserve existing authorization and completed work —
+skills never invent deployment permission or re-ask for already-authorized work;
+(6) record findings, status, evidence limits and handoffs in the durable records.
+Skills installed on this machine (sources, versions): superpowers-derived set (`systematic-
+debugging`, `verification-before-completion`, `receiving-code-review`, `test-driven-
+development`, `using-git-worktrees`, `writing-skills`, …) from the Claude desktop skills
+plugin (`~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/…/
+skills/<name>/SKILL.md`, manifest 2026-04-14; upstream obra/superpowers v6.3.0 `b36e0829`
+differs textually — the installed copies are the ones in force); `supabase-postgres-best-
+practices` 1.1.1 and `supabase` 0.1.2 from supabase/agent-skills `8331f910` in
+`~/.claude/skills/<name>/` (reference only: this repo's AGENTS.md authority order and its
+`SECURITY DEFINER` + `search_path=''` pattern win on conflict); project skill
+`.claude/skills/token-efficiency-mode` (untracked, local). Role skill for B:
+`~/.claude/skills/snatchit-b-signing-ceremonies/SKILL.md`. Changing facts (numbers,
+commits, production state, open tasks) live only in `docs/release/` records —
+`PHASE2_PRODUCTION_STATE_<date>.md`, `MIGRATION_NUMBER_REGISTRY.md`, the PFA-18C
+execution record and final handoff — never in skills or this file.
