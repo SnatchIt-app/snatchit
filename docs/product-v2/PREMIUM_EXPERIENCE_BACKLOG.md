@@ -1634,11 +1634,18 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   relaunched again at 00:16 EDT ≈ 04:16Z (own initiative), stopped;** sent to A
   as the discriminating data point; if unstamped too, A checks the sandbox API
   logs for a register call 04:11–04:18Z; next owner step would be a
-  background→foreground transition, not another cold relaunch. **Finding
-  F-15-1 (candidate, LOW–MED, evidence):** a failed or hanging Expo token fetch
-  on cold start is invisible to the user and to A — Settings › Notifications
-  shows nothing while `obtainToken()` is pending; consider a "waiting for push
-  token" status and a bounded timeout in the next candidate (not Build 17).
+  background→foreground transition, not another cold relaunch.
+  **A read-back 04:19:28Z: PASS on the second attempt** — last_used advanced
+  04:00:03 → 04:16:34Z, same user 919d511e…, proof unchanged (4b8628e7), no new
+  row, one session = the contract's `refreshed`. The 04:12Z relaunch left no
+  stamp; the 04:16Z one did, so the first was a silent token-fetch failure on
+  the client, not the verb; no API-log read needed. **Row 15: PASS (second
+  attempt; first relaunch unstamped).** **Finding F-611C-1 (C, LOW–MED,
+  evidence):** nothing on screen distinguishes "token fetch failed / pending,
+  will retry" from "registered" — Settings › Notifications shows no banner
+  while `obtainToken()` is pending or after it throws; the next candidate should
+  publish a "waiting for push token" status and bound the fetch with a timeout
+  (not Build 17). Next: row 16 (sign out, online) on "row 16 ready".
 - **Sandbox push delivery is impossible today (A, 2026-09-16):** the sandbox
   Vault holds no service_role_key, the only routine posting to send-push
   (notify_outbid) is guarded on it, and `net._http_response` has 0 rows in 24 h
