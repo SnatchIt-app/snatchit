@@ -113,8 +113,10 @@ SELECT throws_ok($$ INSERT INTO public.push_tokens (user_id, token, platform, is
   '42501', NULL, 'D2: the direct INSERT path (old clients) is refused from the old session');
 SELECT throws_ok($$ UPDATE public.push_tokens SET is_active = true WHERE token = 'ExponentPushToken[198-buyer-aaaaaaaaaaaa]' $$,
   '42501', NULL, 'D3: re-activating by direct UPDATE is refused from the old session');
-SELECT throws_ok($$ DELETE FROM public.push_tokens WHERE token = 'ExponentPushToken[198-buyer-aaaaaaaaaaaa]' $$,
-  '42501', NULL, 'D4 (X2): DELETE is refused from the old session — no delete-then-rebind after a credential change');
+-- [135] a client DELETE never removes a row: it becomes a revoke with history (deleted_by_client). X2 stays closed —
+-- the old session still cannot re-register (D1) and the tombstone forces a proof on any other account.
+SELECT lives_ok($$ DELETE FROM public.push_tokens WHERE token = 'ExponentPushToken[198-buyer-aaaaaaaaaaaa]' $$,
+  'D4 (X2, under 135): a DELETE from the old session is turned into a revoke, never a removal');
 SELECT lives_ok($$ UPDATE public.push_tokens SET last_used = now() WHERE token = 'ExponentPushToken[198-buyer-aaaaaaaaaaaa]' $$,
   'D5: a write that neither creates, activates nor deletes is not gated');
 SELECT tap.logout();
@@ -141,8 +143,8 @@ UPDATE auth.users SET encrypted_password = 'x131-newer-hash', updated_at = now()
 SELECT is((tap._row198('ExponentPushToken[198-legacy-cccccccccccc]')).device_secret_hash, NULL, 'F2: the password change clears the plant');
 SELECT tap._s198('SA', tap._sess198(tap.other_user(), now() - interval '1 hour')::text);
 SELECT tap._login198(tap.other_user(), tap._u198('SA'));
-SELECT throws_ok($$ SELECT public.register_push_token('ExponentPushToken[198-legacy-cccccccccccc]', 'ios', 'attacker-secret-0123456789', 'Pixel') $$,
-  '42501', 'insufficient_privilege: token is bound to another account', 'F3: the attacker cannot activate the plant from their own account — the capture never fires');
+SELECT is((public.register_push_token('ExponentPushToken[198-legacy-cccccccccccc]', 'ios', 'attacker-secret-0123456789', 'Pixel') ->> 'outcome'), 'challenge_required',
+  'F3 (under 135): the attacker cannot activate the plant from their own account — only a proof of possession could, and the capture never fires');
 SELECT tap.logout();
 
 -- ── G. forwarding dies and cannot be re-established from the old session (P5)
@@ -252,8 +254,8 @@ DELETE FROM auth.sessions WHERE id = tap._u198('SP1');                  -- that 
 SELECT is((tap._row198('ExponentPushToken[198-other-jjjjjjjjjjjj]')).revoked_reason, 'session_ended', 'P2: the session-end revoke writes session_ended (never rule 5''s signed_out)');
 SELECT tap._s198('SPA', tap._fresh198(tap.buyer())::text);              -- another account, post-epoch session, its own secret
 SELECT tap._login198(tap.buyer(), tap._u198('SPA'));
-SELECT throws_ok($$ SELECT public.register_push_token('ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', 'squatter-secret-0123456789', 'iPhone') $$,
-  '42501', 'insufficient_privilege: token is bound to another account', 'P3: another account cannot claim the legacy row after its session ended (F-131-K2a closed)');
+SELECT is((public.register_push_token('ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', 'squatter-secret-0123456789', 'iPhone') ->> 'outcome'), 'challenge_required',
+  'P3 (under 135): another account cannot claim the legacy row after its session ended without proving possession (F-131-K2a closed)');
 SELECT tap.logout();
 SELECT tap._login198(tap.other_user(), tap._u198('SP2'));
 SELECT is((public.register_push_token('ExponentPushToken[198-other-jjjjjjjjjjjj]', 'ios', 'secret-198-other-jjjj-0123456789', 'iPhone') ->> 'outcome'),

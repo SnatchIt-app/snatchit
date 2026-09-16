@@ -364,6 +364,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('revoke_all_push_bindings()',                                     'authenticated-execute'),
   ('guard_push_token_session_stmt()',                                'no-client-execute'),
   ('guard_push_token_session_row()',                                 'no-client-execute'),
+  ('guard_push_token_client_delete()',                               'no-client-execute'),       -- 135
   -- 130 (L1 concurrency): the checkout's per-(listing, buyer, mode) secret
   -- hand-out claim and its token-bound release. service_role only; the edge
   -- calls them, a client never does.
@@ -446,6 +447,8 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- 128 (F7): the device-proof push-token registration verb. Client-callable by
   -- design; rebinding requires the device secret, never token knowledge.
   ('register_push_token(text, text, text, text)',                    'authenticated-execute'),
+  ('request_push_token_challenge(text, text, text)',                 'authenticated-execute'),   -- 135
+  ('confirm_push_token_challenge(uuid, text)',                       'authenticated-execute'),   -- 135
   ('can_create_listing(uuid)',                                       'authenticated-execute'),
   ('cancel_listing(uuid, uuid)',                                     'authenticated-execute'),
   ('complete_auction_payment(uuid, uuid)',                           'authenticated-execute'),
