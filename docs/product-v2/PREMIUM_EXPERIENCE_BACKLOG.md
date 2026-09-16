@@ -1422,3 +1422,31 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   D: the visible-code push shows the code in its alert text — the owner
   confirms the lock-screen preview is acceptable; a silent push arriving while
   the user is on the code screen is ignored by design.
+- **State-views refresh (owner request, 2026-09-16) review-ready:
+  `frontend/state-views-refresh @ 71eaef0`** (from sell-form-keyboard @ 2b9559e;
+  17 files, +389/−157; no gated file). One Premium `StateView`
+  (`src/components/ui/StateView.tsx`): display-face title, one sentence, one
+  56 pt glyph treatment via IconSymbol (wifi.slash / exclamationmark.triangle
+  / magnifyingglass; none for empty), the app Button as Retry (44 pt, busy),
+  alert region + VoiceOver announcement, nothing animated; `ScreenState` and
+  `EmptyState` are thin wrappers so Home/Explore, Bids, Tickets and Profile
+  share it; Explore's no-match is its own state; pure
+  `src/lib/ui/loadState.ts` (classifyLoadFailure: offline when the OS says so
+  or the error is a connectivity failure; STATE_COPY) used by all five loads —
+  **F-OFF-1 root cause:** Tickets passed a generic error state regardless of
+  the failure (`state={'error'}`), now classified like the other tabs; cached
+  content kept on failed refreshes (unchanged); the five headings use
+  `useTopInset`. Static preview `docs/product-v2/previews/state-views-
+  preview.html` (sent to the owner) pinned by `tests/state-views.test.ts`
+  (RED first, 9). Three pre-existing pins updated (quiet-refresh, hardening,
+  discovery-card-state). Gates: tsc clean; vitest 1927 / 87; lint 0 errors /
+  29 warnings. Device rows DV-ST1..ST4 added. Not in build 17; A integrates
+  into the combined candidate.
+- **Client v3 @ `969ff20`:** per D's heads-up on A's 135 shape (confirm RETURNS
+  `nonce_mismatch` + `attempts_left` and `challenge_consumed` instead of
+  raising), a 200 binds only on `rebound`; mismatch uses the server's
+  `attempts_left`; consumed is terminal; anything else never confirms and never
+  writes a record. Open with A: stale nonce after a re-issue (D asks A to
+  accept the previous nonce for one generation or not rotate within a
+  challenge) and P3-1. Gates: tsc clean; vitest 1944 / 88 (guarded green run
+  after one unrelated timing flake); lint 0 errors.
