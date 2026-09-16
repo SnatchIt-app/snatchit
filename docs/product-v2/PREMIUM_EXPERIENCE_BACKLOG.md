@@ -1282,3 +1282,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   now PRESENT — the contract's `refreshed`: rule 2 planted the real device's
   proof on the legacy row. Staff sessions 2, buyer 0; one push token; no
   channel-state row to heal. S3 (staff sign-out) issued by A.
+- **Path B, S3 (A read, 21:41 EDT):** row 140fcb44… still the staff account's,
+  active=false, revoked_at 01:41:51Z, revoked_reason `signed_out`, hash
+  RETAINED, last_used unchanged — the 129 revoke on the verb path, i.e. the
+  DV-611 shape, proven on build 17 (for the staff account; the buyer's own
+  DV-611 run remains row 16). Sessions: staff 0 (the candidate's global-scope
+  sign-out removed both staff sessions — K-2 context), buyer 0; one push token.
+  S4 (buyer sign-in) issued by A.
