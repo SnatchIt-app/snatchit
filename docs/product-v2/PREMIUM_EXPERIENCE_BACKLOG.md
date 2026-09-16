@@ -1781,6 +1781,19 @@ reaching analytics.
   into the combined candidate after review; no build/deploy until CI) and D
   (review, mutants suggested). Evidence limit: the real-client test proves the
   lock semantics; the handset proves the screens (DV-AUTH-1).
+  **D: PASS at a046568** (2026-09-16), root cause verified independently in
+  the installed auth-js 2.98.0 (`signOut()` = `_acquireLock(... _signOut)`;
+  `_notifyAllSubscribers` awaits every callback; the re-entrant branch chains
+  on `pendingInLock`). Mutants: AM1 async handler awaiting inline → 4 fail,
+  run time 0.35 s → 4.88 s (real hangs); AM2 defer dropped → 1 fails; **AM3
+  hook swallows the handler's promise with `void` → SURVIVES** (equivalent
+  mutant: the handler is synchronous, nothing to swallow) — C's claim that the
+  source pin catches it was wrong; **AM4 = AM1 + AM3 → 4 fail** (the
+  real-client tests catch the regression pair; no blind spot). Header note
+  added at C's head **`8dc4cec`** (comment-only, +9) so the next reader keeps
+  the handler synchronous and the hook returning its value. Integration
+  waits on the owner's instruction given in A's session (it moves the build
+  source); D and C have nothing pending.
 - **Rows 17/18 restated by A (2026-09-16; 131 now applied on the sandbox,
   ledger 137, verified by A and D):** row 17 (DV-607a) after the window's
   server phase, expectation post-131 — on A's delete of the buyer's single
