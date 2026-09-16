@@ -1277,3 +1277,8 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   refused 403 again at 21:33:56 — sign-out clears the terminal state, the app
   retries on the next sign-in, and rule 4 repeats while the staff row is
   active. S2 (staff sign-in) issued by A.
+- **Path B, S2 (A read, 21:40 EDT):** row 140fcb44… still the staff account's,
+  active, last_used advanced (09-10 → 09-16 01:40:48Z), revoked_* null, hash
+  now PRESENT — the contract's `refreshed`: rule 2 planted the real device's
+  proof on the legacy row. Staff sessions 2, buyer 0; one push token; no
+  channel-state row to heal. S3 (staff sign-out) issued by A.
