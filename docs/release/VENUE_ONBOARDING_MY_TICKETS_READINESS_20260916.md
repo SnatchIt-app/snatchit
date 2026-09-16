@@ -1,9 +1,12 @@
 # Venue onboarding and My Tickets — coordinated readiness report (owner request 2026-09-16)
 
 Assembled by A. Sections: **A** (this file, §1–§4: contracts, schema exposure, RLS/role boundaries, edge functions,
-migration dependencies, owner-MFA steps, unauthorized items), **D** (client onboarding flow by role — merged from
-`docs/venue-dashboard/CLIENT_ONBOARDING_READINESS_20260916.md` when D pushes it), **C** (My Tickets end to end — merged from
-`docs/product-v2/MY_TICKETS_READINESS_20260916.md` when C pushes it), then the dependency graph (§7) and milestones (§8).
+migration dependencies, owner-MFA steps, unauthorized items), **D** (§5, client onboarding flow by role — embedded verbatim
+from `docs/venue-dashboard/CLIENT_ONBOARDING_READINESS_20260916.md` @ `70e19af`), **C** (§6, My Tickets end to end — merged
+from `docs/product-v2/MY_TICKETS_READINESS_20260916.md` when C pushes it), then the dependency graph (§7) and milestones (§8).
+One correction D's section makes to a reading of the headers alone, carried into §3: the door-session "park" (PFA-26) is
+stale documentation — migration 107 un-parked it and 107 is in the production ledger (tip 120); doors are switched off by
+the scanning flag and the dark edges, not impossible.
 Constraint honoured throughout: **nothing here enables issuance, scanning or native ticket data**; this is a report.
 
 Tags, two axes kept apart (D's rule): **implemented / unapplied** (code exists, not on the environment) is a different risk
