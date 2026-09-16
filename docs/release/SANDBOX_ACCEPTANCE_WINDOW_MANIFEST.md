@@ -336,3 +336,16 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   findings: the initial 403, the no-retry terminal behaviour, and the recovery wording (says "sign out here first" where the
   remedy is "sign in and then sign out on this device"; the 131 branch's S-13 copy already says so). **Owner chose Path B**
   (staff account signs in and out on the handset; no server mutation). Steps and read-backs recorded below as they happen.
+- **Path B executed by the owner, one step at a time, A read after each (all read-only; no server mutation):**
+  S1 buyer sign-out → buyer sessions 1 → 0, staff row unchanged. (Earlier, 01:33:37Z: the buyer's own sign-out issued
+  `revoke_push_token` 200 then `logout` 204, signed back in 01:33:49Z and was refused 403 again at 01:33:56Z — sign-out clears
+  the client's terminal state, the retry repeats the refusal while the legacy row is active.)
+  S2 staff (`contact@snatchitapp.com`) sign-in → row `140fcb44…` user unchanged, active, `last_used` 09-10 17:33:37Z →
+  09-16 01:40:48Z, **hash now present** (prefix `4b8628e7`) = `refreshed`, proof planted on the real device by rule 2.
+  S3 staff sign-out → inactive, `revoked_at` 01:41:51Z, `revoked_reason = signed_out`, hash retained; staff sessions 0
+  (global sign-out).
+  S4 buyer sign-in → **user_id → `919d511e…` (buyer)**, active, `last_used` 01:42:41Z, revocation cleared, same hash =
+  **`rebound`** (rule 3). Buyer session created 01:42:30Z. **Registration recovered; the designed legacy hand-off works
+  end to end.** Baseline for DV-611C / DV-611S = this row. DV-611L recorded NOT APPLICABLE as written (the install carried
+  Build 16 residue); the initial 403 recorded as F7 working. Findings kept: F-611-1 (no automatic retry while terminal;
+  recovery copy says "sign out here first" where the remedy is "sign in and then sign out on this device").
