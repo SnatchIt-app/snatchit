@@ -1639,6 +1639,19 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   on cold start is invisible to the user and to A — Settings › Notifications
   shows nothing while `obtainToken()` is pending; consider a "waiting for push
   token" status and a bounded timeout in the next candidate (not Build 17).
+- **Sandbox push delivery is impossible today (A, 2026-09-16):** the sandbox
+  Vault holds no service_role_key, the only routine posting to send-push
+  (notify_outbid) is guarded on it, and `net._http_response` has 0 rows in 24 h
+  — nothing has ever posted from this sandbox through pg_net. Any row that
+  expects a push to ARRIVE cannot pass on the sandbox as it stands (on the
+  combined build: DV-V1..V4 and every "push received" row); registration and
+  sign-out rows never leave the database and are unaffected — session 1's
+  rows 16–18 as scripted are read-back/client-local rows and can run. A has put
+  the fix to the owner as a decision beside the apply order: add the
+  service_role_key to the sandbox Vault as a second named secret exception (A
+  inserts from the environment value without printing it; D witnesses names
+  only), or accept that b2 device verification of delivery is deferred. C runs
+  no delivery row until the owner decides.
 
 ## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
 
