@@ -13,7 +13,15 @@ token: the server sends a one-time nonce **to that token**; the device echoes it
 - client rows are never deleted: a client DELETE becomes a revoke with history.
 
 ## 2. `public.register_push_token(p_token text, p_platform text, p_device_secret text, p_device_name text default null) → jsonb`
-Same signature as v2. Reply `{token_id, outcome, platform, contract_version: 3, challenge?}`.
+Same signature as v2. Reply `{token_id, outcome, platform, contract_version, challenge?}` where **`contract_version` is `2` on
+`registered` / `refreshed` replies and `3` only on replies that carry `challenge`** (and on every reply of the confirm verb).
+Reason (D, V3-1): the shipped v2 client (`src/lib/push/registerToken.ts:97`) rejects ANY reply whose `contract_version` is not 2
+as `contract_mismatch`, terminal until a new build; stamping 3 everywhere would silently stop push registration for every build
+that has not updated. With this rule an old build behaves exactly as today on the cases v3 does not change and only loses the
+cross-account case it could never complete (it sees a `3` there and goes terminal, as it did on the v2 42501). **The v3 client
+accepts `contract_version ∈ {2, 3}` on `registered` / `refreshed`, and requires `3` wherever `challenge` is present and on the
+confirm verb.** Production rollout sentence: a v3 server with the installed base on v2 is NOT a push outage under this rule;
+without it, it would be one for everyone who has not updated.
 
 | outcome | when | effect | client next step |
 |---|---|---|---|
@@ -65,7 +73,9 @@ Outcome `rebound`. Every other path writes nothing except `attempts += 1`:
   for the pgTAP tests. `send-push` re-reads the challenge row by id (token, mode, expires_at, confirmed_at, attempts), refuses a
   missing/expired/confirmed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
   data `{type: 'push_token_challenge', challenge_id, nonce}`; visible = title/body carrying the code + "Never share this code", data
-  WITHOUT the nonce), records the result through `record_push_token_challenge_delivery`, and never logs the payload.
+  WITHOUT the nonce), records the result through `record_push_token_challenge_delivery`, and never logs the payload. **The challenge
+  push is token-addressed** (the token may belong to ANOTHER account): `send-push` accepts a token-addressed send for this kind only
+  and reveals nothing about the row's current owner in the payload or the logs (no user id, no email, no device name).
 - **Nonce format by mode (pinned):** silent = 32 CSPRNG bytes, base64url (43 chars); visible = a 6-digit decimal code drawn from
   CSPRNG (the code IS the nonce; §4 compares `sha256(presented)` to `nonce_hash` in both modes). Switching an open challenge to
   visible re-issues the nonce (the silent one is invalidated).
@@ -74,14 +84,20 @@ Outcome `rebound`. Every other path writes nothing except `attempts += 1`:
   re-dispatches (silent: same nonce; visible: same code) until it expires. The 60 s fallback timer runs only while foregrounded.
 - The nonce is never logged anywhere (edge, DB, Sentry): B's suite carries a mutant that logs it, which must fail.
 - Fallback (iOS silent-push throttling): if no push arrives within 60 s the client calls
-  `public.request_push_token_challenge(p_token text, p_mode text default 'visible') → jsonb` (same challenge row, `mode := 'visible'`,
+  `public.request_push_token_challenge(p_token text, p_device_secret text, p_mode text default 'visible') → jsonb` — it carries the
+  device secret like the register verb (D, V3-3), so a challenge it creates always has `secret_hash`; if an open challenge exists for
+  (token, caller) it switches that row to visible (same `secret_hash`, nonce re-issued as the code), otherwise it creates one
+  (same rules as `register_push_token`'s `challenge_required` branch, incl. the 131 session check) — (same challenge row, `mode := 'visible'`,
   nonce re-issued as a 6-digit CSPRNG code — the code IS the nonce for §4): the push is an alert with the copy **"Snatch It
   verification code: 123456. Never share this code."** The user types it in Settings › Notifications; the client echoes via §4.
-  A wrong code counts an attempt.
-- Rate limits (C6): the verbs are the authority — **5 challenge requests per user per 10 min, 3 per token per 10 min** (`check_rate_limit`
-  keys `push_challenge_user`, `push_challenge_token`); beyond that P0001 `too many challenge requests`. The edge re-checks with its own
-  namespace (`push_challenge_edge_user:<uid>` 5/10 min, `push_challenge_edge_token:<token_id>` 3/10 min) so it never consumes the
-  verbs' budget.
+  Bounds of the visible code (D, V3-2): 10^6 space, the **same 5-attempt counter and 5-minute expiry as the silent path** (one
+  counter per challenge row, shared across modes), and §5's rate limits on issuance — a wrong code counts an attempt; the fifth
+  wrong attempt consumes the challenge and the client must request a new one (rate-limited).
+- Rate limits (C6): the verbs are the authority — **5 challenge requests per user per 10 min, and 3 per (token, requesting user) per
+  10 min** (`check_rate_limit` keys `push_challenge_user`, `push_challenge_token:<token_id>:<uid>`); counting per (token, user) means
+  nobody who merely knows a token string can burn the rightful device's allowance (D, V3-4). Beyond that P0001 `too many challenge
+  requests`. The edge re-checks with its own namespace (`push_challenge_edge_user:<uid>` 5/10 min,
+  `push_challenge_edge_token:<token_id>:<uid>` 3/10 min) so it never consumes the verbs' budget.
 
 ## 6. Table access (client roles) — C2
 - SELECT column-scoped as v2 (no `device_secret_hash`, no `session_id`).
@@ -108,7 +124,10 @@ brief end).
 
 ## 9. What v3 does not close (D §12, restated)
 An attacker holding the victim's *unlocked* phone at bind time (the victim takes the binding back afterwards by proof); an attacker
-who knows the new password; notification content on a lock screen.
+who knows the new password; notification content on a lock screen. **And (D, V3-5):** a token whose row was deleted before 135 ships
+has no history, so the first bind after b2 is `registered` (with the registering device's proof, no challenge) — self-correcting: the
+genuine device's next registration is `challenge_required`, it proves, and reclaims by C5; the window is one launch of the genuine
+device.
 
 ## 10. Objects (migration `135_push_token_proof_of_possession.sql` — numbered: it owns its objects and redefines only 128/131 bodies)
 Table `notify.push_token_challenges` (RLS on, no policies, no client grants) · functions `public.request_push_token_challenge(text, text)`,
@@ -116,5 +135,9 @@ Table `notify.push_token_challenges` (RLS on, no policies, no client grants) · 
 `notify.record_push_token_challenge_delivery(uuid, text, text, text)` (service_role EXECUTE, for `send-push`),
 `public.guard_push_token_client_delete()` + trigger · `register_push_token` re-created (v3 body) · notify template
 `security_device_rebound` (in-app) · pgTAP 202 · rollback restores the 131 verb and drops the new objects. **Send paths need no change:** a pending claim is a challenge row, never an unconfirmed `push_tokens` row, so `send-push`'s
-`user_id + is_active` select stays as it is (C4 by construction). Census deltas at integration: tables +1 (notify), functions +5
-(3 public + 2 notify), triggers +1 (public); manifest rows accordingly.
+`user_id + is_active` select stays as it is (C4 by construction). Census deltas at integration, stated as CI asserts them: **public
+Gate-2: tables +0, functions +3 (`request_push_token_challenge`, `confirm_push_token_challenge`, `guard_push_token_client_delete`),
+policies +0, triggers +1** (the client-DELETE guard); five-schema routines +2 (`notify.issue_push_token_challenge`,
+`notify.record_push_token_challenge_delivery`) → 302; the table `notify.push_token_challenges` is outside the public census.
+Manifest: 3 public function rows (2 authenticated-execute, 1 no-client-execute); `expected_grants.txt` unchanged (no client grant on
+the notify table).
