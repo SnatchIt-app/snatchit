@@ -3150,6 +3150,28 @@ superuser GUC anywhere; negative control 20 ok / 45 not ok vs 120's bodies. C's 
 ancestor; app/, src/, `eas.json` identical to the reviewed heads. **Build source for O-2; submission Thursday morning
 after SBX-2** (kept there so a sandbox finding cannot waste the one authorized build). Applied nowhere; not a release.
 
+### PINNED b2 — `candidate/2026-09-18-pin-b2` = `9bef640` on `release/production-gate-20260918` (2026-09-16, A)
+
+The production-gate stack on top of the candidate pin above (which is kept untouched): 131 (session-bound push bindings,
+K-2 amendment), 132 @ `74a4371` (pre-mint group record, D PASS), 133 (config-driven functions URL, D PASS), 134 as
+`20260916000000_processing_sweep_arm.sql` (D PASS), 135 (b2 proof of possession, D Gate 1 PASS) with `send-push`'s
+challenge kind (B, @ `77efd64`) and `enforce-transfer-expiry`'s Phase 0 processing arm; C's logout-scope,
+session-bound-131-r2, sell-form-keyboard, Premium StateView unification, client v3 @ `e8114df` and the test-only
+classifier-migration guard @ `d9eb102` (every client-keyed 135 raise text and 200 literal pinned verbatim). GitHub CI at
+the pinned commit: run 35053607616, 5/5 jobs, pgTAP files=85 tests_ran=5186 PASS, masking gate 0. D Gate 3 PASS at
+`9bef640` (D log `26d69d9`): merge chain byte-checked against the individually passed heads; full-chain rehearsal PASS
+27/0/WARN 3 (the two pre-existing rollback WARNs); census 32|105|37|38, both orders converge; reverse-order rollback
+20260916000000 → 135 → 133 → 132 → 131 leaves 0 lines differing from the candidate (census 31|96|37|35); C1–C6 0
+errors with all four negative controls flipping; push/auth suites 97/97; twelve client-keyed raise texts verified
+against `raise exception` sites with comments stripped; C's guard fails by name on three mutations of 135. **Evidence
+limit:** all local; `net.http_post` and `vault.decrypted_secrets` are harness stand-ins, so no real pg_net, Vault, APNs
+or FCM behaviour and no device behaviour is proven yet. Open at the pin: D-135-5 (LOW, docs-only: B's
+`SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md` described the pre-RB-1 DELETE; fix on `docs/b2-runbook-rb1-closed @ 5225557`,
+integrates on top of the pin without changing applied bytes) and the owner's decision on the in-app-only
+`security_device_rebound` notice. **Applied nowhere; not a release; no production change authorized.** The sandbox
+application package (`SANDBOX_APPLICATION_PACKAGE_B2.md`) and the one authorized combined build (owner ruling
+2026-09-16, shape (i)) both wait on the owner; the build is cut from the tag by C.
+
 ### Disclosure — two read-only production queries during the sprint, neither authorized (B, disclosed 2026-09-15; recorded by A)
 
 Both via Supabase MCP `execute_sql` on `hqycwntpfoztoinemqns`, aggregates only, no secret values, no personal data,

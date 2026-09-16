@@ -1,6 +1,8 @@
 # Migration and pgTAP number registry
 
-One owner per number. Updated 2026-09-15. Check here before claiming a number.
+One owner per number. Updated 2026-09-16. Check here before claiming a number.
+
+**Production-gate pin b2, 2026-09-16:** `release/production-gate-20260918 @ 9bef640` = tag `candidate/2026-09-18-pin-b2` — GitHub CI green at that commit (run 35053607616, 5/5 jobs, pgTAP files=85 tests_ran=5186 PASS), D Gate 3 PASS (D log `26d69d9`) — adds 131 (K-2 amendment), 132 (@ 74a4371), 133, 20260916000000 (134), 135 and their edges (`create-payment-intent`, `enforce-transfer-expiry`, `send-push`) on top of the candidate pin below, which is kept untouched. Applied nowhere; the sandbox application package (`SANDBOX_APPLICATION_PACKAGE_B2.md`) awaits the owner. Docs-only follow-up at the pin: D-135-5 (B's support runbook, `docs/b2-runbook-rb1-closed @ 5225557`) integrates on top without changing applied bytes.
 
 **Candidate pinned 2026-09-15 (re-pinned the same night after the 193 CI fix):** `release/candidate-20260918 @ aabe029` = tag `candidate/2026-09-18-pin` — GitHub CI green at that commit — 121, 123, 124, 125, 126, 127, 128, 129, 130 (amended) + edges #64/#66/#67 + C's client stack. Applied nowhere; not a release. Anything numbered from here (131 session-bound, 132 if the fresh-mint structural fix is wanted) is outside the pin.
 
