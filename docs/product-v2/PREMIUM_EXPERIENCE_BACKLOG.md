@@ -1533,3 +1533,20 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   not changed: `src/lib/push/registration.ts` line ~209 has the same
   timeout/abort → 'network' regex, but there the kind only schedules a retry
   and carries no connection claim to the user (follow-up, not a defect).
+- **Client v3 CLEAR from D at `e8114df` (2026-09-16).** D killed each fix with
+  a regression mutant: timeout/abort back in the network branch → 1 fails;
+  `registration attempts` dropped → 1 fails; `fallbackDelayMs` ignoring
+  elapsed foreground time → 1 fails; the hook bypassing the helper with a
+  bare `60_000` → 1 fails (the pin catches the missing helper call
+  `const delay = fallbackDelayMs(st, Date.now());`, not only the identifier —
+  stronger than C first described). D confirmed `REGISTRATION_REMEDY` has no
+  `network` entry, so registration.ts's timeout→network stays a scheduling
+  kind; align it whenever that file is next open (not a finding). A's merge
+  order 135 → send-push → client v3: the first two are cleared, so the client
+  is the last gate before the combined stack. **Follow-ups:** (1) D re-runs
+  the client tests against the stack commit because the `precondition_failed`
+  texts the classifier keys on live in A's migration — a reword would degrade
+  the classifier silently to `unknown`; (2) C adds a guard test on the stack
+  (where `135_push_token_proof_of_possession.sql` exists) that asserts every
+  keyed string appears in the migration body, so the coupling fails loudly in
+  CI rather than only in D's run — not on the branch, which has no 135.
