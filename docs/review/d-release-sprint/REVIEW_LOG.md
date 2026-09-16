@@ -200,6 +200,32 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
+### Contract v3 draft review (A's 8818550) — 5 findings, all applied by A at 53c95db
+| # | Severity | Finding |
+|---|---|---|
+| V3-1 | HIGH | §7's compatibility story contradicted the shipped client: `registerToken.ts:97` rejects any reply whose `contract_version` ≠ 2 as terminal `contract_mismatch`, so a v3 server stamping 3 on every reply stops push registration on EVERY older build, including unchanged `registered`/`refreshed` — a silent push outage for the installed base after the store release. Fix taken: 2 on registered/refreshed, 3 only with a challenge and on confirm; §7 rewritten; rollout sentence added |
+| V3-2 | MEDIUM | the visible fallback could never verify: a 6-digit HMAC-derived code against `nonce_hash = sha256(32-byte nonce)`. Fix taken: the visible code is a re-issued CSPRNG 6-digit nonce, one 5-attempt counter and 5-min expiry shared across modes |
+| V3-3 | MEDIUM | `request_push_token_challenge` carried no device secret, so a confirm could leave the row with no proof. Fix taken: the verb takes `p_device_secret` |
+| V3-4 | LOW–MEDIUM | the per-token rate limit let anyone knowing a token block the genuine device's reclaim. Fix taken: limits per (token, requesting user) |
+| V3-5 | LOW | §9 now names the pre-135 deleted-row residual (self-correcting at the next genuine registration) |
+Also raised: the public census moves by functions +3 / triggers +1 / tables +0 (the challenge table is in `notify`), and B's challenge send must be token-addressed without revealing the other account's identity in payload or logs. Both accepted.
+
+### C's three client branches — second read (split with A: A took `signOut.ts` line by line; D took the call sites, the copy, the 131 server-contract match and F-SELL-1's layout)
+Branches: `frontend/logout-scope @ 7dbe940`, `frontend/session-bound-131-r2 @ b48f4e9`, `frontend/sell-form-keyboard @ 465dc32`. Local: 62/62
+(logout-scope, session-bound-131, auth-sign-out, push-registration) and 34/34 (sell-form-keyboard, adaptive-nav).
+Holds: K-2's two acts match the server contract I verified at f3963a3 (local revoke per device; revoke_all then global, and revoke_all is
+allowed from a pre-epoch session); the registration record is cleared only after a successful sign-out and a failed sign-out un-marks the
+session-end reason; K-1 deletion uses all-devices; K-3 naming; K-4's neutral copy; `handleSessionStale` is once per process and re-arms when
+the sign-out fails; `session_stale` is classified apart from `bound_to_other`; F-SELL-1's helpers are pure and the badge height is derived
+(`lineHeight = SANDBOX_BADGE_EXTRA - 6` + 6 pt) so header and badge cannot drift.
+| # | Severity | Finding |
+|---|---|---|
+| K-5 | LOW–MEDIUM | the account-deletion path ignores `r.signedOut` and routes to login anyway: an offline failure leaves the session live and the user silently restorable into an account they asked to delete |
+| S-1 | LOW–MEDIUM | the sandbox badge text has no `allowFontScaling={false}`, so at the owner's large-text setting the badge outgrows `SANDBOX_BADGE_EXTRA` and crowds the heading again — the same defect, reintroduced by an accessibility setting (sandbox builds only) |
+| K-6 | LOW | `clearStaleSession` signs out with the default reason, overwriting the pending 'expired' mark, so the login screen says nothing after a stale refresh token (predates K-2; now fixable by passing a reason) |
+Evidence limit: source + vitest only. StickyBar and the badge have no rendering test, so the keyboard geometry and the badge height are
+unverified until the combined build runs on a handset (DV-S1/S2, plus a large-text pass on a sandbox build for S-1).
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
