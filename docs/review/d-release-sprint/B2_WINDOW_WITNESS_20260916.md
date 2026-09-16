@@ -71,6 +71,26 @@ The newest pre-existing row is 2026-09-07 16:06:00.257881Z.** Sent to A to corre
 | **132 apply** (write 3) | announced | **04:45Z** | **OK** — ledger **138**, 1 statement, `md5 ecdd91761e3849ea73190f174cf2681c`. Census **32\|103\|37\|36** = +1 table, +3 functions. `checkout_group_claim` present and **empty**; `claim_checkout_group`, `record_checkout_attempt`, `release_checkout_group` present; table grants **service_role only** (no anon, no authenticated). INV1 `project_url` only · INV4 0/0 · queue 0 · **0 responses after V0** · zero business drift. "Proceed" given for 133 |
 | 133 rollback capture | 04:44:23Z | **04:47Z** | **list confirmed complete** — see below |
 
+| **133 apply** (write 4) | 04:47:05Z | **04:48Z** | **OK** — ledger **139**, `md5 c08f8295…` (reproduced from the pin). Census unchanged **32\|103\|37\|36** (bodies only). INV4 **strengthened beyond production**: zero `https://<anything>.supabase.co` literals in any cron command or routine body across public/kernel/notify/venue/catalog — the out-of-band sandbox-host literals SBX-1/2 left are gone, which only a sandbox read can confirm. 22 crons, all active, all reading the URL from Vault. **Destination attested:** cron command → Vault `project_url` (verified = sandbox) → sandbox edge → 401. **Prediction held:** one tick, `enforce-transfer-expiry`, id 3, status **401**, 04:48:00.249691Z, `error_msg` null; no other job posted |
+| **135 apply** (write 5) | 04:49:56Z | **04:51Z** | **OK** — ledger **140**, `md5 28e01d25…` (reproduced). Census **32\|106\|37\|37**, reconciliation verified by naming objects not arithmetic: `sandbox_gucs` present, `sandbox_pre_request` present, 119's `guard_listing_seller_not_blocked` and its trigger **absent** ⇒ +1 function, −1 trigger against the pin's declared 32\|105\|37\|38. All six 135 surfaces present, challenges table empty. **`notify.push_token_challenges` carries no grants at all** to anon/authenticated/service_role — the 157 B9 premise B's send-push rests on, until now verified only on my local harness. `confirm` executable by `authenticated` not `anon`; `issue` not executable by `authenticated`; `get` executable by `service_role`. All four `push_tokens` triggers present incl. `trg_guard_push_token_client_delete`. `security_device_rebound` = `{}`/`{}`/mandatory, `in_app` template only. 3 ticks after V0, **all 401, non-401 count 0**; zero drift. Expected md5 for `20260916000000` given to A **in advance**: `b1fda89070efa7a9ba24f5aee4492064` |
+
+### `net._http_response` is a 6-hour cache, not a log — the evidence self-deletes
+At V0 the table held 2 rows from 2026-09-07; after the first new tick it held **only** id 3. Attributed and benign:
+`pg_net.ttl = 6 hours`, and pg_net's worker purges only when it processes activity — there had been none since
+2026-09-07, so two long-expired rows sat untouched until the 04:48 request woke the worker. 133 does not touch that
+table (its only deletion is `http_request_queue` scoped to the production host; there were no such rows).
+
+Two consequences given to A for the manifest: **(1)** the refused-tick evidence must be captured as *values* now,
+because in six hours the query returns nothing and that reads as "no outbound activity", a different claim
+entirely; **(2)** `cron.job_run_details` is not a substitute — it records that the *queuing SQL* succeeded, so a
+job that posted successfully and one that was refused look identical there. Only the captured response rows
+support "nothing succeeded". A is capturing and will re-capture at the close.
+
+### Edge parity under option (b) is a source comparison, not a behavioural one
+Raised to A for the manifest's wording: `send-push` cannot be exercised end to end here, so the four-edge parity
+check proves the deployed bytes match the pin and **nothing** about whether a challenge can reach a device.
+"send-push verified on the sandbox" would otherwise be read as the b2 delivery check the owner deferred.
+
 ### The md5 method, reproduced independently
 A's apply script stores the ledger row's statements as one element holding the pinned file's bytes with trailing
 newlines stripped, and compares `md5(array_to_string(statements,''))` to the md5 of the file minus its trailing
