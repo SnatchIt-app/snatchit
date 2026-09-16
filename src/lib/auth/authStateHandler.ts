@@ -11,6 +11,15 @@
  * process is killed — Home and Profile "loading forever" after sign-out →
  * sign-in. So the callback returns before anything is awaited; the stale-token
  * diagnostic runs deferred, after the lock is gone.
+ *
+ * Why the callback's RETURN VALUE matters (D's review, 2026-09-16): auth-js
+ * awaits whatever the subscriber returns. If a future change makes this
+ * handler async again, wrapping the call in `void` at the hook would hide the
+ * deadlock from the library while leaving every data request hung — that is
+ * exactly how the first draft of the regression test failed to reproduce the
+ * bug. Keep the handler synchronous, keep the hook returning its value, and
+ * keep tests/auth-signout-deadlock.test.ts driving the real client: those
+ * tests, not the source pin, are what catch the async + void regression pair.
  */
 
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
