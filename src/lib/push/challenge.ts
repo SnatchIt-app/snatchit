@@ -25,7 +25,10 @@ export interface ChallengeInfo { id: string; mode: ChallengeMode; expires_in_s: 
 
 export type ChallengeErrorKind =
   | 'expired' | 'consumed' | 'exhausted' | 'nonce_mismatch' | 'other_session' | 'session_stale'
-  | 'rate_limited' | 'auth' | 'network' | 'unknown';
+  | 'rate_limited' | 'auth' | 'network' | 'unknown'
+  // A's rulings on 135 (2026-09-16): a typed code superseded by a re-issue (free, no
+  // attempt); a request that should have been a register, or a binding that is gone.
+  | 'stale_nonce' | 'register_instead';
 
 export type ChallengeState =
   | { phase: 'none' }
@@ -137,6 +140,9 @@ export type ConfirmReply =
   | { kind: 'rebound'; tokenId: string | null }
   | { kind: 'nonce_mismatch'; attemptsLeft: number | null }
   | { kind: 'consumed' }
+  // `stale_nonce`: the echoed nonce was superseded by a re-issue — free (no attempt),
+  // no bind; the client waits for the current push (A's ruling (a), 2026-09-16).
+  | { kind: 'stale' }
   | { kind: 'unknown' };
 
 export function interpretConfirmReply(data: unknown): ConfirmReply {
@@ -145,7 +151,52 @@ export function interpretConfirmReply(data: unknown): ConfirmReply {
   if (outcome === 'rebound') return { kind: 'rebound', tokenId: d && typeof d.token_id === 'string' ? d.token_id : null };
   if (outcome === 'nonce_mismatch') return { kind: 'nonce_mismatch', attemptsLeft: d && typeof d.attempts_left === 'number' ? d.attempts_left : null };
   if (outcome === 'challenge_consumed') return { kind: 'consumed' };
+  if (outcome === 'stale_nonce') return { kind: 'stale' };
   return { kind: 'unknown' };
+}
+
+/**
+ * A stale echo is neutral: back to exactly the state the echo left (the push
+ * clock keeps its start, code entry keeps its attempts). With nothing to go
+ * back to it is a terminal that Try again recovers — never a bind.
+ */
+export function onStaleNonce(state: ChallengeState, prior: AwaitingPush | AwaitingCode | null): ChallengeState {
+  const challengeId = state.phase === 'confirming' ? state.challengeId : prior?.challengeId ?? null;
+  if (state.phase !== 'confirming' || !prior) return { phase: 'failed', kind: 'unknown', challengeId };
+  if (prior.phase === 'awaiting_code') return { ...prior, lastError: 'stale_nonce' };
+  return prior;
+}
+
+/** `challenge_consumed` after a typed code is the fifth wrong code; on the push path the row is simply gone. */
+export function onConsumed(state: ChallengeState): ChallengeState {
+  const challengeId = state.phase === 'confirming' ? state.challengeId : null;
+  if (state.phase === 'confirming' && state.via === 'code') return { phase: 'failed', kind: 'exhausted', challengeId };
+  return { phase: 'failed', kind: 'consumed', challengeId };
+}
+
+/**
+ * The visible-code request answered. A reply carrying `challenge {id, mode,
+ * expires_in_s}` is a fresh (or re-issued) challenge and replaces id and expiry
+ * (P3-1: a re-request on an exhausted or expired row consumes it and issues a
+ * new one); without one, the same open row switches to code entry. A dead
+ * challenge with no fresh id in the reply cannot be revived.
+ */
+export function onVisibleIssued(state: ChallengeState, data: unknown, now: number): ChallengeState {
+  const d = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+  const ch = d && d.challenge && typeof d.challenge === 'object' ? (d.challenge as Record<string, unknown>) : null;
+  if (ch && typeof ch.id === 'string' && ch.id) {
+    const secs = typeof ch.expires_in_s === 'number' ? ch.expires_in_s : 300;
+    return { phase: 'awaiting_code', challengeId: ch.id, expiresAt: now + secs * 1000, attemptsLeft: MAX_CODE_ATTEMPTS, lastError: null };
+  }
+  if (state.phase === 'awaiting_push') return toCodeEntry(state);
+  const challengeId = state.phase === 'failed' || state.phase === 'awaiting_code' || state.phase === 'confirming' ? state.challengeId : null;
+  return { phase: 'failed', kind: 'unknown', challengeId };
+}
+
+/** Try again: a dead challenge asks straight for a fresh visible code (P3-1); anything else registers again. */
+export function retryPlan(state: ChallengeState): 'visible' | 'register' {
+  if (state.phase === 'failed' && (state.kind === 'exhausted' || state.kind === 'expired' || state.kind === 'consumed')) return 'visible';
+  return 'register';
 }
 
 /** A wrong code reported in a 200: the server's counter is the authority when it gives one. */
@@ -164,10 +215,11 @@ export function classifyChallengeError(err: ErrorLike | null | undefined): Chall
   const msg = (err.message ?? '').toLowerCase();
   if (code === 'P0001') {
     if (/challenge expired/.test(msg)) return 'expired';
-    if (/challenge consumed/.test(msg)) return 'consumed';
+    if (/challenge consumed|challenge not found/.test(msg)) return 'consumed';
     if (/challenge attempts exhausted/.test(msg)) return 'exhausted';
     if (/nonce mismatch/.test(msg)) return 'nonce_mismatch';
     if (/too many challenge requests/.test(msg)) return 'rate_limited';
+    if (/register instead|binding no longer exists/.test(msg)) return 'register_instead';
   }
   if (code === '42501') {
     if (/not_authenticated/.test(msg)) return 'auth';
@@ -185,11 +237,14 @@ export const CHALLENGE_COPY = {
   requestingCode: 'No confirmation arrived. Sending a code to this phone instead…',
   confirmed: 'This device is confirmed for notifications.',
   wrongCode: (left: number) => `That code didn't match. ${left} ${left === 1 ? 'attempt' : 'attempts'} left.`,
+  staleCode: 'That code was replaced by a newer one. Enter the code from the latest notification.',
   failed: {
-    expired: 'The confirmation expired. Open Settings › Notifications again to start over.',
-    consumed: 'This confirmation was already used. Start over from Settings › Notifications.',
+    expired: 'The confirmation expired. Tap Try again to get a new code.',
+    consumed: 'This confirmation is no longer valid. Tap Try again to get a new code.',
     exhausted: 'Too many wrong codes. Tap Try again to get a new code.',
     nonce_mismatch: "That code didn't match.",
+    stale_nonce: 'That code was replaced by a newer one. Enter the code from the latest notification.',
+    register_instead: 'This device needs to be set up again. Tap Try again.',
     other_session: 'This confirmation was started from a different session. Sign in again and retry.',
     session_stale: 'You were signed out on this device. Sign in again to keep notifications on.',
     rate_limited: 'Too many confirmation attempts. Try again in about 10 minutes.',

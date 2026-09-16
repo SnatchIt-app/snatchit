@@ -35,7 +35,8 @@ import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import {
   beginChallenge, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, interpretConfirmReply, isChallengeExpired, onBackground,
-  onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, onWrongCode, toCodeEntry, type ChallengeState,
+  onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode,
+  retryPlan, type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
@@ -240,49 +241,66 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       armFallback(token);
     }
 
+    /**
+     * Ask for the visible code: from the open silent challenge (60 s fallback) or
+     * from a dead one (P3-1: Try again — the server consumes the exhausted/expired
+     * row and issues a fresh challenge whose id the reply carries).
+     */
     async function requestVisibleCode(token: string) {
       const st = challengeRef.current;
-      if (st.phase !== 'awaiting_push') return;
+      if (st.phase !== 'awaiting_push' && retryPlan(st) !== 'visible') return;
+      const staleId = st.phase === 'awaiting_push' || st.phase === 'failed' ? st.challengeId : null;
       const secret = await getOrCreateDeviceSecret(secureSecretStore, deviceRandomBytes);
       if (!secret.ok) {
-        challengeRef.current = { phase: 'failed', kind: 'unknown', challengeId: st.challengeId };
+        challengeRef.current = { phase: 'failed', kind: 'unknown', challengeId: staleId };
         publishChallenge();
         return;
       }
       const r = await supabaseRegisterDeps.requestChallenge(token, secret.secret);
       if (r.error) {
-        challengeRef.current = onConfirmError({ phase: 'confirming', challengeId: st.challengeId, via: 'push' }, classifyChallengeError(r.error), null);
+        challengeRef.current = onConfirmError({ phase: 'confirming', challengeId: staleId ?? '', via: 'push' }, classifyChallengeError(r.error), null);
       } else {
-        challengeRef.current = toCodeEntry(st);
+        challengeRef.current = onVisibleIssued(st, r.data, Date.now());
       }
       publishChallenge();
     }
 
+    type Prior = Extract<ChallengeState, { phase: 'awaiting_push' | 'awaiting_code' }> | null;
+
     /** Echo the nonce (silent) or the code (visible). The bind happens on the server here. */
-    async function confirm(nonce: string, prior: Extract<ChallengeState, { phase: 'awaiting_code' }> | null, token: string, uid: string) {
+    async function confirm(nonce: string, prior: Prior, token: string, uid: string) {
       const st = challengeRef.current;
       if (st.phase !== 'confirming') return;
+      const codePrior = prior?.phase === 'awaiting_code' ? prior : null;
       clearFallback();
       const r = await supabaseRegisterDeps.confirmChallenge(st.challengeId, nonce);
       if (r.error) {
-        challengeRef.current = onConfirmError(st, classifyChallengeError(r.error), prior);
+        challengeRef.current = onConfirmError(st, classifyChallengeError(r.error), codePrior);
         publishChallenge();
         return;
       }
       // Only `rebound` is a bind. A 200 that says otherwise never confirms and never writes a record.
       const reply = interpretConfirmReply(r.data);
       if (reply.kind === 'nonce_mismatch') {
-        challengeRef.current = onWrongCode(st, prior, reply.attemptsLeft);
+        challengeRef.current = onWrongCode(st, codePrior, reply.attemptsLeft);
         publishChallenge();
         return;
       }
       if (reply.kind === 'consumed') {
-        challengeRef.current = onConfirmError(st, 'consumed', prior);
+        challengeRef.current = onConsumed(st);
         publishChallenge();
         return;
       }
+      if (reply.kind === 'stale') {
+        // A's ruling (a): the echo was of a superseded nonce — free. Back to where the
+        // echo left; the push clock resumes from its own start, so re-arm the fallback.
+        challengeRef.current = onStaleNonce(st, prior);
+        publishChallenge();
+        if (challengeRef.current.phase === 'awaiting_push') armFallback(token);
+        return;
+      }
       if (reply.kind !== 'rebound') {
-        challengeRef.current = onConfirmError(st, 'unknown', prior);
+        challengeRef.current = onConfirmError(st, 'unknown', codePrior);
         publishChallenge();
         return;
       }
@@ -297,12 +315,13 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
     }
 
     function handleNotification(data: unknown) {
-      const r = onPushReceived(challengeRef.current, data);
+      const before = challengeRef.current;
+      const r = onPushReceived(before, data);
       if (!r.nonce) return;
       challengeRef.current = r.state;
       publishChallenge();
       const token = tokenRef.current;
-      if (token && userId) void confirm(r.nonce, null, token, userId);
+      if (token && userId) void confirm(r.nonce, before.phase === 'awaiting_push' ? before : null, token, userId);
     }
 
     async function submitCode(code: string) {
@@ -321,8 +340,14 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       if (token && userId) await confirm(r.nonce, st, token, userId);
     }
 
+    /** Try again: a dead challenge asks straight for a fresh visible code (P3-1); anything else registers again. */
     function retry() {
       clearFallback();
+      const token = tokenRef.current;
+      if (retryPlan(challengeRef.current) === 'visible' && token) {
+        void requestVisibleCode(token);
+        return;
+      }
       challengeRef.current = { phase: 'none' };
       void attempt();
     }

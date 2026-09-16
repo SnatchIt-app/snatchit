@@ -177,6 +177,9 @@ export default function NotificationsScreen() {
             <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.codePrompt}</Text>
+              {challenge.lastError === 'stale_nonce' ? (
+                <Text style={[textStyle('bodySm'), s.notice]}>{CHALLENGE_COPY.staleCode}</Text>
+              ) : null}
               {challenge.lastError === 'nonce_mismatch' ? (
                 <Text style={[textStyle('bodySm'), s.notice]}>{CHALLENGE_COPY.wrongCode(challenge.attemptsLeft)}</Text>
               ) : null}

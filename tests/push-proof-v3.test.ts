@@ -13,7 +13,7 @@ vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn() }
 
 import {
   beginChallenge, CHALLENGE_COPY, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, MAX_CODE_ATTEMPTS,
-  interpretConfirmReply, onBackground, onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, onWrongCode, toCodeEntry,
+  interpretConfirmReply, onBackground, onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode, retryPlan, toCodeEntry,
   type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { ACCEPTED_REGISTER_CONTRACT_VERSIONS, EXPECTED_CHALLENGE_CONTRACT_VERSION, REGISTRATION_REMEDY } from '@/src/lib/push/registration';
@@ -137,6 +137,7 @@ describe('challenge lifecycle (pure)', () => {
     expect(interpretConfirmReply({ outcome: 'rebound', token_id: 'tok-1', contract_version: 3 })).toEqual({ kind: 'rebound', tokenId: 'tok-1' });
     expect(interpretConfirmReply({ outcome: 'nonce_mismatch', attempts_left: 3 })).toEqual({ kind: 'nonce_mismatch', attemptsLeft: 3 });
     expect(interpretConfirmReply({ outcome: 'challenge_consumed' })).toEqual({ kind: 'consumed' });
+    expect(interpretConfirmReply({ outcome: 'stale_nonce', token_id: 'tok-1' })).toEqual({ kind: 'stale' });
     expect(interpretConfirmReply({ ok: true })).toEqual({ kind: 'unknown' });
     expect(interpretConfirmReply(null)).toEqual({ kind: 'unknown' });
     expect(interpretConfirmReply({ outcome: 'registered' })).toEqual({ kind: 'unknown' });
@@ -160,6 +161,12 @@ describe('challenge lifecycle (pure)', () => {
     expect(classifyChallengeError({ code: '42501', message: 'insufficient_privilege: challenge belongs to another session' })).toBe('other_session');
     expect(classifyChallengeError({ code: '42501', message: 'insufficient_privilege: session predates a credential change' })).toBe('session_stale');
     expect(classifyChallengeError({ code: '42501', message: 'not_authenticated' })).toBe('auth');
+    // A's final list (135 @ ac716da): a missing row is as good as consumed; a gone binding or a
+    // request that should have been a register are told to register instead — never a bind.
+    expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: challenge not found' })).toBe('consumed');
+    expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: binding no longer exists' })).toBe('register_instead');
+    expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: no binding to challenge — register instead' })).toBe('register_instead');
+    expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: the caller already owns this binding — register instead' })).toBe('register_instead');
     expect(classifyChallengeError({ message: 'Network request failed' })).toBe('network');
     expect(classifyChallengeError({ code: 'XX', message: '?' })).toBe('unknown');
   });
@@ -169,9 +176,53 @@ describe('challenge lifecycle (pure)', () => {
     expect(CHALLENGE_COPY.pending).toMatch(/confirming/i);
     expect(CHALLENGE_COPY.wrongCode(2)).toMatch(/2 attempts left/);
     expect(CHALLENGE_COPY.wrongCode(1)).toMatch(/1 attempt left/);
-    for (const k of ['expired', 'consumed', 'exhausted', 'other_session', 'session_stale', 'rate_limited', 'auth', 'network', 'unknown'] as const) {
+    for (const k of ['expired', 'consumed', 'exhausted', 'other_session', 'session_stale', 'rate_limited', 'auth', 'network', 'unknown', 'stale_nonce', 'register_instead'] as const) {
       expect(typeof CHALLENGE_COPY.failed[k]).toBe('string');
     }
+    // P3-1 (A): "Try again" always gets a new code, so the dead-challenge states say so.
+    for (const k of ['expired', 'consumed', 'exhausted'] as const) expect(CHALLENGE_COPY.failed[k]).toMatch(/Try again/);
+    expect(CHALLENGE_COPY.staleCode).toMatch(/latest notification/i);
+    expect(CHALLENGE_COPY.staleCode).not.toMatch(/didn't match|wrong/i);
+  });
+});
+
+describe("A's rulings on 135 (2026-09-16): stale echo is free, Try again gets a fresh challenge", () => {
+  const push = beginChallenge(info, T0, true) as Extract<ChallengeState, { phase: 'awaiting_push' }>;
+  const code = toCodeEntry(push) as Extract<ChallengeState, { phase: 'awaiting_code' }>;
+
+  it('stale_nonce on the push path is neutral: back to the same awaiting_push state, clock intact, no attempt, no failure', () => {
+    const confirming: ChallengeState = { phase: 'confirming', challengeId: 'ch-1', via: 'push' };
+    expect(onStaleNonce(confirming, push)).toEqual(push);
+  });
+
+  it('stale_nonce on the code path returns to code entry with no attempt spent and says the code was replaced', () => {
+    const confirming: ChallengeState = { phase: 'confirming', challengeId: 'ch-1', via: 'code' };
+    expect(onStaleNonce(confirming, code)).toEqual({ ...code, lastError: 'stale_nonce' });
+    // nothing to go back to → not a bind, not silent: a terminal that Try again recovers
+    expect(onStaleNonce(confirming, null)).toEqual({ phase: 'failed', kind: 'unknown', challengeId: 'ch-1' });
+  });
+
+  it('challenge_consumed after a typed code is "too many wrong codes"; on the push path it is consumed', () => {
+    expect(onConsumed({ phase: 'confirming', challengeId: 'ch-1', via: 'code' })).toEqual({ phase: 'failed', kind: 'exhausted', challengeId: 'ch-1' });
+    expect(onConsumed({ phase: 'confirming', challengeId: 'ch-1', via: 'push' })).toEqual({ phase: 'failed', kind: 'consumed', challengeId: 'ch-1' });
+  });
+
+  it('a visible-code reply that carries a fresh challenge replaces the id and expiry (P3-1); without one, the same row switches to code entry', () => {
+    const fresh = { outcome: 'challenge_required', challenge: { id: 'ch-2', mode: 'visible', expires_in_s: 300 } };
+    expect(onVisibleIssued(push, fresh, T0 + 70_000)).toEqual({ phase: 'awaiting_code', challengeId: 'ch-2', expiresAt: T0 + 370_000, attemptsLeft: MAX_CODE_ATTEMPTS, lastError: null });
+    const dead: ChallengeState = { phase: 'failed', kind: 'exhausted', challengeId: 'ch-1' };
+    expect(onVisibleIssued(dead, fresh, T0 + 70_000)).toEqual({ phase: 'awaiting_code', challengeId: 'ch-2', expiresAt: T0 + 370_000, attemptsLeft: MAX_CODE_ATTEMPTS, lastError: null });
+    expect(onVisibleIssued(push, { ok: true }, T0 + 70_000)).toEqual(toCodeEntry(push));
+    // a dead challenge with no fresh id in the reply cannot be revived
+    expect(onVisibleIssued(dead, { ok: true }, T0 + 70_000)).toEqual({ phase: 'failed', kind: 'unknown', challengeId: 'ch-1' });
+  });
+
+  it('Try again from a dead challenge asks for a fresh visible code; from anything else it registers again', () => {
+    for (const k of ['exhausted', 'expired', 'consumed'] as const) expect(retryPlan({ phase: 'failed', kind: k, challengeId: 'ch-1' })).toBe('visible');
+    for (const k of ['register_instead', 'network', 'auth', 'rate_limited', 'other_session', 'session_stale', 'unknown', 'nonce_mismatch', 'stale_nonce'] as const) {
+      expect(retryPlan({ phase: 'failed', kind: k, challengeId: 'ch-1' })).toBe('register');
+    }
+    expect(retryPlan({ phase: 'none' })).toBe('register');
   });
 });
 
@@ -187,6 +238,13 @@ describe('wiring (source contract)', () => {
     expect(h).toContain("if (reply.kind !== 'rebound') {");
     expect(h.indexOf("if (reply.kind !== 'rebound') {")).toBeLessThan(h.indexOf('onConfirmOk(st, reply.tokenId)'));
     expect(h.indexOf('onConfirmOk(st, reply.tokenId)')).toBeLessThan(h.indexOf('await saveRegistrationState({ record, failure: null });', h.indexOf('async function confirm(')));
+    // stale_nonce (A's ruling): neutral — restore the prior state and re-arm the fallback; never a record.
+    expect(h).toContain("if (reply.kind === 'stale') {");
+    expect(h).toContain('onStaleNonce(st, prior)');
+    expect(h.indexOf("if (reply.kind === 'stale') {")).toBeLessThan(h.indexOf("if (reply.kind !== 'rebound') {"));
+    expect(h).toContain('onConsumed(st)');
+    expect(h).toContain('onVisibleIssued(st, r.data, Date.now())');
+    expect(h).toContain('retryPlan(challengeRef.current)');
     expect(h).toContain('onForeground(');
     expect(h).toContain("if (st === 'background') {");
     expect(h).not.toContain("st === 'inactive'");
@@ -207,5 +265,7 @@ describe('wiring (source contract)', () => {
     expect(n).toContain('CHALLENGE_COPY.codePrompt');
     expect(n).toContain('maxLength={6}');
     expect(n).toContain('submitChallengeCode(');
+    expect(n).toContain("challenge.lastError === 'stale_nonce'");
+    expect(n).toContain('CHALLENGE_COPY.staleCode');
   });
 });
