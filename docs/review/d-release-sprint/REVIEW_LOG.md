@@ -400,6 +400,35 @@ expires_in_s}` shape `onVisibleIssued` expects is exactly what `request_push_tok
 Evidence limits unchanged: local harness and unit level only; `net.http_post` and `vault.decrypted_secrets` are
 stand-ins; no device evidence; the push/foreground/background timing rows stay on DV-V4 and the device matrix.
 
+## b2 — CV-1..CV-3 closed at `e8114df`; A22 verified at `77efd64`; B's flake not reproduced
+
+**B @ `77efd64`** (CI 35052488716): source delta over the c92d7c7 I passed is comment-only (I checked: zero
+non-comment source lines). A22 asserts no rate limit is counted on an ownership refusal. I verified it earns its
+place with my own mutant — moving the ownership check below the rate-limit block fails **A22 and nothing else**
+(1 failed / 25 passed), which is exactly the silent regression my equivalent mutant pointed at. 26/26 baseline.
+Test-only on top of a passed head: **cleared for integration.**
+
+**C @ `e8114df`**: 22/22; delta is three files. CV-1 — the challenge classifier's network branch is now
+`network request failed|failed to fetch`, timeout/abort fall to `unknown`. CV-2 — the rate-limit regex covers
+`registration attempts`. CV-3 — the re-arm is a pure `fallbackDelayMs(state, now)` and the hook no longer names
+the constant. All four of my regression mutants die: timeout/abort back in the network branch (1 fails),
+registration attempts dropped (1), `fallbackDelayMs` ignoring elapsed foreground time (1), and the hook bypassing
+the helper with a flat literal (1 — stronger than the "no longer references the constant" pin C claimed, since my
+mutant used a bare `60_000`). **CV-1, CV-2, CV-3 CLOSED.**
+
+`src/lib/push/registration.ts:209` keeps the old timeout/abort → `network` regex. I checked C's reason rather than
+accepting it: `REGISTRATION_REMEDY` has entries only for `bound_to_other`, `secret_unavailable`, `session_stale`
+and `contract_mismatch`, so that kind carries no connection claim to the user and only schedules a retry. Leaving
+it out of this branch is right; worth aligning later for consistency, not now.
+
+**B's reported nondeterminism (one full run at 6 failed / 2004 passed, names not captured): not reproduced, and my
+environment cannot speak to it.** Three consecutive full runs in my worktree of `77efd64` are identical —
+2 failed / 1956 passed, 5 files failed — and every one of those failures is my own worktree, not the code:
+`aes-js` unresolved through my symlinked `node_modules` (3 files fail to collect) and two `brand-fonts` assertions
+on missing `@expo-google-fonts` `.ttf` payloads. So: deterministic here, with a different and explainable failure
+set, and no sighting of B's six. I would not treat that as evidence either way about B's run; a full suite from a
+worktree with real `node_modules` is the only thing that would be.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
