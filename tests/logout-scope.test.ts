@@ -42,7 +42,7 @@ describe('K-2: two named sign-outs', () => {
     expect(settings).toContain('await signOutThisDevice()');
     expect(settings.match(/await signOutAllDevices\(\)/g)?.length).toBe(2);
     expect(read('app/(tabs)/profile.tsx')).toContain('await signOutThisDevice()');
-    expect(read('src/hooks/useAuth.ts')).toContain('await signOutThisDevice()');
+    expect(read('src/hooks/useAuth.ts')).toContain("await signOutThisDevice({ reason: 'expired' })"); // K-6
     expect(stripComments(read('app/(auth)/reset-password.tsx'))).toContain("signOutAllDevices({ reason: 'password_changed' })");
     for (const p of ['app/settings/index.tsx', 'app/(tabs)/profile.tsx', 'app/(auth)/reset-password.tsx', 'src/hooks/useAuth.ts']) {
       expect(read(p)).not.toContain('signOutEverywhere');
@@ -109,6 +109,18 @@ describe('K-2: two named sign-outs', () => {
     const reset = stripComments(read('app/(auth)/reset-password.tsx'));
     expect(reset).toContain("text: 'Try again', onPress: () => { void signOutAfterPasswordChange(); }");
     expect(reset).toContain('could not sign out');
+  });
+
+  it('K-5: account deletion stays on the screen with the exact copy when the sign-out fails', () => {
+    const settings = stripComments(read('app/settings/index.tsx'));
+    expect(settings).toContain('const out = await signOutAllDevices();');
+    expect(settings).toContain('if (!out.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }');
+    expect(settings).not.toContain('await signOutAllDevices();\n      router.replace');
+  });
+
+  it('K-6: the stale-refresh sign-out is marked as an expiry, so the login screen says why', () => {
+    const auth = stripComments(read('src/hooks/useAuth.ts'));
+    expect(auth).toContain("signOutThisDevice({ reason: 'expired' })");
   });
 
   it('the login screen explains a password change', () => {

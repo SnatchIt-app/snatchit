@@ -231,7 +231,11 @@ export default function SettingsScreen() {
       // older edge simply omits it.
       await notifyDeletionAccepted(parsed);
       // K-1: a deleted account ends every session and revokes every binding.
-      await signOutAllDevices();
+      // K-5 (D): the deletion request is already accepted server-side; if the
+      // sign-out fails offline, say so and stay — never land on the login screen
+      // with a live session that could restore the deleted account.
+      const out = await signOutAllDevices();
+      if (!out.signedOut) { alertWeb(SIGN_OUT_FAILED_COPY); return; }
       router.replace('/(auth)/login');
     } catch {
       alertWeb('Something went wrong. Please try again.');
