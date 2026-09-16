@@ -103,6 +103,12 @@ ba9cf6c` (K-2) + `frontend/session-bound-131-r2 @ f2c1a1c` (131).
 | DV-P5 | Shared install after "Sign out of all devices" (expected behaviour, not a defect — A, 131 @ f102ce2; D's S-scenario) | Device A: "Sign out of all devices"; then a *different* account signs in on the same install | Registration refused **42501 "insufficient_privilege: token is bound to another account"** (the hash was cleared, so nothing proves possession; the legacy rule covers pre-128 rows only). Settings › Notifications shows the remedy, which on the production-gate branch reads "…needs to sign in here and then sign out from this device, or contact support" (`frontend/session-bound-131-r2 @ dece6cf`; the candidate's copy still says "sign out here first"). Recovery, any one: the original account signs in (`refreshed`) then signs out this-device (hash kept → the other account gets `rebound`); support `unbind_push_token`; reinstall (new token → `registered`) | two devices, A, 131 on the sandbox |
 | DV-P4 | Stale session refused, then healed | Device B still holding an old session after DV-P3 (before it foregrounds): trigger a registration (relaunch) | Device B: register refused 42501 `session predates a credential change` → the app signs this device out with "You were signed out on this device. Sign in again to keep notifications on." (no password mentioned); after re-login it registers | two devices, A, 131 on the sandbox |
 
+## Next-candidate rows from build 17 findings (combined build after 131–135 + client v3; NOT build 17)
+| ID | What | Steps | Evidence | Needs |
+|---|---|---|---|---|
+| DV-S1 | Seller form with the keyboard (F-SELL-1, create) | Sell your ticket → tap Event name → type; scroll while the keyboard is up; dismiss; reopen; repeat with a long event name and the largest accessibility text size | No blank gap between the keyboard and the List ticket bar (only the bar's own padding); the focused input stays visible and the form scrolls; the heading clears the SANDBOX badge with normal spacing; open → dismiss → reopen lands in the same layout; entered values intact; when the keyboard is down the bar clears the floating dock as before | device |
+| DV-S2 | Edit listing with the keyboard (F-SELL-1, edit) | Edit an owned listing → tap a field → type; dismiss; reopen; swipe back with a change | Same as DV-S1 for the Save changes bar and heading; "Discard changes?" still appears (unsaved-edit guard intact) | device |
+
 ## Out of scope for this candidate
 
 - Anything routed to D (vendor/admin) or waiting on A contracts A-07, A-09,

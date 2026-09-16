@@ -1318,3 +1318,48 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the next candidate's frontend workstream (branch cut from the pin; A
   integrates); Build 17 stays the tested artifact; no new build from this.
   Tracked as **F-SELL-1**; a DV row is added for the next candidate.
+- **Session 1 status (owner, 2026-09-16 early):** row 3 (notification registration)
+  fully closed incl. A's and D's server verification — wording per the owner:
+  registration "recovered through normal app-driven sandbox writes, without a
+  manual support override"; rows 1–8 owner-reported PASS; **row 9 Reduce Motion
+  PASS; row 11 large accessibility text PASS**; labels/timings not captured for
+  every row (not inferred). DV-609 evidence (quantity-2 listing created during
+  rows 1–8; proceeds line not captured) is reused — no second listing.
+  Remaining: row 10, 13, 14, then 15–18 on C's triggers.
+- **F-SELL-1 fix review-ready: `frontend/sell-form-keyboard @ 465dc32`** (cut from
+  the pin; 8 files, +169/−17; no gated file): pure helpers `keyboardLift.ts`
+  (stickyBottomPadding, ctaLift, topInset, SANDBOX_BADGE_EXTRA) + `useKeyboardUp`
+  + `useTopInset`; StickyBar keyboard-aware; CreateListingScreen lifts only
+  while the dock is visible and pads its heading under the badge; edit screen
+  heading likewise; the badge sizes from the real top inset (was a hardcoded
+  52 pt). RED-first test `tests/sell-form-keyboard.test.ts` (7). Gates: tsc
+  clean; vitest 1918 / 86 green; lint 0 errors / 29 warnings. **Process slip,
+  disclosed:** 10d917d was pushed with two stale adaptive-nav pins failing
+  (chained commit without checking the run); fixed in 465dc32 with a guarded
+  commit. One unrelated flake seen once (`tests/credential-sign.test.ts`
+  token-length boundary, 6.6 s), green on three reruns of the file. Device
+  rows DV-S1/S2 added (create + edit, large text, open/dismiss/reopen) — the
+  fix is unverified on a device until the combined build.
+- **O-3 decided (owner, 2026-09-16): b2, build shape (i)** — ONE additional sandbox
+  preview build = backend 131–135 + K-2/131 client + client v3 (b2) + F-SELL-1,
+  after combined review and CI; no independent build, no deployment; sandbox
+  migrations/edge deploys only after the owner approves an exact package.
+  Merge order (A): 135 → send-push (B) → client v3 (C); D reviews each and the
+  stack. C's branches review-ready now: `frontend/logout-scope @ 7dbe940` (A
+  approved), `frontend/session-bound-131-r2 @ b48f4e9`, `frontend/sell-form-
+  keyboard @ 465dc32`. Client v3 branch: `frontend/push-proof-v3` from the
+  131-r2 line, against `docs/release/PUSH_TOKEN_CONTRACT_V3.md` (A, draft
+  within the hour). **C's paper estimate for client v3:** registration.ts —
+  `challenge_required` outcome (challenge_id), `contract_version` pin → 3,
+  new error kinds/copy (~1 h); challenge state machine as pure logic
+  (requested → silent push received → confirmed; 60 s without push →
+  visible-code fallback → 6-digit entry → confirmed; error/expiry paths) with
+  unit tests (~2 h); foreground/background notification handler for the
+  silent push `{type:'push_token_challenge', challenge_id, nonce}` →
+  `confirm_push_token_challenge` (~1.5 h; needs `UIBackgroundModes:
+  remote-notification` in app.json if silent pushes must arrive while
+  backgrounded — a config change, build-affecting, to confirm with A);
+  Settings › Notifications pending state + code-entry sheet with "never share
+  this code" + old-build refusal copy (~2 h); source pins, previews, DV rows
+  (~1 h). ≈ 7–8 h of C after the v3 draft, plus D's review; device
+  verification only on the combined build with 135 on the sandbox.
