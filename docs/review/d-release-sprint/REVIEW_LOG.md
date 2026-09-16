@@ -290,6 +290,39 @@ Local: push-proof-v3 13/13; the earlier client suites still green. C's four prob
 Device-row notes raised: the visible-code push shows the code in its alert, so the owner should accept the lock-screen preview; a silent push
 arriving while the code screen is open is ignored by design.
 
+## Post-window client reviews — auth deadlock PASS, run gate one change requested
+
+**`frontend/auth-signout-deadlock @ a046568` → PASS; carries to `8dc4cec` (comment-only, verified: zero
+non-comment lines).** C's root cause holds in the installed `@supabase/auth-js` 2.98.0: `signOut()` runs inside
+`_acquireLock`, and `_notifyAllSubscribers` does `await x.callback(...)` then `await Promise.all(...)`, so the
+sign-out cannot finish until every callback has. The decisive evidence is the reproduction, not the narrative, so
+I mutated: **AM1** (handler back to `async`, diagnostic awaited inline) → **4 failed, suite 0.35 s → 4.88 s** with
+three real ~1.5 s hangs. **AM2** (defer dropped) → 1 failed. **AM3** (hook wraps the callback in `void`) →
+**6 passed, survives** — C claimed the source pin catches this; it does not, and with a synchronous handler it is
+an *equivalent* mutant since there is no promise to swallow. So I tested the pair that matters: **AM4 = AM1+AM3**
+→ 4 failed with the same hangs. **No blind spot** — the protection comes from the real-client tests, not the pin.
+C corrected the claim and put the reasoning in the file header.
+
+**`frontend/push-token-fetch-visibility @ ce310ef` → ONE CHANGE REQUESTED (F-611C-1, the defect I root-caused).**
+The gate is correct: `beginRun`/`endRun`/`cancelRuns`/`isLive` have the right generation semantics (a stale run
+cannot release a live gate, `rerun` is consumed once, cancel leaves nothing in flight); module-level is the right
+choice and the header says why; and `withTimeout` clearing its timer in `finally` is what *fixes* the hang rather
+than merely reporting it. 9/9 baseline in my own worktree.
+
+**Finding D-611C-2.** `isLive` is checked after the token fetch and after `loadRegistrationState()`, then not
+again. Six later awaits carry no check and three mutate persisted state — critically there is **no liveness check
+between `tryRpc`/`tryLegacy` returning and `saveRegistrationState`**. Reachable through the same `userId` flap:
+run 1 clears both early checks, tears down mid-RPC, run 2 completes and persists record A, run 1 returns and
+persists record B over it. If run 1's outcome was a failure, `decideRegistration` reads that stale failure next
+launch and for a terminal kind returns `wait` forever — **the original defect's shape exactly** (invisible
+persisted state suppressing registration), through the RPC window instead of the token-fetch window. Fix: one
+`if (!isLive(gate, run.gen)) return;` immediately after the register call, before anything is persisted, plus a
+gate-level test in the same shape as C's others.
+
+Exactly what C's own note predicted — "the pins prove the hook is wired, not that the order is right". The suite
+is green with those awaits unchecked, so the pins do not require a check after every await. Had C claimed the pins
+covered ordering, I would have looked elsewhere; the honesty about their reach is what made this quick to find.
+
 ## b2 Gate 1 — migration 135 (proof of possession) reviewed at `fix/135-push-proof-of-possession @ 1cfc85c`
 
 Heads: `b49a012` (CI 35050777765 green, five jobs) → `fb2fd68` (CI 35051077164; `notify.get_push_token_challenge`
