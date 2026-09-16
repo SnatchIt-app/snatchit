@@ -8,17 +8,23 @@
  * edge is the send half. A plant-then-claim or delete-then-register from a
  * second device never activates, because the nonce goes to the victim's phone.
  *
- * CONTRACT (v3 draft, A). Request {kind:'push_token_challenge', challenge_id,
- * nonce, user_id}. The edge reads notify.push_token_challenges by id (token,
- * mode, expires_at, confirmed_at, attempts) and relays the nonce, which is
- * stored only as a hash and so must arrive in the request. Silent mode sends an
+ * CONTRACT (v3, A, candidate ac716da). Request {kind:'push_token_challenge',
+ * challenge_id, nonce, user_id}. The edge reads the challenge THROUGH
+ * `notify.get_push_token_challenge(p_challenge_id)` — notify tables carry no
+ * service_role grants (157 B9: the grant wall IS service_role's wall), so the
+ * table is unreadable from here by construction. The verb returns the token to
+ * address, platform, mode, expires_at, confirmed_at, consumed_at, attempts and
+ * dispatched_at — and NO requester or owner identity. The edge relays the
+ * nonce, which is stored only as a hash and so must arrive in the request. Silent mode sends an
  * Expo `_contentAvailable` data push; visible mode an alert carrying a 6-digit
  * code and "never share this code".
  *
  * PINNED HERE:
  *   * service-role-only entry, as for every other send-push call;
- *   * a challenge that is missing, expired, already confirmed or out of attempts
- *     is refused and NOTHING is sent;
+ *   * a challenge that is missing, expired, already confirmed, consumed or out
+ *     of attempts is refused and NOTHING is sent;
+ *   * the notify TABLE is never touched — only the verb (the harness models the
+ *     missing grant by failing any direct read);
  *   * the rate limits are re-checked in the edge (the DB verb is the authority)
  *     and a refusal sends nothing;
  *   * the push goes to the challenge row's OWN token, never to the user's other
@@ -26,6 +32,7 @@
  *   * the nonce never appears in any log line or error body (a mutant that logs
  *     it must fail).
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { json, loadEdgeHandler, mockSupabase, type QueryCall, type RpcHandler } from './helpers/edge-vm';
 
@@ -35,14 +42,19 @@ const CHALLENGE = '22222222-2222-2222-2222-222222222222';
 const TOKEN = 'ExponentPushToken[victim-phone]';
 const NONCE = '481624';
 
+/** exactly what notify.get_push_token_challenge(uuid) returns (135 §6c) — no requester, no owner. */
 type Challenge = {
-  id: string; token_id: string; token: string; requesting_user: string; mode: 'silent' | 'visible';
-  expires_at: string; confirmed_at: string | null; attempts: number;
+  id: string; token: string; platform: string; mode: 'silent' | 'visible';
+  expires_at: string; confirmed_at: string | null; consumed_at: string | null;
+  attempts: number; dispatched_at: string | null;
 };
 const challengeRow = (over: Partial<Challenge> = {}): Challenge => ({
-  id: CHALLENGE, token_id: 'tok-1', token: TOKEN, requesting_user: USER, mode: 'silent',
-  expires_at: new Date(Date.now() + 5 * 60_000).toISOString(), confirmed_at: null, attempts: 0, ...over,
+  id: CHALLENGE, token: TOKEN, platform: 'ios', mode: 'silent',
+  expires_at: new Date(Date.now() + 5 * 60_000).toISOString(), confirmed_at: null, consumed_at: null,
+  attempts: 0, dispatched_at: null, ...over,
 });
+/** the edge's token-scoped rate-limit namespace survives the loss of token_id by hashing the token itself. */
+const tokenKey = (token: string) => createHash('sha256').update(token).digest('hex').slice(0, 32);
 
 function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'error'; provider?: 'ok' | 'rejected' | 'throws'; recordFails?: boolean } = {}) {
   const pushes: Array<Record<string, unknown>> = [];
@@ -51,6 +63,11 @@ function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'erro
     if (name === 'check_rate_limit') {
       if (init.rateLimit === 'error') return { data: null, error: { message: 'boom', code: 'XX000' } };
       return { data: init.rateLimit ?? true };
+    }
+    // 135 §6c (A): send-push's only read of the challenge — notify tables carry no grants
+    if (name === 'get_push_token_challenge') {
+      const row = init.challenge === undefined ? challengeRow() : init.challenge;
+      return { data: row && row.id === params.p_challenge_id ? row : null };
     }
     // 135 (A): the delivery outcome lands on the challenge row, never on notify.delivery
     if (name === 'record_push_token_challenge_delivery') {
@@ -63,11 +80,9 @@ function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'erro
   const sb = mockSupabase({
     rpc,
     tables: {
-      push_token_challenges: (q: QueryCall) => {
-        const wanted = q.filters.find((f) => f[0] === 'eq' && f[1] === 'id')?.[2];
-        const row = init.challenge === undefined ? challengeRow() : init.challenge;
-        return { data: row && row.id === wanted ? row : null };
-      },
+      // 157 B9: service_role has NO grant on notify tables. Any direct read is a
+      // permission denial in production, so the harness answers one here.
+      push_token_challenges: () => ({ data: null, error: { message: 'permission denied for table push_token_challenges', code: '42501' } }),
       push_tokens: () => ({ data: [{ token: 'ExponentPushToken[attacker-phone]' }] }),
     },
   });
@@ -153,6 +168,7 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     ['an unknown challenge id', null, 404],
     ['an expired challenge', challengeRow({ expires_at: new Date(Date.now() - 1000).toISOString() }), 410],
     ['a challenge already confirmed', challengeRow({ confirmed_at: new Date().toISOString() }), 409],
+    ['a challenge already consumed', challengeRow({ consumed_at: new Date().toISOString() }), 409],
     ['a challenge out of attempts', challengeRow({ attempts: 5 }), 429],
   ];
   for (const [label, row, status] of refusals) {
@@ -165,11 +181,32 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     });
   }
 
-  it('A6: a challenge for a different user than the request is refused', async () => {
-    const w = world({ challenge: challengeRow({ requesting_user: '33333333-3333-3333-3333-333333333333' }) });
+  it('A6 (CD-1, disclosed delta): the v3 read carries NO requester, so the edge cannot cross-check user_id — the verbs stay the rate-limit authority', async () => {
+    // v2 of this edge refused a challenge whose requesting_user differed from the
+    // body (409). notify.get_push_token_challenge deliberately returns no requester
+    // identity (the push is token-addressed), so that check is unimplementable here.
+    // Consequence, recorded rather than hidden: a caller already holding the
+    // service-role key can vary user_id and land in a different EDGE namespace.
+    // The DB verbs derive the user from the JWT and are unaffected — they remain
+    // the authority (contract v3 §5). The push still goes only to the row's token.
+    const w = world();
+    const { res } = await w.call(challengeReq({ user_id: '33333333-3333-3333-3333-333333333333' }));
+    expect(res.status).toBe(200);
+    expect(w.pushes.map((m) => m.to)).toEqual([TOKEN]);
+    const keys = w.sb.rpcs.filter((r) => r.name === 'check_rate_limit').map((r) => String(r.params.p_action ?? ''));
+    expect(keys).toContain('push_challenge_edge_user:33333333-3333-3333-3333-333333333333');
+  });
+
+  it('A19 (157 B9): the challenge is read through notify.get_push_token_challenge — the notify TABLE is never touched', async () => {
+    const w = world();
     const { res } = await w.call(challengeReq());
-    expect(res.status).toBe(409);
-    expect(w.pushes).toHaveLength(0);
+    expect(res.status).toBe(200);
+    const read = w.sb.rpcs.find((r) => r.name === 'get_push_token_challenge');
+    expect(read).toBeDefined();
+    expect(read!.params).toEqual({ p_challenge_id: CHALLENGE });
+    expect(read!.schema).toBe('notify');
+    // service_role holds no grant on the table: a direct read would be 42501.
+    expect(w.sb.queries.filter((q) => q.table === 'push_token_challenges')).toHaveLength(0);
   });
 
   it('A7: the edge re-checks the rate limits — a refusal sends nothing (429)', async () => {
@@ -191,8 +228,28 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     await w.call(challengeReq());
     const keys = w.sb.rpcs.filter((r) => r.name === 'check_rate_limit').map((r) => String(r.params.p_action ?? ''));
     expect(keys).toContain(`push_challenge_edge_user:${USER}`);
-    // D's pin: the token limit is per (token, requesting user)
-    expect(keys).toContain(`push_challenge_edge_token:tok-1:${USER}`);
+    // D's pin: the token limit is per (token, requesting user). v3 drops token_id
+    // from the read, so the namespace is derived from the token itself — hashed,
+    // so no push token is written into public.rate_limits.
+    expect(keys).toContain(`push_challenge_edge_token:${tokenKey(TOKEN)}:${USER}`);
+    expect(keys.join('|')).not.toContain(TOKEN);
+  });
+
+  it('A20: the token namespace is the TOKEN, not the challenge — a re-issued challenge shares the budget', async () => {
+    const second = '44444444-4444-4444-4444-444444444444';
+    const a = world();
+    await a.call(challengeReq());
+    const b = world({ challenge: challengeRow({ id: second }) });
+    await b.call(challengeReq({ challenge_id: second }));
+    const keyOf = (w: ReturnType<typeof world>) =>
+      w.sb.rpcs.filter((r) => r.name === 'check_rate_limit')
+        .map((r) => String(r.params.p_action ?? '')).find((k) => k.startsWith('push_challenge_edge_token:'));
+    expect(keyOf(a)).toBeDefined();
+    expect(keyOf(a)).toBe(keyOf(b));
+    // and a different token is a different namespace
+    const c = world({ challenge: challengeRow({ token: 'ExponentPushToken[other-phone]' }) });
+    await c.call(challengeReq());
+    expect(keyOf(c)).not.toBe(keyOf(a));
   });
 
   it('A13: a successful send records the delivery outcome on the challenge row', async () => {
@@ -228,7 +285,7 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
 
   it('A17 (D pin): the send is TOKEN-addressed — the row may belong to another account, and nothing identifies its owner', async () => {
     const other = '99999999-9999-9999-9999-999999999999';
-    const w = world({ challenge: challengeRow({ requesting_user: USER, token: 'ExponentPushToken[someone-elses-phone]' }) });
+    const w = world({ challenge: challengeRow({ token: 'ExponentPushToken[someone-elses-phone]' }) });
     const { res, edge } = await w.call(challengeReq());
     expect(res.status).toBe(200);
     const wire = JSON.stringify(w.pushes);
