@@ -1579,3 +1579,16 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the visible code arrives in a notification the lock screen previews, so the
   owner sees the code before unlocking — inherent to a visible-mode
   challenge, for the owner to see on the handset.
+- **Pin named by A (2026-09-16): `candidate/2026-09-18-pin-b2` =
+  `release/production-gate-20260918 @ 9bef640`** (tip = classifier guard
+  d9eb102; CI 35053607616 green 5/5; D Gate 3 PASS). **Build NOT cut.** A is
+  presenting the sandbox application package (131–135 + send-push) and the pin
+  to the owner, recommending the build is cut from the tag only after the
+  sandbox application completes (client v3 needs 135 on the sandbox to
+  exercise anything), unless the owner says otherwise; when cut, from the tag,
+  not the branch head, with the tag's commit quoted in the EAS record. The
+  owner's one-build authorization is unchanged. Handset session 1 stays open on
+  Build 17: rows 15–18 on C's "row N ready" triggers after the owner's two row
+  14 checks; A's read-backs use the buyer row 140fcb44… baseline (last_used
+  01:42:41Z, hash prefix 4b8628e7); row 17 (DV-607a) is A's documented
+  server-side session delete, on the owner's readiness.
