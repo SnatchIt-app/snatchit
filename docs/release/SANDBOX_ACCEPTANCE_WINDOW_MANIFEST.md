@@ -383,3 +383,94 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   trigger; row 17 (A deletes the buyer's session server-side, documented) only on the owner's "ready" with a live session.
   **Sandbox push delivery is impossible today** (empty Vault: no `service_role_key`; `net._http_response` 0 rows in 24 h): any
   row that needs a push to arrive is on hold pending the owner's package §2a decision, deferred not attempted.
+
+## 11. EXECUTION RECORD — B2 application window, 2026-09-16 04:35–04:56Z (A executes, D witnesses; sandbox `ofaidukbieeekqaboscm` only)
+
+**Authorization:** owner rulings 1 and 2 of 2026-09-16 (package `SANDBOX_APPLICATION_PACKAGE_B2.md` §9); execution commit tag
+`candidate/2026-09-18-pin-b2` = `9bef640` checked out detached at `/tmp/wt-pin` (0 dirty files); order as corrected and
+confirmed by the owner: Vault `project_url` → 131 → 132 → 133 → 135 → 20260916000000; option (b): no `service_role_key`;
+D's final script review `685340f`. Every apply: `apply_sandbox_migration.sh <v> preflight → apply → verify /tmp/wt-pin` with
+`ORDER_GUARD_SKIP=126`; D's V0 immediately before each apply and an independent read after; A applied nothing while a read
+of D's was unexplained. **Nothing production; nothing native; no build cut.**
+
+**Ledger md5 method, stated exactly (D):** the apply script records the ledger row's `statements` as one element holding the
+pinned file's bytes with trailing newlines stripped (`printf '%s' "$(cat file)"`), and `verify` compares the ledger's
+`md5(array_to_string(statements,''))` to md5 of the file minus trailing newlines. It is a statements-to-file-bytes comparison,
+not a raw-file md5 (raw file md5s differ: 131 `1c2fade4…`, 132 `1d588749…`). D reproduced every value from the pin tree;
+20260916000000's value was predicted by D before the apply.
+
+| Step | Time (Z) | Result | Read-backs |
+|---|---|---|---|
+| D V0 | 04:35:37 | baseline = A's 04:34:08 recapture and package §10 table; D's correction: `net._http_response` held 2 rows, both 401, both 2026-09-07 (the old `*/2` sweep before it was removed), newest `2026-09-07T16:06:00.257881Z` | ledger 136; census 31\|97\|37\|34; vault (none); prod-host refs 0/0; `auth.sessions` no triggers |
+| W1 Vault `project_url` | 04:37:06 | `sandbox_vault_ceremony.sh url` after the server asserted the sandbox identity (ledger 130..141, no `ops`, `sandbox_gucs`); `vault.create_secret` id `2e3e8083…` | A `verify-url`: rows=1, sandbox host, no production ref; D INV1 exactly one name, INV3 host equal; ledger/census unchanged |
+| W2 131 | 04:39 | ledger 137, md5 `e07ac078f151fc68589286d0acfb16f5` | `push_tokens.session_id`; `trg_push_bindings_on_sessions_gone` the only non-internal trigger on `auth.sessions` (tgtype 8, after-delete statement); `revoke_all_push_bindings`, `kernel.invalidate_push_bindings_for`, `kernel.push_session_predates_epoch`; push_tokens guards `_session_row`/`_session_stmt`; census 31\|100\|37\|36; zero drift across 16 cron runs (D attributed) |
+| W3 132 | 04:41 | ledger 138, md5 `ecdd91761e3849ea73190f174cf2681c` | `checkout_group_claim` (empty, service_role-only grants), `claim_checkout_group`, `record_checkout_attempt`, `release_checkout_group`; census 32\|103\|37\|36 |
+| pre-133 capture | 04:44:23 | sandbox-specific 133 rollback: scratchpad `sbx_133_rollback_capture_20260916T044423Z.sql`, 377 lines, md5 `8431acc5939a401b5883f2e855ae586e`, 0 production refs, 0 JWT-shaped literals; `pg_get_functiondef`+comment of `kernel.check_signing_key_invariants`, `public.notify_bid_placed`, `notify_moderation_event`, `notify_outbid` (superset), `notify_transfer_event`; unschedule+schedule text of `crm-export-build-tick`, `crm-export-purge-tick`, `payout-execute-tick`, `refund-execute-tick`; `enforce-transfer-expiry` rolls back by `cron.unschedule` | D derived 133's rewrite set independently from the pinned file (4 routines, 5 crons): capture complete |
+| W4 133 | 04:47:05 | ledger 139, md5 `c08f8295a60ebd5e856194aea1106c74`; §4 proof passed | routines and cron commands naming ANY `*.supabase.co` host: 0 and 0 (the SBX-1/2 sandbox-host literals are gone), production 0/0; five crons re-registered active in the Vault form (guards: sweep url-only; crm ×2 worker-secret+url; refund/payout flag+url); cron jobs 22; census unchanged |
+| first tick | 04:48:00 | `cron.job_run_details` succeeded (queuing SQL); `net._http_response` id 3, status **401**, error_msg null, timed_out false, content 24 bytes | D's written prediction held: exactly one job posts, every 2 min, refused; the NULL bearer took the 401 branch, not a queue-time error |
+| W5 135 | 04:49:56 | ledger 140, md5 `28e01d25032218656e980c2900904743` | `notify.push_token_challenges` (0 rows, **no table grants** to anon/authenticated/service_role — 157 B9 now holds in an applied database), `notify.issue_push_token_challenge` (not executable by authenticated), `public.request_push_token_challenge`, `public.confirm_push_token_challenge` (authenticated yes, anon no), `notify.get_push_token_challenge` (service_role), `notify.record_push_token_challenge_delivery`; `trg_guard_push_token_client_delete`; `security_device_rebound` `{}`/`{}`/in_app template only; notify tables 8; census 32\|106\|37\|37 |
+| W6 20260916000000 | 04:53:14 | ledger 141, md5 `b1fda89070efa7a9ba24f5aee4492064` (= D's prediction) | `get_unsettled_payments` carries the `processing_stale` arm; census unchanged (final) |
+| Edges | 04:54:15 / 04:55:16 / 04:55:21 | `create-payment-intent` (now v5, ezbr `dd857f97…`), `send-push` (v4, `f8e4e894…`), `enforce-transfer-expiry` (v4, `c997abb2…`) deployed from `/tmp/wt-pin` with `--project-ref ofaidukbieeekqaboscm --no-verify-jwt`; `stripe-webhook` untouched (v4, `897283ef…`, byte-identical to both pins) | parity = every file of each downloaded bundle byte-identical to the pin (index.ts + the `_shared` files it imports; `_shared` unchanged between the pins and identical to the pre-deploy download). Pre-deploy baseline 04:51Z: all four deployed `index.ts` equalled `candidate/2026-09-18-pin` |
+| Close | 04:56:09 | see below | D's independent closing read follows |
+
+**Closing state (A, 04:56:09Z):** ledger **141** (131, 132, 133, 135, 20260916000000); census **32 | 106 | 37 | 37** = the pin's
+declared 32|105|37|38 adjusted by the named sandbox deltas (+`sandbox_gucs`, +`sandbox_pre_request`, −119's guard function and
+trigger; D named all four); notify tables 8; flags all false; counts listings 49, payments 51 (3 pending), transfers 33,
+push_tokens 1, `kernel.tickets` 0, `signing_key` 0, `checkout_group_claim` 0, challenges 0 — **zero business drift** from V0;
+L-1 0; Vault **`project_url` only**; host literals 0/0; production refs 0/0; cron jobs 22; queue 0; **responses after V0: 5,
+all 401, none 2xx**, newest `2026-09-16T04:56:00.240651Z`; sweep cron runs 5, all "succeeded" (queuing only); buyer row
+`140fcb44…` untouched (inactive, `signed_out`, `session_id` null, proof kept).
+
+**Evidence captured as values (D's finding: `net._http_response` is a 6-hour cache, `pg_net.ttl`; the two 2026-09-07 rows were
+purged by the worker when the 04:48 request woke it; the refused-tick evidence self-deletes):** scratchpad
+`sbx_b2_window_responses.txt` — id 3 `04:48:00.249691Z` 401; then the 04:50, 04:52, 04:54, 04:56 ticks, each 401, error_msg
+null, timed_out false, content 24 bytes. `cron.job_run_details` records only that the queuing SQL ran and cannot distinguish a
+refused post from a successful one; only the captured response rows prove "nothing succeeded".
+
+**Deploy posture (D's ask; undeclared state, no `supabase/config.toml`):** read today as values from `functions list`: all nine
+sandbox functions `verify_jwt=false`, including the five untouched ones; the SBX-2 record (§10, "verify_jwt=false as every
+sandbox edge was before") is the cited pre-state for the three redeployed here — **evidence limit, recorded as a near-miss:
+the pre-deploy `verify_jwt` of the three redeployed functions was inferred, not read** (from the SBX-2 record and the five
+untouched functions' posture); the post-deploy read is real, all nine false; security consequence nil because all three
+authenticate their own callers (D verified in source). Carried to the production preflight as its own check: production's
+per-function `verify_jwt` read and matched explicitly before any deploy, since source parity does not cover deploy flags.
+
+**D's independent closing read, 04:57:13Z — PASS** (witness record `docs/review/d-release-sprint/B2_WINDOW_WITNESS_20260916.md`
+on `review/d-release-sprint`): ledger 141 holding exactly 131, 132, 133, 135, 20260916000000; census 32|106|37|37; INV1
+`project_url` alone at every checkpoint; INV3 sandbox host; INV4 zero production references and zero `*.supabase.co` literals;
+queue 0; five ticks after V0, all 401, zero 2xx, at 04:48, 04:50, 04:52, 04:54, 04:56 — one job, on its two-minute cadence,
+no gaps and no extras; zero drift on every business count; both new tables empty; the handset row untouched with the proof
+kept. **D's boundary statement, carried verbatim:** "This window establishes that the five migrations apply cleanly in
+production order, that the resulting catalog matches the pin, that the grant matrix and the tombstone guard are live, that no
+production host is reachable from this database, and that no outbound request can authenticate. It establishes nothing about
+whether b2 works. Under option (b) the challenge path cannot be exercised: send-push refuses every dispatch by construction,
+no notification can reach a device, and the entire device matrix — challenge delivery, echo, rebind, the two-accounts case,
+plant-then-claim, recovery without support — remains deferred, not attempted and not passed. 'Sandbox application passed'
+must never be read as 'b2 works on a handset'."
+
+**Disclosed false alarms (A's parity script, not the deployment):** (1) after `create-payment-intent`, a regex over `index.ts`
+matched a *comment* naming `_shared/payouts.ts`, a file that function does not import, so `cmp` on a missing file reported
+DIFFER; (2) after `enforce-transfer-expiry`, the "direct imports == bundled set" clause flagged `_shared/payout-policy.ts`,
+which *is* a direct import whose `from` clause sits on its own line (`index.ts:77`) and which my single-line pattern missed.
+Every byte comparison passed on its first run; the sequence stopped at each alarm until explained.
+
+**What this window proves and does not prove (verbatim from D, for anyone reading "passed" later):** it proves the schema,
+verbs, grants, rollback capture and the migration chain on the sandbox, and that with only `project_url` in the Vault nothing
+from this database can authenticate to any edge. **Edge parity is a source comparison, not behavioural**: `send-push` cannot
+be exercised end to end under option (b), and "send-push verified on the sandbox" is not a claim this record makes. **b2
+device verification is deferred**; DV-611/611S and every push-dependent device row are deferred, not attempted; nothing
+reached the owner's handset. `enforce-transfer-expiry` does not run from cron for the life of this sandbox state (refused
+every tick); DV-134 needs a direct invocation with an existing sandbox bearer or is deferred.
+
+**Rollback, if the owner ever orders it:** reverse order 20260916000000 → 135 → 133 → 132 → 131 from `/tmp/wt-pin`'s
+`supabase/rollbacks/`, each followed by deleting its ledger row — **except 133 on this sandbox, whose rollback is the capture
+above** (the repo rollback restores production's pre-133 bodies naming the production host); edges by redeploying
+`create-payment-intent`, `enforce-transfer-expiry`, `send-push` from `candidate/2026-09-18-pin` (`aabe029`); Vault by
+`delete from vault.secrets where name = 'project_url'`. Not automatic.
+
+**Still open after the server phase:** D's independent closing read; the one combined build (C, from the tag, after the owner
+says so — the pre-authorized action, now that application and edge verification have passed); the device matrix on that build
+with the push rows deferred; handset row 17 on Build 17 (now a real A-131-K2 test: expected `session_ended`, proof kept, epoch
+moved; client expiry notice) after C gives the owner the exact steps; row 18 deferred to the combined build (a v2 client
+rejects `contract_version` 3); no fixtures were staged in this window, so there is nothing to clean up; the closing census
+above is the record.
