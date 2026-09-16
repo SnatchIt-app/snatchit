@@ -94,6 +94,9 @@ SQL
     ;;
 
   key)
+    # Owner ruling 2026-09-16 (package option (b)): "do not add the sandbox service key now." Enforced here, not in prose.
+    # Re-enabling this branch requires a new owner ruling in their own words and a fresh review of this script (D).
+    echo "STOP: service_role_key deferred by the owner 2026-09-16 (package option (b)); re-enabling requires a new owner ruling and a fresh review"; exit 3
     precheck_common; require_server_is_sandbox; require_logging_safe; require_name_absent service_role_key
     # project_url must already exist and name the sandbox host (§2a condition 1) — checked here, again, before any key write.
     urlok=$("${PSQL[@]}" -tA -c "select count(*) = 1 and bool_and(decrypted_secret = '$SANDBOX_URL') from vault.decrypted_secrets where name = 'project_url'")
