@@ -1269,3 +1269,11 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   chose path B**; C guides one step at a time, A reads after each step and
   reports to C (single voice at the handset). Further rows paused until the
   recovery is verified.
+- **Path B, S1 (A read, ≈22:0x EDT):** buyer sessions 0; staff row 140fcb44… unchanged
+  (active, reason null, hash NULL); one push token on the sandbox. Extra
+  on-device evidence for F-611-1 (A, from the logs): at 21:33:37 EDT the
+  buyer's sign-out issued `revoke_push_token` (200, nothing to revoke) then
+  logout 204; the buyer signed back in at 21:33:49 and registration was
+  refused 403 again at 21:33:56 — sign-out clears the terminal state, the app
+  retries on the next sign-in, and rule 4 repeats while the staff row is
+  active. S2 (staff sign-in) issued by A.
