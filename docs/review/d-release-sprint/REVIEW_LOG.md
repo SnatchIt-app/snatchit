@@ -504,6 +504,38 @@ That read is mine to spec now that 135 has landed: outcomes only — token id, c
 attempts, delivery outcome — never a nonce, a nonce hash or a token string, owner-gated like the rest of the
 console surface.
 
+## b2 — D-135-6 fix passed at `84ddd9a`; the interim gap measured, not argued
+
+B's fix is right and I have nothing to add to the wording. The part that mattered is there in terms:
+"*Until it exists:* **do not treat this step as passed**, and do not guess whether the device already answered."
+The interim route is therefore framed as a mitigation, not a substitute — which is the distinction that keeps an
+agent from believing a self-reported answer discharges a server-side control. §3 requiring the literal words
+"challenge history unavailable" rather than a blank is better than what I suggested: a blank really is
+indistinguishable from a skipped gate. B also ruled out an engineer-run read as the routine substitute on the
+correct ground — it is a production read and needs the owner's authorization for that specific read.
+
+**How bad is the interim gap? I measured it rather than reasoning about it** (`probes/probe_135_unbind_recovery.sql`):
+the interim route's answers are self-reported, so a deliberate attacker simply says "nothing arrived" and the only
+real controls left are §2.1 identity verification and §2.4's two-person rule. The question that decides the
+severity is what a socially-engineered unbind actually buys, and the answer is: **almost nothing.**
+
+| Step | Result |
+|---|---|
+| owner registers | `registered` |
+| support unbinds | `{unbound: 1, contract_version: 3}`, row tombstoned |
+| the owner's own device re-registers, same session | **`refreshed`** — active again, proof re-stored, no challenge |
+| the owner's own device re-registers, a new session | **`refreshed`** |
+
+So a social-engineered unbind is a **nuisance-level denial** — the victim stops receiving push only until their app
+next registers, which happens on the next open, with no support contact and no challenge. It is **not** a
+redirection: any *other* account still gets `challenge_required` (C1d), because the tombstone survives. That is
+worth stating plainly in the owner's package, because "support can be talked into an unbind" sounds like the
+persistent-redirection path the owner required closed, and it is not the same thing.
+
+Suggested to B, small: §4 tells the user what the verb does but not that the **original** device recovers by
+itself. An agent who unbinds by mistake, or a user who changes their mind, currently has no documented way back;
+"open the app on the original phone" is the whole remedy and is worth one line.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
