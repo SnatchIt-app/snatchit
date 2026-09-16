@@ -99,10 +99,12 @@ Install: open the EAS build page on the provisioned iPhone and tap Install
 | 12 | DV-609 | create a listing, quantity 2 | "$X for all 2 tickets", no "per ticket" |
 | 13 | DV-605 | from a cold start, open a deleted listing's id (A supplies the link) | "Listing not found" + "Browse live listings" lands on Home, no dead Back |
 | 14 | empty/failed/filtered states | airplane mode ON: Home, Explore, Bids, Tickets; then OFF; filters with no match; the empty-account tab | "couldn't load" offline, "No matches" filtered, empty state only when truly empty, never during load |
-| 15 | DV-611C | kill and relaunch the app while signed in | A read-back: `register_push_token` called on relaunch, outcome `refreshed` |
+| 15 | DV-611C | kill and relaunch the app while signed in | A read-back of the device's row after the relaunch: `last_used` advanced, `is_active=true`, `revoked_*` null, same `user_id` — that row state is the contract's `refreshed`; the outcome word itself is only in the app's console log, and Settings › Notifications shows nothing for a healthy registration (no banner = registered) |
 | 16 | DV-611 | Sign out (online) | A read-back: this device's row `is_active=false`, `revoked_reason='signed_out'` (129 is on the sandbox, so the verb path is live); login screen shows NO "expired" notice |
 | 17 | DV-607a | sign in again; A invalidates the session server-side while the app is backgrounded; foreground | login shows "Your session expired. Sign in to pick up where you left off." |
-| 18 | DV-611S | sign in as the DV seller on the same device | A read-back: outcome `rebound` (same device secret, new account) — the RPC path is live on this sandbox, so the legacy 23505 case does not apply; record the outcome observed |
+| 18 | DV-611S | sign in as the DV seller on the same device | A read-back: the row's `user_id` flips to the seller, hash retained, `is_active=true` — that row state is the contract's `rebound` (same device secret, new account); the RPC path is live on this sandbox, so the legacy 23505 case does not apply; Settings › Notifications shows no banner |
+
+Read-back protocol (A, confirmed): C sends A "row N ready" as the owner reaches each read-back row; A runs the read within minutes and returns the row state. Rows 1–4, 6 and 8 are read-only; DV-607a (row 17) is A deleting that device's `auth.sessions` row on the sandbox as the documented window step, before/after recorded in manifest §10; the DV-106 fixture and the DV-605 deleted-listing id come from A (existing rows, no new deletes).
 
 Exit: every row has a result; a FAIL on a money or privacy row blocks the candidate; a presentation FAIL is logged and triaged. Block 2/2b need A's serialized sandbox window and follow in session 2.
 
