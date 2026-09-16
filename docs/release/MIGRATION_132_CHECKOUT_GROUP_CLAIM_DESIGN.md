@@ -108,3 +108,12 @@ Option A would move changes onto A's surface (sweep, blockers, 127) days before 
   **Residual:** a DB-processing row whose intent went back to `requires_payment_method` keeps refusing until the `payment_failed` webhook lands (Stripe retries for up to 3 days).
 
 **Pre-existing root cause (A records):** `reserve_buy_now` accepts a hold on an auction the buyer is winning, and the finalizer ends an auction under a live hold (baseline / `20260906100000`). Whether both entitlements should coexist is a product question for the owner. The money property no longer depends on the answer.
+
+## 8. D's two LOW notes at `9d82247` — dispositions (B, 2026-09-16)
+D passed 132 and raised two non-blocking notes.
+- **N-132-1, the claim verdict is stale by the sweep's duration — TAKEN (`74a4371`).** The other-attempt sweep makes bounded Stripe calls after the last check, so the sweep and a re-check are now one gate. The claim is again the last word before a secret leaves. Nothing can reclaim inside that window today, because the 90 s E-1 budget ends before the 120 s lapse, so this restores the invariant rather than closing a reachable hole. Test N1 reclaims the group during the sweep's own cancel and expects 409; it is RED without the re-check.
+- **N-132-2, `withdrawUnrecordedIntent` reads `payments` and then cancels — NOT CHANGED, with reasons.**
+  - The window is milliseconds, between the row read and the Stripe cancel, and the worst case is availability, never money: it would cancel an intent a concurrent request had just recorded, so that request's client sees a dead secret and retries. No charge is possible, and no second live secret is created.
+  - The alternative D names, never cancelling on the claim-lost path, trades that for a permanent orphan intent at Stripe with no row and no sweep arm to reach it. The intent's secret was never handed out, so it is money-safe, but it is unbounded ops residue.
+  - A metadata-bound withdrawal (cancel only when the intent carries this request's claim token) does not close it either: a replayed intent carries the FIRST request's token, so the case where the other request recorded OUR intent still races.
+  - Disposition: keep the read-then-cancel, since it is the only option that is both money-safe and self-cleaning. Recorded as a disclosed residual for the owner's packet.
