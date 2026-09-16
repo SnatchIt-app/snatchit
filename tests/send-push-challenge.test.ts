@@ -189,6 +189,21 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     expect(w.pushes).toHaveLength(0);
   });
 
+  it('A22 (D re-check): the ownership refusal comes BEFORE the rate-limit block — nothing is counted for a challenge the caller does not own', async () => {
+    // D's surviving mutant (key the namespace on the body's userId instead of the
+    // row's requesting_user) is equivalent: past the 409 the two are provably
+    // equal, so no assertion can separate them. What IS observable, and what the
+    // protection actually rests on, is the check's POSITION: move it below the
+    // rate-limit block and CD-1 returns silently — A6 still sees its 409, but the
+    // caller has already chosen a namespace and spent someone else's budget.
+    const w = world();
+    const { res } = await w.call(challengeReq({ user_id: '33333333-3333-3333-3333-333333333333' }));
+    expect(res.status).toBe(409);
+    expect(w.sb.rpcs.filter((r) => r.name === 'check_rate_limit')).toHaveLength(0);
+    // the read itself is allowed to have happened — it is what supplies the owner
+    expect(w.sb.rpcs.filter((r) => r.name === 'get_push_token_challenge')).toHaveLength(1);
+  });
+
   it('A19 (157 B9): the challenge is read through notify.get_push_token_challenge — the notify TABLE is never touched', async () => {
     const w = world();
     const { res } = await w.call(challengeReq());

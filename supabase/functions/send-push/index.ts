@@ -135,9 +135,14 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
   // The DB verb is the authority; this is the second line, in its own namespace,
   // so a direct call to this edge cannot flood a device. Per D: the token limit
   // is per (token, requesting user).
-  // Both parts come from the row (identical to the body's user_id past the check
-  // above): the namespace is never one the caller chose. The raw token is NOT a
-  // key — token_id is — so no push token is written into public.rate_limits.
+  // ORDER IS THE PROTECTION (D's re-check): this block depends on the ownership
+  // refusal ABOVE it. Both parts come from the row and are provably equal to the
+  // body's user_id here, so which variable is used is not observable — but move
+  // the refusal below this block, or make it conditional, and a caller picks its
+  // own namespace and spends someone else's budget while A6 still sees its 409.
+  // A22 is the assertion that notices: no rate limit is counted on that refusal.
+  // The raw token is NOT a key — token_id is — so no push token is written into
+  // public.rate_limits.
   const requester = challenge.requesting_user;
   for (const [action, max] of [
     [`push_challenge_edge_user:${requester}`, 5],
@@ -155,6 +160,11 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
   }
 
   // Proof of possession: the push goes to THIS token, never to the user's others.
+  // DO NOT add an is_active / revoked filter here (D, 135 review): the token comes
+  // from the challenge row, so a tombstoned binding (support_unbound,
+  // deleted_by_client) is addressed BY DESIGN. That is what makes a rebind after a
+  // support unbind possible at all — filtering it would lock out exactly the
+  // recovery case RB-1 was written to preserve.
   const visible = challenge.mode === 'visible';
   const message = visible
     ? {
