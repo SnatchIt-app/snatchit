@@ -290,6 +290,76 @@ Local: push-proof-v3 13/13; the earlier client suites still green. C's four prob
 Device-row notes raised: the visible-code push shows the code in its alert, so the owner should accept the lock-screen preview; a silent push
 arriving while the code screen is open is ignored by design.
 
+## b2 Gate 1 — migration 135 (proof of possession) reviewed at `fix/135-push-proof-of-possession @ 1cfc85c`
+
+Heads: `b49a012` (CI 35050777765 green, five jobs) → `fb2fd68` (CI 35051077164; `notify.get_push_token_challenge`
+also returns `token_id` + `requesting_user` for B's CD-1/CD-2) → `1cfc85c` (comment only — I diffed it: zero
+non-comment lines change). B's send-push delta re-checked at `fix/b2-send-push-challenge @ c92d7c7` (CI 35051330615).
+
+**A's disclosure, recorded:** the two earlier pushes on this branch were not green and `94939b7`'s message claimed a
+green suite while 157 aborted. A corrected it in `b49a012`'s message. I reviewed only from the CI-green heads; the
+earlier commits are not evidence for anything here.
+
+My own full-chain rehearsal of the tree, twice (`b49a012` and `1cfc85c`): **PASS 27 / FAIL 0 / WARN 3** each.
+FRESH Gate-2 census `32|105|37|38` = the tree's ci.yml EXPECT_*; grant matrix 69 rows = `expected_grants.txt`;
+grant-decision manifest asserts; **135's rollback restores the pre-migration catalog exactly** (0 identity lines) —
+this is the check that matters for RB-1, since the rollback must put 128's deleting unbind back verbatim; both
+orders converge (S1/S2/S3). WARNs are the three pre-existing ones (128 rollback's 10 classified lines, the
+`20260916000000` release-position note, the shim note) — none new.
+
+### C1–C6 matrix — `probes/probe_135_c1_c5.sql`, clean rebuilt DB, 0 psql errors
+Real writers throughout; the nonce is read from a recording `net.http_post` stub because it exists nowhere else.
+
+| Condition | Result |
+|---|---|
+| C1 proof on every ownership-changing bind | cross-account `challenge_required` cv3 (C1a); **legacy pre-epoch row with no stored proof** `challenge_required` (C1b — this is the 128 rule-5 hand-over, now closed); client-revoked row (C1c) and support-unbound tombstone (C1d) likewise; a token with no prior row is still `registered` (C1e) |
+| C2 no bypass by writing directly | client DELETE deletes **0 rows** and the row survives as `deleted_by_client` (C2b); direct UPDATE of `user_id` / `device_secret_hash` 42501; `notify.push_token_challenges` SELECT+INSERT 42501 to clients **and to service_role** (B9 holds, X2); `issue` / `unbind` / `get_push_token_challenge` / `record_..._delivery` all 42501 to authenticated |
+| C2 follow-ups | a client can still create a NEW row for an unknown token (unchanged 128 behaviour) but cannot overwrite an existing token (23505) and cannot plant a chosen proof (42501 from 128's guard) — so a planted row is inert under v3, because C1b makes it `challenge_required` anyway |
+| C3 bound to initiating user AND session | third account 42501; **same account, other session** 42501; same account with no `session_id` claim 42501; correct user+session+nonce → `rebound` |
+| C4 the claim never disturbs the live row | the row's identity string is byte-identical before the claim, after issue, after three foreign confirm attempts and after four mismatches; the nonce is in neither `nonce_hash` nor `delivery_error` |
+| C5 proof superseded | after `rebound` the stored proof and `session_id` are the proving device's; the previous owner replaying the **old** secret gets `challenge_required`, not `refreshed` |
+| C5 previous-owner notice | one `security_device_rebound` row for the previous owner, none for the new one; type is `mandatory` with `allowed_channels {}` / `default_channels {}` and an `in_app` template only — never push, no email (N1) |
+| C6 rate limits | 3 challenges per (token, requester) then `precondition_failed`; the 5-per-user limit fired independently during an earlier fixture run; "no binding to challenge — register instead" for an absent row |
+| C7 attempts / P3-1 / staleness | fifth mismatch returns `challenge_consumed` and consumes; the correct nonce afterwards is refused; a re-request on the exhausted challenge consumes it and issues a fresh row (P3-1); a re-issue rotates in place and the superseded echo answers `stale_nonce` at **attempts = 0**; expired refused |
+| send-push's read | exactly `attempts, confirmed_at, consumed_at, dispatched_at, expires_at, id, mode, platform, requesting_user, token, token_id` — no owner identity, no secret hash, no nonce hash |
+
+### Negative controls — `probes/mutants_135.sql` (all four flip their case)
+| Mutant | Case that must catch it | Result |
+|---|---|---|
+| confirm checks the user but not the session | C3b | the other session confirms → `rebound` |
+| `trg_guard_push_token_client_delete` dropped | C2b | DELETE removes the row, next binder gets `registered` |
+| `unbind_push_token` deletes again (pre-RB-1) | C1d | row GONE, next binder gets `registered` — RB-1's closure is real |
+| 128 rule 3 restored (hash match rebinds) | C1a | cross-account with the same secret → rebound, owner becomes the claimer |
+
+### Findings
+| # | Severity | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| M-135-3 | LOW (correctness, security path) | The visible 6-digit code generator raises `22003 integer out of range` when the four random bytes are exactly `0x80000000`: `abs(int '-2147483648')` overflows. The raise aborts the whole verb, so the user gets a hard error and no challenge. p ≈ 2.3e-10 per visible challenge. | `V1.abs_int_min \| ERR 22003`; neighbour `0x80000001` returns `483647` | Drop `abs` and widen: `('x'\|\|encode(...,'hex'))::bit(32)::bigint % 1000000`. I verified it at all three boundaries: `0x80000000`→483648, `0xffffffff`→967295, `0x00000000`→000000 |
+| D-135-4 | LOW (documentation, in-DB) | `comment on function public.confirm_push_token_challenge` says "the previous owner is **emailed**", and §8's banner reads "the previous owner's notice: **email**, never push". The implementation is in-app only, with no email row, per N1. The comment is what support reads out of the database. | the migration text vs `C5.rebound_type_channels {}\|{}\|mandatory`, `C5.rebound_templates in_app` | reword both to "notified in the notification centre (never push, no email — N1)" |
+
+### Noted residual (owner-visible decision, not a 135 defect)
+`security_device_rebound` is the **only** notification type in the system with no outbound channel at all. `in_app`
+is not a channel here — 32 types carry an `in_app` template and none list `in_app` in `allowed_channels` — so the
+notification row *is* the in-app item and `{}` is the correct shape for "never push, no email". The consequence is
+that a previous owner who does not open the notification centre is never told their device was claimed. That
+follows from the owner's N1 (email is owner-gated) plus the never-push rule, so I record it as a decision rather
+than a finding. If the owner wants it to reach people, it needs an email row and N1 authorisation.
+
+### B's send-push at `c92d7c7` — delta re-check
+CD-1 and CD-2 are closed in the verb, and B took both values off the row. My own mutants: dropping the ownership
+check (2 tests die), logging `requesting_user` on success (2), putting `token_id` in the push data (2), restoring a
+direct table read (19) — all die. One **equivalent** mutant survives: keying the namespace on the body's `userId`
+instead of the row's `requesting_user` passes 25/25, because the ownership check above makes the two provably
+equal. Not a coverage gap — but the protection is the check's *position*, so the ordering deserves a comment; if it
+is ever moved below the rate-limit block, CD-1 returns silently.
+
+### Evidence limits
+Local harness only: `net.http_post` and `vault.decrypted_secrets` are stand-ins, so nothing here proves real pg_net
+delivery, real Vault reads, or APNs/FCM behaviour. No device evidence. Nothing applied anywhere. My rehearsal DB
+was rebuilt clean (`scripts/rehearsal_reset.sh d_cand_tap_rehears` + `000_helpers.sql`) before the cited runs after
+a malformed `\set` in my first mutant draft ran outside a transaction and committed two fixture users into it; I
+checked and repaired the DB, and confirmed the trigger and `unbind_push_token` were untouched by that accident.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
