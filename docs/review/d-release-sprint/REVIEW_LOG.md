@@ -110,6 +110,26 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
 
+### DV row 3 (device push registration) — sandbox read-back after the owner's relaunch, 2026-09-16 ~01:19–01:33Z: **server refused, cause identified**
+Read-only: sandbox DB read from the unlinked kit worktree + `query_logs` on `ofaidukbieeekqaboscm` (no writes).
+- The handset IS reaching the sandbox: `/auth/v1/token` 200 at 01:19:04 and a session (user `919d511e`) refreshed 13 min before the read.
+- `POST /rest/v1/rpc/register_push_token` at **01:19:06 → 403**, i.e. the verb raised 42501 (PostgREST maps it so). Permission and relaunch
+  are not the problem; the app asked and the server refused.
+- `push_tokens` still holds exactly ONE row: token `ExponentPushToken[nMdl…]` (41 chars), owner `1fcd0c69`, created 2026-09-08, **active,
+  no device proof** (a pre-128 legacy row), last_used 2026-09-10. The tester's account is `919d511e`.
+- Since the table holds only that row, the verb's only reachable 42501 is rule 4, "token is bound to another account": this handset
+  registered under a DIFFERENT sandbox account before 128, the row is still active and hash-less, so 128 refuses the cross-account rebind
+  (rule 5 needs the row revoked by a sign-out; it is active).
+- Client consequence (`src/lib/push/registration.ts` @ aabe029): `bound_to_other` is TERMINAL for (user, token, rpc) — further relaunches
+  return `wait` and never call the verb again. A sign-out clears the record (one was seen: `revoke_push_token` 200 at 01:33:37), so the next
+  launch retries and gets the same 403 until the server row is dealt with.
+- Remedies, each a sandbox WRITE needing owner authorization: (1) support unbind — service_role `select public.unbind_push_token(<that
+  token>)`, then the next launch registers fresh (rule 1) and stores the proof; (2) sign in on that handset as `1fcd0c69` and sign out, which
+  revokes the row (`signed_out`) and lets the new account take it under rule 5 (legacy, within 30 days, before the 90-day sunset); (3) run
+  DV-611 as `1fcd0c69`.
+- Acceptance value: this is 128's documented lock-out (O-3 §1 step 4) hit benignly in test. It confirms the support-unbind path is required at
+  launch, and it is the same slice b2 would close by proof of possession.
+
 ### b2 scope (owner asked for it 2026-09-15; D's half merged as §13 of the O-3 brief, A's converge ecb72af)
 D's conditions C1–C6 become work items 1–10 with owners: A = DB items 1–4 (challenge table + verbs + `challenge_required` branch;
 ownership history so a delete cannot erase it; pending claim never touches the live row and send paths exclude unconfirmed rows; a
