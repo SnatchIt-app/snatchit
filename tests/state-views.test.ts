@@ -23,11 +23,23 @@ describe('which state a failed load shows', () => {
     expect(classifyLoadFailure(null, false)).toBe('error');
   });
 
+  it('an aborted or timed-out request is not evidence the user is offline (SV-1): it is the server-error state', () => {
+    expect(classifyLoadFailure({ name: 'AbortError', message: 'Aborted' }, false)).toBe('error');
+    expect(classifyLoadFailure(new Error('The operation was aborted'), false)).toBe('error');
+    expect(classifyLoadFailure(new Error('Request timed out'), false)).toBe('error');
+    expect(classifyLoadFailure({ message: 'timeout of 10000ms exceeded' }, false)).toBe('error');
+    // the OS signal still wins
+    expect(classifyLoadFailure({ name: 'AbortError', message: 'Aborted' }, true)).toBe('offline');
+  });
+
   it('copy: four distinct states, each with a title, a body and (for failures) a Retry', () => {
     expect(STATE_COPY.offline.title).toBe("You're offline");
     expect(STATE_COPY.offline.body).toBe('Check your internet connection and try again.');
     expect(STATE_COPY.error.title).not.toBe(STATE_COPY.offline.title);
     expect(STATE_COPY.error.title).not.toMatch(/something went wrong/i);
+    // SV-3: the error state also covers 500s, permission failures and (after SV-1) timeouts,
+    // so its sentence must not claim to know which one happened.
+    expect(STATE_COPY.error.body).not.toMatch(/in time|timed out|timeout/i);
     expect(STATE_COPY.offline.retry).toBe('Retry');
     expect(STATE_COPY.error.retry).toBe('Retry');
     expect(STATE_COPY.noMatch.title).toBe('Nothing matches');

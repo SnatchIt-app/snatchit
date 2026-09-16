@@ -11,13 +11,16 @@ export type LoadFailureKind = 'offline' | 'error';
 /**
  * True when an error smells like a connectivity failure rather than a
  * server/application error (fetch throws before any HTTP response exists).
+ * An aborted or timed-out request is deliberately NOT here (D review SV-1,
+ * 2026-09-16): it says nothing about the user's connection, so it falls to the
+ * server-error state rather than telling an online user they are offline.
  */
 export function isNetworkError(err: unknown): boolean {
   const msg =
     typeof err === 'string' ? err
     : err instanceof Error ? err.message
     : (err as { message?: string } | null)?.message ?? '';
-  return /network request failed|failed to fetch|fetch failed|network error|abort/i.test(msg);
+  return /network request failed|failed to fetch|fetch failed|network error/i.test(msg);
 }
 
 /** Offline when the OS says so or the error is a connectivity failure; otherwise the server did not answer well. */
@@ -34,7 +37,7 @@ export const STATE_COPY = {
   },
   error: {
     title: "Couldn't load this",
-    body: 'Our side did not answer in time. Try again in a moment.',
+    body: 'Something went wrong on our side. Try again in a moment.',
     retry: 'Retry',
   },
   noMatch: {
