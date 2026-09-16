@@ -1613,6 +1613,11 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   against a value captured immediately BEFORE the row-15 relaunch, not the
   01:42:41Z baseline — the owner holds the relaunch until A confirms the
   capture and C says go. Row 17's session delete waits for the owner's "ready".
+  **Row 15 action (owner, 2026-09-16 00:12 EDT ≈ 04:12Z):** force-quit, reopened,
+  10 s on Home, Settings not opened; performed before A's capture confirmation
+  reached C, so A compares against its capture if taken before 04:12Z, else
+  against the 04:00:03Z residue. "row 15 ready + time" sent to A; read-back
+  pending.
 
 ## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
 
