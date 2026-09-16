@@ -259,11 +259,10 @@ no case), and screens show a state only with nothing cached, so a failed quiet r
 screen. F-OFF-1 is closed by classifying Tickets' failure. Tests state-views 9/9.
 | # | Severity | Finding |
 |---|---|---|
-| SV-1 | LOW–MEDIUM | `isNetworkError` counts `abort` as connectivity, so a timeout shows "You're offline. Check your internet connection" on an online device. The regex predates the branch; the copy asserting it does not. Route timeouts to the error state |
-| SV-2 | LOW (device) | failure states carry both `accessibilityRole="alert"` and an explicit `announceForAccessibility`; TalkBack may read the sentence twice. One DV-ST1 line to listen for it, then keep one mechanism |
-| SV-3 | LOW | the error body commits to a timeout while the state also covers 500s and permission failures |
-Added device row requested: an offline state that auto-retries when connectivity returns (ScreenState does this silently), so the rows prove
-recovery and not only the picture.
+| SV-1 | LOW–MEDIUM — **FIXED at bf8b9ba, verified** | `abort`/timeout dropped from `isNetworkError` (RED first); they fall to the server-error state and the OS offline signal still wins. The other callers of the helper (ListingDetail, my-listings, transfer send/receive) narrow the same way |
+| SV-2 | LOW (device) — on DV-ST4 | both mechanisms kept for now (the handset is iOS, where the explicit call speaks); DV-ST4 says "announced exactly once" with my remedy if it doubles; Android TalkBack untested this session |
+| SV-3 | LOW — **FIXED at bf8b9ba** | body is now "Something went wrong on our side. Try again in a moment."; preview mirrored and pinned away from timeout wording |
+Auto-retry on reconnect is already a device check (DV-ST1 ends with airplane mode off → the screen retries by itself), so no new row. state-views 10/10 at bf8b9ba.
 
 ### 135 in progress — two consequences D raised before seeing the code (A accepted RB-1 and P3-1)
 A's 135 returns refusals from the confirm verb with 200 instead of raising (`{outcome:'nonce_mismatch', attempts_left}`, `challenge_consumed`)
