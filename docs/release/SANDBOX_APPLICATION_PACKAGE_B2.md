@@ -200,7 +200,21 @@ authenticated secret is introduced. Proceed only after D's final ceremony-script
 exact execution commit, order, preflight, abort conditions and rollback. … No production reads, migrations, edge deployments,
 flags, AWS changes or build submission are authorized by this message." A's reading, stated to the owner before the first
 write: the window itself was authorized by rulings 1 subject to conditions; rulings 2 resolve those conditions and grant nothing
-new; the build submission is a separate later action. D's final script review: 5bd47da ("nothing further from me on the script").
+new; the build submission is a separate later action. **D's final script review: converge commit `685340f`** (5bd47da plus D's
+last condition: the `key` mode refuses outright while the deferral stands, enforced in code; verified to STOP before any
+database access).
+
+**D's witness invariants, held independently; any one stops the window:** (1) `vault.secrets` holds exactly one name,
+`project_url`, at every check from the ceremony to the close (names only) — under (b) this is what makes "nothing outbound
+can authenticate" a verified property; (2) V0 immediately before each apply, every difference attributed through
+`cron.job_run_details` before acceptance, an unattributable difference is a stop and A applies nothing while a read is
+unexplained; (3) `project_url` names the sandbox host at D's shape check between `url` and `verify-url` and again after 133;
+(4) no production host anywhere: D's `pg_proc` / `cron.job` production-reference probe at the close, expecting 0/0.
+**Expected, not faults, under (b):** after 133 the re-registered crons post with an empty bearer and are refused on every
+tick, so `enforce-transfer-expiry` does not run for the life of this sandbox state; the refused ticks in `net._http_response`
+are the evidence of the design working. 133's §0 precondition is satisfied only because the ceremony precedes it: if the
+ceremony is skipped or fails, 133 is not applied. **What this window does not produce:** any evidence that b2 works on a
+handset; b2 device verification is deferred.
 Under (b), `send-push` refuses every dispatch (empty bearer) and the four notify functions post nothing (no key), so no outbound
 notification can reach the owner's handset from this sandbox by construction; A reads `net._http_response` after 133 to show
 the refusals rather than assert them.
