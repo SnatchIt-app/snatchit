@@ -67,6 +67,45 @@ DV-302 hold row + Pay withdrawn in the margin · DV-301 hold ran out · DV-304 p
 ### Block 2b — sprint-specific integration risks (A's C-3; in the same window)
 DV-L1 failed attempt then retry on the same listing · DV-L2 leaving checkout after success · DV-607b cancelled listing · DV-607c delayed transfer · DV-607d unavailable account + F3 labels · DV-F8 partial refund. No-window: DV-607a session expiry · DV-605 listing gone · DV-611C cold-launch registration · DV-T.
 
+### Sandbox state (A, 2026-09-15 late): 124, 125, 127, 128, 129, 130 applied (ledger 136); 126 deferred by owner ruling; `stripe-webhook` v4 + `create-payment-intent` v4 deployed from the tag
+DV-L1/L2 and DV-611 L/S/R/C are therefore runnable on build 17. Rows that need the `ops` schema (126) are
+**not-run-on-sandbox** (not failed). Superseded note below kept for history.
+
+### Handset session 1 — Block 0 + Block 1 (build 17, no sandbox window needed; A on read-backs)
+Install: open the EAS build page on the provisioned iPhone and tap Install
+(`https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/53e5e98b-dbe9-405d-a7c8-159375c3fbc6`, build 17,
+`aabe029`). Trust the ad-hoc profile if iOS asks. Record: iPhone model, iOS version, tester, start time.
+
+**Block 0 — smoke (15 min). Stop the session if any step fails.**
+1. Cold start → the app opens on the sandbox (no environment refusal at launch). Evidence: the launch itself (`envGuard` refuses a wrong project ref; A quotes the rule).
+2. Sign in as the DV buyer → Home paints. Evidence: A's read-back of the `auth.sessions` row with the build's user-agent (proves URL + anon key).
+3. Settings › Notifications shows no remedy banner. Evidence: A's read-back of one `push_tokens` row for this device, `is_active=true` — this is **DV-611L** on a fresh install.
+4. Settings › Accessibility › Reduce Motion off → on → off: the app keeps working. VoiceOver on → off once.
+
+**Block 1 — no-window rows (≈60–75 min), in this order; per row record PASS / FAIL / UNTESTED + the exact on-screen text.**
+| Order | Row | Do | PASS when |
+|---|---|---|---|
+| 1 | DV-101 | Home → tap a card | title, venue, date, price painted immediately; Buy now / Bid disabled until the fresh row lands |
+| 2 | DV-107 | scroll Home, open a listing, back | same scroll position and filters |
+| 3 | DV-103 + DV-T | Tickets tab, leave and return; Explore, search then refresh; then the Build 16 Tickets empty-state procedure | previous content stays; no full-page spinner on refocus |
+| 4 | DV-106 | open a listing whose image 400s (fixture P1/D7/D8) | branded fallback in the reserved frame, no white flash |
+| 5 | DV-201 | tap stepper keys, quick-add chips, a seller row | 0.98 compress on every control |
+| 6 | DV-203 (no-window part) | save Your scene; submit a report | "Saving…" / "Sending report…" beside a spinner; button width does not jump |
+| 7 | DV-204 | airplane mode ON: toggle a notification preference; pick an area in Your scene; tap Done; then ONE "Sign out" tap | toggle reverts with the inline notice; chips roll back with the notice; Done waits ("Saving…") and stays; **sign out: record what happens** (known limitation: on build 17 an offline sign-out may silently do nothing) → airplane mode OFF |
+| 8 | DV-208b | edit a listing, change a field, swipe back; Report, choose a reason, swipe back | "Discard changes?" / "Discard this report?"; Keep stays, Discard leaves |
+| 9 | DV-206 | Reduce Motion ON | sheets and stack transitions cross-fade; spinner is the static mark; every state change still visible → OFF |
+| 10 | DV-206b | VoiceOver ON, repeat row 6 | pending label read; rollback notices announced → OFF |
+| 11 | DV-208 | largest accessibility text size | CTAs reachable; sticky prices/buttons do not clip; long names wrap → default size |
+| 12 | DV-609 | create a listing, quantity 2 | "$X for all 2 tickets", no "per ticket" |
+| 13 | DV-605 | from a cold start, open a deleted listing's id (A supplies the link) | "Listing not found" + "Browse live listings" lands on Home, no dead Back |
+| 14 | empty/failed/filtered states | airplane mode ON: Home, Explore, Bids, Tickets; then OFF; filters with no match; the empty-account tab | "couldn't load" offline, "No matches" filtered, empty state only when truly empty, never during load |
+| 15 | DV-611C | kill and relaunch the app while signed in | A read-back: `register_push_token` called on relaunch, outcome `refreshed` |
+| 16 | DV-611 | Sign out (online) | A read-back: this device's row `is_active=false`, `revoked_reason='signed_out'` (129 is on the sandbox, so the verb path is live); login screen shows NO "expired" notice |
+| 17 | DV-607a | sign in again; A invalidates the session server-side while the app is backgrounded; foreground | login shows "Your session expired. Sign in to pick up where you left off." |
+| 18 | DV-611S | sign in as the DV seller on the same device | A read-back: outcome `rebound` (same device secret, new account) — the RPC path is live on this sandbox, so the legacy 23505 case does not apply; record the outcome observed |
+
+Exit: every row has a result; a FAIL on a money or privacy row blocks the candidate; a presentation FAIL is logged and triaged. Block 2/2b need A's serialized sandbox window and follow in session 2.
+
 ### Sandbox state and the rows it blocks (A, 2026-09-15 evening)
 Applied on the sandbox: 124, 125. 126 stopped (the sandbox never received 110–120, so it lacks the `ops` schema;
 admin-only, no effect on the app). **127 and 128 not applied; 129 and 130 wait on the owner's window

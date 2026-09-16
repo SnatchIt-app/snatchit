@@ -1224,3 +1224,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   `PriceChangedError`), and the only tests asserting 409 bodies are the
   edge-function tests (A/B's). Same body, same handling; nothing to do on any
   branch. Not in build 17's server (sandbox at 130).
+- **Resumption (owner, 2026-09-15 late):** disk freed (12 GiB available, measured);
+  no cleanup by C. Install link and Handset session 1 (Block 0 + Block 1, 18
+  ordered rows with evidence and A's read-backs) sent to the owner and written
+  to the plan. Sandbox now carries 127–130 + both edges, so DV-L1/L2 and
+  DV-611 L/S/R/C are runnable on build 17; `ops`-dependent rows are
+  not-run-on-sandbox. Production gates unchanged (notification-redirection
+  decision still open with A/D; 131/132 pre-production).
