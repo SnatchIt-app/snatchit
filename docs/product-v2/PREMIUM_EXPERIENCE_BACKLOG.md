@@ -1512,3 +1512,24 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   DV-V4 added. To D for re-review; A integrates 0eea9c3 (supersedes 969ff20) after 135 and
   send-push. State-views `bf8b9ba` is on A's production-gate stack at
   `06d414f` (A: typecheck 0, vitest 1996/1996).
+- **D's review of client v3 @ 0eea9c3 (2026-09-16): PASS.** D read 135's
+  confirm verb at A's head and replayed it: `stale_nonce` is returned before
+  any attempt is counted (row `attempts` still 0), so "free" is real and
+  `onStaleNonce` returning the exact prior state is right; the null-prior
+  terminal branch is unreachable (every confirm gets its prior); the re-arm
+  resumes rather than restarts. D's mutants: 5 of 6 die; **survivor:** a flat
+  60 s re-arm passed 21/21 (coverage gap). **CV-1 (LOW):**
+  `classifyChallengeError` still sent timeout/abort to 'network' ("check your
+  connection") — SV-1 again. **CV-2 (LOW):** `too many registration attempts`
+  (register's 20/10 min) fell to unknown instead of rate_limited. All strings
+  the classifier keys on verified by D against the verb bodies; `/nonce
+  mismatch/` is a dead, harmless branch. **Fixed at `frontend/push-proof-v3 @
+  e8114df`** (supersedes 0eea9c3): timeout/abort → unknown; rate-limit regex
+  covers both texts; the re-arm is the pure `fallbackDelayMs` (60 s minus
+  cumulative foreground time) with a test (45 s elapsed → 15 s; banked time
+  counts) and a pin that the hook never does its own 60 s arithmetic — the
+  survivor dies. RED first (3) → push-proof-v3 22/22; tsc clean; vitest 1950
+  / 88; lint 0 errors / 29 warnings; gated surface 0 lines vs b48f4e9. Noted,
+  not changed: `src/lib/push/registration.ts` line ~209 has the same
+  timeout/abort → 'network' regex, but there the kind only schedules a retry
+  and carries no connection claim to the user (follow-up, not a defect).
