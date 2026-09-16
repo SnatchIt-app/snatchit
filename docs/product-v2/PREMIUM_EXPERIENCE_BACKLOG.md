@@ -1363,3 +1363,40 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   this code" + old-build refusal copy (~2 h); source pins, previews, DV rows
   (~1 h). ≈ 7–8 h of C after the v3 draft, plus D's review; device
   verification only on the combined build with 135 on the sandbox.
+- **Session 1 (owner, 22:20 EDT): row 14 offline portion PASS** (screenshots by the
+  owner): Home, Bids and Profile show "You're offline / Check your internet
+  connection and try again." with Retry; **Tickets shows "Something went wrong /
+  We couldn't load this right now. Please try again."** — wording difference
+  recorded for review as **F-OFF-1 (LOW):** the Tickets screen's error state is
+  not network-aware (does not classify the offline failure as offline). Not
+  established by this report: row 14's filtered/no-match and genuinely-empty
+  portions, and row 13. **Row 10 VoiceOver: SKIPPED / UNTESTED at the owner's
+  request** (worked on some tabs; navigation difficulty could not be told from
+  an app issue) — neither a pass nor a confirmed defect; **accessibility
+  follow-up A11Y-1** retained for a later dedicated VoiceOver pass; the owner
+  is not asked to repeat it now.
+- **D's review of the three integrated branches (2026-09-16):** all hold (K-2
+  semantics match 131 @ f3963a3; F-K2-3 correct; K-1/K-3/K-4; handleSessionStale
+  retry; F-SELL-1 mechanism sound). Three findings, none build-blocking, all
+  fixed: **K-5** deletion navigated to login even when the sign-out failed →
+  now stays with SIGN_OUT_FAILED_COPY; **K-6** stale-refresh sign-out now marked
+  'expired' so the login screen says why — both `frontend/logout-scope @
+  27c0b7d`; **S-1** sandbox badge text scaled with accessibility text size and
+  would crowd the heading again → `allowFontScaling={false}`, `frontend/sell-
+  form-keyboard @ 2b9559e`. Evidence limit (D): StickyBar and the badge have
+  no rendering test — keyboard geometry and badge height are verified only on
+  the combined build (DV-S1/S2 + a large-text pass). A integrated the earlier
+  heads onto `release/production-gate-20260918 @ bf36928` (89 files / 1984
+  tests, lint 0); the follow-ups go to A for re-integration.
+- **Client v3 (b2) review-ready: `frontend/push-proof-v3 @ b098a46`** (from 131-r2;
+  9 files, +610/−14; built against contract v3 @ candidate 53c95db incl. D's
+  two changes: plain outcomes accept contract_version 2 or 3, a challenge and
+  confirm require 3; the visible-code verb carries the device secret; the
+  code IS a re-issued 6-digit nonce; 5 attempts then the challenge is consumed
+  and Try again requests a new one). Pure state machine
+  `src/lib/push/challenge.ts`; foreground-only silent push (no
+  UIBackgroundModes); 60 s foreground fallback; Settings › Notifications
+  pending / code entry ("Never share this code") / failed + Try again;
+  contract_mismatch refusal copy. RED-first tests (13). Gates: tsc clean;
+  vitest 1941 / 88; lint 0 errors / 29 warnings. Unverified on a device until
+  the combined build with 135 on the sandbox.
