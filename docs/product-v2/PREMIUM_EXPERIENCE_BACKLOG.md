@@ -1400,3 +1400,25 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   contract_mismatch refusal copy. RED-first tests (13). Gates: tsc clean;
   vitest 1941 / 88; lint 0 errors / 29 warnings. Unverified on a device until
   the combined build with 135 on the sandbox.
+- **Session 1 (owner, 22:3x EDT): row 13 owner-reported — "Browse live listings" took
+  them to Home** (the not-found title text was not quoted; not inferred). **Row 4
+  image placeholder PASS** (owner-reported). Remaining: row 14 filtered/no-match
+  and genuinely-empty checks, then rows 15–18.
+- **D's review of client v3 @ b098a46 (C1–C6 client share): all four probes clean**
+  (foreign challenge id / wrong type ignored; expired code refused client-side
+  before any call; backgrounding stops the clock and foreground re-requests the
+  same challenge; no log carries the nonce, code, payload or secret — the nonce
+  lives only in a local between arrival and echo). Findings: **P3-1 (MEDIUM,
+  A's 135):** after five wrong codes the re-request re-dispatches the SAME
+  exhausted challenge until it expires — D asks A to make a re-request on an
+  exhausted challenge consume it and issue a new one; C's copy unchanged until
+  A rules. **P3-2 (LOW):** rename `EXPECTED_128_CONTRACT_VERSION` →
+  `EXPECTED_CHALLENGE_CONTRACT_VERSION` (done). **P3-3 (LOW):** iOS `inactive`
+  (shade, prompts, calls) was treated as background and every resume reset the
+  60 s clock — now only `background` pauses, and the fallback counts
+  cumulative foreground time (done). **P3-4 (LOW, evidence):** four of the
+  thirteen tests are source-text guards; the hook's wiring is verified only by
+  DV-V1..V3 on the combined build (checklist says so). Device-row notes from
+  D: the visible-code push shows the code in its alert text — the owner
+  confirms the lock-screen preview is acceptable; a silent push arriving while
+  the user is on the code screen is ignored by design.
