@@ -150,7 +150,7 @@ for the behaviour test (the shim has neither) — stated as the evidence limit.
 Preflight items unchanged and accepted by A: production drift counts before scheduling (4 / 5), post-apply proof that one
 enforce-transfer-expiry request is answered, the sandbox notes (133 creates the missing cron there; its notify bodies are replaced), and
 117's job-health continuity (A: joins by jobid, evaluates only runs_7d > 0, so no false case).
-**133 PASSES from D** (integrated harness result appended below).
+Integrated harness at 235c839: PASS 23 · FAIL 0 · WARN 2 declared · replay 150 · census 31|96|37|35 · grants = fixture (68) · manifest PASS · pgTAP 4998/4998 · production order + release chain · **133 rollback restores the catalog exactly** · S1/S2/S3 identical. **133 PASSES from D.**
 
 ### 133 first review — `@ 5fa1fa0` (CI 34980799558 green): **NOT PASSED — 2 findings**
 Correct for its purpose (four bodies + five crons read Vault `project_url`, no URL ⇒ no post; in-migration proof of no production
