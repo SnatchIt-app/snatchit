@@ -456,7 +456,7 @@ comment on function public.unbind_push_token(text) is
 revoke execute on function public.unbind_push_token(text) from public, anon, authenticated;
 grant  execute on function public.unbind_push_token(text) to service_role;
 
--- ── 6c. send-push's read: the challenge by id, token-addressed, no requester identity ──
+-- ── 6c. send-push's read: the challenge by id — token, token_id, requester (for the edge's ownership check and rate key; never in the payload/logs), state; no owner identity, no hashes ──
 create or replace function notify.get_push_token_challenge(p_challenge_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object('id', c.id, 'token', t.token, 'token_id', c.token_id, 'platform', t.platform, 'mode', c.mode,
