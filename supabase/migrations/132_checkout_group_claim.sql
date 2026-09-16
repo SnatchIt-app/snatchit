@@ -149,4 +149,77 @@ comment on function public.release_checkout_group(uuid, uuid, text, uuid) is
 revoke execute on function public.release_checkout_group(uuid, uuid, text, uuid) from public, anon, authenticated;
 grant  execute on function public.release_checkout_group(uuid, uuid, text, uuid) to service_role;
 
+-- ── The pending row may only be recorded while the claim is still held ───────
+-- D review, reuse-order: the edge's checks bracket its INSERT, but the insert
+-- itself was not bound to the claim. If the insert request stalls in transit or
+-- in pool acquisition (the E-1 budget is 90 s, the claim lapses at 120 s), a
+-- reclaimer R can read, mint and hand out its own secret before the stalled
+-- insert commits. The stalled row then has the NEWEST created_at, so the next
+-- request reuses it and hands out a second live secret.
+--
+-- record_checkout_attempt closes that structurally: it takes the group row
+-- FOR SHARE matched on the claim token and inserts only if that matched.
+--   * A reclaim (INSERT ... ON CONFLICT DO UPDATE, which locks the existing row
+--     FOR NO KEY UPDATE) must WAIT for this transaction, so R's later prior read
+--     always sees the row and reuses it: one live secret. FOR SHARE is required;
+--     FOR KEY SHARE does not conflict with FOR NO KEY UPDATE and would not block.
+--   * If R reclaimed first, this SELECT waits on R, then re-evaluates its WHERE
+--     under READ COMMITTED against the updated row, finds no match, and records
+--     nothing; the caller cancels its unexposed intent.
+-- Freshness is deliberately not required: a stale-but-unreclaimed holder may
+-- still record, because any later reclaim waits and then reuses that row.
+-- unique_violation is NOT caught, so 23505 still reaches the edge's
+-- concurrent-identical-request recovery path unchanged.
+create or replace function public.record_checkout_attempt(
+  p_listing_id       uuid,
+  p_buyer_id         uuid,
+  p_mode             text,
+  p_claim_token      uuid,
+  p_seller_id        uuid,
+  p_amount           integer,
+  p_buyer_fee        integer,
+  p_seller_fee       integer,
+  p_total            integer,
+  p_payment_intent_id text,
+  p_livemode         boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_listing_id is null or p_buyer_id is null or p_mode is null or p_claim_token is null
+     or p_payment_intent_id is null or p_amount is null or p_total is null then
+    return jsonb_build_object('inserted', false, 'payment_id', null, 'reason', 'missing_argument');
+  end if;
+
+  perform 1
+     from public.checkout_group_claim g
+    where g.listing_id = p_listing_id
+      and g.buyer_id   = p_buyer_id
+      and g.claim_token = p_claim_token
+      for share;
+  if not found then
+    return jsonb_build_object('inserted', false, 'payment_id', null, 'reason', 'claim_lost');
+  end if;
+
+  insert into public.payments
+    (listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
+     stripe_payment_intent_id, status, mode, stripe_livemode)
+  values
+    (p_listing_id, p_buyer_id, p_seller_id, p_amount, coalesce(p_buyer_fee, 0), coalesce(p_seller_fee, 0), p_total,
+     p_payment_intent_id, 'pending', p_mode, p_livemode)
+  returning id into v_id;
+
+  return jsonb_build_object('inserted', true, 'payment_id', v_id, 'reason', 'recorded');
+end;
+$$;
+comment on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) is
+  '132: record a checkout''s pending payment row only while its (listing, buyer) group claim is still held. Takes the group row FOR SHARE on the claim token — FOR SHARE, so a reclaim''s FOR NO KEY UPDATE must wait — and inserts nothing when the token no longer matches. Returns {inserted, payment_id, reason} with reason recorded | claim_lost | missing_argument; unique_violation (23505) is deliberately NOT caught. service_role only.';
+revoke execute on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) from public, anon, authenticated;
+grant  execute on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) to service_role;
+
 commit;

@@ -369,6 +369,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   -- token-bound release. service_role only; the edge calls them, a client never does.
   ('claim_checkout_group(uuid, uuid, text)',                         'no-client-execute'),
   ('release_checkout_group(uuid, uuid, text, uuid)',                 'no-client-execute'),
+  ('record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean)', 'no-client-execute'),
   ('claim_payout_attempt(uuid, text, interval)',                     'no-client-execute'),
   ('claim_stripe_webhook_event(text, text, integer)',                'no-client-execute'),
   ('cleanup_expired_reservations()',                                 'no-client-execute'),

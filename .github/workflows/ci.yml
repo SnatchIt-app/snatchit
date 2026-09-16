@@ -632,9 +632,10 @@ jobs:
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
           # (on top of 129's revoke_push_token). Two nullable columns on payments;
           # no table, policy or trigger.
-          # 2026-09-15 migration 132: functions 96 -> 98 — +2 public.claim_checkout_group,
-          # public.release_checkout_group. No policy or trigger.
-          EXPECT_FUNCS: 98
+          # 2026-09-15 migration 132: functions 96 -> 99 — +3 public.claim_checkout_group,
+          # public.release_checkout_group, public.record_checkout_attempt (D review,
+          # reuse-order). No policy or trigger.
+          EXPECT_FUNCS: 99
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 35
 

@@ -9,6 +9,7 @@
 -- ============================================================================
 begin;
 
+drop function if exists public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean);
 drop function if exists public.release_checkout_group(uuid, uuid, text, uuid);
 drop function if exists public.claim_checkout_group(uuid, uuid, text);
 drop table if exists public.checkout_group_claim;

@@ -24,7 +24,7 @@
 -- No superuser-only settings are used.
 -- ============================================================================
 BEGIN;
-SELECT plan(44);
+SELECT plan(56);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._try199(p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $f$
@@ -143,6 +143,55 @@ SELECT is(tap._release199(tap._id199(1), tap.buyer(), 'buy_now', tap._get199('c3
 SELECT is(tap._claim199(tap._id199(1), tap.buyer(), 'buy_now')->>'claimed', 'true', 'R.7: the next request claims the released group at once');
 SELECT is(tap._release199(tap._id199(1), tap.other_user(), 'buy_now', tap._get199('c3')->>'claim_token')->>'reason', 'token_mismatch',
   'R.8: a token from one group never releases another buyer''s group');
+
+-- ── W. record_checkout_attempt: the pending row is bound to the claim ────────
+-- D review (reuse-order): the row may only be recorded while this request still
+-- holds the group claim, so a reclaimer either waits for it (and then reuses the
+-- row) or the stalled holder records nothing. The waiting half needs two
+-- sessions (scripts/rehearsal_132_concurrency.sh G7/G8); the refusal half is here.
+CREATE FUNCTION tap._rec199(p_listing uuid, p_buyer uuid, p_mode text, p_token text, p_pi text) RETURNS jsonb LANGUAGE sql
+  AS $m$ SELECT tap._try199(format('SELECT public.record_checkout_attempt(%L::uuid, %L::uuid, %L::text, %L::uuid, %L::uuid, 20000, 2000, 2000, 22000, %L::text, false)',
+                                   p_listing, p_buyer, p_mode, p_token, tap.seller(), p_pi)) $m$;
+CREATE FUNCTION tap._pay199(p_pi text) RETURNS jsonb LANGUAGE sql
+  AS $m$ SELECT tap._try199(format('SELECT coalesce((SELECT jsonb_build_object(''status'', status, ''mode'', mode, ''total'', total) FROM public.payments WHERE stripe_payment_intent_id = %L), ''{}''::jsonb)', p_pi)) $m$;
+
+SELECT ok(to_regprocedure('public.record_checkout_attempt(uuid,uuid,text,uuid,uuid,integer,integer,integer,integer,text,boolean)') IS NOT NULL,
+  'W.1: record_checkout_attempt exists');
+SELECT ok(coalesce((SELECT p.prosecdef AND p.proconfig = ARRAY['search_path=""'] AND (p.prorettype::regtype)::text = 'jsonb'
+                      FROM pg_proc p WHERE p.oid = to_regprocedure('public.record_checkout_attempt(uuid,uuid,text,uuid,uuid,integer,integer,integer,integer,text,boolean)')), false),
+  'W.2: SECURITY DEFINER, search_path pinned to empty, returns jsonb');
+SELECT ok(coalesce((SELECT has_function_privilege('service_role', p.oid, 'EXECUTE')
+                           AND NOT has_function_privilege('authenticated', p.oid, 'EXECUTE')
+                           AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+                      FROM pg_proc p WHERE p.oid = to_regprocedure('public.record_checkout_attempt(uuid,uuid,text,uuid,uuid,integer,integer,integer,integer,text,boolean)')), false),
+  'W.3: service_role only');
+-- a fresh listing, so the W rows do not share a group with the C/R rows above
+INSERT INTO public.listings
+  (id, seller_id, event_name, venue, neighborhood, event_date, event_time, ticket_type, quantity, transfer_method,
+   starting_bid, buy_now_enabled, buy_now_price, duration_hours, starts_at, ends_at, current_bid, cover_image_path, auction_status)
+VALUES (tap._id199(3), tap.seller(), 'Fixture 199 W', 'Club 199', 'wynwood', current_date + 30, '21:00', 'GA', 2,
+        'mobile_transfer', 100, true, 200, 24, now(), now() + interval '24 hours', 100, 'fixtures/199w.jpg', 'active');
+SELECT tap._store199('w1', tap._claim199(tap._id199(3), tap.other_user(), 'buy_now'));
+SELECT is(tap._rec199(tap._id199(3), tap.other_user(), 'buy_now', tap._get199('w1')->>'claim_token', 'pi_199_w1')->>'reason', 'recorded',
+  'W.4: the holder''s token records the pending row');
+SELECT is(tap._pay199('pi_199_w1'), '{"mode": "buy_now", "status": "pending", "total": 22000}'::jsonb,
+  'W.5: the row is exactly the pending attempt the edge would have inserted');
+SELECT is(tap._rec199(tap._id199(3), tap.other_user(), 'buy_now', gen_random_uuid()::text, 'pi_199_w2')->>'reason', 'claim_lost',
+  'W.6: a token that does not match records nothing');
+SELECT is(tap._pay199('pi_199_w2'), '{}'::jsonb, 'W.7: and leaves no row');
+-- D's second interleaving, post-commit half: the reclaim already happened
+SELECT tap._age199(tap._id199(3), tap.other_user(), 'buy_now', 121);
+SELECT tap._store199('w2', tap._claim199(tap._id199(3), tap.other_user(), 'auction'));
+SELECT is(tap._rec199(tap._id199(3), tap.other_user(), 'buy_now', tap._get199('w1')->>'claim_token', 'pi_199_w3')->>'reason', 'claim_lost',
+  'W.8: after another request reclaimed the group, the abandoned holder records nothing (its own token is gone)');
+SELECT is(tap._rec199(tap._id199(3), tap.other_user(), 'auction', tap._get199('w2')->>'claim_token', 'pi_199_w4')->>'reason', 'recorded',
+  'W.9: the reclaimer''s token records, in its own mode');
+SELECT is(tap._rec199(tap._id199(3), tap.other_user(), 'auction', tap._get199('w2')->>'claim_token', 'pi_199_w4')->>'__error' LIKE '23505%', true,
+  'W.10: a duplicate intent id raises 23505 for the edge''s race-recovery path (never swallowed)');
+SELECT is(tap._try199('SELECT public.record_checkout_attempt(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)')->>'reason', 'missing_argument',
+  'W.11: NULL arguments');
+SELECT is(tap._rec199(tap._id199(3), tap.buyer(), 'buy_now', gen_random_uuid()::text, 'pi_199_w5')->>'reason', 'claim_lost',
+  'W.12: a group with no claim row at all records nothing');
 
 -- ── Z. D's reachable cross-mode state (probe_132_cross_mode.sql), real writers ─
 -- An auction with Buy Now enabled: the buyer bids, takes a Buy Now hold while the

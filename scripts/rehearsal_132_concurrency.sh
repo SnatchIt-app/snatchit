@@ -24,6 +24,15 @@
 #   G5 no lock interaction with 130: while a session holds 130's row claim
 #      transaction open on the group's pending payment, a group claim completes
 #      without waiting.
+#   G7 the holder's record_checkout_attempt is open (its insert uncommitted) when
+#      a reclaim arrives: the reclaim WAITS for it, then reclaims, and its prior
+#      read SEES the recorded row (so it reuses instead of minting a second one).
+#   G8 the reverse order: the reclaim is uncommitted first, and the abandoned
+#      holder's record_checkout_attempt waits, then records NOTHING (claim_lost).
+#   C3 CONTROL — the same G7 shape with a plain INSERT (no claim lock): the
+#      reclaim does NOT wait, and its prior read sees 0 rows — the defect.
+#   C4 CONTROL — record_checkout_attempt with FOR KEY SHARE instead of FOR SHARE:
+#      the reclaim does NOT wait (the lock modes do not conflict) — G7 fails.
 #   C1 CONTROL — the same G2 interleave against a mutant claim WITHOUT the
 #      "older than 120 s" condition: BOTH requests claim. That condition is what
 #      serializes the group.
@@ -53,7 +62,8 @@ SELLER=$(q "select id from auth.users order by created_at offset 1 limit 1")
 T=$(mktemp -d)
 cleanup() {
   q "delete from public.checkout_group_claim where listing_id = '$L';
-     delete from public.payments where id in ('$P1','$PA','$PB'); delete from public.listings where id = '$L';
+     delete from public.payments where listing_id = '$L';
+     delete from public.listings where id = '$L';
      drop schema if exists rehearsal132 cascade;" >/dev/null 2>&1
   rm -rf "$T"
 }
@@ -119,10 +129,58 @@ w=$((t1 - t0)); a=$(head -2 "$T/g6a" | tail -1)
 [ "$a" = "claimed" ] && [ "$r" = "claim_held" ] && [ $w -ge 2000 ] \
   && report G6 PASS "buy_now=$a (uncommitted), auction request waited ${w}ms then $r" || report G6 FAIL "buy_now=$a auction=$r waited=${w}ms"
 
+rec() { echo "select public.record_checkout_attempt('$L','$BUYER','buy_now','$1','$SELLER',20000,2000,2000,22000,'$2',false)->>'reason'"; }
+aged_claim() {  # a claim row 121 s old, whose token we hold
+  q "delete from public.checkout_group_claim where listing_id = '$L';
+     insert into public.checkout_group_claim (listing_id, buyer_id, mode, claim_token, claimed_at)
+     values ('$L','$BUYER','buy_now','$1', now() - interval '121 seconds')" >/dev/null
+}
+TOK=13200000-0000-0000-0000-0000000000aa
+
+# G7: the holder's record is uncommitted when the reclaim arrives
+reset_fixture no-pending; aged_claim $TOK
+( psql -X -At -d "$DB" -c "begin; $(rec $TOK pi_c132_g7); select pg_sleep(3); commit;" > "$T/g7a" 2>&1 ) &
+sleep 0.5; t0=$(ms); r=$(q "$(claim)"); t1=$(ms); wait
+w=$((t1 - t0)); a=$(head -2 "$T/g7a" | tail -1)
+seen=$(q "select count(*) from public.payments where listing_id='$L' and buyer_id='$BUYER' and status='pending'")
+[ "$a" = "recorded" ] && [ "$r" = "claimed" ] && [ $w -ge 2000 ] && [ "$seen" = "1" ]   && report G7 PASS "holder=$a (uncommitted), reclaim waited ${w}ms then $r and sees $seen row to reuse" || report G7 FAIL "holder=$a reclaim=$r waited=${w}ms rows=$seen"
+
+# G8: the reclaim is uncommitted first; the abandoned holder records nothing
+reset_fixture no-pending; aged_claim $TOK
+( psql -X -At -d "$DB" -c "begin; $(claim); select pg_sleep(3); commit;" > "$T/g8a" 2>&1 ) &
+sleep 0.5; t0=$(ms); r=$(q "$(rec $TOK pi_c132_g8)"); t1=$(ms); wait
+w=$((t1 - t0)); a=$(head -2 "$T/g8a" | tail -1)
+rows=$(q "select count(*) from public.payments where listing_id='$L' and buyer_id='$BUYER'")
+[ "$a" = "claimed" ] && [ "$r" = "claim_lost" ] && [ $w -ge 2000 ] && [ "$rows" = "0" ]   && report G8 PASS "reclaim=$a (uncommitted), holder waited ${w}ms then $r, $rows rows recorded" || report G8 FAIL "reclaim=$a holder=$r waited=${w}ms rows=$rows"
+
+# C3: CONTROL — a plain insert is not bound to the claim
+reset_fixture no-pending; aged_claim $TOK
+( psql -X -At -d "$DB" -c "begin; insert into public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, stripe_livemode) values ('$L','$BUYER','$SELLER',20000,2000,2000,22000,'pi_c132_c3','pending','buy_now',false); select pg_sleep(3); commit;" > "$T/c3a" 2>&1 ) &
+sleep 0.5; t0=$(ms); r=$(q "$(claim)"); t1=$(ms)
+seen=$(q "select count(*) from public.payments where listing_id='$L' and buyer_id='$BUYER' and status='pending'"); wait
+w=$((t1 - t0))
+[ "$r" = "claimed" ] && [ $w -lt 1000 ] && [ "$seen" = "0" ]   && report C3 PASS "plain insert: reclaim did not wait (${w}ms) and saw $seen rows — the stalled row lands later and is reused" || report C3 FAIL "reclaim=$r waited=${w}ms saw=$seen"
+
+# C4: CONTROL — FOR KEY SHARE does not conflict with the reclaim's FOR NO KEY UPDATE
+reset_fixture no-pending; aged_claim $TOK
+q "create schema if not exists rehearsal132;
+   create or replace function rehearsal132.record_key_share(p_listing uuid, p_buyer uuid, p_token uuid, p_pi text) returns text language plpgsql as \$f\$
+   begin
+     perform 1 from public.checkout_group_claim g where g.listing_id = p_listing and g.buyer_id = p_buyer and g.claim_token = p_token for key share;
+     if not found then return 'claim_lost'; end if;
+     insert into public.payments (listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total, stripe_payment_intent_id, status, mode, stripe_livemode)
+     values (p_listing, p_buyer, '$SELLER', 20000, 2000, 2000, 22000, p_pi, 'pending', 'buy_now', false);
+     return 'recorded'; end \$f\$;" >/dev/null
+( psql -X -At -d "$DB" -c "begin; select rehearsal132.record_key_share('$L','$BUYER','$TOK','pi_c132_c4'); select pg_sleep(3); commit;" > "$T/c4a" 2>&1 ) &
+sleep 0.5; t0=$(ms); r=$(q "$(claim)"); t1=$(ms)
+seen=$(q "select count(*) from public.payments where listing_id='$L' and buyer_id='$BUYER' and status='pending'"); wait
+w=$((t1 - t0))
+[ "$r" = "claimed" ] && [ $w -lt 1000 ] && [ "$seen" = "0" ]   && report C4 PASS "FOR KEY SHARE does not block the reclaim (${w}ms, saw $seen) — FOR SHARE is load-bearing" || report C4 FAIL "reclaim=$r waited=${w}ms saw=$seen"
+
 # C1: CONTROL — mutant without the staleness condition
 reset_fixture no-pending
-q "create schema rehearsal132;
-   create function rehearsal132.claim_unconditional(p_listing_id uuid, p_buyer_id uuid, p_mode text) returns text language plpgsql as \$f\$
+q "create schema if not exists rehearsal132;
+   create or replace function rehearsal132.claim_unconditional(p_listing_id uuid, p_buyer_id uuid, p_mode text) returns text language plpgsql as \$f\$
    declare v uuid; begin
      insert into public.checkout_group_claim as g (listing_id, buyer_id, mode, claim_token, claimed_at)
      values (p_listing_id, p_buyer_id, p_mode, gen_random_uuid(), now())
