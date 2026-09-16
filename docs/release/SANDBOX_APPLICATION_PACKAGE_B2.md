@@ -1,4 +1,4 @@
-# Sandbox application package — production-gate candidate with b2 (DRAFT for the owner's approval, A, 2026-09-16)
+# Sandbox application package — production-gate candidate with b2 (A, 2026-09-16; owner APPROVED IN PRINCIPLE 2026-09-16, see §9)
 
 **Scope requested:** apply the reviewed production-gate content to the shared sandbox `ofaidukbieeekqaboscm` only, so the
 combined build can be verified on a handset. **Nothing here touches production.** Execution is serialized through A with
@@ -19,34 +19,72 @@ census back to 31|96|37|35; C1–C6 matrix 0 errors with all four negative contr
 the client keys on verified against the migrations' `raise exception` sites with comments stripped (twelve raised; `nonce
 mismatch` is a dead v2 branch); C's classifier guard fails by name on each of three mutations of 135.
 
+**pgTAP count note (D, confirmed by A at the pin):** CI reports `files=85 tests_ran=5186`; the local harnesses (A's and D's) report
+`plan=5180`. The six are `000_helpers.sql`'s own `plan(6)`: the local harness runs it as the bootstrap that commits the `tap`
+schema and excludes it from the totals (84 files, 5180); CI runs it as an ordinary test file (85, 5186). A summed the declared
+plans at `9bef640`: all 85 files 5186, the 84 excluding the helper 5180, no file without a literal plan. Both runs are
+complete; nothing is unrun.
+
+**Docs-only commits above the pin (applied bytes unchanged, tag stays at `9bef640`):** `5e8b0f4` integrates B's runbook
+correction `5225557` (D-135-5, D PASS). B's follow-up `84ddd9a` (D-135-6: an interim route for the challenge-history
+precondition until D's console read exists; "challenge history unavailable" recorded literally, never blank) is with D and is
+integrated on D's PASS. A verifies each as one file, no SQL, direct descendant of the pin.
+
 ## 1. Pre-flight (read-only, immediately before)
 Ledger 136 and versions >109 = 123,124,125,127,128,129,130; native flags all false; `kernel.tickets` 0, `signing_key` 0;
-counts as manifest §10; L-1 = 0; the two production-host drift counts (`pg_proc` 4, `cron.job` 5) — 133's proof aborts on any
-unrecorded site; push_tokens: exactly one row (`140fcb44…`, the buyer's after Path B). Stop on any difference.
+counts as manifest §10; L-1 = 0; push_tokens: exactly one row (`140fcb44…`, the buyer's after Path B). **Drift counts,
+corrected after the pre-flight of 2026-09-16 04:10Z:** the production-host counts 4 / 5 are production's; on the sandbox they
+are **0 / 0**, because SBX-1/2 rewrote the notify bodies and three crons out of band with the *sandbox* host literal (functions
+naming the sandbox host: `notify_bid_placed`, `notify_moderation_event`, `notify_transfer_event`, `kernel.check_signing_key_invariants`;
+crons: `crm-export-build-tick`, `payout-execute-tick`, `refund-execute-tick`; `notify_outbid` reads a GUC). 133 replaces all of
+them with the Vault form, so after 133 no routine or cron names any Supabase host literally (proof: 0). **Sandbox Vault is
+empty** (no `service_role_key`, no `project_url`), see §2. Stop on any difference from these corrected values. D recaptures
+its V0 values at the start of the window with its read-back script (the sandbox ledger moved during SBX-2, so D's manifest V0
+is not reused).
 
 ## 2. Vault ceremony (sandbox, before 133) — A runs, D witnesses
-Insert Vault secret `project_url` = `https://ofaidukbieeekqaboscm.supabase.co` (no trailing slash). 133 refuses to apply on an
-environment carrying `service_role_key` without it. Verify `select count(*) from vault.decrypted_secrets where name='project_url'`
-= 1. **Consequence on this sandbox (recorded):** 133 creates the `enforce-transfer-expiry` cron that the sandbox lacks today, so
-transfer expiry and Phase 0 refunds start running against sandbox test data every 2 min; the out-of-band notify bodies are
-replaced by the Vault form.
+Insert Vault secret `project_url` = `https://ofaidukbieeekqaboscm.supabase.co` (no trailing slash) — the one new secret the
+owner's ruling names. Verify `select count(*) from vault.decrypted_secrets where name='project_url'` = 1 (names only, never
+values). **Corrected after the pre-flight:** the sandbox Vault carries **no** `service_role_key`, so 133's §0 refusal would not
+have fired here either way; the ceremony is still performed because it is what makes the sandbox exercise 133's real
+URL-from-Vault path and its `where exists (project_url)` cron guard. **No `service_role_key` is inserted** (excluded: new
+secrets). **Consequences on this sandbox (recorded):** (a) the four rewritten functions post only when key AND URL exist, so
+they stay inert exactly as today; (b) 133 creates the `enforce-transfer-expiry` cron the sandbox lacks, and because
+`project_url` exists it fires every 2 min at the sandbox edge with an empty bearer (the sandbox edges are deployed
+`--no-verify-jwt`; the edge's own handling of a missing bearer is recorded in §5 from the pin's source, and the first two runs'
+statuses in `net._http_response` are read back by A and D before moving on); `crm-export-*` stay inert (no worker secret),
+`refund/payout-execute-tick` stay inert (flags false); (c) the out-of-band notify bodies and the three sandbox-host crons are
+replaced by the Vault form; (d) 133's purge of production-host queue rows is a no-op here (queue 0, none naming production).
 
 ## 3. Migrations, in order, each `preflight → apply → verify` (ORDER_GUARD_SKIP=126 stays declared)
-`131` (session-bound bindings) → `132` (pre-mint group record) → `133` (config-driven functions URL) → `134` =
-`20260916000000_processing_sweep_arm` → `135` (proof of possession). Expected ledger 136 → 141. After each: the object
-spot-check from the registry row; census after 135: public 32 | 105 | 37 | 38 (the sandbox will differ by its known deltas —
-no 119 guard, +`sandbox_gucs`, +`sandbox_pre_request` — D records the explained numbers).
+`131` (session-bound bindings) → `132` (pre-mint group record) → `133` (config-driven functions URL) → `135` (proof of
+possession) → `20260916000000_processing_sweep_arm` (the migration the records call "134"). **Order corrected 2026-09-16
+(D, at Gate 3):** under the chain's `LC_ALL=C` order `135_` sorts before `20260916000000_`; that is the order CI replays, the
+order D's four rehearsals used and the order the reverse-rollback gate proved; 134 was timestamped precisely so it sorts last.
+The owner's ruling wrote "131 → 132 → 133 → 134 → 135" and this file's earlier draft repeated it; applying the sweep migration
+before 135 would put the sandbox in a state no replay, CI run or rollback test has produced. **The owner confirms the canonical
+order before the window opens.** Expected ledger 136 → 141. After each: the object spot-check from the registry row; census
+after the last apply: public 32 | 105 | 37 | 38 (the sandbox will differ by its known deltas — no 119 guard, +`sandbox_gucs`,
++`sandbox_pre_request` — D records the explained numbers).
 
 ## 4. Edges, from the pinned tree, `--project-ref ofaidukbieeekqaboscm --no-verify-jwt` (parity with today's sandbox)
-After 132: `create-payment-intent` (132's edge; 503 fail-closed without 132). After 20260916000000: `enforce-transfer-expiry`
-(134's Phase 0 branch). After 135: `send-push` (challenge kind). `stripe-webhook` (already v4 from the candidate pin; redeploy
-from the new pin for byte parity). Parity check after each: `supabase functions download` into a scratch dir, `cmp` against the
-pin (A and D independently).
+`stripe-webhook` first (already v4 from the candidate pin; redeployed from the new pin for byte parity, no behaviour change).
+After 132: `create-payment-intent` (132's edge; 503 fail-closed without 132). After 135: `send-push` (challenge kind). After
+20260916000000, last: `enforce-transfer-expiry` (134's Phase 0 branch). Parity check after each: `supabase functions download`
+into a scratch dir, `cmp` against the pin (A and D independently).
 
 ## 5. Verification and read-backs (documented; the DV rows of the combined build)
 DV-V1..V4 (silent challenge, 60 s fallback with a visible code, wrong-then-right code, staged stale echo), DV-P1..P5 (K-2 and
 131 rows), F-SELL-1 create/edit incl. large text, DV-ST1..ST4 (state views), Blocks 2/2b (checkout previews, 132 on the sandbox),
 DV-134 (a processing row resolved by the sweep, staged). A stages fixtures and does the read-backs; D witnesses and reviews.
+
+**`enforce-transfer-expiry` bearer check (read from the pin's source):** the edge accepts only a bearer equal to its
+`INTERNAL_CRON_SECRET` or `SUPABASE_SERVICE_ROLE_KEY` function secret (constant-time compare) and refuses anything else. With
+the sandbox Vault carrying no `service_role_key`, 133's cron posts with an empty bearer and is refused on every 2-minute tick:
+**no sweep runs from cron on this sandbox**, and the refused ticks in `net._http_response` are read back as evidence of the guard
+(first two ticks, A and D). DV-134 therefore invokes the edge directly with an existing sandbox bearer (`INTERNAL_CRON_SECRET`
+exists as a sandbox function secret, set 2026-09-07; the service-role key likewise) — nothing new is created or inserted; if no
+existing bearer value is available to A in the sandbox environment, DV-134 is deferred and recorded rather than improvised.
 
 ## 6. Cleanup and closing read-back
 Fixture rows deleted by exact id; DV users' push rows left as the session ends them; counts back to baseline (+ledger rows, +the
@@ -66,10 +104,32 @@ it depends on is confirmed applied. Cutting it earlier is the owner's call.
 2. **Evidence limit (acknowledgement):** every result above is local. `net.http_post` and `vault.decrypted_secrets` are stand-ins
    in the harness, so no real pg_net, Vault, APNs or FCM behaviour is proven, and there is no device evidence yet. The device
    matrix on the one build is the whole remaining risk of b2.
-3. **D-135-5 (LOW, B's file, not blocking the pin):** `docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md` at the pin still
-   says `unbind_push_token` DELETEs the row and lists RB-1 as open; on this stack it tombstones (`support_unbound`), which D
-   verified in a replayed database. B corrects it as a docs-only commit, D reviews, A integrates on top of the pin. It changes no
-   applied bytes, so the pin stands; it should land before this package is executed because the package cites that runbook.
+3. **D-135-5 and D-135-6 (LOW, B's runbook, closed):** `docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md` at the pin still
+   said `unbind_push_token` DELETEs the row and listed RB-1 as open; on this stack it tombstones (`support_unbound`), which D
+   verified in a replayed database. B's docs-only fixes `5225557` (D-135-5, D PASS) and `84ddd9a` (D-135-6: an interim route
+   for the challenge-history precondition until D's owner-gated console read exists; "challenge history unavailable" is
+   recorded literally, never blank; an engineer-run production read is an escalation, not a routine substitute; D PASS) are
+   integrated on the stack at `5e8b0f4` and `e6d9f2e`. Both change one documentation file and no applied bytes; the pin stays
+   at `9bef640`. **D measured the interim gap** (probe `probes/probe_135_unbind_recovery.sql`, D log `261eec3`): on the pin, a
+   support unbind talked out of an agent is a nuisance-level denial that self-heals — the original device re-registers as
+   `refreshed` from the same or a new session, proof re-stored, no challenge, no support contact — while any other account still
+   gets `challenge_required`. It is not the redirection path the owner required closed.
 
-**Owner approval needed:** this package as written, the pinned commit `candidate/2026-09-18-pin-b2` (`9bef640`), and the sandbox
-window. A stops on any unexpected state or uncertain mutation outcome, as before.
+## 9. Owner ruling 2026-09-16 (approval in principle; conditions and exclusions, in the owner's words)
+"I approve the sandbox-only B2 application package in principle, subject to the final pin/package confirmation." **Before
+executing, A must:** complete D's review of the support-runbook correction; publish the final immutable tag and commit hash;
+update this file to name that exact hash; confirm CI and Gate 3 evidence correspond to the named commit. **Then the serialized
+sandbox window is authorized:** migrations 131 → 132 → 133 → 134 → 135 in this order; the sandbox Vault `project_url`
+ceremony before 133; only the four listed sandbox edges; all specified read-backs, device checks and cleanup; stop immediately
+on any unexpected state, failed invariant, count mismatch, byte mismatch or rollback discrepancy. D witnesses the execution
+and independently verifies the final state. **The one combined preview build is cut only after the sandbox application and
+edge verification pass.** **Excluded:** production, venue exposure, native issuance, scanning, feature flags, AWS changes, new
+secrets (the sandbox `project_url` ceremony is the named exception), and any other edge deployment. **§8.1 decided:** the
+device-rebound notice stays in-app only; email remains unapproved. Before starting, A returns the final pin, package hash,
+pre-flight results, exact owner actions and expected duration.
+
+**Named commit:** tag `candidate/2026-09-18-pin-b2` = `9bef640` (annotated, pushed, not to be moved). CI run 35053607616 has
+`headSha` `9bef640…`; D's Gate 3 log `26d69d9` names `9bef640`, and D re-resolved the tag to `9bef640` with a tree identical to
+the commit it passed. The stack branch head carries only the docs-only runbook commits above the pin.
+
+A stops on any unexpected state or uncertain mutation outcome, as before.
