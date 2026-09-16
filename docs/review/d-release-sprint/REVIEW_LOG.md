@@ -536,6 +536,43 @@ Suggested to B, small: §4 tells the user what the verb does but not that the **
 itself. An agent who unbinds by mistake, or a user who changes their mind, currently has no documented way back;
 "open the app on the original phone" is the whole remedy and is worth one line.
 
+## W-1 — the sandbox window cannot deliver a challenge as authorized (raised before execution)
+
+**Finding W-1 (HIGH for the window's purpose; not a defect in 135).** A's pre-flight reports the sandbox Vault
+empty — no `project_url`, no `service_role_key`. The ceremony adds `project_url` only, because the owner's ruling
+excludes new secrets with `project_url` as the named exception. Consequence, traced in the source at the pin
+rather than inferred:
+
+- 135's dispatch builds `'Bearer ' || coalesce((select decrypted_secret from vault.decrypted_secrets where name =
+  'service_role_key' …), '')` — with no row the header is `Bearer ` with an empty token.
+- `send-push`'s `isAuthorized` compares the bearer to `SUPABASE_SERVICE_ROLE_KEY` and returns false on the length
+  check before comparing anything.
+
+So after the ceremony every challenge dispatch is refused: `register_push_token` answers `challenge_required`, the
+row is written, no push arrives; the client's 60 s fallback calls `request_push_token_challenge`, which dispatches
+through the same verb with the same empty bearer, so the visible code never arrives either. **Both routes are
+dead, and the window as authorized therefore produces no device evidence for b2 at all.** A had found the same
+empty bearer on the `enforce-transfer-expiry` cron; the challenge path is the same gap and matters far more.
+
+**The refusal is invisible from the database.** The verb's handler catches only a failure to *queue*; pg_net is
+asynchronous, so a 401 lands in `net._http_response` and never touches the challenge row, and
+`record_push_token_challenge_delivery` is called by send-push, which never runs. `delivery_outcome` stays NULL and
+the row looks healthy. This is the DV row-3 shape again — a missing credential presenting as a product defect — so
+my witness steps now include reading `net._http_response` for the send-push posts after the first challenge.
+
+Put to the owner through A as two options: (a) add `service_role_key` to the sandbox Vault as a second named
+exception, performed by the owner, with D verifying only that a row exists and that a later dispatch is accepted,
+never the value; or (b) accept the window as scoped — schema, verbs, grants, rollbacks and the chain are all
+genuinely proven, but the challenge → push → echo → rebind path stays unproven and the device matrix's core rows
+stay open. Under (b) the package must say plainly that b2 device verification is deferred, so "sandbox application
+passed" is never read as "b2 works on a handset". I recommend (a): `project_url` was carved out for exactly this
+pattern and the same reasoning applies, but it is a secret and so the owner's to authorize and to perform.
+
+Also recorded: A corrected the apply order in package §3 to 131 → 132 → 133 → 135 → 20260916000000 and is putting
+it to the owner to correct in their own words; the window does not open until they do. `84ddd9a` is integrated at
+`e6d9f2e`; head vs pin is one docs file and the tag is unchanged at `9bef640`. A's Vault-empty and 0/0 drift
+readings are taken as reported and I verify both myself at V0.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
