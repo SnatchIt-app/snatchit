@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; **133 NOT PASSED (F-133-1 HIGH, F-133-2)** |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -110,6 +110,14 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
 
+### 131 re-verify — `f3963a3` (CI 34982075970 green): **F-131-K2a CLOSED — 131 PASSES from D**
+The session-end path now writes `revoked_reason = 'session_ended'` and `revoked_at = now()`; 129's client revoke keeps `signed_out`.
+Probe B: the legacy row after its session ends reads `session_ended`, and another account's claim by token knowledge → 42501 "bound to
+another account" (was `rebound_legacy`); the row stays the owner's. 195 58/58 · 196 9/9 · 157 294/294 · 198 60/60. Races KR1–KR5 PASS with
+the new reason (delete waited 2495 ms; register waited 2538 ms → 42501; both old-client orders; no 40P01). Integrated harness at f3963a3:
+PASS 23 · FAIL 0 · WARN 2 declared · pgTAP 5034/5034 · census 31|99|37|37 · 131 rollback exact. Product note unchanged: expired-session
+cleanup revokes that device's binding (proof kept, epoch unmoved).
+
 ### 131 re-review — A-131-K2 at `f72e2d3` (CI 34980745488 green): K2-S1 / K2-S2 CLOSED; **F-131-K2a open**
 Harness (`scripts/review/d_candidate_rehearsal.sh`, frozen copy): PASS 23 · FAIL 0 · WARN 2 declared · replay 150 · census
 31|99|37|37 · grants = fixture (68) · manifest PASS · pgTAP 5030/5030 · 131 rollback exact · S1/S2/S3 identical. Local: 195 58/58,
@@ -124,7 +132,27 @@ session_id 42501.
 | note | by design | expired-session cleanup revokes that device's binding with the proof kept (probe C2); epoch unchanged |
 | cosmetic | LOW | a gone session gets "session predates a credential change" |
 
-### 133 review — `fix/133-config-driven-functions-url @ 5fa1fa0` (CI 34980799558 green): **NOT PASSED — 2 findings**
+### 133 re-review — `@ 235c839` (CI 34982307401 green), after the disk-full outage: **F-133-1 and F-133-2 CLOSED**
+Local matrix on copies of a 130-tip replay (`probes/d133_refusal_matrix.sh`, `probes/d133_cron_behaviour.sh`; base carries 4 fn / 5 cron
+production-host sites):
+| case | result |
+|---|---|
+| no Vault secrets (CI shape) | APPLIED; 0 production-host sites; running all five cron commands posts **0** times; queued production-host request purged |
+| service_role_key, no project_url | **REFUSED**, catalog untouched (4 fn / 5 cron) |
+| key + trailing-slash URL | **REFUSED**, untouched |
+| key + short ref | **REFUSED**, untouched |
+| key + sandbox URL | APPLIED; cron posts to the sandbox host; production-host queue row purged, sandbox row kept |
+| key + production URL | APPLIED; cron posts to production; **both queue rows kept** (F-133-2 fixed) |
+| URL without key | APPLIED |
+Rollback on a copy: catalog identity 0 differing lines, all five cron command md5s restored, production-host sites back to 4 fn / 5 cron;
+133 itself changes 8 identity lines and 5 cron commands. pg_net was replaced by a recording stub plus a `net.http_request_queue` table
+for the behaviour test (the shim has neither) — stated as the evidence limit.
+Preflight items unchanged and accepted by A: production drift counts before scheduling (4 / 5), post-apply proof that one
+enforce-transfer-expiry request is answered, the sandbox notes (133 creates the missing cron there; its notify bodies are replaced), and
+117's job-health continuity (A: joins by jobid, evaluates only runs_7d > 0, so no false case).
+**133 PASSES from D** (integrated harness result appended below).
+
+### 133 first review — `@ 5fa1fa0` (CI 34980799558 green): **NOT PASSED — 2 findings**
 Correct for its purpose (four bodies + five crons read Vault `project_url`, no URL ⇒ no post; in-migration proof of no production
 host; rollback declared md5-identical).
 | # | Severity | Finding |

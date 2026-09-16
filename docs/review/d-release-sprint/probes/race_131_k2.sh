@@ -1,5 +1,5 @@
 #!/bin/bash
-# D: A-131-K2 races (131 @ f72e2d3) — a device's own session deleted (this-device sign-out) racing that device's registration.
+# D: A-131-K2 races (131 @ f3963a3 (reason session_ended since F-131-K2a)) — a device's own session deleted (this-device sign-out) racing that device's registration.
 # Two live sessions for the user, so the last-live-session path never fires. Throwaway clone; dropped at the end.
 set -u
 export PGHOST=127.0.0.1 PGUSER=postgres LC_ALL=C
@@ -20,7 +20,7 @@ sleep 0.5; t0=$(ms)
 psql -X -qtA -d $DB -c "delete from auth.sessions where id='$S';" >/dev/null 2>&1; t1=$(ms); wait
 st=$(q "select concat_ws('|', is_active, device_secret_hash is not null, revoked_reason) from public.push_tokens where token='ExponentPushToken[kr1]'")
 echo "  delete waited $((t1-t0)) ms; binding: $st"
-[ "$st" = "f|t|signed_out" ] && [ $((t1-t0)) -ge 2000 ] && echo "  PASS KR1" || echo "  FAIL KR1"
+[ "$st" = "f|t|session_ended" ] && [ $((t1-t0)) -ge 2000 ] && echo "  PASS KR1" || echo "  FAIL KR1"
 
 echo "KR2 the session delete commits first while holding the lock; that session's registration waits, then is refused"
 S=$(sess)
@@ -47,7 +47,7 @@ sleep 0.5
 psql -X -qtA -d $DB -c "delete from auth.sessions where id='$S';" >/dev/null 2>&1; wait
 st=$(q "select concat_ws('|', is_active, session_id = '$S', revoked_reason) from public.push_tokens where token='ExponentPushToken[kr4]'")
 echo "  binding: $st"
-[ "$st" = "f|t|signed_out" ] && echo "  PASS KR4" || echo "  FAIL KR4"
+[ "$st" = "f|t|session_ended" ] && echo "  PASS KR4" || echo "  FAIL KR4"
 
 echo "KR5 deadlock attempt: client UPDATE (row lock) and its session's delete interleaved"
 S=$(sess)
@@ -57,7 +57,7 @@ sleep 0.3
 d=$(psql -X -qtA -d $DB -c "begin; delete from auth.sessions where id='$S'; select pg_sleep(1); commit;" 2>&1 | grep -c deadlock); wait
 st=$(q "select concat_ws('|', is_active, revoked_reason) from public.push_tokens where token='ExponentPushToken[kr5]'")
 echo "  deadlocks on the delete side: $d; binding: $st"
-[ "$d" = "0" ] && [ "$st" = "f|signed_out" ] && echo "  PASS KR5" || echo "  FAIL KR5"
+[ "$d" = "0" ] && [ "$st" = "f|session_ended" ] && echo "  PASS KR5" || echo "  FAIL KR5"
 
 k=$(q "select count(*) from auth.sessions where id='$KEEP'")
 echo "the other device's session survived: $k"
