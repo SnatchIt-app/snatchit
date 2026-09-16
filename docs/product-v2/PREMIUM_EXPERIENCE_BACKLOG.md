@@ -1260,3 +1260,12 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   fixture = Build 16 listings "Phone P1" / "Device D7" / "Device D8"; DV-605 id
   `00000000-0000-4000-8000-000000000605`; two device-session writes (report
   row, quantity-2 listing) logged by A in manifest §10.
+- **Session 1, Block 0 step 3 observed (owner, 21:33 EDT, screenshot by the owner):**
+  Settings › Notifications shows the green "Notifications are enabled" and the
+  yellow remedy banner verbatim: "Notifications aren't set up for this account
+  on this device yet. The account that used this device before needs to sign
+  out here first." Registration blocked (rule 4 terminal). Findings kept:
+  initial 403; no retry while terminal; recovery wording (F-611-1). **Owner
+  chose path B**; C guides one step at a time, A reads after each step and
+  reports to C (single voice at the handset). Further rows paused until the
+  recovery is verified.
