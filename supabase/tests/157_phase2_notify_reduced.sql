@@ -592,11 +592,12 @@ SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1
 SELECT tap.logout();
 -- [135, contract v3] the hand-off is a possession CHALLENGE, never an immediate rebind: ownership and the revoke
 -- right stay with the current owner until confirm_push_token_challenge proves the device (202 covers the confirm).
-CREATE FUNCTION tap._login157s(p_uid uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE FUNCTION tap._sess157(p_uid uuid) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v uuid := gen_random_uuid();
-BEGIN INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES (v, p_uid, clock_timestamp(), clock_timestamp(), 'aal1');
-  PERFORM tap.login(p_uid);
-  PERFORM set_config('request.jwt.claims', (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || jsonb_build_object('session_id', v::text))::text, true); END $$;
+BEGIN INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES (v, p_uid, clock_timestamp(), clock_timestamp(), 'aal1'); RETURN v; END $$;
+CREATE FUNCTION tap._login157s(p_uid uuid) RETURNS void LANGUAGE plpgsql AS $$   -- not definer: tap.login sets the role
+BEGIN PERFORM tap.login(p_uid);
+  PERFORM set_config('request.jwt.claims', (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || jsonb_build_object('session_id', tap._sess157(p_uid)::text))::text, true); END $$;
 SELECT tap._login157s(tap.other_user());
 SELECT is((public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel') ->> 'outcome'), 'challenge_required', 'H7 (under 135): the device changes hands only by proof — a challenge, not a rebind');
 SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.buyer(), 'H8 (under 135): …user_id never moves without a confirmed challenge');
