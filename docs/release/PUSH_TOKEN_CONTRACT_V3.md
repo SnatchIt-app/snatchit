@@ -74,10 +74,10 @@ Outcome `rebound`. Every other path writes nothing except `attempts += 1`:
   re-dispatches (silent: same nonce; visible: same code) until it expires. The 60 s fallback timer runs only while foregrounded.
 - The nonce is never logged anywhere (edge, DB, Sentry): B's suite carries a mutant that logs it, which must fail.
 - Fallback (iOS silent-push throttling): if no push arrives within 60 s the client calls
-  `public.request_push_token_challenge(p_token text, p_mode text default 'visible') → jsonb` (same challenge, `mode := 'visible'`):
-  the push is an alert with a 6-digit code derived from the nonce (`nonce → HMAC → 6 digits`, the code IS the nonce for §4 in
-  visible mode) and the copy **"Snatch It verification code: 123456. Never share this code."** The user types it in Settings ›
-  Notifications; the client echoes via §4. A wrong code counts an attempt.
+  `public.request_push_token_challenge(p_token text, p_mode text default 'visible') → jsonb` (same challenge row, `mode := 'visible'`,
+  nonce re-issued as a 6-digit CSPRNG code — the code IS the nonce for §4): the push is an alert with the copy **"Snatch It
+  verification code: 123456. Never share this code."** The user types it in Settings › Notifications; the client echoes via §4.
+  A wrong code counts an attempt.
 - Rate limits (C6): the verbs are the authority — **5 challenge requests per user per 10 min, 3 per token per 10 min** (`check_rate_limit`
   keys `push_challenge_user`, `push_challenge_token`); beyond that P0001 `too many challenge requests`. The edge re-checks with its own
   namespace (`push_challenge_edge_user:<uid>` 5/10 min, `push_challenge_edge_token:<token_id>` 3/10 min) so it never consumes the
