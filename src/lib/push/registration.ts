@@ -59,7 +59,7 @@ export interface RegistrationRecord {
  * {2, 3} on plain outcomes (the installed base keeps registering on a v3
  * server) and requires 3 wherever a challenge is involved.
  */
-export const EXPECTED_128_CONTRACT_VERSION = 3;
+export const EXPECTED_CHALLENGE_CONTRACT_VERSION = 3;
 export const ACCEPTED_REGISTER_CONTRACT_VERSIONS: readonly number[] = [2, 3];
 
 export type RegistrationErrorKind =

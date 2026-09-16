@@ -33,7 +33,7 @@ import type { ChallengeInfo } from './challenge';
 import {
   ACCEPTED_REGISTER_CONTRACT_VERSIONS,
   classifyRegistrationError,
-  EXPECTED_128_CONTRACT_VERSION,
+  EXPECTED_CHALLENGE_CONTRACT_VERSION,
   type ErrorLike,
   type RegistrationErrorKind,
   type RpcOutcome,
@@ -105,7 +105,7 @@ export async function registerWithRpc(
   const cv = reply.data.contract_version;
   const withChallenge = reply.data.outcome === 'challenge_required' || reply.data.challenge != null;
   // v3 stamping: a challenge is always version 3; plain outcomes may be 2 or 3.
-  if (withChallenge ? cv !== EXPECTED_128_CONTRACT_VERSION : cv != null && !ACCEPTED_REGISTER_CONTRACT_VERSIONS.includes(cv)) {
+  if (withChallenge ? cv !== EXPECTED_CHALLENGE_CONTRACT_VERSION : cv != null && !ACCEPTED_REGISTER_CONTRACT_VERSIONS.includes(cv)) {
     return { ok: false, kind: 'contract_mismatch' };
   }
   const ch = reply.data.challenge;

@@ -34,8 +34,8 @@ import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import {
-  beginChallenge, classifyChallengeError, isChallengeExpired, onBackground, onCodeEntered, onConfirmError, onConfirmOk,
-  onFallbackDue, onForeground, onPushReceived, toCodeEntry, type ChallengeState,
+  beginChallenge, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, onBackground, onCodeEntered,
+  onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, toCodeEntry, type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
@@ -226,16 +226,12 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       clearFallback();
       const st = challengeRef.current;
       if (st.phase !== 'awaiting_push' || !st.foreground) return;
-      const delay = Math.max(0, CHALLENGE_FALLBACK_DELAY(st.startedAt));
+      const delay = Math.max(0, CHALLENGE_FALLBACK_MS - foregroundElapsedMs(st, Date.now()));
       fallbackRef.current = setTimeout(() => {
         fallbackRef.current = null;
         if (!onFallbackDue(challengeRef.current, Date.now())) return;
         void requestVisibleCode(token);
       }, delay);
-    }
-
-    function CHALLENGE_FALLBACK_DELAY(startedAt: number): number {
-      return startedAt + 60_000 - Date.now();
     }
 
     function setChallenge(next: ChallengeState, token: string) {
@@ -346,8 +342,10 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         void attempt();
         return;
       }
-      if (st === 'background' || st === 'inactive') {
-        challengeRef.current = onBackground(challengeRef.current);
+      // P3-3 (D): only a real background pauses the clock; iOS `inactive` (shade,
+      // prompt, call) is transient and must not reset the 60 s progress.
+      if (st === 'background') {
+        challengeRef.current = onBackground(challengeRef.current, Date.now());
         clearFallback();
       }
     });

@@ -29,7 +29,9 @@ export type ChallengeErrorKind =
 
 export type ChallengeState =
   | { phase: 'none' }
-  | { phase: 'awaiting_push'; challengeId: string; startedAt: number; expiresAt: number; foreground: boolean }
+  // `elapsedMs` = foreground time already spent before the last background (P3-3: a
+  // transient `inactive` — shade, prompt, call — neither pauses nor resets the clock).
+  | { phase: 'awaiting_push'; challengeId: string; startedAt: number; expiresAt: number; foreground: boolean; elapsedMs: number }
   | { phase: 'awaiting_code'; challengeId: string; expiresAt: number; attemptsLeft: number; lastError: ChallengeErrorKind | null }
   | { phase: 'confirming'; challengeId: string; via: 'push' | 'code' }
   | { phase: 'confirmed'; tokenId: string | null }
@@ -43,7 +45,7 @@ export function beginChallenge(info: ChallengeInfo, now: number, foreground: boo
   if (info.mode === 'visible') {
     return { phase: 'awaiting_code', challengeId: info.id, expiresAt, attemptsLeft: MAX_CODE_ATTEMPTS, lastError: null };
   }
-  return { phase: 'awaiting_push', challengeId: info.id, startedAt: now, expiresAt, foreground };
+  return { phase: 'awaiting_push', challengeId: info.id, startedAt: now, expiresAt, foreground, elapsedMs: 0 };
 }
 
 export function isChallengeExpired(state: ChallengeState, now: number): boolean {
@@ -60,11 +62,16 @@ export function onPushReceived(state: ChallengeState, data: unknown): { state: C
   return { state: { phase: 'confirming', challengeId: state.challengeId, via: 'push' }, nonce: d.nonce };
 }
 
-/** 60 s of foreground time without the push, and the challenge still open. */
+/** 60 s of cumulative foreground time without the push, and the challenge still open. */
+export function foregroundElapsedMs(state: ChallengeState, now: number): number {
+  if (state.phase !== 'awaiting_push') return 0;
+  return state.elapsedMs + (state.foreground ? Math.max(0, now - state.startedAt) : 0);
+}
+
 export function onFallbackDue(state: ChallengeState, now: number): boolean {
   if (state.phase !== 'awaiting_push' || !state.foreground) return false;
   if (now > state.expiresAt) return false;
-  return now - state.startedAt >= CHALLENGE_FALLBACK_MS;
+  return foregroundElapsedMs(state, now) >= CHALLENGE_FALLBACK_MS;
 }
 
 export function toCodeEntry(state: ChallengeState): ChallengeState {
@@ -100,16 +107,23 @@ export function onConfirmError(state: ChallengeState, kind: ChallengeErrorKind, 
   return { phase: 'failed', kind, challengeId };
 }
 
-/** Back in the foreground: re-request the same open challenge, or start over if it expired. */
+/**
+ * Back in the foreground after a real background: resume the clock where it
+ * paused and re-request the same open challenge (the server re-dispatches, no
+ * new nonce), or start over if it expired. Already foregrounded → no-op.
+ */
 export function onForeground(state: ChallengeState, now: number): { state: ChallengeState; reRequest: boolean } {
   if (state.phase !== 'awaiting_push') return { state, reRequest: false };
   if (now > state.expiresAt) return { state: { phase: 'failed', kind: 'expired', challengeId: state.challengeId }, reRequest: false };
+  if (state.foreground) return { state, reRequest: false };
   const next: AwaitingPush = { ...state, foreground: true, startedAt: now };
   return { state: next, reRequest: true };
 }
 
-export function onBackground(state: ChallengeState): ChallengeState {
-  return state.phase === 'awaiting_push' ? { ...state, foreground: false } : state;
+/** A real background (not iOS `inactive`): bank the foreground time so far and pause. */
+export function onBackground(state: ChallengeState, now: number): ChallengeState {
+  if (state.phase !== 'awaiting_push' || !state.foreground) return state;
+  return { ...state, foreground: false, elapsedMs: state.elapsedMs + Math.max(0, now - state.startedAt) };
 }
 
 /** Contract v3 §4/§5 texts, exact. */

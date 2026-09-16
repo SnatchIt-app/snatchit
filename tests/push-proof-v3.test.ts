@@ -12,11 +12,11 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn() } }));
 
 import {
-  beginChallenge, CHALLENGE_COPY, CHALLENGE_FALLBACK_MS, classifyChallengeError, isChallengeExpired, MAX_CODE_ATTEMPTS,
-  onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, toCodeEntry,
+  beginChallenge, CHALLENGE_COPY, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, MAX_CODE_ATTEMPTS,
+  onBackground, onCodeEntered, onConfirmError, onConfirmOk, onFallbackDue, onForeground, onPushReceived, toCodeEntry,
   type ChallengeState,
 } from '@/src/lib/push/challenge';
-import { ACCEPTED_REGISTER_CONTRACT_VERSIONS, EXPECTED_128_CONTRACT_VERSION, REGISTRATION_REMEDY } from '@/src/lib/push/registration';
+import { ACCEPTED_REGISTER_CONTRACT_VERSIONS, EXPECTED_CHALLENGE_CONTRACT_VERSION, REGISTRATION_REMEDY } from '@/src/lib/push/registration';
 import { registerWithRpc } from '@/src/lib/push/registerToken';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
@@ -26,7 +26,7 @@ const info = { id: 'ch-1', mode: 'silent' as const, expires_in_s: 300 };
 
 describe('contract v3 reply', () => {
   it('stamping: a challenge is always v3; plain outcomes accept v2 or v3 (the installed base keeps registering)', async () => {
-    expect(EXPECTED_128_CONTRACT_VERSION).toBe(3);
+    expect(EXPECTED_CHALLENGE_CONTRACT_VERSION).toBe(3);
     expect([...ACCEPTED_REGISTER_CONTRACT_VERSIONS]).toEqual([2, 3]);
     const r = await registerWithRpc(
       { rpc: async () => ({ data: { token_id: 'tok-1', outcome: 'challenge_required', platform: 'ios', contract_version: 3, challenge: info }, error: null }) },
@@ -58,7 +58,7 @@ describe('contract v3 reply', () => {
 describe('challenge lifecycle (pure)', () => {
   it('begins awaiting the silent push, expiring per the server', () => {
     const s = beginChallenge(info, T0, true);
-    expect(s).toEqual({ phase: 'awaiting_push', challengeId: 'ch-1', startedAt: T0, expiresAt: T0 + 300_000, foreground: true });
+    expect(s).toEqual({ phase: 'awaiting_push', challengeId: 'ch-1', startedAt: T0, expiresAt: T0 + 300_000, foreground: true, elapsedMs: 0 });
   });
 
   it('a matching push moves to confirming and hands back the nonce once; anything else is ignored', () => {
@@ -108,7 +108,22 @@ describe('challenge lifecycle (pure)', () => {
     }
   });
 
-  it('foreground while awaiting the push re-requests the same challenge and restarts the clock; after expiry it starts over', () => {
+  it('P3-3: the 60 s is cumulative foreground time — a background pauses it, a resume continues it, inactive never touches it', () => {
+    const s = beginChallenge(info, T0, true) as Extract<ChallengeState, { phase: 'awaiting_push' }>;
+    const bg = onBackground(s, T0 + 20_000) as Extract<ChallengeState, { phase: 'awaiting_push' }>;
+    expect(bg).toEqual({ ...s, foreground: false, elapsedMs: 20_000 });
+    expect(onFallbackDue(bg, T0 + 90_000)).toBe(false);
+    const back = onForeground(bg, T0 + 90_000);
+    expect(back).toEqual({ state: { ...bg, foreground: true, startedAt: T0 + 90_000 }, reRequest: true });
+    expect(foregroundElapsedMs(back.state, T0 + 120_000)).toBe(50_000);
+    expect(onFallbackDue(back.state, T0 + 129_999)).toBe(false);
+    expect(onFallbackDue(back.state, T0 + 130_000)).toBe(true);
+    // Already foregrounded (an iOS `inactive` blip never called onBackground): a no-op, clock untouched.
+    expect(onForeground(s, T0 + 30_000)).toEqual({ state: s, reRequest: false });
+    expect(onBackground(bg, T0 + 95_000)).toEqual(bg);
+  });
+
+  it('foreground after a real background re-requests the same challenge; after expiry it starts over', () => {
     const s = beginChallenge(info, T0, true) as Extract<ChallengeState, { phase: 'awaiting_push' }>;
     const bg: ChallengeState = { ...s, foreground: false };
     const back = onForeground(bg, T0 + 30_000);
@@ -150,6 +165,8 @@ describe('wiring (source contract)', () => {
     expect(h).toContain('onPushReceived(');
     expect(h).toContain('onFallbackDue(');
     expect(h).toContain('onForeground(');
+    expect(h).toContain("if (st === 'background') {");
+    expect(h).not.toContain("st === 'inactive'");
     expect(h).not.toMatch(/console\.(log|warn)\([^)]*nonce/);
   });
 
