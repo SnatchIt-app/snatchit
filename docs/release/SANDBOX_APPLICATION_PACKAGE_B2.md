@@ -109,6 +109,13 @@ avoids all of this on our side and is equally acceptable. Three conditions trave
 If (b): the sandbox stays outbound-silent, so DV-611/611S and every b2 device row are **deferred, not failed** — C does not
 record them as attempted — and this file and the manifest say "b2 device verification deferred" in those words.
 
+**Operating assumption from 2026-09-16 04:30Z: (b).** The owner told C that the sandbox push service key is DEFERRED and that
+b2 real push-delivery verification is BLOCKED until deliberately approved. That reached A relayed by C, not in the owner's own
+words in A's session; a relayed *restriction* is honoured immediately (stopping needs no authorization), so A and D operate
+on (b) now: **b2 device verification deferred**, the push-dependent rows deferred-not-attempted, the `project_url` ceremony
+still performed (§2), no `service_role_key` inserted. A relayed *permission* would not be honoured the same way: if the owner
+later approves the key, it takes effect only in their own words. The apply-order confirmation (§3) remains outstanding.
+
 ## 3. Migrations, in order, each `preflight → apply → verify` (ORDER_GUARD_SKIP=126 stays declared)
 `131` (session-bound bindings) → `132` (pre-mint group record) → `133` (config-driven functions URL) → `135` (proof of
 possession) → `20260916000000_processing_sweep_arm` (the migration the records call "134"). **Order corrected 2026-09-16
