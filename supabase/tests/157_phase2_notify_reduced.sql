@@ -194,7 +194,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 302,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 303,
   -- 2026-09-05 (package 114): 294 -> 296 (+2 venue: get_signing_keys_door, get_manifest_signing_context).
   -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core, get_door_manifest_door).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
@@ -217,7 +217,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A46: five-schema routines 302 (135''s 2 notify: issue_push_token_challenge, record_push_token_challenge_delivery + 131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
+  'A46: five-schema routines 303 (135''s 3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery + 131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,
@@ -590,15 +590,20 @@ SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1
 SELECT throws_ok($$SELECT public.register_push_token('short', 'ios', 'secret-shared-1-0123456789', NULL)$$, 'P0001', NULL, 'H5: token length is validated');
 SELECT throws_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'ios', 'tiny', NULL)$$, 'P0001', NULL, 'H6: device secret length is validated (128; the legacy locale check has no equivalent — the verb takes no locale, E-157 unchanged)');
 SELECT tap.logout();
-SELECT tap.login(tap.other_user());
-SELECT lives_ok($$SELECT public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel')$$, 'H7: the device changes hands — same device secret, new account (128 rule 3)');
-SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.other_user(), 'H8 (D-4): …and user_id ALWAYS follows auth.uid()');
-SELECT tap.logout();
-SELECT tap.login(tap.buyer());
-SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H9 (IDOR): the previous owner cannot revoke it');
+-- [135, contract v3] the hand-off is a possession CHALLENGE, never an immediate rebind: ownership and the revoke
+-- right stay with the current owner until confirm_push_token_challenge proves the device (202 covers the confirm).
+CREATE FUNCTION tap._login157s(p_uid uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v uuid := gen_random_uuid();
+BEGIN INSERT INTO auth.sessions (id, user_id, created_at, updated_at, aal) VALUES (v, p_uid, clock_timestamp(), clock_timestamp(), 'aal1');
+  PERFORM tap.login(p_uid);
+  PERFORM set_config('request.jwt.claims', (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || jsonb_build_object('session_id', v::text))::text, true); END $$;
+SELECT tap._login157s(tap.other_user());
+SELECT is((public.register_push_token('ExponentPushToken[shared-1]', 'android', 'secret-shared-1-0123456789', 'Pixel') ->> 'outcome'), 'challenge_required', 'H7 (under 135): the device changes hands only by proof — a challenge, not a rebind');
+SELECT is((tap._tok157('ExponentPushToken[shared-1]')).user_id, tap.buyer(), 'H8 (under 135): …user_id never moves without a confirmed challenge');
+SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H9 (IDOR): the challenger cannot revoke a binding that is not theirs');
 SELECT ok((tap._tok157('ExponentPushToken[shared-1]')).revoked_at IS NULL, 'H10: …still live');
 SELECT tap.logout();
-SELECT tap.login(tap.other_user());
+SELECT tap.login(tap.buyer());
 SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '1', 'H11 (D-6): the owner revokes on sign-out');
 SELECT is((tap._tok157('ExponentPushToken[shared-1]')).revoked_reason, 'signed_out', 'H12: reason signed_out');
 SELECT is((notify.revoke_push_token('ExponentPushToken[shared-1]') ->> 'revoked'), '0', 'H13: idempotent');
