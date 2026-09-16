@@ -96,6 +96,8 @@ candidate is **not** deployment-ready and re-pins Monday. Nothing here is a scop
 ## Disk outage 2026-09-15 (environmental, not a result)
 The Mac's data volume reached 100%; local Postgres hit ENOSPC and entered recovery; every session's shell failed with ENOSPC. Nobody deleted anything; the owner moved files to an external drive. Measured on resumption: 12 GiB free (94% used), Postgres 17 up, not in recovery, rehearsal databases intact. Runs attempted in the window (D's 133 refusal matrix) are void and repeated. B's 132 close-out and A's Wednesday integration moved by about ¾ day; sandbox acceptance unaffected. Owner: "This is a resumption instruction, not production-deployment authorization."
 
+| D-7b ✔ | D | **final stack `d61970b` PASS** (131 + 132 + 133 + 134; CI 35046570214; harness 26/0/3; reverse-order rollback → 0 identity lines vs the candidate). Server-side review complete; nothing applied | — | done | review log 870342c |
+
 ## Owner actions
 | | Status |
 |---|---|
