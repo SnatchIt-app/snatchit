@@ -110,6 +110,17 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
 
+### b2 scope (owner asked for it 2026-09-15; D's half merged as §13 of the O-3 brief, A's converge ecb72af)
+D's conditions C1–C6 become work items 1–10 with owners: A = DB items 1–4 (challenge table + verbs + `challenge_required` branch;
+ownership history so a delete cannot erase it; pending claim never touches the live row and send paths exclude unconfirmed rows; a
+successful proof supersedes the stored secret), edge 5, contract 7, runbook 8; C = client v3 (6) and running the device rows (10);
+D = review 9 and reviewing 10. Timeline 4–5 working days after 131/132/133 integrate (1.5 + 0.5 ∥ 1.5 + 1 + 0.5). Numbering per A:
+b2 = migration **135** / pgTAP 202 / contract v3 (134 is the `processing` sweep arm from the 132 review). Builds: one more beyond the
+131/K-2 build — A frames it as (i) hold the pin and ship a single build carrying b2, or (ii) two builds; either needs owner
+authorization. Stated beside the ask: b2 does not close an attacker holding the unlocked phone at bind time (the victim reclaims
+afterwards under C5), an attacker who knows the new password, or lock-screen content. **No option is accepted on the owner's behalf;
+b1 is not proposed.**
+
 ### 131 re-verify — `f3963a3` (CI 34982075970 green): **F-131-K2a CLOSED — 131 PASSES from D**
 The session-end path now writes `revoked_reason = 'session_ended'` and `revoked_at = now()`; 129's client revoke keeps `signed_out`.
 Probe B: the legacy row after its session ends reads `session_ended`, and another account's claim by token knowledge → 42501 "bound to
