@@ -360,6 +360,46 @@ was rebuilt clean (`scripts/rehearsal_reset.sh d_cand_tap_rehears` + `000_helper
 a malformed `\set` in my first mutant draft ran outside a transaction and committed two fixture users into it; I
 checked and repaired the DB, and confirmed the trigger and `unbind_push_token` were untouched by that accident.
 
+## b2 Gates 1–2 — both LOWs closed at `38b1e02`; C's client v3 reviewed at `0eea9c3`
+
+**135 @ `38b1e02` (CI 35052114315).** A applied both findings and nothing else — I diffed it: two hunks, the
+generator expression and the two documentation strings. Re-verified in a replayed database, not from the diff:
+`issue_push_token_challenge` no longer contains `abs(` and now uses `::bit(32)::bigint`; the new expression returns
+483648 / 967295 / 000000 / 483647 at `0x80000000` / `0xffffffff` / `0x00000000` / `0x7fffffff`; the confirm verb's
+in-DB comment no longer says "emailed" and now says in-app notice. **M-135-3 and D-135-4 CLOSED.**
+Full rehearsal at `38b1e02`: **PASS 27 / FAIL 0 / WARN 3** (same three pre-existing WARNs), census `32|105|37|38`,
+135's rollback still restores the catalog exactly, both orders converge. My C1–C6 matrix re-ran with 0 errors and
+all four negative controls still flip their case. Nothing is applied anywhere; this remains a review result.
+
+**B's send-push @ `c92d7c7` (CI 35051330615)** — CD-1/CD-2 closed in A's verb; B reads both values off the row.
+My own mutants: drop the ownership check (2 tests die), log `requesting_user` on success (2), `token_id` into the
+push payload (2), restore the direct table read (19). One **equivalent** mutant survives — keying the namespace on
+the body's `userId` passes 25/25, because the ownership refusal above makes the two provably equal. Not a coverage
+gap; but the protection is that check's *position*, so moving it below the rate-limit block would reinstate CD-1
+silently. Independently confirmed the premise: a service_role `select` on `notify.push_token_challenges` is 42501
+in a real replayed database, so B9 is real and not merely modelled.
+
+**C's client v3 @ `0eea9c3`** — 21/21 in my own worktree; the stale path is correct against the server, not just
+against the ruling: the superseded echo answers `stale_nonce` with the row's `attempts` still 0 (C7). Two things I
+checked that could have bitten and don't: `onStaleNonce`'s null-prior terminal is unreachable (`onPushReceived`
+only yields a nonce from `awaiting_push`, and `submitCode` always passes the `awaiting_code` state), and
+`armFallback` resumes the 60 s from `foregroundElapsedMs` rather than restarting it. Five of my six client mutants
+die (stale→wrong-code, stale costs an attempt, unknown 200 treated as `rebound`, `retryPlan` visible branch
+removed, dead challenge revived without a fresh id).
+
+| # | Severity | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| CV-1 | LOW | `classifyChallengeError`'s network branch still matches `timeout\|timed out\|abort`, and that copy is "Check your connection and try again" — the same wrong remedy C removed from `loadState.ts` for SV-1, in a second file. A timed-out request is not evidence the device is offline. | `challenge.ts` classifier + `CHALLENGE_COPY.failed.network` | drop those three from the regex so they fall to `unknown`; no new copy |
+| CV-2 | LOW | `register_push_token`'s own limit raises `too many registration attempts` (20/10 min), which the rate-limit regex misses, so the user is told "try again later" instead of "in about 10 minutes" | verb body vs the classifier | `/too many (challenge requests\|registration attempts)/` |
+| CV-3 | LOW (coverage, not a defect) | Nothing holds the fallback timer to *resuming*: replacing `CHALLENGE_FALLBACK_MS - foregroundElapsedMs(...)` with a flat `CHALLENGE_FALLBACK_MS` passes 21/21. The mutant costs the user a fresh 60 s after every re-arm — after a stale echo and after each background→foreground return — which is exactly what `foregroundElapsedMs` exists to prevent. | my mutant CM6 | one assertion: a re-arm with 45 s already elapsed schedules ~15 s, not 60 s |
+
+I verified every server string the classifier keys on against the verb bodies at A's head; all match. `/nonce
+mismatch/` is a dead branch now (the server returns rather than raises) and is harmless. The `challenge {id, mode,
+expires_in_s}` shape `onVisibleIssued` expects is exactly what `request_push_token_challenge` returns.
+
+Evidence limits unchanged: local harness and unit level only; `net.http_post` and `vault.decrypted_secrets` are
+stand-ins; no device evidence; the push/foreground/background timing rows stay on DV-V4 and the device matrix.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
