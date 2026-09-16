@@ -226,6 +226,27 @@ the sign-out fails; `session_stale` is classified apart from `bound_to_other`; F
 Evidence limit: source + vitest only. StickyBar and the badge have no rendering test, so the keyboard geometry and the badge height are
 unverified until the combined build runs on a handset (DV-S1/S2, plus a large-text pass on a sandbox build for S-1).
 
+### b2 item 5 — send-push challenge delivery (B's PR #71 @ 8fcaa4f) — **PASSES**, 1 LOW; plus RB-1 from the runbook
+C6's edge half verified independently: the send targets the challenge row's token (which may be another account's — the point), and nothing
+in the payload or the logs identifies that row's owner; the requester's user id is used only for the rate-limit namespace; refusals send
+nothing and are ordered unknown 404 / wrong requester 409 / confirmed 409 / expired 410 / attempts≥5 429 / rate-limited 429 / limiter error
+503 fail-closed / provider 502; limits are per (token, requesting user) and per user with the DB verb still the authority; every log line
+carries only challenge_id, mode or outcome. Tests 20/20 at the head; **my own RED control**: the same file against the stack edge (d61970b)
+fails 16 of 20.
+| # | Severity | Finding |
+|---|---|---|
+| SP-1 | LOW | `await req.json()` is inside the try whose catch logs `err.message`; V8 puts an input snippet in JSON parse errors, so a malformed challenge body can put the nonce in a log. Parse in its own try with a fixed message |
+| **RB-1** | **MEDIUM (design, 135's to fix)** | `unbind_push_token` DELETEs the row (128). Under v3 history is what forces a challenge, so every support unbind erases it and the next bind is `registered` with no proof — support becomes the documented bypass of b2. Fix: revoke + tombstone (`is_active=false`, proof cleared, `revoked_reason='support_unbound'`, row retained). A replacement handset has a different token and is unaffected; if the old device cannot receive push, nobody can prove possession, which is the safe answer |
+Runbook (`docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md`) — D's answers to B's four open points: (1) two-person rule on EVERY unbind,
+not just payout accounts — the harm is a redirect that survives a credential change, and volume is tiny by design; (2) no cool-down —
+proof of possession already gates the next bind (true once RB-1 lands); (3) the durable audit record is `kernel.admin_audit` with action
+`push_token.unbind` (the 083 append-only pattern) plus the existing in-app notice, read by the console rather than duplicated; (4) support
+may see challenge OUTCOMES only (token id, created, expires, confirmed, attempts, delivery outcome) — never the nonce, its hash or the token
+string — as an owner-gated admin-console read on D's surface, specced when 135 lands. Wording nit: §4's "the app has been signed out on the
+lost device's behalf" claims more than the verb does.
+Also: C fixed P3-2 and P3-3 at `push-proof-v3 @ ac88e3a` (constant renamed; the 60 s fallback counts cumulative foreground time and `inactive`
+is no longer backgrounding). P3-1 waits on A's 135 ruling; P3-4 stands as the DV evidence limit.
+
 ### Client v3 `frontend/push-proof-v3 @ b098a46` — reviewed (client's share of C1–C6): holds, 4 findings
 Local: push-proof-v3 13/13; the earlier client suites still green. C's four probes all clean:
 - a push with a different challenge id or wrong type is ignored (`onPushReceived` gates on phase, type, id and a non-empty nonce);
