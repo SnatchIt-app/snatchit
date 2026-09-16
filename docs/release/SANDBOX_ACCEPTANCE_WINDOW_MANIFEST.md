@@ -336,7 +336,7 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   findings: the initial 403, the no-retry terminal behaviour, and the recovery wording (says "sign out here first" where the
   remedy is "sign in and then sign out on this device"; the 131 branch's S-13 copy already says so). **Owner chose Path B**
   (staff account signs in and out on the handset; no server mutation). Steps and read-backs recorded below as they happen.
-- **Path B executed by the owner, one step at a time, A read after each (all read-only; no server mutation):**
+- **Path B executed by the owner, one step at a time, A read after each (A's reads read-only; the app's own writes are the recovery):**
   S1 buyer sign-out → buyer sessions 1 → 0, staff row unchanged. (Earlier, 01:33:37Z: the buyer's own sign-out issued
   `revoke_push_token` 200 then `logout` 204, signed back in 01:33:49Z and was refused 403 again at 01:33:56Z — sign-out clears
   the client's terminal state, the retry repeats the refusal while the legacy row is active.)
@@ -345,8 +345,8 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   S3 staff sign-out → inactive, `revoked_at` 01:41:51Z, `revoked_reason = signed_out`, hash retained; staff sessions 0
   (global sign-out).
   S4 buyer sign-in → **user_id → `919d511e…` (buyer)**, active, `last_used` 01:42:41Z, revocation cleared, same hash =
-  **`rebound`** (rule 3). Buyer session created 01:42:30Z. **Registration recovered; the designed legacy hand-off works
-  end to end.** Baseline for DV-611C / DV-611S = this row. DV-611L recorded NOT APPLICABLE as written (the install carried
+  **`rebound`** (rule 3). Buyer session created 01:42:30Z. **Registration recovered through normal app-driven sandbox writes, without a manual support override (owner's wording); the
+  designed legacy hand-off works end to end.** Baseline for DV-611C / DV-611S = this row. DV-611L recorded NOT APPLICABLE as written (the install carried
   Build 16 residue); the initial 403 recorded as F7 working. Findings kept: F-611-1 (no automatic retry while terminal;
   recovery copy says "sign out here first" where the remedy is "sign in and then sign out on this device").
 - **Block 1 rows 1–8 (owner, ≈02:0x Z):** "Listing opens" (DV-101) through "Unsaved edits" (DV-208b) PASS; unsaved-edit protection
@@ -355,3 +355,9 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   the keyboard leaving a large blank gap; the "SELL YOUR TICKET" heading crowds the SANDBOX banner. Owner: C fixes in the next
   candidate's frontend workstream (reproduce; inspect keyboard avoidance, safe-area spacing, sticky action bar); acceptance
   criteria in the sprint plan C-5 row and C's backlog. **Build 17 preserved as the tested artifact; no build cut from this.**
+- **Owner, 2026-09-16 (later):** row 3 CLOSED (D's independent read-back: same row, buyer's, proof present, device_name iPhone);
+  rows 1–8 owner-reported PASS (seller keyboard-layout defect open separately); **row 9 (Reduced Motion) PASS; row 11 (large
+  accessibility text) PASS**; no other row inferred. Owner decision: **b2, build shape (i)** — one combined additional sandbox
+  preview build (stack 131–134 + logout/session client + b2 + seller-form fix); isolated implementation, local testing, review,
+  integration authorized now; the build after the combined commit passes reviews and CI; **any sandbox migration or edge
+  deployment needs an exact consolidated application package approved first; no production change authorized.**
