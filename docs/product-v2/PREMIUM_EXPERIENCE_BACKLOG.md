@@ -1489,8 +1489,11 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   challenge consumes it and issues a fresh one → "Try again" from a dead
   challenge (exhausted/expired/consumed) requests a visible code directly; a
   reply carrying `challenge {id, mode, expires_in_s}` replaces id and expiry
-  (shape assumed from register's `challenge_required`; asked A to pin it in
-  §5), otherwise the same row switches to code entry; other failures register
+  (A pinned the shape 2026-09-16: `request_push_token_challenge` returns
+  exactly `{token_id, outcome:'challenge_required', contract_version:3,
+  challenge:{id, mode, expires_in_s}}`, identical to the register verb's
+  challenge reply, and 135 does issue a NEW id after P3-1 — pgTAP 202 F1),
+  otherwise the same row switches to code entry; other failures register
   again. `challenge_consumed` after a typed code = fifth wrong code
   (exhausted copy); on the push path = "no longer valid". Final error list:
   `challenge not found` → consumed; `binding no longer exists` / `no binding to
@@ -1499,9 +1502,13 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   again. Tap Try again." → register). Previous-owner notice is in-app: no
   client change. **Known limit (recorded on DV-V4):** a current push arriving
   while a stale echo is in flight is dropped (the nonce is never buffered) and
-  the client waits for the 60 s fallback. Contract erratum for A: §5 still says
-  a foreground re-request "re-dispatches (silent: same nonce)" while §3/§5
-  rotate. Tests RED first (10) then push-proof-v3 21/21; gates: tsc clean;
+  the client waits for the 60 s fallback. Contract erratum §5 fixed by A the same
+  day: a foreground re-request re-issues the same row with a ROTATED
+  nonce/code, previous hash kept one generation → `stale_nonce`; the DV-V4
+  limit is accepted by A as a device-row evidence limit and A stages the
+  re-issue in the combined-build session. Tests RED first (10) then push-proof-v3 21/21; gates: tsc clean;
   vitest 1949 / 88; lint 0 errors / 29 warnings; gated surface
   `git diff --stat b48f4e9..HEAD` = 0 lines. Device rows DV-V2/V3 updated,
-  DV-V4 added. To D for re-review; A integrates 0eea9c3 (supersedes 969ff20).
+  DV-V4 added. To D for re-review; A integrates 0eea9c3 (supersedes 969ff20) after 135 and
+  send-push. State-views `bf8b9ba` is on A's production-gate stack at
+  `06d414f` (A: typecheck 0, vitest 1996/1996).
