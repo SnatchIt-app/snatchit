@@ -1298,3 +1298,8 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the 403 = F7 protection working; F-611-1 stays with D. Designed handover
   exercised end to end on build 17: rule 2 (`refreshed`, proof planted) →
   129 revoke (`signed_out`, proof kept) → rule 3 (`rebound`).
+- **Banner gone on device after S4 (owner via A):** Settings › Notifications shows only
+  "Notifications are enabled". Recovery verified server-side and on-device.
+  Owner running rows 1–14 at their pace; rows 15–18 on C's triggers with
+  140fcb44… as baseline. **132 passed D's review @ 9d82247**; A integrating
+  131 + 132 + 133 onto the production-gate stack — no client change.
