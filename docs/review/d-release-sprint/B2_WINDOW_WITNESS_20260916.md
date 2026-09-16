@@ -68,6 +68,35 @@ The newest pre-existing row is 2026-09-07 16:06:00.257881Z.** Sent to A to corre
 | ceremony `url` (write 1) | 04:37:06Z | **04:38Z** | **OK** — `vault.secrets` = exactly one name `project_url`, value equals `https://ofaidukbieeekqaboscm.supabase.co`, no secret names production; census `31\|97\|37\|34` and ledger 136 **unchanged** (a Vault write should touch neither); prod-host refs 0/0; queue 0, **0 responses after V0**. "Proceed" given for 131 |
 | **131 apply** (write 2) | announced | **04:41Z** | **OK** — ledger **137**, version `131`, 1 statement, ledger `stmt_md5 e07ac078f151fc68589286d0acfb16f5`. Census **31\|100\|37\|36** = V0 +3 functions, +2 public triggers, and the +2 are named: `trg_guard_push_token_session_row`, `trg_guard_push_token_session_stmt`. `auth.sessions` now carries **exactly one** non-internal trigger, `trg_push_bindings_on_sessions_gone`, `tgtype=8` (after-delete, statement-level) — the A-131-K2 shape I reviewed. `revoke_all_push_bindings`, `kernel.invalidate_push_bindings_for`, `kernel.push_session_predates_epoch` present; `push_tokens.session_id` present. **INV1** `project_url` only · **INV4** 0/0 · queue 0, **0 responses after V0**. **Zero business drift** (49/49, 51/51, 3/3 pending, 33/33, 1/1) with 16 cron jobs run since V0, all attributed through `cron.job_run_details`, none moving a row. "Proceed" given for 132 |
 
+| **132 apply** (write 3) | announced | **04:45Z** | **OK** — ledger **138**, 1 statement, `md5 ecdd91761e3849ea73190f174cf2681c`. Census **32\|103\|37\|36** = +1 table, +3 functions. `checkout_group_claim` present and **empty**; `claim_checkout_group`, `record_checkout_attempt`, `release_checkout_group` present; table grants **service_role only** (no anon, no authenticated). INV1 `project_url` only · INV4 0/0 · queue 0 · **0 responses after V0** · zero business drift. "Proceed" given for 133 |
+| 133 rollback capture | 04:44:23Z | **04:47Z** | **list confirmed complete** — see below |
+
+### The md5 method, reproduced independently
+A's apply script stores the ledger row's statements as one element holding the pinned file's bytes with trailing
+newlines stripped, and compares `md5(array_to_string(statements,''))` to the md5 of the file minus its trailing
+newline. I ran that myself from `/tmp/wt-pin` rather than accepting the description: `printf '%s' "$(cat file)"`
+yields **e07ac078…** for 131 and **ecdd9176…** for 132, matching both ledger values, against raw file md5s of
+`1c2fade4…` and `1d588749…`. The check is genuine. One wording caveat given to A for the manifest: `"$(cat …)"`
+strips **all** trailing newlines, not one — harmless for these files, but the sentence should say so.
+
+### 133's capture list — derived independently, then compared
+From the pinned file, 133 replaces exactly four routines — `public.notify_bid_placed`,
+`public.notify_transfer_event`, `public.notify_moderation_event`, `kernel.check_signing_key_invariants` — and
+re-registers five crons: `enforce-transfer-expiry`, `crm-export-build-tick`, `crm-export-purge-tick`,
+`refund-execute-tick`, `payout-execute-tick`. A's capture holds those four routines plus `notify_outbid` (a true
+superset) and the four crons that exist here, with `enforce-transfer-expiry` rolled back by unschedule since 133
+creates it on this sandbox. **Nothing 133 rewrites is missing.**
+
+### Prediction recorded BEFORE the 133 apply
+Exactly one cron may post afterwards, and it is guarded differently from the rest:
+`enforce-transfer-expiry` (`*/2`) is guarded **only** on `project_url`, which now exists, so it attempts a post
+every two minutes; `crm-export-build-tick` / `crm-export-purge-tick` additionally require
+`crm_export_worker_secret` (absent) and `refund-execute-tick` / `payout-execute-tick` additionally require their
+executor flags (both read **false**), so all four stay silent. **Any other job posting is a stop.** Also expected:
+`enforce-transfer-expiry` alone builds `'Bearer ' || (select service_role_key …)` with **no `coalesce`**, so with
+no key the header is NULL rather than empty — the tick may therefore record a 401 *or* a queue-time `error_msg`.
+Both are consistent with option (b); which one occurs is recorded, not asserted in advance.
+
 ### Two notes raised during the window
 
 **The ledger md5 is not the file md5.** A recorded "md5 e07ac078… == pinned file (verify OK)". The ledger value is
