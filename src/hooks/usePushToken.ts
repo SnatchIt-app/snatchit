@@ -33,6 +33,10 @@ import { deviceRandomBytes } from '@/src/lib/randomness';
 import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
+import {
+  beginChallenge, classifyChallengeError, isChallengeExpired, onBackground, onCodeEntered, onConfirmError, onConfirmOk,
+  onFallbackDue, onForeground, onPushReceived, toCodeEntry, type ChallengeState,
+} from '@/src/lib/push/challenge';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
 import { signOutThisDevice } from '@/src/lib/auth/signOut';
@@ -44,7 +48,7 @@ import {
 } from '@/src/lib/push/registration';
 import { registerLegacy, registerRpcWithRecovery, supabaseRegisterDeps, type PushPlatform } from '@/src/lib/push/registerToken';
 import { EMPTY_REGISTRATION_STATE, loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
-import { publishRegistrationStatus } from '@/src/lib/push/registrationStatus';
+import { publishRegistrationStatus, setChallengeHandlers } from '@/src/lib/push/registrationStatus';
 
 type PushTokenResult = {
   pushToken:         string | null;
@@ -62,6 +66,10 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
   const tokenRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // v3: the open proof-of-possession challenge for this device, if any. The
+  // nonce never lives here: it is echoed the moment it arrives.
+  const challengeRef = useRef<ChallengeState>({ phase: 'none' });
+  const fallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -146,6 +154,18 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
           rpcAvailable = true;
         }
 
+        // v3: the token has history under another account — nothing is bound
+        // until this device proves it holds the token. Keep the current record
+        // (the server changed nothing), open the challenge, wait for the push.
+        if (result.ok && result.method === 'rpc' && result.outcome === 'challenge_required') {
+          const info = result.challenge ?? { id: '', mode: 'silent' as const, expires_in_s: 300 };
+          if (!info.id) {
+            publishRegistrationStatus({ state: 'failed', kind: 'unknown', at: now });
+            return;
+          }
+          setChallenge(beginChallenge(info, now, AppState.currentState === 'active'), token);
+          return;
+        }
         if (result.ok) {
           const record: RegistrationRecord = {
             token, userId: uid, method: result.method, outcome: result.outcome, at: now,
@@ -192,6 +212,110 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       );
     }
 
+    // ── v3 challenge handling ──────────────────────────────────────────────
+    function publishChallenge() {
+      publishRegistrationStatus({ state: 'challenge', challenge: challengeRef.current, at: Date.now() });
+    }
+
+    function clearFallback() {
+      if (fallbackRef.current) { clearTimeout(fallbackRef.current); fallbackRef.current = null; }
+    }
+
+    /** Arm the 60 s foreground fallback: no push by then → ask for the visible code. */
+    function armFallback(token: string) {
+      clearFallback();
+      const st = challengeRef.current;
+      if (st.phase !== 'awaiting_push' || !st.foreground) return;
+      const delay = Math.max(0, CHALLENGE_FALLBACK_DELAY(st.startedAt));
+      fallbackRef.current = setTimeout(() => {
+        fallbackRef.current = null;
+        if (!onFallbackDue(challengeRef.current, Date.now())) return;
+        void requestVisibleCode(token);
+      }, delay);
+    }
+
+    function CHALLENGE_FALLBACK_DELAY(startedAt: number): number {
+      return startedAt + 60_000 - Date.now();
+    }
+
+    function setChallenge(next: ChallengeState, token: string) {
+      challengeRef.current = next;
+      publishChallenge();
+      armFallback(token);
+    }
+
+    async function requestVisibleCode(token: string) {
+      const st = challengeRef.current;
+      if (st.phase !== 'awaiting_push') return;
+      const secret = await getOrCreateDeviceSecret(secureSecretStore, deviceRandomBytes);
+      if (!secret.ok) {
+        challengeRef.current = { phase: 'failed', kind: 'unknown', challengeId: st.challengeId };
+        publishChallenge();
+        return;
+      }
+      const r = await supabaseRegisterDeps.requestChallenge(token, secret.secret);
+      if (r.error) {
+        challengeRef.current = onConfirmError({ phase: 'confirming', challengeId: st.challengeId, via: 'push' }, classifyChallengeError(r.error), null);
+      } else {
+        challengeRef.current = toCodeEntry(st);
+      }
+      publishChallenge();
+    }
+
+    /** Echo the nonce (silent) or the code (visible). The bind happens on the server here. */
+    async function confirm(nonce: string, prior: Extract<ChallengeState, { phase: 'awaiting_code' }> | null, token: string, uid: string) {
+      const st = challengeRef.current;
+      if (st.phase !== 'confirming') return;
+      clearFallback();
+      const r = await supabaseRegisterDeps.confirmChallenge(st.challengeId, nonce);
+      if (r.error) {
+        challengeRef.current = onConfirmError(st, classifyChallengeError(r.error), prior);
+        publishChallenge();
+        return;
+      }
+      const d = r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>) : {};
+      const tokenId = typeof d.token_id === 'string' ? d.token_id : null;
+      challengeRef.current = onConfirmOk(st, tokenId);
+      publishChallenge();
+      const at = Date.now();
+      const record: RegistrationRecord = { token, userId: uid, method: 'rpc', outcome: 'rebound', at, contractVersion: 3 };
+      await saveRegistrationState({ record, failure: null });
+      challengeRef.current = { phase: 'none' };
+      publishRegistrationStatus({ state: 'registered', method: 'rpc', outcome: 'rebound', at });
+      console.log('[usePushToken] Registered: rpc rebound (challenge confirmed)');
+    }
+
+    function handleNotification(data: unknown) {
+      const r = onPushReceived(challengeRef.current, data);
+      if (!r.nonce) return;
+      challengeRef.current = r.state;
+      publishChallenge();
+      const token = tokenRef.current;
+      if (token && userId) void confirm(r.nonce, null, token, userId);
+    }
+
+    async function submitCode(code: string) {
+      const st = challengeRef.current;
+      if (st.phase !== 'awaiting_code') return;
+      if (isChallengeExpired(st, Date.now())) {
+        challengeRef.current = { phase: 'failed', kind: 'expired', challengeId: st.challengeId };
+        publishChallenge();
+        return;
+      }
+      const r = onCodeEntered(st, code);
+      if (!r.nonce) return;
+      challengeRef.current = r.state;
+      publishChallenge();
+      const token = tokenRef.current;
+      if (token && userId) await confirm(r.nonce, st, token, userId);
+    }
+
+    function retry() {
+      clearFallback();
+      challengeRef.current = { phase: 'none' };
+      void attempt();
+    }
+
     function tryLegacy(uid: string, token: string, platform: PushPlatform, now: number) {
       return registerLegacy(supabaseRegisterDeps, { userId: uid, token, platform, nowIso: new Date(now).toISOString() });
     }
@@ -206,11 +330,33 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       timerRef.current = setTimeout(() => { timerRef.current = null; void attempt(); }, delay);
     }
 
+    setChallengeHandlers({ submitCode, retry });
+    // v3: the silent challenge push is handled in the foreground only (no
+    // background mode in this build); the payload is never logged.
+    const notif = Notifications.addNotificationReceivedListener((n) => handleNotification(n.request.content.data));
     void attempt();
-    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') void attempt(); });
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') {
+        const r = onForeground(challengeRef.current, Date.now());
+        challengeRef.current = r.state;
+        if (r.state.phase !== 'none') publishChallenge();
+        const token = tokenRef.current;
+        if (r.state.phase === 'awaiting_push' && token) armFallback(token);
+        // Re-request the same open challenge (the server re-dispatches, no new nonce) or start over.
+        void attempt();
+        return;
+      }
+      if (st === 'background' || st === 'inactive') {
+        challengeRef.current = onBackground(challengeRef.current);
+        clearFallback();
+      }
+    });
     return () => {
       alive = false;
       sub.remove();
+      notif.remove();
+      clearFallback();
+      setChallengeHandlers(null);
       if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     };
   }, [userId]);

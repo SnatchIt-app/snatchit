@@ -193,6 +193,8 @@ function fakeDeps(over: Partial<RegisterDeps> = {}) {
     legacyTouch: async () => { calls.push('touch'); return { error: null }; },
     legacyInsert: async () => { calls.push('insert'); return { error: null }; },
     deleteOwn: async () => { calls.push('delete'); return { error: null }; },
+    confirmChallenge: async () => { calls.push('confirm'); return { data: null, error: null }; },
+    requestChallenge: async () => { calls.push('request'); return { data: null, error: null }; },
     ...over,
   };
   return { deps, calls };
@@ -319,7 +321,7 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(hook).toContain('rpcAvailable = false;');
     expect(hook).toContain('await saveRegistrationState({ record, failure: null });');
     expect(hook).toContain('const failure = recordFailure(state.failure, result.kind, { userId: uid, token, method, now });');
-    expect(hook).toMatch(/AppState\.addEventListener\('change', \(st\) => \{ if \(st === 'active'\) void attempt\(\); \}\)/);
+        expect(hook).toContain("AppState.addEventListener('change', (st) => {"); // v3: the listener also drives the challenge on foreground/background
     expect(hook).toContain('setRegisteredPushToken(token);');
     // 131 (provisional): the only sign-out the hook performs is the forced local re-auth on session_stale.
     expect(hook).not.toMatch(/revoke/);

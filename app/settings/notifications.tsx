@@ -14,13 +14,14 @@
 
 import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useState } from 'react';
-import { AccessibilityInfo, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { AccessibilityInfo, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { CHALLENGE_COPY } from '@/src/lib/push/challenge';
 import { REGISTRATION_REMEDY } from '@/src/lib/push/registration';
-import { getRegistrationStatus, subscribeRegistrationStatus, type RegistrationStatus } from '@/src/lib/push/registrationStatus';
+import { getRegistrationStatus, requestRegistrationRetry, submitChallengeCode, subscribeRegistrationStatus, type RegistrationStatus } from '@/src/lib/push/registrationStatus';
 import { Button, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
@@ -56,6 +57,15 @@ export default function NotificationsScreen() {
     registration.state === 'failed' || registration.state === 'waiting'
       ? REGISTRATION_REMEDY[registration.kind] ?? null
       : null;
+  // v3: proof-of-possession challenge for this device.
+  const challenge = registration.state === 'challenge' ? registration.challenge : null;
+  const [code, setCode] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  async function handleSubmitCode() {
+    if (codeBusy) return;
+    setCodeBusy(true);
+    try { await submitChallengeCode(code); setCode(''); } finally { setCodeBusy(false); }
+  }
 
   async function checkPermission() {
     try {
@@ -153,6 +163,53 @@ export default function NotificationsScreen() {
           </View>
         ) : null}
 
+        {challenge && (challenge.phase === 'awaiting_push' || challenge.phase === 'confirming') ? (
+          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
+            <Spinner />
+            <View style={s.permBody}>
+              <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.pending}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {challenge && challenge.phase === 'awaiting_code' ? (
+          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
+            <View style={s.permBody}>
+              <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.codePrompt}</Text>
+              {challenge.lastError === 'nonce_mismatch' ? (
+                <Text style={[textStyle('bodySm'), s.notice]}>{CHALLENGE_COPY.wrongCode(challenge.attemptsLeft)}</Text>
+              ) : null}
+              <TextInput
+                value={code}
+                onChangeText={(t) => setCode(t.replace(/[^0-9]/g, ''))}
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder="6-digit code"
+                placeholderTextColor={v2.text.faint}
+                style={s.codeInput}
+                accessibilityLabel="Verification code"
+                onSubmitEditing={handleSubmitCode}
+              />
+              <Button label="Confirm" pendingLabel="Confirming…" onPress={handleSubmitCode} loading={codeBusy} disabled={codeBusy || code.length !== 6} />
+            </View>
+          </View>
+        ) : null}
+
+        {challenge && challenge.phase === 'failed' ? (
+          <View style={[s.permBanner, { borderColor: v2.status.error }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: v2.status.error }]} />
+            <View style={s.permBody}>
+              <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.failed[challenge.kind]}</Text>
+              <Pressable onPress={requestRegistrationRetry} style={s.openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Try again">
+                <Text style={[textStyle('bodySm'), s.openSettingsText]}>Try again</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {remedy ? (
           <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
             <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
@@ -208,4 +265,8 @@ const s = StyleSheet.create({
   rowLabel: { color: v2.text.primary },
   rowDesc: { color: v2.text.muted, marginTop: 2 },
   notice: { color: v2.status.error, marginTop: v2.space.md },
+  codeInput: {
+    marginTop: v2.space.sm, minHeight: 44, borderWidth: 1, borderColor: v2.border.strong,
+    paddingHorizontal: v2.space.md, color: v2.text.primary, fontSize: 20, letterSpacing: 6,
+  },
 });
