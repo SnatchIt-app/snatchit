@@ -16,13 +16,14 @@ It is **not** for impatience with a challenge, a user who has the phone in hand,
 ## 2. Preconditions before any action
 1. The requester is the account holder. Identity checks are the owner's policy; this runbook records them, it does not set them. At minimum, agent-verified: signed-in session on another device, or the account's registered email or phone confirmed out of band.
 2. The device really is out of reach. Ask which of the three cases above applies, and record the answer.
-3. Check the challenge history first: if a challenge was issued and never confirmed, prefer reissuing it. A confirmed challenge means the device answered and no unbind is needed.
+3. **Challenge history — a gate you can only half-pass today (D-135-6).** *When the console read exists (§8):* check it first; if a challenge was issued and never confirmed, prefer reissuing it, and a confirmed challenge means the device answered and no unbind is needed. *Until it exists:* do not treat this step as passed, and do not guess whether the device already answered. Ask the user instead whether a confirmation prompt or a code reached the device, and whether the replacement device has tried to register — asking **whether** one arrived is allowed; asking them to read it to you is not (§6). If the device can still receive it, have them complete the challenge and do not unbind. If you cannot establish that, proceed and record under §3 that the challenge history was unavailable. An engineer-run read of the challenge rows is **not** a routine substitute: it is a production read and needs the owner's authorization for that specific read, so it belongs to an escalation, not to an ordinary ticket.
 4. **Two-person rule on EVERY unbind** (D): one agent proposes, a second approves. The harm here is not financial, it is a notification redirect that survives a password change, which is the thing b2 exists to stop. Volume should be tiny by design; if it is not, the pressure valve is reissuing a challenge, never a looser unbind.
 
 ## 3. Information to record, every time
 - The ticket id, the requester and how identity was verified.
 - Which case (lost / destroyed / no push / locked out) and the user's own words.
-- The token id (never the token string in a ticket), the account it is bound to, and the last challenge id and outcome.
+- The token id (never the token string in a ticket) and the account it is bound to.
+- The last challenge id and outcome **when the console read exists (§8)**; until then record the literal words "challenge history unavailable" plus what the user said about a prompt or code reaching the device (§2.3). A blank here is indistinguishable from a skipped gate, which is the failure this note exists to prevent.
 - The approving second agent.
 - The timestamp and the operator.
 
@@ -52,4 +53,4 @@ It is **not** for impatience with a challenge, a user who has the phone in hand,
 
 ## 8. Still open
 - **RB-1 — closed** (see the top): 135 tombstones instead of deleting, so this runbook's read-back in §5 is the behaviour of the stack, not an assumption about it.
-- **The support-facing challenge history** (§7.4) is specced but not built: it is an admin-console read on D's surface, owner-gated, and §3 points at it. Until it exists, an agent cannot see challenge outcomes and must not infer them from anything else.
+- **The support-facing challenge history** (§7.4) is specced but not built, and §2.3 and §3 are written around its absence (D-135-6). D owns the read: it is an admin-console read on D's surface, owner-gated, and §3 points at it. Until it exists, an agent cannot see challenge outcomes and must not infer them from anything else.
