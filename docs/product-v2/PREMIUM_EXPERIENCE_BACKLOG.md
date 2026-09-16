@@ -1289,3 +1289,12 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   DV-611 run remains row 16). Sessions: staff 0 (the candidate's global-scope
   sign-out removed both staff sessions — K-2 context), buyer 0; one push token.
   S4 (buyer sign-in) issued by A.
+- **Path B, S4 (A read, 21:42 EDT) — RECOVERY COMPLETE, no server mutation:** row
+  `140fcb44-4920-4c32-8333-1a551879d36b` now user = DV buyer, active, last_used
+  01:42:41Z, revoked_* null, hash RETAINED = the contract's `rebound` (rule 3:
+  same device proof, new account). Buyer sessions 1, staff 0; one push token;
+  no channel-state row. This row is the baseline for DV-611C (row 15) and
+  DV-611S (row 18). DV-611L: not applicable as written (Build 16 residue);
+  the 403 = F7 protection working; F-611-1 stays with D. Designed handover
+  exercised end to end on build 17: rule 2 (`refreshed`, proof planted) →
+  129 revoke (`signed_out`, proof kept) → rule 3 (`rebound`).
