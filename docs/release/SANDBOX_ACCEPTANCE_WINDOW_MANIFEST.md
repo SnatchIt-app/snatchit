@@ -349,3 +349,9 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   end to end.** Baseline for DV-611C / DV-611S = this row. DV-611L recorded NOT APPLICABLE as written (the install carried
   Build 16 residue); the initial 403 recorded as F7 working. Findings kept: F-611-1 (no automatic retry while terminal;
   recovery copy says "sign out here first" where the remedy is "sign in and then sign out on this device").
+- **Block 1 rows 1–8 (owner, ≈02:0x Z):** "Listing opens" (DV-101) through "Unsaved edits" (DV-208b) PASS; unsaved-edit protection
+  works; exact labels/timings not captured for every row (recorded as reported, nothing invented). DV-609 done in that stretch.
+- **F-FE-1 (owner, screenshot 22:01 EDT, seller form on build 17):** while typing, the "List Ticket" action bar sits far above
+  the keyboard leaving a large blank gap; the "SELL YOUR TICKET" heading crowds the SANDBOX banner. Owner: C fixes in the next
+  candidate's frontend workstream (reproduce; inspect keyboard avoidance, safe-area spacing, sticky action bar); acceptance
+  criteria in the sprint plan C-5 row and C's backlog. **Build 17 preserved as the tested artifact; no build cut from this.**
