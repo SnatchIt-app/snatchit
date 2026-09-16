@@ -33,14 +33,13 @@ import {
 } from 'react-native';
 import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
 import { ctaLift } from '@/src/lib/nav/keyboardLift';
-import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
-import { useCtaDockOffset } from '@/src/lib/nav/navInsets';
+import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
 import {
   digitsOnly,
   findBannedContent,

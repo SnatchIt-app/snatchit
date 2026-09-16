@@ -190,7 +190,7 @@ describe('adaptive nav — shipped-source guards', () => {
 
   it('Create CTA still clears the dock and keeps its own surface', () => {
     expect(create).toContain('useCtaDockOffset');
-    expect(create).toContain('marginBottom: ctaDockOffset');
+    expect(create).toContain('marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset })'); // F-SELL-1: the lift is dropped only while the keyboard (and no dock) is up
   });
 
   it('Home wiring stays minimal and discovery is untouched', () => {
@@ -201,7 +201,7 @@ describe('adaptive nav — shipped-source guards', () => {
 
   it('Create CTA is a separate surface that clears the dock by an explicit gap', () => {
     expect(create).toContain('useCtaDockOffset');
-    expect(create).toContain('marginBottom: ctaDockOffset');
+    expect(create).toContain('marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset })'); // F-SELL-1: the lift is dropped only while the keyboard (and no dock) is up
   });
 
   it('the dock is only mounted by the tabs shell (never a nested stack route)', () => {
