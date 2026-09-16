@@ -74,7 +74,7 @@ DV-L1/L2 and DV-611 L/S/R/C are therefore runnable on build 17. Rows that need t
 ### Handset session 1 — Block 0 + Block 1 (build 17, no sandbox window needed; A on read-backs)
 Install: open the EAS build page on the provisioned iPhone and tap Install
 (`https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/53e5e98b-dbe9-405d-a7c8-159375c3fbc6`, build 17,
-`aabe029`). Trust the ad-hoc profile if iOS asks. Record: iPhone model, iOS version, tester, start time.
+`aabe029`). Trust the ad-hoc profile if iOS asks. Record: iPhone model, iOS version, tester, start time. DV accounts: the Build 16 synthetic pair from `docs/security/PAYMENTS_RELIABILITY_2026-09/17_DEVICE_TEST_PROCEDURE.md` — buyer `sandbox-buyer@snatchit.test`, seller `sandbox-seller@snatchit.test` (A pins both for the session; passwords are the owner's and are never recorded).
 
 **Block 0 — smoke (15 min). Stop the session if any step fails.**
 1. Cold start → the app opens on the sandbox (no environment refusal at launch). Evidence: the launch itself (`envGuard` refuses a wrong project ref; A quotes the rule).
