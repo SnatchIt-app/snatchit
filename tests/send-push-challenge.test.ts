@@ -71,6 +71,17 @@ function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'erro
       push_tokens: () => ({ data: [{ token: 'ExponentPushToken[attacker-phone]' }] }),
     },
   });
+  const callRaw = async (raw: string, auth = `Bearer ${SERVICE}`) => {
+    const edge = await loadEdgeHandler('supabase/functions/send-push/index.ts', {
+      supabase: sb,
+      env: { SUPABASE_URL: 'https://x.invalid', SUPABASE_SERVICE_ROLE_KEY: SERVICE, EXPO_PUSH_URL: 'https://push.invalid/send' },
+      fetch: (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch,
+    });
+    const res = await edge.handler(new Request('https://edge.test/send-push', {
+      method: 'POST', headers: { authorization: auth, 'Content-Type': 'application/json' }, body: raw,
+    }));
+    return { res, body: await json(res), edge };
+  };
   const call = async (body: unknown, auth = `Bearer ${SERVICE}`) => {
     const edge = await loadEdgeHandler('supabase/functions/send-push/index.ts', {
       supabase: sb,
@@ -89,7 +100,7 @@ function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'erro
     }));
     return { res, body: await json(res), edge, pushes };
   };
-  return { call, pushes, recorded, sb };
+  return { call, callRaw, pushes, recorded, sb };
 }
 
 const challengeReq = (over: Record<string, unknown> = {}) =>
@@ -243,6 +254,21 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     const w = world();
     expect((await w.call({ kind: 'push_token_challenge', user_id: USER })).res.status).toBe(400);
     expect((await w.call(challengeReq({ nonce: undefined }))).res.status).toBe(400);
+    expect(w.pushes).toHaveLength(0);
+  });
+
+  it('A18 (D SP-1): a malformed body never reaches a log line — the JSON parse error carries a snippet of the input', async () => {
+    const w = world();
+    // V8 quotes the whole input when it fails at the first token, e.g. a caller that
+    // posts form-encoded instead of JSON: `Unexpected token 'n', "nonce=481624..." is not valid JSON`.
+    const { res, body, edge } = await w.callRaw(`nonce=${NONCE}&challenge_id=${CHALLENGE}`);
+    expect(res.status).toBe(400);
+    // NO PART of the body may be echoed: the runtime truncates its quoted snippet,
+    // so asserting only on the full nonce would pass by luck on a shorter quote.
+    expect(logsOf(edge)).not.toContain(NONCE);
+    expect(logsOf(edge)).not.toContain('nonce=');
+    expect(logsOf(edge)).not.toContain(NONCE.slice(0, 5));
+    expect(JSON.stringify(body)).not.toContain(NONCE);
     expect(w.pushes).toHaveLength(0);
   });
 

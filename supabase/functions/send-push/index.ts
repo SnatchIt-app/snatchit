@@ -206,9 +206,22 @@ serve(async (req: Request) => {
     );
   }
 
+  // D review SP-1: the body is parsed in its OWN guard. A JSON parse error from
+  // V8 quotes a snippet of the input, and a challenge body carries the nonce, so
+  // the parse failure must never reach the shared catch that logs err.message.
+  let payload: Record<string, unknown>;
   try {
-    const payload = await req.json();
-    const { user_id, title, body, data } = payload;
+    payload = await req.json();
+  } catch {
+    console.warn('send-push: malformed request body');
+    return new Response(
+      JSON.stringify({ error: 'Malformed request body' }),
+      { status: 400, headers: { 'Content-Type': 'application/json', ...getSecurityHeaders() } },
+    );
+  }
+
+  try {
+    const { user_id, title, body, data } = payload as { user_id?: string; title?: string; body?: string; data?: unknown };
 
     if (payload?.kind === CHALLENGE_KIND) {
       return await sendChallenge(payload);
