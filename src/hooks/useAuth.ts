@@ -63,7 +63,8 @@ async function clearStaleSession(reason: string): Promise<void> {
   // Ignore any network / auth error from signOut itself.
   // The refresh token is already invalid here, so no token deactivation is
   // possible; the helper skips it when there is no session and still signs out.
-  await signOutThisDevice().catch(() => {});
+  // K-6 (D): a stale refresh token is an expiry, not a user act — say so on the login screen.
+  await signOutThisDevice({ reason: 'expired' }).catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
