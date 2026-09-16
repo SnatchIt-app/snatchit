@@ -13,7 +13,7 @@ vi.mock('@/src/lib/supabase', () => ({ supabase: { rpc: vi.fn(), from: vi.fn() }
 
 import {
   beginChallenge, CHALLENGE_COPY, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, isChallengeExpired, MAX_CODE_ATTEMPTS,
-  interpretConfirmReply, onBackground, onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode, retryPlan, toCodeEntry,
+  fallbackDelayMs, interpretConfirmReply, onBackground, onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode, retryPlan, toCodeEntry,
   type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { ACCEPTED_REGISTER_CONTRACT_VERSIONS, EXPECTED_CHALLENGE_CONTRACT_VERSION, REGISTRATION_REMEDY } from '@/src/lib/push/registration';
@@ -123,6 +123,19 @@ describe('challenge lifecycle (pure)', () => {
     expect(onBackground(bg, T0 + 95_000)).toEqual(bg);
   });
 
+  it('re-arming the fallback resumes the 60 s where it left off, never restarts it (D mutant: flat 60 s survived)', () => {
+    const s = beginChallenge(info, T0, true);
+    expect(fallbackDelayMs(s, T0)).toBe(CHALLENGE_FALLBACK_MS);
+    expect(fallbackDelayMs(s, T0 + 45_000)).toBe(15_000);
+    expect(fallbackDelayMs(s, T0 + 60_000)).toBe(0);
+    expect(fallbackDelayMs(s, T0 + 90_000)).toBe(0);
+    // banked time from before a background counts too
+    const bg = onBackground(s, T0 + 20_000);
+    const back = onForeground(bg, T0 + 100_000).state;
+    expect(fallbackDelayMs(back, T0 + 125_000)).toBe(15_000);
+    expect(fallbackDelayMs({ phase: 'none' }, T0)).toBe(CHALLENGE_FALLBACK_MS);
+  });
+
   it('foreground after a real background re-requests the same challenge; after expiry it starts over', () => {
     const s = beginChallenge(info, T0, true) as Extract<ChallengeState, { phase: 'awaiting_push' }>;
     const bg: ChallengeState = { ...s, foreground: false };
@@ -169,6 +182,13 @@ describe('challenge lifecycle (pure)', () => {
     expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: the caller already owns this binding — register instead' })).toBe('register_instead');
     expect(classifyChallengeError({ message: 'Network request failed' })).toBe('network');
     expect(classifyChallengeError({ code: 'XX', message: '?' })).toBe('unknown');
+    // CV-1 (D): a timed-out or aborted request is not evidence the device is offline — the
+    // network copy says "check your connection", so these fall to unknown, not network.
+    expect(classifyChallengeError({ message: 'Request timed out' })).toBe('unknown');
+    expect(classifyChallengeError({ message: 'timeout of 10000ms exceeded' })).toBe('unknown');
+    expect(classifyChallengeError({ message: 'AbortError: The operation was aborted' })).toBe('unknown');
+    // CV-2 (D): the register limit can surface on the request path too (20 / 10 min).
+    expect(classifyChallengeError({ code: 'P0001', message: 'precondition_failed: too many registration attempts' })).toBe('rate_limited');
   });
 
   it('copy: never asks the user to share the code, and names every terminal state', () => {
@@ -233,6 +253,9 @@ describe('wiring (source contract)', () => {
     expect(h).toContain('addNotificationReceivedListener');
     expect(h).toContain('onPushReceived(');
     expect(h).toContain('onFallbackDue(');
+    // the timer is armed from the pure remaining-time helper; the hook never does its own 60 s arithmetic
+    expect(h).toContain('const delay = fallbackDelayMs(st, Date.now());');
+    expect(h).not.toContain('CHALLENGE_FALLBACK_MS');
     // A 200 that is not `rebound` must never reach `confirmed` or write a record.
     expect(h).toContain('const reply = interpretConfirmReply(r.data);');
     expect(h).toContain("if (reply.kind !== 'rebound') {");

@@ -34,7 +34,7 @@ import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import {
-  beginChallenge, CHALLENGE_FALLBACK_MS, classifyChallengeError, foregroundElapsedMs, interpretConfirmReply, isChallengeExpired, onBackground,
+  beginChallenge, classifyChallengeError, fallbackDelayMs, interpretConfirmReply, isChallengeExpired, onBackground,
   onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode,
   retryPlan, type ChallengeState,
 } from '@/src/lib/push/challenge';
@@ -227,7 +227,7 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       clearFallback();
       const st = challengeRef.current;
       if (st.phase !== 'awaiting_push' || !st.foreground) return;
-      const delay = Math.max(0, CHALLENGE_FALLBACK_MS - foregroundElapsedMs(st, Date.now()));
+      const delay = fallbackDelayMs(st, Date.now());
       fallbackRef.current = setTimeout(() => {
         fallbackRef.current = null;
         if (!onFallbackDue(challengeRef.current, Date.now())) return;

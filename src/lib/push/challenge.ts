@@ -71,6 +71,11 @@ export function foregroundElapsedMs(state: ChallengeState, now: number): number 
   return state.elapsedMs + (state.foreground ? Math.max(0, now - state.startedAt) : 0);
 }
 
+/** Time left on the 60 s foreground budget: a re-arm resumes where it left off, never restarts (D mutant, 2026-09-16). */
+export function fallbackDelayMs(state: ChallengeState, now: number): number {
+  return Math.max(0, CHALLENGE_FALLBACK_MS - foregroundElapsedMs(state, now));
+}
+
 export function onFallbackDue(state: ChallengeState, now: number): boolean {
   if (state.phase !== 'awaiting_push' || !state.foreground) return false;
   if (now > state.expiresAt) return false;
@@ -218,7 +223,7 @@ export function classifyChallengeError(err: ErrorLike | null | undefined): Chall
     if (/challenge consumed|challenge not found/.test(msg)) return 'consumed';
     if (/challenge attempts exhausted/.test(msg)) return 'exhausted';
     if (/nonce mismatch/.test(msg)) return 'nonce_mismatch';
-    if (/too many challenge requests/.test(msg)) return 'rate_limited';
+    if (/too many (challenge requests|registration attempts)/.test(msg)) return 'rate_limited';
     if (/register instead|binding no longer exists/.test(msg)) return 'register_instead';
   }
   if (code === '42501') {
@@ -227,7 +232,8 @@ export function classifyChallengeError(err: ErrorLike | null | undefined): Chall
     if (/session predates a credential change/.test(msg)) return 'session_stale';
   }
   if (code === 'PGRST301' || err.status === 401 || /jwt|not authenticated|invalid claim/.test(msg)) return 'auth';
-  if (/network request failed|failed to fetch|timeout|timed out|abort/.test(msg)) return 'network';
+  // CV-1 (D): a timed-out or aborted request says nothing about the connection — it falls to unknown.
+  if (/network request failed|failed to fetch/.test(msg)) return 'network';
   return 'unknown';
 }
 
