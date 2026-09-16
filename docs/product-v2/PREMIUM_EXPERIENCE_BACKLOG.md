@@ -1616,8 +1616,29 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   **Row 15 action (owner, 2026-09-16 00:12 EDT ≈ 04:12Z):** force-quit, reopened,
   10 s on Home, Settings not opened; performed before A's capture confirmation
   reached C, so A compares against its capture if taken before 04:12Z, else
-  against the 04:00:03Z residue. "row 15 ready + time" sent to A; read-back
-  pending.
+  against the 04:00:03Z residue. "row 15 ready + time" sent to A.
+  **A read-back (04:14:53Z, 04:15:32Z): NOT refreshed** — capture before the
+  action at 04:10:50Z: user 919d511e…, active, last_used 04:00:03Z, revoked_*
+  null, hash 4b8628e7; identical after the 04:12Z relaunch; no new token rows;
+  one session (created 01:42:30, SnatchIt/17). **C root cause on Build 17
+  (aabe029), before any repeat:** hook mounted at the root shell
+  (`NativeAppShell.native.tsx:158`); `attempt()` returns early while userId is
+  null without consuming the cold-launch flag; the flag is consumed only after
+  `obtainToken()` and `decideRegistration`, where cold launch + same
+  token/user record < 24 h ⇒ `register` (cold_launch) — no throttle, no screen
+  gate, no token-changed wait; an RPC error would back off 30 s and retry;
+  the sandbox-era verb (128:289) stamps `last_used = now()` on refreshed ⇒ the
+  client never reached the verb at 04:12Z. Only silent path:
+  `getExpoPushTokenAsync` threw (caught, console only, cold flag retained) or
+  never resolved (APNs device token not delivered in that process). **Owner
+  relaunched again at 00:16 EDT ≈ 04:16Z (own initiative), stopped;** sent to A
+  as the discriminating data point; if unstamped too, A checks the sandbox API
+  logs for a register call 04:11–04:18Z; next owner step would be a
+  background→foreground transition, not another cold relaunch. **Finding
+  F-15-1 (candidate, LOW–MED, evidence):** a failed or hanging Expo token fetch
+  on cold start is invisible to the user and to A — Settings › Notifications
+  shows nothing while `obtainToken()` is pending; consider a "waiting for push
+  token" status and a bounded timeout in the next candidate (not Build 17).
 
 ## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
 
