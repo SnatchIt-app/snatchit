@@ -319,6 +319,19 @@ persisted state suppressing registration), through the RPC window instead of the
 `if (!isLive(gate, run.gen)) return;` immediately after the register call, before anything is persisted, plus a
 gate-level test in the same shape as C's others.
 
+**D-611C-2 CLOSED at `a609cbc`.** The check sits at the last position before **all three**
+`saveRegistrationState` sites with no await between, so one check at the widest window covers both the success and
+failure branches — C's worry about needing a second was unfounded, and I verified the coverage rather than
+reasoning about it. My two mutants both die: **GM1**, moving the check *above* the register call (wiring intact,
+order wrong — precisely the seam C flagged as uncovered) → 1 failed; **GM2**, deleting it → 1 failed. 10/10.
+**The placement pin now asserts ordering, not just presence** — a real step up on the `void`-wrapper pin from the
+auth branch, which could not tell a correct wiring from a wrong one. The pattern (index-of-check > index-of-call,
+< index-of-persist) is worth carrying into the other pins.
+
+The session-stale `clearRegistration` stays unchecked deliberately: clearing on a confirmed `session_stale` is
+idempotent and correct whichever run observed it, unlike overwriting a good record with a stale failure. The test
+for gating a write on liveness is whether a dead run's version of it could be *wrong*; here it cannot be.
+
 Exactly what C's own note predicted — "the pins prove the hook is wired, not that the order is right". The suite
 is green with those awaits unchecked, so the pins do not require a check after every await. Had C claimed the pins
 covered ordering, I would have looked elsewhere; the honesty about their reach is what made this quick to find.
