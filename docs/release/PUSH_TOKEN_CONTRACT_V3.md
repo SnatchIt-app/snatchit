@@ -31,7 +31,10 @@ is gone: that state now answers `challenge_required`.
 `id uuid pk · token_id uuid → push_tokens · requesting_user uuid · requesting_session uuid (from the JWT session_id; required) ·
 nonce_hash text (sha256 of a 32-byte CSPRNG nonce; the nonce itself is never stored) · mode text ('silent' | 'visible') ·
 purpose text ('rebind') · secret_hash text (hash of the requester's device secret, applied on confirm) · platform, device_name ·
-expires_at timestamptz (now() + 5 min) · attempts int (max 5) · confirmed_at · consumed_at · created_at`.
+expires_at timestamptz (now() + 5 min) · attempts int (max 5) · confirmed_at · consumed_at · created_at · **delivery: dispatched_at,
+delivery_outcome text, provider_message_id text, delivery_error text** (written by `notify.record_push_token_challenge_delivery(p_challenge_id uuid,
+p_outcome text, p_provider_message_id text, p_error text)`, service_role — a challenge is a control message, not an outbox notification,
+so it never touches `notify.delivery`/`record_delivery_result`)`.
 One open challenge per (token, requesting_user); a new request while one is open re-dispatches the same challenge (no new nonce)
 until it expires. Expired and consumed rows are swept by the notify drain (`> 24 h`).
 
@@ -54,15 +57,31 @@ Outcome `rebound`. Every other path writes nothing except `attempts += 1`:
 | `insufficient_privilege: session predates a credential change` | 42501 |
 
 ## 5. Delivery and the fallback
-- Silent: `send-push` kind `push_token_challenge`, APNs `content-available: 1`, data `{type: 'push_token_challenge', challenge_id, nonce}`
-  (B). The client's **foreground** handler echoes immediately via §4. The nonce is never logged anywhere.
+- **Transport (B's component):** the issuing verb (`notify.issue_push_token_challenge`, §10) generates the nonce, stores only its
+  hash, and calls `send-push` ONCE through pg_net with 133's Vault `project_url` and the Vault service-role bearer (the existing
+  032/087 pattern): body `{kind: 'push_token_challenge', challenge_id, nonce, user_id}`. The plaintext nonce exists only in that one
+  request (pg_net's queue row is service-internal and deleted on send; `net._http_response` never stores request bodies) and in the
+  push itself. Where Vault `project_url` is absent (CI, the harness) the post is a guarded no-op and the challenge row still exists
+  for the pgTAP tests. `send-push` re-reads the challenge row by id (token, mode, expires_at, confirmed_at, attempts), refuses a
+  missing/expired/confirmed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
+  data `{type: 'push_token_challenge', challenge_id, nonce}`; visible = title/body carrying the code + "Never share this code", data
+  WITHOUT the nonce), records the result through `record_push_token_challenge_delivery`, and never logs the payload.
+- **Nonce format by mode (pinned):** silent = 32 CSPRNG bytes, base64url (43 chars); visible = a 6-digit decimal code drawn from
+  CSPRNG (the code IS the nonce; §4 compares `sha256(presented)` to `nonce_hash` in both modes). Switching an open challenge to
+  visible re-issues the nonce (the silent one is invalidated).
+- **Foreground-only delivery:** the client echoes from its foreground notification handler. No `UIBackgroundModes:
+  remote-notification` (build-affecting config, out of scope). A backgrounded app re-requests on foreground; the same open challenge
+  re-dispatches (silent: same nonce; visible: same code) until it expires. The 60 s fallback timer runs only while foregrounded.
+- The nonce is never logged anywhere (edge, DB, Sentry): B's suite carries a mutant that logs it, which must fail.
 - Fallback (iOS silent-push throttling): if no push arrives within 60 s the client calls
   `public.request_push_token_challenge(p_token text, p_mode text default 'visible') → jsonb` (same challenge, `mode := 'visible'`):
   the push is an alert with a 6-digit code derived from the nonce (`nonce → HMAC → 6 digits`, the code IS the nonce for §4 in
   visible mode) and the copy **"Snatch It verification code: 123456. Never share this code."** The user types it in Settings ›
   Notifications; the client echoes via §4. A wrong code counts an attempt.
-- Rate limits (C6), enforced by the verbs and re-checked by the edge: **5 challenge requests per user per 10 min, 3 per token
-  per 10 min**; beyond that P0001 `too many challenge requests`.
+- Rate limits (C6): the verbs are the authority — **5 challenge requests per user per 10 min, 3 per token per 10 min** (`check_rate_limit`
+  keys `push_challenge_user`, `push_challenge_token`); beyond that P0001 `too many challenge requests`. The edge re-checks with its own
+  namespace (`push_challenge_edge_user:<uid>` 5/10 min, `push_challenge_edge_token:<token_id>` 3/10 min) so it never consumes the
+  verbs' budget.
 
 ## 6. Table access (client roles) — C2
 - SELECT column-scoped as v2 (no `device_secret_hash`, no `session_id`).
@@ -94,6 +113,8 @@ who knows the new password; notification content on a lock screen.
 ## 10. Objects (migration `135_push_token_proof_of_possession.sql` — numbered: it owns its objects and redefines only 128/131 bodies)
 Table `notify.push_token_challenges` (RLS on, no policies, no client grants) · functions `public.request_push_token_challenge(text, text)`,
 `public.confirm_push_token_challenge(uuid, text)` (authenticated EXECUTE), `notify.issue_push_token_challenge(...)` (internal),
+`notify.record_push_token_challenge_delivery(uuid, text, text, text)` (service_role EXECUTE, for `send-push`),
 `public.guard_push_token_client_delete()` + trigger · `register_push_token` re-created (v3 body) · notify template
-`security_device_rebound` (in-app) · pgTAP 202 · rollback restores the 131 verb and drops the new objects. Census deltas at
-integration: tables +1 (notify), functions +4 (3 public + 1 notify), triggers +1 (public); manifest rows accordingly.
+`security_device_rebound` (in-app) · pgTAP 202 · rollback restores the 131 verb and drops the new objects. **Send paths need no change:** a pending claim is a challenge row, never an unconfirmed `push_tokens` row, so `send-push`'s
+`user_id + is_active` select stays as it is (C4 by construction). Census deltas at integration: tables +1 (notify), functions +5
+(3 public + 2 notify), triggers +1 (public); manifest rows accordingly.
