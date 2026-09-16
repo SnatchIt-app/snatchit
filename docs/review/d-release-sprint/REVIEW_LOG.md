@@ -611,6 +611,29 @@ relaunches, and whether anything at all is recorded on a failed `getExpoPushToke
 nothing distinguishes those three cases anywhere, **that** is the finding: the registration path fails invisibly,
 which is what made DV row 3 expensive. Not blocking today; much cheaper to settle now than on the second sighting.
 
+**04:12Z relaunch — C's analysis accepted in part; hypothesis 2 is the live one and carries a finding.** C showed a
+refusal is not silent in Build 17 (`recordFailure` persists, `publishRegistrationStatus({state:'failed'})` surfaces
+it in Settings, and terminal kinds make `decideRegistration` return `wait` on every later attempt), so the 04:16Z
+cold launch registering normally is inconsistent with a persisted terminal refusal; and 131 is not on the sandbox
+(ledger 136 = 127–130, which my own SBX-2 read-back agrees with), so the epoch 42501 cannot have been raised there.
+A's 04:14:53Z read also rules out a stamp on another row. **Hypothesis 1 displaced; hypothesis 2 stands.**
+
+Three things I added rather than accepting the read as pending-decisive:
+- **The API-log read needs a positive control.** "No `register_push_token` calls 04:11–04:18Z" proves no call was
+  made only if the same query, same window, same filters also returns the 04:16:34Z registration we know happened.
+  Without it, "no rows" is indistinguishable from "this log does not cover what we think", and Supabase's ~10 min
+  edge/API ingestion lag has produced confident false absences on this project before.
+- **"Transient kinds would have stamped by ~04:13Z" assumes the app stayed foregrounded for the full 30 s backoff.**
+  Quit inside half a minute and the in-process retry never fires. It does not rescue hypothesis 1 (a transient
+  refusal still persists a record), but the dwell time is an unknown in the inference and the owner can remove it.
+- **F-611C-1, broadened by C, should land before the single build is cut.** A token-fetch or storage failure
+  produces a `console.warn` and nothing else — no persisted state, no published status, nothing in Settings,
+  nothing a server read can see. Every core row of the b2 device matrix ends in "did the challenge arrive?", and
+  this defect makes a failed token fetch, a hang and a never-attempted call indistinguishable. Running the
+  sprint's most evidence-hungry session against a client that fails invisibly is how DV row 3 repeats three more
+  times. The build is cut after the sandbox application, so there is room; I put it ahead of anything cosmetic
+  still queued.
+
 Secret handling unchanged: I never see, echo or reconstruct the value; my verification is that a row exists under
 the expected name and the first dispatch's status in `net._http_response`. If a script would print the value I say
 so rather than run alongside it. Under (b) the manifest should say the sandbox stays outbound-silent, so DV-611 /
