@@ -192,4 +192,64 @@ pre-flight results, exact owner actions and expected duration.
 `headSha` `9bef640…`; D's Gate 3 log `26d69d9` names `9bef640`, and D re-resolved the tag to `9bef640` with a tree identical to
 the commit it passed. The stack branch head carries only the docs-only runbook commits above the pin.
 
+**Owner rulings 2 (2026-09-16, verbatim):** "1. Apply order approved as corrected: 131 → 132 → 133 → 135 → 20260916000000. The
+timestamped processing cleanup must run after 135. 2. Choose package option (b): do not add the sandbox service key now.
+Record b2 push-delivery verification as deferred, not passed or attempted. Do not send outbound sandbox notifications to my
+personal handset. 3. The project_url ceremony remains required before 133. Verify the sandbox identity and URL before any
+authenticated secret is introduced. Proceed only after D's final ceremony-script review and the updated package names the
+exact execution commit, order, preflight, abort conditions and rollback. … No production reads, migrations, edge deployments,
+flags, AWS changes or build submission are authorized by this message." A's reading, stated to the owner before the first
+write: the window itself was authorized by rulings 1 subject to conditions; rulings 2 resolve those conditions and grant nothing
+new; the build submission is a separate later action. D's final script review: 5bd47da ("nothing further from me on the script").
+Under (b), `send-push` refuses every dispatch (empty bearer) and the four notify functions post nothing (no key), so no outbound
+notification can reach the owner's handset from this sandbox by construction; A reads `net._http_response` after 133 to show
+the refusals rather than assert them.
+
+## 10. Execution commit, order, pre-flight, abort conditions, rollback (the owner's gate for proceeding)
+**Execution commit.** Tag `candidate/2026-09-18-pin-b2` = `9bef640de7661182c8d16a52881a1afd89c1fbe9`, checked out detached at
+`/tmp/wt-pin` (`git rev-parse HEAD` recorded at window start; 0 dirty files); every migration, rollback and edge is read from
+that tree. Stack head `e6d9f2e` differs from it by one documentation file only (`git diff --stat` = 1 file).
+
+**Order.** Vault `project_url` ceremony → `131` → `132` → `133` → `135` → `20260916000000`; edges `stripe-webhook` (parity only:
+its source is byte-identical between the two pins, blob `96bdd736…`, so it is redeployed only if the downloaded sandbox source
+differs), `create-payment-intent` after 132, `send-push` after 135, `enforce-transfer-expiry` after 20260916000000. Each
+migration: `apply_sandbox_migration.sh <v> preflight → apply → verify /tmp/wt-pin` with `ORDER_GUARD_SKIP=126`; D's V0
+immediately before each apply; A's spot-check and D's read after each.
+
+**Pre-flight, executed 2026-09-16 04:10Z (read-only), values the window must re-read equal to:**
+| Item | Value |
+|---|---|
+| Ledger / versions > 109 | 136 / 123,124,125,127,128,129,130 |
+| Native flags | issuance, resale, scanning all `false` |
+| `kernel.tickets` / signing keys / L-1 | 0 / 0 / 0 |
+| Census public tables\|functions\|policies\|triggers | 31 \| 97 \| 37 \| 34 |
+| `push_tokens` rows | 1 (`140fcb44…`, the buyer's; state per manifest §10 at the time of the read) |
+| Vault secrets | none (no `service_role_key`, no `project_url`) |
+| Routines / crons naming the production host | 0 / 0 (sandbox-host literals: 4 functions, 3 crons; `notify_outbid` via GUC) |
+| `enforce-transfer-expiry` cron | absent; 21 cron jobs |
+| `net.http_request_queue` / `net._http_response` (24 h) | 0 / 0 |
+| `push_tokens.session_id` column / `notify` tables | absent / 7 |
+| Server identity (ceremony `check`) | ledger 136, `ops` schema absent, `public.sandbox_gucs` present, role `postgres` |
+| Logging | `log_statement=ddl`, duration logging off, on-error parameter logging 0, pgaudit absent |
+
+**Abort conditions (any one stops the window; nothing is undone or retried without the owner's word):** the owner's list —
+any unexpected state, failed invariant, count mismatch, byte mismatch or rollback discrepancy; any pre-flight value differing
+from the table above; a ceremony-script STOP (server identity, logging settings, name already present, URL shape, refused
+ref); an apply-script refusal or STOP (refs, order guard, ledger unreachable), any SQL error during an apply (`ON_ERROR_STOP`),
+a `VERIFY FAIL` (ledger md5 ≠ pinned file), 133's §4 proof exception; a census after the last apply other than 32|105|37|38
+adjusted by the recorded sandbox deltas; an edge `cmp` difference after deploy, a deploy failure, or any deploy outside the
+four; any request from this sandbox observed at the production host (`net._http_response.url`); and D's rule — a difference
+between two reads that cannot be attributed to a recorded `cron.job_run_details` run.
+
+**Rollback (reverse order, each from the pinned tree, D witnesses; proven locally by D's reverse-order gate: 0 lines differing):**
+`20260916000000` → `135` → `133` → `132` → `131`, each `supabase/rollbacks/<version>_*_rollback.sql` from `/tmp/wt-pin` followed
+by deleting that version's ledger row, then `verify` must report no row. **133 caveat, sandbox-specific:** the repo rollback
+restores production's pre-133 bodies, which name the production host, a state this sandbox never had; so before applying 133
+A captures the sandbox's current four function definitions and three cron commands (Vault-form, no literal bearer — verified
+2026-09-16) into the scratchpad, D witnesses the capture, and that capture is the sandbox's 133 rollback. Edges roll back by
+redeploying `create-payment-intent`, `enforce-transfer-expiry` and `send-push` from `candidate/2026-09-18-pin` (`aabe029`), the
+source of what the sandbox runs today; `stripe-webhook` needs nothing. Vault: `delete from vault.secrets where name =
+'project_url'` (public-class value; names-only read-back). Rollback is not automatic: it runs only on the owner's word after
+a stop.
+
 A stops on any unexpected state or uncertain mutation outcome, as before.
