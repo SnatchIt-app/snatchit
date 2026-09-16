@@ -54,6 +54,20 @@ describe('run gate: a torn-down run can never block the live one', () => {
     expect(endRun(g, r2.admitted ? r2.gen : -1)).toEqual({ released: true, rerun: false });
   });
 
+  it("D's second sequence: a dead run's register call returns after the live run persisted — it must persist nothing", () => {
+    const g = createGate();
+    const writes: string[] = [];
+    const persistIfLive = (label: string, gen: number) => { if (isLive(g, gen)) writes.push(label); };
+    const r1 = beginRun(g);                                   // run 1 is at its register call (the widest window)
+    cancelRuns(g);                                            // effect tears down mid-flight
+    const r2 = beginRun(g);                                   // live run registers and persists
+    persistIfLive('run2', r2.admitted ? r2.gen : -1);
+    endRun(g, r2.admitted ? r2.gen : -1);
+    persistIfLive('run1', r1.admitted ? r1.gen : -1);         // run 1's call returns now
+    endRun(g, r1.admitted ? r1.gen : -1);
+    expect(writes).toEqual(['run2']);
+  });
+
   it('cancel clears in-flight and any pending rerun', () => {
     const g = createGate();
     beginRun(g); beginRun(g);
@@ -117,7 +131,18 @@ describe('wiring (source contract) — what the pins buy is that the hook is wir
     expect(h).toContain('const run = beginRun(gate);');
     expect(h).toMatch(/const run = beginRun\(gate\);\s*if \(!run\.admitted\) return;\s*try \{/);
     expect(h).toContain('withTimeout(obtainToken(), TOKEN_FETCH_TIMEOUT_MS)');
-    expect((h.match(/if \(!isLive\(gate, run\.gen\)\) return;/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((h.match(/if \(!isLive\(gate, run\.gen\)\) return;/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    // D (2026-09-16): the register call is the widest window — a liveness check must sit between
+    // the call returning and the first persist, so a dead run can never overwrite the live run's state.
+    const call = h.indexOf("? await tryRpc(token, platform, previouslyRpcForThisBinding)");
+    const firstPersist = h.indexOf('saveRegistrationState(', call);
+    const check = h.indexOf('if (!isLive(gate, run.gen)) return;', call);
+    expect(call).toBeGreaterThan(0);
+    expect(check).toBeGreaterThan(call);
+    expect(check).toBeLessThan(firstPersist);
+    // and after the legacy fallback re-call, before the same persist
+    const fallback = h.indexOf('result = await tryLegacy(uid, token, platform, now);', call);
+    expect(check).toBeGreaterThan(fallback);
     expect(h).toContain('const end = endRun(gate, run.gen);');
     expect(h).toContain('if (end.rerun) void attempt();');
     // a token-fetch or storage failure is persisted and published, never console-only

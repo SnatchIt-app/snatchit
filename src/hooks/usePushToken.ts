@@ -186,6 +186,9 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         } else if (method === 'rpc' && (result.ok || result.kind !== 'unknown')) {
           rpcAvailable = true;
         }
+        // D (2026-09-16): the register call is the widest window; a run torn down while it was
+        // in flight must persist nothing over the live run's state.
+        if (!isLive(gate, run.gen)) return;
 
         // v3: the token has history under another account — nothing is bound
         // until this device proves it holds the token. Keep the current record
