@@ -6,12 +6,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { RegistrationFailure, RegistrationRecord } from './registration';
+import type { PreRegisterFailure } from './runGate';
 
 export const REGISTRATION_STATE_KEY = 'snatchit.push.registration.v1';
 
 export interface RegistrationState {
   record: RegistrationRecord | null;
   failure: RegistrationFailure | null;
+  /** F-611C-1: the last failure BEFORE any register call (token fetch threw / timed out). */
+  preRegister?: PreRegisterFailure | null;
 }
 
 export const EMPTY_REGISTRATION_STATE: RegistrationState = { record: null, failure: null };
@@ -26,7 +29,7 @@ export async function loadRegistrationState(store: KeyValueStore = AsyncStorage)
     const raw = await store.getItem(REGISTRATION_STATE_KEY);
     if (!raw) return EMPTY_REGISTRATION_STATE;
     const parsed = JSON.parse(raw) as Partial<RegistrationState>;
-    return { record: parsed.record ?? null, failure: parsed.failure ?? null };
+    return { record: parsed.record ?? null, failure: parsed.failure ?? null, ...(parsed.preRegister ? { preRegister: parsed.preRegister } : {}) };
   } catch {
     return EMPTY_REGISTRATION_STATE;
   }

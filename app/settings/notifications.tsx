@@ -218,6 +218,11 @@ export default function NotificationsScreen() {
             <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{remedy}</Text>
+              {registration.state === 'failed' ? (
+                <Pressable onPress={requestRegistrationRetry} style={s.openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Try again">
+                  <Text style={[textStyle('bodySm'), s.openSettingsText]}>Try again</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ) : null}

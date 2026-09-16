@@ -50,6 +50,10 @@ import {
 import { registerLegacy, registerRpcWithRecovery, supabaseRegisterDeps, type PushPlatform } from '@/src/lib/push/registerToken';
 import { EMPTY_REGISTRATION_STATE, loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
 import { publishRegistrationStatus, setChallengeHandlers } from '@/src/lib/push/registrationStatus';
+import {
+  beginRun, cancelRuns, createGate, endRun, isLive, preRegisterKind, preRegisterRetryDelayMs, recordPreRegisterFailure,
+  TOKEN_FETCH_TIMEOUT_MS, withTimeout,
+} from '@/src/lib/push/runGate';
 
 type PushTokenResult = {
   pushToken:         string | null;
@@ -60,12 +64,14 @@ type PushTokenResult = {
 let rpcAvailable: boolean | undefined;
 /** The first decision of this process registers regardless of the daily TTL (A's v2 clause). */
 let coldLaunchPending = true;
+// F-611C-1: one gate for the process (deliberately module-level — spans remounts,
+// serialises concurrent consumers; see runGate.ts). Effect cleanup cancels it.
+const gate = createGate();
 
 export function usePushToken(userId: string | undefined): PushTokenResult {
   const [pushToken, setPushToken]                   = useState<string | null>(null);
   const [permissionGranted, setPermissionGranted]   = useState(false);
   const tokenRef = useRef<string | null>(null);
-  const runningRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // v3: the open proof-of-possession challenge for this device, if any. The
   // nonce never lives here: it is echoed the moment it arrives.
@@ -112,14 +118,40 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       return token;
     }
 
+    /**
+     * A token fetch that throws or times out is a REPORTED failure (F-611C-1):
+     * persisted beside the record, published to Settings with a Try again, and
+     * retried in-process. The cold-launch flag stays pending so the next
+     * foreground registers with reason cold_launch.
+     */
+    async function notePreRegisterFailure(err: unknown): Promise<void> {
+      const now = Date.now();
+      const state = await loadRegistrationState();
+      const pre = recordPreRegisterFailure(state.preRegister ?? null, preRegisterKind(err), now);
+      await saveRegistrationState({ ...state, preRegister: pre });
+      publishRegistrationStatus({ state: 'failed', kind: pre.kind, at: pre.at });
+      console.warn('[usePushToken] Pre-register failure:', pre.kind, 'attempt', pre.attempts);
+      scheduleRetry(now + preRegisterRetryDelayMs(pre));
+    }
+
     async function attempt(): Promise<void> {
-      if (runningRef.current || !userId) return;
-      runningRef.current = true;
+      if (!userId) return;
+      const run = beginRun(gate);
+      if (!run.admitted) return;
       try {
-        const token = await obtainToken();
+        let token: string | null;
+        try {
+          token = await withTimeout(obtainToken(), TOKEN_FETCH_TIMEOUT_MS);
+        } catch (err) {
+          if (!isLive(gate, run.gen)) return;
+          await notePreRegisterFailure(err);
+          return;
+        }
+        if (!isLive(gate, run.gen)) return;
         if (!token) return;
         const uid = userId;
         const state = await loadRegistrationState();
+        if (!isLive(gate, run.gen)) return;
         const decision = decideRegistration({
           userId: uid, token, record: state.record, failure: state.failure, rpcAvailable, now: Date.now(),
           coldLaunch: coldLaunchPending,
@@ -196,7 +228,8 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
       } catch (err) {
         console.warn('[usePushToken] Error:', err instanceof Error ? err.message : err);
       } finally {
-        runningRef.current = false;
+        const end = endRun(gate, run.gen);
+        if (end.rerun) void attempt();
       }
     }
 
@@ -391,6 +424,7 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
     });
     return () => {
       alive = false;
+      cancelRuns(gate);
       sub.remove();
       notif.remove();
       clearFallback();
