@@ -204,6 +204,7 @@ serve(async (req: Request) => {
     let reconciledErrors   = 0;
     let reconciledManualReview = 0;
     let reconciledLegacyUnknownMode = 0;
+    let reconciledProcessingFailed  = 0;   // 134: processing rows Stripe had already failed/canceled
 
     // A row is "already refunded" only by its money facts — status, or
     // amount_refunded_cents reaching total — never by stripe_refund_id alone:
@@ -300,6 +301,48 @@ serve(async (req: Request) => {
               continue;
             }
             const charge = (pi.latest_charge && typeof pi.latest_charge === 'object') ? pi.latest_charge : null;
+
+            // 0a′ (134). A processing_stale row is a LIVE attempt of one buyer that
+            //      Stripe has already moved on from. If the intent fell back to
+            //      requires_payment_method or was canceled, the payment_failed
+            //      event never landed: fail the row the way stripe-webhook does
+            //      (guarded on pending|processing so a late success is never
+            //      overwritten) and free the Buy-Now hold this payment was using
+            //      (127, payment-bound). Anything else — succeeded, processing,
+            //      requires_action, requires_capture — falls through to 0b.
+            if (row.kind === 'processing_stale' && (pi.status === 'requires_payment_method' || pi.status === 'canceled')) {
+              const { data: failedRow, error: failErr } = await supabase
+                .from('payments')
+                .update({ status: 'failed' })
+                .eq('id', row.payment_id)
+                .in('status', ['pending', 'processing'])
+                .select('id, listing_id, buyer_id, mode')
+                .maybeSingle();
+              if (failErr) {
+                console.error('enforce-transfer-expiry: Phase 0 processing_stale fail-update errored:', { payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, error: failErr });
+                reconciledErrors++;
+                continue;
+              }
+              if (!failedRow) {
+                console.log('enforce-transfer-expiry: Phase 0 processing_stale: no claimable row (already resolved)', { payment_id: row.payment_id });
+                continue;
+              }
+              const fr = failedRow as { id: string; listing_id: string | null; buyer_id: string | null; mode: string | null };
+              if (fr.mode === 'buy_now' && fr.listing_id && fr.buyer_id) {
+                const { data: release, error: rpcErr } = await supabase.rpc('release_reservation_for_payment', {
+                  p_listing_id: fr.listing_id, p_user_id: fr.buyer_id, p_payment_id: fr.id,
+                });
+                if (rpcErr) {
+                  console.error('enforce-transfer-expiry: Phase 0 processing_stale: release_reservation_for_payment failed (hold lapses on its own):', { payment_id: fr.id, error: rpcErr });
+                } else {
+                  const r = (release ?? {}) as { released?: boolean; reason?: string };
+                  console.log('enforce-transfer-expiry: Phase 0 processing_stale: hold release', { payment_id: fr.id, released: r.released ?? null, reason: r.reason ?? null });
+                }
+              }
+              reconciledProcessingFailed++;
+              console.log('enforce-transfer-expiry: Phase 0 processing_stale row failed', { payment_id: fr.id, pi_id: row.stripe_payment_intent_id, stripe_status: pi.status });
+              continue;
+            }
 
             // 0b. Settle through the contract.
             const { data: settleRows, error: settleErr } = await supabase.rpc('settle_verified_payment', {
@@ -1214,6 +1257,7 @@ serve(async (req: Request) => {
       reconciled_errors:   reconciledErrors,
       reconciled_manual_review:        reconciledManualReview,
       reconciled_legacy_unknown_mode:  reconciledLegacyUnknownMode,
+      reconciled_processing_failed:    reconciledProcessingFailed,   // 134
       expired:       expiredCount,
       refunded:      refundedCount,
       auto_released: autoReleasedCount,
