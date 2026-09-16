@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); 132 @ 9d82247 **PASSES**; stack `6b058d2` (131+132+133) **PASSES** incremental review; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); 132 @ 74a4371 **PASSES**; stack `6b058d2` (131+132+133) **PASSES** incremental review; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -194,6 +194,16 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 — the authorized production preflight read must count both; (b) the sandbox lacks enforce-transfer-expiry and 133 creates it (starts
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
+
+### 132 delta `9d82247..74a4371` (N-132-1 taken) — **incremental look PASSES**; N-132-2 accepted as a disclosed residual
+The sweep and the claim re-check are now one gate (`handOutBlocked`) at all three hand-outs — reuse, race-recovered and final — so the claim
+is the last word before a secret leaves. Edge vitest at 74a4371: **85/85** (CI 35045455695 green). **My own RED control:** the new test file
+copied onto 9d82247 fails exactly one test, N1, so the re-check is load-bearing. Only the edge and its tests changed; no SQL, so the census,
+grants and rollbacks from the 9d82247 battery still stand.
+N-132-2 (withdraw reads then cancels): B keeps it and discloses it (design c5ff1a1). I accept: the worst case is availability, never money —
+the other request's client gets a dead secret and retries, and the reuse path self-heals (a `canceled` intent retires its row and a fresh one
+is minted). Never cancelling would trade a millisecond window for permanent orphan intents no sweep arm reaches, and a metadata-bound
+withdrawal cannot help because a replayed intent carries the first request's token.
 
 ### Production-gate stack `release/production-gate-20260918 @ 6b058d2` (candidate tip + 131 + 133 + 132) — **incremental review PASSES**
 CI run 35045310911 green (all five jobs). Integrated harness on the stack tree: **PASS 25 · FAIL 0 · WARN 2** (the two declared:
