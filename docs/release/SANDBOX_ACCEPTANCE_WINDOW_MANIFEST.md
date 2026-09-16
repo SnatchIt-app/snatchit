@@ -330,3 +330,9 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   rule 3 `rebound`; (A) support `unbind_push_token` (service_role) recorded before/after. **Candidate finding F-611-1 (C/D to
   dispose):** the client does not retry after entering the terminal state even once the cause is gone, and the owner saw no
   remedy banner at Block 0 step 3.
+- **Owner, ≈01:33Z (screenshot of Settings › Notifications on build 17):** green "Notifications are enabled"; yellow
+  "Notifications aren't set up for this account on this device yet. The account that used this device before needs to sign
+  out here first." — the terminal `bound_to_other` state is visible on-device. Registration remains blocked. Kept in the
+  findings: the initial 403, the no-retry terminal behaviour, and the recovery wording (says "sign out here first" where the
+  remedy is "sign in and then sign out on this device"; the 131 branch's S-13 copy already says so). **Owner chose Path B**
+  (staff account signs in and out on the handset; no server mutation). Steps and read-backs recorded below as they happen.
