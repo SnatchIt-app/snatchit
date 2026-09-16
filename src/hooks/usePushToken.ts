@@ -15,7 +15,8 @@
  * another account; a deterministic precondition refusal) until the account,
  * the token or the method changes. A lost device secret is recovered by
  * deleting the row this device owns and registering afresh, under the gates in
- * registerToken.ts. Sign-out is elsewhere (signOutThisDevice / signOutAllDevices).
+ * registerToken.ts. Sign-out is elsewhere (signOutThisDevice / signOutAllDevices);
+ * the hook only triggers the forced local re-auth on session_stale (131).
  * The 128 contract is not frozen (A, f7b31ad); a further delta is expected.
  *
  * - Skips silently on simulators / emulators (push tokens require real devices)
@@ -32,6 +33,9 @@ import { deviceRandomBytes } from '@/src/lib/randomness';
 import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
+import { handleSessionStale } from '@/src/lib/push/sessionStale';
+import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
+import { signOutThisDevice } from '@/src/lib/auth/signOut';
 import {
   decideRegistration,
   recordFailure,
@@ -39,7 +43,7 @@ import {
   type RegistrationRecord,
 } from '@/src/lib/push/registration';
 import { registerLegacy, registerRpcWithRecovery, supabaseRegisterDeps, type PushPlatform } from '@/src/lib/push/registerToken';
-import { loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
+import { EMPTY_REGISTRATION_STATE, loadRegistrationState, saveRegistrationState } from '@/src/lib/push/registrationStore';
 import { publishRegistrationStatus } from '@/src/lib/push/registrationStatus';
 
 type PushTokenResult = {
@@ -157,6 +161,15 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         await saveRegistrationState({ record: state.record, failure });
         publishRegistrationStatus({ state: 'failed', kind: result.kind, at: now });
         console.warn('[usePushToken] Not registered:', result.kind);
+        // 131 (provisional): this session can never register again — re-auth.
+        if (result.kind === 'session_stale') {
+          void handleSessionStale({
+            clearRegistration: () => saveRegistrationState(EMPTY_REGISTRATION_STATE),
+            markEnd: markSessionEnd,
+            signOutLocal: async () => (await signOutThisDevice({ reason: 'credential_change' })).signedOut,
+          });
+          return;
+        }
         const next = decideRegistration({ userId: uid, token, record: state.record, failure, rpcAvailable, now });
         if (next.action === 'wait') scheduleRetry(next.retryAt);
       } catch (err) {

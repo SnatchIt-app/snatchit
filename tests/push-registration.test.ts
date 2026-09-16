@@ -142,7 +142,7 @@ describe('registration decisions', () => {
     expect(decideRegistration({ userId: 'u1', token: 'tok2', record: null, failure: f('rpc'), rpcAvailable: true, now })).toMatchObject({ action: 'register', reason: 'first' });
     // a legacy failure does not block the rpc method once 128 is available
     expect(decideRegistration({ userId: 'u1', token: 'tok', record: null, failure: f('legacy'), rpcAvailable: true, now })).toMatchObject({ action: 'register' });
-    expect(REGISTRATION_REMEDY.bound_to_other).toMatch(/sign out here first/);
+    expect(REGISTRATION_REMEDY.bound_to_other).toMatch(/Sign in to that account and sign out of this device, or reinstall/); // 131 S-13 (D's wording)
   });
 
   it('a precondition refusal is terminal until the inputs change — never a timer', () => {
@@ -321,7 +321,9 @@ describe('persisted state holds no secret, and the hook is wired to the contract
     expect(hook).toContain('const failure = recordFailure(state.failure, result.kind, { userId: uid, token, method, now });');
     expect(hook).toMatch(/AppState\.addEventListener\('change', \(st\) => \{ if \(st === 'active'\) void attempt\(\); \}\)/);
     expect(hook).toContain('setRegisteredPushToken(token);');
-    expect(hook).not.toMatch(/signOut|revoke/);
+    // 131 (provisional): the only sign-out the hook performs is the forced local re-auth on session_stale.
+    expect(hook).not.toMatch(/revoke/);
+    expect(hook.match(/signOutThisDevice\(/g)?.length).toBe(1);
   });
 
   it('sign-out revokes through public.revoke_push_token (129) with the token only — never the secret, never a table write', () => {
