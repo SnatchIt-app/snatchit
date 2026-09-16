@@ -60,9 +60,13 @@ describe('Keyboard — forms keep their submit reachable', () => {
 
 describe('Accessibility — icon-only / toggle controls are labeled', () => {
   it('the shared retry control names itself and exposes busy', () => {
+    // State-views refresh: the retry is the app Button, fed through StateView; it names itself from the shared copy and exposes busy.
     const ss = read('src/components/ScreenState.tsx');
-    expect(ss).toContain('accessibilityLabel="Retry"');
-    expect(ss).toMatch(/accessibilityState=\{\{ busy: retrying/);
+    expect(ss).toContain('label: STATE_COPY[state].retry');
+    expect(ss).toContain('busy: retrying');
+    const sv = read('src/components/ui/StateView.tsx');
+    expect(sv).toContain('loading={action.busy}');
+    expect(read('src/components/ui/Button.tsx')).toMatch(/busy: /);
   });
 
   it('disclosure toggles expose expanded state', () => {

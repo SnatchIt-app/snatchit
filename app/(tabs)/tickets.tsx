@@ -25,12 +25,13 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import ScreenState, { type ScreenStateKind } from '@/src/components/ScreenState';
+import ScreenState from '@/src/components/ScreenState';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
-import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { TicketEventGroup } from '@/src/components/tickets/TicketEventGroup';
 import { fetchMyTickets } from '@/src/lib/tickets/api';
 import { DEV_TICKET_FIXTURES } from '@/src/lib/tickets/fixtures';
@@ -44,11 +45,17 @@ type Phase = 'loading' | 'ready' | 'error';
 interface Section { title: string; emphasis: 'upcoming' | 'past'; data: EventGroup[] }
 
 export default function TicketsScreen() {
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll } = useDockScroll('tickets');
 
   const [phase, setPhase] = useState<Phase>('loading');
+  // Which failure the empty screen explains (F-OFF-1: offline used to read as a server error here).
+  const [loadError, setLoadError] = useState<LoadFailureKind>('error');
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(false);
+  offlineRef.current = isOffline;
+
   const [rows, setRows] = useState<MyTicketGroup[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   // DEV-only: render sample states without any server write. Off by default.
@@ -75,6 +82,7 @@ export default function TicketsScreen() {
       // replaces the loading state. The raw message goes to the log, not the UI.
       const next = phaseAfterError(rowCount, shownPhase);
       if (next !== 'error') console.warn('[tickets] refresh failed, keeping current rows:', error.code ?? error.message);
+      setLoadError(classifyLoadFailure(error, offlineRef.current));
       setPhase(next);
       return;
     }
@@ -105,7 +113,7 @@ export default function TicketsScreen() {
 
   return (
     <View style={s.container}>
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">Your tickets</Text>
         {__DEV__ ? (
           <Text
@@ -120,9 +128,9 @@ export default function TicketsScreen() {
       </View>
 
       {phase === 'loading' ? (
-        <ScreenState state={'loading' as ScreenStateKind} />
+        <ScreenState state="loading" />
       ) : phase === 'error' ? (
-        <ScreenState state={'error' as ScreenStateKind} onRetry={() => load()} />
+        <ScreenState state={loadError} onRetry={() => load()} />
       ) : sections.length === 0 ? (
         <EmptyState
           title="No tickets yet"

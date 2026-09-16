@@ -29,6 +29,10 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  // State views (offline / server error / no match).
+  'wifi.slash': 'wifi-off',
+  'exclamationmark.triangle': 'warning',
+  'magnifyingglass': 'search',
 } as IconMapping;
 
 /**

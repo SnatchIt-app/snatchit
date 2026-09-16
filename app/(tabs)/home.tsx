@@ -27,7 +27,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollars } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
-import { isNetworkError } from '@/src/hooks/useNetworkStatus';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { Chip, EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
@@ -148,6 +149,9 @@ export default function HomeScreen() {
   const [endedListings, setEndedListings] = useState<Listing[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(false);
+  offlineRef.current = isOffline;
   const [loadError,     setLoadError]     = useState<'offline' | 'error' | null>(null);
   const [now,           setNow]           = useState(() => Date.now());
   const [filters,       setFilters]       = useState<Filters>(DEFAULT_FILTERS);
@@ -186,7 +190,7 @@ export default function HomeScreen() {
 
     if (error) {
       console.warn('[HomeScreen] fetch error:', error.message);
-      setLoadError(isNetworkError(error) ? 'offline' : 'error');
+      setLoadError(classifyLoadFailure(error, offlineRef.current));
       return;
     }
     if (!data) return;

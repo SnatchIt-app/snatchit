@@ -188,7 +188,7 @@ describe('home and search — shipped-source guards', () => {
   it('keeps the safe area off the hardcoded 56pt guess', () => {
     expect(home).not.toMatch(/paddingTop:\s*56/);
     expect(search).not.toMatch(/paddingTop:\s*56/);
-    expect(code('src/components/discovery/HomeHeader.tsx')).toContain('useSafeAreaInsets');
+    expect(code('src/components/discovery/HomeHeader.tsx')).toMatch(/useTopInset\(\)|useSafeAreaInsets/); // reads the real inset (plus the sandbox badge) through useTopInset
   });
 
   it('has no emoji interface left in the feed', () => {

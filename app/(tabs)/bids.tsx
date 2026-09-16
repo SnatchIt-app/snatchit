@@ -19,7 +19,6 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -27,10 +26,11 @@ import { finalSoldPrice } from '@/src/lib/salePrice';
 import { allInFromDollars } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
-import { isNetworkError } from '@/src/hooks/useNetworkStatus';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
-import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { BidCard } from '@/src/components/bids/BidCard';
 import { bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
@@ -101,13 +101,16 @@ function whenLabel(iso: string | undefined): string {
 export default function BidsScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('bids');
 
   const [bids,       setBids]       = useState<BidRow[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(false);
+  offlineRef.current = isOffline;
   const [loadError,  setLoadError]  = useState<'offline' | 'error' | null>(null);
   const [segment,    setSegment]    = useState<BidGroup>('active');
 
@@ -146,7 +149,7 @@ export default function BidsScreen() {
 
     if (error || !data) {
       console.warn('[BidsScreen] fetch error:', error?.message);
-      setLoadError(isNetworkError(error) ? 'offline' : 'error');
+      setLoadError(classifyLoadFailure(error, offlineRef.current));
       return;
     }
     setLoadError(null);
@@ -277,7 +280,7 @@ export default function BidsScreen() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">Your bids</Text>
       </View>
 

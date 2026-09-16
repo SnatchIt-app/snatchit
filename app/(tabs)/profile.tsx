@@ -14,10 +14,9 @@
 
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { signOutEverywhere } from '@/src/lib/auth/signOut';
@@ -26,12 +25,13 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
 import { formatDollars, sellerNetDollars } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
-import { isNetworkError } from '@/src/hooks/useNetworkStatus';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { getAvatarUrl, pickAndUploadAvatar } from '@/src/lib/avatarImage';
 import { Badge, Button, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { useDockScroll } from '@/src/components/nav/dockContext';
-import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -79,13 +79,16 @@ const PAYOUT_COPY: Record<PayoutStatus, { title: string; state: string; tone: 's
 
 export default function ProfileScreen() {
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('profile');
 
   const [profile,         setProfile]         = useState<Profile | null>(null);
   const [stats,           setStats]           = useState<SellerStats>({ active: 0, sold: 0, revenue: 0 });
   const [pageLoading,     setPageLoading]     = useState(true);
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(false);
+  offlineRef.current = isOffline;
   const [loadError,       setLoadError]       = useState<'offline' | 'error' | null>(null);
   const [refreshing,      setRefreshing]      = useState(false);
   const [signOutBusy,     setSignOutBusy]     = useState(false);
@@ -100,8 +103,7 @@ export default function ProfileScreen() {
     const { data: profileData, error: profileErr } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
 
     setLoadError(profileData ? null
-      : profileErr && isNetworkError(profileErr) ? 'offline'
-      : profileErr ? 'error' : null);
+      : profileErr ? classifyLoadFailure(profileErr, offlineRef.current) : null);
 
     if (profileData) {
       const p = profileData as Profile;
@@ -232,7 +234,7 @@ export default function ProfileScreen() {
   return (
     <View style={s.root}>
       {/* ── Header ──────────────────────────────────────────── */}
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <Text style={[textStyle('displayMd'), s.headerTitle]} accessibilityRole="header">Profile</Text>
         <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Settings">
           <Text style={[textStyle('label'), s.headerAction]}>Settings</Text>

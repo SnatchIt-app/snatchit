@@ -19,6 +19,7 @@ export { MediaUpload, type MediaUploadProps } from './MediaUpload';
 export { Sheet, SheetAction, type SheetProps } from './Sheet';
 export { Skeleton, type SkeletonProps } from './Skeleton';
 export { Spinner } from './Spinner';
+export { StateView, type StateKind, type StateViewProps } from './StateView';
 export { StickyBar, STACK_WIDTH, type StickyBarProps } from './StickyBar';
 export { Tappable, type TappableProps } from './Tappable';
 export { usePressScale, PRESSED_SCALE } from './press';
