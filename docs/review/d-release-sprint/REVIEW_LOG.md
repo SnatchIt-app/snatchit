@@ -226,6 +226,23 @@ the sign-out fails; `session_stale` is classified apart from `bound_to_other`; F
 Evidence limit: source + vitest only. StickyBar and the badge have no rendering test, so the keyboard geometry and the badge height are
 unverified until the combined build runs on a handset (DV-S1/S2, plus a large-text pass on a sandbox build for S-1).
 
+### Client v3 `frontend/push-proof-v3 @ b098a46` — reviewed (client's share of C1–C6): holds, 4 findings
+Local: push-proof-v3 13/13; the earlier client suites still green. C's four probes all clean:
+- a push with a different challenge id or wrong type is ignored (`onPushReceived` gates on phase, type, id and a non-empty nonce);
+- the code path refuses an expired challenge client-side before any call;
+- backgrounding stops the 60 s clock, foreground restarts it and re-requests the same open challenge;
+- no `console.*` in challenge.ts / usePushToken.ts / registerToken.ts / the Settings screen carries the nonce, code, payload or device
+  secret, and the published status holds only phase, ids and counters — the nonce lives in one local variable between arrival and echo (C6's
+  client half).
+| # | Severity | Finding |
+|---|---|---|
+| P3-1 | MEDIUM (**A's 135**, not the client) | after five wrong codes the copy promises a new code, but §3 re-dispatches the SAME open challenge, which is exhausted → every confirm answers `attempts exhausted` until it expires (≤5 min). 135 should consume an exhausted challenge on re-request and issue a fresh one; pgTAP case + negative control requested |
+| P3-2 | LOW | `EXPECTED_128_CONTRACT_VERSION` now holds 3 and means "the version a challenge must carry" — rename |
+| P3-3 | LOW | iOS `inactive` (shade, system prompt, call) is treated as backgrounded and resets `startedAt`, so repeated transients can push the 60 s fallback past the 5-minute expiry |
+| P3-4 | LOW (evidence) | 4 of 13 tests are `readFileSync` + `toContain` source assertions (hook wiring, deps, Settings screen, no UIBackgroundModes): guards, not behaviour. DV-V1..V3 must exercise a real silent push, the 60 s fallback, and a wrong-then-right code |
+Device-row notes raised: the visible-code push shows the code in its alert, so the owner should accept the lock-screen preview; a silent push
+arriving while the code screen is open is ignored by design.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
