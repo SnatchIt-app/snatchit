@@ -78,8 +78,10 @@ client waits for the current push). The client branches on `outcome` before trea
   request (pg_net's queue row is service-internal and deleted on send; `net._http_response` never stores request bodies) and in the
   push itself. Where Vault `project_url` is absent (CI, the harness) the post is a guarded no-op and the challenge row still exists
   for the pgTAP tests. `send-push` reads the challenge **through `notify.get_push_token_challenge(p_challenge_id)`** (service_role EXECUTE; returns the
-  token to address, platform, mode, expires_at, confirmed_at, consumed_at, attempts — NO requester or owner identity; notify tables
-  carry no service_role grants by design), refuses a missing/expired/confirmed/consumed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
+  token to address, `token_id`, `requesting_user`, platform, mode, expires_at, confirmed_at, consumed_at, attempts — no owner
+  identity, secret or nonce hash; notify tables carry no service_role grants by design). The edge refuses when the request body's
+  `user_id` is not `requesting_user` (409) and keys its own rate limit on (`token_id`, `requesting_user`); neither field ever reaches
+  the push payload or a log line. It refuses a missing/expired/confirmed/consumed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
   data `{type: 'push_token_challenge', challenge_id, nonce}`; visible = title/body carrying the code + "Never share this code", data
   WITHOUT the nonce), records the result through `record_push_token_challenge_delivery`, and never logs the payload. **The challenge
   push is token-addressed** (the token may belong to ANOTHER account): `send-push` accepts a token-addressed send for this kind only
