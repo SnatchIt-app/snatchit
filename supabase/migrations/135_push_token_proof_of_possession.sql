@@ -89,7 +89,8 @@ begin
   if p_mode = 'silent' then
     v_nonce := translate(rtrim(encode(extensions.gen_random_bytes(32), 'base64'), '='), '+/', '-_');
   else
-    v_nonce := lpad((abs(('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::int) % 1000000)::text, 6, '0');
+    -- bigint, no abs(): four random bytes 0x80000000 would overflow int (D, M-135-3); all boundaries checked
+    v_nonce := lpad((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint % 1000000)::text, 6, '0');
   end if;
   v_hash := encode(pg_catalog.sha256(pg_catalog.convert_to(v_nonce, 'utf8')), 'hex');
 
@@ -396,7 +397,7 @@ begin
 end;
 $$;
 comment on function public.confirm_push_token_challenge(uuid, text) is
-  '135: the device echoes the nonce the push provider delivered to the token; only the requesting user AND session may confirm; on match the binding moves to the caller with the proving device''s secret as proof and the previous owner is emailed; a mismatch returns nonce_mismatch/attempts_left (the fifth consumes the challenge); expired/consumed/foreign challenges are refused.';
+  '135: the device echoes the nonce the push provider delivered to the token; only the requesting user AND session may confirm; on match the binding moves to the caller with the proving device''s secret as proof and the previous owner gets an in-app notice (notification centre; never push, no email — N1); a mismatch returns nonce_mismatch/attempts_left (the fifth consumes the challenge); expired/consumed/foreign challenges are refused.';
 
 revoke execute on function public.request_push_token_challenge(text, text, text) from public, anon, service_role;
 grant  execute on function public.request_push_token_challenge(text, text, text) to authenticated;
@@ -486,7 +487,7 @@ $$;
 revoke execute on function notify.record_push_token_challenge_delivery(uuid, text, text, text) from public, anon, authenticated;
 grant  execute on function notify.record_push_token_challenge_delivery(uuid, text, text, text) to service_role;
 
--- ── 8. the previous owner's notice: email, never push ────────────────────────
+-- ── 8. the previous owner's notice: in-app only (notification centre); never push, no email (N1) ──
 insert into notify.notification_type
   (type_key, delivery_class, allowed_channels, default_channels, target_kind, template_key, group_label, display_label, description, mandatory_reason)
 values
