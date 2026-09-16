@@ -1479,3 +1479,29 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   rotation: the push-path mismatch becomes neutral and recoverable (stay in
   `awaiting_push`, no attempt counted client-side, fallback timer continues).
   No client change until A rules; must not ship as it reads today.
+  **Ruled by A 2026-09-16 (135 @ candidate ac716da) and applied at
+  `frontend/push-proof-v3 @ 0eea9c3`:** (a) a re-issue rotates the nonce and
+  keeps the previous hash one generation; an echo of the superseded nonce
+  answers `{outcome:'stale_nonce'}` at no cost → client neutral: back to the
+  exact prior state (push clock keeps its start, fallback re-armed; code entry
+  keeps its attempts and says "That code was replaced by a newer one…"), never
+  a bind or a record. **P3-1 yes:** a re-request on an exhausted/expired
+  challenge consumes it and issues a fresh one → "Try again" from a dead
+  challenge (exhausted/expired/consumed) requests a visible code directly; a
+  reply carrying `challenge {id, mode, expires_in_s}` replaces id and expiry
+  (shape assumed from register's `challenge_required`; asked A to pin it in
+  §5), otherwise the same row switches to code entry; other failures register
+  again. `challenge_consumed` after a typed code = fifth wrong code
+  (exhausted copy); on the push path = "no longer valid". Final error list:
+  `challenge not found` → consumed; `binding no longer exists` / `no binding to
+  challenge — register instead` / `the caller already owns this binding —
+  register instead` → `register_instead` ("This device needs to be set up
+  again. Tap Try again." → register). Previous-owner notice is in-app: no
+  client change. **Known limit (recorded on DV-V4):** a current push arriving
+  while a stale echo is in flight is dropped (the nonce is never buffered) and
+  the client waits for the 60 s fallback. Contract erratum for A: §5 still says
+  a foreground re-request "re-dispatches (silent: same nonce)" while §3/§5
+  rotate. Tests RED first (10) then push-proof-v3 21/21; gates: tsc clean;
+  vitest 1949 / 88; lint 0 errors / 29 warnings; gated surface
+  `git diff --stat b48f4e9..HEAD` = 0 lines. Device rows DV-V2/V3 updated,
+  DV-V4 added. To D for re-review; A integrates 0eea9c3 (supersedes 969ff20).
