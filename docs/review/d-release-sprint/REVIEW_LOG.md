@@ -536,6 +536,42 @@ Suggested to B, small: §4 tells the user what the verb does but not that the **
 itself. An agent who unbinds by mistake, or a user who changes their mind, currently has no documented way back;
 "open the app on the original phone" is the whole remedy and is worth one line.
 
+## B2 window — owner rulings received; my final sign-off conditions and witness invariants
+
+Owner, in their own words (relayed by A, who has them in session): apply order approved **as corrected** —
+131 → 132 → 133 → 135 → 20260916000000, "the timestamped processing cleanup must run after 135"; **option (b)** —
+no sandbox service key now, b2 push-delivery verification **deferred, not passed or attempted**, no outbound
+sandbox notifications to the personal handset; the `project_url` ceremony still required before 133, "verify the
+sandbox identity and URL before any authenticated secret is introduced"; and "No production reads, migrations,
+edge deployments, flags, AWS changes or build submission are authorized by this message" — which A and I both read
+as resolving the earlier window authorization's conditions and granting nothing new.
+
+**Final script review: `5bd47da` plus one line.** I checked the whole file, not the diff: exactly two write
+statements, both `vault.create_secret`, both mode- and `CEREMONY_EXECUTE`-gated, `require_server_is_sandbox`
+before both, everything else read-only, `\bind :'srk'` taken. The one change I require before signing: **`key` must
+refuse outright while the deferral stands** (`exit 3` on entry to that branch). The only distance between an
+accidental key write and breaking the owner's most recent decision is typing one word with the same
+`CEREMONY_EXECUTE=1` already in the shell history from the `url` step, while `TEST_SERVICE_ROLE_KEY` sits in
+`sandbox.env`. Every other constraint here is enforced in code rather than prose; this one should be too.
+
+**Witness invariants — any one of them stops the window:**
+1. `vault.secrets` holds **exactly one name, `project_url`**, at the ceremony, after 133, after 135 and at the
+   close. Under (b) this is what turns "nothing outbound can succeed" from a construction argument into a verified
+   property: with no credential in the Vault, no pg_net post from this database can authenticate to any edge.
+   Names only, never values.
+2. **V0 immediately before each apply**, every difference attributed through `cron.job_run_details` before I accept
+   it; an unattributable difference is a stop, and A applies nothing while a read of mine is unexplained.
+3. `project_url` **names the sandbox host** at my shape check between `url` and `verify-url`, and again after 133
+   has consumed it.
+4. **No production host anywhere** — my `pg_proc` / `cron.job` production-reference probe re-run at the close,
+   expecting 0/0, since 133 rewrites the bodies SBX-1/2 left naming the sandbox host out of band.
+
+Recorded for the package so neither is discovered live: after 133 the re-registered crons post with an empty bearer
+and are refused every tick, so `enforce-transfer-expiry` does not run for the life of this sandbox state — expected
+under (b), and the refused ticks in `net._http_response` are the evidence it behaves as designed; and 133's §0
+precondition is satisfied **only** because the ceremony precedes it, so if the ceremony is skipped or fails, 133
+must not be applied.
+
 ## Row 15 root-caused; row 17's sandbox limit; ceremony script cleared
 
 **Row 15 (04:12Z relaunch) is a deterministic re-entrancy defect in the shipped client, not a transient fetch
