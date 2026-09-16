@@ -44,15 +44,19 @@ SELECT is(
                          'proof-docs owner delete unreferenced')),
   5::bigint, 'all five proof-docs policies present (033/034/049/053)');
 
--- 4. Exactly two SELECT policies may mention proof-docs, and they are the
---    owner and transfer-party ones. A third — however well-intentioned — is a
---    new read path onto other people's ticket evidence.
+-- 4. Exactly three SELECT policies may mention proof-docs: the owner and
+--    transfer-party ones, and (since 118) the operator-review path, which is
+--    gated on kernel.is_platform + aal2 AND on the object being referenced by
+--    a transfer/listing row (test 184 §H proves the founder/aal1/unrelated
+--    matrix). Any other SELECT policy is a new read path onto other people's
+--    ticket evidence.
 SELECT is_empty(
   $$ SELECT policyname FROM pg_policies
       WHERE schemaname = 'storage' AND tablename = 'objects'
         AND cmd = 'SELECT' AND qual ILIKE '%proof-docs%'
-        AND policyname NOT IN ('proof-docs owner read','proof-docs transfer party read') $$,
-  'no third SELECT path onto proof-docs');
+        AND policyname NOT IN ('proof-docs owner read','proof-docs transfer party read',
+                               'proof-docs operator read') $$,
+  'no fourth SELECT path onto proof-docs (owner, transfer party, 118 operator review only)');
 
 -- 5. And no anon/public-facing SELECT policy touches it at all.
 SELECT is_empty(
