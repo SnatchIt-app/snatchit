@@ -1608,7 +1608,11 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   Build 17 strings are unchanged by the refresh (grep on bf8b9ba) and are to be
   re-observed on the combined build (DV-ST3). Labels and timings not captured
   are not recorded. **Next: row 15 (DV-611C)** — "row 15 ready" to A on the
-  owner's relaunch time.
+  owner's relaunch time. **A's note (2026-09-16):** row 140fcb44…'s `last_used`
+  already reads 04:00:03Z from the owner's row-14 relaunches, so A compares
+  against a value captured immediately BEFORE the row-15 relaunch, not the
+  01:42:41Z baseline — the owner holds the relaunch until A confirms the
+  capture and C says go. Row 17's session delete waits for the owner's "ready".
 
 ## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
 
@@ -1632,7 +1636,7 @@ reaching analytics.
 
 | ID | Item | Pri | Status | Screens | Owner | Blocked by |
 |---|---|---|---|---|---|---|
-| CFT-901 | Data contract: shape, RLS, retention, deletion, export, account deletion, consent semantics | P1 | proposed | — | A (C supplies §7) | owner approval of the contract |
+| CFT-901 | Data contract: shape, RLS, retention, deletion, export, account deletion, consent semantics. **A's early positions (2026-09-16, full doc to follow on the converge branch):** separate owner-only table — yes; no admin row-level read — yes; one aggregate function with small-group suppression — yes; write path via a SECURITY DEFINER RPC (not RLS table writes) so consent and timestamps are set server-side; "cleared" and "undisclosed" distinguishable in the row, identical in every aggregate | P1 | proposed (A reviewing) | — | A (C supplies §7) | owner approval of the contract |
 | CFT-902 | Signup step 2: Gender radio group, self-describe reveal, validation, Continue never disabled | P1 | proposed | `app/(auth)/signup.tsx` | C | CFT-901 |
 | CFT-903 | Settings › Edit profile: Gender row, selector, Clear gender (consent off), consent toggle, revert on failed save | P1 | proposed | `app/settings/edit-profile.tsx` | C | CFT-901 |
 | CFT-904 | Copy and the "Why we ask" sheet; strings in a module | P2 | proposed (text reviewable now) | signup, edit profile | C | — |
