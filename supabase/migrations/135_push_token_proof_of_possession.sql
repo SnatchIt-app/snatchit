@@ -459,7 +459,8 @@ grant  execute on function public.unbind_push_token(text) to service_role;
 -- ── 6c. send-push's read: the challenge by id, token-addressed, no requester identity ──
 create or replace function notify.get_push_token_challenge(p_challenge_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
-  select jsonb_build_object('id', c.id, 'token', t.token, 'platform', t.platform, 'mode', c.mode,
+  select jsonb_build_object('id', c.id, 'token', t.token, 'token_id', c.token_id, 'platform', t.platform, 'mode', c.mode,
+                            'requesting_user', c.requesting_user,   -- for the edge's ownership check + its rate-limit namespace; never in the payload or logs (B, CD-1/CD-2)
                             'expires_at', c.expires_at, 'confirmed_at', c.confirmed_at, 'consumed_at', c.consumed_at,
                             'attempts', c.attempts, 'dispatched_at', c.dispatched_at)
     from notify.push_token_challenges c join public.push_tokens t on t.id = c.token_id
@@ -468,7 +469,7 @@ $$;
 revoke execute on function notify.get_push_token_challenge(uuid) from public, anon, authenticated;
 grant  execute on function notify.get_push_token_challenge(uuid) to service_role;
 comment on function notify.get_push_token_challenge(uuid) is
-  '135: send-push''s read of a challenge by id — the token to address, its mode/expiry/attempts/state; NO requester or owner identity (the push is token-addressed). service_role only.';
+  '135: send-push''s read of a challenge by id — the token to address, token_id and requesting_user (so the edge verifies the caller''s user_id owns the challenge and keys its own rate limit per (token, requester)), mode/expiry/attempts/state; no secret or nonce hash; the OWNER''s identity is never returned and nothing here may reach the push payload or logs. service_role only.';
 
 -- ── 7. delivery result (send-push → challenge row) ──────────────────────────
 create or replace function notify.record_push_token_challenge_delivery(p_challenge_id uuid, p_outcome text, p_provider_message_id text, p_error text)

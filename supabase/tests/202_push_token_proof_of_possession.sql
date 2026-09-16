@@ -213,9 +213,9 @@ SELECT tap.logout();
 SELECT matches(tap._g202('H2'), '^ok\|ok\|ok\|P0001 precondition_failed: too many challenge requests$', 'H2: the fourth request for the same (token, user) inside 10 min is refused (3 per token per user)');
 
 -- ── I. send-push''s verbs: read the challenge (token-addressed, no identity) and record delivery ──
-SELECT ok((SELECT (j ? 'token') AND (j ? 'mode') AND NOT (j ? 'requesting_user') AND NOT (j ? 'user_id') AND NOT (j ? 'secret_hash') AND NOT (j ? 'nonce_hash')
+SELECT ok((SELECT (j ? 'token') AND (j ? 'token_id') AND (j ? 'mode') AND (j ->> 'requesting_user') = tap.other_user()::text AND NOT (j ? 'user_id') AND NOT (j ? 'owner') AND NOT (j ? 'secret_hash') AND NOT (j ? 'nonce_hash') AND NOT (j ? 'prev_nonce_hash')
             FROM notify.get_push_token_challenge((SELECT id FROM notify.push_token_challenges WHERE requesting_user = tap.other_user() ORDER BY created_at DESC LIMIT 1)) j),
-  'I0: get_push_token_challenge returns the token to address and the challenge state, and NO identity, secret or nonce hash');
+  'I0: get_push_token_challenge returns the token to address, token_id and the requester (for the edge''s ownership check), the state — and NO owner identity, secret or nonce hash');
 SELECT is((notify.record_push_token_challenge_delivery((SELECT id FROM notify.push_token_challenges WHERE requesting_user = tap.other_user() ORDER BY created_at DESC LIMIT 1), 'sent', 'expo-ticket-1', null) ->> 'recorded'), 'true', 'I1: delivery outcome recorded on the challenge row');
 SELECT is((notify.record_push_token_challenge_delivery(gen_random_uuid(), 'sent', null, null) ->> 'recorded'), 'false', 'I2: an unknown challenge records nothing');
 
