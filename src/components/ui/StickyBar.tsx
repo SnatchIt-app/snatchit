@@ -15,6 +15,9 @@
 import { StyleSheet, View, useWindowDimensions, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
+import { stickyBottomPadding } from '@/src/lib/nav/keyboardLift';
+
 import * as v2 from '@/src/theme/v2';
 
 /**
@@ -35,6 +38,7 @@ export interface StickyBarProps {
 
 export function StickyBar({ left, children, style, testID }: StickyBarProps) {
   const insets = useSafeAreaInsets();
+  const keyboardUp = useKeyboardUp();
   const { width } = useWindowDimensions();
   const stacked = width < STACK_WIDTH;
 
@@ -47,7 +51,8 @@ export function StickyBar({ left, children, style, testID }: StickyBarProps) {
         // The home indicator is not a design decision, it is a fact about the
         // device. Every tab screen in this app currently hardcodes 56pt of top
         // padding and ignores the equivalent at the bottom.
-        { paddingBottom: v2.space.md + insets.bottom },
+        // F-SELL-1: under a keyboard the home indicator is covered, so only the bar's own padding remains.
+        { paddingBottom: stickyBottomPadding({ keyboardUp, insetBottom: insets.bottom, base: v2.space.md }) },
         style,
       ]}
     >

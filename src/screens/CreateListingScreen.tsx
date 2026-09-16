@@ -31,14 +31,15 @@ import {
   View,
   type TextStyle,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
+import { ctaLift } from '@/src/lib/nav/keyboardLift';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
-import { useCtaDockOffset } from '@/src/lib/nav/navInsets';
+import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
 import {
   digitsOnly,
   findBannedContent,
@@ -275,9 +276,12 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 
 export default function CreateListingScreen() {
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
-  // Lift the List ticket CTA above the floating dock: its own surface, clear gap.
+  const topPad = useTopInset();
+  // Lift the List ticket CTA above the floating dock: its own surface, clear gap —
+  // but not while a keyboard is up (F-SELL-1): the dock hides then, and the lift
+  // became a ~160 pt blank gap between the bar and the keyboard on build 17.
   const ctaDockOffset = useCtaDockOffset();
+  const keyboardUp = useKeyboardUp();
   // Create participates in the universal adaptive collapse (device revision).
   const { onScroll: onDockScroll } = useDockScroll('create');
 
@@ -565,7 +569,7 @@ export default function CreateListingScreen() {
   // ────────────────────────────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView style={sx.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[sx.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[sx.header, { paddingTop: topPad + v2.space.sm }]}>
         <Text style={[textStyle('displayMd'), sx.pageTitle]} accessibilityRole="header">Sell your ticket</Text>
       </View>
 
@@ -839,7 +843,7 @@ export default function CreateListingScreen() {
       <StickyBar
         // A separate transactional surface that ENDS above the floating dock with
         // a clear gap — never merged with navigation.
-        style={{ marginBottom: ctaDockOffset, paddingBottom: v2.space.md }}
+        style={{ marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset }), paddingBottom: v2.space.md }}
         left={
           <View>
             <Text style={[textStyle('micro'), sx.stickyKicker]}>{summary.valid ? proceedsKicker(quantity) : 'Set a price'}</Text>

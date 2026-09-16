@@ -20,7 +20,9 @@ import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { SANDBOX_BADGE_EXTRA } from '@/src/lib/nav/keyboardLift';
 
 import { ENV_GUARD_FAILURE, IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -176,11 +178,7 @@ function RootLayout() {
       ) : null}
 
       {/* Unmistakable label so a sandbox build is never mistaken for production. */}
-      {IS_SANDBOX_BUILD ? (
-        <View style={styles.sandboxBadge} pointerEvents="none">
-          <Text style={styles.sandboxBadgeText}>SANDBOX — TEST MONEY ONLY</Text>
-        </View>
-      ) : null}
+      {IS_SANDBOX_BUILD ? <SandboxBadge /> : null}
 
       <StatusBar style="light" />
     </ThemeProvider>
@@ -192,6 +190,21 @@ function RootLayout() {
 
 // On native: Sentry.wrap(RootLayout). On web: identity (returns RootLayout).
 export default wrapRootComponent(RootLayout);
+
+/**
+ * Unmistakable label so a sandbox build is never mistaken for production. It
+ * overlays the top of every screen; its height past the status-bar inset is
+ * SANDBOX_BADGE_EXTRA, which screen headers add through useTopInset()
+ * (F-SELL-1: the seller form's heading sat under it on build 17).
+ */
+function SandboxBadge() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.sandboxBadge, { paddingTop: insets.top }]} pointerEvents="none">
+      <Text style={styles.sandboxBadgeText}>SANDBOX — TEST MONEY ONLY</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   envBlock: {
@@ -211,11 +224,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#7a3b00',
-    paddingTop: 52,
     paddingBottom: 6,
     alignItems: 'center',
   },
-  sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  // Line height + the 6 pt below it = SANDBOX_BADGE_EXTRA, which headers add (useTopInset).
+  sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, lineHeight: SANDBOX_BADGE_EXTRA - 6, fontWeight: '700', letterSpacing: 1 },
   splash: {
     flex: 1,
     backgroundColor: v2.surface.canvas,

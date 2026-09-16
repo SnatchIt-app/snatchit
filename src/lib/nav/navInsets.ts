@@ -12,6 +12,9 @@
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { topInset } from './keyboardLift';
+
 /** Dock bar height (the floating pill / the compact control). */
 export const DOCK_HEIGHT = 66;
 /**
@@ -45,4 +48,10 @@ export function useDockClearance(): number {
 export function useCtaDockOffset(): number {
   const insets = useSafeAreaInsets();
   return insets.bottom + DOCK_GAP + DOCK_HEIGHT + CTA_DOCK_GAP;
+}
+
+/** Top padding for a screen header: the status-bar inset plus the sandbox badge's extra height on sandbox builds. */
+export function useTopInset(): number {
+  const insets = useSafeAreaInsets();
+  return topInset({ insetTop: insets.top, sandbox: IS_SANDBOX_BUILD });
 }
