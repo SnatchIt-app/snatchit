@@ -317,3 +317,16 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   are active, owned by the DV seller, with `cover_image_path = fixtures/<name>.jpg` and no `storage.objects` row — the image
   request fails; the branded fallback is the PASS state.
 - **DV-605:** a listing id that does not exist on the sandbox is supplied by A (verified absent before hand-off).
+- **DV-611L re-read after the owner confirmed Allow Notifications ON and force-quit/relaunched (≈01:26Z): still no row.
+  ROOT CAUSE (read-only, sandbox logs):** `edge_logs` 01:19:06.164Z `POST /rest/v1/rpc/register_push_token` from
+  `SnatchIt/17` → **403**; `postgres_logs` 01:19:06.666Z `insufficient_privilege: token is bound to another account` (128
+  rule 4). The cold launch at 01:26 made no register call (client terminal state; no retry). The sandbox's only
+  `push_tokens` row (`140fcb44…`, created 2026-09-08 04:08Z, last_used 09-10, **active**, hash NULL, ios) belongs to user
+  `1fcd0c69…` (a staff account used for Build 16 testing on this same handset); same install ⇒ same Expo push token ⇒ the
+  buyer's registration meets an active legacy row on another account; rule 5 needs `signed_out` + inactive, which Build 16
+  never wrote. **Designed terminal state per contract v2; the production scenario for every Build 16 user who switches
+  accounts on one device.** Nothing mutated by A. Recovery paths offered to the owner: (B) the staff account signs in
+  (→ `refreshed`, hash planted on the real device) and signs out (129 → `signed_out`) on the handset, then the buyer →
+  rule 3 `rebound`; (A) support `unbind_push_token` (service_role) recorded before/after. **Candidate finding F-611-1 (C/D to
+  dispose):** the client does not retry after entering the terminal state even once the cause is gone, and the owner saw no
+  remedy banner at Block 0 step 3.
