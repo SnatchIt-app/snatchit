@@ -361,3 +361,7 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   preview build (stack 131–134 + logout/session client + b2 + seller-form fix); isolated implementation, local testing, review,
   integration authorized now; the build after the combined commit passes reviews and CI; **any sandbox migration or edge
   deployment needs an exact consolidated application package approved first; no production change authorized.**
+- **Owner / C, later on 2026-09-16:** row 14 (offline states) PASS with one wording difference recorded for review — Tickets shows
+  "Something went wrong / We couldn't load this right now" where Home/Bids/Profile show "You're offline" (**F-OFF-1, LOW, next
+  candidate, not now**); row 10 (VoiceOver) UNTESTED at the owner's request (**A11Y-1 follow-up**). Next: row 13, row 14's
+  filtered/empty checks, then rows 15–18 on C's triggers.
