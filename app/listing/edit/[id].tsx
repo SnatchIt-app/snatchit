@@ -16,7 +16,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -39,7 +39,7 @@ const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
 
 export default function EditListingScreen() {
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const params = useLocalSearchParams<{ id: string }>();
   const listingId = params.id ?? '';
 
@@ -140,7 +140,7 @@ export default function EditListingScreen() {
 
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Edit listing</Text>
         <View style={s.headerSpacer} />
