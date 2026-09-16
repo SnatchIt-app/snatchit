@@ -1231,3 +1231,32 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   DV-611 L/S/R/C are runnable on build 17; `ops`-dependent rows are
   not-run-on-sandbox. Production gates unchanged (notification-redirection
   decision still open with A/D; 131/132 pre-production).
+- **Handset session 1 on build 17 (2026-09-15 evening, owner + A read-backs):**
+  Block 0 step 2 — the sign-in was a Keychain-restored session (created 09-14;
+  refreshed 21:19 EDT by build 17's user-agent; URL + anon key proven).
+  **Step 3 / DV-611L NOT MET AS WRITTEN:** zero push_tokens rows for the buyer.
+  Root cause (A, sandbox logs, read-only): at 21:19:06 EDT build 17 called
+  `register_push_token` → 403, postgres `insufficient_privilege: token is
+  bound to another account` (128 rule 4) — the handset's token is still bound,
+  ACTIVE and hash-less, to the owner's staff account from Build 16 testing on
+  the same handset (row 140fcb44…, created 09-08); rule 5 needs
+  `signed_out`, which Build 16 never wrote. The refusal is the F7 protection
+  working (the buyer did not take over the staff account's token). The 21:26
+  cold launch made no register call: the client's terminal state wins over the
+  cold-launch clause (registration.ts:139-143); it is cleared by sign-out
+  (656b3ee clears the record on every sign-out), a different account, a new
+  token or a method change — no "Try again" exists. The remedy banner should
+  be visible in Settings › Notifications ('waiting' + bound_to_other);
+  owner asked to report its text. **F-611-1 (product/support-load, to D; not
+  a server defect; not a candidate blocker on its own):** no automatic retry
+  while terminal even after the cause is gone, and the candidate's copy says
+  "sign out here first" where the exact remedy is sign in then sign out on
+  this device (S-13 wording on the 131 branch already says so). Recovery
+  paths offered to the owner: B (recommended, no mutation: buyer signs out →
+  staff signs in on the handset → `refreshed` + hash → staff signs out →
+  `signed_out` → buyer signs in → `rebound`), or A (A runs
+  `unbind_push_token` as service_role, recorded). Decision pending. DV-611L
+  to be recorded as NOT APPLICABLE as written (install not fresh); DV-106
+  fixture = Build 16 listings "Phone P1" / "Device D7" / "Device D8"; DV-605 id
+  `00000000-0000-4000-8000-000000000605`; two device-session writes (report
+  row, quantity-2 listing) logged by A in manifest §10.
