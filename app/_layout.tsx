@@ -201,7 +201,8 @@ function SandboxBadge() {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.sandboxBadge, { paddingTop: insets.top }]} pointerEvents="none">
-      <Text style={styles.sandboxBadgeText}>SANDBOX — TEST MONEY ONLY</Text>
+      {/* S-1 (D): a build banner, not content — fixed size so its height stays SANDBOX_BADGE_EXTRA at every text setting. */}
+      <Text style={styles.sandboxBadgeText} allowFontScaling={false}>SANDBOX — TEST MONEY ONLY</Text>
     </View>
   );
 }

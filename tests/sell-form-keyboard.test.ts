@@ -63,5 +63,7 @@ describe('the screens use the helpers (source contract)', () => {
     const s = stripComments(read('app/_layout.tsx'));
     expect(s).not.toMatch(/paddingTop: 52/);
     expect(s).toContain('SANDBOX_BADGE_EXTRA');
+    // S-1 (D): large accessibility text must not grow the badge past the height headers add.
+    expect(s).toMatch(/sandboxBadgeText\} allowFontScaling=\{false\}/);
   });
 });
