@@ -1,8 +1,8 @@
 # Support runbook — `unbind_push_token` (b2 item 8, DRAFT by B for D's review, 2026-09-16)
 
-**Status:** draft, revised 2026-09-16 after D's review (D answered the four open points; they are now rules, with D's reasons kept). It authorizes nothing; running any step against production needs the owner's authorization, and the verb is service-role only.
+**Status:** draft, revised 2026-09-16 after D's review, and again after D's 135 review (D-135-5: RB-1 closed; this file is docs-only and changes nothing that was applied) (D answered the four open points; they are now rules, with D's reasons kept). It authorizes nothing; running any step against production needs the owner's authorization, and the verb is service-role only.
 
-**Open dependency (RB-1, D, MEDIUM):** today `unbind_push_token` DELETEs the row, and under contract v3 it is the token's history that forces a proof. An unbind therefore erases the history, and the next binder gets `registered` with no proof — support would be the documented way around b2. D's fix, for A's migration 135: unbind *revokes and tombstones* (`is_active=false`, proof cleared, `revoked_reason='support_unbound'`, row kept). §5 below is written for the tombstone; if A does not take it, §5's read-back changes and this runbook must say plainly that an unbind reopens the no-proof window.
+**RB-1 is CLOSED (D, MEDIUM — taken into migration 135).** An unbind does **not** erase the token's history. `unbind_push_token` revokes and tombstones: `is_active=false`, `device_secret_hash` cleared, `revoked_reason='support_unbound'`, `session_id` cleared, **the row kept**, and any open challenge on that token consumed; the reply is `{unbound, contract_version: 3}`. Because the row survives, the next account to claim that token still gets `challenge_required` and must prove possession — so support is **not** a way around b2. Verified at the stack pin (135 §6b; `release/production-gate-20260918` @ `9bef640`). Before 135 the verb deleted the row, which is what made this an open risk; §5 keeps that caveat for anyone reading against an older build.
 
 ## 1. What this is for
 b2 gives a device a self-service route: the server sends a one-time nonce to the token, the device echoes it, and the binding moves to the account that proved possession. That route needs **the physical device**. Support unbinding is the exception for when proof cannot reach it:
@@ -32,7 +32,7 @@ It is **not** for impatience with a challenge, a user who has the phone in hand,
 - Tell the user plainly what the verb does: it **releases the binding**; it does not end a session and does not sign the lost device out. A replacement device registers its own token and takes the binding by proof of possession.
 
 ## 5. After the action
-- Read back the row: the binding is **released and tombstoned** (inactive, proof cleared, reason recorded, row kept), so the next device must still prove possession. Under a delete-instead-of-tombstone build, that guarantee does not hold — see RB-1 at the top.
+- Read back the row: the binding is **released and tombstoned** (inactive, proof cleared, `revoked_reason='support_unbound'`, row kept), so the next device must still prove possession. This holds **from migration 135 onward**. On any build without 135 the verb DELETEs the row instead, the token's history goes with it, and the next binder registers with no proof — if you are working against such a build, stop and escalate rather than unbinding.
 - Record the action in `kernel.admin_audit` under `push_token.unbind` (D: the durable trail belongs there, the 083 append-only pattern the signing monitor already uses). The admin console reads that trail; it does not keep a second one.
 - The previous owner receives the existing in-app security notice, as for any ownership change.
 - **No cool-down** (D): proof of possession already gates the next bind, and a cool-down would only delay the legitimate replacement device.
@@ -51,4 +51,5 @@ It is **not** for impatience with a challenge, a user who has the phone in hand,
 4. **Challenge history for support:** yes, outcomes only — token id, created, expires, confirmed, attempts, delivery outcome. Never the nonce, the nonce hash or the token string. It is an admin-console read on D's surface, to be specced when 135 lands, owner-gated like the rest.
 
 ## 8. Still open
-- **RB-1** (top of this file): whether 135 tombstones instead of deleting. A owns it; this runbook is written for the tombstone.
+- **RB-1 — closed** (see the top): 135 tombstones instead of deleting, so this runbook's read-back in §5 is the behaviour of the stack, not an assumption about it.
+- **The support-facing challenge history** (§7.4) is specced but not built: it is an admin-console read on D's surface, owner-gated, and §3 points at it. Until it exists, an agent cannot see challenge outcomes and must not infer them from anything else.
