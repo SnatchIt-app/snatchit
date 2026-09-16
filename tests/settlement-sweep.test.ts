@@ -74,6 +74,12 @@ async function scenario(opts: {
     },
     tables: {
       payments: (q: QueryCall) => {
+        if (q.op === 'update') {
+          // 134: the guarded fail-update selects the row back; return it when the fixture has it
+          const idF = q.filters.find((f) => f[0] === 'eq' && f[1] === 'id');
+          const r = idF ? opts.payments?.[String(idF[2])] : undefined;
+          return { data: q.terminal === 'list' ? (r ? [r] : []) : (r ?? null) };
+        }
         if (q.op === 'select') {
           const idF = q.filters.find((f) => f[0] === 'eq' && f[1] === 'id');
           if (idF) {
@@ -327,6 +333,73 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     expect(piGets(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_p1?expand[]=latest_charge&expand[]=latest_charge.refunds']);
     expect(settles(s.sb).map((r) => r.params.p_payment_intent_id)).toEqual(['pi_p1']);
     expect(s.body).toMatchObject({ reconciled_settled: 1, reconciled_legacy_unknown_mode: 2, reconciled_errors: 0 });
+  });
+
+  // ── 134: processing_stale — a buyer's own live attempt Stripe already moved on from ──
+  const failUpdates = (sb: ReturnType<typeof mockSupabase>) => sb.queries.filter((q) => q.table === 'payments' && q.op === 'update' && (q.body as Record<string, unknown>)?.status === 'failed');
+  const releases = (sb: ReturnType<typeof mockSupabase>) => sb.rpcs.filter((r) => r.name === 'release_reservation_for_payment');
+  const procRow = (): PayRow & { buyer_id: string; mode: string } => ({ id: 'p9', status: 'processing', stripe_refund_id: null, stripe_livemode: true, total: 22000, listing_id: LISTING, buyer_id: 'buyer-9', mode: 'buy_now' });
+
+  it('134: processing_stale whose intent is requires_payment_method → the row is failed (guarded on pending|processing), the 127 hold release runs, no settle call', async () => {
+    const s = await scenario({
+      work: [row('p9', 'processing_stale', 'processing')],
+      payments: { p9: procRow() },
+      piFetch: (pi) => ({ ok: true, data: piData(pi, { status: 'requires_payment_method', amount_received: 0 }) }),
+    });
+    const fu = failUpdates(s.sb);
+    expect(fu).toHaveLength(1);
+    expect(fu[0].filters).toEqual(expect.arrayContaining([['eq', 'id', 'p9'], ['in', 'status', ['pending', 'processing']]]));
+    expect(releases(s.sb)).toHaveLength(1);
+    expect(releases(s.sb)[0].params).toMatchObject({ p_listing_id: LISTING, p_user_id: 'buyer-9', p_payment_id: 'p9' });
+    expect(settles(s.sb)).toHaveLength(0);
+    expect(cancels(s.stripe.calls)).toHaveLength(0);
+    expect((s.body as Record<string, unknown>).reconciled_processing_failed).toBe(1);
+  });
+
+  it('134: processing_stale whose intent is canceled → same fail path; an auction-mode row releases no hold', async () => {
+    const s = await scenario({
+      work: [{ ...row('p9', 'processing_stale', 'processing'), mode: 'auction' }],
+      payments: { p9: { ...procRow(), mode: 'auction' } },
+      piFetch: (pi) => ({ ok: true, data: piData(pi, { status: 'canceled', amount_received: 0 }) }),
+    });
+    expect(failUpdates(s.sb)).toHaveLength(1);
+    expect(releases(s.sb)).toHaveLength(0);
+    expect(settles(s.sb)).toHaveLength(0);
+  });
+
+  it('134: processing_stale whose intent succeeded → the ordinary settle path, no fail-update', async () => {
+    const s = await scenario({
+      work: [row('p9', 'processing_stale', 'processing')],
+      payments: { p9: procRow() },
+      piFetch: (pi) => ({ ok: true, data: piData(pi, { status: 'succeeded' }) }),
+    });
+    expect(failUpdates(s.sb)).toHaveLength(0);
+    expect(settles(s.sb)).toHaveLength(1);
+    expect((s.body as Record<string, unknown>).reconciled_processing_failed).toBe(0);
+  });
+
+  it('134: processing_stale whose intent is still processing → untouched (settle path answers not_succeeded; no fail-update, no release)', async () => {
+    const s = await scenario({
+      work: [row('p9', 'processing_stale', 'processing')],
+      payments: { p9: procRow() },
+      outcomes: { pi_p9: 'not_succeeded' },
+      piFetch: (pi) => ({ ok: true, data: piData(pi, { status: 'processing', amount_received: 0 }) }),
+    });
+    expect(failUpdates(s.sb)).toHaveLength(0);
+    expect(releases(s.sb)).toHaveLength(0);
+    expect(settles(s.sb)).toHaveLength(1);
+  });
+
+  it('134: the guarded fail-update finds no claimable row (a late success landed) → nothing else happens', async () => {
+    const s = await scenario({
+      work: [row('p9', 'processing_stale', 'processing')],
+      payments: {},   // update returns null: the row is no longer pending|processing
+      piFetch: (pi) => ({ ok: true, data: piData(pi, { status: 'requires_payment_method', amount_received: 0 }) }),
+    });
+    expect(failUpdates(s.sb)).toHaveLength(1);
+    expect(releases(s.sb)).toHaveLength(0);
+    expect(settles(s.sb)).toHaveLength(0);
+    expect((s.body as Record<string, unknown>).reconciled_processing_failed).toBe(0);
   });
 
   it('Phase 0 runs before Phase 1 and never blocks it', async () => {
