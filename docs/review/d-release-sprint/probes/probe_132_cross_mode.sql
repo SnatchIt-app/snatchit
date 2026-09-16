@@ -37,7 +37,9 @@ SELECT '4.buy_now_entitled', (status = 'reserved' AND reserved_by = tap.buyer() 
 SELECT '4.auction_entitled', (status <> 'sold' AND auction_status = 'ended' AND winner_user_id = tap.buyer()
                               AND NOT (reserved_until > now() AND reserved_by IS DISTINCT FROM tap.buyer()))::text
   FROM public.listings WHERE id = 'd1320000-aaaa-4000-8000-000000000001';
--- 5. both groups claim at the same time (132 serializes within a group only)
+-- 5. at 9d82247 the group key is (listing, buyer): the second mode is refused (claim_held).
+-- Steps 6-7 are raw SQL that BYPASSES the edge; they show the DB alone does not stop two rows —
+-- the edge's cross-mode prior read + 409 is what does (vitest X1-X5). Kept as the shape of F-132-1.
 SET LOCAL ROLE service_role;
 SELECT '5.claim_buy_now', pg_temp.try($q$SELECT public.claim_checkout_group('d1320000-aaaa-4000-8000-000000000001', '22222222-2222-2222-2222-222222222222', 'buy_now')->>'reason'$q$);
 SELECT '5.claim_auction', pg_temp.try($q$SELECT public.claim_checkout_group('d1320000-aaaa-4000-8000-000000000001', '22222222-2222-2222-2222-222222222222', 'auction')->>'reason'$q$);

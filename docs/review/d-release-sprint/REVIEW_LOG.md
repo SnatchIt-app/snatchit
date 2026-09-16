@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); **132 NOT PASSED at acbd5dd (F-132-1 cross-mode, F-132-2 cross-buyer)**; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); 132 @ 9d82247 **PASSES** (F-132-1/2/3 + reuse-order closed; 2 LOW notes); item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -195,34 +195,31 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
-### 132 — independent review of B's PR #70 (`fix/132-pending-before-intent`; probed at b20ee46, review-ready head acbd5dd = b20ee46 + service_role grant; CI 34980015844 green): **NOT PASSED — 2 blocking findings**
-Mechanism: pre-mint `checkout_group_claim` row keyed (listing, buyer, mode) — a record before the intent, not a pending payments
-row (B's addendum; A carries it to the owner). Sound as read: single-statement claim (ON CONFLICT … WHERE stale), token-bound
-release in an outer finally, E-1 budget now applies to fresh mints, guard check before insert (987) and before every hand-out with
-no await between the last check and the Response (884→887, 1041→1044, 1134→1137), supersede withdraws the replacement when the
-old intent is not provably cancelled, a timed-out create leaves only an unexposed orphan.
-| # | Severity | Finding |
+### 132 — full battery on PR #70 head `9d82247` (CI 35044535546 green): **PASSES from D, with 2 LOW notes**
+Scope: concurrency, retries, uncertain Stripe outcomes, duplicate prevention (owner's assignment). Earlier findings F-132-1 (cross-mode),
+F-132-2 (cross-buyer best-effort retire), the reuse-order stall and F-132-3 (leftover older attempt) are all closed.
+- Integrated harness at 9d82247: PASS 23 · FAIL 0 · WARN 2 declared · replay 150 · census **32|99|37|35** · grants = fixture (**69**) ·
+  manifest PASS · pgTAP 5030/5030 · production order + release chain · **132 rollback restores the catalog exactly** · S1/S2/S3 identical.
+- `probes/probe_132_record_attempt.sql` (semantics): anon/authenticated denied on all three verbs and on the table · wrong token →
+  `claim_lost`, 0 rows · right token → `recorded`, row shape pending|buy_now|10000|1000|1000|11000|livemode f|buyer ok · duplicate intent
+  still raises 23505 (not swallowed) · after a real reclaim the old token records nothing (0 rows) and the claim's mode follows the new
+  holder · release is token-bound and group-wide (`token_mismatch`, `released`, `not_claimed`) · no claim → `claim_lost` · null token →
+  `missing_argument`.
+- `probes/race_132_record.sh` (two live sessions, my own): R1 holder records first → the reclaim WAITS 2513 ms, then claims and sees the
+  row to reuse · R2 reclaim first → the holder WAITS 2549 ms, gets `claim_lost`, writes 0 rows · C1 plain-insert control → the reclaim does
+  not wait (100 ms) and sees 0 rows (the defect) · **C2 my own in-DB mutant, FOR KEY SHARE → the reclaim stops waiting**, so FOR SHARE is
+  load-bearing.
+- B's two-session script re-run independently: G1–G8 + C1–C4 all PASS (G7 2554 ms, G8 2548 ms).
+- Cross-mode probe re-run: the second mode is now `claim_held` (group key is (listing, buyer)). Steps 6–7 of that probe bypass the edge and
+  are kept only as the shape of F-132-1.
+- Edge: vitest l1-edge-coupling + checkout-intent **84/84** at 9d82247. **Independent RED control**: the same two test files copied onto
+  `ebbd1c0` fail **9** tests, including Q1 (my stalled-record case), Q2, Q3 and T1–T4 — so the new evidence is load-bearing, not tautological.
+| # | Severity | Note (neither blocks 132) |
 |---|---|---|
-| F-132-1 | HIGH (money) | **cross-mode double mint reachable, sequentially**: bid → `reserve_buy_now` while running → ends_at passes under the live hold → `auto_finalize_expired_auctions` → listing reserved+ended, winner = holder = buyer; both edge entitlement predicates true; both group claims `claimed` (key includes mode); both pending rows insert; the auction request's mode-filtered prior read (748–753) and P1 processing check see nothing → fresh mint → two live secrets (16500 / 6600) → second capture unfulfillable → sweep refund. `probes/probe_132_cross_mode.sql`. Fix: key (listing, buyer); cross-mode prior read; other-mode live attempt → 409 or L1-order supersede |
-| F-132-2 | HIGH (money, source) | **cross-buyer**: the other-buyer retire (790–796, 248–252) is best-effort — an intent not provably cancelled (processing/requires_capture/succeeded at Stripe with the webhook not landed, or cancel timeout/error) is skipped and the entitled buyer still receives a secret; soldToAnother reads succeeded rows only → two buyers capture. Fix: fail closed (409, no mint) when any other buyer's pending intent is not provably cancelled; optional retrieve-then-sold |
-Open for the full battery at the fixed head: create timeout then retry with a divergent key; insert stall vs 120 s (no bound() on the DB call; statement_timeout for service_role unproven); P1 liveness (which writer moves a `processing` row with no webhook); duplicate/out-of-order webhooks; rollback identity; four-file rule.
-
-## D-INT0 — dry run on A's head `e104c87` (2026-09-15)
-
-| Check | Result |
-|---|---|
-| Fresh `LC_ALL=C` replay (`rehearsal_reset.sh`) | exit 0, 5.2 s |
-| Full pgTAP (`rehearsal_test.sh`) | plan 4789 · ok 4769 · not_ok 20 · psql_err 0 · 12.8 s — **REGRESSION** (157: 17, 162: 3) |
-| CI run 34926241630 (`f00c946`) | failed at privilege parity (`push_token_rebind_epoch` service_role grants) before pgTAP ran — the 20 failures were not visible in CI |
-
-## D-5 — 128 `register_push_token_secure_rebind` (cold read of `e104c87`/`f00c946`)
-
-| # | Severity | Finding | Evidence | Disposition |
-|---|---|---|---|---|
-| F1 | HIGH | The new verb never heals the push channel: after `device_not_registered`, re-registration leaves `identity_channel_state = 'unreachable'` and `last_provider_error` set, so `notify.enqueue` suppresses every later push (mandatory included). The revoked legacy verb healed (092:1119-1127, §17.24). | `probes/probe_128_unreachable.sql` — `verb=new`: state unreachable, next mandatory push `suppressed|undelivered_mandatory`; `verb=legacy` (negative control): state ok, push `pending` | accepted by A; fix on all success paths in progress |
-| F2 | test | 157 still exercises the revoked verb (17 not_ok); F28–F31 are the §17.24 heal contract | rehearsal pgTAP output | accepted; port to the new verb (becomes F1's regression test) |
-| F3 | test | 162 Gate-2 pins stale (30/88/33 vs 31/92/34) | rehearsal pgTAP output | accepted; bump with named delta |
-| Q1 | open | `app.push_token_verb` stays `on` for the rest of the transaction (guard disarmed); reachable only by a multi-statement transaction such as a pg_graphql multi-field mutation | code reading; pg_graphql absent from harness | A resets the setting before every return and before the rule-4 raise; probe on the real stack optional |
+| N-132-1 | LOW | `otherLiveAttemptsCleared` runs AFTER the last `claimGuard.check()` and makes bounded Stripe calls, so the guard verdict is stale by the sweep's duration. The budget (90 s) still ends before the 120 s lapse, so no reclaim can intervene, but re-checking after the sweep would restore "the last word before a secret leaves" |
+| N-132-2 | LOW | `withdrawUnrecordedIntent` reads `payments` then cancels; a concurrent request could record that intent in between. The window is milliseconds and it only reopens B's own Q1 defect in miniature. Alternative: never cancel on the claim-lost path and let the orphan expire |
+Evidence limits: edge behaviour is proven by vitest against the real handler with injected Stripe/DB, not by a hosted run; the sandbox has
+132 applied nowhere; Stripe's own idempotency replay is simulated.
 
 ### 128 fold-in pass — `cf73d7b`
 
