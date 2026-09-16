@@ -394,6 +394,34 @@ async function releaseCheckoutGroup(supabase: SupabaseClient, claim: GroupClaim)
   }
 }
 
+// 132 (D review, reuse-order): the pending row is recorded ONLY while this
+// request still holds the group claim. A plain INSERT is not bound to the claim:
+// a request stalled in transit could commit its row after a reclaimer had minted
+// and handed out its own secret, and the stalled row — newest by created_at —
+// would then be reused, giving two live secrets. record_checkout_attempt takes
+// the group row FOR SHARE on the token, so a reclaim waits for this insert and
+// reuses it, and an abandoned holder records nothing.
+type RecordedAttempt =
+  | { kind: 'recorded' }
+  | { kind: 'claim_lost' }
+  | { kind: 'error'; error: { code?: string; message?: string; details?: string; hint?: string } };
+
+async function recordCheckoutAttempt(
+  supabase: SupabaseClient, claim: GroupClaim,
+  row: { sellerId: string | null; amount: number; buyerFee: number; sellerFee: number; total: number; intentId: string; livemode: boolean | null },
+): Promise<RecordedAttempt> {
+  const { data, error } = await supabase.rpc('record_checkout_attempt', {
+    p_listing_id: claim.listingId, p_buyer_id: claim.buyerId, p_mode: claim.mode, p_claim_token: claim.token,
+    p_seller_id: row.sellerId, p_amount: row.amount, p_buyer_fee: row.buyerFee, p_seller_fee: row.sellerFee,
+    p_total: row.total, p_payment_intent_id: row.intentId, p_livemode: row.livemode,
+  });
+  if (error) return { kind: 'error', error: error as { code?: string; message?: string } };
+  const r = (data ?? null) as { inserted?: boolean; reason?: string } | null;
+  if (r?.inserted === true) return { kind: 'recorded' };
+  if (r?.reason === 'claim_lost') return { kind: 'claim_lost' };
+  return { kind: 'error', error: { code: 'PGRST-noresult', message: `record_checkout_attempt returned ${JSON.stringify(r)}` } };
+}
+
 // ── E-1: the 120 s stale window must bind the request that HOLDS the claim ────
 // claim_checkout_supersede treats a claim older than 120 s as abandoned, so a
 // holder that is still running past that point could act after another request
@@ -782,6 +810,61 @@ serve(async (req: Request) => {
       );
     }
 
+    // 132 (D review F-132-3): before ANY hand-out, every other live attempt of this
+    // buyer on this listing must be provably dead. Two same-mode pending rows can
+    // outlive one request — the supersede path inserts the replacement and then
+    // cancels the superseded intent, and a crash between the two leaves both — and
+    // the next request would hand out the newest while the older secret is still
+    // confirmable. The read is FRESH (not the snapshot) so it also covers a writer
+    // this request never saw. Same fail-closed rule as the other-buyer retire.
+    const otherLiveAttemptsCleared = async (keepIntentId: string, stage: string): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id, stripe_payment_intent_id, status')
+        .eq('listing_id', listing_id)
+        .eq('buyer_id', buyerId)
+        .in('status', ['pending', 'processing']);
+      if (error) {
+        logStage('other-attempt-sweep-failed', { stage, error: error.message });
+        return false;
+      }
+      let clear = true;
+      for (const row of (data ?? []) as { id: string; stripe_payment_intent_id: string | null; status: string }[]) {
+        if (row.stripe_payment_intent_id === keepIntentId) continue;
+        const canceled = await cancelPaymentIntentBestEffort(row.stripe_payment_intent_id, 'retire-other-attempt', claimGuard.bound);
+        if (!canceled) { clear = false; continue; }
+        const { error: retireErr } = await supabase
+          .from('payments')
+          .update({ status: 'failed' })
+          .eq('id', row.id)
+          .in('status', ['pending', 'processing']);
+        if (retireErr) { clear = false; continue; }
+        logStage('other-attempt-retired', { stage, payment_row: row.id, pi_id: row.stripe_payment_intent_id });
+      }
+      return clear;
+    };
+
+    // Withdrawing an intent this request minted is safe ONLY while no payments row
+    // references it. Stripe replays one intent for a repeated idempotency key, so a
+    // concurrent request of the same group can hold the SAME intent and may already
+    // have recorded and handed it out; cancelling it then kills a live checkout.
+    const withdrawUnrecordedIntent = async (intentId: string, tag: string): Promise<void> => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('stripe_payment_intent_id', intentId)
+        .maybeSingle();
+      if (error) {
+        logStage('withdraw-skipped-unknown', { tag, pi_id: intentId, error: error.message });
+        return;
+      }
+      if (data) {
+        logStage('withdraw-skipped-recorded-elsewhere', { tag, pi_id: intentId });
+        return;
+      }
+      await cancelPaymentIntentBestEffort(intentId, tag, claimGuard.bound);
+    };
+
     const checkoutBusy = (stage: string, detail: Record<string, unknown> = {}): Response => {
       logStage(stage, { listing_id, mode, ...detail });
       return new Response(
@@ -936,6 +1019,9 @@ serve(async (req: Request) => {
         } else if (existingPiData.client_secret) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-reuse-secret');
+          if (!await otherLiveAttemptsCleared(existingPiData.id ?? '', 'before-reuse-secret')) {
+            return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-reuse-secret' });
+          }
           logStage('reuse-pending-pi', { pi_id: existingPiData.id, pi_status: existingPiData.status, amount_cents: existingPiData.amount });
           return new Response(
             JSON.stringify({
@@ -1039,28 +1125,24 @@ serve(async (req: Request) => {
       // E-1: never record (and so never later expose) a replacement once the claim is gone.
       const verdict = await claimGuard.check();
       if (verdict !== 'held') {
-        await cancelPaymentIntentBestEffort(stripeData.id, 'claim-lost-before-insert', claimGuard.bound);
+        await withdrawUnrecordedIntent(stripeData.id, 'claim-lost-before-insert');
         return claimLost(verdict, 'before-insert');
       }
     }
-    const { error: insertErr } = await supabase
-      .from('payments')
-      .insert({
-        listing_id,
-        buyer_id:   buyerId,
-        seller_id:  listing.seller_id,
-        amount:     amountCents,
-        buyer_fee:  buyerFeeCents,
-        seller_fee: sellerFeeCents,
-        total:      totalCents,
-        stripe_payment_intent_id: stripeData.id,
-        status:     'pending',
-        mode,
-        // Mode boundary (migration 045): recorded from Stripe's OWN
-        // livemode field, never inferred. Financial automation only acts
-        // on stripe_livemode = true rows.
-        stripe_livemode: stripeData.livemode ?? null,
-      });
+    // Mode boundary (migration 045): stripe_livemode is recorded from Stripe's OWN
+    // livemode field, never inferred. Financial automation only acts on live rows.
+    const recorded = await recordCheckoutAttempt(supabase, groupClaim.claim, {
+      sellerId: listing.seller_id, amount: amountCents, buyerFee: buyerFeeCents, sellerFee: sellerFeeCents,
+      total: totalCents, intentId: stripeData.id, livemode: stripeData.livemode ?? null,
+    });
+    if (recorded.kind === 'claim_lost') {
+      // The claim was reclaimed while this request was recording: the row was not
+      // written and this secret was never exposed. Withdraw the intent and refuse.
+      await withdrawUnrecordedIntent(stripeData.id, 'claim-lost-at-record');
+      logStage('checkout-record-refused', { pi_id: stripeData.id, reason: 'claim_lost' });
+      return claimLost('lost', 'at-record');
+    }
+    const insertErr = recorded.kind === 'error' ? recorded.error : null;
 
     if (insertErr) {
       const e = insertErr as { code?: string; message?: string; details?: string; hint?: string };
@@ -1093,6 +1175,9 @@ serve(async (req: Request) => {
         ) {
           const verdict = await claimGuard.check();
           if (verdict !== 'held') return claimLost(verdict, 'before-race-recovered-secret');
+          if (!await otherLiveAttemptsCleared(stripeData.id, 'before-race-recovered-secret')) {
+            return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-race-recovered-secret' });
+          }
           logStage('db-insert-race-recovered', { pi_id: stripeData.id });
           return new Response(
             JSON.stringify({
@@ -1184,6 +1269,9 @@ serve(async (req: Request) => {
       // hand it out.
       const verdict = await claimGuard.check();
       if (verdict !== 'held') return claimLost(verdict, 'before-secret');
+      if (!await otherLiveAttemptsCleared(stripeData.id, 'before-secret')) {
+        return checkoutBusy('checkout-refused-other-attempt', { stage: 'before-secret' });
+      }
     }
     return new Response(
       JSON.stringify({

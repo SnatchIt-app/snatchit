@@ -64,7 +64,9 @@ interface ScenarioOpts {
 }
 
 async function scenario(opts: ScenarioOpts) {
-  const payments = opts.payments ?? [];
+  // per-scenario copies: the payments mock mutates rows (retires), and the fixtures are shared consts
+  const payments = (opts.payments ?? []).map((r) => ({ ...r }));
+  const recordedAttempts: Record<string, unknown>[] = [];
   const sb = mockSupabase({
     user: { id: opts.user, email: `${opts.user}@example.test` },
     rpc: (name, params) => {
@@ -76,6 +78,12 @@ async function scenario(opts: ScenarioOpts) {
       // migration 132: the pre-mint group record is likewise always free here.
       if (name === 'claim_checkout_group') return { data: { claimed: true, claim_token: 'gtok_ci', reason: 'claimed' } };
       if (name === 'release_checkout_group') return { data: { released: true, reason: 'released' } };
+      // 132 (D review, reuse-order, 2026-09-15): the pending row is recorded through this
+      // claim-bound RPC instead of a direct insert. Single-request scenarios always hold the claim.
+      if (name === 'record_checkout_attempt') {
+        recordedAttempts.push(params as Record<string, unknown>);
+        return { data: { inserted: true, payment_id: 'pay_recorded', reason: 'recorded' } };
+      }
       return { data: null };
     },
     tables: {
@@ -87,7 +95,7 @@ async function scenario(opts: ScenarioOpts) {
         // E-1: the holder re-reads its own claim token before any hand-out; single-request
         // scenarios still own the token the claim mock issued.
         if (q.op === 'select' && q.select === 'supersede_claim_token') return { data: { supersede_claim_token: 'tok_ci' } };
-        if (q.op === 'select') {
+        const matching = () => {
           let rows = payments;
           for (const f of q.filters) {
             const col = f[1] as string;
@@ -95,7 +103,16 @@ async function scenario(opts: ScenarioOpts) {
             if (f[0] === 'neq') rows = rows.filter((r) => (r as unknown as Record<string, unknown>)[col] !== f[2]);
             if (f[0] === 'in')  rows = rows.filter((r) => (f[2] as unknown[]).includes((r as unknown as Record<string, unknown>)[col]));
           }
+          return rows;
+        };
+        if (q.op === 'select') {
+          const rows = matching();
           return { data: q.terminal === 'list' ? rows : rows[0] ?? null };
+        }
+        // 132: retires must actually change the row, or a later fresh read still sees it live
+        if (q.op === 'update') {
+          for (const r of matching()) Object.assign(r as unknown as Record<string, unknown>, q.body as Record<string, unknown>);
+          return { data: null };
         }
         return { data: null };
       },
@@ -121,7 +138,7 @@ async function scenario(opts: ScenarioOpts) {
     const res = await edge.handler(authedJsonRequest(body));
     return { res, body: await json(res) };
   };
-  return { sb, stripe, edge, run };
+  return { sb, stripe, edge, run, recordedAttempts };
 }
 
 const paymentInserts = (qs: QueryCall[]) => qs.filter((q) => q.table === 'payments' && q.op === 'insert');
@@ -145,6 +162,7 @@ describe('create-payment-intent — Buy-Now reservation authority', () => {
     expect(res.status).toBeLessThan(500);
     expect(String(body.error)).toMatch(/already reserved/i);
     expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(s.recordedAttempts).toHaveLength(0);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
     const listingQ = s.sb.queries.find((q) => q.table === 'listings');
     expect(listingQ?.filters).toEqual([['eq', 'id', LISTING]]);
@@ -159,6 +177,7 @@ describe('create-payment-intent — Buy-Now reservation authority', () => {
     expect(res.status).toBeLessThan(500);
     expect(String(body.error)).toMatch(/reservation expired/i);
     expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(s.recordedAttempts).toHaveLength(0);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
 
     // Exactly this buyer's pending row for this (listing, mode) is looked up ...
@@ -193,9 +212,9 @@ describe('create-payment-intent — Buy-Now reservation authority', () => {
     expect(create[0].idempotencyKey).toBe(`pi_${LISTING}_${HOLDER}_buy_now_22000_c${CUSTOMER}`);
     expect(create[0].body).toMatchObject({ amount: '22000', currency: 'usd', 'metadata[listing_id]': LISTING, 'metadata[buyer_id]': HOLDER, 'metadata[seller_id]': SELLER, 'metadata[mode]': 'buy_now', 'metadata[reserved_until]': until });
 
-    const ins = paymentInserts(s.sb.queries);
-    expect(ins).toHaveLength(1);
-    expect(ins[0].body).toMatchObject({ listing_id: LISTING, buyer_id: HOLDER, seller_id: SELLER, amount: 20000, buyer_fee: 2000, seller_fee: 2000, total: 22000, stripe_payment_intent_id: 'pi_new', status: 'pending', mode: 'buy_now' });
+    // 132: recorded through record_checkout_attempt (claim-bound), same payload
+    expect(s.recordedAttempts).toHaveLength(1);
+    expect(s.recordedAttempts[0]).toMatchObject({ p_listing_id: LISTING, p_buyer_id: HOLDER, p_seller_id: SELLER, p_amount: 20000, p_buyer_fee: 2000, p_seller_fee: 2000, p_total: 22000, p_payment_intent_id: 'pi_new', p_mode: 'buy_now', p_claim_token: 'gtok_ci' });
     expect(piCancels(s.stripe.calls)).toHaveLength(0);
   });
 
@@ -216,6 +235,7 @@ describe('create-payment-intent — auction branch', () => {
     expect(res.status).toBeLessThan(500);
     expect(String(body.error)).toMatch(/already reserved/i);
     expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(s.recordedAttempts).toHaveLength(0);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
   });
 
@@ -274,6 +294,7 @@ describe('create-payment-intent — sold in fact (MAJOR-1c): a succeeded payment
     expect(soldLookup(s.sb.queries)?.filters).toEqual([['eq', 'listing_id', LISTING], ['eq', 'status', 'succeeded']]);
     expect(piCreates(s.stripe.calls)).toHaveLength(0);
     expect(paymentInserts(s.sb.queries)).toHaveLength(0);
+    expect(s.recordedAttempts).toHaveLength(0);
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_mine/cancel']);
     expect(paymentUpdates(s.sb.queries).map((q) => [q.body, q.filters])).toEqual([[{ status: 'failed' }, [['eq', 'id', 'pay_mine'], ['eq', 'status', 'pending']]]]);
   });
@@ -371,7 +392,7 @@ describe('create-payment-intent — reuse binds the amount (MINOR-4)', () => {
     expect(body.clientSecret).toBeUndefined();
     // L1 order: the replacement is minted and recorded first, then withdrawn when the old PI cannot be cancelled.
     expect(piCreates(s.stripe.calls)).toHaveLength(1);
-    expect(paymentInserts(s.sb.queries)).toHaveLength(1);
+    expect(s.recordedAttempts).toHaveLength(1);
     expect(piCancels(s.stripe.calls).map((c) => c.path)).toEqual(['/payment_intents/pi_old/cancel', '/payment_intents/pi_new/cancel']);
     const updates = paymentUpdates(s.sb.queries);
     expect(updates).toHaveLength(1);
