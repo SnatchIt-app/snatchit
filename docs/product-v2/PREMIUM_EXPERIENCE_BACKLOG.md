@@ -1689,6 +1689,32 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   Retry, cold flag kept pending, in-process backoff retry. If the owner
   includes it in the combined candidate it is **a new pin + CI + D's gate,
   still one build**; otherwise it waits for the next candidate.
+  **Delivered: `frontend/push-token-fetch-visibility @ ce310ef`** (from
+  9bef640; 6 files, +281/−7; no gated file, no `supabase/`). Both mechanisms
+  D named are closed: `src/lib/push/runGate.ts` (generation-scoped gate —
+  cleanup cancels, a dead run never blocks the live effect, late completion
+  ignored, rerun honoured; `withTimeout` 20 s; PreRegisterFailure {token_fetch
+  | token_timeout, at, attempts}, backoff 30 s → 10 min; remedy copy);
+  usePushToken gated on `beginRun`, `isLive` after every await, `endRun` in
+  finally, a token-fetch failure persisted beside the record, published to
+  Settings (Try again added to the failed banner), retried in-process, cold
+  flag kept; `runningRef` removed. Tests RED first → 9/9 (D's exact sequence,
+  fake-timer timeout, store round-trip, pins). Evidence limit recorded: the
+  pins prove wiring, not order — **DV-611C-2** added. Gates: tsc clean; vitest
+  2070 / 94; lint 0 errors / 29 warnings. To D for review; a proposal for the
+  owner (new tag if included), not integrated.
+- **B2 window server phase CLOSED (A, 2026-09-16 04:57Z; D's closing read
+  PASS):** sandbox ledger 141 (131, 132, 133, 135, 20260916000000; each md5 =
+  the pinned bytes at 9bef640); census 32|106|37|37; create-payment-intent v5,
+  send-push v4, enforce-transfer-expiry v4 deployed with byte parity;
+  stripe-webhook unchanged; Vault holds `project_url` only; five refused 401
+  ticks, zero drift; nothing reached the owner's handset. Under option (b)
+  every b2 delivery row (challenge, echo, rebind, two accounts, plant-then-
+  claim, recovery) is **deferred, not attempted, not passed** — on every build.
+  Row 17 scripted for the owner with the post-131 expectation; the buyer's
+  own re-registration returns contract_version 2, which Build 17 handles; row
+  18 deferred to the combined build. Build: not cut until the owner says so
+  in A's session; inclusion of 8dc4cec / ce310ef (new tag) is the owner's word.
 - **Owner request (2026-09-16): exhaustive notification inventory + gap
   matrix from source and migrations** (not memory); no notifications added,
   no delivery behaviour changed. In progress: two read-only source sweeps of
