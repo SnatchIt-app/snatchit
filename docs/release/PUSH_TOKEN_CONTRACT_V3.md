@@ -55,11 +55,14 @@ Reply `{outcome, token_id, contract_version: 3}`. The bind happens **here**, ato
 - the caller's session does not predate a credential change (131).
 On success: the row's `user_id` := caller, `is_active` := true, `revoked_*` := null, `device_secret_hash` := `secret_hash` (C5 —
 the stored proof is superseded by the proving device's), `session_id` := caller's session, `last_used` := now(); the previous
-owner's binding on this token ends (they receive the notice `security_device_rebound` **by email** — notify has no in-app channel,
-and never by push, since their push is exactly what moved — deduped per token per day); challenge consumed.
-Outcome `rebound`. **A nonce mismatch does not raise** (a raise would roll back the attempt count): it returns
-`{outcome: 'nonce_mismatch', attempts_left, token_id, contract_version: 3}`, and the fifth mismatch consumes the challenge and
-returns `{outcome: 'challenge_consumed', …}`. Every other refusal raises and writes nothing:
+owner's binding on this token ends (they receive the notice `security_device_rebound` **in the notification centre** — an
+`in_app` template, no push and no email row (N1: email is owner-gated); never push, since their push is exactly what moved —
+deduped per token per day); challenge consumed.
+**Reply shape, explicit (D, H): among 200 replies only `outcome: 'rebound'` is a bind.** The other 200 replies are refusals:
+`{outcome: 'nonce_mismatch', attempts_left, token_id, contract_version: 3}` (a raise would roll back the attempt count),
+`{outcome: 'challenge_consumed', …}` (the fifth mismatch; terminal for that challenge — request a new one), and
+`{outcome: 'stale_nonce', …}` (the echoed nonce is the one superseded by a re-issue: free, no attempt counted, no bind — the
+client waits for the current push). The client branches on `outcome` before treating any reply as success; errors are refusals:
 
 | error | code |
 |---|---|
@@ -74,15 +77,17 @@ returns `{outcome: 'challenge_consumed', …}`. Every other refusal raises and w
   032/087 pattern): body `{kind: 'push_token_challenge', challenge_id, nonce, user_id}`. The plaintext nonce exists only in that one
   request (pg_net's queue row is service-internal and deleted on send; `net._http_response` never stores request bodies) and in the
   push itself. Where Vault `project_url` is absent (CI, the harness) the post is a guarded no-op and the challenge row still exists
-  for the pgTAP tests. `send-push` re-reads the challenge row by id (token, mode, expires_at, confirmed_at, attempts), refuses a
-  missing/expired/confirmed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
+  for the pgTAP tests. `send-push` reads the challenge **through `notify.get_push_token_challenge(p_challenge_id)`** (service_role EXECUTE; returns the
+  token to address, platform, mode, expires_at, confirmed_at, consumed_at, attempts — NO requester or owner identity; notify tables
+  carry no service_role grants by design), refuses a missing/expired/confirmed/consumed/exhausted challenge, sends via the **Expo push API** (silent = `_contentAvailable: true`, no title/body,
   data `{type: 'push_token_challenge', challenge_id, nonce}`; visible = title/body carrying the code + "Never share this code", data
   WITHOUT the nonce), records the result through `record_push_token_challenge_delivery`, and never logs the payload. **The challenge
   push is token-addressed** (the token may belong to ANOTHER account): `send-push` accepts a token-addressed send for this kind only
   and reveals nothing about the row's current owner in the payload or the logs (no user id, no email, no device name).
 - **Nonce format by mode (pinned):** silent = 32 CSPRNG bytes, base64url (43 chars); visible = a 6-digit decimal code drawn from
-  CSPRNG (the code IS the nonce; §4 compares `sha256(presented)` to `nonce_hash` in both modes). Switching an open challenge to
-  visible re-issues the nonce (the silent one is invalidated).
+  CSPRNG (the code IS the nonce; §4 compares `sha256(presented)` to `nonce_hash` in both modes). Every re-issue (re-request, or a
+  switch to visible) rotates the nonce and keeps the previous hash for ONE generation (`prev_nonce_hash`): a late push carrying
+  the superseded nonce answers `stale_nonce` at no cost (D, M).
 - **Foreground-only delivery:** the client echoes from its foreground notification handler. No `UIBackgroundModes:
   remote-notification` (build-affecting config, out of scope). A backgrounded app re-requests on foreground; the same open challenge
   re-dispatches (silent: same nonce; visible: same code) until it expires. The 60 s fallback timer runs only while foregrounded.
@@ -136,12 +141,14 @@ device.
 ## 10. Objects (migration `135_push_token_proof_of_possession.sql` — numbered: it owns its objects and redefines only 128/131 bodies)
 Table `notify.push_token_challenges` (RLS on, no policies, no client grants) · functions `public.request_push_token_challenge(text, text)`,
 `public.confirm_push_token_challenge(uuid, text)` (authenticated EXECUTE), `notify.issue_push_token_challenge(...)` (internal),
-`notify.record_push_token_challenge_delivery(uuid, text, text, text)` (service_role EXECUTE, for `send-push`),
+`notify.get_push_token_challenge(uuid)` and `notify.record_push_token_challenge_delivery(uuid, text, text, text)` (service_role EXECUTE, for
+`send-push`; delivery outcomes `sent` | `rejected` | `error`),
 `public.guard_push_token_client_delete()` + trigger · `register_push_token` re-created (v3 body) · notify template
 `security_device_rebound` (in-app) · pgTAP 202 · rollback restores the 131 verb and drops the new objects. **Send paths need no change:** a pending claim is a challenge row, never an unconfirmed `push_tokens` row, so `send-push`'s
 `user_id + is_active` select stays as it is (C4 by construction). Census deltas at integration, stated as CI asserts them: **public
 Gate-2: tables +0, functions +3 (`request_push_token_challenge`, `confirm_push_token_challenge`, `guard_push_token_client_delete`),
-policies +0, triggers +1** (the client-DELETE guard); five-schema routines +2 (`notify.issue_push_token_challenge`,
-`notify.record_push_token_challenge_delivery`) → 302; the table `notify.push_token_challenges` is outside the public census.
+policies +0, triggers +1** (the client-DELETE guard); five-schema routines +3 (`notify.issue_push_token_challenge`,
+`notify.get_push_token_challenge`, `notify.record_push_token_challenge_delivery`) → 303; five-schema relations +1 (the notify
+table, outside the public census); notify registry +1 type, +1 in_app template.
 Manifest: 3 public function rows (2 authenticated-execute, 1 no-client-execute); `expected_grants.txt` unchanged (no client grant on
 the notify table).
