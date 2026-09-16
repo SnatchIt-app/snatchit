@@ -81,7 +81,27 @@ registration rows can. Options, one line each:
   but **b2 device verification is deferred**: the challenge → push → echo → rebind path stays unproven, the device matrix's core
   rows stay open, and the one build cannot be validated against the sandbox for the feature it was cut for. If (b) is chosen
   this file and the manifest say so in those words, so "sandbox application passed" is never read as "b2 works on a handset".
-**A's and D's recommendation: (a), performed by A from the environment value with D witnessing names only.**
+**A's and D's recommendation: (a), performed by A from the environment value with D witnessing names only.** Three conditions
+travel with (a), agreed by A and D:
+1. **Ceremony order is fixed: `project_url` first, verified, then `service_role_key`.** D verifies between the two steps that
+   the URL row exists and its value has the sandbox host's shape (`https://ofaidukbieeekqaboscm.supabase.co`; shape only,
+   never the secret), and again after the key lands. Reason: with the key present and a wrong URL the sandbox would send
+   authenticated-looking traffic at whatever host the URL names; with the URL first and no key, a wrong URL produces an
+   empty-bearer request that is refused. A sandbox posting at the production host, even to collect a 401, would be an
+   unauthorized production contact, and the ordering makes it impossible.
+2. **(a) means real push notifications arriving on the owner's real handset, from the sandbox, with nothing on the device
+   distinguishing them from production.** `push_tokens = 1` is the owner's Build 17 phone. Once the key is in, the notify
+   functions post for real, so an ordinary sandbox event can put an auction-ended or payment-shaped notice on that lock
+   screen. Under the product truth that a refund notice may only ever mean a confirmed refund, a sandbox-originated payment
+   notification on a personal phone is exactly the false signal the owner cares about. Not a reason to refuse (a); a thing
+   to know before choosing it.
+3. **Witness method with a live 2-minute cron:** the ruling's "stop on count mismatch" would otherwise fire on normal cron
+   activity and get waived, which is how a real mismatch gets talked away. So D takes V0 immediately before each apply rather
+   than once at window start, and attributes every difference between reads using `cron.job_run_details` before calling it
+   either way. **A mismatch that cannot be attributed to a recorded cron run is still a stop.** A applies nothing while a
+   read is unexplained.
+If (b): the sandbox stays outbound-silent, so DV-611/611S and every b2 device row are **deferred, not failed** — C does not
+record them as attempted — and this file and the manifest say "b2 device verification deferred" in those words.
 
 ## 3. Migrations, in order, each `preflight → apply → verify` (ORDER_GUARD_SKIP=126 stays declared)
 `131` (session-bound bindings) → `132` (pre-mint group record) → `133` (config-driven functions URL) → `135` (proof of
