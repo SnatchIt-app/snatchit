@@ -247,6 +247,24 @@ lost device's behalf" claims more than the verb does.
 Also: C fixed P3-2 and P3-3 at `push-proof-v3 @ ac88e3a` (constant renamed; the 60 s fallback counts cumulative foreground time and `inactive`
 is no longer backgrounding). P3-1 waits on A's 135 ruling; P3-4 stands as the DV evidence limit.
 
+### C's follow-ups — confirm-reply handling (H-135-1) CLOSED; `frontend/state-views-refresh @ 71eaef0` reviewed
+`push-proof-v3 @ 969ff20`: `interpretConfirmReply` reads the outcome first — only `rebound` binds and carries the token id,
+`nonce_mismatch` takes the attempts path with the server's `attempts_left` preferred, `challenge_consumed` is terminal, any other 200 is
+`unknown` and never confirms or writes a record. push-proof-v3 16/16. **H-135-1 closed on the client side.** Consequence flagged to C and A:
+on the PUSH path `prior` is null, so a mismatch is terminal with the code-flavoured copy — if A rotates the nonce on re-issue (M-135-2), a
+stale silent echo tells a user who typed nothing that their code was wrong and ends the challenge.
+`state-views-refresh @ 71eaef0` (owner's visual refresh of offline / error / empty / no-match): sound and on the right discipline — four
+distinct states with one vocabulary, failure announced and exposed as an alert region, a real Button, nothing animated (Reduce Motion needs
+no case), and screens show a state only with nothing cached, so a failed quiet refresh keeps the rows rather than showing a confident empty
+screen. F-OFF-1 is closed by classifying Tickets' failure. Tests state-views 9/9.
+| # | Severity | Finding |
+|---|---|---|
+| SV-1 | LOW–MEDIUM | `isNetworkError` counts `abort` as connectivity, so a timeout shows "You're offline. Check your internet connection" on an online device. The regex predates the branch; the copy asserting it does not. Route timeouts to the error state |
+| SV-2 | LOW (device) | failure states carry both `accessibilityRole="alert"` and an explicit `announceForAccessibility`; TalkBack may read the sentence twice. One DV-ST1 line to listen for it, then keep one mechanism |
+| SV-3 | LOW | the error body commits to a timeout while the state also covers 500s and permission failures |
+Added device row requested: an offline state that auto-retries when connectivity returns (ScreenState does this silently), so the rows prove
+recovery and not only the picture.
+
 ### 135 in progress — two consequences D raised before seeing the code (A accepted RB-1 and P3-1)
 A's 135 returns refusals from the confirm verb with 200 instead of raising (`{outcome:'nonce_mismatch', attempts_left}`, `challenge_consumed`)
 because a raise would roll back the attempt count — correct, but it changes the reply contract:
