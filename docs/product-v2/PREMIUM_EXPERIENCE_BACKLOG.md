@@ -1659,8 +1659,14 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   or storage read leaves no persisted state and no status, so nothing
   distinguishes it from "registered"; the next candidate should publish a
   "waiting for push token" status, bound the fetch with a timeout, and persist
-  the failure kind (not Build 17). Next: row 16 (sign out, online) on "row 16
-  ready" — it needs no push.
+  the failure kind (not Build 17). A concurs (2026-09-16): PASS on the second
+  attempt, 04:12Z non-stamp UNEXPLAINED with the two timestamps; the device
+  console (`[usePushToken] Error:`) is reachable only with the handset cabled
+  to a Mac in Console.app, retention uncertain — offered to the owner as
+  optional, not asked. **Row 16 action (owner, 00:21 EDT ≈ 04:21Z):** signed
+  out online; login screen showed no message (client half PASS, owner-
+  reported); stopped at login. "row 16 ready" sent to A; read-back pending
+  (expected is_active=false, revoked_reason='signed_out', session gone).
 - **Sandbox push delivery is impossible today (A, 2026-09-16):** the sandbox
   Vault holds no service_role_key, the only routine posting to send-push
   (notify_outbid) is guarded on it, and `net._http_response` has 0 rows in 24 h
