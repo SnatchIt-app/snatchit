@@ -17,7 +17,7 @@ Probes live in `probes/`; each is `BEGIN … ROLLBACK` against a local rehearsal
 | D-3 | independent review of 126 money semantics + pgTAP 193 (A1–A8, CONVERGENCE_135_REPORT.md:541-548) | B review-ready | pre-review findings sent |
 | D-4 | integrated-chain rehearsal on A's candidate snapshot (fresh + production-order replay, rollback battery, pgTAP, Gate-2, manifest, expected_grants) | A snapshot (Thu) | D-INT0 dry run done |
 | D-5 | independent authorization-boundary review of 128 | A fold-in commit | F1–F3 found, fixes in progress |
-| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); 132 @ 9d82247 **PASSES** (F-132-1/2/3 + reuse-order closed; 2 LOW notes); item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
+| D-6 | owner 2026-09-15 direction: SBX-2 path (b) verification · 132 independent review · O-3 b1/b2/b3 disposition · K-2 server contract · CI item 6 | A applies / B writes 132 / A's CI branch | SBX-2 witnessed + row 10 PASS; O-3 + K-2 sent (A accepted; K2-S1 fix on 131 branch → D re-review); 132 @ 9d82247 **PASSES**; stack `6b058d2` (131+132+133) **PASSES** incremental review; item 6 CI VERIFIED at 10194d3 (negative control run by A); 131 @ f72e2d3 K2-S1/S2 closed, **F-131-K2a open**; 133 @ 235c839 **PASSES**; 131 @ f3963a3 **PASSES** (F-131-K2a closed); 132 battery pending B's revised head |
 
 ## Owner direction 2026-09-15 (resumed sprint) — D's part
 Sandbox path (b): 126 deferred on this sandbox; O-1 extended to reviewed 129/130; venue acceptance a separate later step. 132
@@ -194,6 +194,18 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 — the authorized production preflight read must count both; (b) the sandbox lacks enforce-transfer-expiry and 133 creates it (starts
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
+
+### Production-gate stack `release/production-gate-20260918 @ 6b058d2` (candidate tip + 131 + 133 + 132) — **incremental review PASSES**
+CI run 35045310911 green (all five jobs). Integrated harness on the stack tree: **PASS 25 · FAIL 0 · WARN 2** (the two declared:
+20260906120000 archive 102 lines, 128 epoch table 10 lines) · replay **152** · Gate-2 census **32|102|37|37** = the stack's own ci.yml
+EXPECT_* · grants = `expected_grants.txt` (**69** rows) · grant-decision manifest PASS · pgTAP **5114/5114** · production's 135-row line
+reproduced, then the release chain · every release rollback exact, including 131, 132 and 133 individually · S1/S2/S3 identical across
+fresh and production order.
+Reverse-order rollback of the stack (`probes/gate_reverse_rollback.sh`, my own): candidate chain (149 files, the three excluded) →
+apply 131, 132, 133 (adds 30 identity lines; census 32|102|37|37) → roll back **133 → 132 → 131** → **0 identity lines differ from the
+candidate**, census back to 31|96|37|35. The merge resolution A described (EXPECT_TABLES 32, EXPECT_FUNCS 102, 162 P1/P2) matches what the
+tree actually produces.
+Nothing here is applied anywhere, and this review is not an authorization to apply.
 
 ### 132 — full battery on PR #70 head `9d82247` (CI 35044535546 green): **PASSES from D, with 2 LOW notes**
 Scope: concurrency, retries, uncertain Stripe outcomes, duplicate prevention (owner's assignment). Earlier findings F-132-1 (cross-mode),
