@@ -110,7 +110,7 @@ K7 only-session this-device sign-out = everywhere semantics · K3o scope=others 
 deleted-session JWT, only-session sign-out, races (race_131.sh), hosted GoTrue facts (statements, password change session
 deletion, clock, NULL not_after cleanup — need an authorized sandbox apply of 131).
 
-### DV row 3 (device push registration) — sandbox read-back after the owner's relaunch, 2026-09-16 ~01:19–01:33Z: **server refused, cause identified**
+### DV row 3 (device push registration) — sandbox read-back after the owner's relaunch, 2026-09-16 ~01:19–01:33Z: **server refused, cause identified; CLOSED by Path B**
 Read-only: sandbox DB read from the unlinked kit worktree + `query_logs` on `ofaidukbieeekqaboscm` (no writes).
 - The handset IS reaching the sandbox: `/auth/v1/token` 200 at 01:19:04 and a session (user `919d511e`) refreshed 13 min before the read.
 - `POST /rest/v1/rpc/register_push_token` at **01:19:06 → 403**, i.e. the verb raised 42501 (PostgREST maps it so). Permission and relaunch
@@ -127,6 +127,11 @@ Read-only: sandbox DB read from the unlinked kit worktree + `query_logs` on `ofa
   token>)`, then the next launch registers fresh (rule 1) and stores the proof; (2) sign in on that handset as `1fcd0c69` and sign out, which
   revokes the row (`signed_out`) and lets the new account take it under rule 5 (legacy, within 30 days, before the 90-day sunset); (3) run
   DV-611 as `1fcd0c69`.
+- **CLOSED by Path B (owner-executed on the device, no server mutation; A read after each step; my own independent read-back 2026-09-16
+  01:4xZ):** the single row `140fcb44…` is now **user `919d511e` (the buyer), active, proof present (hash true), device_name iPhone,
+  revoked_reason null, last_used 01:42:41Z** — the same token row, rebound to the tester's account under rule 3 with the install's proof.
+  Registration works on that handset again. Sequence: buyer sign-out → staff sign-in (`refreshed`, proof planted) → staff sign-out
+  (`signed_out`, proof kept) → buyer sign-in (`rebound`).
 - Acceptance value: this is 128's documented lock-out (O-3 §1 step 4) hit benignly in test. It confirms the support-unbind path is required at
   launch, and it is the same slice b2 would close by proof of possession.
 
