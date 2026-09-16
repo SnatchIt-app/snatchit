@@ -1564,3 +1564,18 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   stack tip `9bef640`** (guard 17/17, vitest 2061/2061, typecheck 0; CI
   queued; D confirms Gate 3 on this tip; then the pin). Nothing further from C
   before the pin; rows 15–18 on C's triggers after the owner's row 14 checks.
+  **D, Gate 3 PASS at `9bef640`** (2026-09-16): D broke 135 three ways and each
+  failed the guard by name (reworded `challenge attempts exhausted`; renamed
+  the 200 outcome `stale_nonce`; changed the session refusal's errcode 42501 →
+  P0001 with the text intact — the errcode assertion is what catches that
+  last one). D independently parsed the stack's `raise exception` sites with
+  comments stripped: all twelve keyed strings are genuinely raised; `nonce
+  mismatch` is never raised (a 200 outcome) — documented as a dead v2 branch,
+  correctly not asserted. Client work clear from D at e8114df. D's remaining
+  risk is device behaviour only: push/foreground/background timing (DV-V1..V4),
+  two accounts on one install (DV-V1), plant-then-claim from a second handset
+  and completed-redirect recovery without support (DV-S1/S2) — the one
+  combined build the owner authorises. Device-session note (already on DV-V2):
+  the visible code arrives in a notification the lock screen previews, so the
+  owner sees the code before unlocking — inherent to a visible-mode
+  challenge, for the owner to see on the handset.
