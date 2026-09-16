@@ -39,19 +39,19 @@ function isAuthorized(req: Request): boolean {
 // Contract v3 (A, candidate ac716da) + 157 B9: notify tables carry NO
 // service_role grants — the grant wall is service_role's wall — so the challenge
 // is read through notify.get_push_token_challenge(p_challenge_id), which returns
-// {id, token, platform, mode, expires_at, confirmed_at, consumed_at, attempts,
-// dispatched_at} and NO requester or owner identity (token-addressed by
-// construction). The DB verb is the rate-limit AUTHORITY; the limits are
-// re-checked here in their own namespace, so this edge cannot flood a device
-// even if reached directly. The caller is notify.issue_push_token_challenge
-// through pg_net.
+// {id, token, token_id, requesting_user, platform, mode, expires_at,
+// confirmed_at, consumed_at, attempts, dispatched_at}. The DB verb is the
+// rate-limit AUTHORITY; the limits are re-checked here in their own namespace,
+// so this edge cannot flood a device even if reached directly. The caller is
+// notify.issue_push_token_challenge through pg_net.
 //
-// CD-1, the delta this read carries: with no requester on the object, the edge
-// can no longer check that the body's user_id owns the challenge (v2 answered
-// 409). A caller that already holds the service-role key can therefore vary
-// user_id and land in a different EDGE namespace. The verbs derive the user from
-// the JWT and are unaffected — their limits (5 per user, 3 per token+user per
-// 10 min) stand. The push is unaffected either way: it goes to the row's token.
+// requesting_user and token_id (135 @ fb2fd68, closing B's CD-1/CD-2) exist here
+// for exactly two purposes: refusing a caller that does not own the challenge,
+// and naming the rate-limit namespace. Both are taken from the ROW, never from
+// the body, so neither can be chosen by the caller — and NEITHER MAY REACH THE
+// PAYLOAD OR A LOG LINE. The push is token-addressed: the row may belong to
+// another account, and nothing about its owner may travel to the device or into
+// the logs. The suite carries a mutant that logs requesting_user, which fails.
 //
 // TOKEN-ADDRESSED (D): the token may belong to ANOTHER account — that is the
 // point, since the proof goes to the device that holds it. So nothing in the
@@ -67,18 +67,11 @@ const MAX_CHALLENGE_ATTEMPTS = 5;
 const NEVER_SHARE = 'Snatch It will never ask for this code. Never share this code.';
 
 type ChallengeRow = {
-  id: string; token: string; platform: string | null; mode: 'silent' | 'visible';
+  id: string; token: string; token_id: string; requesting_user: string;
+  platform: string | null; mode: 'silent' | 'visible';
   expires_at: string; confirmed_at: string | null; consumed_at: string | null;
   attempts: number | null; dispatched_at: string | null;
 };
-
-// The token namespace for the edge's own rate limits. v3 drops token_id from the
-// read, so it is derived from the token itself — hashed, so no push token is
-// written into public.rate_limits.
-async function tokenNamespace(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
-}
 
 type RateVerdict = 'allowed' | 'over_limit' | 'error';
 
@@ -130,6 +123,9 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
   }
   const challenge = (row ?? null) as ChallengeRow | null;
   if (!challenge) return jsonResponse(404, { error: 'Unknown challenge' });
+  // Ownership: the body's user_id must BE the challenge's requester. The answer
+  // names neither, so it tells a caller nothing about the row it guessed.
+  if (challenge.requesting_user !== userId) return jsonResponse(409, { error: 'Challenge does not belong to this user' });
   if (challenge.confirmed_at) return jsonResponse(409, { error: 'Challenge already confirmed' });
   if (challenge.consumed_at) return jsonResponse(409, { error: 'Challenge already consumed' });
   if (new Date(challenge.expires_at).getTime() <= Date.now()) return jsonResponse(410, { error: 'Challenge expired' });
@@ -139,10 +135,13 @@ async function sendChallenge(payload: Record<string, unknown>): Promise<Response
   // The DB verb is the authority; this is the second line, in its own namespace,
   // so a direct call to this edge cannot flood a device. Per D: the token limit
   // is per (token, requesting user).
-  const tokenNs = await tokenNamespace(challenge.token);
+  // Both parts come from the row (identical to the body's user_id past the check
+  // above): the namespace is never one the caller chose. The raw token is NOT a
+  // key — token_id is — so no push token is written into public.rate_limits.
+  const requester = challenge.requesting_user;
   for (const [action, max] of [
-    [`push_challenge_edge_user:${userId}`, 5],
-    [`push_challenge_edge_token:${tokenNs}:${userId}`, 3],
+    [`push_challenge_edge_user:${requester}`, 5],
+    [`push_challenge_edge_token:${challenge.token_id}:${requester}`, 3],
   ] as Array<[string, number]>) {
     const verdict = await checkRateLimit(action, max, 600);
     if (verdict === 'error') {

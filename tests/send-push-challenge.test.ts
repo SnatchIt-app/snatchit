@@ -32,7 +32,6 @@
  *   * the nonce never appears in any log line or error body (a mutant that logs
  *     it must fail).
  */
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { json, loadEdgeHandler, mockSupabase, type QueryCall, type RpcHandler } from './helpers/edge-vm';
 
@@ -40,21 +39,20 @@ const SERVICE = 'service-role-test-key';
 const USER = '11111111-1111-1111-1111-111111111111';
 const CHALLENGE = '22222222-2222-2222-2222-222222222222';
 const TOKEN = 'ExponentPushToken[victim-phone]';
+const TOKEN_ID = '55555555-5555-5555-5555-555555555555';
 const NONCE = '481624';
 
-/** exactly what notify.get_push_token_challenge(uuid) returns (135 §6c) — no requester, no owner. */
+/** exactly what notify.get_push_token_challenge(uuid) returns (135 §6c @ fb2fd68). */
 type Challenge = {
-  id: string; token: string; platform: string; mode: 'silent' | 'visible';
-  expires_at: string; confirmed_at: string | null; consumed_at: string | null;
-  attempts: number; dispatched_at: string | null;
+  id: string; token: string; token_id: string; requesting_user: string; platform: string;
+  mode: 'silent' | 'visible'; expires_at: string; confirmed_at: string | null;
+  consumed_at: string | null; attempts: number; dispatched_at: string | null;
 };
 const challengeRow = (over: Partial<Challenge> = {}): Challenge => ({
-  id: CHALLENGE, token: TOKEN, platform: 'ios', mode: 'silent',
+  id: CHALLENGE, token: TOKEN, token_id: TOKEN_ID, requesting_user: USER, platform: 'ios', mode: 'silent',
   expires_at: new Date(Date.now() + 5 * 60_000).toISOString(), confirmed_at: null, consumed_at: null,
   attempts: 0, dispatched_at: null, ...over,
 });
-/** the edge's token-scoped rate-limit namespace survives the loss of token_id by hashing the token itself. */
-const tokenKey = (token: string) => createHash('sha256').update(token).digest('hex').slice(0, 32);
 
 function world(init: { challenge?: Challenge | null; rateLimit?: boolean | 'error'; provider?: 'ok' | 'rejected' | 'throws'; recordFails?: boolean } = {}) {
   const pushes: Array<Record<string, unknown>> = [];
@@ -181,20 +179,14 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     });
   }
 
-  it('A6 (CD-1, disclosed delta): the v3 read carries NO requester, so the edge cannot cross-check user_id — the verbs stay the rate-limit authority', async () => {
-    // v2 of this edge refused a challenge whose requesting_user differed from the
-    // body (409). notify.get_push_token_challenge deliberately returns no requester
-    // identity (the push is token-addressed), so that check is unimplementable here.
-    // Consequence, recorded rather than hidden: a caller already holding the
-    // service-role key can vary user_id and land in a different EDGE namespace.
-    // The DB verbs derive the user from the JWT and are unaffected — they remain
-    // the authority (contract v3 §5). The push still goes only to the row's token.
+  it('A6 (CD-1 closed at 135 fb2fd68): a challenge whose requester is not the caller is refused (409) and nothing is sent', async () => {
+    // The verb returns requesting_user, so the ownership check is back: a caller
+    // holding the service-role key cannot dispatch someone else's challenge, nor
+    // land in a namespace of its choosing.
     const w = world();
     const { res } = await w.call(challengeReq({ user_id: '33333333-3333-3333-3333-333333333333' }));
-    expect(res.status).toBe(200);
-    expect(w.pushes.map((m) => m.to)).toEqual([TOKEN]);
-    const keys = w.sb.rpcs.filter((r) => r.name === 'check_rate_limit').map((r) => String(r.params.p_action ?? ''));
-    expect(keys).toContain('push_challenge_edge_user:33333333-3333-3333-3333-333333333333');
+    expect(res.status).toBe(409);
+    expect(w.pushes).toHaveLength(0);
   });
 
   it('A19 (157 B9): the challenge is read through notify.get_push_token_challenge — the notify TABLE is never touched', async () => {
@@ -228,14 +220,14 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     await w.call(challengeReq());
     const keys = w.sb.rpcs.filter((r) => r.name === 'check_rate_limit').map((r) => String(r.params.p_action ?? ''));
     expect(keys).toContain(`push_challenge_edge_user:${USER}`);
-    // D's pin: the token limit is per (token, requesting user). v3 drops token_id
-    // from the read, so the namespace is derived from the token itself — hashed,
-    // so no push token is written into public.rate_limits.
-    expect(keys).toContain(`push_challenge_edge_token:${tokenKey(TOKEN)}:${USER}`);
+    // D's pin: the token limit is per (token, requesting user). The namespace is
+    // the verb's token_id — never the raw token, which must not land in
+    // public.rate_limits.
+    expect(keys).toContain(`push_challenge_edge_token:${TOKEN_ID}:${USER}`);
     expect(keys.join('|')).not.toContain(TOKEN);
   });
 
-  it('A20: the token namespace is the TOKEN, not the challenge — a re-issued challenge shares the budget', async () => {
+  it('A20: the namespace is the TOKEN, not the challenge — a re-issued challenge shares the budget', async () => {
     const second = '44444444-4444-4444-4444-444444444444';
     const a = world();
     await a.call(challengeReq());
@@ -247,9 +239,28 @@ describe('send-push — push_token_challenge delivery (b2, provider-side proof o
     expect(keyOf(a)).toBeDefined();
     expect(keyOf(a)).toBe(keyOf(b));
     // and a different token is a different namespace
-    const c = world({ challenge: challengeRow({ token: 'ExponentPushToken[other-phone]' }) });
+    const c = world({ challenge: challengeRow({ token: 'ExponentPushToken[other-phone]', token_id: '66666666-6666-6666-6666-666666666666' }) });
     await c.call(challengeReq());
     expect(keyOf(c)).not.toBe(keyOf(a));
+  });
+
+  it('A21 (A pin): requesting_user and token_id serve the check and the namespace ONLY — never the payload, never a log line', async () => {
+    const w = world();
+    const { res, edge } = await w.call(challengeReq());
+    expect(res.status).toBe(200);
+    const wire = JSON.stringify(w.pushes);
+    expect(wire).not.toContain(USER);
+    expect(wire).not.toContain(TOKEN_ID);
+    const logs = logsOf(edge);
+    expect(logs).not.toContain(USER);
+    expect(logs).not.toContain(TOKEN_ID);
+    // and on the refusal path, where a defensive log is most tempting
+    const bad = world();
+    const badRes = await bad.call(challengeReq({ user_id: '33333333-3333-3333-3333-333333333333' }));
+    expect(badRes.res.status).toBe(409);
+    expect(logsOf(badRes.edge)).not.toContain(USER);
+    expect(logsOf(badRes.edge)).not.toContain(TOKEN_ID);
+    expect(JSON.stringify(badRes.body)).not.toContain(USER);
   });
 
   it('A13: a successful send records the delivery outcome on the challenge row', async () => {
