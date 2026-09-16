@@ -200,6 +200,43 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
+## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
+Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
+components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
+passes reviews and CI. NOT authorized: sandbox migrations or edge deploys before an approved application package; any production change.
+Numbering per A: contract v3, migration **135**, pgTAP **202**.
+
+### Gate 0 — contract v3 text (before the three implementations build on it)
+Read `PUSH_TOKEN_CONTRACT_V3.md` against C1–C6 and 128/131's frozen text: every outcome named, the refusal texts the client matches, what a
+pre-v3 client receives on each route, and the statement that a proof supersedes a stored secret. Findings go to A as text; no code depends
+on my reading being late.
+
+### Gate 1 — migration 135 (A): C1–C5
+| Condition | What I verify | Negative control that must fail |
+|---|---|---|
+| C1 proof on every ownership-changing bind, no time window | rule 3, rule 5, and rule 1 for a token with ANY prior row (active, revoked or tombstoned) return `challenge_required`; a same-account refresh does not | remove the rule-1-with-history branch → my completed-redirect probe hands the token over again |
+| C2 no bypass on the direct paths | client INSERT of a token with history refused; client DELETE writes a tombstone (or the grants are gone); the tombstone is not client-writable | drop the tombstone trigger → delete-then-register works from another account |
+| C3 confirmation bound to the initiating user AND session | confirm from another user, another session, no session claim, expired, replayed, wrong nonce, wrong token → refused; nonce stored hashed; single-use enforced by the write, not by a read | accept any authenticated confirm → the victim's own app confirms the attacker's claim |
+| C4 pending claim never disturbs the live row | while a challenge is open the existing binding stays active and deliverable; send paths exclude unconfirmed rows | let the claim deactivate the row → a challenge alone becomes a denial-of-service |
+| C5 proof supersedes the stored secret | a device that proves possession takes the binding from any account, including one redirected before b2 and one whose hash it cannot match | require the hash as well → the redirected victim still needs support |
+| structure | census/grants/manifest/expected_grants four-file rule; rollback identity; 202 with each control; 131's 198 and my K-2 probe unchanged | — |
+Races to run: two proofs for one token at once; a proof racing 131's invalidator; a proof racing a credential change; lock order vs 131's
+per-user advisory lock; a reclaim racing a confirm.
+
+### Gate 2 — send-push challenge delivery (B): C6
+Nonce never logged (assert on the log shape, not by reading code alone); per-user and per-token rate limits with a negative control; the
+challenge send is service_role only and cannot be triggered by a client; a visible-code fallback carries "never share"; no secret in Sentry.
+
+### Gate 3 — client v3 (C), second read after A
+Echo only a challenge this device requested; no auto-confirm of a challenge the app did not initiate; pending state; fallback path; the
+refusal copy for a pre-v3 build; K-2/131 delta and F-SELL-1 reviewed in the same pass (coordinated split with A so we do not double-cover).
+
+### Gate 4 — combined stack at one commit
+Harness once on the combined tree (131–134 + 135 + client + F-SELL-1), reverse-order rollback including 135, then the device rows with C.
+Device matrix I require before "closed": iOS and Android; foreground registration; app backgrounded or killed during registration;
+notifications permission denied; silent-push throttling fallback; reinstall (new token); two accounts on one install; a plant-then-claim from
+a second handset that never activates; and the completed-redirect recovery — the case DV row 3 hit, which must now recover without support.
+
 ### Stack `@ d61970b` (= cb68811 + 134) — **final stack review PASSES**
 CI 35046570214 green. Harness: **PASS 26 · FAIL 0 · WARN 3** · replay **153** · Gate-2 **32|102|37|37** = the stack's ci.yml EXPECT_* ·
 grants = fixture (**69**) · manifest PASS · pgTAP **5123/5123** · production's 135-row line then the release chain · every release rollback
