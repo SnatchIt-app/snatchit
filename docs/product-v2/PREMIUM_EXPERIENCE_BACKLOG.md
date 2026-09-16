@@ -1592,3 +1592,51 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   14 checks; A's read-backs use the buyer row 140fcb44… baseline (last_used
   01:42:41Z, hash prefix 4b8628e7); row 17 (DV-607a) is A's documented
   server-side session delete, on the owner's readiness.
+- **Session 1 (owner, 2026-09-16): row 14 closed.** No-match: **PASS** — the owner
+  reports a filter result showing **"NO MATCHES / Try fewer filters."** (their
+  note names "Your Bids → filter result"; on the Build 17 source that string is
+  Home's active-filter no-match, `home.tsx:380`, and no Bids source carries it —
+  recorded as reported, screen not inferred). Genuinely empty: **PASS** — Your
+  Bids → Past showed **"NOTHING HERE YET / Ended auctions and completed
+  purchases show up here."** (matches `bids.tsx:324/328`; the display face
+  renders titles in capitals). Offline portion stays owner-reported PASS with
+  **F-OFF-1** kept as a review item (Tickets: "Something went wrong / We
+  couldn't load this right now. Please try again."; fixed in the state-views
+  refresh on the combined stack, re-observed on the combined build). Rows 13
+  and 4: PASS as recorded at 8e593ab. **Row 10 VoiceOver: SKIPPED / UNTESTED**
+  (accessibility follow-up retained, DV-A11Y-1; neither passed nor failed). Both
+  Build 17 strings are unchanged by the refresh (grep on bf8b9ba) and are to be
+  re-observed on the combined build (DV-ST3). Labels and timings not captured
+  are not recorded. **Next: row 15 (DV-611C)** — "row 15 ready" to A on the
+  owner's relaunch time.
+
+## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
+
+Owner: gender is a key analytics dimension; collect it at signup **required to be
+answered, with "Prefer not to say"**, inclusive predefined options plus an optional
+self-described value, an explanation, **explicit consent for analytics use**, later
+edit or clear, private by default, never inferred, aggregated analytics with
+small-group suppression, RLS/retention/deletion/export/account-deletion defined
+**with A before schema work**, and no use in discovery, bidding, checkout, transfers
+or seller decisions unless separately approved. (Supersedes the interrupted draft of
+the same day that had the field optional and never at signup.) **No migration or
+production change is authorized.** C's proposal — UI, exact copy, accessibility
+behaviour, A's data-contract questions, D's analytics questions —
+`docs/product-v2/GENDER_PROFILE_DATA_PROPOSAL_C.md`. A: review the data contract,
+privacy, schema, RLS and analytics implications. D: define the analytics dimensions
+and dashboard treatment (suppression, consent filter, opt-out). Concerns flagged in
+the proposal §3: App Store Review Guideline 5.1.1 (data minimisation — mitigated by an
+equal-weight "Prefer not to say" and an honest "why"; A to confirm), signup friction
+(placed with Name, after account creation), and self-described free text never
+reaching analytics.
+
+| ID | Item | Pri | Status | Screens | Owner | Blocked by |
+|---|---|---|---|---|---|---|
+| CFT-901 | Data contract: shape, RLS, retention, deletion, export, account deletion, consent semantics | P1 | proposed | — | A (C supplies §7) | owner approval of the contract |
+| CFT-902 | Signup step 2: Gender radio group, self-describe reveal, validation, Continue never disabled | P1 | proposed | `app/(auth)/signup.tsx` | C | CFT-901 |
+| CFT-903 | Settings › Edit profile: Gender row, selector, Clear gender (consent off), consent toggle, revert on failed save | P1 | proposed | `app/settings/edit-profile.tsx` | C | CFT-901 |
+| CFT-904 | Copy and the "Why we ask" sheet; strings in a module | P2 | proposed (text reviewable now) | signup, edit profile | C | — |
+| CFT-905 | Accessibility: radiogroup/radio semantics, focus moves, announcements, polite live region, Dynamic Type, no animation | P1 | proposed | signup, edit profile | C | CFT-902, 903 |
+| CFT-906 | Analytics dimension, suppression threshold (C proposes ≥ 20), consent filter, opt-out, dashboard treatment; free text never leaves the row | P1 | proposed | admin dashboards | D | CFT-901 |
+| CFT-907 | Tests: validation, source pins (the field is read only in signup, edit profile, read model), static preview | P1 | proposed | tests, preview | C | CFT-902–905 |
+| CFT-908 | Device rows DV-G1…G4 (each answer, large text, VoiceOver, edit, clear, consent off→on) + App Store 5.1.1 note in the release packet | P1 | proposed | device | C / owner | a build after CFT-902–907 |
