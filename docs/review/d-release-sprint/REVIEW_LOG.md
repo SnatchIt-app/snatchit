@@ -195,6 +195,27 @@ Preflight (not defects): (a) the in-migration proof aborts on any environment wi
 expiry/Phase 0 on sandbox data once its `project_url` exists) and replaces its out-of-band notify bodies — the sandbox authorization must
 name this; (c) unschedule+schedule changes jobids — confirm job-health keys on jobname.
 
+### Stack `@ cb68811` (= 6b058d2 + 132's 74a4371) — re-run: **PASSES**
+CI 35045923123 green. Harness on the stack tree: PASS 25 · FAIL 0 · WARN 2 declared · replay 152 · Gate-2 32|102|37|37 · grants 69 ·
+manifest PASS · pgTAP 5114/5114 · production order + release chain · 131/132/133 rollbacks each exact · S1/S2/S3 identical. Unchanged from
+6b058d2, as expected for an edge-only delta. Evidence now sits at one commit.
+
+### 134 `fix/134-processing-sweep-arm @ cdf29e2` (timestamped `20260916000000_processing_sweep_arm.sql`) — **NOT PASSED: CI is RED**
+CI run 35045881634 **failed**: "Typecheck / Lint / Unit tests" → `tests/settlement-sweep.test.ts(362,39): error TS2353: 'mode' does not
+exist in type 'PayRow'` (the canceled-intent auction case's `payments` fixture). A fixture-type fix, not a product defect — vitest does not
+typecheck. Everything else I ran is good and independent of that line:
+- Harness: PASS 26 · FAIL 0 · WARN 3 · replay 153 · census 32|102|37|37 · grants 69 · manifest PASS · pgTAP 5123/5123 · production order +
+  release chain · **134's rollback restores the catalog exactly** · S1/S2/S3 identical. Third WARN: my harness reports the timestamped file is
+  in neither production's 135 nor the default release list and appended it — A to confirm its production position.
+- **Numbering, reproduced not assumed:** on a clone of the stack DB, applying the timestamped file adds the `processing_stale` arm; then
+  applying `20260906110000_settle_verified_payment.sql` — exactly what a fresh replay does AFTER a `134_`-numbered file — removes it again.
+  Under LC_ALL=C `134_…` sorts before `20260906110000…`, and `20260916000000…` sorts last. A's rename is correct.
+- Edge: the Phase 0 branch matches stripe-webhook's payment_failed path (same guarded pending|processing transition; hold release only for
+  buy_now, only after the row is failed, best-effort); other statuses fall through to the settle path.
+- vitest settlement-sweep 18/18 at the head; **my RED control**: the same file on the stack (cb68811) fails 4 of the 5 new cases, the fifth
+  being the by-design "untouched" assertion.
+Sign-off waits for a green CI at the fixed head.
+
 ### 132 delta `9d82247..74a4371` (N-132-1 taken) — **incremental look PASSES**; N-132-2 accepted as a disclosed residual
 The sweep and the claim re-check are now one gate (`handOutBlocked`) at all three hand-outs — reuse, race-recovered and final — so the claim
 is the last word before a secret leaves. Edge vitest at 74a4371: **85/85** (CI 35045455695 green). **My own RED control:** the new test file
