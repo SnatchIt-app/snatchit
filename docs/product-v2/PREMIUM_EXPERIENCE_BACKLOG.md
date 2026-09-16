@@ -1303,3 +1303,18 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   Owner running rows 1–14 at their pace; rows 15–18 on C's triggers with
   140fcb44… as baseline. **132 passed D's review @ 9d82247**; A integrating
   131 + 132 + 133 onto the production-gate stack — no client change.
+- **Session 1, Block 1 rows 1–8 (owner, 22:01 EDT): reported PASSED** "from Listing
+  opens through Unsaved edits"; unsaved-edit protection works. Exact labels and
+  timings were NOT captured for every row (owner's words) — recorded as such,
+  nothing inferred: row 3 Tickets empty-state text, row 6/7 notice texts and
+  timings, row 7 offline sign-out behaviour, and the DV-609 proceeds line are
+  "not captured". Block 0 step 4 not reported. **NEW DEFECT (owner, screenshot):
+  Sell your ticket form — while typing, the sticky "List Ticket" action bar
+  sits far above the keyboard with a large blank gap; the heading crowds the
+  SANDBOX banner.** Owner's acceptance: no artificial gap between keyboard and
+  action bar; focused inputs visible, form scrollable; header spacing correct;
+  open/dismiss/reopen keyboard restores layout reliably; unsaved-edit protection
+  and entered values intact; verify create AND edit, incl. large text. Fix in
+  the next candidate's frontend workstream (branch cut from the pin; A
+  integrates); Build 17 stays the tested artifact; no new build from this.
+  Tracked as **F-SELL-1**; a DV row is added for the next candidate.
