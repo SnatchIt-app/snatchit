@@ -56,6 +56,33 @@ statuses in `net._http_response` are read back by A and D before moving on); `cr
 `refund/payout-execute-tick` stay inert (flags false); (c) the out-of-band notify bodies and the three sandbox-host crons are
 replaced by the Vault form; (d) 133's purge of production-host queue rows is a no-op here (queue 0, none naming production).
 
+**§2a. OWNER DECISION REQUIRED before the window — the empty Vault also kills every b2 challenge push (D, verified by A from
+the source at the pin and from the sandbox).** 135's `notify.issue_push_token_challenge` posts to `send-push` only when
+`project_url` exists, with `'Bearer ' || coalesce(service_role_key, '')`; `send-push`'s `isAuthorized` returns false on a
+length mismatch before comparing, so an empty bearer is refused with 401. After the ceremony, `register_push_token` answers
+`challenge_required`, the challenge row is written, the post is queued, `send-push` refuses it and no push arrives; the
+client's 60-second fallback (`request_push_token_challenge`) dispatches through the same path, so the visible code never
+arrives either. **The refusal is invisible in the database:** the verb's handler catches only a failure to queue; pg_net is
+asynchronous, so the 401 lands in `net._http_response` and the challenge row stays a healthy-looking pending challenge with
+`delivery_outcome` null (`record_push_token_challenge_delivery` is never reached). Today the sandbox has no working pg_net
+post at all: the only routine posting to `send-push` (`notify_outbid`) is guarded on the key, and `net._http_response` holds
+0 rows for the last 24 h — so Build 17's push-*delivery* rows (DV-611/611S) cannot pass on this sandbox either; only
+registration rows can. Options, one line each:
+- **(a) Add `service_role_key` to the sandbox Vault as a second named exception to "new secrets"** (the `project_url`
+  reasoning applies: it is what makes the window able to reach its purpose). Performed either by A from the sandbox
+  environment's existing `TEST_SERVICE_ROLE_KEY` value through a script that never prints it (the value never transits chat
+  or a record), or by the owner in the sandbox dashboard; D verifies names only (`project_url` and `service_role_key` rows
+  exist) and reads the first challenge dispatch's status in `net._http_response`. **Consequence:** the sandbox's outbound
+  function posts go live in general — 133's `enforce-transfer-expiry` cron then really runs every 2 min against sandbox
+  data (Phase 0 refunds of sandbox test rows), the four notify functions post for real, and notification pushes reach any
+  handset registered on the sandbox (today: the owner's). `crm-export-*` stay inert (no worker secret), `refund/payout-execute-tick`
+  stay inert (flags false).
+- **(b) Keep the exclusion.** The window then proves schema, verbs, grants, rollbacks and the migration chain — real value —
+  but **b2 device verification is deferred**: the challenge → push → echo → rebind path stays unproven, the device matrix's core
+  rows stay open, and the one build cannot be validated against the sandbox for the feature it was cut for. If (b) is chosen
+  this file and the manifest say so in those words, so "sandbox application passed" is never read as "b2 works on a handset".
+**A's and D's recommendation: (a), performed by A from the environment value with D witnessing names only.**
+
 ## 3. Migrations, in order, each `preflight → apply → verify` (ORDER_GUARD_SKIP=126 stays declared)
 `131` (session-bound bindings) → `132` (pre-mint group record) → `133` (config-driven functions URL) → `135` (proof of
 possession) → `20260916000000_processing_sweep_arm` (the migration the records call "134"). **Order corrected 2026-09-16
