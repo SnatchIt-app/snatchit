@@ -429,6 +429,48 @@ on missing `@expo-google-fonts` `.ttf` payloads. So: deterministic here, with a 
 set, and no sighting of B's six. I would not treat that as evidence either way about B's run; a full suite from a
 worktree with real `node_modules` is the only thing that would be.
 
+## b2 Gate 3 — the combined stack PASSES at `release/production-gate-20260918 @ 9bef640`
+
+Chain of heads I checked rather than assumed: `cd996df` = 06d414f + 135 `38b1e02` + send-push `77efd64` — I
+diffed all four artifacts (135, its rollback, 202, send-push/index.ts) against the heads I had passed: **identical**,
+and the merge adds nothing else to `supabase/migrations`. `0e8de77` = cd996df + client v3 `e8114df` — all four
+client files identical to the head I passed, SQL unchanged. `9bef640` = 0e8de77 + C's coupling guard, **+74 lines
+in one new test file and nothing else**, so the SQL evidence below carries from 0e8de77 to the tip.
+
+| Gate-3 check | Result |
+|---|---|
+| Full-chain rehearsal @ 0e8de77 | **PASS 27 / FAIL 0 / WARN 3**; census `32|105|37|38`; both orders converge (S1/S2/S3) |
+| Per-migration rollbacks | every release migration restores its pre-migration catalog exactly, 135 included; the only two WARNs are the pre-existing `20260906120000` (102 lines) and `128` (10 lines) I classified earlier |
+| **Reverse-order rollback 135 → 134 → 133 → 132 → 131** @ 9bef640 | stack adds 67 identity lines at census `32|105|37|38`; after rolling back in reverse, **0 lines differ from the candidate** and the census returns to `31|96|37|35` |
+| C1–C6 possession matrix on the stack | 0 errors, every condition as at 38b1e02 |
+| My four negative controls on the stack | all four still flip their case |
+| Push/auth client suites at the stack commit | 97/97 across push-proof-v3, send-push-challenge, push-registration, session-bound-131, logout-scope |
+
+**The coupling point, closed properly.** I extracted every string the client's classifier keys on and checked each
+one against the stack's migrations — not by grep, but by parsing `raise exception` sites with `--` comments
+stripped, so a phrase that only appears in prose does not count. All twelve are genuinely raised; the single
+exception is `nonce mismatch`, which is a dead v2 branch (135 returns rather than raises) and is harmless.
+C's guard at `d9eb102` then makes this permanent, and I proved it earns its place with three mutants on 135:
+rewording `challenge attempts exhausted`, renaming the `stale_nonce` outcome, and changing the session refusal's
+errcode from 42501 to P0001 each fail the guard **by name**, one test each. 17/17 clean.
+
+### Finding
+| # | Severity | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| D-135-5 | LOW (operations documentation, ships on this commit) | `docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md` still presents RB-1 as unresolved on the very commit that resolves it: the header says "today `unbind_push_token` DELETEs the row … support would be the documented way around b2", §5 warns "under a delete-instead-of-tombstone build, that guarantee does not hold", and §8 lists RB-1 as "Still open — whether 135 tombstones instead of deleting. A owns it." On this stack 135 tombstones, and I verified it in a replayed database (`C2g`: `support_unbound`, proof cleared, row kept; next binder `challenge_required`). An agent reading this cannot tell whether their unbind erases the history. | the runbook text at `9bef640` vs `C2g` / MU3 | B: header and §8 become closed-at-135; §5 keeps the caveat but names the migration. Should land before the owner's application package, which will cite this runbook; it does not block the pin |
+
+§7.4 of that runbook correctly records the support challenge-outcome read as mine, to be specced now that 135 has
+landed — outcomes only, never a nonce, a nonce hash or a token string, owner-gated like the rest of my surface.
+
+**Disposition: Gate 3 PASS at `9bef640`, conditional only on its CI (35053607616) landing green.** Nothing is
+applied anywhere. The pin, the application package and the single combined build remain the owner's, and the
+sandbox window authorisation still has to be reconfirmed through A before any execution.
+
+Evidence limits unchanged: local harness and unit level; `net.http_post` and `vault.decrypted_secrets` are
+stand-ins, so no real pg_net, Vault, APNs or FCM behaviour is proven here, and there is no device evidence yet —
+the whole device matrix is still ahead. B root-caused the suite nondeterminism as two concurrent vitest processes
+(timeouts on whichever test transpiles first); I now run one suite at a time.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
