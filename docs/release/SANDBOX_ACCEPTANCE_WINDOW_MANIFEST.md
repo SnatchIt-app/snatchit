@@ -298,3 +298,22 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   Also unrepresentative here, as recorded above: 119's guard, 121, door/scan-device paths.
 - **Still open in this window:** DV-611 L/S/R/C and the device rows (C, on the pinned build); DV-L1/L2 read-backs during those
   rows (A); cleanup (row 12); venue phase last (D, MFA step announced by A). Nothing production; nothing native.
+
+**Handset session 1 (build 17, C's plan; A read-backs) — 2026-09-16 01:2x Z, read-only unless stated.**
+- **Block 0 step 2 (compiled-env evidence):** `auth.sessions` for `sandbox-buyer@snatchit.test` (user `919d511e…`): exactly one
+  session `76ff3c02…`, user_agent `SnatchIt/17 CFNetwork/3860.700.1 Darwin/25.6.0`, `refreshed_at 01:19:05Z` — build 17
+  talks to the sandbox GoTrue (URL + anon key). **The session was created 2026-09-14 04:41:18Z** (= `last_sign_in_at`): the
+  owner's sign-in on the fresh install was a Keychain-restored session, not a new login. Recorded as an evidence note; the
+  first `create-payment-intent` call in Block 2 proves the functions URL.
+- **Block 0 step 3 / DV-611L baseline: NOT MET at 01:21Z** — `push_tokens` has **no row** for the buyer (the sandbox holds one
+  push token in total, from 09-08, another user); `notify.identity_channel_state` has no row for the buyer. No registration
+  has reached the server. Causes to eliminate in order: notifications permission not granted on the handset; no cold-launch
+  registration on a restored session; a client-side failure. Owner asked to confirm the permission and force-quit + relaunch;
+  A re-reads on C's trigger. Rows 1–14 may proceed (no notification dependency); rows 15–18 wait for a row.
+- **Device-session writes by the DV buyer (documented plan rows, logged, cleaned up by A at session end):** one `reports` row
+  (DV-203, reason "Misleading information") and one listing with quantity 2 (DV-609). Baseline before them: listings by the
+  buyer and reports by the buyer counted at 01:2x Z (values in the next line).
+- **DV-106 fixture (read-only):** staged listings "Phone P1" `c343406e…`, "Device D7" `b1c3c478…`, "Device D8" `58cc00e3…`
+  are active, owned by the DV seller, with `cover_image_path = fixtures/<name>.jpg` and no `storage.objects` row — the image
+  request fails; the branded fallback is the PASS state.
+- **DV-605:** a listing id that does not exist on the sandbox is supplied by A (verified absent before hand-off).
