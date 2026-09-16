@@ -1638,14 +1638,29 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   **A read-back 04:19:28Z: PASS on the second attempt** — last_used advanced
   04:00:03 → 04:16:34Z, same user 919d511e…, proof unchanged (4b8628e7), no new
   row, one session = the contract's `refreshed`. The 04:12Z relaunch left no
-  stamp; the 04:16Z one did, so the first was a silent token-fetch failure on
-  the client, not the verb; no API-log read needed. **Row 15: PASS (second
-  attempt; first relaunch unstamped).** **Finding F-611C-1 (C, LOW–MED,
-  evidence):** nothing on screen distinguishes "token fetch failed / pending,
-  will retry" from "registered" — Settings › Notifications shows no banner
-  while `obtainToken()` is pending or after it throws; the next candidate should
-  publish a "waiting for push token" status and bound the fetch with a timeout
-  (not Build 17). Next: row 16 (sign out, online) on "row 16 ready".
+  stamp; the 04:16Z one did. **Row 15: PASS on the second attempt; the 04:12Z
+  relaunch is UNEXPLAINED pending A's sandbox API-log read** (D, 2026-09-16:
+  an attribution to a token-fetch failure is a hypothesis that needs no
+  further work; hold it open). What the Build 17 code rules out: (1) a verb
+  refusal is persisted as a failure record, published to Settings and logged,
+  and shapes the next launch — terminal kinds make every later attempt
+  `wait`, rate_limited waits 10 min (until 04:22Z), transient kinds auto-retry
+  after 30 s (would have stamped by ~04:13Z) — inconsistent with A's
+  04:14:53/04:15:32 reads and the normal 04:16Z register; 131 is not on the
+  sandbox, so the epoch refusal cannot have been raised; (3) a different row —
+  A saw no other row for the buyer and the token string is unique to the row.
+  Live hypothesis (2): the launch never reached the verb — the only
+  launch-variant steps are `getExpoPushTokenAsync` and `loadRegistrationState()`,
+  both caught by `attempt()` → `console.warn` only, nothing persisted, no status.
+  A's log read decides: one call at 04:16 ⇒ (2) and the row closes; a call at
+  04:12 ⇒ C's reading is wrong and the row stays open. **Finding F-611C-1 (C,
+  LOW–MED, broadened per D):** the pre-register path fails invisibly — a
+  refused register is persisted and shown, but a failed or hanging token fetch
+  or storage read leaves no persisted state and no status, so nothing
+  distinguishes it from "registered"; the next candidate should publish a
+  "waiting for push token" status, bound the fetch with a timeout, and persist
+  the failure kind (not Build 17). Next: row 16 (sign out, online) on "row 16
+  ready" — it needs no push.
 - **Sandbox push delivery is impossible today (A, 2026-09-16):** the sandbox
   Vault holds no service_role_key, the only routine posting to send-push
   (notify_outbid) is guarded on it, and `net._http_response` has 0 rows in 24 h
@@ -1658,7 +1673,10 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   service_role_key to the sandbox Vault as a second named secret exception (A
   inserts from the environment value without printing it; D witnesses names
   only), or accept that b2 device verification of delivery is deferred. C runs
-  no delivery row until the owner decides.
+  no delivery row until the owner decides; if declined, delivery rows are
+  recorded **deferred, not attempted, not failed** (D). If allowed, real
+  pushes from the sandbox reach the Build 17 handset, visually identical to
+  production ones.
 
 ## Profile gender — owner request 2026-09-16 (PROPOSAL only; nothing implemented)
 
