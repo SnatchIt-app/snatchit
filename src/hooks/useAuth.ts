@@ -20,6 +20,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { useEffect, useRef, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
+import { handleAuthStateChange, type AuthStateDeps } from '@/src/lib/auth/authStateHandler';
 import { markSessionEndIfUnmarked } from '@/src/lib/auth/sessionEnd';
 import { signOutThisDevice } from '@/src/lib/auth/signOut';
 
@@ -102,38 +103,28 @@ export function useAuth(): AuthState {
     //         We mirror the session change and emit our one-time warn so there
     //         is a clear, actionable message in the console instead of the raw
     //         AuthApiError that the SDK logs.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    //         The callback is SYNCHRONOUS and never awaits another auth call:
+    //         auth-js holds its lock while it awaits every callback during
+    //         signOut(), so an awaited getSession() here deadlocked the lock
+    //         and every later data request (Build 17 blocking finding,
+    //         2026-09-16). The stale-token diagnostic is deferred past the lock.
+    const deps: AuthStateDeps = {
       // Update session state FIRST so navigation reacts immediately.
-      // The stale-token check below is a diagnostic side-effect that should
-      // never delay the UI transition to the login screen.
-      setSession(newSession);
-
+      setSession,
       // A SIGNED_OUT the user did not ask for (stale refresh token, revoked
       // session) is an expiry as far as the login screen is concerned; the
       // sign-out helper marks its own case first (CFT-607).
-      if (event === 'SIGNED_OUT' && newSession === null) markSessionEndIfUnmarked('expired');
-
-      if (
-        event === 'SIGNED_OUT' &&
-        newSession === null &&
-        !staleHandledRef.current &&
-        !_staleWarnEmitted
-      ) {
-        // Best-effort stale-token diagnostic — runs after state is already
-        // updated so it can't block navigation.
-        try {
-          const { error: chk } = await supabase.auth.getSession();
-          if (chk && isStaleTokenError(chk.message)) {
-            staleHandledRef.current = true;
-            await clearStaleSession(chk.message);
-          }
-        } catch {
-          // Ignore — user may already be deleted (account deletion flow).
-        }
-      }
-    });
+      markExpired: () => markSessionEndIfUnmarked('expired'),
+      getSessionError: async () => (await supabase.auth.getSession()).error?.message ?? null,
+      isStaleTokenError,
+      clearStaleSession,
+      staleHandled: staleHandledRef,
+      warnEmitted: () => _staleWarnEmitted,
+      defer: (fn) => { setTimeout(fn, 0); },
+    };
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, newSession) => handleAuthStateChange(event, newSession, deps));
 
     return () => subscription.unsubscribe();
   }, []);
