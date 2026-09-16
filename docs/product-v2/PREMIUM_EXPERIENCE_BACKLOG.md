@@ -1711,9 +1711,24 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   ticks, zero drift; nothing reached the owner's handset. Under option (b)
   every b2 delivery row (challenge, echo, rebind, two accounts, plant-then-
   claim, recovery) is **deferred, not attempted, not passed** — on every build.
-  Row 17 scripted for the owner with the post-131 expectation; the buyer's
-  own re-registration returns contract_version 2, which Build 17 handles; row
-  18 deferred to the combined build. Build: not cut until the owner says so
+  Row 17 scripted for the owner with the post-131 expectation — **corrected by
+  A (D caught it; verified from 131 at the pin): the sessions-gone trigger has
+  two mutually exclusive branches per user.** (1) NO live session remains →
+  `kernel.invalidate_push_bindings_for(user, 'signed_out_everywhere')`: every
+  binding is_active=false, revoked_reason='signed_out_everywhere',
+  device_secret_hash CLEARED, epoch MOVED; (2) another live session remains →
+  only the deleted sessions' own bindings: revoked_reason='session_ended',
+  proof KEPT, no epoch move. "session_ended + proof kept + epoch moved" cannot
+  occur. With one iPhone the owner's buyer sign-in is the only live session →
+  branch (1) is expected; the next sign-in on that device registers fresh (no
+  proof) and re-plants. Branch (2) — the K-2 "this device only" case the
+  amendment exists for — has only run in D's harness; it needs a second live
+  sandbox session (Build 17 on a second iPhone): if the owner has one, that is
+  the more valuable row 17; otherwise branch (2) is recorded untested outside
+  the harness and proposed for the combined-build session. A reads
+  auth.sessions immediately before the delete and states the branch. The
+  buyer's own re-registration returns contract_version 2, which Build 17
+  handles; row 18 deferred to the combined build. Build: not cut until the owner says so
   in A's session; inclusion of 8dc4cec / ce310ef (new tag) is the owner's word.
 - **Owner request (2026-09-16): exhaustive notification inventory + gap
   matrix from source and migrations** (not memory); no notifications added,
