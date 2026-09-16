@@ -200,7 +200,17 @@ CI 35045923123 green. Harness on the stack tree: PASS 25 · FAIL 0 · WARN 2 dec
 manifest PASS · pgTAP 5114/5114 · production order + release chain · 131/132/133 rollbacks each exact · S1/S2/S3 identical. Unchanged from
 6b058d2, as expected for an edge-only delta. Evidence now sits at one commit.
 
-### 134 `fix/134-processing-sweep-arm @ cdf29e2` (timestamped `20260916000000_processing_sweep_arm.sql`) — **NOT PASSED: CI is RED**
+### 134 re-check — `@ 5146040` (CI 35046284427 green, all five jobs): **PASSES from D**
+The fix is test-only and I verified that: `git diff cdf29e2..5146040 -- supabase` is empty, so every SQL, rollback and edge result from the
+cdf29e2 run below still stands. `PayRow` gains optional `buyer_id`/`mode`; vitest settlement-sweep 18/18; pgTAP 201 **9/9**.
+**My own negative control:** on a clone of the 134 pgTAP database I applied 134's rollback (the `processing_stale` arm disappears) and re-ran
+201 → **5 ok / 4 not ok** (A1, A6, A7, A9), matching A's control exactly. So 201 is load-bearing.
+Production position accepted as A states it: `20260916000000_…` is the last version string in the tree, after production's tip
+(20260909000000) and after 131/132/133, so the window's order is 121 → … → 133 → 20260916000000, carried as the last migration of packet
+step 3. Deploy coupling: migration first, then the `enforce-transfer-expiry` edge; the old edge settles the new kind through
+settle_verified_payment, a no-op for a failed intent — degraded, never wrong. **Nothing is applied anywhere; this is not an authorization.**
+
+### 134 first review — `@ cdf29e2` — NOT PASSED at the time: CI was RED
 CI run 35045881634 **failed**: "Typecheck / Lint / Unit tests" → `tests/settlement-sweep.test.ts(362,39): error TS2353: 'mode' does not
 exist in type 'PayRow'` (the canceled-intent auction case's `payments` fixture). A fixture-type fix, not a product defect — vitest does not
 typecheck. Everything else I ran is good and independent of that line:
