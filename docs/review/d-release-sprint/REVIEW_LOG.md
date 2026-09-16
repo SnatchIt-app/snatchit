@@ -471,6 +471,39 @@ stand-ins, so no real pg_net, Vault, APNs or FCM behaviour is proven here, and t
 the whole device matrix is still ahead. B root-caused the suite nondeterminism as two concurrent vitest processes
 (timeouts on whichever test transpiles first); I now run one suite at a time.
 
+## b2 — pin verified; D-135-5 fix reviewed; the 5180 vs 5186 pgTAP question answered
+
+**Pin checked, not taken on trust:** `candidate/2026-09-18-pin-b2` resolves to `9bef640`, its tree is identical to
+the commit I passed at Gate 3, and the earlier pin `candidate/2026-09-18-pin` still resolves to `aabe029`, untouched.
+
+**The pgTAP totals differ for a benign reason, and I chased it before signing anything else.** CI reports
+`files=85 tests_ran=5186`; my local harness (and A's) reports `TOTAL plan=5180 ok=5180` — a 6-assertion gap on a
+pinned candidate, which would be serious if real. It is not: `000_helpers.sql` declares `plan(6)` of its own and
+the local harness runs it as the bootstrap that commits the `tap` schema, excluding it from the totals (84 files,
+5180), while CI runs it as an ordinary test file (85 files, 5186). I verified this per file — every one of the 84
+the harness runs has executed plan == declared plan, and the only file where the two accountings differ is
+`000_helpers.sql`. **No assertion goes unrun in either place; 5180 + 6 = 5186.** Worth stating because "every
+file ran its whole plan" and a total 6 short of the declared sum cannot both be true without this explanation, and
+the next person to compare the two numbers deserves the answer rather than the alarm.
+
+**D-135-5 fix reviewed at `docs/b2-runbook-rb1-closed @ 5225557`** (branched off the pin; one file, docs-only —
+I confirmed the scope). Every factual claim checks out against 135 §6b at the pin and against my own C2g/MU3
+evidence: `is_active=false`, `device_secret_hash` cleared, `revoked_reason='support_unbound'`, `session_id`
+cleared, row kept, open challenges consumed, reply `{unbound, contract_version: 3}`, next binder
+`challenge_required`. §5 now names the migration the guarantee starts at and tells an agent on a pre-135 build to
+escalate rather than unbind, which is the right instruction. **D-135-5 closed on that branch.** B's judgement call
+— the second §8 bullet saying the support challenge-history read is specced but not built — should stay: §3 points
+at it, and an agent who cannot see it will otherwise improvise.
+
+### New finding, surfaced by that fix
+| # | Severity | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| D-135-6 | LOW (operations) | The runbook now requires two things an agent cannot do until my console read exists. §2.3 makes "check the challenge history first — if a challenge was issued and never confirmed, prefer reissuing it" a **precondition**, and §3 makes "the last challenge id and outcome" a **record-every-time** field; §8 now says plainly that read does not exist. A precondition nobody can satisfy is either skipped or improvised, and improvising here means guessing at whether the device already answered. | the runbook at `5225557`, §2.3 and §3 vs the new §8 bullet | mark both as "when the console read exists (§8)", and give §2.3 an interim route — an engineer-run, owner-gated read, or an explicit instruction to proceed without it and record that the history was unavailable |
+
+That read is mine to spec now that 135 has landed: outcomes only — token id, created, expires, confirmed,
+attempts, delivery outcome — never a nonce, a nonce hash or a token string, owner-gated like the rest of the
+console surface.
+
 ## b2 — D's staged review plan (owner chose b2 on 2026-09-16; build shape (i), one combined build)
 Owner: "Begin the independent review preparation against your six proof-of-possession conditions. Coordinate staged reviews with A/B/C as
 components become ready." Authorized: isolated implementation, local testing, review, integration; one build after the combined commit
