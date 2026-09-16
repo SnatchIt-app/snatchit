@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snatch It · Premium Experience · STATIC PREVIEW · offline / error / empty / no-match states</title>
+<style>
+  :root{--canvas:#000;--surface:#0A0A0A;--text:#fff;--text2:rgba(255,255,255,.70);--muted:rgba(255,255,255,.55);--faint:rgba(255,255,255,.30);--red:#FF1A1A;--border:rgba(255,26,26,.15);--borderStrong:rgba(255,26,26,.30);--warning:#FFB020;--display:Oswald,"Arial Narrow",Impact,sans-serif;--body:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  *{box-sizing:border-box} body{margin:0;background:#050505;color:var(--text);font-family:var(--body);font-size:14px;line-height:1.45}
+  .wrap{padding:24px 16px 64px;max-width:1400px;margin:0 auto}
+  .stamp{border:2px solid var(--warning);color:var(--warning);padding:12px 16px;margin-bottom:24px;font-size:13px}
+  .stamp b{display:block;font-family:var(--display);font-size:22px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px}
+  h1{font-family:var(--display);text-transform:uppercase;font-size:34px;letter-spacing:-.7px;margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 16px}
+  .grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .phone{width:390px;max-width:100%;height:760px;background:var(--canvas);border:1px solid var(--borderStrong);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .phone .tag{position:absolute;top:0;right:0;background:var(--warning);color:#000;font-size:10px;font-weight:700;letter-spacing:.5px;padding:3px 6px;z-index:2}
+  .badge{background:#7a3b00;color:#ffd9a0;font-size:11px;font-weight:700;letter-spacing:1px;text-align:center;padding:52px 0 6px}
+  .hdr{padding:8px 16px 12px;border-bottom:1px solid var(--border)}
+  .hdr .t{font-family:var(--display);text-transform:uppercase;font-size:26px;letter-spacing:-.5px}
+  .hdr.big .t{font-size:34px}
+  .state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;gap:8px;text-align:center}
+  .glyph{width:56px;height:56px;border-radius:28px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;margin-bottom:4px;color:var(--text2)}
+  .glyph.fail{border-color:var(--borderStrong)} .glyph.warn{color:var(--warning)}
+  .glyph svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .title{font-family:var(--display);text-transform:uppercase;font-size:20px;letter-spacing:-.2px}
+  .big .title{font-size:27px} .big .body{font-size:20px} .big .btn{font-size:20px}
+  .body{color:var(--muted);max-width:320px;font-size:15px}
+  .btn{margin-top:12px;min-width:160px;padding:12px 24px;background:var(--red);color:#fff;font-weight:700;border-radius:0;font-size:15px}
+  .btn.sec{background:transparent;border:1px solid var(--borderStrong)}
+  .dock{position:absolute;left:24px;right:24px;bottom:28px;height:64px;border-radius:32px;background:#161616;border:1px solid #222}
+  .cap{color:var(--faint);font-size:12px;margin-top:6px}
+</style>
+</head>
+<body><div class="wrap">
+<div class="stamp"><b>Static preview — not a device render</b>Hand-composed HTML pinned to source copy by tests/state-views.test.ts. Native visual and runtime acceptance happens on the combined candidate build (DV-ST1..ST4), not here.</div>
+<h1>Offline · server error · empty · no match</h1>
+<p class="sub">One state view (src/components/ui/StateView.tsx) for Home/Explore, Bids, Tickets and Profile: display-face title, one sentence, one glyph treatment, the app Button. Headings clear the sandbox badge through useTopInset, including at large text (last frame).</p>
+<div class="grid">
+  <div class="phone"><span class="tag">static</span><div class="badge">SANDBOX — TEST MONEY ONLY</div><div class="hdr"><div class="t">Your tickets</div></div>
+    <div class="state"><div class="glyph fail"><svg viewBox="0 0 24 24"><path d="M1 1l22 22M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 3.4-2.3M12 8a14 14 0 0 1 10.2 4.5M1.8 12.5A14 14 0 0 1 6 9.4"/></svg></div><div class="title">You're offline</div><div class="body">Check your internet connection and try again.</div><div class="btn">Retry</div></div><div class="dock"></div></div>
+  <div class="phone"><span class="tag">static</span><div class="badge">SANDBOX — TEST MONEY ONLY</div><div class="hdr"><div class="t">Your bids</div></div>
+    <div class="state"><div class="glyph fail warn"><svg viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3zM12 10v5M12 18v.5"/></svg></div><div class="title">Couldn't load this</div><div class="body">Something went wrong on our side. Try again in a moment.</div><div class="btn">Retry</div></div><div class="dock"></div></div>
+  <div class="phone"><span class="tag">static</span><div class="badge">SANDBOX — TEST MONEY ONLY</div><div class="hdr"><div class="t">Your tickets</div></div>
+    <div class="state"><div class="title">No tickets yet</div><div class="body">Tickets you own will show up here.</div></div><div class="dock"></div></div>
+  <div class="phone"><span class="tag">static</span><div class="badge">SANDBOX — TEST MONEY ONLY</div><div class="hdr"><div class="t">Search</div></div>
+    <div class="state"><div class="glyph"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div><div class="title">Nothing matches</div><div class="body">Try the venue name, or a shorter word.</div></div><div class="dock"></div></div>
+  <div class="phone big"><span class="tag">static</span><div class="badge">SANDBOX — TEST MONEY ONLY</div><div class="hdr big"><div class="t">Your bids</div></div>
+    <div class="state"><div class="glyph fail"><svg viewBox="0 0 24 24"><path d="M1 1l22 22M8.5 16.5a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 3.4-2.3M12 8a14 14 0 0 1 10.2 4.5M1.8 12.5A14 14 0 0 1 6 9.4"/></svg></div><div class="title">You're offline</div><div class="body">Check your internet connection and try again.</div><div class="btn">Retry</div><div class="cap">largest accessibility text size — the badge keeps its height (allowFontScaling off) and the heading clears it</div></div><div class="dock"></div></div>
+</div>
+</div></body></html>

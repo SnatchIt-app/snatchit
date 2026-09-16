@@ -23,10 +23,10 @@
  */
 
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconButton } from '@/src/components/ui';
 import { useCurrentMarket } from '@/src/lib/market/currentMarket';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -38,11 +38,11 @@ const SN_MARK_HEIGHT = 24;
 
 export function HomeHeader({ onSearch }: { onSearch: () => void }) {
   // The real inset, not a guessed 56. Every tab screen in this app hardcoded it.
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const market = useCurrentMarket();
 
   return (
-    <View style={[styles.header, { paddingTop: insets.top + v2.space.sm }]}>
+    <View style={[styles.header, { paddingTop: topPad + v2.space.sm }]}>
       {/* The mark is alone on this full-width, centre-aligned line, so it is
           centred to the SCREEN — the search control below cannot displace it.
           Decorative: it is a brand mark with no interaction, and announcing it

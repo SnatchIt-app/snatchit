@@ -2,17 +2,21 @@
  * ScreenState — full-screen fallback states for network-dependent screens.
  *
  * Distinct states (never one screen for every failure):
- *   loading — centered spinner
- *   offline — "You're offline" + retry (auto-retries when connection returns)
- *   error   — server/application failure + retry
+ *   loading — the Spinner (Reduce Motion aware)
+ *   offline — StateView 'offline' + Retry (auto-retries when connection returns)
+ *   error   — StateView 'error' + Retry
  *
- * Empty states stay screen-specific (each screen keeps its own copy/CTA).
+ * Empty and no-match states are StateView 'empty' / 'noMatch' (EmptyState keeps
+ * its screen-specific copy). Screens render this only with nothing cached to
+ * show; a failed quiet refresh keeps the rows.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { StyleSheet, View } from 'react-native';
+
+import { Spinner, StateView } from '@/src/components/ui';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { STATE_COPY } from '@/src/lib/ui/loadState';
 
 export type ScreenStateKind = 'loading' | 'offline' | 'error';
 
@@ -43,85 +47,21 @@ export default function ScreenState({ state, onRetry }: Props) {
   if (state === 'loading') {
     return (
       <View style={s.wrap}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <Spinner />
       </View>
     );
   }
 
-  const offline = state === 'offline';
   return (
     <View style={s.wrap}>
-      <View style={s.iconCircle}>
-        <Text style={s.icon}>{offline ? '📡' : '⚠️'}</Text>
-      </View>
-      <Text style={s.title}>{offline ? "You're offline" : 'Something went wrong'}</Text>
-      <Text style={s.subtitle}>
-        {offline
-          ? 'Check your internet connection and try again.'
-          : "We couldn't load this right now. Please try again."}
-      </Text>
-      {onRetry && (
-        <Pressable
-          style={[s.retryBtn, retrying && s.retryBtnBusy]}
-          onPress={retry}
-          disabled={retrying}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Retry"
-          accessibilityState={{ busy: retrying, disabled: retrying }}
-        >
-          {retrying ? (
-            <ActivityIndicator color={colors.text} size="small" />
-          ) : (
-            <Text style={s.retryText}>Retry</Text>
-          )}
-        </Pressable>
-      )}
+      <StateView
+        kind={state}
+        action={onRetry ? { label: STATE_COPY[state].retry, onPress: retry, busy: retrying } : undefined}
+      />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
-  },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  icon: { fontSize: 30 },
-  title: {
-    fontSize: fontSize.lg,
-    fontWeight: '800',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  retryBtn: {
-    marginTop: spacing.md,
-    minWidth: 140,
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: 12,
-    paddingHorizontal: spacing.lg,
-  },
-  retryBtnBusy: { opacity: 0.7 },
-  retryText: { color: colors.text, fontWeight: '700', fontSize: fontSize.md },
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

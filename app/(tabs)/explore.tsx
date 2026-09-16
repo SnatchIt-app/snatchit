@@ -26,19 +26,19 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollars } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
-import { isNetworkError } from '@/src/hooks/useNetworkStatus';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
+import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import ScreenState from '@/src/components/ScreenState';
-import { EmptyState, IconButton, Input } from '@/src/components/ui';
+import { IconButton, Input, StateView } from '@/src/components/ui';
 import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
 import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
-import { useDockClearance } from '@/src/lib/nav/navInsets';
+import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -82,13 +82,16 @@ function SearchFailureNotice({ kind, onRetry }: { kind: 'offline' | 'error'; onR
 }
 
 export default function SearchScreen() {
-  const insets = useSafeAreaInsets();
+  const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { blockedIds } = useBlockedUserIds();
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Listing[]>([]);
   const [searching, setSearching] = useState(false);
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(false);
+  offlineRef.current = isOffline;
   const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [searched, setSearched] = useState(false);
@@ -129,7 +132,7 @@ export default function SearchScreen() {
       // The raw message goes to the log. The user gets a state, not a stack —
       // and keeps the results already on screen. Nothing is cleared here.
       console.warn('[search] query failed:', error.message);
-      setLoadError(isNetworkError(error) ? 'offline' : 'error');
+      setLoadError(classifyLoadFailure(error, offlineRef.current));
       return;
     }
     setResults((data ?? []) as Listing[]);
@@ -148,7 +151,7 @@ export default function SearchScreen() {
 
   return (
     <View style={s.container}>
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => router.back()} />
         <View style={s.field}>
           <Input
@@ -187,7 +190,7 @@ export default function SearchScreen() {
           }
           ListEmptyComponent={
             searched ? (
-              <EmptyState title="Nothing matches" body="Try the venue name, or a shorter word." />
+              <StateView kind="noMatch" />
             ) : (
               <View style={s.hint}>
                 <Text style={[textStyle('bodySm'), s.hintText]}>
