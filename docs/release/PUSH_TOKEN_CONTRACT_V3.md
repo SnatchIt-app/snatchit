@@ -43,8 +43,10 @@ expires_at timestamptz (now() + 5 min) · attempts int (max 5) · confirmed_at �
 delivery_outcome text, provider_message_id text, delivery_error text** (written by `notify.record_push_token_challenge_delivery(p_challenge_id uuid,
 p_outcome text, p_provider_message_id text, p_error text)`, service_role — a challenge is a control message, not an outbox notification,
 so it never touches `notify.delivery`/`record_delivery_result`)`.
-One open challenge per (token, requesting_user); a new request while one is open re-dispatches the same challenge (no new nonce)
-until it expires. Expired and consumed rows are swept by the notify drain (`> 24 h`).
+One open challenge per (token, requesting_user). A new request while one is open **re-issues the nonce on the same row** (only
+the hash is stored, so the same nonce cannot be re-sent; attempts are kept, expiry refreshed, mode as requested). **An open
+challenge whose attempts are exhausted or which has expired is consumed and a fresh one issued on the next request** (D, P3-1) —
+no dead-end while a stale row lives. Expired and consumed rows are swept by the notify drain (`> 24 h`).
 
 ## 4. `public.confirm_push_token_challenge(p_challenge_id uuid, p_nonce text) → jsonb`
 Reply `{outcome, token_id, contract_version: 3}`. The bind happens **here**, atomically, only when all hold:
@@ -53,15 +55,17 @@ Reply `{outcome, token_id, contract_version: 3}`. The bind happens **here**, ato
 - the caller's session does not predate a credential change (131).
 On success: the row's `user_id` := caller, `is_active` := true, `revoked_*` := null, `device_secret_hash` := `secret_hash` (C5 —
 the stored proof is superseded by the proving device's), `session_id` := caller's session, `last_used` := now(); the previous
-owner's binding on this token ends (they receive an in-app notice `security_device_rebound`, never a push); challenge consumed.
-Outcome `rebound`. Every other path writes nothing except `attempts += 1`:
+owner's binding on this token ends (they receive the notice `security_device_rebound` **by email** — notify has no in-app channel,
+and never by push, since their push is exactly what moved — deduped per token per day); challenge consumed.
+Outcome `rebound`. **A nonce mismatch does not raise** (a raise would roll back the attempt count): it returns
+`{outcome: 'nonce_mismatch', attempts_left, token_id, contract_version: 3}`, and the fifth mismatch consumes the challenge and
+returns `{outcome: 'challenge_consumed', …}`. Every other refusal raises and writes nothing:
 
 | error | code |
 |---|---|
 | `not_authenticated` | 42501 |
 | `insufficient_privilege: challenge belongs to another session` | 42501 |
 | `precondition_failed: challenge expired` / `challenge consumed` / `challenge attempts exhausted` | P0001 |
-| `precondition_failed: nonce mismatch` | P0001 (attempts += 1) |
 | `insufficient_privilege: session predates a credential change` | 42501 |
 
 ## 5. Delivery and the fallback
