@@ -1742,3 +1742,35 @@ reaching analytics.
 | CFT-906 | Analytics dimension, suppression threshold, consent filter, opt-out, dashboard treatment. **Answered by D 2026-09-16** (`docs/review/d-release-sprint/GENDER_ANALYTICS_TREATMENT_D.md` @ 1698926): k = 20 with complementary suppression, fixed period buckets and a 250 denominator floor; `not_disclosed` absorbs undisclosed + cleared + consent-off; free text unreachable by the aggregate layer (derived column, no privilege — for CFT-901); every figure "of respondents who consented (n = N)"; per-request computation, exports timestamped point-in-time; one SECURITY DEFINER `search_path=''` function returning suppressed rows; bars not pie, fixed order, "—" never 0, no time series in v1, no pink/blue. **Open for the owner (D §0):** which decision the dimension informs — name one or two questions, build only those cuts | P1 | answered by D; blocked on CFT-901 | admin dashboards | D | CFT-901 |
 | CFT-907 | Tests: validation, source pins (the field is read only in signup, edit profile, read model), static preview | P1 | proposed | tests, preview | C | CFT-902–905 |
 | CFT-908 | Device rows DV-G1…G4 (each answer, large text, VoiceOver, edit, clear, consent off→on) + App Store 5.1.1 note in the release packet | P1 | proposed | device | C / owner | a build after CFT-902–907 |
+
+- **BLOCKING Build 17 finding (owner, 2026-09-16): sign out online → sign back in
+  → Home and Profile load forever until a force-quit.** Sign-in flow NOT passed
+  while open. Investigation (C, before any change): auth event sequence on the
+  broken path is SIGNED_IN → SIGNED_OUT → SIGNED_IN on one process; the working
+  path (force-quit → relaunch) is INITIAL_SESSION on a fresh process and never
+  runs the SIGNED_OUT callback. Root cause, confirmed in the installed
+  `@supabase/auth-js` 2.98.0 (`GoTrueClient.js`): `signOut()` runs inside
+  `_acquireLock` and, via `_removeSession` → `_notifyAllSubscribers`, AWAITS
+  every onAuthStateChange callback before the lock is released
+  (`_acquireLock` drains `pendingInLock`; `_notifyAllSubscribers` awaits
+  `x.callback`). `useAuth.ts`'s callback was `async` and awaited
+  `supabase.auth.getSession()` (the stale-token diagnostic), which queues
+  behind the very sign-out that is waiting on it → circular wait,
+  `lockAcquired` never resets. `signInWithPassword` does not take the lock, so
+  sign-in "succeeds", but every data request awaits
+  `SupabaseClient._getAccessToken → auth.getSession()` → chained on the hung
+  tail → Home, Profile (and the push registration RPC) hang for the life of the
+  process. Not a stale loading flag (Home/Profile `finally` paths are intact),
+  not a missed event, not navigation timing, not the verb. Reproduced
+  deterministically in `tests/auth-signout-deadlock.test.ts` against the REAL
+  supabase-js client (in-memory storage, fake fetch): sign-out hangs, a data
+  request after sign-out → sign-in hangs, account switch hangs; the restored
+  session (cold launch) passes — 5 RED / 1 green before the fix. Fix
+  (`frontend/auth-signout-deadlock`, from the stack tip 9bef640): the callback
+  is a synchronous pure handler (`src/lib/auth/authStateHandler.ts`) that sets
+  the session and the expiry mark and DEFERS the stale diagnostic past the
+  lock (`setTimeout(fn, 0)`, the pattern Supabase documents); nothing in the
+  callback awaits an auth call. Logout/session-security behaviour unchanged
+  (revoke → sign-out order, K-2 scope, K-6 expiry mark, 131 stale handling).
+  Device row DV-AUTH-1 (iOS, sandbox banner, large text): sign out online →
+  sign in → Home and Profile load without a force-quit; no permanent spinner.
