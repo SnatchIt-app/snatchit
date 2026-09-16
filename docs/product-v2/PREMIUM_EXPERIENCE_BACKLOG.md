@@ -1720,6 +1720,17 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   a confirmed stale session is idempotent and equally right for a dead run.
   DV-611C-2 reworded: silence is a FAIL, not inconclusive. Both proposal heads
   (8dc4cec, a609cbc) wait only on the owner's word in A's session.
+- **My Tickets readiness map delivered (owner assignment relayed by A):**
+  `docs/product-v2/MY_TICKETS_READINESS_20260916.md @ ecc58a0`, report only.
+  Sandbox: the tab can be populated today only with an owner-authorised
+  fixture row in `kernel.tickets` (+ joined catalog/venue rows), excluded by
+  the acceptance-window ruling; production: `20260909000000` absent, so the
+  tab shows the error state until the owner-gated apply, and the only
+  legitimate row producer is the dark native issuance chain (flag, four null
+  config stops, ceremony NO-GO, `primary-checkout` never deployed, no client).
+  Offline cached tickets (spec) not implemented anywhere. New client work
+  listed as CFT-801, 811–816, each needing a contract from A. Sent to A for
+  the consolidated readiness report.
 - **B2 window server phase CLOSED (A, 2026-09-16 04:57Z; D's closing read
   PASS):** sandbox ledger 141 (131, 132, 133, 135, 20260916000000; each md5 =
   the pinned bytes at 9bef640); census 32|106|37|37; create-payment-intent v5,
