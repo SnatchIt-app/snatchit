@@ -589,6 +589,28 @@ rather than resuming it. Three conditions I attached, all sent to A for §2a:
    immediately before *each* apply, and every difference is attributed through `cron.job_run_details` first. A
    mismatch I cannot attribute to a recorded cron run is still a stop.
 
+**Secret-insert mechanism, reviewed before it exists (raised to A).** Suppressing stdout does not address where
+this value would actually leak, because it travels to the server inside the statement text. Three places:
+(1) **the server log on error** — `log_min_error_statement` defaults to `error`, so a failed `vault.create_secret`
+logs the whole failing statement, secret included, and the failure case is exactly when somebody reruns it; the fix
+is to make the inserting statement unable to fail, by checking the function, the free name and the privilege as
+separate statements first; (2) **`log_statement` / `log_min_duration_statement`** on the sandbox, which must be
+read rather than assumed — at `all`, the insert is logged on success too and the ordering fix does not help;
+(3) **shell and psql history** — no `set -x` on any path, `PSQL_HISTORY=/dev/null`. What I check when A sends the
+script: no `set -x`; the value never in an `echo`, a `RAISE`, a comment or a displayed `\set`; history off; the
+pre-checks present; and the insert the only statement carrying it. **The dashboard route avoids all three**, since
+the value never becomes a logged SQL statement on our side — a reason to prefer it if the owner is indifferent.
+
+**Handset, 04:12Z relaunch — recorded UNEXPLAINED, not closed.** Row 15 passed on the owner's second relaunch
+(`last_used` 04:16:34Z); the 04:12Z relaunch left no stamp and C attributes it to a silent client token-fetch
+failure. That is an attribution, not evidence, and it is a one-in-two failure on exactly the flow the b2 device
+matrix exercises. Alternatives it displaces: the register call was made and **refused** (131/135 both raise 42501
+on a session predating the epoch, and the client's terminal branches show the user nothing), the call was never
+made (gate or early return), or it succeeded against a different row. Asked C what distinguishes the two
+relaunches, and whether anything at all is recorded on a failed `getExpoPushTokenAsync` or a failed register — if
+nothing distinguishes those three cases anywhere, **that** is the finding: the registration path fails invisibly,
+which is what made DV row 3 expensive. Not blocking today; much cheaper to settle now than on the second sighting.
+
 Secret handling unchanged: I never see, echo or reconstruct the value; my verification is that a row exists under
 the expected name and the first dispatch's status in `net._http_response`. If a script would print the value I say
 so rather than run alongside it. Under (b) the manifest should say the sandbox stays outbound-silent, so DV-611 /
