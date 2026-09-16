@@ -365,3 +365,21 @@ surfaces; retain the full-chain rehearsal as separate evidence."
   "Something went wrong / We couldn't load this right now" where Home/Bids/Profile show "You're offline" (**F-OFF-1, LOW, next
   candidate, not now**); row 10 (VoiceOver) UNTESTED at the owner's request (**A11Y-1 follow-up**). Next: row 13, row 14's
   filtered/empty checks, then rows 15–18 on C's triggers.
+- **Owner / C / A, 2026-09-16 04:00–04:24Z — rows 14, 15, 16.** Row 14 filtered/empty checks PASS (owner via C; no-match,
+  genuinely-empty, offline with F-OFF-1 kept). **Row 15 (DV-611C, relaunch while signed in) PASS on the second attempt, first
+  attempt UNEXPLAINED-then-settled:** A's capture before the owner acted, 04:10:50Z: row `140fcb44…` active, last_used 04:00:03Z
+  (row-14 residue), proof `4b8628e7`, one session `25716517…` (01:42:30Z). Owner relaunched ≈04:12Z → reads 04:14:53Z and
+  04:15:32Z unchanged. Owner relaunched again ≈04:16Z → read 04:19:28Z: last_used **04:16:34Z**, same user, same proof, no new
+  row = the contract's `refreshed`. Sandbox API log (edge_logs, UA SnatchIt/17, 04:10–04:18Z, one query with the known call as
+  positive control): 04:12:31–36Z `auth/v1/user`, `user_blocks`, `rpc/get_my_profile` ×2, `listings` ×2, all 200, **no
+  `register_push_token`**; 04:16:33–35Z the same sequence plus `rpc/register_push_token` **200 at 04:16:34.448Z**. So the 04:12
+  launch was online and authenticated and never sent the register RPC: the miss is on the client between userId-known and
+  RPC-sent (C: `obtainToken()` / storage read, caught to console only, nothing persisted) — **F-611C-1** (C): a failed or hanging
+  token fetch is indistinguishable on the device from a registration; C prepares a fix (timeout-bounded fetch, persisted
+  pre-register failure, Settings visibility with Retry) on `frontend/push-token-fetch-visibility` off `9bef640` for the owner's
+  decision; if included it is a **new build-source tag** after CI and D's gate, `9bef640` stays the applied-bytes pin. **Row 16
+  (sign out online) server half PASS** at 04:23:49Z: `140fcb44…` active=false, revoked_at 04:21:09Z, reason `signed_out`, proof
+  kept, buyer sessions 0 (129 wrapper path); client half owner-reported (no message on the login screen). Next: row 18 on C's
+  trigger; row 17 (A deletes the buyer's session server-side, documented) only on the owner's "ready" with a live session.
+  **Sandbox push delivery is impossible today** (empty Vault: no `service_role_key`; `net._http_response` 0 rows in 24 h): any
+  row that needs a push to arrive is on hold pending the owner's package §2a decision, deferred not attempted.
