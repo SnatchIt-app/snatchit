@@ -1665,8 +1665,36 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   to a Mac in Console.app, retention uncertain — offered to the owner as
   optional, not asked. **Row 16 action (owner, 00:21 EDT ≈ 04:21Z):** signed
   out online; login screen showed no message (client half PASS, owner-
-  reported); stopped at login. "row 16 ready" sent to A; read-back pending
-  (expected is_active=false, revoked_reason='signed_out', session gone).
+  reported); stopped at login. **A read-back 04:23:49Z: server half PASS** —
+  active=false, revoked_at 04:21:09Z, reason signed_out, proof kept, last_used
+  unchanged 04:16:34, buyer sessions 0 (129 wrapper path). **Row 16: PASS.**
+  **Row 15 SETTLED by A's edge log (with the positive control present):**
+  exactly one register_push_token call, 04:16:34.448Z status 200 UA
+  SnatchIt/17; none at 04:12Z. At 04:12:31–36Z the app was online and
+  authenticated (GET auth/v1/user 200, user_blocks, get_my_profile ×2,
+  listings ×2) and never sent register — the miss is client-side between
+  userId-known and RPC-sent (`obtainToken()` / storage read), not network, not
+  auth, not the verb. **Row 15: PASS on the second attempt; F-611C-1 CONFIRMED
+  with evidence.** Detail: the 04:12 launch issued the auth/user +
+  get_my_profile pair twice within five seconds (once at 04:16) — consistent
+  with the root shell mounting twice; C checks the double-mount path with the
+  fix. Dwell-time question withdrawn (the log answers it).
+- **Owner decision (2026-09-16): sandbox push service key DEFERRED.** "b2 real
+  push-delivery verification" is **BLOCKED until the key is deliberately
+  approved** (DV-V1..V4 and every push-arrival row: deferred, not attempted,
+  not failed). Coding, contract work, tests and local review continue.
+- **F-611C-1 fix in progress:** `frontend/push-token-fetch-visibility` (from
+  the stack tip 9bef640): bounded token fetch, persisted pre-register failure
+  (kind + timestamp + attempts), published to Settings › Notifications with
+  Retry, cold flag kept pending, in-process backoff retry. If the owner
+  includes it in the combined candidate it is **a new pin + CI + D's gate,
+  still one build**; otherwise it waits for the next candidate.
+- **Owner request (2026-09-16): exhaustive notification inventory + gap
+  matrix from source and migrations** (not memory); no notifications added,
+  no delivery behaviour changed. In progress: two read-only source sweeps of
+  9bef640 (server: migrations, notify schema, edge functions, pgTAP; client:
+  expo-notifications handlers, registration, preferences, inbox, copy, tests)
+  → `docs/product-v2/NOTIFICATION_INVENTORY_AND_GAPS.md`.
 - **Sandbox push delivery is impossible today (A, 2026-09-16):** the sandbox
   Vault holds no service_role_key, the only routine posting to send-push
   (notify_outbid) is guarded on it, and `net._http_response` has 0 rows in 24 h
