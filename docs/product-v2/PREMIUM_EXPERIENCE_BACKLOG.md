@@ -1550,3 +1550,14 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   (where `135_push_token_proof_of_possession.sql` exists) that asserts every
   keyed string appears in the migration body, so the coupling fails loudly in
   CI rather than only in D's run — not on the branch, which has no 135.
+  **Done 2026-09-16: `frontend/classifier-migration-guard @ d9eb102`** (test-only,
+  cut from the combined stack `0e8de77` = 131–135 + send-push + client v3
+  e8114df + K-2/131 + F-SELL-1 + state-views; A's gates there typecheck 0 /
+  vitest 2044 / lint 0; CI 35053233744; D has it for Gate 3).
+  `tests/push-classifier-migration-guard.test.ts` reads 135 and asserts every
+  keyed raise verbatim with its errcode, every 200 literal the client
+  branches on, the challenge_required shape and contract_version 3, and that
+  each string still classifies to the expected kind in both classifiers; dead
+  v2 branches documented as not asserted. Negative control: a reworded raise
+  fails by name. Gates: tsc clean; lint 0 errors / 29 warnings; vitest 2061 /
+  93. Sent to A to integrate before the pin; D informed.
