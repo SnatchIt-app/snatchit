@@ -568,6 +568,32 @@ stay open. Under (b) the package must say plainly that b2 device verification is
 passed" is never read as "b2 works on a handset". I recommend (a): `project_url` was carved out for exactly this
 pattern and the same reasoning applies, but it is a secret and so the owner's to authorize and to perform.
 
+### W-1 follow-ups once option (a) is on the table
+A verified the chain independently at the pin and on the sandbox, and adds that `net._http_response` has **0 rows
+in 24 h** — nothing has ever posted from this sandbox through pg_net, so (a) switches outbound traffic **on**
+rather than resuming it. Three conditions I attached, all sent to A for §2a:
+
+1. **Ceremony order is a safety control, not a preference: `project_url` first, verify it names the sandbox host,
+   then `service_role_key`.** With the key present and a wrong URL the sandbox posts authenticated-looking traffic
+   at whatever host the URL names; with the URL first and no key, a wrong URL produces an empty-bearer request that
+   is refused — fail-safe. A sandbox posting at the production host, even to collect a 401, is an unauthorized
+   production contact. I verify the host between the two steps and again after, names and shape only.
+2. **(a) means real pushes on the owner's real handset from the sandbox, indistinguishable on the device.**
+   Pre-flight shows `push_tokens = 1` — their Build 17 phone. Once the key is in, notify functions post for real,
+   so a sandbox event can put a payment-shaped notice on their lock screen; against their own product truth that a
+   refund notice may only mean a confirmed refund, that is the false signal they care about. Not a reason to
+   refuse (a), but they must know it before choosing.
+3. **A live 2-minute sweep cron changes my witness method.** The ruling says stop on a count mismatch, but with a
+   cron mutating rows every two minutes, drift between reads is expected, and a stop condition that fires on
+   normal activity is one that gets waived — which is how a real mismatch gets talked away. So V0 is taken
+   immediately before *each* apply, and every difference is attributed through `cron.job_run_details` first. A
+   mismatch I cannot attribute to a recorded cron run is still a stop.
+
+Secret handling unchanged: I never see, echo or reconstruct the value; my verification is that a row exists under
+the expected name and the first dispatch's status in `net._http_response`. If a script would print the value I say
+so rather than run alongside it. Under (b) the manifest should say the sandbox stays outbound-silent, so DV-611 /
+611S and every b2 device row are **deferred, not failed**, and C records them as untried.
+
 Also recorded: A corrected the apply order in package §3 to 131 → 132 → 133 → 135 → 20260916000000 and is putting
 it to the owner to correct in their own words; the window does not open until they do. `84ddd9a` is integrated at
 `e6d9f2e`; head vs pin is one docs file and the tag is unchanged at `9bef640`. A's Vault-empty and 0/0 drift
