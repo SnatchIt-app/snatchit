@@ -1711,7 +1711,15 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   `isLive` check immediately after the register call block (covers the
   legacy fallback re-call), test-first (D's second sequence at gate level +
   a placement pin, count ≥ 3), push-token-fetch-visibility 10/10, vitest
-  2071 / 94, tsc clean. D re-checking the delta.
+  2071 / 94, tsc clean. **D: PASS at a609cbc** — verified the new `isLive`
+  is the last position before all three `saveRegistrationState` sites with
+  no await between, so no check is needed before the failure-path save;
+  placement-pin mutants: check moved above the call → 1 fails; check deleted →
+  1 fails (the pin asserts ORDER, not presence — pattern to carry into other
+  pins). The session-stale handler stays ungated by design: clearing state on
+  a confirmed stale session is idempotent and equally right for a dead run.
+  DV-611C-2 reworded: silence is a FAIL, not inconclusive. Both proposal heads
+  (8dc4cec, a609cbc) wait only on the owner's word in A's session.
 - **B2 window server phase CLOSED (A, 2026-09-16 04:57Z; D's closing read
   PASS):** sandbox ledger 141 (131, 132, 133, 135, 20260916000000; each md5 =
   the pinned bytes at 9bef640); census 32|106|37|37; create-payment-intent v5,
