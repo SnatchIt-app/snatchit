@@ -59,7 +59,8 @@ button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
    unreachable on touch and by keyboard. Definitions are printed inline here, always. */
 .tile .def{font-size:var(--fsSm);color:var(--ink3);line-height:1.4}
 .tile .cmp{font-size:var(--fsSm);color:var(--ink3)}
-.tile .next{font-size:var(--fsSm);color:var(--ink);border-top:1px solid var(--line);padding-top:8px;margin-top:2px;display:flex;justify-content:space-between}
+.tile .next{font:inherit;font-size:var(--fsSm);color:var(--ink);background:none;border:none;border-top:1px solid var(--line);padding:8px 0 0;margin-top:2px;display:flex;justify-content:space-between;width:100%;text-align:left;cursor:pointer;min-height:2.2rem}
+.tile .next:focus-visible,.btn:focus-visible{outline:2px solid #7E9BFF;outline-offset:2px}
 .tile.needs{border-left:2px solid var(--warn)}
 .tile.ok{border-left:2px solid var(--ok)}
 .tile.quiet{border-left:2px solid var(--line)}
@@ -74,7 +75,7 @@ tr.sel{background:rgba(255,255,255,.03)}
 .st.warn{color:#FFC65C;border-color:rgba(255,176,32,.45)}
 .st.err{color:#FF8B8B;border-color:rgba(255,77,77,.45)}
 .st.mute{color:var(--ink3)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:var(--fsBody);font-weight:600;padding:10px 14px;min-height:40px;border:1px solid transparent;cursor:default}
+.btn{font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:var(--fsBody);font-weight:600;padding:10px 14px;min-height:40px;border:1px solid transparent;cursor:default}
 .btn.pri{background:#fff;color:#000}
 .btn.sec{background:transparent;border-color:var(--lineStrong);color:var(--ink);font-weight:500}
 .btn.danger{background:transparent;border-color:rgba(255,77,77,.5);color:#FF8B8B;font-weight:600}
@@ -116,7 +117,7 @@ const SCREENS=[{id:'onboard',n:'1 · First-run onboarding',st:['step1','step2','
 const nav=(active)=>`<header class="topnav" role="banner"><div class="brand">Snatch It · Operations</div>
  <nav aria-label="Console sections">${['Today','Cases','Events','Money','People','Settings'].map((x,i)=>`<a href="#" class="${i===active?'on':''}"${i===active?' aria-current="page"':''}>${x}</a>`).join('')}</nav>
  <div class="envchip"><span class="pill sandbox">Sandbox</span><span class="pill role">Venue manager</span><span class="pill">A. Okafor</span></div></header>`;
-const center=(ic,t,b,a)=>`<div class="center"><div class="ic">${ic}</div><div class="h2" role="heading" aria-level="2">${t}</div><div class="bd" style="max-width:460px">${b}</div>${a?`<div class="btn sec">${a}</div>`:''}</div>`;
+const center=(ic,t,b,a)=>`<div class="center"><div class="ic">${ic}</div><div class="h2" role="heading" aria-level="2">${t}</div><div class="bd" style="max-width:460px">${b}</div>${a?`<button class="btn sec" type="button">${a}</button>`:''}</div>`;
 
 /* ---------- 1. ONBOARDING: teach by doing, skippable, permissions explained ---------- */
 function onboard(st){
@@ -140,7 +141,7 @@ function onboard(st){
      <li class="bd"><b>Issue a refund</b> — same: admin, plus a second approval</li></ul>
     <div class="sm" style="margin-top:10px">Both move real money, so they take two people. Ask in #ops and the request is logged with your name on it.</div></div></div>
   <div class="notice info"><div><div class="h2" role="heading" aria-level="2">Nothing you do here is silent</div><div class="bd" style="margin-top:4px">Every action you take is written to an audit log with your name, the reason you typed, and what changed. That protects you as much as it protects the marketplace.</div></div></div>
-  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — see today's work</div><div class="btn sec">Skip</div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><button class="btn pri" type="button">Next — see today's work</button><button class="btn sec" type="button">Skip</button></div>
  </div></div>`;
  if(st==='step2') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   ${dots(2)}
@@ -152,9 +153,9 @@ function onboard(st){
      <div class="h2" role="heading" aria-level="2" style="margin-top:8px">A seller hasn't sent tickets yet — 5h 12m left</div>
      <div class="bd" style="margin-top:6px;max-width:560px">Midnight Arcade · sold 2 days ago · buyer paid $134.00. If the seller misses the window, the sale cancels itself and the buyer is refunded automatically — you don't have to do that part.</div>
      <div class="sm" style="margin-top:8px">Your job here is one message: remind the seller. Everything else is automatic.</div></div>
-    <div style="display:flex;flex-direction:column;gap:8px;min-width:200px"><div class="btn pri">Remind the seller</div><div class="btn sec">Open the transfer</div></div></div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:200px"><button class="btn pri" type="button">Remind the seller</button><button class="btn sec" type="button">Open the transfer</button></div></div></div>
   <div class="notice"><div><div class="bd" style="color:var(--ink)">Why this one first?</div><div class="sm" style="margin-top:3px">It has a deadline, a person waiting, and exactly one sensible next step. Most of your work here looks like this.</div></div></div>
-  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — how to read the numbers</div><div class="btn sec">Skip</div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><button class="btn pri" type="button">Next — how to read the numbers</button><button class="btn sec" type="button">Skip</button></div>
  </div></div>`;
  if(st==='step3') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   ${dots(3)}
@@ -164,13 +165,13 @@ function onboard(st){
    <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
     <div class="def">Sold, paid for, and the seller hasn't marked them sent. <b>Counted right now</b>, not over a period — so there is nothing to compare it with.</div>
     <div class="cmp">Oldest has waited 3h 40m</div>
-    <div class="next"><span>Remind the seller</span><span>→</span></div></div>
+    <button class="next" type="button"><span>Remind the seller</span><span>→</span></button></div>
    <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
     <div class="def">Money that actually left our account to your sellers' banks. <b>Last 7 days</b>, compared with the 7 days before — only money measures have a period.</div>
     <div class="cmp">Previous 7 days: $1,102 · up 17%</div>
-    <div class="next"><span>See each payout</span><span>→</span></div></div></div>
+    <button class="next" type="button"><span>See each payout</span><span>→</span></button></div></div>
   <div class="notice ok"><div><div class="bd" style="color:var(--ink)">Two rules worth remembering</div><div class="bd" style="margin-top:4px">A number that needs you has an amber edge; a number that's just information sits quietly. If nothing is amber, there's nothing to do today — that's the dashboard working, not the dashboard being empty.</div><div class="bd" style="margin-top:6px"><b>And:</b> counts of open work are <b>as of right now</b>. Only the money measures cover a period and can be compared with the period before. A count has no "last week" to compare with, so we don't invent one.</div></div></div>
-  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Finish — take me to Today</div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><button class="btn pri" type="button">Finish — take me to Today</button></div>
  </div></div>`;
  return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   <div class="notice ok"><div><div class="h2" role="heading" aria-level="2">You're set up</div><div class="bd" style="margin-top:4px">Getting started stays in <b>Settings › Getting started</b> if you want it again. We won't show it on every sign-in.</div></div></div>
@@ -191,55 +192,55 @@ function home(st){
    <div class="bd" style="margin-top:4px">You're signed in as <b>venue manager</b>, so platform-wide money and system health aren't shown. That's a permission, not an outage.</div>
    <div class="bd" style="margin-top:6px"><b>Who can:</b> a platform admin — J. Tascón. <span class="sm">Ask them →</span></div></div></div>
   <div class="grid3">
-   <div class="tile needs"><div class="num">2</div><div class="lab">Sellers who haven't sent tickets</div><div class="def">Sold and paid, seller hasn't marked sent. Counted now.</div><div class="cmp">Yesterday: 5</div><div class="next"><span>Remind the seller</span><span>→</span></div></div>
-   <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div><div class="def">A buyer opened a case on one of your events. Counted now.</div><div class="cmp">Open for 4h</div><div class="next"><span>Read the case</span><span>→</span></div></div>
-   <div class="tile quiet" style="opacity:.55"><div class="num">—</div><div class="lab">Platform money</div><div class="def">Not shown for your role.</div><div class="cmp">A platform admin can see this</div><div class="next"><span>Request access</span><span>→</span></div></div></div>
+   <div class="tile needs"><div class="num">2</div><div class="lab">Sellers who haven't sent tickets</div><div class="def">Sold and paid, seller hasn't marked sent. Counted now.</div><div class="cmp">Yesterday: 5</div><button class="next" type="button"><span>Remind the seller</span><span>→</span></button></div>
+   <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div><div class="def">A buyer opened a case on one of your events. Counted now.</div><div class="cmp">Open for 4h</div><button class="next" type="button"><span>Read the case</span><span>→</span></button></div>
+   <div class="tile quiet" style="opacity:.55"><div class="num">—</div><div class="lab">Platform money</div><div class="def">Not shown for your role.</div><div class="cmp">A platform admin can see this</div><button class="next" type="button"><span>Request access</span><span>→</span></button></div></div>
  </div></div>`;
  return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px">
    <div><div class="eb">Today · Test Venue · Thu 17 Sep</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">Three things need you</div>
     <div class="sm" style="margin-top:6px">Everything else is running. Numbers below say what they count and over what period.</div></div>
-   <div style="display:flex;gap:8px"><div class="btn sec">Last 7 days ▾</div><div class="btn sec">Export</div></div></div>
+   <div style="display:flex;gap:8px"><button class="btn sec" type="button">Last 7 days ▾</button><button class="btn sec" type="button">Export</button></div></div>
   <div><div class="eb" role="heading" aria-level="2" style="margin-bottom:10px;font-weight:600">Needs you now</div>
   <div class="grid3">
    <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
     <div class="def">Sold and paid for; the seller has not marked them sent. Counted right now — this is not a total over a period.</div><div class="cmp">Oldest has waited 3h 40m</div>
-    <div class="next"><span>Remind the seller</span><span>→</span></div></div>
+    <button class="next" type="button"><span>Remind the seller</span><span>→</span></button></div>
    <div class="tile needs"><div class="num">1</div><div class="lab">Disputes open</div>
     <div class="def">A buyer opened a case and is waiting for a person. Counted right now.</div><div class="cmp">Oldest has waited 4h</div>
-    <div class="next"><span>Read the case</span><span>→</span></div></div>
+    <button class="next" type="button"><span>Read the case</span><span>→</span></button></div>
    <div class="tile needs"><div class="num">2</div><div class="lab">Payouts in manual review</div>
     <div class="def">Transfers flagged for manual payout review, with no Stripe transfer id yet. Counted right now.</div><div class="cmp">Both from one seller</div>
-    <div class="next"><span>Review them</span><span>→</span></div></div></div></div>
+    <button class="next" type="button"><span>Review them</span><span>→</span></button></div></div></div>
   <div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
-   <div class="eb">Money · last 7 days</div>
+   <div class="eb" role="heading" aria-level="2">Money · last 7 days</div>
    <div class="sm">Figures computed 3 min ago</div></div>
   <div class="grid3">
    <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
     <div class="def">Money that left our account to sellers' banks. Last 7 days — a period total, so it can be compared.</div><div class="cmp">Previous 7 days: $1,102 · up 17%</div>
-    <div class="next"><span>See each payout</span><span>→</span></div></div>
+    <button class="next" type="button"><span>See each payout</span><span>→</span></button></div>
    <div class="tile quiet"><div class="num">$5,406</div><div class="lab">Captured sales <span class="sm">incl. buyer fees</span></div>
     <div class="def">Everything buyers paid, fees included. Last 7 days. <b>Refunds are not subtracted</b> — a refunded sale still counts here in full.</div><div class="cmp">Previous 7 days: $4,980 · up 9%</div>
-    <div class="next"><span>See the sales</span><span>→</span></div></div>
+    <button class="next" type="button"><span>See the sales</span><span>→</span></button></div>
    <div class="tile quiet"><div class="num">2</div><div class="lab">Fully refunded payments</div>
     <div class="def">Payments refunded in full. Last 7 days. <b>Partial refunds are not here</b> — only whole-total refunds are counted.</div>
     <div class="cmp">Amount: <b>not known exactly</b> · at most $268.00</div>
-    <div class="next"><span>See each refund</span><span>→</span></div></div>
+    <button class="next" type="button"><span>See each refund</span><span>→</span></button></div>
    <div class="tile quiet"><div class="num">$487</div><div class="lab">Platform fees <span class="sm">gross</span></div>
     <div class="def">Buyer and seller fees on succeeded payments. Last 7 days. <b>Gross, before refunds — this is not net revenue.</b></div><div class="cmp">Previous 7 days: $449 · up 8%</div>
-    <div class="next"><span>How fees are made up</span><span>→</span></div></div>
+    <button class="next" type="button"><span>How fees are made up</span><span>→</span></button></div>
    <div class="tile quiet" style="opacity:.75"><div class="num">—</div><div class="lab">Bank payouts</div>
     <div class="def">Money actually arriving in sellers' banks. <b>Not tracked</b> — we only see the release from our side, so we don't show a number we can't stand behind.</div>
     <div class="cmp">Why this is blank</div>
-    <div class="next"><span>What we do track</span><span>→</span></div></div>
+    <button class="next" type="button"><span>What we do track</span><span>→</span></button></div>
    <div class="tile quiet"><div class="num">$412</div><div class="lab">Seller funds pending release</div>
     <div class="def">Money held, not yet released to sellers. <b>Counted right now</b> — it ignores the date range, so it is deliberately never compared or charted.</div><div class="cmp">No comparison: there is no date to compare on</div>
-    <div class="next"><span>See what's held</span><span>→</span></div></div></div></div>
+    <button class="next" type="button"><span>See what's held</span><span>→</span></button></div></div></div>
   <div><div class="eb" role="heading" aria-level="2" style="margin-bottom:10px;font-weight:600">Healthy — no action</div>
   <div class="grid3">
-   <div class="tile ok"><div class="num">0</div><div class="lab">Paid orders without a transfer</div><div class="def">Buyer paid, past the grace window, and no seller-side transfer record exists yet. Money at rest — not a failed payment.</div><div class="cmp">Counted now</div><div class="next"><span>What this means</span><span>→</span></div></div>
-   <div class="tile ok"><div class="num">0</div><div class="lab">Stripe webhooks stuck</div><div class="def">Events received from Stripe and not processed past the staleness threshold. Not lost events, and not a Stripe outage.</div><div class="cmp">Counted now</div><div class="next"><span>What this affects</span><span>→</span></div></div>
-   <div class="tile ok"><div class="num">0</div><div class="lab">Card disputes from banks</div><div class="def">Chargebacks needing evidence. Counted now.</div><div class="cmp">Counted now</div><div class="next"><span>What evidence we send</span><span>→</span></div></div></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Paid orders without a transfer</div><div class="def">Buyer paid, past the grace window, and no seller-side transfer record exists yet. Money at rest — not a failed payment.</div><div class="cmp">Counted now</div><button class="next" type="button"><span>What this means</span><span>→</span></button></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Stripe webhooks stuck</div><div class="def">Events received from Stripe and not processed past the staleness threshold. Not lost events, and not a Stripe outage.</div><div class="cmp">Counted now</div><button class="next" type="button"><span>What this affects</span><span>→</span></button></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Card disputes from banks</div><div class="def">Chargebacks needing evidence. Counted now.</div><div class="cmp">Counted now</div><button class="next" type="button"><span>What evidence we send</span><span>→</span></button></div></div></div>
  </div></div>`;
 }
 
@@ -255,7 +256,7 @@ function event(st){
   <div><div class="crumb">Events › Midnight Arcade</div>
    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
     <div><div class="h1" role="heading" aria-level="1">Midnight Arcade</div><div class="sm" style="margin-top:5px">Fri 24 Oct · 22:00 · Test Venue · 120 capacity</div></div>
-    <div style="display:flex;gap:8px"><div class="btn sec">Event settings</div><div class="btn ${limited?'dis':'pri'}">${limited?'Pause selling — admin only':'Pause selling'}</div></div></div></div>
+    <div style="display:flex;gap:8px"><button class="btn sec" type="button">Event settings</button><button class="btn ${limited?'dis':'pri'}" type="button">${limited?'Pause selling — admin only':'Pause selling'}</button></div></div></div>
   <div class="grid3">
    <div class="tile quiet"><div class="num">41</div><div class="lab">Sold</div><div class="def">Completed sales for this event.</div><div class="cmp">Capacity 120 · 34% sold</div></div>
    <div class="tile quiet"><div class="num">$4,894</div><div class="lab">Buyers paid</div><div class="def">All-in, fees included. Total for this event.</div><div class="cmp">Sellers received $4,405</div></div>
@@ -284,7 +285,7 @@ function ops(st){
    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
     <div><div class="h1" role="heading" aria-level="1">Buyer says the tickets never arrived</div>
      <div class="sm" style="margin-top:5px">Case #C-2291 · opened 4h ago · Midnight Arcade · ticket #4188</div></div>
-    <div style="display:flex;gap:8px"><div class="btn sec">Message buyer</div><div class="btn sec">Message seller</div></div></div></div>
+    <div style="display:flex;gap:8px"><button class="btn sec" type="button">Message buyer</button><button class="btn sec" type="button">Message seller</button></div></div></div>
   ${success?`<div class="notice ok"><div><div class="h2" role="heading" aria-level="2">Case resolved in the buyer's favour</div><div class="bd" style="margin-top:4px">The refund request is queued and needs a second admin's approval before money moves. The seller has been told, and your name and reason are on the record.</div></div></div>`:''}
   ${err?`<div class="notice err"><div><div class="h2" role="heading" aria-level="2">We couldn't record your decision</div><div class="bd" style="margin-top:4px">The server didn't answer, so <b>nothing was changed and no money moved</b>. Your reason is still in the box below — try again in a moment.</div></div></div>`:''}
   <div class="grid2" style="align-items:start">
@@ -310,9 +311,9 @@ function ops(st){
      <div style="margin-top:12px"><div class="eb">Your reason — the buyer and seller both see this</div>
       <div style="margin-top:6px;border:1px solid var(--lineStrong);padding:10px;font-size:var(--fsSm);color:var(--ink3)">Proof shows a transfer to a different email than the buyer's…</div></div></div>
     <div style="display:flex;flex-direction:column;gap:8px;min-width:230px">
-     <div class="btn ${limited?'dis':'danger'}">${limited?'Refund the buyer — admin only':'Refund the buyer · $134.00'}</div>
-     <div class="btn ${limited?'dis':'danger'}">${limited?'Release to seller — admin only':'Release payout to seller · $108.00'}</div>
-     <div class="btn sec">Ask for more evidence</div>
+     <button class="btn ${limited?'dis':'danger'}" type="button">${limited?'Refund the buyer — admin only':'Refund the buyer · $134.00'}</button>
+     <button class="btn ${limited?'dis':'danger'}" type="button">${limited?'Release to seller — admin only':'Release payout to seller · $108.00'}</button>
+     <button class="btn sec" type="button">Ask for more evidence</button>
      <div class="sm">${limited?'Your role can read this case and ask for evidence. Deciding it needs a platform admin, and money movement needs a second approval after that.':'Either decision needs a second admin\'s approval before money moves. You are requesting, not executing.'}</div></div></div></div>
  </div></div>`;
 }
@@ -340,11 +341,11 @@ function perm(st){
      <div class="k">A. Okafor <span class="sm">· you</span></div><div class="v">Venue manager ${limited?'':'<span class="sm">· change</span>'}</div>
      <div class="k">J. Tascón</div><div class="v">Platform admin</div>
      <div class="k">M. Reyes</div><div class="v">Support <span class="sm">· ${limited?'read only':'change'}</span></div></div>
-    ${limited?`<div class="sm" style="margin-top:12px">You can see roles but not change them. A platform admin can.</div>`:`<div class="btn sec" style="margin-top:14px">Invite someone</div>`}</div>
+    ${limited?`<div class="sm" style="margin-top:12px">You can see roles but not change them. A platform admin can.</div>`:`<button class="btn sec" type="button" style="margin-top:14px">Invite someone</button>`}</div>
    <div class="card" style="border-left:2px solid var(--warn)"><div class="eb">Waiting for a second approval</div>
     <div class="bd" style="margin-top:10px">One refund of <b>$134.00</b> requested by J. Tascón 20 minutes ago, for case #C-2291.</div>
     <div class="sm" style="margin-top:8px">Nothing moves until a different admin approves it. You can't approve your own request — that's the point of the rule.</div>
-    <div style="display:flex;gap:8px;margin-top:12px"><div class="btn ${limited?'dis':'sec'}">${limited?'Approval needs an admin':'Review the request'}</div></div></div></div>
+    <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ${limited?'dis':'sec'}" type="button">${limited?'Approval needs an admin':'Review the request'}</button></div></div></div>
  </div></div>`;
 }
 const B={onboard,home,event,ops,perm};

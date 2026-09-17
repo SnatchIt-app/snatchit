@@ -287,7 +287,7 @@ in place — "counted right now — this is not a total over a period", "partial
 — this is not net revenue", and pending release carrying "it ignores the date range, so it is deliberately never compared
 or charted". Largest-text mode scales the proposed UI (12.5 → 16, 26 → 32, 14 → 18).
 
-**Two defects, both now fixed:**
+**Two defects, then two residuals D found by reading the accessibility tree rather than the markup — all fixed:**
 1. **One heading element and no landmarks.** The file had a single heading for five screens and no `<main>`, `<nav>` or
    `<header>` — so every section title was styled text with no role, and a screen-reader user had no way to move between
    sections. **This matters because a prototype is a specification:** the console today asserts exactly one `main` and one
@@ -302,6 +302,24 @@ or charted". Largest-text mode scales the proposed UI (12.5 → 16, 26 → 32, 1
 3. **My own review chrome did not scale** — 9.5 px labels and 11.5 px buttons, so a reviewer at 200% could not read the
    control that turns on 200%. **Fixed:** the chrome is in rem with `min-height` targets. An instructive miss: I wrote a
    brief whose top item is that dashboards hard-code px sizes, in a file that hard-coded px sizes.
+
+**Residuals, from D's second render (of `f60dc43`):** the tree confirmed one `banner`, one `main`, one `navigation`
+labelled "Console sections", one `aria-current`, and that the `role="heading"` nodes are exposed as real headings — and the
+blocked-webfont banner announced itself as a status on D's server, where the fonts were blocked again. Two things survived:
+4. **One section title missed the sweep.** "Money · last 7 days" was a plain `div`, so heading navigation jumped from the
+   urgent queue straight to the healthy queue and **skipped the money section — the part §6 rewrote**. Fixed; home now
+   exposes exactly three level-2 headings: *Needs you now*, *Money · last 7 days*, *Healthy — no action*.
+5. **None of the next-step affordances was a control.** Ten on that screen — "Remind the seller", "Read the case",
+   "Review them", "See each payout", "Why this is blank" and the rest — all `div`/`span`: not keyboard reachable, not
+   announced, not in the tab order. **D's argument is the reason this was fixed rather than annotated: the next step *is*
+   the proposal.** The four-part tile — label, definition, basis, **next step** — is what the console is being asked to
+   adopt, and a specification whose fourth part is a `div` will be built as a `div`. It is also the heading defect one
+   level down: visual structure present, semantics absent. **Fixed properly:** all 17 next-step affordances and all 19
+   button-styled elements are now real `<button type="button">` elements with visible focus rings, verified mechanically —
+   zero non-control affordances across all twenty states.
+**So the sentence in §10 no longer stops at headings:** in a build, the section titles are real heading elements **and
+every next step is a real control**. A reader of this file can now tell "styled like a link" from "is a link", because
+they are the same thing.
 
 **D's own audit** is `design/d-dashboard-usability-20260917 @ 940f944` (`docs/venue-dashboard/DASHBOARD_USABILITY_AUDIT_D_20260917.md`
 plus three prototypes), held locally and unpushed because a push runs CI and the owner's standing instruction for this
