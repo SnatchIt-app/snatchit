@@ -3529,3 +3529,18 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
 - **C's source check for the options:** if a stored object is deleted, the buyer's receive screen degrades cleanly —
   `createSignedUrl` on a missing path yields no URL, `proofUrl` stays null and the proof section is simply not
   rendered. The seller's send screen keeps its Add-proof section hidden, since the path is still set.
+- **OWNER AUTHORIZATION for the privacy cleanup (direct to C, 2026-09-17):** "After D confirms A's metadata and access
+  findings, I authorize deleting exactly the two stored proof objects for Device D1 and Device D2, using their exact
+  recorded paths and sizes. Leave all transfer references, statuses, payment state, notices, logs and Sandbox L7
+  unchanged. A and D must perform matching pre- and post-checks, and nobody may open, download, overwrite or clear the
+  files' contents or database references."
+  Relayed to A and D with the sequence: **D's confirmation of A's findings → matching pre-checks → A deletes exactly
+  those two objects (keyed on path and size, eTag where possible) → matching post-checks.** Scope held narrow:
+  `transfer_evidence_path` on bce07eef and 3118bd30 is NOT touched, so the append-only guard stays untested and the
+  references remain; no status, payment, notice, notification or log changes; L7 untouched; **no opening, downloading,
+  hashing or EXIF at any point, including as delete "verification"** — existence, path, size and eTag are the
+  comparison. Stop with no write if the pre-check finds anything other than those two objects at those paths and
+  sizes. Expected post-state: proof-docs 0 objects; both transfers still seller_sent with paths intact; no orphans;
+  notifications, queue and 2xx unchanged. C confirmed from source that the buyer's screen degrades cleanly afterwards
+  (no signed URL → `proofUrl` null → the proof section is not rendered). A and D may each ask the owner for the line in
+  their own sessions; the owner is expecting that.
