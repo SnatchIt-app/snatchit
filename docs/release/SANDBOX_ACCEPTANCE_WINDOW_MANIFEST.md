@@ -627,3 +627,20 @@ C guides, A reads back, D witnesses. Push delivery stays deferred (option (b)); 
   (refreshed offline/error/empty/no-match), DV-131-1 (two-second window, A bumps the epoch within 2 s of a sign-in on C's
   trigger). Carried at their true status: two-session K-2 case UNTESTED, row 18 DEFERRED, A11Y-1 UNTESTED, every push-delivery
   row DEFERRED.
+
+## 14. Build 19 sandbox sequence — owner approval 2026-09-17 (A executes, D witnesses; sandbox `ofaidukbieeekqaboscm` only)
+
+**Authorization (owner to A, verbatim in part):** "I approve the four actions in SANDBOX_APPROVAL_REQUEST_C3_20260917.md, sandbox ofaidukbieeekqaboscm only, in this order: 1. Temporary storage round trip … Synthetic files only. Storage objects and their metadata are permitted; application-table writes are not. Verify temporary-file cleanup, including after an aborted test. 2. W-C3 … 3. Staged security notice … 4. Permanent transfer tests: after 140 is verified and C confirms I am ready … No replacement or deletion of attached evidence." The owner confirmed directly to C ("I directly confirm the four sandbox actions I approved with A …") and to D ("Witness all of W-C3"). B holds all sandbox access until A announces the end of the sequence. No DV-ST2b overlaps.
+
+### Step 1 — Line 1 temporary storage round trip: EXECUTED AND CLOSED (16:16:49Z–16:18:11Z)
+- **D's pre-read 16:15:45Z** (`d_img_line1_pre.txt`, md5 `084dc29d7d0936eb6ef383eac8f60cd9`): seller `transfer-evidence/` total 0, rt 0; the `proof-docs` bucket private, 10 MiB, allow-list jpeg/png/webp/heic/heif/pdf; five policies (qual md5s equal to D's local replay of f412d10; the local sixth "operator read" comes from ops, which is absent on the sandbox, so this is expected); no-write baseline transfers 33 | public.notifications 104 | notify.notification 9 | notify.delivery 18 | queue 0 | listings 49 | bids 0; no DV-ST2 window open.
+- **Files (local, synthetic; type derived from the bytes):** `rt-20260917-1.png` 69 B sha256 `459a8a76…` `89504e47…` image/png · `rt-20260917-2.jpg` 777 B `71c307d6…` `ffd8ffe0…` image/jpeg · `rt-20260917-3.heic` 551 B `26d7f8ff…` `00000018 ftyp heic` image/heic.
+- **A's run** (log `rt1/line1.log`, md5 `2817590ef0b4f9d8c932334f29e7b0a3`; the script holds objects for D's read on abort, and `cleanup` mode deletes and verifies):
+  - RT1: 3 × 200 (ids `e41faca7…`, `feb6e424…`, `a551c10d…`; metadata mimetype/size equal to local); read-back rt 3.
+  - RT2: re-upload refused as **HTTP 400 carrying statusCode "409" / Duplicate / KeyAlreadyExists** (D: recorded as such, not as a plain 409).
+  - RT3, ×3: seller sign 200, signed download 200, sha256 equal, Content-Type = declared, magic bytes as local.
+  - RT4/RT5, ×3: buyer sign and authenticated download → 400 (statusCode 404 NoSuchKey, an RLS denial reported as not-found); anon likewise. Each is paired with a same-minute seller authenticated download of 200.
+  - RT7: seller DELETE 200, deleted 3 of 3; rt 0.
+  - No abort occurred.
+- **D's post-read 16:18:11Z** (md5 `4540a8c6b2b94a1959368a588c3bded0`): identical to the pre-read apart from the read time. rt 0, folder 0, bucket and policies identical, no-write counts unchanged. **CLOSED.** D witnessed the before and after state, not the HTTP steps.
+- **Proves / does not:** it proves the bucket policies and allow-list for true types, the same-name refusal, byte integrity, and seller-only access to unreferenced objects. It does **not** prove rendering, HEIC conversion or any device behaviour. The Content-Type check is the declared type echoed back. The two password-grant sign-ins wrote auth session rows only (no auth.users trigger fires on sign-in; sessions left to expire).
