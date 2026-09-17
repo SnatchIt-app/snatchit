@@ -2789,3 +2789,22 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   - Build 18 and the sandbox pins are untouched. Link sent to the owner and A.
   - **Device evidence: none yet.** The F-NAV-1 rows (DV-NAV-1/2) and the F-IMG-1 rows (DV-IMG-*) are owed on
     Build 19. F-BIDS-1 is NOT in Build 19 (the fix is on 1ad216f, for a later candidate).
+- **F-BIDS-1: D PASS on the 1ad216f product change**, with one required test and the generation guard preferred in
+  this head (after A pointed out that the false notice over fresh rows is new with this fix).
+  - **Head 5da8a75** (on 1ad216f):
+    - a02c824, test-only: an offline purchases-read failure keeps the rows with the offline wording, killing D's
+      surviving mutant D8; a genuinely empty account whose refresh fails shows the error state.
+    - 5da8a75: only the latest load may change rows, error or loading (a `loadGen` ref, checked after each read).
+      The latest load always ends loading.
+  - **D's overlap findings on 1ad216f, reproduced:**
+    - an older load failing after a newer one succeeded showed "Couldn't refresh…" over fresh rows (new with the
+      notice);
+    - an older success after a newer failure replaced the screen with an older snapshot and cleared the failure
+      (already on f412d10).
+  - **Evidence (automated only):** 19 tests; RED 4/19 on 1ad216f and 14/19 on f412d10; 16 mutants each fail
+    exactly their predicted sets. Disclosure: in the first pass G2 survived (the fixture never reached the
+    purchases-read guard, so O4 was added), and three predictions written before O4 existed were corrected and
+    re-run. Full 2248/106, tsc 0, lint 0/29. Gated surface 0.
+  - D re-reviews; A integrates into a later candidate. **Not in Build 19; not device-verified.**
+  - **Per-build expectation for a future DV-ST2b:** on c3/Build 19 and Build 18, a failed refresh keeps rows with
+    NO notice; on a build with this fix, it keeps rows WITH the notice.
