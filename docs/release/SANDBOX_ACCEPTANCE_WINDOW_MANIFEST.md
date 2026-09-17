@@ -895,3 +895,26 @@ Total objects in `proof-docs`: **2, both referenced, 0 orphans.** **0 objects cr
 
 ### A's position on reading the content
 A does not think a content read is needed for the owner's decision and is not asking for one: provenance is already established from the phone, opening the files would add the exposure being contained and put a copy on this machine, and the stored eTags already distinguish the two objects without fetching anything. If a content read is ever argued to be unavoidable, it goes to the owner as a question.
+
+### Line 3 — results as they actually stand (no result inferred, none upgraded)
+
+| Row | Result | Basis |
+|---|---|---|
+| **DV-IMG-5 (D2, bce07eef)** | **PASSED** | seller_sent 21:09:22.149Z, exactly one object (210,364 B, image/png), exactly one `buyer_confirmation_needed:bce07eef…`, `auto_release_at` 2026-09-20T21:09:22Z, row md5 `57c2d304…`. Double-tap produced ONE object and ONE transition. **Limit:** no row boundary was read at the time, so the state between this row and the next is gone. |
+| **DV-IMG-9 + 3b (D1, 3118bd30)** — upload path | **PASSED** | seller_sent 21:11:36.671Z, one object (5,829,677 B, image/jpeg), one notification, `auto_release_at` 2026-09-20T21:11:36Z, row md5 `89080d2c…`. A camera photograph went through the repaired picker and upload path, and the stored type and extension match what the client's **byte-sniff** decided (`image/jpeg`, `.jpg`) — the sniff-over-filename behaviour the F-IMG-1 repair introduced. Evidenced from metadata alone; no content read. |
+| **DV-IMG-9 — HEIC→JPEG conversion half** | **UNTESTED** | The owner reports **Camera › Formats = "Most Compatible"**, so the device produced a JPEG and never a HEIC. By the decision rule fixed **before** the row, that is "a file that was never HEIC → conversion half UNTESTED", not a pass. Testing it later needs the phone on "High Efficiency" before the photo, a synthetic image, and a fresh authorization, since Line 3 is stopped. Not proposed. |
+| **DV-IMG-4 (D6, 92ee5156)** — offline then retry | **INCOMPLETE** | The offline half behaved: Airplane Mode with Wi-Fi off produced no upload and no write, which is why the face photograph never left the phone. The retry half never ran: 92ee5156 is still `pending`, no object, no notification. Recorded as incomplete, not failed. |
+| **DV-IMG-10 (S8only, 8f59d37e)** | **UNTESTED** | An image was selected; nothing was attached. Status seller_sent, `transfer_evidence_path` NULL, no object. |
+| **N3** | **PASSED** | 20:50:53Z, HTTP 400 `P0001`, exact message, row unchanged, notifications unchanged. |
+| **N1, N2, N4, RT6, U1, RT5-P** | **HELD** | Every one reads object content or depends on rows the incident froze. Held by the owner's stop. |
+| **83b83858 (Sandbox L7)** | **UNCHANGED throughout** | md5 `d1b36045bef8429fc74959344ead068c` at every boundary read. |
+| **"No transfer took two calls"** | **NOT ESTABLISHED** | As stated before the pass: `mark_transfer_sent` is idempotent, so a retry writes nothing and leaves no trace; counting client calls needs an API-log read that Line 3's scope excluded. The data proves one transition, one object and one notification per row — not the number of calls. |
+
+### The deletion the owner authorized cannot be performed as scoped — the policy they are protecting forbids it
+`proof-docs owner delete unreferenced` (DELETE, `authenticated`) requires the object to be in the caller's own folder **AND not referenced by `listings.proof_of_ownership_path` AND not referenced by `transfers.transfer_evidence_path`**. Both objects are referenced, and the owner requires the references to stay — so the only client path is refused by policy, which is the policy working as designed: attached proof cannot be destroyed while a transfer points at it.
+**The three routes, and their real cost:**
+1. **service_role via the storage API** — needs a service key in this project's Vault. That arms `enforce-transfer-expiry` (active, every 2 minutes, failing only for want of that key) against two transfers already 6.8 days past `auto_release_at`, **including Sandbox L7**, within two minutes. **Advised against.**
+2. **postgres deleting the `storage.objects` row** — removes the row but **leaves the bytes in the storage backend**: it would report the photograph as gone while it is still stored. **A refuses this route** and recommends nobody take it.
+3. **The owner deletes both objects in the Supabase Storage dashboard** — removes row and bytes, needs no key in the Vault, arms nothing, touches no reference. **A's recommendation.**
+Either way A and D perform the matching pre- and post-checks the owner specified, by **existence, path, size and eTag only — never content**. Expected post-state: proof-docs 0 objects; both transfers still seller_sent with their paths intact; no orphans; notifications, queue and 2xx unchanged; L7 unchanged. C confirms from source that the buyer's receive screen degrades cleanly when the object is gone (`createSignedUrl` yields nothing, `proofUrl` stays null, the proof section is not rendered).
+**The one-hour signed link** minted for the D1 image at 21:13:40Z lapses by itself at ~22:13:40Z; deleting the object kills it immediately.
