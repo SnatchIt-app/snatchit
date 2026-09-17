@@ -1,5 +1,26 @@
 # Signing-monitor alert check — EXECUTION RECORD (A executes, B witnesses; production `hqycwntpfoztoinemqns`, read-only)
 
+> ## QUARANTINED — UNVERIFIED (owner's ruling 2026-09-17). Historical disclosure only. Not evidence.
+> The owner ruled: "First quarantine commit 4ac8baf as UNVERIFIED. Preserve its history and disclosure; do not treat any earlier
+> result as evidence." This section is that quarantine record; the text below the rule is preserved exactly as committed at
+> `4ac8baf` and must not be cited as a result. The verified execution is the separate clean run recorded in
+> `SIGNING_MONITOR_ALERT_CHECK_CLEAN_RUN_20260917.md`.
+>
+> **Why quarantined — the duplicate-session conflict.** Two Claude A sessions existed during this window: the original
+> (peer ref `[2e7a9a]`) and a fork of the same context (`[1be16b]`) created at the start of the turn that began with the
+> owner's coordinated-repair message. Both claimed the same R1–R10 authorization; the fork relayed the owner's halt order at
+> ~04:48Z, after the reads below had run, and the owner then designated the original session alone. The fork also committed
+> `bceac68` (proof-upload repair contract; 140 / pgTAP 207 allocated to B) into the same worktree and branch, so that commit sits
+> directly beneath `4ac8baf` in this branch's history.
+>
+> **What actually ran in the quarantined execution (disclosure, not evidence):** window **04:47:33Z – 04:48:17Z**.
+> R1 was **blocked** by the auto-mode permission classifier before reaching the database and was not retried. R2, R4, R5, R6,
+> R9, R10 ran once each via the management SQL tool at ~04:47:33Z; R3 ran once at ~04:48:00Z. **R7 was executed three times**
+> (04:47:35Z, then twice at ~04:48:11–04:48:17Z for a names-only re-parse and a flag-presence check) and **R8 twice**
+> (04:47:37Z and 04:48:11Z), against the ruling's "each item once" — a further reason the run is not evidence. No value,
+> address, identity or token was returned or recorded; no write, endpoint call, notification or configuration change occurred.
+
+
 **Authorization (owner, 2026-09-17, verbatim):** "I authorize A to execute R1–R10 exactly as listed in
 SIGNING_MONITOR_ALERT_CHECK_OWNER_REVIEW.md, with B witnessing. This explicitly includes: R1–R8: the named
 metadata/configuration-name/function-list reads. R9: the aggregate admin-user count. R10: the aggregate active admin
