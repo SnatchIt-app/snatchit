@@ -2075,7 +2075,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   (owner-reported; a cold relaunch on the seller session, not part of the script). **S2-1 step 2
   client half: PASS** — Home and Profile loaded after the buyer→seller switch, the Build 17 hang
   did not reproduce.
-- **S2-1 step 2 server half (A, read-back 2026-09-18 03:54:43Z, edge_logs 03:47–03:56Z,
+- **S2-1 step 2 server half (A, read-back 2026-09-17 03:54:43Z, edge_logs 03:47–03:56Z,
   UA SnatchIt/18): PASS on the sign-out/sign-in ordering.** (1) buyer sign-out 03:49:34Z:
   revoke_push_token 200 → auth/logout 204, order preserved; (2) buyer after: sessions 0, token row
   active=false, revoked 03:49:34Z, reason `signed_out_everywhere`, hash NULL — 131's sessions
@@ -2118,7 +2118,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   challenge → no second register call; real background→foreground → exactly one re-issue.
   Session-2 consequence (A): the seller cannot register push on Build 18 while this sign-in lasts;
   rows that need no registration proceed as the seller; S2-2 runs as the buyer.
-- **Batch 1 review heads (D, 2026-09-18):** 577ec40 PASS (comment nit fixed → `frontend/
+- **Batch 1 review heads (D, 2026-09-17):** 577ec40 PASS (comment nit fixed → `frontend/
   challenge-copy-neutral` @ df5127c, comment-only, 22/22, tsc 0); e3ef6d3 CHANGES REQUESTED → fixed
   at **`frontend/security-notice` @ da1d11d**: ① banner pays the top inset (`useTopInset()`;
   otherwise the title sat under the SANDBOX badge, F-SELL-1 again — interim double gap, overlay is
@@ -2126,7 +2126,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   from the registry; the client never narrows it; unknown types get Dismiss only; fixture pin
   replaced), ③ a failed Dismiss puts `DISMISS_FAILED_COPY` on the screen and each action clears the
   previous error. 6/6, tsc 0, lint 0/29. Also from A: 136 rev3 returns unread-undismissed only.
-- **D review (2026-09-18): 296439c PASS, da1d11d PASS, df5127c confirmed comment-only.** D
+- **D review (2026-09-17): 296439c PASS, da1d11d PASS, df5127c confirmed comment-only.** D
   re-ran 13/13, tsc 0, full suite 2090/96 on 296439c and killed four mutants: (a) isChallengeOpen
   without 'confirming' → 2 failed (D: confirming is exactly when Face ID or the keyboard raises
   inactive→active — the common path, not an edge); (b) resumeChallenge ignoring mode → 1 failed (a
@@ -2141,7 +2141,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   call, 60 s fallback on a held challenge — one build, and for the notification half the deferred
   push key. **D-cleared and awaiting the owner's word for A's integration:** cf94311, df5127c,
   da1d11d (batch 1), ac70643 (Tickets sample label), 296439c (F-611C-2). No build requested.
-- **F-611C-2 handset half (owner, Build 18, 2026-09-18 ≈ 00:0x EDT report): Settings ›
+- **F-611C-2 handset half (owner, Build 18, 2026-09-17 ≈ 00:0x EDT report): Settings ›
   Notifications shows NO banner as the seller** after the 03:52:07Z 400 — the silence RC2 predicts
   ('precondition' has no remedy copy; the wait is invisible). Owner confirms the 03:54:33Z Settings ›
   Notifications read in A's log was their own open at ≈ 23:54 EDT. Owner-reported; no text captured
@@ -2150,7 +2150,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   next candidate (needs the 400 to be provoked, so it sits with DV-611C-3).
 - **S2-3 started (seller signed in): DV-S1 (F-SELL-1, create) given as single steps; no listing is
   submitted from the handset** (sandbox writes belong to A).
-- **Owner rulings via A (2026-09-18, converge bc72b92: critical path 1.2b, batch plan, manifest
+- **Owner rulings via A (2026-09-17, converge bc72b92: critical path 1.2b, batch plan, manifest
   §13):** (1) the no-banner observation is recorded as the owner's observation consistent with RC2,
   NOT a PASS — matched to the F-611C-2 handset row above; (2) "Include all five reviewed C heads in
   the next candidate, including F-611C-2 at 296439c and the development-only Tickets label at
@@ -2168,7 +2168,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   excessive keyboard gap above the List ticket bar, Event name stays visible, heading clears the
   SANDBOX badge. Steps 2 (scroll / dismiss / reopen / dock) and 3 (long name, largest text) still
   open; DV-S1 NOT complete (owner's instruction). No listing submitted.
-- **NEW (owner, 2026-09-18) — F-IMG-1, PRIORITY functional defect:** on a listing that needs action,
+- **NEW (owner, 2026-09-17) — F-IMG-1, PRIORITY functional defect:** on a listing that needs action,
   the buttons for adding ticket-proof images get stuck and do not behave like the Sell form's image
   controls. Owner's brief: trace and reproduce before changing; audit every image attachment entry
   point (selling, listing edits, proof submission, action-required screens) with the Sell form as
@@ -2181,14 +2181,14 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   A owns storage / permissions / submission contracts; evidence and transaction behaviour
   preserved. Sub-findings F-IMG-1a… as traced. Owner: first report = defect IDs, reproduction
   findings, affected screens, owners; "Do not claim an exhaustive pass from source inspection alone."
-- **NEW (owner, 2026-09-18) — ML-1, My Listings visual redesign:** the screen feels crowded and
+- **NEW (owner, 2026-09-17) — ML-1, My Listings visual redesign:** the screen feels crowded and
   overwhelming; propose stronger grouping, clearer status and action hierarchy, consistent images
   and spacing, fewer competing controls; "needs action" stays easy to find; nothing important
   hidden. **Preview before implementing**, covering long lists, long titles, large text,
   empty/loading/error states, small screens. D reviews independently. Both initiatives: Build 18's
   pin unchanged; fixes go to the next candidate with an explicit device checklist; **no new build,
   deployment or production change is authorized.**
-- **F-IMG-1 first report (C, 2026-09-18, source trace at aad5f75; NOT a device reproduction — no
+- **F-IMG-1 first report (C, 2026-09-17, source trace at aad5f75; NOT a device reproduction — no
   Xcode, no emulator; nothing exercised on iOS or Android):**
   *Entry points (exhaustive by grep of expo-image-picker and storage uploads; no camera path
   exists; the edit-listing screen has no image control; buyer dispute has no attachment):*
@@ -2232,7 +2232,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   permission-denied alert says "Enable it in Settings" without an Open Settings action.
   *Owners:* C — hook/control/screens (1a, 1b, 1c client half, 1d, 1e, 1f, 1g); A — proof-docs
   policies and paths, `mark_transfer_sent` idempotency, client-supplied `p_user_id` validation,
-  server-side orphan cleanup (questions sent 2026-09-18); D — independent review of the fix and the
+  server-side orphan cleanup (questions sent 2026-09-17); D — independent review of the fix and the
   device rows. *Fix plan (next turn, after A's contract answers):* single-flight `pickImage` with
   try/finally and a visible picking state; consumers gate on the hook's `busy`; reuse the uploaded
   path on retry of the same local file; single-flight the submit; network errors → offline copy +
@@ -2241,7 +2241,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   behaviour (picker sheet timing, permission prompts, iOS limited access, Android process restart,
   HEIC/iCloud assets, offline/reconnect) is UNTESTED until a candidate and a device — rows
   DV-IMG-1..8 in the checklist.
-- **ML-1 preview v1 (C, 2026-09-18): https://claude.ai/artifact/32jnCwJv4yw58twpJPapk9** — four
+- **ML-1 preview v1 (C, 2026-09-17): https://claude.ai/artifact/32jnCwJv4yw58twpJPapk9** — four
   boards: Current (Build 18 structure), Proposed (needs-action rows pinned first with one primary
   "Send tickets" control; Live / Sold / Ended sections with headers and counts; one status line per
   row; Edit/Delete/Cancel behind a single More control; four-segment filter All · Live · Sold ·
@@ -2249,7 +2249,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   clamp), and empty / loading / error (existing copy). Sample rows are illustrative; status words,
   time-left format, empty/error copy and the action line are the app's own strings. Awaiting the
   owner's approval before any implementation; no read or contract changes expected.
-- **F-IMG-1 repair (owner, 2026-09-18: proceed under the frontend-fix scope; one coordinated repair
+- **F-IMG-1 repair (owner, 2026-09-17: proceed under the frontend-fix scope; one coordinated repair
   — A owns the server contract and migration number, B implements server/upload changes, C owns
   picker, retry and submission UX, D reviews combined behaviour; no build, deployment or production
   change).** Evidence kept in three separate classes:
@@ -2283,7 +2283,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   (053) — viewer-side question with A; null-proof recovery UI waits for A's contract (140:
   transitioned / already_sent, attach → attached / already_attached). A session designation: the
   owner named the original A [2e7a9a] as the only A; the fork stood down.
-- **ML-1 preview v2, calmer (owner, 2026-09-18: keep grouping, Needs action priority and simplified
+- **ML-1 preview v2, calmer (owner, 2026-09-17: keep grouping, Needs action priority and simplified
   controls; calmer treatment; this approves the layout direction, not implementation):** same
   artifact, version 3 — boards: Current; Proposed v2 All; Live filter with a "2 listings need action"
   row and the More sheet open; largest text with long titles; 320-wide small screen at largest text;
@@ -2297,12 +2297,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   approval or ML-1 keeps the shared look. New proposed copy is listed on the canvas.
 - **DV-ST2:** held until the owner designated a single A session (now [2e7a9a]); owner still on
   DV-S1 step 2. **DV-S1 step 2** given to the owner as the next single step; not complete.
-- **DV-S1 step 2 (owner, Build 18, seller, 2026-09-18 01:10 EDT ≈ 05:10Z): PASS** (owner-reported) —
+- **DV-S1 step 2 (owner, Build 18, seller, 2026-09-17 01:10 EDT ≈ 05:10Z): PASS** (owner-reported) —
   scrolling with the keyboard open, dismiss, reopen, typed text preserved, List ticket bar positioned
   correctly with the keyboard down. No listing submitted. DV-S1 still open: step 3a long event name at
   the current text size; step 3b largest accessibility text size (S2-4 row 11 residue runs at the same
   setting before it is turned back).
-- **DV-S1 step 3a (owner, Build 18, seller, 2026-09-18 01:14 EDT ≈ 05:14Z): PASS** (owner-reported; the
+- **DV-S1 step 3a (owner, Build 18, seller, 2026-09-17 01:14 EDT ≈ 05:14Z): PASS** (owner-reported; the
   owner's first message said 01:17, the resent report says 01:14 — recorded as 01:14, the later report),
   long event name at the current text size. Observed behaviour, recorded exactly: Event name is a
   single-line field — unfocused it shows only the portion of the name that fits; focused it scrolls
@@ -2315,18 +2315,18 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   seller typing a long event name cannot see all of it at once, because Event name is a single-line
   field that scrolls sideways. Options: a multi-line Event name that grows to 2–3 lines; or keep
   single-line and show the full name under the field once it is typed. Recorded so it is not
-  rediscovered as a bug (D, 2026-09-18). No change until the owner chooses.
-- **DV-ST2 readiness (2026-09-18):** D reports the witness role authorized and live, kit paused,
+  rediscovered as a bug (D, 2026-09-17). No change until the owner chooses.
+- **DV-ST2 readiness (2026-09-17):** D reports the witness role authorized and live, kit paused,
   nothing running; A holds the revoke/restore with a watchdog. Trigger still waits for the owner to
   reach S2-5; A and D both carried step 3a as 01:17 — corrected to them as 01:14 per the owner's
   later report.
-- **DV-S1 step 3b (owner, Build 18, seller, 2026-09-18 01:18 EDT ≈ 05:18Z): PASS** (owner-reported), at
+- **DV-S1 step 3b (owner, Build 18, seller, 2026-09-17 01:18 EDT ≈ 05:18Z): PASS** (owner-reported), at
   the largest accessibility text size: heading clears the SANDBOX badge; Event name stays visible;
   List ticket bar correctly positioned with the keyboard up and down; text intact; nothing cut off or
   overlapping. **DV-S1 (F-SELL-1, create) complete on Build 18: steps 1, 2, 3a, 3b PASS**, all
   owner-reported, no listing submitted. Larger text left ON for S2-4. Still open in S2-3: DV-S2 (edit
   listing with the keyboard), to run after S2-4 while larger text is still on.
-- **S2-4 (owner, Build 18, seller, largest accessibility text ON, 2026-09-18, time not captured) — two
+- **S2-4 (owner, Build 18, seller, largest accessibility text ON, 2026-09-17, time not captured) — two
   observations recorded separately; S2-4 NOT passed:**
   *(1) SANDBOX badge:* stayed unchanged in size (owner-reported) — matches the design
   (`allowFontScaling={false}` in the root layout).
@@ -2345,7 +2345,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   re-measure is not provable from source. Working hypothesis, untested: screens mounted before the
   setting changed kept their old size. Discriminating check given to the owner: force-quit, relaunch
   with the setting on, look at Home.
-- **S2-4 fresh launch (owner, Build 18, seller, largest text ON, 2026-09-18 01:27 EDT ≈ 05:27Z): PASS**
+- **S2-4 fresh launch (owner, Build 18, seller, largest text ON, 2026-09-17 01:27 EDT ≈ 05:27Z): PASS**
   (owner-reported) — after force-quit and reopen, all screens the owner tested showed large text; their
   headings clear the SANDBOX badge with no clipping or overlap; badge unchanged. The owner did not list
   the tested screens individually; not expanded here.
@@ -2384,12 +2384,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   `src/components/account/SettingsHeader.tsx:26` (shared by the settings sub-screens). Proposed fix,
   not applied: switch each to `useTopInset()` with a source pin that no screen header pays `insets.top`
   directly; C, client-only, next candidate; device rows per screen.
-- **DV-S2 step 2 (owner, Build 18, seller, largest text ON, 2026-09-18 01:40 EDT ≈ 05:40Z)** (owner-reported):
+- **DV-S2 step 2 (owner, Build 18, seller, largest text ON, 2026-09-17 01:40 EDT ≈ 05:40Z)** (owner-reported):
   *PASS:* the Edit listing heading clears the SANDBOX badge; swiping back with an unsaved change
   brought up a prompt; the owner tapped Keep editing. *Not reported:* the prompt's exact title, message
   and button labels, and whether the screen and the three letters remained after Keep editing — open,
   asked in step 3. Event name full visibility stays UNRESOLVED until directly confirmed (owner).
-- **Execution sprint (owner via A, 2026-09-18):** F-SELL-2 implemented — **`frontend/sandbox-header-inset`
+- **Execution sprint (owner via A, 2026-09-17):** F-SELL-2 implemented — **`frontend/sandbox-header-inset`
   @ 9d01bad** (from aad5f75; client only; supabase/ and gated payment files unchanged): `useTopInset()` on
   My listings, Settings, Transfer send/receive, Place bid, Checkout (top bar + both confirmation bodies),
   the auth shell, the shared settings header, the listing hero controls and the outbid toast; spacing
@@ -2419,7 +2419,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   killed; full 2202/104; tsc 0; lint 0/29. *Evidence line (owner):* server outcomes 1–2 passed on the
   database side (A/B/D); conversion and buyer display unverified until a real iPhone round trip; device
   behaviour needs a build; the image issue is NOT described as fixed. DV-IMG rows wait for A's transfer ids.
-  **D review → 5e14a68 → D PASS (2026-09-18):** D found refresh and submit could overlap (a late
+  **D review → 5e14a68 → D PASS (2026-09-17):** D found refresh and submit could overlap (a late
   pre-submit read showing a confirmed proof vanish) → buttons wait for a refresh, a refresh waits for a
   submit (single-flight ref); a reply outcome without a sent status pinned as unconfirmed. Four mutants,
   each killed, re-run by D. Full 2204/104, tsc 0, lint 0/29. Head ready for A's integration; rendering,
@@ -2428,7 +2428,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   merge), named in the owner's tag line subject to CI on that head and D's merge gate. No build yet.
   **CI on db16e1a: green** (run 35188006272, workflow CI, conclusion success, headSha db16e1a — read by C
   with `gh run view`); **D's merge gate: PASS, no open review item** (per A). **Build HOLD (owner + A,
-  2026-09-18): db16e1a is not to be built until F-NAV-1 is resolved** — see below.
+  2026-09-17): db16e1a is not to be built until F-NAV-1 is resolved** — see below.
 - **DV-S2 step 3 (owner, Build 18, seller, largest text ON; time not captured)** (owner-reported):
   *PASS — Discard path.* **FAIL — separate navigation defect F-NAV-1:** tapping **Keep editing** also took
   the owner back to My Listings instead of keeping the listing being edited open. **DV-S2 is NOT a full
@@ -2465,7 +2465,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   "no screen", not a fresh mount; no test adds routes. CFT-208 pin updated. Full vitest 2221/105, tsc 0, lint
   0/29. Not modelled: Android back, animation, keyboard. **D reviewing; A integrates after D.** Device rows
   DV-NAV-1/2 (checklist) on the next build.
-- **Owner ruling on F-NAV-1 (2026-09-18):** 2ba9e3a continues through D's review and A's integration. The M7
+- **Owner ruling on F-NAV-1 (2026-09-17):** 2ba9e3a continues through D's review and A's integration. The M7
   text-loss check addresses the evidence gap. **Remaining limit, recorded:** the iOS layer in the tests is a
   model (native-stack / react-native-screens pinned to source and versions), not UIKit, and the harness does
   not mount routes added after start. Native navigation is verified only by DV-NAV-1/2 on the next build.
@@ -2481,9 +2481,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   Home loaded at 10:55. Network unchanged. A's expectation (135 `register_push_token`, looked up by token):
   `refreshed` (buyer-owned row); `challenge_required` would block, not fail (push delivery deferred). Limits:
   fewer than 20 register calls per 10 min; no DV-131-1 epoch bump during S2-2. A reads the baseline before the
-  throttled launches. *Date check:* the Mac read 2026-09-17 10:56 EDT at this report, while earlier records
-  date the 01:40 EDT observations 2026-09-18. A anchors the date from server time; the wrong record gets
-  corrected then.
+  throttled launches. *Date check:* resolved below (A: server now() anchors today as 2026-09-17).
 - **F-NAV-1: D PASS on the product change (2ba9e3a)**, with two test-only additions required and applied at
   **76b8622**. (1) Typed text is read after pending work settles: D's M8 (form reset one microtask later)
   survived 2ba9e3a's tests (0/17, confirmed by C). (2) Repeated attempts in all four orders (swipe/Back ×
@@ -2497,3 +2495,17 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   listing save is in flight the unsaved-changes guard is off by design (`submitting`). A swipe during the
   save leaves Edit listing, and the "Saved" alert's OK then calls `router.back()` from My Listings, which
   could pop one screen further. Not in F-NAV-1's scope; C to triage.
+
+- **Date correction (A, server now() 2026-09-17T14:57:39Z = 10:57:39 EDT):** session 2 runs on **2026-09-17**,
+  not 09-18. Every session-2 event dated 2026-09-18 in this file (from the S2-1 step 2 read-back onward), in
+  the candidate plan's session-2 notes and in the checklist's DV-IMG fixture line is corrected to 2026-09-17
+  (e.g. DV-S2 step 2 = 2026-09-17 01:40 EDT = 05:40Z; A's fixture read 2026-09-17T05:55:58Z). The sprint target
+  (Fri 2026-09-18) and the tag names `candidate/2026-09-18-*` are names, and stay unchanged.
+- **S2-2 baseline read (A, 2026-09-17T14:57:39Z; state, not the reply):** the buyer has exactly one push_tokens
+  row, 140fcb44… (created 2026-09-08): is_active true, revoked null, **last_used 14:55:17.174Z** (one second after
+  the buyer's only auth session, created 14:55:16Z), session_id live, device hash present, no provider error.
+  That is consistent only with **`refreshed`** (not `registered`: the row predates today; not
+  `challenge_required`: the buyer requested 0 challenges). The seller owns 0 rows (1 challenge, requested
+  03:50:52Z at session 2's seller sign-in). Rebind epoch 2026-09-15, before the buyer session: no 42501 risk.
+  Throttled launches are judged by last_used, is_active and session_id on 140fcb44; A reads after the step
+  from the relaunch times.

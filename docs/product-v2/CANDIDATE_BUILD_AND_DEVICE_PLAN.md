@@ -160,14 +160,14 @@ actual values; nothing is upgraded by this session.
 | S2-4 | Row 11 residue | Largest accessibility text: Home, Explore, Bids, Tickets, Profile headings and the SANDBOX badge | Headings clear the badge on all five tabs; badge does not scale; no clipping |
 | S2-5 | DV-ST1..ST4 (state-views refresh, F-OFF-1) | Airplane mode on: the five tabs; off: the screens retry by themselves; A stages a failing read for DV-ST2; Explore nonsense query; empty tab; VoiceOver + Reduce Motion on one tab | Every tab shows "You're offline / Check your internet connection and try again." incl. Tickets; DV-ST2 "Couldn't load this / Something went wrong on our side. Try again in a moment."; no-match "Nothing matches"; empty only when truly empty; announced once |
 
-Session 2 order note (2026-09-18, after S2-1 step 2): F-611C-2 (RC2) leaves the seller unable to
+Session 2 order note (2026-09-17, after S2-1 step 2): F-611C-2 (RC2) leaves the seller unable to
 register push on Build 18 for the rest of this sign-in, so the seller rows that need no registration
 run first while the seller is signed in — S2-3 (DV-S1/DV-S2 keyboard) and S2-4 (row 11 residue) —
 and S2-2 (DV-611C-2) plus S2-5 run as the buyer after the switch back. Deferred with the DV-131 rows
 (need push delivery), for the candidate that carries 296439c: DV-611C-3a — with a challenge open,
 pull the notification shade and release (iOS inactive→active): A's read-back shows no second
 register_push_token call, and the visible-code fallback still appears in Settings after 60 s (the
-property the source pin cannot prove — D, 2026-09-18); DV-611C-3b — background the app for 10 s and return: exactly one re-issue
+property the source pin cannot prove — D, 2026-09-17); DV-611C-3b — background the app for 10 s and return: exactly one re-issue
 (same challenge row, prev_nonce_hash set) and the Settings banner keeps its remaining 60 s budget.
 | carried | Two-session "this device only" (131 branch 2) | needs a second iPhone | UNTESTED outside D's harness |
 | carried | Row 18 (DV-611S, rebind by the seller) | — | DEFERRED: challenge_required needs push delivery; stays deferred while the key deferral stands |
