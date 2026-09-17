@@ -2357,3 +2357,30 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   on a seller listing that shows Edit (no bids); Save changes is never tapped; step 2 = swipe back with
   an unsaved change → "Discard changes?" / "Your edits to this listing haven't been saved." with Keep
   editing / Discard (source: `UNSAVED_COPY.listingEdit`). No write in either step.
+- **DV-S2 step 1 (owner, Build 18, seller, largest text ON; the observations carry no time, the owner's
+  message is stamped 1:32 AM EDT) — mixed, recorded per check:**
+  *PASS:* Save changes bar sits correctly with the keyboard up and down; the three added letters remain
+  after dismiss and reopen; no other clipping or overlap noticed (owner-reported).
+  *UNCONFIRMED (not passed):* Event name "mostly visible" above the keyboard — the owner cannot confirm
+  it is fully visible; not inferred either way.
+  *FAIL:* the SANDBOX badge does not clear the "My Listings" header (owner-observed).
+  *Not reported:* whether the Edit listing screen's own heading clears the badge — open.
+  Changes not saved (owner).
+- **F-SELL-2 (NEW; investigated from source at Build 18 = aad5f75; fix not applied, awaiting the
+  owner) — screen headers that ignore the SANDBOX badge.** Owner of the observed header:
+  **`app/my-listings.tsx:189`** pays `insets.top + v2.space.sm` straight from the safe area instead of
+  `useTopInset()`, which adds the badge's 20 pt (`SANDBOX_BADGE_EXTRA`). The Edit listing screen
+  (`app/listing/edit/[id].tsx:143`, heading "Edit listing") already uses `useTopInset()`, so the header
+  seen was My listings, not the edit screen. Mechanism: the badge overlays the top of every screen on
+  sandbox builds only (`pointerEvents="none"`, so taps pass through); F-SELL-1's fix moved the tabs, Home
+  header, Sell form and Edit listing to `useTopInset()`, but not the other stack screens. From source the
+  My listings overlap exists at every text size and grows at large sizes; only the largest size is
+  device-observed. **Production impact: none** — production builds render no badge. Impact is on
+  sandbox testing: headings and back buttons sit under the badge. **Same pattern, source-only candidates,
+  not device-observed:** `app/settings/index.tsx:286`, `app/transfer/send/[id].tsx:152`,
+  `app/transfer/receive/[id].tsx:275`, `src/screens/PlaceBidScreen.tsx:192`,
+  `src/screens/checkout/CheckoutNative.tsx:764/924/1002`, `src/components/auth/AuthScreen.tsx:34`,
+  `src/components/listing/ListingHero.tsx:63` (back/share controls over the image), and
+  `src/components/account/SettingsHeader.tsx:26` (shared by the settings sub-screens). Proposed fix,
+  not applied: switch each to `useTopInset()` with a source pin that no screen header pays `insets.top`
+  directly; C, client-only, next candidate; device rows per screen.
