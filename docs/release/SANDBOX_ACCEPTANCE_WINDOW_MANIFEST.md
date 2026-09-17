@@ -934,3 +934,24 @@ This is a **prohibition, not an authorization**, so it takes effect in every ses
 **A's correction, recorded because it was about to become a durable premise:** A had told the owner that a service-role delete would require a key in the project's **Vault** and would therefore arm `enforce-transfer-expiry` within two minutes. **That was false.** The Vault holds `project_url` only; the service key lives in the sandbox **env file** and the storage API takes it as a request header, which creates no Vault secret. C verified this independently against `032_pre_testflight_blocker_fixes.sql:36,125` and `033_marketplace_expansion.sql:19`, where the cron and trigger auth is the Vault secret `service_role_key`. The real cost of that route was only that it would have used a key whose use the owner had deferred — a much smaller thing than the one A described. **The hazard D found remains true and unaffected:** a key placed in the **Vault** would still arm the 2-minute timer against transfers past `auto_release_at`, including Sandbox L7.
 
 **Line 3 is CLOSED as quarantined.** Held permanently unless the owner reopens them: RT6, U1, RT5-P, N1, N2, N4, DV-IMG-4's retry half, DV-IMG-10, and the HEIC conversion half. The results table above stands as the record: nothing inferred, nothing upgraded, and the two process failures — the order deviation and the missing row boundaries — recorded as failures rather than smoothed over.
+
+## 17. SPRINT CLOSE-OUT — sandbox and retained evidence, owner's rulings 2026-09-17
+
+**Ruling on the retained proof objects (final, and it replaces every earlier option):** *"Leave the two retained Line 3 proof files and their references untouched. No further reads, downloads, deletion, overwrite, service key or cleanup verification."*
+
+This is stricter than the ruling that closed §16. §16 barred deletion, overwrite, reference clearing, service-key use and further storage access; this one additionally bars **further reads and any cleanup verification**. So there is no confirming read, no "one last check that nothing changed", and no post-hoc listing. **The state recorded in §16 is the final state of record**, and it stays the record precisely because nothing further is permitted to touch it.
+
+- Both objects remain in `proof-docs`, referenced by their transfers, both transfers `seller_sent`.
+- The `proof-docs owner delete unreferenced` policy would refuse deletion while those references exist — a property of the applied policy, not a control anyone is relying on now, since no deletion is authorized in the first place.
+- Access history as established in §16 and not re-read since: the seller's two uploads and the owner's own buyer-side views. No third party, nothing outbound (0 of 191 2xx).
+- The one-hour signed link from 21:13:40Z lapsed on its own at ~22:13:40Z.
+- **Nobody has ever read the content of either object.** That remains true and, under this ruling, will stay true.
+
+**Ruling on the sandbox and every other hosted surface:** *"Do not apply sandbox prerequisites 115–120, run hosted detection reads, read server-log settings, access production, deploy functions, enable keys, or request a build."*
+
+- The sandbox `ofaidukbieeekqaboscm` is **closed for the sprint**: no writes, no applies, no further windows. Its last recorded state stands as of the DV-ST2b close at 18:49:10Z (§15) and the Line 3 quarantine (§16).
+- Production `hqycwntpfoztoinemqns` is untouched and unread; ledger 135, nothing applied since 2026-09-12.
+- The sandbox push key stays **deferred** (option b); no key is enabled anywhere.
+- No edge function is deployed; no build is requested. Build 19 = `f412d10` is unchanged and remains the installed build.
+- **Line 3 stays CLOSED as quarantined.** Permanently held unless the owner reopens them: RT6, U1, RT5-P, N1, N2, N4, DV-IMG-4's retry half, DV-IMG-10, and the HEIC conversion half.
+- **The 72-hour auto-release tail is carried, not cleared.** Clearing `auto_release_at` on the affected transfers would be another sandbox write and is not authorized; A and D jointly recommended carrying it, and the close-out leaves it carried. It is a sandbox-only exposure and nothing acts on it while no service key is in the Vault.

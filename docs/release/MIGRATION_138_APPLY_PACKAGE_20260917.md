@@ -78,3 +78,22 @@
 4. The sandbox prerequisite chain 115–120, **if** a hosted rehearsal is wanted — with §7's consequences.
 5. The production apply of 138, with its pre-apply reads and D witnessing.
 6. Open, not decided: whether D1 should also report venue staff. The owner's ruling said organisation membership, and that is what is built; venue-plane membership at a customer venue is reachable by the same reverse path, so it is the owner's call whether to extend it later.
+
+## 9. SPRINT CLOSE-OUT — the owner's disposition, 2026-09-17. THIS PACKAGE IS PARKED.
+
+The owner closed the sprint with: *"Keep migration 138 unapplied and outside the marketplace candidate. Do not apply sandbox prerequisites 115–120, run hosted detection reads, read server-log settings, access production, deploy functions, enable keys, or request a build."* and, separately, *"PFA-34 remains proposed and unsigned. Do not treat it as approved or apply migration 138."* and *"Defer the venue-staff detector extension. Keep the detection scope limited to organization membership; leave the local extension unpushed."*
+
+Every approval point in §8, with its disposition:
+
+| # | Approval point | Disposition, 2026-09-17 |
+|---|---|---|
+| 1 | Sign PFA-34 | **NOT GIVEN — explicitly withheld.** PFA-34 stays PROPOSED, NOT SIGNED. The placed block checksum `026cb858319bc7c0181e1dad01e23ef1` (2726 bytes, 27 lines) is unchanged and is what a future signature would sign |
+| 2 | The pre-apply reads, per project | **NOT GIVEN.** They are hosted reads; production access is refused outright, and no sandbox read is authorized |
+| 3 | The pre-apply detection read, per project | **NOT GIVEN — explicitly refused** ("run hosted detection reads" is named in the prohibition) |
+| 4 | The 115–120 sandbox chain | **NOT GIVEN — explicitly refused.** A and D both recommended against it during the sprint (§7); the owner's ruling matches that recommendation |
+| 5 | The production apply of 138 | **NOT GIVEN — explicitly refused** ("access production") |
+| 6 | Whether D1 should also report venue staff | **DECIDED: NO, deferred.** Detection scope stays organisation membership. D's local extension `1cacdf5` stays unpushed with no CI; the reviewed head remains `a9aa34e` |
+
+**What this leaves true.** Nothing in this package has run on any project. The artifacts, hashes, pre-apply values and evidence in §1–§7 were computed locally and remain valid for the head they name (`a9aa34e`); they say nothing about any hosted project's current state, and §4's reads would still have to be run and matched before any apply. F-ACL-REPLAY still stands as the rule for that day: a `prosrc` mismatch is a hard stop, an ACL mismatch is report-and-decide.
+
+**Carried as a known, undetected gap — deferred, not closed.** Because ruling 6 went to "no", `ops.list_platform_identity_memberships()` reports platform identities holding *organisation* membership only. Path (c) from A's inventory — one operator granting venue staff to another operator at a customer venue (`venue.grant_staff_role`, 080:224) — creates venue-plane membership that the detector will not report. Deferring the extension does not make that path safe; it leaves it unmonitored, which is the owner's call to reverse whenever they choose.

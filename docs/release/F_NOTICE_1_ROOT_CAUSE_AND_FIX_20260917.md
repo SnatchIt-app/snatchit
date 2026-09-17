@@ -36,3 +36,13 @@ The same shape as the accidental-report cleanup, which the owner approved and D 
 
 ## 5. Status
 Severity MEDIUM as C proposed: a misleading account-security statement, not a money or access defect. It does not block Build 19 or the marketplace candidate. Waiting on the owner's choice between Option A and Option B, and separately on §4.
+
+## 6. OWNER'S DECISION — 2026-09-17. Option A adopted; Option B declined; nothing applied.
+
+The owner's words: *"F-NOTICE-1: use the minimal fix. When a user withdraws account deletion, retire only that user's pending deletion notice. Do not add a new notification type or outbound message. Keep the reviewed branch and migration 141 unapplied unless a separate apply decision is made."*
+
+- **Option A is the decision**, and it is exactly what was built: `fix/f-notice-1-withdraw-retires-notice @ ea547e5`, migration 141 + rollback + pgTAP 208. It adds one internal routine `notify.retire_account_deletion_pending(uuid)` (SECURITY DEFINER, owned by postgres, `search_path = ''`, `lock_timeout = 2s`, EXECUTE revoked from public, anon, authenticated **and** service_role) and one call inside `kernel.withdraw_account_deletion`, whose body is otherwise 077's verbatim. The retire lives in `notify` because 157 A48 forbids a kernel routine from referencing notify's tables.
+- **"No new notification type or outbound message" is satisfied structurally, not by intention:** 208 E2 asserts the withdrawal emits no event of its own, no `notify.notification_type` row is added, no template is added, no job is created. That constraint is now pinned by a test rather than by this sentence.
+- **Option B is declined.** The user is not told that the notice was retired; the notice simply stops asserting something false.
+- **Not applied anywhere, and no apply is scheduled.** The branch is reviewed (D PASS, B reviewed) with CI 35263537823 SUCCESS on five jobs (pgTAP Files=89, Tests=5325, PASS), and it sits at `ea547e5` awaiting a separate apply decision that has not been made.
+- **§4 remains unauthorized and un-run.** The buyer's existing stale row `f3abe550…` in the sandbox is untouched. The fix is forward-only, so that row will persist until either 141 is applied *and* that identity withdraws again — which it will not, having already withdrawn — or §4 is separately authorized. Today's instruction ("do not touch … any hosted data") bars running it now. **Open, owned by the owner.**
