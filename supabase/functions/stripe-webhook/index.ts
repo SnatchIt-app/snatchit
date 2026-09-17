@@ -344,12 +344,40 @@ serve(async (req: Request) => {
           `Your payment for ${listingTitle} was successful. Waiting for seller to transfer the ticket.`,
           { listingId: metadata.listing_id, type: 'payment_succeeded', ...transferIdData },
         );
-        sendPush(
-          metadata.seller_id,
-          'Your ticket sold!',
-          `Send the transfer now for ${listingTitle}.`,
-          { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
-        );
+        // Notification batch 1 (owner ruling 2026-09-17): honour the seller's
+        // own "Listing sold" toggle, which has existed in the schema and the
+        // app since the baseline and which nothing has ever read.
+        //
+        // An ABSENT row means true — the column's default is true and rows are
+        // auto-created on profile insert, so absence means an older account,
+        // not an opt-out. A FAILED read also means true, deliberately: this
+        // push is what tells the seller to send the transfer, so losing it
+        // stalls a paid sale, while the preference is a convenience. Fail
+        // toward delivering, and say so in the log.
+        //
+        // The buyer's confirmation above is mandatory: it is never read from
+        // preferences and never suppressed, and it is sent BEFORE this read so
+        // that no preference failure can affect it.
+        let sellerOptedOut = false;
+        const { data: sellerPrefs, error: prefErr } = await supabase
+          .from('notification_preferences')
+          .select('notify_listing_sold')
+          .eq('user_id', metadata.seller_id)
+          .maybeSingle();
+        if (prefErr) {
+          console.warn('Webhook: seller sold-notification preference unreadable, defaulting to send', { code: prefErr.code ?? null });
+        } else if (sellerPrefs?.notify_listing_sold === false) {
+          sellerOptedOut = true;
+        }
+
+        if (!sellerOptedOut) {
+          sendPush(
+            metadata.seller_id,
+            'Your ticket sold!',
+            `Send the transfer now for ${listingTitle}.`,
+            { listingId: metadata.listing_id, type: 'ticket_sold', ...transferIdData },
+          );
+        }
       }
 
       return await finish(true, {
