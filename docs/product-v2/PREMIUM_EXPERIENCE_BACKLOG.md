@@ -2862,3 +2862,13 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   owner says they are ready**. The screen restrictions stand, with no overlapping DV-ST2b.
   The swipe-back result (12:14 EDT, Keep editing + Discard PASS, owner-reported) is already recorded above and is
   not repeated. The Back-arrow and repeated-attempt checks are separate and still unconfirmed.
+- **Build 19 DV-NAV-1 in-screen Back arrow with a repeat (owner, seller, 2026-09-17 12:18 EDT): PASS (owner-reported).**
+  First Back arrow → Keep editing: stayed on Edit listing, three letters remained. Second Back arrow → Keep editing:
+  the same. Third Back arrow → Discard: back on My Listings, listing name unchanged. Each attempt showed one prompt.
+  Exact prompt wording not captured. Nothing saved. **DV-NAV-1 on Build 19:** swipe path (Keep editing + Discard,
+  12:14) and Back-arrow path with a repeat (12:18), both owner-reported PASS. Not covered: a repeated attempt on the
+  swipe path, and D's one-frame residual. DV-NAV-2 (report form, Preferences) not run yet.
+- **A: Step 1 (Line 1 storage round trip) CLOSED** (D's post-read = pre-read; all rt objects deleted; no
+  application-table writes). **W-C3 next: handset PAUSED** (C to A at ≈12:2x EDT: the owner idle at a safe point on
+  My Listings with no unsaved edit). No handset test and no transfer, proof or notice screen until A announces W-C3
+  closed.
