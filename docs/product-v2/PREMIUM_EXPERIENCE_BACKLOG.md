@@ -2931,3 +2931,9 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   notification total 10; delivery 18; queue 0; f3abe550 unchanged. **Stop rule (A + owner):** if the banner shown
   does not exactly match the staged title and the two-button layout, the owner taps nothing and C stops. C sent the
   owner GO for DV-N-1.
+- **DV-N-1: PASS (owner-reported, Build 19, DV buyer, 2026-09-17 12:44 EDT).** After backgrounding and reopening, the
+  staged notice showed exactly A's expected v2 text: title "A device stopped receiving your notifications"; message
+  "A device that was getting notifications for this account is now registered to a different account. If that was
+  you signing in to another account, there's nothing to do. If not, sign out of all devices."; buttons "SIGN OUT OF
+  ALL DEVICES" and "DISMISS" (uppercase button styling). **No device name** (v2, not v1). The owner tapped nothing and
+  did not mistake the deletion notice for it. D's read at 16:43:21Z agreed with A's write. Next: DV-N-2.
