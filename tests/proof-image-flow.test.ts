@@ -219,15 +219,24 @@ describe('1e — upload failures are classified into product copy', () => {
 });
 
 describe('Mark as sent — the outcome is settled by the status contract, not the button', () => {
-  const mk = (over: Partial<Parameters<typeof runMarkSent>[0]> = {}) => ({
-    readStatus: vi.fn(async () => 'pending'),
-    upload: vi.fn(async () => 'u1/transfer-evidence/1.jpg'),
-    call: vi.fn(async () => ({ error: null })),
-    ...over,
-  });
+  // 140: the read returns status + stored proof; a sent transfer here carries the uploaded proof.
+  type Over = { readStatus?: () => Promise<string | null>; upload?: () => Promise<string | null>; call?: (path: string) => Promise<{ data?: unknown; error: { message: string } | null }> };
+  const P = 'u1/transfer-evidence/1.jpg';
+  const SENT_STATES = new Set(['seller_sent', 'buyer_confirmed', 'auto_released']);
+  const mk = (over: Over = {}) => {
+    const readStatus = over.readStatus ?? vi.fn(async () => 'pending');
+    return {
+      readTransfer: async () => {
+        const status = await readStatus();
+        return status === null ? null : { status, evidencePath: SENT_STATES.has(status) ? P : null };
+      },
+      upload: over.upload ?? vi.fn(async () => P),
+      call: over.call ?? vi.fn(async () => ({ error: null })),
+    };
+  };
   it('already sent before we start (a lost response last time): no upload, no call, sent', async () => {
     const d = mk({ readStatus: vi.fn(async () => 'seller_sent') });
-    expect(await runMarkSent(d)).toEqual({ kind: 'sent', path: null });
+    expect(await runMarkSent(d)).toEqual({ kind: 'sent', path: P });   // 140: the stored proof comes back with it
     expect(d.upload).not.toHaveBeenCalled();
     expect(d.call).not.toHaveBeenCalled();
   });
@@ -358,7 +367,7 @@ describe('the surfaces (source contract; the device rows DV-IMG-1..8 prove the b
     expect(send).toContain('evidenceUpload.busy');
     expect(send).toContain('runMarkSent(');
     expect(send).toContain('reuseKey: id');
-    expect(send).toContain(".select('status')");
+    expect(send).toContain(".select('status, transfer_evidence_path')");
     const run = send.indexOf('runMarkSent(');
     const success = send.indexOf("Alert.alert('Marked as sent'", run);
     expect(success).toBeGreaterThan(run);
