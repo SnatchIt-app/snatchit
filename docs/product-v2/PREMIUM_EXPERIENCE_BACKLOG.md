@@ -3095,3 +3095,12 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   buyer and hold (Build 19 lacks the F-BIDS-1 fix, so the empty message may flash before the purchases arrive).
   PASS also requires A's later API-log check showing a denied GET /rest/v1/bids inside the window; otherwise
   INCONCLUSIVE. Line 3 stays paused until the window is fully closed.
+- **Sequencing conflict resolved in favour of the owner's latest direct order (2026-09-17):** A reported Line 3
+  authorized with A's PC1–PC8 (18:30:38Z) and D's pre-check both PASS and matching, and asked C to give the first
+  Line 3 handset instruction. **C held it.** The owner's direct instruction to C is DV-ST2b first, with "Line 3 paused
+  until this window is fully closed" — which includes A's API-log check at least 10 minutes after the window. A was
+  told to run the DV-ST2b capture/before-read/revoke now and to re-verify the Line 3 pre-checks afterwards, since a
+  revoke and restore touch grants. Line 3 step 0's constraints are recorded for when it starts: picker-only rows on
+  3118bd30 (DV-IMG-1, -2, -3a, -6, -7); synthetic images only; Camera location off before DV-IMG-9; the no-image Mark
+  as sent must stop at "Evidence required" before any network call; 83b83858 untouched; nothing on the buyer's side;
+  A releases each row only after D's witness read of the previous one.
