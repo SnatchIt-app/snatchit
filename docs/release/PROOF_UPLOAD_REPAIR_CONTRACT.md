@@ -200,3 +200,20 @@ the third summary-contradicts-data case today (179/180 prose, G11's name, 207's 
 **Evidence line held by D:** outcomes 1 and 2 met by 140 + c0281aa; outcome 3 NOT passed (MIME display failure not reproduced;
 HEIC conversion device-unverified until DV-IMG-9); outcome 4's device half is DV-IMG-1..8. A's disclosure: A relayed B's header
 sentence to D as fact without checking it against the table — the same failure, one hop on.
+
+## 11. Owner's rulings 2026-09-17 on §9/§10 (verbatim substance)
+- **Cleanup direction:** minimum **30-day** retention in the proposal; **preserve referenced evidence and recovery candidates**;
+  **require a dry-run report before any deletion**; **do not create or enable a scheduled cleanup job yet**; **D verifies the
+  attach-versus-cleanup race protection before the implementation is accepted.**
+- **Older-client overload:** stays compatible for this repair. **Requiring proof before marking sent is the intended future
+  behaviour** once supported clients can comply; A brings the compatibility evidence (which client versions send the 2-key
+  body; when they are retired) and a migration proposal before enforcing it. Not in 140.
+- **Evidence limits, preserved:** database outcomes 1 and 2 passed; **image conversion and buyer display remain unverified
+  until a real iPhone round trip**; the remaining device behaviour needs a build. **The whole image issue is not to be
+  described as fixed.**
+- **140's two closing items** (050 asserts the original evidence path unchanged; 207's summary generated from its actual
+  results) close with B, D confirms the follow-up; candidate preparation then continues within the existing authorization
+  (integration and local verification; no application, deployment or build).
+- **Sandbox authorization lines** for the image round-trip test and the bid fixture go to the owner together, with affected
+  records/files, side effects, cleanup and stopping conditions: `SANDBOX_AUTHORIZATION_LINES_20260917.md`. Not production
+  work, no additional builds.
