@@ -1943,3 +1943,14 @@ invalidation inside a ≤5-minute challenge window).
 and a working one-step recovery (sign in again). One LOW copy finding on the challenge
 path. Device rows proposed: DV-131-1 (register path, A stages the epoch bump) and
 DV-131-2 (challenge path; needs push delivery → deferred with the key).
+- **Owner ruling 2026-09-17 (in A's session): both fixes included.** A merged 8dc4cec and
+  a609cbc --no-ff onto `release/production-gate-20260918` → `aad5f75`; TAG
+  `candidate/2026-09-18-build-b2` = aad5f75; CI 35175523163 green; 9bef640 stays the
+  sandbox application pin. **C cut the single authorised combined sandbox preview build
+  from the tag: EAS `dcbf20e0-76dd-4b18-a48a-20c203ba0175`** (see the plan's build
+  record); link to A → owner on completion. **CFT-801 correction (A):** `kernel.tickets`
+  requires `signing_key_id NOT NULL` → `kernel.signing_key` (084) and a custody-log tail,
+  so a populated-Tickets fixture is not one row and touches the excluded trust-root
+  table; the single-row assumption in the readiness map §2.1.3 and the estimates is
+  withdrawn — A puts the real shape to the owner. Estimates for CFT-801/811–816 and the
+  session-2 matrix sent to A for the critical path.

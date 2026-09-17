@@ -134,6 +134,18 @@ Per row: PASS / FAIL / UNTESTED, the on-screen text observed, and A's read-back 
 
 ## Handset session 2 — combined b2 candidate (owner ruling 2026-09-17; build cut from A's tag)
 
+**Build record (C, 2026-09-17):** TAG `candidate/2026-09-18-build-b2` = `aad5f75` (annotated; A; CI
+35175523163 green 5/5; local at the head tsc clean / lint 0 errors / vitest 2077 / 95; D verified the merge as
+a byte-identical union of e6d9f2e + C's 8dc4cec and a609cbc, disjoint files, `supabase/` and gated diff 0).
+`candidate/2026-09-18-pin-b2` = `9bef640` stays the sandbox application pin. Cut in the clean worktree
+`/Users/josetascon/snatchit-combined` (`git rev-parse HEAD` = aad5f752ef690270f91c820b02e57bcedc3799be, 0 dirty
+files after `npm ci`), `eas build --platform ios --profile preview --non-interactive --no-wait --message
+"candidate 2026-09-18 build-b2 aad5f75"`. **EAS build id `dcbf20e0-76dd-4b18-a48a-20c203ba0175`**, page
+`https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/dcbf20e0-76dd-4b18-a48a-20c203ba0175`
+(installation link once finished); assigned build number, finish time and artifact to be appended. Sandbox
+env compiled in as Build 17. Owner authorisation: the one combined sandbox build (direct, 2026-09-16) and the
+2026-09-17 ruling in A's session; no production change, no other build.
+
 Read-back protocol unchanged (C sends "row N ready + time"; A reads within minutes; D reads
 where noted). Installation and sign-in are not repeated here. Statuses carry forward at their
 actual values; nothing is upgraded by this session.
