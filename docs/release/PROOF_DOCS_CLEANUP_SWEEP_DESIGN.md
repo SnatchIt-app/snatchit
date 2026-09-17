@@ -63,8 +63,17 @@ evidence in any environment where the column *does* exist. The defensive read co
 5. Objects in other buckets and other folders are untouched.
 6. Negative control per predicate: remove each `not exists` clause in turn and confirm exactly one assertion dies.
 
-## 5. What needs the owner (nothing here is approved)
-1. **N** — how long an unreferenced object is kept. B's recommendation: **at least 30 days**, because the recovery path is manual
-   and a seller may take days to notice the proof never attached.
-2. **The cron itself** — a new scheduled job, which is a separate approval from the migration.
-3. Whether a **dry-run count** should be reported to the owner before the job is ever scheduled. B recommends yes.
+## 5. The owner's direction (2026-09-17) — these are RULINGS, not proposals
+1. **Retention: minimum 30 days.** B's recommendation accepted.
+2. **Preserve referenced evidence AND recovery candidates** — the per-seller exclusion in §1 is required, not optional.
+3. **A dry-run report is REQUIRED before any deletion.** Not merely advisable: no object may be deleted until a dry-run has been
+   reported.
+4. **No scheduled job is to be created or enabled yet.** The cron does not exist and must not be added by this design.
+5. **D must verify the attach-versus-cleanup race protection before any implementation is accepted.** §1's claim — that the
+   exclusion removes the overlap for the only case with consequences — is a claim for D to break, not for B to assert.
+6. **No migration number until the owner asks for the implementation.** None is requested here.
+
+## 6. Still open, and not decided by anyone yet
+- Whether listing proofs and dispute evidence ever need their own sweep. v1 deliberately scopes to `transfer-evidence/` only.
+- What the dry-run report should contain beyond a count — B suggests the count, the oldest candidate's age, and how many
+  candidates were EXCLUDED by the recovery rule, since that last number is the one that shows the exclusion is doing work.
