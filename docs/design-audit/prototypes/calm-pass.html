@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Calm pass — patterns, Home, Send Transfer, Checkout</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+ --canvas:#000;--surface:#0A0A0A;--elev:#111;--ink:#fff;--ink2:rgba(255,255,255,.70);--ink3:rgba(255,255,255,.55);--ink4:rgba(255,255,255,.30);
+ --red:#FF1A1A;--redPress:#CC0000;--redSoft:rgba(255,26,26,.10);
+ --loudBorder:rgba(255,26,26,.15);--loudBorderStrong:rgba(255,26,26,.30);
+ --calmBorder:rgba(255,255,255,.10);--calmBorderStrong:rgba(255,255,255,.20);--accent:rgba(255,26,26,.30);
+ --warn:#FFB020;--err:#FF4D4D;--ok:#3DDC84;
+ --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;
+ --fsDisplay:20px;--lhDisplay:25px;--fsTitle:17px;--lhTitle:22px;--fsBody:15px;--lhBody:22px;--fsSm:13px;--lhSm:18px;--fsEyebrow:11px;--lhEyebrow:15px;--fsMicro:10px;
+}
+.lg{--fsDisplay:26px;--lhDisplay:32px;--fsTitle:22px;--lhTitle:28px;--fsBody:20px;--lhBody:28px;--fsSm:17px;--lhSm:23px;--fsEyebrow:14px;--lhEyebrow:19px;--fsMicro:13px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;color:#fff;font-family:Inter,system-ui,sans-serif;padding:24px;display:flex;flex-direction:column;gap:26px;align-items:center}
+h1{font-family:Oswald;font-weight:700;font-size:26px;text-transform:uppercase;letter-spacing:-.5px}
+h2{font-family:Inter;font-weight:600;font-size:18px;margin-top:10px}
+.note{color:var(--ink3);font-size:13px;line-height:19px;max-width:900px;text-align:center}
+.pair{display:flex;gap:26px;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;gap:9px;align-items:center;max-width:375px}
+.cap{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink3);font-weight:600}
+.cap b{color:#fff}
+.phone{width:375px;height:812px;background:var(--canvas);overflow-y:auto;border:1px solid #2a2a2a;display:flex;flex-direction:column}
+.badge{background:#7a3b00;color:#ffd9a0;font-size:11px;letter-spacing:1px;text-align:center;padding:3px 0;font-weight:700}
+.nav{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s4)}
+.nav .back{font-size:20px;color:var(--ink)}
+.navT{font-family:Oswald;font-weight:700;font-size:var(--fsDisplay);line-height:var(--lhDisplay);text-transform:uppercase;letter-spacing:-.2px}
+.body{padding:0 var(--s4) var(--s4);display:flex;flex-direction:column;gap:var(--s6);flex:1}
+.eyebrow{font-size:var(--fsEyebrow);line-height:var(--lhEyebrow);color:var(--ink3);font-weight:500}
+.title{font-size:var(--fsTitle);line-height:var(--lhTitle);font-weight:600}
+.bd{font-size:var(--fsBody);line-height:var(--lhBody);color:var(--ink2)}
+.sm{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink3)}
+.block{display:flex;flex-direction:column;gap:var(--s2)}
+.rows{display:flex;flex-direction:column}
+.row{display:flex;justify-content:space-between;gap:var(--s3);padding:var(--s3) 0;border-bottom:1px solid var(--calmBorder)}
+.row .k{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink3)}
+.row .v{font-size:var(--fsSm);line-height:var(--lhSm);text-align:right}
+.notice{display:flex;gap:var(--s3);background:rgba(255,255,255,.04);border-left:2px solid var(--ink4);padding:var(--s3)}
+.notice.block-rank{border-left-color:var(--warn)}
+.notice.advisory{border-left-color:var(--calmBorderStrong)}
+.notice .title{font-size:var(--fsTitle);line-height:var(--lhTitle)}
+.proof{display:flex;gap:var(--s3);align-items:center;background:var(--surface);padding:var(--s3)}
+.th{width:52px;height:52px;background:#1a1a1a;border:1px solid var(--calmBorder);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px;flex:0 0 52px}
+.disc{display:flex;justify-content:space-between;align-items:center;padding:var(--s3) 0;border-top:1px solid var(--calmBorder);border-bottom:1px solid var(--calmBorder)}
+.disc .x{color:var(--ink3)}
+.bar{margin-top:auto;position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--calmBorder);padding:var(--s3) var(--s4);display:flex;flex-direction:column;gap:var(--s2)}
+.cta{background:var(--red);color:#000;font-weight:700;font-size:var(--fsBody);line-height:var(--lhBody);text-align:center;padding:var(--s4);min-height:52px;display:flex;flex-direction:column;justify-content:center}
+.cta .sub{font-weight:400;font-size:var(--fsSm);color:rgba(0,0,0,.62);margin-top:2px}
+.cta.dis{background:#1E1E1E;color:var(--ink4)}
+.cta.dis .sub{color:var(--ink4)}
+.cta.sec{background:transparent;border:1px solid var(--calmBorderStrong);color:var(--ink);font-weight:500}
+.chips{display:flex;gap:var(--s2);flex-wrap:nowrap;overflow-x:auto}
+.chip{border:1px solid var(--calmBorder);padding:7px 12px;border-radius:9999px;font-size:var(--fsSm);color:var(--ink3);white-space:nowrap}
+.chip.on{background:rgba(255,255,255,.08);border-color:var(--calmBorderStrong);color:var(--ink);font-weight:500}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.card{display:flex;flex-direction:column;gap:6px}
+.art{aspect-ratio:4/5;background:#151515;border:1px solid var(--calmBorder);display:flex;align-items:flex-end;padding:var(--s2)}
+.art .pill{background:rgba(0,0,0,.6);color:var(--ink2);font-size:var(--fsMicro);padding:2px 6px}
+.price{font-weight:700;font-size:var(--fsBody);font-variant-numeric:tabular-nums}
+.dock{display:flex;justify-content:space-around;align-items:center;margin:0 var(--s4) var(--s4);background:rgba(18,18,20,.72);border:1px solid var(--calmBorder);border-radius:33px;padding:10px 0}
+.dock span{color:var(--ink4);font-size:18px}.dock span.on{color:var(--ink)}
+.patterns{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:900px;width:100%}
+.pcell{background:#0d0d0d;border:1px solid #242424;padding:14px}
+.pcell h3{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--ink3);font-weight:600;margin-bottom:10px}
+.loudTitle{font-family:Oswald;font-weight:700;font-size:34px;line-height:43px;letter-spacing:-.7px;text-transform:uppercase}
+.loudEyebrow{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--ink3);font-weight:500}
+.loudBox{border:1px solid var(--loudBorder);background:var(--surface);padding:12px}
+.loudWarn{border:1px solid var(--warn);background:rgba(255,176,32,.10);padding:12px;color:var(--warn);font-size:13px}
+.loudChip{border:1px solid var(--red);background:var(--redSoft);color:#fff;padding:7px 12px;border-radius:9999px;font-size:13px}
+.loudBadge{background:var(--red);color:#000;font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:4px 8px}
+.calmBadge{border:1px solid var(--calmBorderStrong);color:var(--ink2);font-size:11px;letter-spacing:.6px;padding:4px 8px}
+.ann{font-size:12px;line-height:17px;color:var(--ink3);max-width:375px}.ann b{color:#fff}
+.tag{display:inline-block;font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:3px 7px;border:1px solid var(--ink4);color:var(--ink3)}
+</style></head><body>
+<h1>Calm pass</h1>
+<p class="note">Rendered locally from the v2 tokens with synthetic data. Not screenshots of the app; no device check claimed.
+Identity is unchanged: black canvas, Snatch It red, Oswald for the screen title, Inter for everything else, square geometry,
+no shadows. What changes is <b>how often</b> each loud element is used, not which elements exist.</p>
+
+<h2>1 · Too loud → calmer, pattern by pattern</h2>
+<div class="patterns">
+  <div class="pcell"><h3>Now — display type in content</h3><div class="loudTitle">Waiting on the buyer</div>
+    <p class="sm" style="margin-top:6px">Oswald 700 caps, 34/43, tracking −0.7, inside the page body.</p></div>
+  <div class="pcell"><h3>Calmer — display for the screen title only</h3><div class="title">Waiting on the buyer</div>
+    <p class="sm" style="margin-top:6px">Inter 600, 17/22, sentence case. One Oswald element per screen: the title in the bar.</p></div>
+
+  <div class="pcell"><h3>Now — eyebrows shout</h3><div class="loudEyebrow">Transfer evidence</div>
+    <p class="sm" style="margin-top:6px">10 px caps, tracking 3.0 — used for every section on every screen.</p></div>
+  <div class="pcell"><h3>Calmer — eyebrows label</h3><div class="eyebrow">Transfer proof</div>
+    <p class="sm" style="margin-top:6px">11 px, tracking 1.2, sentence case, muted. Caps kept only for badges and table keys.</p></div>
+
+  <div class="pcell"><h3>Now — red hairlines everywhere</h3><div class="loudBox">A data card. Its border is brand red at 15%.</div>
+    <p class="sm" style="margin-top:6px">Every card, row and input edge is red-tinted, so red stops meaning "action".</p></div>
+  <div class="pcell"><h3>Calmer — neutral hairline, red reserved</h3><div style="border:1px solid var(--calmBorder);background:var(--surface);padding:12px" class="bd">A data card. White at 10%.</div>
+    <p class="sm" style="margin-top:6px">Red moves to selection, focus and the one primary action.</p></div>
+
+  <div class="pcell"><h3>Now — warning as a full colour wash</h3><div class="loudWarn">⚠️ Transfers are final once accepted.<br>⚠️ Do not share barcodes.<br>⚠️ Name changes take 24 h.</div></div>
+  <div class="pcell"><h3>Calmer — one notice, ranked</h3><div class="notice block-rank"><div><div class="title">Delivery details needed</div><div class="bd" style="margin-top:4px">The buyer hasn't added them yet. We'll tell you here when they do.</div></div></div>
+    <p class="sm" style="margin-top:6px">2 px rule in the tone colour, 4% fill. Cautions move into the collapsed instructions.</p></div>
+
+  <div class="pcell"><h3>Now — selected chip and count badge in red</h3>
+    <div style="display:flex;gap:8px;align-items:center"><span class="loudChip">Active</span><span class="loudBadge">3 new</span></div></div>
+  <div class="pcell"><h3>Calmer — neutral selection</h3>
+    <div style="display:flex;gap:8px;align-items:center"><span class="chip on">Active</span><span class="calmBadge">3 new</span></div>
+    <p class="sm" style="margin-top:6px">Selection reads as selected without borrowing the action colour.</p></div>
+</div>
+
+<h2>2 · Home · Send Transfer · Checkout — normal and largest text</h2>
+<div class="pair">
+  <div class="col"><div class="cap"><b>Home</b> — normal text</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><div class="navT">Snatch It</div><div style="margin-left:auto;color:var(--ink3)">⌕</div></div>
+      <div class="body" style="gap:var(--s4)">
+        <div class="chips"><span class="chip on">All</span><span class="chip">Tonight</span><span class="chip">This week</span><span class="chip">Under $50</span><span class="chip">Sold</span></div>
+        <div class="grid">
+          <div class="card"><div class="art"><span class="pill">2 left</span></div><div class="sm">Fri 24 Oct · Test Venue</div><div class="title">Synthetic Event A</div><div class="price">$120.00</div></div>
+          <div class="card"><div class="art"><span class="pill">ends 2 h</span></div><div class="sm">Sat 25 Oct · Test Hall</div><div class="title">Synthetic Event B</div><div class="price">$64.00</div></div>
+          <div class="card"><div class="art"></div><div class="sm">Sun 26 Oct · Test Room</div><div class="title">Synthetic Event C</div><div class="price">$38.00</div></div>
+          <div class="card"><div class="art"></div><div class="sm">Tue 28 Oct · Test Yard</div><div class="title">Synthetic Event D</div><div class="price">$95.00</div></div>
+        </div>
+      </div>
+      <div class="dock"><span class="on">⌂</span><span>⌕</span><span>＋</span><span>◎</span><span>☺</span></div>
+    </div>
+    <div class="ann"><b>Calm moves:</b> one Oswald element (the wordmark), neutral chip selection, card metadata in muted body
+    rather than caps, tabular prices, hairlines at white 10%. Nothing about the grid or the dock changes.</div>
+  </div>
+  <div class="col lg"><div class="cap"><b>Home</b> — largest text</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><div class="navT">Snatch It</div><div style="margin-left:auto;color:var(--ink3)">⌕</div></div>
+      <div class="body" style="gap:var(--s4)">
+        <div class="chips"><span class="chip on">All</span><span class="chip">Tonight</span><span class="chip">This week</span></div>
+        <div class="grid" style="grid-template-columns:1fr">
+          <div class="card"><div class="art" style="aspect-ratio:3/2"><span class="pill">2 left</span></div><div class="sm">Fri 24 Oct · Test Venue</div><div class="title">Synthetic Event A</div><div class="price">$120.00</div></div>
+          <div class="card"><div class="art" style="aspect-ratio:3/2"><span class="pill">ends 2 h</span></div><div class="sm">Sat 25 Oct · Test Hall</div><div class="title">Synthetic Event B</div><div class="price">$64.00</div></div>
+        </div>
+      </div>
+      <div class="dock"><span class="on">⌂</span><span>⌕</span><span>＋</span><span>◎</span><span>☺</span></div>
+    </div>
+    <div class="ann"><b>At the largest step</b> the grid drops to one column and the art goes 3:2, so the title and price stay
+    on one line each; chips scroll instead of wrapping; the display cap holds the wordmark at 1.3×. No text is truncated.</div>
+  </div>
+</div>
+
+<div class="pair">
+  <div class="col"><div class="cap"><b>Send Transfer</b> — normal text · blocked, window passed</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><div class="navT">Send tickets</div></div>
+      <div class="body">
+        <div class="notice block-rank"><div><div class="title">Delivery details needed</div>
+          <div class="bd" style="margin-top:4px">The buyer hasn't added them yet. We'll tell you here as soon as they do.</div>
+          <div class="sm" style="margin-top:6px">The 24-hour window has passed. You can still send while this transfer is open; if it closes first, the sale is cancelled and refunded.</div></div></div>
+        <div class="block"><div class="eyebrow">Transfer proof</div>
+          <div class="proof"><div class="th">add</div><div><div class="bd" style="color:var(--ink)">Add a screenshot</div><div class="sm">The confirmation screen from DICE</div></div></div></div>
+        <div class="disc"><div><div class="bd" style="color:var(--ink)">How to transfer on DICE</div><div class="sm">5 steps · about 3 minutes · 3 cautions</div></div><div class="x">›</div></div>
+        <div class="block"><div class="eyebrow">This transfer</div>
+          <div class="rows">
+            <div class="row"><span class="k">Event</span><span class="v">Synthetic Test Event</span></div>
+            <div class="row"><span class="k">Buyer</span><span class="v">the buyer</span></div>
+            <div class="row"><span class="k">Send to</span><span class="v">not provided yet</span></div>
+          </div></div>
+      </div>
+      <div class="bar"><div class="cta dis">Mark as sent<span class="sub">Available once the buyer adds delivery details</span></div></div>
+    </div>
+    <div class="ann"><b>One primary action</b> on the bar, <b>one blocker</b> stated once and carrying the button's reason,
+    expiry told accurately as a consequence rather than a red alarm, proof as its own quiet section, cautions folded into the
+    instructions row. Four surfaces instead of six, and none of them is red.</div>
+  </div>
+  <div class="col lg"><div class="cap"><b>Send Transfer</b> — largest text</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><div class="navT">Send tickets</div></div>
+      <div class="body" style="gap:var(--s5)">
+        <div class="notice block-rank"><div><div class="title">Delivery details needed</div>
+          <div class="bd" style="margin-top:4px">The buyer hasn't added them yet.</div>
+          <div class="sm" style="margin-top:6px">The 24-hour window has passed. You can still send while this transfer is open.</div></div></div>
+        <div class="block"><div class="eyebrow">Transfer proof</div>
+          <div class="proof"><div class="th">add</div><div><div class="bd" style="color:var(--ink)">Add a screenshot</div></div></div></div>
+        <div class="disc"><div><div class="bd" style="color:var(--ink)">How to transfer on DICE</div><div class="sm">5 steps · 3 cautions</div></div><div class="x">›</div></div>
+      </div>
+      <div class="bar"><div class="cta dis">Mark as sent<span class="sub">Available once the buyer adds delivery details</span></div></div>
+    </div>
+    <div class="ann"><b>At the largest step</b> the action stays pinned and legible, the notice keeps its two sentences, the
+    summary rows scroll below the fold rather than pushing the button off it, and the disabled reason is still readable at
+    17 px. Nothing is clipped because the button uses min-height, not height.</div>
+  </div>
+</div>
+
+<div class="pair">
+  <div class="col"><div class="cap"><b>Checkout</b> — normal text</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><div class="navT">Checkout</div></div>
+      <div class="body">
+        <div class="proof"><div class="th" style="width:48px;height:60px;flex:0 0 48px">art</div>
+          <div><div class="bd" style="color:var(--ink)">Synthetic Test Event</div><div class="sm">Fri 24 Oct · Test Venue</div></div></div>
+        <div class="block"><div class="eyebrow">Order</div>
+          <div class="rows">
+            <div class="row"><span class="k">Ticket</span><span class="v price">$120.00</span></div>
+            <div class="row"><span class="k">Service fee</span><span class="v price">$14.00</span></div>
+            <div class="row" style="border-bottom:none"><span class="k" style="color:var(--ink)">Total</span><span class="v price">$134.00</span></div>
+          </div>
+          <div class="sm">All-in price. Nothing is added at the end.</div></div>
+        <div class="notice advisory"><div><div class="bd" style="color:var(--ink)">Your place is held for 7:42</div>
+          <div class="sm" style="margin-top:2px">Nothing has been charged yet.</div></div></div>
+      </div>
+      <div class="bar"><div class="cta">Pay $134.00</div><div class="sm" style="text-align:center">Payments secured by Stripe</div></div>
+    </div>
+    <div class="ann"><b>The only red on the screen is the Pay button.</b> The hold becomes an advisory notice instead of a
+    countdown competing with the total; the total is the heaviest text in the list, not the loudest colour. Layout, copy and
+    the existing payment states are untouched.</div>
+  </div>
+  <div class="col lg"><div class="cap"><b>Checkout</b> — largest text</div>
+    <div class="phone"><div class="badge">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><div class="navT">Checkout</div></div>
+      <div class="body" style="gap:var(--s5)">
+        <div class="proof"><div class="th" style="width:48px;height:60px;flex:0 0 48px">art</div>
+          <div><div class="bd" style="color:var(--ink)">Synthetic Test Event</div><div class="sm">Fri 24 Oct</div></div></div>
+        <div class="block"><div class="eyebrow">Order</div>
+          <div class="rows">
+            <div class="row"><span class="k">Ticket</span><span class="v price">$120.00</span></div>
+            <div class="row"><span class="k">Service fee</span><span class="v price">$14.00</span></div>
+            <div class="row" style="border-bottom:none"><span class="k" style="color:var(--ink)">Total</span><span class="v price">$134.00</span></div>
+          </div></div>
+      </div>
+      <div class="bar"><div class="cta">Pay $134.00</div></div>
+    </div>
+    <div class="ann"><b>At the largest step</b> the price column stays aligned because the figures are tabular, the fee row
+    keeps its label on one line, and the Stripe line drops rather than wrapping under the button. The Pay amount is never
+    abbreviated.</div>
+  </div>
+</div>
+<p class="note"><span class="tag">Not verified visually</span> Browser at 375 px with web fonts, and "largest text" is
+simulated by scaling the type tokens (display capped at 1.3× as the app does). Real Dynamic Type, the live badge inset and
+iOS font metrics need a device — C's lane, and no device check is claimed here.</p>
+</body></html>
