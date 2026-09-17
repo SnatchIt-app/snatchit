@@ -3145,3 +3145,15 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   **Row still INCONCLUSIVE** until A's API-log check, no earlier than 18:48:56Z, finds a denied GET /rest/v1/bids
   inside 18:36:23Z–18:38:56Z; D's after-read must also reproduce md5 466fd2d8…. Then A re-verifies PC2/PC3 and the
   bids ACL before Line 3 resumes at step 0 (the picker-only rows on 3118bd30), which needs the owner's go through C.
+- **DV-ST2b CLOSED (owner's ruling, 2026-09-17).** A's API-log check found **six denied bids requests inside the
+  window**, and D's before/after permission reads match. **Narrow recorded result: on Build 19, the buyer's existing
+  purchase rows stayed visible during a failed bids refresh.** Banner and error-message behaviour was NOT captured
+  and is not claimed either way. The owner directs: do not repeat this test and do not wait for another log check.
+  The window is fully closed (revoke 18:36:23Z → restore 18:38:56Z, verified; watchdog never fired; A's two
+  tooling-failure disclosures recorded as one defect, since fixed).
+- **Line 3 is next (owner, 2026-09-17).** Coordination: A re-verifies PC2/PC3 and the bids ACL after the window; D
+  confirms its pre-check still matches; then C gives the first handset row. **C must wait for the owner's
+  confirmation that they are available with the phone before any permanent write.** Setup first, which writes
+  nothing: switch to the DV seller (this also gives the F-SELL-2 sign-in screen check), prepare synthetic ticket
+  images with no real codes or personal information, and turn Camera location off before the DV-IMG-9 photo. This is
+  the single next handset sequence.
