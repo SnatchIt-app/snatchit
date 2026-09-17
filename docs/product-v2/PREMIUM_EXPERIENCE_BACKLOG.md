@@ -2150,3 +2150,17 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   next candidate (needs the 400 to be provoked, so it sits with DV-611C-3).
 - **S2-3 started (seller signed in): DV-S1 (F-SELL-1, create) given as single steps; no listing is
   submitted from the handset** (sandbox writes belong to A).
+- **Owner rulings via A (2026-09-18, converge bc72b92: critical path 1.2b, batch plan, manifest
+  §13):** (1) the no-banner observation is recorded as the owner's observation consistent with RC2,
+  NOT a PASS — matched to the F-611C-2 handset row above; (2) "Include all five reviewed C heads in
+  the next candidate, including F-611C-2 at 296439c and the development-only Tickets label at
+  ac70643. Preserve the label's exclusion from preview and production builds." A verified the
+  exclusion from source: label and fixture rows render only when `devFixtures` is true, its only
+  setter is the toggle inside the `__DEV__` branch, initial state false. **Invariant carried through
+  any rebase: anything that sets `devFixtures` outside `__DEV__` is candidate-blocking.** (3) the
+  D-reviewed device-rebound wording (136 template v2) and the neutral challenge-banner sentence
+  (df5127c) are approved and final — no further copy work; (4) integration happens after D clears
+  B's remaining head (139 residual); "No additional build, sandbox application, production change or
+  outbound notification is authorized here." Build 18 stays the handset build, 9bef640 the sandbox
+  pin. C continues guiding the seller-side tests; S2-3 (DV-S1/DV-S2) has no server half — A's next
+  read-back is at S2-2 (buyer cold launches) and S2-5 (DV-ST2 staged read).
