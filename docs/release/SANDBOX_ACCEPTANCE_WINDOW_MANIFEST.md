@@ -514,6 +514,15 @@ legitimate fresh sign-in landing inside that two-second window gets a session wh
 already imposes after a credential change). Report shape if it ever surfaces: "I changed my password and notifications
 stopped."
 
+**Post-window monitoring, 2026-09-17 03:08Z (A; D concurs on the classification, corrects the reasoning):** `net._http_response`
+holds 180 rows over its 6-hour TTL = one job at `*/2`, 30/h; 179 × 401 and one row (id 496, 2026-09-16 21:14:00.231Z) with
+`status_code` null, `timed_out` true, "Timeout of 5000 ms reached" after DNS 3.9 ms and TCP/SSL 29.6 ms — the request reached
+the edge and pg_net gave up at 5 s, so the row itself says nothing about what the edge did. **It is benign because of the edge's
+own ordering, not because it is not a 2xx:** `enforce-transfer-expiry` reads the bearer at `index.ts:151`, returns 401 at
+`:173`, and makes its first database call at `:222` — the auth gate strictly precedes every side effect, so an empty-bearer
+request that outlived pg_net's wait still did nothing. Recorded in those words so a future timeout on an edge with a later
+auth gate is not waved through on "not a 2xx". Cadence unbroken.
+
 **Client half (owner via C): PASS.** On reopening, the owner saw exactly "Your session expired. Sign in to pick up where you
 left off." on the login screen; no silent failure (CFT-607 path). C recorded row 17 PASS at `0bf7558+` (backlog and plan).
 **Row 17 PASS on both halves; handset session 1 on Build 17 is otherwise complete.** The owner has not signed in again yet;

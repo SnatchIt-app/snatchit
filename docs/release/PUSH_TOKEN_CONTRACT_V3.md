@@ -131,6 +131,17 @@ client waits for the current push). The client branches on `outcome` before trea
 - **v3 client on a v2 server:** `contract_version: 2` in the reply → `contract_mismatch`, terminal until a new build (as v2 specified).
 - `public.revoke_push_token`, `public.revoke_all_push_bindings`, 131's session rules: unchanged.
 
+**Device secret: generated once per install; rotation does not exist (carried forward from V2 §41/§62, 2026-09-17, D + A).**
+V2's rule stands under v3 and is restated here so it does not survive only in a superseded file: the client generates the device
+secret once per install and re-plants that same secret whenever it registers, including after a server-side proof clear
+(`signed_out_everywhere`, password change, support unbind). Observed on the sandbox 2026-09-17: after row 17's global
+invalidation cleared `device_secret_hash`, the first sign-in on Build 18 re-registered on the new session with the identical
+hash — conformant, not a defect. The v3 reason the rule must stay: (a) the secret is no longer a takeover credential — under
+135 a cross-account register is `challenge_required` regardless of hash (D's C1a with a hash, C1b without), and `confirm`
+supersedes the stored proof with the proving device's, so a stale secret gains an attacker nothing without the nonce delivered
+to the device; (b) rotating the secret would orphan an in-flight challenge, whose `secret_hash` was captured at issue time —
+a successful confirm would then store a proof the device no longer holds, a silent mismatch of exactly the class v3 removes.
+
 ## 8. Support
 `public.unbind_push_token(text)` (service_role) stays for the cases proof cannot reach (a lost or destroyed device, a user without
 a working handset). Runbook: B drafts, D reviews. It is no longer the only route for the account-switch case (acceptance evidence,
