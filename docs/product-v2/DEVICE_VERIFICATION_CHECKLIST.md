@@ -124,6 +124,14 @@ ba9cf6c` (K-2) + `frontend/session-bound-131-r2 @ f2c1a1c` (131).
 |---|---|---|---|---|
 | DV-S1 | Seller form with the keyboard (F-SELL-1, create) | Sell your ticket → tap Event name → type; scroll while the keyboard is up; dismiss; reopen; repeat with a long event name and the largest accessibility text size | No blank gap between the keyboard and the List ticket bar (only the bar's own padding); the focused input stays visible and the form scrolls; the heading clears the SANDBOX badge with normal spacing; open → dismiss → reopen lands in the same layout; entered values intact; when the keyboard is down the bar clears the floating dock as before | device |
 | DV-S2 | Edit listing with the keyboard (F-SELL-1, edit) | Edit an owned listing → tap a field → type; dismiss; reopen; swipe back with a change | Same as DV-S1 for the Save changes bar and heading; "Discard changes?" still appears (unsaved-edit guard intact) | device |
+| DV-IMG-1 | Proof picker feedback (F-IMG-1a) | Transfer send (needs action): tap Add on Transfer proof once; then tap it three times quickly | One photo sheet opens; the control shows a picking state and ignores the extra taps; no error alert; after cancel the control is idle again | UNTESTED — next candidate |
+| DV-IMG-2 | Permission denied / limited (F-IMG-1b) | Photos permission off → tap Add; then Limited access → tap Add | Denied: the permission alert, control idle after OK; Limited: the sheet opens with the allowed photos; nothing stuck | UNTESTED — next candidate |
+| DV-IMG-3 | Replace and remove (F-IMG-1) | Pick, Replace with another, Remove, pick again | Preview updates each time; Remove clears; no stale image sent | UNTESTED — next candidate |
+| DV-IMG-4 | Upload failure and retry (F-IMG-1c/1e) | Airplane mode on after picking → Mark as sent; airplane off → Mark as sent | First: the offline wording on the control and a Retry, no success; second: one upload, one verb call (A read-back: one object, one mark), success only after the verb answers | UNTESTED — next candidate |
+| DV-IMG-5 | Repeated taps on Mark as sent (F-IMG-1d) | Tap Mark as sent twice quickly | One upload, one verb call (A read-back); one success alert | UNTESTED — next candidate |
+| DV-IMG-6 | Navigate away and back (F-IMG-1f) | Pick, leave the screen, return | Selection state as the fix defines (kept or cleared, stated); nothing stuck | UNTESTED — next candidate |
+| DV-IMG-7 | Sell form parity | Same as DV-IMG-1..3 on Sell your ticket cover and proof | Same behaviour; the Sell form stays the baseline | UNTESTED — next candidate |
+| DV-IMG-8 | Android | DV-IMG-1..5 on an Android device | Same, incl. the photo picker without a permission prompt on Android 13+ | UNTESTED — no device or emulator |
 
 ## Out of scope for this candidate
 

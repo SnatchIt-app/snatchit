@@ -2188,3 +2188,64 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   empty/loading/error states, small screens. D reviews independently. Both initiatives: Build 18's
   pin unchanged; fixes go to the next candidate with an explicit device checklist; **no new build,
   deployment or production change is authorized.**
+- **F-IMG-1 first report (C, 2026-09-18, source trace at aad5f75; NOT a device reproduction — no
+  Xcode, no emulator; nothing exercised on iOS or Android):**
+  *Entry points (exhaustive by grep of expo-image-picker and storage uploads; no camera path
+  exists; the edit-listing screen has no image control; buyer dispute has no attachment):*
+  (1) Sell form cover — `src/screens/CreateListingScreen.tsx` `useImageUpload({folder:'covers',
+  aspect:[16,9]})` → `auction-media`; (2) Sell form proof of ownership — same screen,
+  `folder:'proofs'`, bucket `proof-docs`; (3) **transfer send = the "needs action" screen** —
+  `app/transfer/send/[id].tsx` (My Listings › Send tickets → `/transfer/send/<transferId>`),
+  `folder:'transfer-evidence'`, bucket `proof-docs`, then `rpc('mark_transfer_sent')`; (4) profile
+  avatar — `src/lib/avatarImage.ts` (separate implementation, bucket `avatars`), used by
+  `app/(tabs)/profile.tsx` and `app/settings/edit-profile.tsx`. (1)–(3) share
+  `src/hooks/useImageUpload.ts` + `src/components/ui/MediaUpload.tsx`; the Sell form is the baseline
+  and the defects below exist there too, but the compact control on the transfer-send screen makes
+  them visible: it has no picking feedback at all.
+  *Sub-findings (source-provable):*
+  **F-IMG-1a (HIGH) no in-flight guard and no feedback while the picker is opening.** `pickImage`
+  sets status 'picking', but `MediaUpload` renders nothing for 'picking' (spinner only for
+  'uploading') and both screens compute `disabled` from `status === 'uploading'` (the hook's own
+  `busy` is unused by every consumer). During the 0.5–2 s the OS takes to present the photo sheet
+  (longer on first use, with the permission prompt) the Add/Replace text looks inert; a second tap
+  calls `launchImageLibraryAsync` again while the first is presenting — expo-image-picker rejects
+  that ("different image picking in progress") — and the rejection is unhandled.
+  **F-IMG-1b (HIGH) a thrown picker or permission error leaves the control in 'picking' with no
+  message.** `pickImage` has no try/catch/finally; any rejection from
+  `requestMediaLibraryPermissionsAsync` or `launchImageLibraryAsync` (the concurrent-launch case in
+  1a; on Android the known "activity no longer available" rejection after a process restart) never
+  resets status and never tells the user. Today that is invisible only because 'picking' does not
+  disable the control — once 1a is fixed, 1b must be fixed with it or the button really locks.
+  **F-IMG-1c (MED) retry after a failed verb re-uploads and re-submits.** On transfer send a
+  successful upload followed by a failed `mark_transfer_sent` (or a lost response) leaves status
+  'done' with `storagePath` set; the next "Mark as sent" runs `uploadImage()` again — a second
+  object under a new `Date.now()` path (orphans in proof-docs) and a second verb call. Whether the
+  second call is idempotent, and whether the client should read an outcome instead of inferring
+  seller_sent from "no error", are A's contract questions (sent).
+  **F-IMG-1d (MED) no double-tap guard on "Mark as sent".** `submitting` is React state; the
+  receive screen uses `useSingleFlight` (CFT-205), the send screen and the Sell form do not.
+  **F-IMG-1e (MED) network failure during upload shows the raw fetch message** ("Network request
+  failed") in the control's helper line, not the product's offline wording, and nothing retries on
+  reconnection; recovery is tapping the CTA again, which nothing says.
+  **F-IMG-1f (LOW) navigating away mid-flow loses the selection**; the upload, if in flight,
+  continues on an unmounted screen and its object is orphaned. **F-IMG-1g (LOW)** the
+  permission-denied alert says "Enable it in Settings" without an Open Settings action.
+  *Owners:* C — hook/control/screens (1a, 1b, 1c client half, 1d, 1e, 1f, 1g); A — proof-docs
+  policies and paths, `mark_transfer_sent` idempotency, client-supplied `p_user_id` validation,
+  server-side orphan cleanup (questions sent 2026-09-18); D — independent review of the fix and the
+  device rows. *Fix plan (next turn, after A's contract answers):* single-flight `pickImage` with
+  try/finally and a visible picking state; consumers gate on the hook's `busy`; reuse the uploaded
+  path on retry of the same local file; single-flight the submit; network errors → offline copy +
+  explicit retry; regression tests on an extracted pure flow module with fake picker/upload deps
+  plus source pins; Sell form behaviour preserved by the same tests. *Evidence limit:* every device
+  behaviour (picker sheet timing, permission prompts, iOS limited access, Android process restart,
+  HEIC/iCloud assets, offline/reconnect) is UNTESTED until a candidate and a device — rows
+  DV-IMG-1..8 in the checklist.
+- **ML-1 preview v1 (C, 2026-09-18): https://claude.ai/artifact/32jnCwJv4yw58twpJPapk9** — four
+  boards: Current (Build 18 structure), Proposed (needs-action rows pinned first with one primary
+  "Send tickets" control; Live / Sold / Ended sections with headers and counts; one status line per
+  row; Edit/Delete/Cancel behind a single More control; four-segment filter All · Live · Sold ·
+  Ended replacing five chips), Proposed at 320×568 with the largest text and long titles (two-line
+  clamp), and empty / loading / error (existing copy). Sample rows are illustrative; status words,
+  time-left format, empty/error copy and the action line are the app's own strings. Awaiting the
+  owner's approval before any implementation; no read or contract changes expected.
