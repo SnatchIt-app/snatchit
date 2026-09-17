@@ -105,8 +105,8 @@ SELECT ok((SELECT claimed_at IS NOT NULL FROM notify.report_delivery_claim WHERE
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 9,
   'E1: notify holds nine tables — the eight before 139 plus this one (157 A7 pins the same number)');
-SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'notify'::regnamespace), 22,
-  'E2: notify holds 22 routines — 20 before 139 plus claim_report_delivery and release_report_delivery (157 A14)');
+SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'notify'::regnamespace), 23,
+  'E2: notify holds 23 routines — 20 before 139 plus claim_report_delivery and release_report_delivery, plus 141''s retire_account_deletion_pending (F-NOTICE-1, 2026-09-17) (157 A14)');
 
 SELECT * FROM finish();
 ROLLBACK;
