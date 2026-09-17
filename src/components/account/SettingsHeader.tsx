@@ -8,7 +8,7 @@
 
 import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { IconButton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
@@ -21,9 +21,10 @@ export interface SettingsHeaderProps {
 }
 
 export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + v2.space.sm }]}>
+    <View style={[styles.header, { paddingTop: topPad + v2.space.sm }]}>
       <IconButton glyph="back" onPress={onBack ?? (() => router.back())} accessibilityLabel="Back" />
       <Text style={[textStyle('displaySm'), styles.title]} accessibilityRole="header" numberOfLines={1}>
         {title}

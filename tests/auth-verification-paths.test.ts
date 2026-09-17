@@ -345,7 +345,8 @@ describe('40-44. cross-cutting', () => {
     expect(login).toContain('<AuthScreen>');
     const shell = read('src/components/auth/AuthScreen.tsx');
     expect(shell.indexOf('<AuthBrandMark />')).toBeLessThan(shell.indexOf('<KeyboardAvoidingView'));
-    expect(shell).toContain('insets.top + v2.space.xl');
+    expect(shell).toContain('topPad + v2.space.xl'); // F-SELL-2: the badge-aware inset (status bar in production, + SANDBOX badge in sandbox)
+    expect(shell).toContain('const topPad = useTopInset();');
     expect(read('src/components/auth/AuthBrandMark.tsx')).toContain('SN_MARK_HEIGHT = 30');
   });
 
