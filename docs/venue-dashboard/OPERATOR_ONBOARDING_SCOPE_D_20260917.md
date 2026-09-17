@@ -126,3 +126,34 @@ blind. It also keeps the critical path off the migration, which has to queue beh
 
 Suggested owner: **me**. The console is my surface, the four-file discipline and the analytics-contract care for
 personal data already apply to it, and the action framework is the part I would otherwise be reviewing.
+
+---
+
+## 6. Migration number and the sequencing rule that travels with it
+
+**138 is allocated provisionally by A** (136 = A's batch-1 security-notice wrappers, 137 = A's `notify_outbid`
+Vault-form fix). Not written; nothing starts before the owner's two decisions and the hand-run ruling.
+
+**Checked before the file exists, because this is cheap now and expensive later:**
+
+| Body 138 would redefine | Defined | Last redefined |
+|---|---|---|
+| `ops.action_dispatch` | 115 | **118** |
+| `ops.action_precheck` | 115 | **118** |
+| `ops.action_allowed_roles` | 115 | 115 |
+| `ops.action_requires_approval` | 115 | 115 |
+| `ops.audit_write` | 115 | 115 |
+
+All numbered and all below 138, so a numbered 138 sorts after them under LC_ALL=C — **no timestamp-ordering trap**
+of the kind that bit 134. Checked specifically, because that failure mode is invisible until a fresh replay.
+
+**The hazard here is 118, not 115.** 138 must redefine `action_dispatch` and `action_precheck` from **118's
+applied body**, and its rollback must restore **118's** body — restoring 115's would silently revert 118's
+corrections. This is the four-file rule's "restore the applied body, not an older baseline", with a specific file
+name attached so the instruction cannot be followed vaguely.
+
+**B's 126 is clear** — it redefines no `ops.action_*` and not `audit_write`, so there is no collision on the
+dispatch surface even though 126 may land either side of 138.
+
+**Open with A:** whether 136's wrappers touch `ops` or the action framework. If they do, the later-numbered file is
+written against the earlier's applied body; if 136 is purely `notify`/`public`, there is no interaction.
