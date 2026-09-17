@@ -317,6 +317,25 @@ blocked-webfont banner announced itself as a status on D's server, where the fon
    level down: visual structure present, semantics absent. **Fixed properly:** all 17 next-step affordances and all 19
    button-styled elements are now real `<button type="button">` elements with visible focus rings, verified mechanically —
    zero non-control affordances across all twenty states.
+6. **One affordance slipped the net, and D found it on a third render.** "Why this is blank" on the bank-payouts tile —
+   the one tile that deliberately shows no number, so the tile where a manager most wants the explanation and was least
+   able to reach it. My sweep had keyed on the `.next` slot; this text sat in the basis slot and was phrased as a link.
+   **Fixed by removing the false affordance rather than adding a second control** — the basis slot now states a basis ("no
+   basis: this figure never reaches us") and the tile's single button carries "why this is blank, and what we do track".
+   One control per tile.
+7. **Scanning for that shape found a second instance of my *original* error.** D asked whether the same shape existed on
+   other unknown-value tiles, so I scanned all twenty states mechanically: every basis slot for action-like phrasing, and
+   every one for a period comparison. It turned up **"Yesterday: 5" still sitting on a point-in-time count in the
+   permission-limited state** — the exact error D corrected in §6, surviving in a state I had not re-read. Fixed. The
+   lesson is not about that tile: **when a reviewer corrects a class of error, the fix has to be swept across every state,
+   not applied where the error was pointed out.**
+
+**The distinction worth keeping, in D's words rather than mine:** the markup and the rendered accessibility tree are
+**different artefacts**, and `role="heading"` on a div is exactly the case where *reading the source tells you the intent
+and only the tree tells you the result*. That is why this took three rounds rather than one — each render found what the
+previous mechanical pass could not see, **including D's own**. My mechanical checks were real verification and they were
+not sufficient; they confirmed what I had written, which is not the same as confirming what a browser builds from it.
+
 **So the sentence in §10 no longer stops at headings:** in a build, the section titles are real heading elements **and
 every next step is a real control**. A reader of this file can now tell "styled like a link" from "is a link", because
 they are the same thing.
