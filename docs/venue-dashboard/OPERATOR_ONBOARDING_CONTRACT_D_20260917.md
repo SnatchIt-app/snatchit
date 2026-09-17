@@ -314,3 +314,46 @@ unchanged); pgTAP 206 44/44 with the plan counted programmatically; six negative
 baseline verified clean first. The 118-vs-115 baseline rule is proved rather than asserted — the new arms
 were spliced into bodies extracted from 118 and both are byte-identical to 118 outside the single insertion,
 and after the rollback all four `prosrc` values are byte-identical to 118's and 115's respectively.
+
+---
+
+## Change log 2 — through the front door (D, 2026-09-17; head `7eb4caf` on `ops/138-operator-onboarding`)
+
+Still applied nowhere; off the marketplace candidate by the owner's ruling. Three defects in D's own
+migration, each found by asking what a test actually executes:
+
+| Id | Defect | Found by | Now |
+|---|---|---|---|
+| F-138-2 | `ops.execute_action` validates against hardcoded lists and 138 never touched it, so all fourteen types answered `unknown action_type`. The first cut was **inert** while passing 45 component assertions | A | redefined from 118's applied body; the rollback restores 118's |
+| F-138-5 | The routine/elevating guard sat only in `action_precheck`, which runs only for approval-gated types, so it **never ran** for the two routine types whose refusal is the point | D | in `execute_action`, on every action's path; precheck keeps its copy as a second layer |
+| F-138-6 | The guard read `coalesce(new_role, role)` while the invite arm reads `role`. A routine invite carrying a decoy `new_role:'org_member'` beside `role:'org_owner'` **wrote an org_owner invite with no second approver** (confirmed on the rehearsal DB) | D, while writing 206's decoy cases | the guard reads exactly the key its arm reads, per type, and refuses the other key outright |
+
+**Evidence at 7eb4caf.** CI 35238876930 succeeded on all five jobs. Its pgTAP footer reads Files=88, Tests=5381, against 5308 at b7ce654; the +73 is 206 going from 45 to 118, the only test file changed. Locally: 206 rewritten to 118 assertions. Section I calls no
+component: every action goes through `execute_action`, every decision through `approve_action`, as an
+authenticated operator at aal2, and every outcome is read from `ops.action` **and** from the domain table.
+38 negative controls were injected inside the suite's own transaction (applied, complete and rolled-back
+checks; clean 118/118 between). Every failing set equals the prediction written before the run. One of D's
+predictions was wrong and is recorded: removing the self-approval check changed only the message, because
+115's `approval_sod_ck` is a second barrier. MS2 removes both and reproduces the predicted effects.
+On b7ce654 the new suite fails 65/118, all in section I. Rollback: `ops` functions 100 → 91, with names
+and bodies identical to a replay stopped at 136; constraints identical; re-apply identical.
+
+**§4 evidence, now met through the entry point:**
+- *Approval rules.* Removing each rule lets venue_approve, elevate and invite_admin reach `succeeded`, and
+  their hold and no-effect tests fail. platform_role_grant cannot reach `succeeded` (PFA-4 below), so its
+  control is the hold-status test.
+- *Mismatch, both directions:* I1–I10.
+- *§3.2:* I16–I21, I32, I44, I72–I73. The MX mutants remove the verb's org-role check and those tests fail.
+- *Audit:* H4 and I45.
+- *Reads:* G7.
+
+### For the owner — facts the build surfaced, each pinned by a test, none decided here
+| # | Fact | Pinned by |
+|---|---|---|
+| O1 | Member, invite and venue-creation verbs (077/078) require the **caller** to be org_owner or org_admin of that organisation. A platform operator with no org role there passes every framework gate and is refused by the verb | I32, I44 |
+| O2 | So **platform_support's four framework permissions** (invite, revoke invite, grant or revoke staff) do nothing unless support also holds an org or venue role | I16–I21 |
+| O3 | An elevation or admin invite completes only when the **approver** is org_owner or org_admin of that organisation. A second platform_admin who holds no org role there approves, and the verb refuses to run it | I72–I73 |
+| O4 | `kernel.create_organization` makes the **creating operator org_owner** of the new organisation | I34 |
+| O5 | `kernel.grant_platform_role` is **fail-closed pending PFA-4**: an approved platform-role grant always ends `rejected` | I61, I66 |
+| O6 (F-138-7) | `catalog.create_venue` writes `draft`, so a venue the console creates is **not in `list_venues(status => pending)`**, the approval queue this contract names | I41 |
+| O7 (F-138-3) | The raw invitee address is stored in `ops.action.params` and in the `action.requested` row's `after.params` in `ops.audit` (not in `kernel.admin_audit`). `authenticated` cannot select either table, but `ops.action_detail`, `ops.list_actions` and `ops.audit_log` return whole rows to **any operator at aal2**. The masked invite label and the audited contact-email read can therefore be bypassed by reading the action log | probe only; not yet a test — the pin depends on the ruling |
