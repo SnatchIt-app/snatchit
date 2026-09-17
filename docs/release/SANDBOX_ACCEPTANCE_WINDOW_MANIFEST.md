@@ -860,3 +860,38 @@ Exec tree: detached worktree at `f412d10a11310167fc0227fe58ea189822bec625`, 0 di
 ### Machine state — disk exhaustion during the live sequence (B raised it; A acted)
 
 B reported the data volume at **240 MB free of 228 GB** after one of its own writes failed with ENOSPC. A verified (`235 Mi` free) and freed space **from A-owned artifacts only**: three finished 138-review rehearsal databases, then 132 idle A-owned rehearsal databases from earlier sprint phases, selected to exclude every `d*_rehears` (D's), the certified harness DB `snatchit_cand2_rehears` named in package §7, the live `snatchit_fn1_rehears`, and any database with an active connection. **Result: 3.1 GB free, 25 rehearsal databases remaining, all D's or A's two keepers.** A did **not** touch `/private/tmp/claude-501/bash-edit-diff` (1.8 GB): it is harness temp shared across all four sessions, every file created today, so it is the owner's call and not one session's to clear. The live Line 3 read-backs were never at risk of failing for space after this.
+
+## 16. PRIVACY INCIDENT — Line 3 STOPPED by the owner, 2026-09-17 ~21:15Z
+
+**Declared by the owner** (relayed by C): "Stop Line 3. I completed the visible steps, but the selected/uploaded images may include real personal photos rather than only synthetic ticket images… identify exactly which files were stored, their transfer IDs, timestamps, metadata and access records; have D independently verify. Quarantine this Line 3 result and determine the safest authorized handling for any real personal images before continuing." Also: do not upload anything else, do not delete or overwrite proof, do not open another transfer.
+**C's observation from the owner's screenshots:** a person's face on one proof thumbnail, a car with a visible number plate in the buyer's view of the D1 transfer, a room interior on another.
+**Everything that reads object CONTENT is HELD:** RT6, U1, RT5-P, N1, N2, N4, and A's announced byte verification. **No content has been read by anyone: no download, no hash, no EXIF.** A confirms no Line 3 object was ever fetched; the only proof-docs objects A has ever downloaded were its own synthetic `rt-*` files in Line 1, deleted 16:18Z.
+
+### What was actually stored — exactly two objects, both in the seller's own folder
+| Object | Size | Type | eTag (content-derived metadata already stored by storage at upload, not computed by us — D's point) | Created | Referenced by |
+|---|---|---|---|---|---|
+| `2f5844b4…/transfer-evidence/1789679356721.png` | 210,364 B | image/png | `2e8bb290174ee6f325c6e3fda8c7a047` | 21:09:21.894Z | bce07eef (**D2**) |
+| `2f5844b4…/transfer-evidence/1789679485922.jpg` | 5,829,677 B | image/jpeg | `9fd322bc4e0ef252b589a986aae363b7` | 21:11:36.269Z | 3118bd30 (**D1**) |
+Total objects in `proof-docs`: **2, both referenced, 0 orphans.** **0 objects created in any other bucket** since 20:55Z. A and D read these independently and agree on every field.
+
+### The finding that most changes the owner's position: two of the three photographs were NEVER STORED
+- The **face** was the **D6** thumbnail. 92ee5156 is still `pending`, `transfer_evidence_path` NULL, **no object** — the offline attempt failed before upload, exactly as the design intends. **That image never left the phone.**
+- The **room interior / chair** was **S8only** (8f59d37e): an image was selected, nothing was attached — status seller_sent, path NULL, **no object**. **Also never left the phone.**
+- **Stored:** the **D1 JPEG** (the car with the visible number plate) and the **D2 PNG**, whose content nobody has looked at.
+
+### Access records (the owner explicitly asked for these; read-only; path, actor, status, time only)
+- `…356721.png` (D2): **one** POST upload by the **seller** 21:09:21.587Z (200). **No read of any kind, ever — nobody has fetched it.**
+- `…485922.jpg` (D1): one POST upload by the **seller** 21:11:35.628Z (200); the **buyer** minted a signed URL 21:13:40.493Z (200); that link was fetched three times — 21:13:40.697Z, 21:14:33.950Z, 21:14:40.320Z, all 200, all `SnatchIt/19` on the same device. This is the owner's own buyer-side view of D1, performed deliberately.
+- **No access by any other identity:** no service_role, no U2, no anonymous, nothing from A's or D's sessions.
+- **Reachability under the policies as they stand:** only two SELECT policies mention proof-docs, both `authenticated` — "owner read" (the uploading folder's owner) and "transfer party read" (the buyer or seller of the referencing transfer). **Both accounts are the owner's own.** U2 and anonymous can read neither; this project has no operator/admin read policy.
+- **One time-limited residual:** `app/transfer/receive/[id].tsx:105` calls `createSignedUrl(path, 60 * 60)`, so the buyer's view minted a **one-hour** bearer link to the D1 image at 21:13:40Z, lapsing ~22:13:40Z. Unguessable, used only by the owner's device, expires with no action.
+
+### Completion, from state alone
+**D2 completed** (seller_sent 21:09:22.149Z, object, one `buyer_confirmation_needed`, `auto_release_at` 2026-09-20T21:09:22Z, row md5 `57c2d304…`). **D1 completed** (21:11:36.671Z, object, one notification, `auto_release_at` 2026-09-20T21:11:36Z, row md5 `89080d2c…`). **D6 did NOT complete** — pending, no object, no notification. **S8only did NOT complete** — no evidence attached. **83b83858 unchanged** (`d1b36045…`). **2xx total 0 of 191 — nothing outbound at any point.**
+
+### Two process failures in this pass, recorded as failures
+1. **The approved order was not followed.** Approved: DV-IMG-4 (D6) → -5 (D2) → -9 (D1). What ran: D2, then D1, with D6 still pending. A deviation from an order the owner approved, recorded as such.
+2. **No row boundary reached A, and D witnessed neither row.** The agreed chain — row lands, A reads, D reads, next row — did not run. What is provable is the state **after both** rows; **the state between them is gone and is recorded as gone, not reconstructed.** Neither A nor D proposes a re-run: the writes are permanent, the data is consistent, and re-running would add writes to buy weaker evidence.
+
+### A's position on reading the content
+A does not think a content read is needed for the owner's decision and is not asking for one: provenance is already established from the phone, opening the files would add the exposure being contained and put a copy on this machine, and the stored eTags already distinguish the two objects without fetching anything. If a content read is ever argued to be unavoidable, it goes to the owner as a question.
