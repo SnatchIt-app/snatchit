@@ -2970,3 +2970,19 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   identical to D's pre-read; there was never a delivery row or queued request for the staged notice. **Summary:**
   DV-N-1..3 PASS on Build 19; sandbox restored to its pre-write state; F-NOTICE-1 open for the owner's scope
   decision. Next: the owner chooses Line 3 (needs their separate readiness) or Step 0 rows.
+- **Owner (2026-09-17, after Step 3): run the remaining Step 0 Build 19 checks before Line 3, each recorded separately;
+  Larger Text and Reduce Motion stay ON; no transfer or proof-upload screens.**
+  1. Header spacing at the largest text size across the affected screens (F-SELL-2).
+  2. Report form: Keep writing preserves the form and unsaved text (DV-NAV-2a).
+  3. Settings › Preferences: the pending "Still saving" state and Wait (DV-NAV-2b).
+
+  D's Step 3 cleanup confirmation arrived (16:58:13Z, recorded above). The owner decides the Line 3 start afterwards.
+  **F-SELL-2 screen plan (as the buyer; no sandbox writes):**
+  - H1: My listings, Settings, Settings › Notifications (shared settings header), a listing detail's top controls.
+  - Sign-in screen: at the next account switch.
+  - NOT in this pass:
+    - Transfer send/receive: restricted until Line 3.
+    - Place bid and Checkout: opening them risks a bid or a reservation on sandbox fixtures.
+    - Outbid toast: needs a real outbid event.
+
+    These stay UNTESTED with those reasons.
