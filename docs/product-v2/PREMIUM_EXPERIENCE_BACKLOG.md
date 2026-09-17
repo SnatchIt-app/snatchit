@@ -2008,9 +2008,18 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   buyer). S2-1 (DV-AUTH-1, the sign-out → sign-in regression) starts next.
 - **S2-1 step 1 (owner, 2026-09-17 23:33 EDT ≈ 03:33Z): sign out online → sign back in
   as the buyer on Build 18, no force-quit → Home and Profile both loaded** (owner-
-  reported; the Build 17 blocker sequence). "S2-1 step 1 ready + time" sent to A;
-  read-back pending (new session, row re-registered on it, request counts). Step 2 =
-  the seller account, same sequence.
+  reported; the Build 17 blocker sequence). **A read-back 03:35:03Z: server half PASS**
+  — one session f0118de8… created 03:32:43Z, the previous gone; row 140fcb44… active,
+  revoked_* cleared by the re-registration, session_id = the new session, last_used
+  03:32:44Z, same proof (conformant). API log: sign-out 03:32:30Z = revoke_push_token
+  200 then auth/logout 204 (order preserved); sign-in 03:32:42Z; data requests flowed
+  immediately with no relaunch — **the hang is NOT reproduced (DV-AUTH-1 core PASS,
+  buyer).** **Finding F-AUTH-2 (C, LOW–MED, observation):** the acceptance line "no
+  duplicate data requests" is NOT met — get_my_profile ×2 and listings ×2 within a
+  second on both Home and Profile, user_blocks ×3 — the same doubled pattern as the
+  04:12Z Build 17 launch (likely a double mount / duplicated effects on sign-in). Not a
+  server finding; C to root-cause on the client (next candidate), not in Build 18.
+  Step 2 = the seller account, same sequence.
 - **Notification batch 1 (owner ruling 2026-09-17 via A; local implementation + tests,
   D reviewing; no dispatcher, no outbound, no build; Build 18 pin preserved):** C's items
   — (1) Settings › Notifications keeps only "Listing sold" live and HIDES the five
@@ -2027,3 +2036,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   Settings › Notifications."; RED first; push-proof-v3 + session-bound-131 green; tsc
   clean; vitest 2077 / 95; lint 0 errors. DV rows for the next build to be prepared,
   not run.
+- **Batch 1 item (1) delivered: `frontend/prefs-hide-unwired @ cf94311`** — only
+  "Listing sold" shown; the five unwired switches hidden with their definitions and
+  stored values preserved (one write site, no upsert/insert/delete, no default reset);
+  RED first → tests/prefs-hide-unwired.test.ts; tsc clean; vitest 2080 / 96; lint 0
+  errors; client-only from the build tag, no gated file. To D for review.
