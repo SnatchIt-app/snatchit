@@ -803,3 +803,69 @@ two-session proof as the rehearsal. D agrees, having checked the two claims in s
   discriminator before the next witness.
 If the owner wants a hosted rehearsal of 138, D's position is the same as A's: it is its own window, after the sprint,
 with the census baselines re-taken first.
+
+## Change log 6 — ruling 6 (venue staff in the detector) and the PFA-34 divergence it creates (D, 2026-09-17)
+
+### The owner's decisions of 2026-09-17, after signing PFA-34 (verbatim)
+> 1. I sign PFA-34 at governance commit b7895bb, checksum 026cb858… . Record the amendment exactly; signing does not
+>    authorize applying migration 138.
+> 2. Keep the per-project pre-apply checks and exact function-hash verification in the package.
+> 3. Approve the names-only detection read, restricted to an MFA-authenticated platform admin, with no emails, IDs or
+>    unrelated personal data.
+> 4. Do not apply migrations 115–120 to the sandbox during this sprint. If a hosted 138 rehearsal is needed, prepare it
+>    as a separate future window with fresh baselines and a replacement environment check.
+> 5. Do not authorize any production apply.
+> 6. Extend the detection read to include platform identities holding venue-staff roles. Carry the deferred test split
+>    with that change and send the revised head for review.
+
+PFA-34 is therefore SIGNED at governance `b7895bb`, block md5 `026cb858319bc7c0181e1dad01e23ef1` (2726 bytes, 27
+lines), verified by D against that commit. Signing does not authorize applying 138, and no production apply is
+authorized.
+
+### Ruling 6 implemented, held locally
+`ops.list_platform_identity_memberships()` now returns
+`(platform_authority, identity_name, membership_kind, organization_name, venue_name, role)` and covers
+`kernel.org_member` AND `venue.staff_role`, joined to the venue's organisation. Still platform_admin at aal2, still
+STABLE, still names only — no identity id, no organisation or venue id, no address. 206 goes 178 → 180: I125 pins the
+five overlaps (three organisation, two venue), I139 pins a venue-only overlap (platform authority plus a venue staff
+role and NO organisation membership), I129 pins the six-column result, and A's nit is closed by splitting I136 into
+I136 (exactly one `org.invite.accept` row) and I136b (no `org.role.change` row).
+
+Local evidence: replay Gate-2 32|107|37|38; 206 180/180 with a clean TAP::Parser pass; `mut206_d.py` 19/19 on written
+predictions, including three new ones — MD-venue-missed (kills I125, I139), MD-venue-name-dropped (I125) and
+MA6-audit-writes-role-change (I136b, which otherwise had no killing mutant). Two predictions were corrected after their
+first run, each with its reason recorded in the harness: MD-exposes-identifier also kills I139, which selects on the
+display name.
+
+**The head is committed locally as `1cacdf5` and deliberately NOT pushed, with no CI run**, because the owner narrowed
+the away-period scope to "migration 138/PFA-34 documentation review only". It goes to A with its CI when the owner
+returns.
+
+### Documentation finding: PFA-34's D1 clause and ruling 6 diverge
+PFA-34, as signed, says D1 lists "platform identities holding organisation membership". Ruling 6 widens the detector to
+venue staff. The moment the head above lands, the signed amendment and the implementation will disagree about D1's
+scope. That is a governance item, not a code defect, and it needs the owner's signature either way.
+
+Proposed replacement clause, for A to place as an erratum to PFA-34 or as its own follow-on (A assigns the id):
+
+```
+  D1 ops.list_platform_identity_memberships() — a detector, not a control: platform identities that hold
+     organisation membership OR a venue staff role (owner ruling 6, 2026-09-17, widening the clause signed in
+     PFA-34). platform_admin at aal2; read-only (STABLE; writes nothing, including no audit row); returns names
+     only — authority, identity name, membership kind, organisation name, venue name, role — and no identity,
+     organisation or venue id. Running it against any hosted project is a read the owner authorizes for that project.
+```
+
+Until that is placed and signed, the contract records the divergence rather than papering over it.
+
+### Away-period scope (owner, 2026-09-17)
+> Finish the independent DV-ST2b after-read and API-log evidence when A's ten-minute window completes. Confirm the
+> final classification and preserve the "rows stayed visible; message not captured" limitation. Review A's F-NOTICE-1
+> fix once the branch arrives. Require a regression test proving withdrawal retires only the pending deletion notice
+> for that user and does not affect other notice types. Review any F-BIDS-1 or candidate merge updates that arrive; do
+> not request another build. Continue migration 138/PFA-34 documentation review only. Keep 138 and migrations 115–120
+> unapplied and do not run detection or server-log reads. Prepare the witness checklist for Line 3, but do not execute
+> permanent transfer writes or upload proof while I am away. No production reads, production changes, sandbox writes,
+> secrets, push key, payouts, outbound notifications or new builds are authorized.
+
+D's Line 3 checklist is prepared at `docs/venue-dashboard/LINE3_WITNESS_CHECKLIST_D_20260917.md` and executes nothing.
