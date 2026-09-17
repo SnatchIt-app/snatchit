@@ -3112,3 +3112,12 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   needs the owner's word in D's session for DV-ST2b. **Nothing is running; the handset has nothing to do.** The owner
   chooses: send A and D the DV-ST2b line, or run Line 3 first (which needs "ready for Line 3" to C) and DV-ST2b after.
   The two must not overlap.
+- **Order resolved by the owner (2026-09-17): DV-ST2b FIRST, then Line 3**, confirming the owner's instruction to C.
+  D reported the conflict (the owner had told D that Line 3 was authorized and DV-ST2b paused) and holds all witness
+  reads for both windows until the owner writes to D. A likewise holds both, quoting the owner's line to A: "Do not
+  open another restriction window unless I authorize it directly." Both honour the relayed sequencing but not the
+  relayed permission. **Both windows idle; the two must never be live at once, since a bids revoke makes any Line 3
+  reading unattributable.** A is staged to open the window within a minute of the owner's line, with the 6-minute
+  watchdog, immediate restore-and-verify, and the API-log check. A will re-read PC3 bodies and ACLs after the window,
+  before any Line 3 P row. A is meanwhile scoping F-NOTICE-1 (server-side, nothing on the sandbox).
+  Handset: the owner reported Bids preloaded with rows showing; they hold or re-preload just before GO.
