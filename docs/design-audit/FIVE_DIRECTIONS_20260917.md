@@ -78,10 +78,19 @@ settings change it materially — Reduce Transparency and Increase Contrast must
 **two visual systems to maintain, not one**.
 **Largest text / Reduce Motion.** The frosted panel must grow with its text and can swallow the artwork at the largest
 step; the prototype keeps the panel to three lines and lets the art shrink. Reduce Motion removes the panel's crossfade.
-**Stack reality.** **This is the one direction that cannot be built with what is installed.** `expo-blur` is not in
-`package.json`, and a true iOS 26 glass material needs either that or a newer native glass API; a real Liquid Glass
-surface implies a native module, a Babel/config change and a new build — and this build has never run a Reanimated
-worklet either. Treat it as a direction to *aim at*, not to start.
+**Stack reality — corrected after the research pass (see §11).** My first draft said this direction "cannot be built" and
+implied someone would have to write a native module. That was wrong in an important way. **`expo-glass-effect` is
+first-party and was introduced in Expo SDK 54 — the SDK this app is on** (`expo ~54.0.33`, resolved 54.0.37). Its
+`GlassView` wraps `UIVisualEffectView`, takes `glassEffectStyle: 'regular' | 'clear'`, is iOS 26+ only and falls back to a
+plain `View`, with `isLiquidGlassAvailable()` to gate. So the real cost is **one package install plus a new native build**
+(it is a native module, so no build means no glass) — not bespoke native work. No build is authorized, so it still cannot
+*start*, but the estimate was too pessimistic and the doc now says so.
+**A second, more serious correction: this direction as I drew it contradicts Apple's own guidance.** I put frosted panels
+over artwork — i.e. glass in the **content layer** — and Apple's HIG says not to: *"Don't use Liquid Glass in the content
+layer,"* it is *"best reserved for the navigation layer,"* never glass-on-glass, used *sparingly*, and with no
+content/glass intersections in a resting state such as first launch. The compliant version of this direction is glass on
+**chrome only** (top bar, dock, sheets), with text-over-media handled by the Clear variant plus Apple's stated 35% dimming
+layer, or by an ordinary material — not by a glass panel in the feed.
 
 ## 5 · Utility — "a terminal for tickets"
 **Idea and tone.** Compact rows, tabular numerals everywhere, no imagery above a 150 pt detail header, thin neutral rules,
@@ -126,9 +135,12 @@ Liquid scores 3 because glass is not in the system at all and the dock's approve
   a date section header, so a long scroll still has structure.
 - **Send, Receive, Checkout, account:** **Utility's density and column discipline**, wearing Gallery's type. These screens
   have no art to lead with, and aligned numbers are what makes a money screen legible.
-- **One idea from Liquid, and only one:** the **frosted panel behind text that sits over artwork**, used *only* where text
-  must overlap an image. It solves a real legibility problem. Everything else glass — the translucent dock, glass sheets,
-  18 pt radii — waits for a build that can carry it.
+- **One idea from Liquid, re-grounded after the research (§11):** text that sits over artwork gets a **dimming scrim, not
+  a glass panel**. Apple's own rule keeps glass out of the content layer and sets the number for this exact case — a 35%
+  dark dimming layer under bright content — so the buildable, guidance-compliant version is the scrim the app already
+  renders via `experimental_backgroundImage` (three uses in `EventMedia.tsx`). Zero dependencies, and it is what I should
+  have specified in the first place. Everything else glass — translucent dock, glass sheets, 18 pt radii — waits for a
+  build, and then belongs on chrome only.
 - **Not Charcoal as a whole**, but **keep its second accent**: an advisory notice in a muted non-red so advisory stops
   borrowing the action colour. That is one token, and it is the single highest-value idea in the whole exploration.
 
@@ -136,8 +148,12 @@ Liquid scores 3 because glass is not in the system at all and the dock's approve
 scale, red reserved for the single primary action, and a muted advisory accent. Buildable today with no new dependency.
 
 ## 8 · Ideas to reject, and why
-1. **Glass everywhere** — Apple's own posture is chrome-only, and over user artwork it is a contrast lottery. Needs a
-   dependency the app does not have, and an opaque fallback means maintaining two systems.
+1. **Glass everywhere** — now rejected on Apple's own words rather than my instinct (§11): glass belongs to the
+   navigation layer, *"Don't use Liquid Glass in the content layer,"* never stack glass on glass, use it *sparingly* on
+   *"the most important functional elements,"* and avoid content/glass intersections at rest. Over user artwork it is also a
+   contrast lottery, and the four accessibility settings (Reduce Transparency, Increase Contrast, Reduce Motion,
+   Differentiate Without Color) reshape it — automatically for system materials, and **not at all** for a hand-rolled blur,
+   which is the strongest argument against rolling our own.
 2. **Rounded corners as a general move (Charcoal's 12 pt)** — the approved system states radius 0 as identity. Worth
    proposing as a deliberate amendment or not at all; it is not mine to slip in as a styling choice.
 3. **Retiring Oswald entirely (Utility)** — it is the brand's one loud instrument. Reduce its frequency; do not lose it.
@@ -174,3 +190,97 @@ No device, no simulator, no screenshot of the running app; "largest text" is sim
 display capped at 1.3× as the app does. Real Dynamic Type, iOS font metrics, glass behaviour under Reduce Transparency and
 the live badge inset all need a device — C's lane. Research notes and their separation from these proposals are in §11,
 appended when the research pass completes.
+
+---
+## 11 · Research notes — Apple (observations, then what they changed in my proposals)
+
+Everything in 11a is **what Apple's material says**, with a link per claim. 11b is **mine**. The product research (DICE,
+Posh and the contrast set) is still running and appends as 11c; where a product was not actually reached it will be
+recorded as a stated gap rather than guessed at.
+
+### 11a. Observations from Apple's own material
+**Premise shift I did not know when I wrote §1-§10: iOS 27 shipped on 2026-09-14**, three days ago, and it *revised*
+Liquid Glass rather than replacing it — lower default transparency, higher contrast, a user-adjustable
+"ultra clear → fully tinted" control, a darkened edge with brighter specular highlights, and improvements that existing
+apps get "automatically… without even needing to recompile"
+([newsroom](https://www.apple.com/newsroom/2026/09/major-updates-for-apples-software-platforms-are-now-available/),
+[WWDC26 Platforms State of the Union](https://developer.apple.com/videos/play/wwdc2026/102/),
+[apple.com/os/ios](https://www.apple.com/os/ios/)).
+
+- **What it is.** A "meta-material" that bends and concentrates light in real time rather than scattering it, with
+  layered highlights, content-aware shadow, continuously shifting tint, and an interaction glow under the fingertip
+  ([WWDC25 219](https://developer.apple.com/videos/play/wwdc2025/219/),
+  [Applying Liquid Glass to custom views](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)).
+- **Where it may go.** The navigation layer that floats above content. **"Don't use Liquid Glass in the content layer"**;
+  never stack glass on glass; "use Liquid Glass effects sparingly… limit these effects to the most important functional
+  elements"; and "in steady states, such as when an app first launches, avoid intersections between content and Liquid
+  Glass" ([HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials),
+  [Adopting Liquid Glass](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), WWDC25 219).
+- **Two variants, never mixed.** Regular adapts and stays legible in context; Clear does not adapt and is only for
+  media-rich content, where bright content needs **a dark dimming layer at 35% opacity** (HIG Materials, WWDC25 219).
+- **Accessibility settings reshape it, automatically, only for system materials.** Reduce Transparency makes it
+  "frostier"; Increase Contrast makes elements "predominantly black or white… with a contrasting border"; Reduce Motion
+  "decreases the intensity of some effects and disables any elastic properties". **Differentiate Without Color has no
+  glass-specific guidance at all** — only the general rule not to carry meaning in colour alone (WWDC25 219,
+  [HIG Color](https://developer.apple.com/design/human-interface-guidelines/color),
+  [accessibilityDifferentiateWithoutColor](https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilitydifferentiatewithoutcolor)).
+- **Brand colour defers.** "Apply color sparingly"; reserve it for status or primary actions; tint the **background**, not
+  the glyph; with colourful content prefer monochromatic bars or an accent with real differentiation; and to express brand
+  through colour, "consider moving it into the content layer"
+  ([HIG Branding](https://developer.apple.com/design/human-interface-guidelines/branding), updated 2026-09-09; HIG Color).
+- **Typography.** iOS default body 17 pt, **minimum 11 pt**; support enlargement to **at least 200%**; grow meaningful
+  icons with text; keep truncation minimal; switch to a stacked layout when horizontally constrained; "maintain a
+  consistent information hierarchy regardless of the current font size"
+  ([HIG Typography](https://developer.apple.com/design/human-interface-guidelines/typography)).
+- **Tab bars.** For navigation, not actions; keep it visible; "avoid overflow tabs"; **include labels**, single words where
+  possible ([HIG Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)).
+- **Sheets.** Medium/large detents, a grabber in resizable sheets, one sheet at a time, always an alternative to Done, and
+  **for long or complex flows prefer a full-screen modal over a sheet**
+  ([HIG Sheets](https://developer.apple.com/design/human-interface-guidelines/sheets)).
+- **Motion.** Convey status, give feedback, enrich — but "don't add motion for the sake of adding motion", **"make motion
+  optional"**, **"let people cancel motion"**, avoid motion on frequent interactions, and under Reduce Motion tighten
+  springs, track gestures, avoid z-axis depth
+  ([HIG Motion](https://developer.apple.com/design/human-interface-guidelines/motion),
+  [HIG Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)).
+- **Onboarding** guidance predates Liquid Glass (last updated 2024-06-10) and is flow-level: teach through interactivity,
+  prefer contextual tips to one upfront flow, keep tutorials skippable and don't repeat them, **postpone nonessential
+  setup**, ask permissions at first use of the dependent feature, and **"avoid displaying licensing details within your
+  onboarding flow"** ([HIG Onboarding](https://developer.apple.com/design/human-interface-guidelines/onboarding)).
+  The 2026-06-08 [Design principles](https://developer.apple.com/design/human-interface-guidelines/design-principles) add:
+  make a guided flow "easy to skip or escape".
+- **React Native reality.** `expo-glass-effect` (first-party, introduced in **Expo SDK 54**, currently 57.0.3) exposes
+  `GlassView`/`GlassContainer` over `UIVisualEffectView`, iOS 26+ with a plain-`View` fallback
+  ([Expo SDK 54 changelog](https://expo.dev/changelog/sdk-54),
+  [GlassEffect docs](https://docs.expo.dev/versions/latest/sdk/glass-effect/)). Native chrome rendered through
+  `react-native-screens` picks the material up automatically. **`expo-blur` is not a substitute** — it scatters light and
+  inherits none of the adaptivity or the accessibility behaviour
+  ([BlurView docs](https://docs.expo.dev/versions/latest/sdk/blur-view/)). And the opt-out matters for planning:
+  `UIDesignRequiresCompatibility` is **ignored when you build against iOS 27 or later**
+  ([docs](https://developer.apple.com/documentation/bundleresources/information-property-list/uidesignrequirescompatibility)).
+
+### 11b. What the research changed in my own proposals — and three findings that hold whatever direction wins
+**Changed** (both corrected in place above): the Liquid direction's cost was overstated as bespoke native work when a
+first-party package exists for this app's SDK; and my "one Liquid idea" was glass in the content layer, which Apple's
+guidance rules out — it is now specified as a dimming scrim, with Apple's own 35% number, buildable with zero dependencies.
+
+**Findings independent of direction, all verified in our code by B:**
+1. **Our `micro` token is 10 pt** (`src/theme/v2.ts:141`), **below Apple's stated 11 pt iOS minimum**. It is used for every
+   eyebrow, badge and metadata key in the app. The calm pass already proposed replacing it with an 11 pt `eyebrow`; this
+   turns that from taste into a guideline floor.
+2. **The dock has no visible labels** — `AdaptiveDock` carries `accessibilityLabel` per item (`:144`) but renders icons
+   only, while the HIG says a tab bar should include labels. Worth an owner decision, since the label-less dock is an
+   approved visual direction; the point is that it trades against a stated guideline, which should be recorded rather than
+   discovered later.
+3. **Signup shows the Terms and Privacy disclosure inside onboarding** (`app/(auth)/signup.tsx:288-293`), which Apple's
+   onboarding page advises against. This is very likely a deliberate legal/compliance decision that outranks the
+   guideline — recorded as a tension for the owner, not as a defect.
+
+**Where Apple's material backs choices I had already made on other grounds:** red reserved for the single primary action
+(brand colour defers, tint backgrounds not glyphs); rejecting a sheet as the checkout surface (prefer full-screen modal for
+long or complex flows, always an alternative to Done); the motion spec's restraint (make motion optional, let people cancel
+it, no motion on frequent interactions); and keeping Reduce Motion support central rather than optional.
+
+**One roadmap fact for A rather than for design:** this app is on Expo SDK 54 / RN 0.81.5. Moving to an SDK that targets the
+iOS 27 SDK brings the new design whether or not anyone has audited for it, because the compatibility opt-out is ignored at
+that point — and Expo SDK 57 additionally requires the scene-based lifecycle. That is a release-planning input, not a design
+decision, and I have sent it to A rather than acting on it.
