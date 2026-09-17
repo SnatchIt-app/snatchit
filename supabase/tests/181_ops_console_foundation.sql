@@ -104,8 +104,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
             WHERE n.nspname='ops' AND c.relkind='r' AND NOT c.relrowsecurity), 0,
   'A20: every ops table has RLS enabled');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='ops' AND c.relkind='r'), 13,
-  'A21: 13 ops tables (migration verification count)');
+            WHERE n.nspname='ops' AND c.relkind='r'), 14,
+  -- 138 +1: ops.action_invitee (held invitee references; RLS on, no API grant — A20/A22 cover it)
+  'A21: 14 ops tables (migration verification count)');
 SELECT is((SELECT count(*)::int FROM information_schema.role_table_grants
             WHERE table_schema='ops' AND grantee IN ('authenticated','anon','PUBLIC')), 0,
   'A22: authenticated/anon/PUBLIC hold no table privileges on any ops table');
