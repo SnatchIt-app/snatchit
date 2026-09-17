@@ -3171,3 +3171,13 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   when it starts: step 0 (picker-only on 3118bd30, the one Mark as sent tap being the no-image case that must stop at
   "Evidence required" before any network call) → DV-IMG-4 on 92ee5156 → N1, N2 → DV-IMG-5 → DV-IMG-9 + 3b → N3 →
   DV-IMG-10 → N4 → RT6 → U1 → RT5-P → close. A releases each row only after D's witness read of the previous one.
+- **Line 3 setup complete (owner, 2026-09-17 16:20 EDT):** signed in as the DV seller; **the sign-in screen heading
+  clears the SANDBOX badge (F-SELL-2's last outstanding screen: PASS, owner-reported)**; Camera location set to Never;
+  synthetic ticket images ready. The owner confirms they are with the phone and ready for Line 3 under the approved
+  scope, and asked for the picker-only step first, then the permanent tests one at a time.
+  C is waiting only on D's post-window confirmation, and has asked A for the listing event name and venue behind
+  3118bd30, 92ee5156, bce07eef and 8f59d37e, the Send tickets entry point on Build 19, and the listing behind
+  83b83858 so the owner can avoid it.
+  **F-SELL-2 device status:** PASS on My listings, Settings, Settings › Notifications, listing top controls and the
+  sign-in screen. UNTESTED: transfer send/receive (covered incidentally during Line 3 if the headers are observed),
+  Place bid, Checkout, the outbid toast.
