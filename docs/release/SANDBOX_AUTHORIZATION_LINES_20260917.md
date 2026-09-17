@@ -29,7 +29,7 @@ writes; abort on the listed stopping conditions."
 **Authorization line:** "Place one $101 bid as the DV buyer on listing `58cc00e3…` (Device D8) through the app's Place bid
 screen on the owner's handset, A reading back before and after; retain the row for the DV-ST2b observation; afterwards
 [R: the seller cancels D8 from the app | R′: let the listing end on 2026-09-25]."
-(If C reports D8 is reserved for another device row, the same line with `b1c3c478…` (Device D7); C's answer is pending.)
+**C's constraints (2026-09-17), now part of the line:** no open device row of C's is reserved on D8. **Device D7 is NOT named as an alternate** — the owner's standing instruction is "Do not retry Device D7 or modify any payment state". A listing with a bid loses its Edit action, and the owner may be editing D8 during DV-S2 now, so **the bid is placed only after DV-S2 completes**, and **one bid-free seller listing is kept** (Phone P1 `c343406e…` stays untouched) for the next candidate's F-SELL-2 re-check on Edit listing. D8's fixture image serves DV-106 (image fallback), which a bid does not affect.
 
 | Aspect | Exactly |
 |---|---|
@@ -38,7 +38,7 @@ screen on the owner's handset, A reading back before and after; retain the row f
 | Side effects | no outbound notification: `notify_outbid` and `notify_bid_placed` both return early because `app.settings.supabase_url` / `service_role_key` are unset on the sandbox (read 04:40Z), and `send-push` refuses every dispatch under option (b) anyway; no payment or hold at bid time. **If retained past 2026-09-25 02:01Z:** `auto-finalize-auctions` sets the listing ended with the buyer as winner at $101 and writes one `auction_won` inbox row for the buyer; no charge follows automatically |
 | Read-backs (A) | before: buyer's bids = 0, D8 = 100/0/null, seller's inbox count; after: 1 row (id, 101, created_at), D8 = 101/1/buyer, seller inbox +1 with the dedupe key, `net.http_request_queue` unchanged, `notify.notification` count unchanged |
 | Cleanup | **R (recommended):** after the ST2b observation the owner, signed in as the seller, cancels D8 from the app (`cancel_listing`: seller-only, tolerates bids) — no finalisation, no winner; the bid row and the seller's inbox row remain as history. **R′:** let it end (§ above). **X (delete the bid row as postgres) is NOT proposed:** no trigger reverts the listing, and reverting it by hand is a manual guard bypass the owner has ruled out |
-| Stopping conditions | the before-read shows any bid for the buyer or on D8 · D8 not `active`/`active` · `now() > ends_at` · either `app.settings.*` GUC set · a DV-ST2 revoke window is open (place the fixture before ST2a or after its verified restore, never inside) · CS-1 fails |
+| Stopping conditions | DV-S2 not yet complete (C confirms) · the before-read shows any bid for the buyer or on D8 · D8 not `active`/`active` · `now() > ends_at` · either `app.settings.*` GUC set · a DV-ST2 revoke window is open (place the fixture before ST2a or after its verified restore, never inside) · CS-1 fails |
 | Witness | D: before/after reads with UTC times |
 | What it enables | DV-ST2b (cached rows stay on pull-to-refresh under a server error) as a real observation instead of UNTESTED; nothing else |
 
