@@ -457,6 +457,10 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('confirm_transfer_received(uuid, uuid)',                          'authenticated-execute'),
   ('ensure_transfer_exists(uuid, uuid)',                             'authenticated-execute'),
   ('finalize_auction(uuid)',                                         'authenticated-execute'),
+  -- 140: the seller's explicit recovery for a transfer sent with no proof. Same
+  -- shape as the other seller verbs — REVOKEd from PUBLIC/anon AND service_role
+  -- (no service_role fallback in v1), EXECUTE to authenticated only. Asserted in 207.
+  ('attach_transfer_evidence(uuid, text)',                           'authenticated-execute'),
   ('get_my_profile()',                                               'authenticated-execute'),
   -- 20260909000000: zero-argument, owner-scoped Tickets read. Same shape as
   -- get_my_profile(): binds to auth.uid(), REVOKEd from PUBLIC/anon, EXECUTE to
