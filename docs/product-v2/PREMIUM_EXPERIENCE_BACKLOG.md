@@ -3411,3 +3411,14 @@ Most of the app is already tested; close the remaining gaps efficiently.
   the stored bytes and applies the fixed decision rule — and needs the owner's **Camera › Formats** setting BEFORE
   that row, or the conversion half is UNTESTED by rule.
   A has nothing pending: N3 done, fixture written, boundary read taken. **Only D's post-read is outstanding.**
+- **Owner's refinements (2026-09-17), applied:**
+  - **"Spinner not seen" is REMOVED as a stop condition.** A fast operation can finish before the owner notices, so it
+    is recorded as an observation and the server evidence establishes the result. Remaining stop conditions: a success
+    message while Airplane Mode is on; two success messages for one transfer; landing on "Sandbox L7".
+  - **After the handset pass:** C validates B's findings and gives A and the owner **one ranked implementation batch**,
+    separating CONFIRMED DEFECTS from DESIGN PROPOSALS and saying which genuinely block release.
+  - **Checkout framing required by the owner:** distinguish (a) offline BEFORE the request, (b) a confirmed decline,
+    and (c) an UNKNOWN outcome after a lost response — and never imply a retry is safe without reconciling payment
+    state. (c) is the dangerous one: the charge may have succeeded.
+  - **Preserve:** existing accessibility scaling and completed test evidence. **No global text-size caps, no broad
+    redesign, no repeated full handset flows.** Verification focuses on changed behaviour.
