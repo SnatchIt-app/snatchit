@@ -131,3 +131,22 @@ Per row: PASS / FAIL / UNTESTED, the on-screen text observed, and A's read-back 
 - Wed 09-16: 128 rebind to the frozen contract (2–4 active hours) + tests; C-4 rebase started on A's Wed integrated head, finished on the pin.
 - Tue 09-15: candidate-recovery slice landed and reviewed (error/empty/failed states, cancelled listing in Bids, expired-session notice, not-found outcome); gates green.
 - Mon 09-14 (now): this plan; sprint branch open.
+
+## Handset session 2 — combined b2 candidate (owner ruling 2026-09-17; build cut from A's tag)
+
+Read-back protocol unchanged (C sends "row N ready + time"; A reads within minutes; D reads
+where noted). Installation and sign-in are not repeated here. Statuses carry forward at their
+actual values; nothing is upgraded by this session.
+
+| # | Row | Owner action (Build = combined candidate) | PASS is |
+|---|---|---|---|
+| S2-1 | DV-AUTH-1 (8dc4cec) | Online: Profile › Sign out → sign in as the buyer → wait on Home → open Profile; then sign out → sign in as the seller → Home, Profile | Both accounts: Home and Profile load without a force-quit; no permanent spinner; A read-back: one listings read and one get_my_profile per screen; sign-out row state as row 16 |
+| S2-2 | DV-611C-2 (a609cbc) | Throttle the network (Network Link Conditioner or weak Wi-Fi); force-quit and reopen twice, 30 s on Home each; open Settings › Notifications | Each launch is VISIBLE: either registered (A read-back: last_used advanced) or a failed banner with a reason + Try again; **silence = FAIL**; Try again registers |
+| S2-3 | DV-S1 / DV-S2 (F-SELL-1) | Sell: create a listing with the keyboard up (all fields, large text); dismiss/reopen the keyboard; edit an existing listing | Action bar docks to the keyboard with no gap; focused inputs stay visible; heading clears the banner; values intact after dismiss/reopen; unsaved-edit protection intact |
+| S2-4 | Row 11 residue | Largest accessibility text: Home, Explore, Bids, Tickets, Profile headings and the SANDBOX badge | Headings clear the badge on all five tabs; badge does not scale; no clipping |
+| S2-5 | DV-ST1..ST4 (state-views refresh, F-OFF-1) | Airplane mode on: the five tabs; off: the screens retry by themselves; A stages a failing read for DV-ST2; Explore nonsense query; empty tab; VoiceOver + Reduce Motion on one tab | Every tab shows "You're offline / Check your internet connection and try again." incl. Tickets; DV-ST2 "Couldn't load this / Something went wrong on our side. Try again in a moment."; no-match "Nothing matches"; empty only when truly empty; announced once |
+| carried | Two-session "this device only" (131 branch 2) | needs a second iPhone | UNTESTED outside D's harness |
+| carried | Row 18 (DV-611S, rebind by the seller) | — | DEFERRED: challenge_required needs push delivery; stays deferred while the key deferral stands |
+| carried | A11Y-1 VoiceOver | at the owner's option | UNTESTED |
+| carried | DV-V1..V4, every push-arrival row | — | DEFERRED, not attempted, never described as completed b2 verification |
+| done | Row 17 | — | complete; not repeated |

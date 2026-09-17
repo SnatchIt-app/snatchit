@@ -1892,3 +1892,54 @@ reaching analytics.
   135 lands, a different account claiming the same token gets
   `challenge_required` with contract_version 3, which Build 17's v2 client
   rejects. A signals when the server phase is closed.
+
+## Two-second registration rejection window — client assessment (C, 2026-09-17; owner assignment via A; D co-assessing)
+
+**Server fact (131 at the pin):** `kernel.push_session_predates_epoch` refuses when the
+caller's session `created_at < push_binding_epoch`, and every invalidation sets the epoch to
+`greatest(prior, clock_timestamp()) + interval '2 seconds'` (`131:86-88`, `131:198-219`). A
+session created inside that two-second margin — or one whose `auth.sessions` row is gone —
+is refused with 42501 `insufficient_privilege: session predates a credential change` on
+`register_push_token` (`131:266`, `135:190-193`) and on the 135 challenge verbs. The
+session's `created_at` never changes, so **that session can never register**; the only
+remedy is a new session. The migration's own comment ("a legitimate re-login inside the
+margin retries") can only mean re-login, not a later retry with the same session.
+
+**Client path 1 — register (the common case): NOT silent, recovery works.** The refusal
+classifies as `session_stale` (`registration.ts`), the hook calls `handleSessionStale`
+(`usePushToken.ts:221-227`): the registration record is cleared, the session end is
+marked `credential_change`, and THIS device is signed out locally (`sessionStale.ts`). The
+login screen then shows **"You were signed out on this device. Sign in again to keep
+notifications on."** (`sessionEnd.ts:48`, neutral by design, K-4). The user signs in
+again; by then well over two seconds have passed since the invalidation, the new session's
+`created_at` is after the epoch, and registration succeeds. If the sign-out itself fails
+offline the latch resets and the next refusal retries (F-K2-3). If Settings › Notifications
+is open at that moment it shows "You were signed out on this device. Sign in again to turn
+notifications back on." (`registration.ts:237-238`). Reachable on one device by "Sign out
+of all devices" followed by an immediate sign-in within two seconds: the user is bounced
+once with the notice, then succeeds. Understandable, one extra sign-in, no dead end.
+Evidence: unit tests `tests/session-bound-131.test.ts` (classification, once-per-process,
+F-K2-3 retry, the login sentence); **device-untested** — staging it needs A to bump the
+epoch within two seconds of a sign-in on the combined build (proposed DV-131-1).
+
+**Client path 2 — a challenge open across an invalidation: FINDING F-2S-1 (LOW, copy).**
+If a 135 challenge is open (silent or visible code) and the epoch moves during its window
+(password change or sign-out-everywhere from another device), `confirm_push_token_challenge`
+/ `request_push_token_challenge` refuse with the same text; the client classifies it
+`session_stale` and lands in the challenge **failed** banner with
+**"You were signed out on this device. Sign in again to keep notifications on."**
+(`challenge.ts:255`) — while the user is still signed in: the sentence is false for as long
+as the banner stands. Recovery still works: Try again → `retryPlan` → register →
+refused → `handleSessionStale` → forced local sign-out → the same sentence on the login
+screen, now true → sign in again → registers. Not silent, but one screen states a sign-out
+that has not happened. Proposed fix (follow-up, owner's call whether it joins a tag): route
+the challenge path's `session_stale` into `handleSessionStale` exactly as the register path
+does, so the sign-out happens first and the sentence is true when shown (one branch in
+`usePushToken.ts` + a test); until then, the challenge copy could read "This device needs
+to sign in again to keep notifications on. Tap Try again." Reachability is narrow (an
+invalidation inside a ≤5-minute challenge window).
+
+**Verdict:** no silent failure on either path; the affected user gets a neutral explanation
+and a working one-step recovery (sign in again). One LOW copy finding on the challenge
+path. Device rows proposed: DV-131-1 (register path, A stages the epoch bump) and
+DV-131-2 (challenge path; needs push delivery → deferred with the key).
