@@ -3076,3 +3076,12 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   order starts with the picker-only rows on the Transfer send screen); F-SELL-2 on the sign-in screen (next account
   switch), Place bid and Checkout (bid/reservation risk) and the outbid toast (needs an event); DV-IMG-7 Sell-form
   picker parity (seller, picker only, no upload); F-DT-1 device row; DV-ST4's VoiceOver half (owner's skip).
+- **Line 3 / DV-ST2b sequencing, relayed by D (2026-09-17):** D reports the owner authorized Line 3 directly to D, and
+  D's pre-check read matches the approved post-W-C3 baseline (md5 f66988…). The owner's sequence: A and D complete
+  matching pre-checks, then C gives the first handset instruction. D also relays the owner's scope (the exact approved
+  permanent transfer-test scope; synthetic images with location off; all seller/buyer/U2/anonymous checks; disposition
+  safeguards and stopping conditions; no replacing or deleting attached proof; no push key; no payout or executor flag
+  changes; no outbound notifications) and **"Keep DV-ST2b paused unless I authorize it separately"**.
+  **C's position:** the DV-ST2b pause is a restriction and is honoured now. **Line 3 does not start until the owner
+  says "ready for Line 3" to C**, which has not happened; a relay is not that. The handset is also still signed in as
+  the BUYER, and Line 3's first rows are seller rows, so a switch is needed first.
