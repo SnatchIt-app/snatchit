@@ -112,6 +112,21 @@ recorded version, and refuses unless every numbered 123…v−1 file is recorded
 is 20260916000000). The exec tree is a detached worktree of the tag commit in A's scratchpad with 0 dirty files.
 
 ## 4. Window W-C3 — sandbox updates (one owner-authorized window; A executes, D witnesses; each step's evidence goes into the manifest)
+**Census reconciliation (the owner's instruction, done before any execution; nothing here was read from the sandbox except the recorded baseline):** D's independent prediction and the package's expectation are the same, **32|109|37|37 after S3**, and no expected count was adjusted to reach it. The census is CI's four Gate-2 queries (`ci.yml:605–608`: public tables, public functions, public policies, public non-internal triggers).
+1. `git diff --name-status 9bef640 f412d10 -- supabase/migrations/` = exactly `A 136`, `A 139`, `A 140`. No existing migration changed.
+2. The declared counts come from `ci.yml` EXPECT: 105 functions at the pin `9bef640`, 107 at `e9b52ce` (with 136 and 139), and 108 at `f412d10` (with 140). D's local replays match these: the full chain at `f412d10` = 32|108|37|38, and the same tree without 136/139/140 = 32|105|37|38.
+3. Name-level diff (D, local replays; A's source count agrees: 136 creates 2 public functions, 139 none, 140 three, of which two re-create `mark_transfer_sent` under the same signatures): **+`get_my_security_notices()`, +`mark_security_notices_read(uuid[])`, +`attach_transfer_evidence(uuid,text)`**; 0 tables, 0 policies, 0 triggers. 139's table is in `notify`, outside the census. 121 and 126, absent on the sandbox, create no public objects.
+4. Sandbox baseline = the B2 close **32|106|37|37** (A 04:56:09Z, D's closing read, and A's 14:35Z pre-read), which is the pin's declared 32|105|37|38 plus exactly four named sandbox deltas: +`sandbox_gucs`, +`sandbox_pre_request` (sandbox-only functions); −`guard_listing_seller_not_blocked` and −`trg_guard_listing_seller_not_blocked` (119, never on this sandbox). These four names read 1|1|0|0 on the sandbox and 0|0|1|1 on a full local chain.
+5. After S3: 32|106|37|37 + 0|3|0|0 = **32|109|37|37**. Against the declared 32|108|37|38 the difference, 0|+1|0|−1, is the same four deltas.
+
+| Read point | Census | notify tables | new objects present (get_my_security_notices, mark_security_notices_read, attach_transfer_evidence, notify.report_delivery_claim) | Other |
+|---|---|---|---|---|
+| V0, before S1 | 32|106|37|37 | 8 | false, false, false, false | sandbox deltas 1|1|0|0; `mark_transfer_sent` void, prosrc md5 `bab0d402…`/955 and `c3281f0a…`/1042 |
+| after S1 (136) | 32|108|37|37 | 8 | true, true, false, false | deltas 1|1|0|0 |
+| after S2 (139) | 32|108|37|37 | 9 | true, true, false, true | deltas 1|1|0|0 |
+| after S3 (140) | 32|109|37|37 | 9 | true, true, true, true | both overloads return jsonb, prosrc md5 `d816c53e…`/86 (2-arg) and `17453329…`/2560 (3-arg); deltas 1|1|0|0 |
+**Void conditions (a stop, never a re-derivation):** V0 ≠ 32|106|37|37; sandbox deltas ≠ 1|1|0|0; any of the three new function names present before S1; pre-140 bodies ≠ PF3; any step's read ≠ its row. Any difference is explained from the sandbox's actual objects before anything proceeds, and an expected count is never changed to pass.
+
 **Pre-flight (every item must hold before S1; any miss stops the window):**
 PF1 exec tree = tag commit, 0 dirty; the sha256 of the three migrations, three rollbacks and four edge files equal §3.
 PF2 D's V0 and A's read agree: ledger 141 with 136/139/140 absent; census 32|106|37|37; notify tables 8; business counts (listings,
