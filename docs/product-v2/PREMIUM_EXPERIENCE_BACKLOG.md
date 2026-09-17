@@ -3885,3 +3885,27 @@ integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users
     `AM3` (avatar control goes missing) kills all six, where the old boolean helper passed four.
   - **Gates after hardening:** vitest **2289 passed / 111 files**; tsc clean; lint 0 errors / 29 warnings.
   - Still true: no device verification, no build, no sandbox, Build 19 untouched. Branch head **2fe7abd**.
+
+- **F-AVATAR-2 — the avatar defect is unfixed in a SECOND screen. Found by D while re-running C's controls;
+  C verified it at the batch head.** `app/settings/edit-profile.tsx:65-82` is `setAvatarUploading(true)` →
+  `await pickAndUploadAvatar` → **`setAvatarUploading(false)`** → `profiles.update({ avatar_path })` →
+  `setAvatarUrl`. Byte-for-byte the shape C fixed on the profile tab: the ring goes idle while the write is
+  still in flight, the old photo is still showing, and `if (avatarUploading) return` is already open.
+  - **What C found on top of D's report: there are TWO controls, not one.** `:141` the avatar ring and `:149`
+    the "Change photo" text both call `handleAvatarPress` with the same open guard, so either can start the
+    second pick during the write window.
+  - **Consequence (D's, and it holds):** two overlapping presses each write `avatar_path`; if the second
+    upload's update lands first, the stored path points at the earlier object and the avatar silently reverts
+    on next load. Worse than the profile tab, where the same race only re-renders.
+  - **Untested:** the only test touching the file (`tests/settings-completion.test.ts:60-63`) asserts the source
+    contains `avatar_path:` and would pass with the defect present or absent.
+  - **Outside the five items the owner authorised. Batch 1 stays as reviewed; C is not widening a passed
+    branch.** D offered to carry it; C keeps it — consumer screens are C's lane.
+- **C's recommendation to the owner: one small follow-up batch, not two asks.** F-XFER-2 (the buyer's screen
+  still claims an expiry nothing enforces) and F-AVATAR-2 are the same species — *a defect fixed in one screen
+  and left standing in its twin* — each a few lines with the same test-and-control treatment, neither touching
+  payment, auth, transfer rules or the server. Owner's call; nothing starts without it.
+- **D's Batch 1 verdict: PASS.** D re-ran C's three new controls in its own detached worktree at `2fe7abd` and
+  all three reproduce exactly — M7 7 failed / 1 passed with B5 the sole survivor; DM7 D8 alone; AM3 6 of 6.
+  Gates on the pushed head, D's own run: vitest 2289 / 111, tsc 0. **AM3 is the one that earns the tri-state
+  helper:** under the old boolean, A2/A4/A5/A6 would all have passed with the control absent from the screen.
