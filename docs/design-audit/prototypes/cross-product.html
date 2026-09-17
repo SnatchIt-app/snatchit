@@ -113,8 +113,8 @@ correctness.</b> Metric definitions below are B's plain-language <i>proposals</i
 const SCREENS=[{id:'onboard',n:'1 · First-run onboarding',st:['step1','step2','step3','done']},
  {id:'home',n:'2 · Dashboard home',st:['populated','loading','empty','error','limited']},
  {id:'event',n:'3 · Event management',st:['populated','loading','empty','limited']},
- {id:'ops',n:'4 · Transfer / dispute review',st:['populated','limited','success','error']},
- {id:'perm',n:'5 · Settings & permissions',st:['populated','limited','success']}];
+ {id:'ops',n:'4 · Transfer / dispute review',st:['populated','loading','limited','success','error']},
+ {id:'perm',n:'5 · Settings & permissions',st:['populated','limited','success','error']}];
 const nav=(active)=>`<header class="topnav" role="banner"><div class="brand">Snatch It · Operations</div>
  <nav aria-label="Console sections">${['Today','Cases','Events','Money','People','Settings'].map((x,i)=>`<a href="#" class="${i===active?'on':''}"${i===active?' aria-current="page"':''}>${x}</a>`).join('')}</nav>
  <div class="envchip"><span class="pill sandbox">Sandbox</span><span class="pill role">Venue manager</span><span class="pill">A. Okafor</span></div></header>`;
@@ -285,6 +285,17 @@ function event(st){
 /* ---------- 4. TRANSFER / DISPUTE REVIEW — the destructive-action class ---------- */
 function ops(st){
  const success=st==='success', err=st==='error', limited=st==='limited';
+ /* D's scope note: dispute review is the slowest, most consequential read in the set, and it was
+    specified with no loading state — so an implementer had no guidance for the screen where a manager
+    is most likely to act on a half-loaded page. The decision block is deliberately ABSENT while the
+    evidence is still loading: no irreversible action may be offered before the facts it depends on. */
+ if(st==='loading') return shell(1,'Cases › #C-2291','Buyer says the tickets never arrived','',`
+  <div class="grid2" style="align-items:start">
+   <div class="card">${[1,2,3,4,5,6].map(()=>`<div class="skel" style="height:14px;margin-bottom:10px"></div>`).join('')}</div>
+   <div class="card">${[1,2,3,4,5].map(()=>`<div class="skel" style="height:14px;margin-bottom:10px"></div>`).join('')}</div></div>
+  <div class="notice"><div><div class="bd" style="color:var(--ink)">Loading the evidence</div>
+   <div class="sm" style="margin-top:3px">The decision buttons appear once the case, its proof and its timeline have loaded. Nothing can be decided from a half-loaded page.</div></div></div>`,
+  {busy:true,busyLabel:'this case and its evidence',sub:'Case #C-2291 · opened 4h ago · Midnight Arcade · ticket #4188'});
  return `<div class="win-inner">${nav(1)}<div class="body" role="main">
   <div><div class="crumb">Cases › #C-2291</div>
    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
@@ -326,6 +337,10 @@ function ops(st){
 /* ---------- 5. SETTINGS & PERMISSIONS ---------- */
 function perm(st){
  const limited=st==='limited', success=st==='success';
+ /* A permissions screen that fails to load must never be mistaken for a permissions screen showing no
+    permissions — D's argument, and the reason this state exists while three others are left unbuilt. */
+ if(st==='error') return shell(5,'Settings › People and permissions','Who can do what','Couldn\'t load permissions',
+  center('!','','<b>This is a loading failure, not a permissions change.</b> Nobody\'s access has changed, and this is not a list showing zero permissions — we simply could not read the list. Your own role is unchanged.','Try again'));
  return `<div class="win-inner">${nav(5)}<div class="body" role="main">
   <div><div class="crumb">Settings › People and permissions</div><div class="h1" role="heading" aria-level="1" style="margin-top:6px">Who can do what</div>
    <div class="sm" style="margin-top:6px">Three roles, fixed. A role decides which actions someone can even request — and two actions always need a second person, whatever their role.</div></div>

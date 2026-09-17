@@ -232,7 +232,7 @@ period split, the real labels and definitions, the permission-notice copy as bui
 controls, the `abbr title` definitions, the six schema-name headings, the caps divergence and the two denial paths. **Those
 are D's observations, not mine, and the brief says so at each one.**
 
-**Nobody has yet:** a rendered check of my prototypes in a browser; the current under-24×24 count at the redesign head; a
+**Nobody has yet:** — *(superseded: D rendered every state across five rounds; see §12)* — the current under-24×24 count at the redesign head; a
 venue statement verified at my own pin (D offered to render venue credential-free in fixtures mode — I have not taken that
 up, so every venue claim here is D's measurement, cited as such); and the owner's decision on the red question, which is
 the one thing in this brief that two sessions agreeing cannot settle.
@@ -351,6 +351,22 @@ not sufficient; they confirmed what I had written, which is not the same as conf
 **So the sentence in §10 no longer stops at headings:** in a build, the section titles are real heading elements **and
 every next step is a real control**. A reader of this file can now tell "styled like a link" from "is a link", because
 they are the same thing.
+
+9. **D's fifth render passed all twenty states** — one `main` and one level-1 heading each, titles surviving every state,
+   shortest state 97 characters and that one an announced loading state, zero non-control affordances, zero nested
+   interactives, zero stale comparisons. D also noted a scope gap rather than a defect: **state coverage was uneven**, with
+   dispute review specified without loading or empty, and permissions without loading or error.
+   **Two of those five had a safety argument rather than a completeness one, so I built them and left the rest:**
+   - **Dispute review, loading.** It is the slowest and most consequential read in the set, and an implementer had no
+     guidance for the screen where a manager is most likely to act on a half-loaded page. The state now exists **and the
+     decision block is deliberately absent while the evidence loads** — verified mechanically that no destructive control
+     renders in it. *No irreversible action may be offered before the facts it depends on have arrived.*
+   - **Permissions, error.** A permissions screen that fails to load must never read as a permissions screen showing no
+     permissions. The state says so in as many words: "this is a loading failure, not a permissions change… this is not a
+     list showing zero permissions."
+   **Left unbuilt, consciously:** event management error, dispute review empty, permissions loading. Each is a
+   completeness gap with no safety argument, and every added state is more surface to get wrong. **This is a stated limit
+   of the prototype's coverage, not a discovery waiting for an implementer** — which is the distinction D asked for.
 
 **D's own audit** is `design/d-dashboard-usability-20260917 @ 940f944` (`docs/venue-dashboard/DASHBOARD_USABILITY_AUDIT_D_20260917.md`
 plus three prototypes), held locally and unpushed because a push runs CI and the owner's standing instruction for this
