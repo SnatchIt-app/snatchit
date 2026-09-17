@@ -2513,3 +2513,11 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   pin) / 12 / 12 of 46 across the two files; suite 2229/105 alone; tsc 0; lint 0/29. **Head ready for A's
   integration → new candidate head; the db16e1a build HOLD stays until A integrates.** Evidence class: source
   + tests only. **Device rows DV-NAV-1/2 are still owed on the next build**; nothing here stands in for them.
+- **F-NAV-1 integrated by A: candidate head `f412d10`** (release/production-gate-20260918; --no-ff merge of
+  db16e1a + 76b8622; tree 0409138f identical to 76b8622's — parents and tree verified by C). A's reruns on
+  f412d10, alone: vitest 2229/105, tsc 0, lint 0/29; gated surface, supabase/, scripts/, .github/ vs db16e1a:
+  0 files, so replay, pgTAP, census and sandbox pins carry over. **The hold's condition (reviewed by D,
+  integrated) is met.** CI 35237352892 on f412d10: **in progress** (C read `gh run view`), then D's
+  merge-preservation gate; the tag line names f412d10 only after both are green. No build yet. Evidence class:
+  source + tests; DV-NAV-1/2 owed on the next build; phone-only residual: a swipe begun within one frame of the
+  first keystroke.
