@@ -2914,3 +2914,10 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     and is not touched.
   - A deletes the staged row whatever the outcome.
   - "buyer ready" goes to A only after the owner confirms.
+- **DV-N-1 expected text (A, read-only ≈16:38Z; a correction to the plan above):** get_inbox renders the highest
+  template version for the reader's locale (en-US), and 136's v2 in_app template has NO {{device_name}}, so "iPhone
+  (DV staged)" is NOT shown. **Title:** "A device stopped receiving your notifications". **Body:** "A device that was
+  getting notifications for this account is now registered to a different account. If that was you signing in to
+  another account, there's nothing to do. If not, sign out of all devices." Buttons: "Sign out of all devices" +
+  "Dismiss". Seeing the device name would mean v1 rendered, which would be a finding. A has added F-NOTICE-1 to the
+  sprint table for the owner's scope decision. Still waiting on the owner's "buyer ready".
