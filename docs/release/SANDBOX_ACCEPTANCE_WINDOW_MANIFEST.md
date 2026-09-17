@@ -574,8 +574,10 @@ C guides, A reads back, D witnesses. Push delivery stays deferred (option (b)); 
   foreground re-attempt on "re-request or no open challenge"; classify both limit texts as `rate_limited` (wait 600 s, visible
   remedy); resume an open silent challenge's elapsed time when the id matches. Device-only proof (an inactive→active during an
   open challenge → no second call; a real background→foreground → exactly one re-issue) needs push delivery and joins the
-  deferred DV-131 rows. With D for review; joins the next candidate only on the owner's word. **Consequence for session 2:** the
-  seller account cannot register push on this handset on Build 18; rows that need no registration proceed.
+  deferred DV-131 rows. With D for review; joins the next candidate only on the owner's word. **Consequence for session 2 (C's correction 2026-09-17):** the RC2 never-retry is
+  bounded by the signed-in session, not the handset — `signOutThisDevice` clears the registration store — so the seller cannot
+  register push for the rest of THIS sign-in; a later sign-in registers again (and, once the 600 s windows lapse, spends issues
+  again until 296439c ships). C reordered session 2 accordingly: S2-3/S2-4 as the seller now, then S2-2/S2-5 as the buyer.
 - **Still in session 2:** DV-611C-2 (registration visibility), DV-S1/S2 (seller keyboard), the large-text banner, DV-ST1..ST4
   (refreshed offline/error/empty/no-match), DV-131-1 (two-second window, A bumps the epoch within 2 s of a sign-in on C's
   trigger). Carried at their true status: two-session K-2 case UNTESTED, row 18 DEFERRED, A11Y-1 UNTESTED, every push-delivery
