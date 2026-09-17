@@ -629,9 +629,13 @@ CI:
 - 5960b51, run 35255707849: succeeded on all five jobs. pgTAP Files=88, Tests=5434, Result: PASS; 141 ok, 206 ok.
   That is 5403 + 31 (206: 140 → 171).
 
-### Follow-on amendment text (proposed; A assigns the ID and places it; the owner signs by the recorded method)
+### Follow-on amendment text — PFA-34 (proposed; placed by A at governance b7895bb on release/candidate-20260918)
+The block below is mirrored from the placed text, so the two records carry the same checksum: under the PFA-33/PFA-34
+extraction rule (the fenced block, fences excluded, no trailing newline, UTF-8) it is md5 026cb858319bc7c0181e1dad01e23ef1,
+2726 bytes, 27 lines, verified by D against b7895bb. The only change from D's source block (ea1c2999…) is the ID line,
+which D's own text invited. PFA-33's block is untouched (2da381a1…, 5731 bytes, 59 lines).
 ```
-ID:                          (assigned by A at placement) — follow-on to PFA-33
+ID:                          PFA-34 (proposed) — follow-on to PFA-33
 FROZEN RULES AFFECTED:       RPC §2.1 (create_organization makes the caller the first org_owner) and RPC §2.3
                              (accept_org_invite binds the addressed invitee and writes the invite's role).
 WHY:                         owner rulings 1–3 of 2026-09-17, given after PFA-33 was signed.
