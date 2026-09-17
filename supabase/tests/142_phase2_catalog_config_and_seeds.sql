@@ -1320,9 +1320,9 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c
   -- 2026-09-03 (package 096): 29 -> 31 (kernel.payout_reversal, kernel.organization_obligation_recovery).
   'K1: kernel holds THIRTY-TWO tables — 111 added signing_key_recovery_approval; 083 added five, 085 the four money ledgers, 088 dispute_native, 091 the reserve stub, 094 organization_obligation, 096 payout_reversal + organization_obligation_recovery');
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'notify' AND c.relkind = 'r'), 8,
+            WHERE n.nspname = 'notify' AND c.relkind = 'r'), 9,
   -- 2026-09-02 (package 092): 1 -> 7 (+6 reduced-plane tables: notification_type, notification, delivery, preference, template, identity_channel_state).
-  'K2: notify holds 076''s outbox + 092''s six reduced-plane tables + 135''s push_token_challenges');
+  'K2: notify holds 076''s outbox + 092''s six reduced-plane tables + 135''s push_token_challenges + 139''s report_delivery_claim');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'kernel'), 157,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed

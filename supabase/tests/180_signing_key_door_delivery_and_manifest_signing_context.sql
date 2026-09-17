@@ -101,7 +101,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.oid IN ('venue.get_signin
   'A4: both SECURITY DEFINER with pinned search_path (066 invariant)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 87,
   'A5: venue holds 87 functions — 85 post-113 + 114''s two');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 303,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 305,
   'A6: five-schema routine cens [135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch]us 296 (294 post-113 + 114''s two)');
 SELECT is((SELECT array_agg(column_name::text ORDER BY column_name) FROM information_schema.column_privileges
             WHERE table_schema='kernel' AND table_name='signing_key' AND grantee='authenticated' AND privilege_type='SELECT'),
