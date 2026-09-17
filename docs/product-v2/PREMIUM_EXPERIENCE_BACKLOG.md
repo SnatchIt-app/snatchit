@@ -3157,3 +3157,17 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   nothing: switch to the DV seller (this also gives the F-SELL-2 sign-in screen check), prepare synthetic ticket
   images with no real codes or personal information, and turn Camera location off before the DV-IMG-9 photo. This is
   the single next handset sequence.
+- **Line 3 readiness confirmed by A (read-only re-verify 2026-09-17T20:17:58.915Z), identical to A's 18:30:38Z pre-check
+  and to the 18:50:58Z read taken after the window:** PC1 identity PASS (sandbox markers, no ops schema, ledger 144);
+  PC2 vault = project_url only; PC3 all seven function bodies unchanged (attach_transfer_evidence 67615b89/2690,
+  enqueue_notification 1e11b92d/518, guard_transfer_state_columns c423ef62/1951, mark_transfer_sent(uuid,uuid,text)
+  17453329/2560, mark_transfer_sent(uuid,uuid) d816c53e/86, notify_transfer_event 49146f9f/1361,
+  notify_transfer_state_inbox 203f7c7d/3442); **bids ACL restored and unchanged** (authenticated and anon SELECT
+  true); PC4 seven triggers enabled; PC5 five proof-docs policies, same qual md5s; PC6 bucket private, 10 MiB, six
+  types; PC7 the five transfers unchanged; PC8 folder 0, rt 0; executors false; net queue 0, 2xx 0; buyer inbox 41.
+  Nothing of A's runs against the sandbox; A relays that B reports local work only.
+  **Gate restated by A and matching the owner's instruction to C: step 0 begins only when the owner confirms they are
+  back and available with the phone — not on read-backs.** D takes no Line 3 witness read until then either. Order
+  when it starts: step 0 (picker-only on 3118bd30, the one Mark as sent tap being the no-image case that must stop at
+  "Evidence required" before any network call) → DV-IMG-4 on 92ee5156 → N1, N2 → DV-IMG-5 → DV-IMG-9 + 3b → N3 →
+  DV-IMG-10 → N4 → RT6 → U1 → RT5-P → close. A releases each row only after D's witness read of the previous one.
