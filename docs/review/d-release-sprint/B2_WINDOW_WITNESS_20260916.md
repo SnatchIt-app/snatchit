@@ -214,3 +214,42 @@ null → timestamp on the **existing** row · buyer sessions 0 · no drift elsew
 **Also asked for, free only while in there:** the epoch's value against the delete's timestamp. If the epoch lands
 at or after the delete, every pre-existing session is correctly barred from re-registering until the owner signs
 in again — the property O-3 turns on.
+
+### D's after-read — 2026-09-17 02:39:25Z · **PASS, branch (1) as predicted**
+A's write: first attempt aborted at 02:38:05Z on A's own guard (`min()` over a uuid) **before** the delete, with a
+read-back proving nothing changed — the abort rule working on the tooling rather than the data. Retry deleted
+`d947bef4-2613-4a53-8633-fc16e313b4e0`, exactly one row, txn `now()` 02:38:30.049923Z.
+
+| Reading | Value | Predicted? |
+|---|---|---|
+| buyer sessions | **0 live, 0 total** | yes |
+| `is_active` | **false** | yes |
+| `revoked_reason` | **`signed_out_everywhere`** | yes (branch 1) |
+| `device_secret_hash` | **NULL** — the proof-clearing that separates the branches | yes |
+| `revoked_at` | 02:38:30.049923Z (= txn now) | yes |
+| `last_used` | 02:34:04.157162Z unchanged | — |
+| `identity_ext` | still **one** row; `push_binding_epoch` null → **02:38:32.452494Z** | yes, as the *update* I corrected A to expect |
+| O-3 property | epoch ≥ revoked_at **true**; epoch > deleted session's `created_at` **true** | — |
+| other bindings | one token row total, exactly one revoked in the window | yes |
+| drift | none — 49/51/33, challenges 0, vault `project_url` only, ledger 141, census 32\|106\|37\|37 | yes |
+
+The `session_ended` UPDATE matched nothing, as predicted: it is guarded `and t.is_active`, which the global
+invalidation had already cleared.
+
+### The 2.4 s epoch gap is deliberate, not clock drift
+`kernel.invalidate_push_bindings_for` stamps
+`v_epoch := greatest(coalesce(p_epoch,'-infinity'::timestamptz), clock_timestamp()) + interval '2 seconds'` — the
+epoch is set **two seconds into the future on purpose**. A's 2.402571 s gap is that margin plus ~0.4 s of statement
+time. The margin makes a race fail closed: `push_session_predates_epoch` compares a session's `created_at` to the
+epoch, so without it a session created microseconds after the invalidation commits would count as post-epoch and
+be allowed to register.
+
+**Known property, recorded rather than raised as a finding:** a legitimate fresh sign-in inside that two-second
+window also gets a session whose `created_at` precedes the epoch, and `created_at` never changes — so that session
+can never register a push token and the user must sign in again. Narrow window, and the remedy is the one 131
+already imposes on a credential change, so it is the right trade. It belongs in the manifest because "I changed my
+password and notifications stopped" is how it would be reported.
+
+**Informational:** `push_tokens.session_id` still holds `d947bef4…`, which no longer exists in `auth.sessions` —
+the verb leaves it deliberately, so the column is now a dangling reference. Harmless (row inactive, epoch bars
+re-registration), but a later join to `auth.sessions` finds nothing and could be misread as corruption.
