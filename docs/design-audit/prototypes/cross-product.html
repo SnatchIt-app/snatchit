@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Snatch It — cross-product: manager dashboards</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#16171a;color:#fff;font-family:Inter,system-ui,sans-serif;padding:16px 16px 70px;display:flex;flex-direction:column;gap:14px;align-items:center}
+h1{font-family:Oswald;font-weight:600;font-size:23px;letter-spacing:-.3px}
+.sub{color:rgba(255,255,255,.55);font-size:13px;line-height:19px;max-width:960px;text-align:center}
+.bar{position:sticky;top:0;z-index:60;background:#0e0f11;border:1px solid #292b2f;padding:9px 11px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1240px}
+.grp{display:flex;gap:5px;align-items:center}.grp b{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.42);margin-right:3px}
+button{font:inherit;font-size:11.5px;padding:5px 9px;background:#1a1c20;color:rgba(255,255,255,.75);border:1px solid #2f3237;cursor:pointer}
+button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
+.stage{display:flex;flex-direction:column;gap:22px;align-items:center;width:100%}
+.unit{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+.ulabel{font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+.win{width:1000px;height:700px;overflow:hidden;position:relative;border:1px solid #292b2f;background:var(--canvas)}
+.scroll{position:absolute;inset:0;overflow-y:auto}
+.note{max-width:1000px;font-size:12.5px;line-height:18px;color:rgba(255,255,255,.58)}
+/* ---- shared tokens: same system as the consumer app ---- */
+.win{--ink:#fff;--ink2:rgba(255,255,255,.74);--ink3:rgba(255,255,255,.56);--ink4:rgba(255,255,255,.3);
+ --red:#FF1A1A;--warn:#FFB020;--err:#FF4D4D;--ok:#3DDC84;--info:#7E9BFF;
+ --canvas:#000;--surf:#0B0B0C;--surf2:#101012;--line:rgba(255,255,255,.1);--lineStrong:rgba(255,255,255,.2);
+ --fsH1:22px;--fsH2:17px;--fsBody:14px;--fsSm:12.5px;--fsEb:11px;--fsNum:26px;--pad:24px;--gap:24px;--rowV:11px}
+.win.lg{--fsH1:28px;--fsH2:22px;--fsBody:18px;--fsSm:16px;--fsEb:14px;--fsNum:32px;--rowV:14px}
+.win{display:flex;flex-direction:column}
+.topnav{display:flex;align-items:center;gap:18px;padding:12px var(--pad);border-bottom:1px solid var(--line);background:var(--surf);flex:0 0 auto}
+.brand{font-family:Oswald;font-weight:600;font-size:16px;letter-spacing:.2px}
+.topnav a{color:var(--ink3);font-size:var(--fsSm);text-decoration:none}
+.topnav a.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--red)}
+.envchip{margin-left:auto;display:flex;gap:10px;align-items:center}
+.pill{border:1px solid var(--lineStrong);color:var(--ink2);font-size:var(--fsEb);padding:3px 8px;border-radius:9999px}
+.pill.sandbox{background:#7a3b00;border-color:#7a3b00;color:#ffd9a0;font-weight:700}
+.pill.role{background:rgba(126,155,255,.12);border-color:rgba(126,155,255,.4);color:#A9BDFF}
+.body{padding:var(--pad);display:flex;flex-direction:column;gap:var(--gap);flex:1}
+.crumb{font-size:var(--fsSm);color:var(--ink3)}
+.h1{font-family:Inter;font-weight:600;font-size:var(--fsH1);letter-spacing:-.3px}
+.h2{font-weight:600;font-size:var(--fsH2)}
+.eb{font-size:var(--fsEb);color:var(--ink3);font-weight:500;letter-spacing:.4px}
+.bd{font-size:var(--fsBody);line-height:1.5;color:var(--ink2)}
+.sm{font-size:var(--fsSm);line-height:1.45;color:var(--ink3)}
+.card{background:var(--surf);border:1px solid var(--line);padding:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.tile{background:var(--surf);border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:6px}
+.tile .num{font-weight:700;font-size:var(--fsNum);font-variant-numeric:tabular-nums;letter-spacing:-.6px}
+.tile .lab{font-size:var(--fsBody);font-weight:600}
+.tile .def{font-size:var(--fsSm);color:var(--ink3);line-height:1.4}
+.tile .cmp{font-size:var(--fsSm);color:var(--ink3)}
+.tile .next{font-size:var(--fsSm);color:var(--ink);border-top:1px solid var(--line);padding-top:8px;margin-top:2px;display:flex;justify-content:space-between}
+.tile.needs{border-left:2px solid var(--warn)}
+.tile.ok{border-left:2px solid var(--ok)}
+.tile.quiet{border-left:2px solid var(--line)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:var(--fsEb);color:var(--ink3);font-weight:600;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+td{font-size:var(--fsSm);padding:var(--rowV) 10px;border-bottom:1px solid var(--line);color:var(--ink2)}
+td.strong{color:var(--ink);font-weight:500}
+tr.sel{background:rgba(255,255,255,.03)}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:var(--fsEb);font-weight:600;padding:2px 8px;border:1px solid var(--lineStrong);border-radius:9999px;color:var(--ink2)}
+.st.ok{color:#8BE9B0;border-color:rgba(61,220,132,.4)}
+.st.warn{color:#FFC65C;border-color:rgba(255,176,32,.45)}
+.st.err{color:#FF8B8B;border-color:rgba(255,77,77,.45)}
+.st.mute{color:var(--ink3)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:var(--fsBody);font-weight:600;padding:10px 14px;min-height:40px;border:1px solid transparent;cursor:default}
+.btn.pri{background:#fff;color:#000}
+.btn.sec{background:transparent;border-color:var(--lineStrong);color:var(--ink);font-weight:500}
+.btn.danger{background:transparent;border-color:rgba(255,77,77,.5);color:#FF8B8B;font-weight:600}
+.btn.dis{background:#17171a;color:var(--ink4);border-color:var(--line)}
+.notice{display:flex;gap:12px;padding:14px;background:rgba(255,255,255,.045);border-left:2px solid var(--lineStrong)}
+.notice.warn{border-left-color:var(--warn)}.notice.err{border-left-color:var(--err)}.notice.ok{border-left-color:var(--ok)}.notice.info{border-left-color:var(--info)}
+.skel{background:linear-gradient(90deg,#141416,#1c1c20,#141416);animation:p 1.2s ease-in-out infinite}
+@keyframes p{0%,100%{opacity:.45}50%{opacity:.75}}
+.win.reduce .skel{animation:none;opacity:.55}
+.steps{display:flex;gap:8px;align-items:center}
+.stepdot{width:26px;height:26px;border-radius:9999px;border:1px solid var(--lineStrong);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink3)}
+.stepdot.on{background:#fff;color:#000;border-color:#fff;font-weight:700}
+.stepdot.done{border-color:rgba(61,220,132,.5);color:#8BE9B0}
+.kv{display:grid;grid-template-columns:180px 1fr;gap:8px 16px}
+.kv .k{font-size:var(--fsSm);color:var(--ink3)}.kv .v{font-size:var(--fsSm);color:var(--ink)}
+.tl{display:flex;flex-direction:column;gap:0}
+.tlrow{display:grid;grid-template-columns:120px 1fr;gap:14px;padding:10px 0;border-bottom:1px solid var(--line)}
+.center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:60px 0}
+.center .ic{width:52px;height:52px;border-radius:9999px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:20px}
+</style></head><body>
+<h1>Cross-product — manager dashboards in the consumer app's language</h1>
+<p class="sub">Local prototypes, synthetic data, rendered at 1000&times;700. Not screenshots of the console; no device or
+browser check claimed. Grounded in the console's real page inventory and its real role model
+(<code>platform_admin</code> / <code>platform_risk</code> / <code>platform_support</code>, with payout release and refund
+execution requiring a second approval). <b>B proposes the shared visual and interaction direction; D verifies operational
+correctness.</b> Metric definitions below are B's plain-language <i>proposals</i> and are marked unverified until D confirms them.</p>
+<div class="bar" id="ctl"></div>
+<div class="stage" id="stage"></div>
+<p class="note" id="note"></p>
+<script>
+const SCREENS=[{id:'onboard',n:'1 · First-run onboarding',st:['step1','step2','step3','done']},
+ {id:'home',n:'2 · Dashboard home',st:['populated','loading','empty','error','limited']},
+ {id:'event',n:'3 · Event management',st:['populated','loading','empty','limited']},
+ {id:'ops',n:'4 · Transfer / dispute review',st:['populated','limited','success','error']},
+ {id:'perm',n:'5 · Settings & permissions',st:['populated','limited','success']}];
+const nav=(active)=>`<div class="topnav"><div class="brand">Snatch It · Operations</div>
+ ${['Today','Cases','Events','Money','People','Settings'].map((x,i)=>`<a href="#" class="${i===active?'on':''}">${x}</a>`).join('')}
+ <div class="envchip"><span class="pill sandbox">Sandbox</span><span class="pill role">Venue manager</span><span class="pill">A. Okafor</span></div></div>`;
+const center=(ic,t,b,a)=>`<div class="center"><div class="ic">${ic}</div><div class="h2">${t}</div><div class="bd" style="max-width:460px">${b}</div>${a?`<div class="btn sec">${a}</div>`:''}</div>`;
+
+/* ---------- 1. ONBOARDING: teach by doing, skippable, permissions explained ---------- */
+function onboard(st){
+ const dots=n=>`<div class="steps">${[1,2,3].map(i=>`<div class="stepdot ${i<n?'done':i===n?'on':''}">${i<n?'✓':i}</div>`).join('')}
+  <span class="sm" style="margin-left:6px">Step ${Math.min(n,3)} of 3 · about 4 minutes</span>
+  <span class="sm" style="margin-left:auto">Skip for now — this stays in Settings › Getting started</span></div>`;
+ if(st==='step1') return `<div class="win-inner">${nav(0)}<div class="body">
+  ${dots(1)}
+  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">What you can do here</div>
+   <div class="bd" style="margin-top:8px;max-width:640px">You're a <b>venue manager</b>. That means you can see everything about your own events and act on the things below. Two actions are deliberately not yours — we say which, and who to ask.</div></div>
+  <div class="grid2">
+   <div class="card"><div class="h2">You can</div>
+    <ul style="margin-top:10px;padding-left:18px;display:flex;flex-direction:column;gap:7px">
+     <li class="bd">See sales, payouts and attendance for your events</li>
+     <li class="bd">Pause or relist a ticket that's gone wrong</li>
+     <li class="bd">Open a case when a buyer or seller reports a problem</li>
+     <li class="bd">Restrict a user who is abusing the marketplace</li></ul></div>
+   <div class="card" style="border-left:2px solid var(--warn)"><div class="h2">You can't — and that's on purpose</div>
+    <ul style="margin-top:10px;padding-left:18px;display:flex;flex-direction:column;gap:7px">
+     <li class="bd"><b>Release a payout early</b> — needs a platform admin, plus a second person's approval</li>
+     <li class="bd"><b>Issue a refund</b> — same: admin, plus a second approval</li></ul>
+    <div class="sm" style="margin-top:10px">Both move real money, so they take two people. Ask in #ops and the request is logged with your name on it.</div></div></div>
+  <div class="notice info"><div><div class="h2">Nothing you do here is silent</div><div class="bd" style="margin-top:4px">Every action you take is written to an audit log with your name, the reason you typed, and what changed. That protects you as much as it protects the marketplace.</div></div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — see today's work</div><div class="btn sec">Skip</div></div>
+ </div></div>`;
+ if(st==='step2') return `<div class="win-inner">${nav(0)}<div class="body">
+  ${dots(2)}
+  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">Let's clear one real item together</div>
+   <div class="bd" style="margin-top:8px;max-width:640px">This is a live item from your venue. We'll walk it once, then you're done — you learn this faster by doing it than by reading about it.</div></div>
+  <div class="card">
+   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+    <div><div class="st warn">Needs you today</div>
+     <div class="h2" style="margin-top:8px">A seller hasn't sent tickets yet — 5h 12m left</div>
+     <div class="bd" style="margin-top:6px;max-width:560px">Midnight Arcade · sold 2 days ago · buyer paid $134.00. If the seller misses the window, the sale cancels itself and the buyer is refunded automatically — you don't have to do that part.</div>
+     <div class="sm" style="margin-top:8px">Your job here is one message: remind the seller. Everything else is automatic.</div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:200px"><div class="btn pri">Remind the seller</div><div class="btn sec">Open the transfer</div></div></div></div>
+  <div class="notice"><div><div class="bd" style="color:var(--ink)">Why this one first?</div><div class="sm" style="margin-top:3px">It has a deadline, a person waiting, and exactly one sensible next step. Most of your work here looks like this.</div></div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — how to read the numbers</div><div class="btn sec">Skip</div></div>
+ </div></div>`;
+ if(st==='step3') return `<div class="win-inner">${nav(0)}<div class="body">
+  ${dots(3)}
+  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">How to read the numbers</div>
+   <div class="bd" style="margin-top:8px;max-width:660px">Every number on your dashboard says what it counts, what period it covers, and what to do about it. If a number can't tell you those three things, tell us — that's our bug, not your misunderstanding.</div></div>
+  <div class="grid2">
+   <div class="tile needs"><div class="num">3</div><div class="lab">Sellers who haven't sent tickets</div>
+    <div class="def">Sold, paid for, and the seller hasn't marked them sent. Counted right now, not over a period.</div>
+    <div class="cmp">Yesterday at this time: 5</div>
+    <div class="next"><span>Remind the seller</span><span>→</span></div></div>
+   <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
+    <div class="def">Money that actually left our account to your sellers' banks. Last 7 days, compared with the 7 days before.</div>
+    <div class="cmp">Previous 7 days: $1,102 · up 17%</div>
+    <div class="next"><span>See each payout</span><span>→</span></div></div></div>
+  <div class="notice ok"><div><div class="bd" style="color:var(--ink)">One rule worth remembering</div><div class="bd" style="margin-top:4px">A number that needs you is on the left with an amber edge. A number that's just information sits quietly. If nothing has an amber edge, there is nothing for you to do today — that's the dashboard working, not the dashboard being empty.</div></div></div>
+  <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Finish — take me to Today</div></div>
+ </div></div>`;
+ return `<div class="win-inner">${nav(0)}<div class="body">
+  <div class="notice ok"><div><div class="h2">You're set up</div><div class="bd" style="margin-top:4px">Getting started stays in <b>Settings › Getting started</b> if you want it again. We won't show it on every sign-in.</div></div></div>
+  ${center('✓','Nothing needs you right now','Two sellers have deadlines later today and we\'re watching them. If anything slips, this page changes and you\'ll get one notification — not five.','Look around anyway')}
+ </div></div>`;
+}
+
+/* ---------- 2. DASHBOARD HOME: plain labels, definitions, comparison, next action ---------- */
+function home(st){
+ if(st==='loading') return `<div class="win-inner">${nav(0)}<div class="body">
+  <div class="skel" style="height:20px;width:180px"></div>
+  <div class="grid3">${[1,2,3,4,5,6].map(()=>`<div class="card" style="display:flex;flex-direction:column;gap:9px"><div class="skel" style="height:30px;width:60px"></div><div class="skel" style="height:14px;width:70%"></div><div class="skel" style="height:12px;width:90%"></div><div class="skel" style="height:12px;width:50%"></div></div>`).join('')}</div></div></div>`;
+ if(st==='empty') return `<div class="win-inner">${nav(0)}<div class="body">${center('✓','Nothing needs you right now','Three sellers have deadlines later today and we\'re watching them. You\'ll get one notification if anything slips.','See what we\'re watching')}</div></div>`;
+ if(st==='error') return `<div class="win-inner">${nav(0)}<div class="body">${center('!','Couldn\'t load today\'s numbers','This is a loading problem on our side. Nothing about your events, payouts or cases has changed — and no action you took has been lost.','Try again')}</div></div>`;
+ if(st==='limited') return `<div class="win-inner">${nav(0)}<div class="body">
+  <div><div class="eb">Today · Test Venue</div><div class="h1" style="margin-top:4px">Two things need you</div></div>
+  <div class="notice info"><div><div class="bd" style="color:var(--ink)">Some numbers are hidden for your role</div>
+   <div class="bd" style="margin-top:4px">You're signed in as <b>venue manager</b>, so platform-wide money and system health aren't shown. That's a permission, not an outage — a platform admin sees them.</div></div></div>
+  <div class="grid3">
+   <div class="tile needs"><div class="num">2</div><div class="lab">Sellers who haven't sent tickets</div><div class="def">Sold and paid, seller hasn't marked sent. Counted now.</div><div class="cmp">Yesterday: 5</div><div class="next"><span>Remind the seller</span><span>→</span></div></div>
+   <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div><div class="def">A buyer opened a case on one of your events. Counted now.</div><div class="cmp">Open for 4h</div><div class="next"><span>Read the case</span><span>→</span></div></div>
+   <div class="tile quiet" style="opacity:.55"><div class="num">—</div><div class="lab">Platform money</div><div class="def">Not shown for your role.</div><div class="cmp">A platform admin can see this</div><div class="next"><span>Request access</span><span>→</span></div></div></div>
+ </div></div>`;
+ return `<div class="win-inner">${nav(0)}<div class="body">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px">
+   <div><div class="eb">Today · Test Venue · Thu 17 Sep</div><div class="h1" style="margin-top:4px">Three things need you</div>
+    <div class="sm" style="margin-top:6px">Everything else is running. Numbers below say what they count and over what period.</div></div>
+   <div style="display:flex;gap:8px"><div class="btn sec">Last 7 days ▾</div><div class="btn sec">Export</div></div></div>
+  <div><div class="eb" style="margin-bottom:10px">Needs you now</div>
+  <div class="grid3">
+   <div class="tile needs"><div class="num">3</div><div class="lab">Sellers who haven't sent tickets</div>
+    <div class="def">Sold, paid for, seller hasn't marked them sent. Counted right now.</div><div class="cmp">Yesterday at this time: 5</div>
+    <div class="next"><span>Remind the seller</span><span>→</span></div></div>
+   <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div>
+    <div class="def">A buyer opened a case and is waiting for a person. Counted right now.</div><div class="cmp">Oldest has waited 4h</div>
+    <div class="next"><span>Read the case</span><span>→</span></div></div>
+   <div class="tile needs"><div class="num">2</div><div class="lab">Payouts waiting for review</div>
+    <div class="def">Held for a manual check before money moves. Counted right now.</div><div class="cmp">Both from one seller</div>
+    <div class="next"><span>Review them</span><span>→</span></div></div></div></div>
+  <div><div class="eb" style="margin-bottom:10px">Worth watching</div>
+  <div class="grid3">
+   <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
+    <div class="def">Money that left our account to sellers' banks. Last 7 days.</div><div class="cmp">Previous 7 days: $1,102 · up 17%</div>
+    <div class="next"><span>See each payout</span><span>→</span></div></div>
+   <div class="tile quiet"><div class="num">41</div><div class="lab">Tickets sold</div>
+    <div class="def">Completed sales, refunds excluded. Last 7 days.</div><div class="cmp">Previous 7 days: 38 · up 8%</div>
+    <div class="next"><span>See the sales</span><span>→</span></div></div>
+   <div class="tile quiet"><div class="num">6h 12m</div><div class="lab">Typical time to send tickets</div>
+    <div class="def">Middle value from paid to marked-sent. Last 7 days, sales that completed.</div><div class="cmp">Previous 7 days: 9h 40m · faster</div>
+    <div class="next"><span>See slowest first</span><span>→</span></div></div></div></div>
+  <div><div class="eb" style="margin-bottom:10px">Healthy — no action</div>
+  <div class="grid3">
+   <div class="tile ok"><div class="num">0</div><div class="lab">Sales stuck mid-payment</div><div class="def">Paid but not recorded as complete. Counted now.</div><div class="cmp">None for 6 days</div><div class="next"><span>How this clears itself</span><span>→</span></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Background jobs failing</div><div class="def">Scheduled work that errored on its last run.</div><div class="cmp">Last failure: 11 days ago</div><div class="next"><span>See the schedule</span><span>→</span></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Card disputes from banks</div><div class="def">Chargebacks needing evidence. Counted now.</div><div class="cmp">None this quarter</div><div class="next"><span>What evidence we send</span><span>→</span></div></div></div></div>
+ </div></div>`;
+}
+
+/* ---------- 3. EVENT MANAGEMENT ---------- */
+function event(st){
+ if(st==='loading') return `<div class="win-inner">${nav(2)}<div class="body"><div class="skel" style="height:22px;width:240px"></div>
+  <div class="card">${[1,2,3,4,5].map(()=>`<div class="skel" style="height:34px;margin-bottom:8px"></div>`).join('')}</div></div></div>`;
+ if(st==='empty') return `<div class="win-inner">${nav(2)}<div class="body">
+  <div class="crumb">Events › Midnight Arcade</div><div class="h1">Midnight Arcade</div>
+  ${center('◎','No tickets listed yet','When a seller lists a ticket for this event it appears here with its price, status and buyer. Nothing is wrong — the event just hasn\'t been listed on yet.','Invite sellers')}</div></div>`;
+ const limited=st==='limited';
+ return `<div class="win-inner">${nav(2)}<div class="body">
+  <div><div class="crumb">Events › Midnight Arcade</div>
+   <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
+    <div><div class="h1">Midnight Arcade</div><div class="sm" style="margin-top:5px">Fri 24 Oct · 22:00 · Test Venue · 120 capacity</div></div>
+    <div style="display:flex;gap:8px"><div class="btn sec">Event settings</div><div class="btn ${limited?'dis':'pri'}">${limited?'Pause selling — admin only':'Pause selling'}</div></div></div></div>
+  <div class="grid3">
+   <div class="tile quiet"><div class="num">41</div><div class="lab">Sold</div><div class="def">Completed sales for this event.</div><div class="cmp">Capacity 120 · 34% sold</div></div>
+   <div class="tile quiet"><div class="num">$4,894</div><div class="lab">Buyers paid</div><div class="def">All-in, fees included. Total for this event.</div><div class="cmp">Sellers received $4,405</div></div>
+   <div class="tile needs"><div class="num">2</div><div class="lab">Need attention</div><div class="def">Tickets whose transfer is late or disputed.</div><div class="cmp">Both listed below, highlighted</div></div></div>
+  <div class="card" style="padding:0">
+   <div style="display:flex;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:center">
+    <span class="st">All 43</span><span class="st warn">Needs attention 2</span><span class="st mute">Sold 41</span><span class="st mute">Ended 0</span>
+    <div style="margin-left:auto" class="sm">Sorted by: needs attention first</div></div>
+   <table><thead><tr><th>Ticket</th><th>Seller</th><th>Status</th><th class="num">Buyer paid</th><th class="num">Seller gets</th><th>Next step</th></tr></thead>
+   <tbody>
+    <tr class="sel"><td class="strong">#4193 · row B</td><td>seller_2f58</td><td><span class="st warn">Send overdue · 3h</span></td><td class="num">$134.00</td><td class="num">$108.00</td><td class="strong">Remind the seller</td></tr>
+    <tr class="sel"><td class="strong">#4188 · row B</td><td>seller_9a11</td><td><span class="st err">Buyer reported a problem</span></td><td class="num">$134.00</td><td class="num">held</td><td class="strong">Read the case</td></tr>
+    <tr><td class="strong">#4201 · row C</td><td>seller_2f58</td><td><span class="st ok">Buyer confirmed</span></td><td class="num">$96.00</td><td class="num">$77.00</td><td>—</td></tr>
+    <tr><td class="strong">#4202 · row C</td><td>seller_71bd</td><td><span class="st">Sent · buyer reviewing</span></td><td class="num">$96.00</td><td class="num">$77.00 on Fri</td><td>—</td></tr>
+    <tr><td class="strong">#4205 · standing</td><td>seller_0c42</td><td><span class="st mute">Bidding · ends 2h 14m</span></td><td class="num">$120.00</td><td class="num">—</td><td>—</td></tr>
+   </tbody></table></div>
+  ${limited?`<div class="notice info"><div><div class="bd" style="color:var(--ink)">Two actions here need a platform admin</div><div class="bd" style="margin-top:4px">Pausing sales and issuing refunds move money or stop revenue, so they sit with an admin and need a second approval. You can do everything else on this page.</div></div></div>`:''}
+ </div></div>`;
+}
+
+/* ---------- 4. TRANSFER / DISPUTE REVIEW — the destructive-action class ---------- */
+function ops(st){
+ const success=st==='success', err=st==='error', limited=st==='limited';
+ return `<div class="win-inner">${nav(1)}<div class="body">
+  <div><div class="crumb">Cases › #C-2291</div>
+   <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
+    <div><div class="h1">Buyer says the tickets never arrived</div>
+     <div class="sm" style="margin-top:5px">Case #C-2291 · opened 4h ago · Midnight Arcade · ticket #4188</div></div>
+    <div style="display:flex;gap:8px"><div class="btn sec">Message buyer</div><div class="btn sec">Message seller</div></div></div></div>
+  ${success?`<div class="notice ok"><div><div class="h2">Case resolved in the buyer's favour</div><div class="bd" style="margin-top:4px">The refund request is queued and needs a second admin's approval before money moves. The seller has been told, and your name and reason are on the record.</div></div></div>`:''}
+  ${err?`<div class="notice err"><div><div class="h2">We couldn't record your decision</div><div class="bd" style="margin-top:4px">The server didn't answer, so <b>nothing was changed and no money moved</b>. Your reason is still in the box below — try again in a moment.</div></div></div>`:''}
+  <div class="grid2" style="align-items:start">
+   <div class="card"><div class="eb">What we know</div>
+    <div class="kv" style="margin-top:12px">
+     <div class="k">Buyer paid</div><div class="v">$134.00 all-in on 15 Sep, 14:02</div>
+     <div class="k">Seller marked sent</div><div class="v">15 Sep, 19:41 — 5h 39m after payment</div>
+     <div class="k">Proof attached</div><div class="v">Yes — screenshot, added 19:41 <span class="sm">· view</span></div>
+     <div class="k">Buyer confirmed</div><div class="v">No — opened this case instead</div>
+     <div class="k">Payout</div><div class="v">Held since the case opened</div>
+     <div class="k">Seller history</div><div class="v">14 sales · 1 previous case, resolved in their favour</div></div></div>
+   <div class="card"><div class="eb">What happened, in order</div>
+    <div class="tl" style="margin-top:12px">
+     <div class="tlrow"><span class="sm">15 Sep 14:02</span><span class="bd">Buyer paid $134.00</span></div>
+     <div class="tlrow"><span class="sm">15 Sep 19:41</span><span class="bd">Seller marked sent and attached proof</span></div>
+     <div class="tlrow"><span class="sm">16 Sep 09:15</span><span class="bd">Buyer opened this case: "nothing in my DICE account"</span></div>
+     <div class="tlrow"><span class="sm">16 Sep 09:15</span><span class="bd">Payout automatically held</span></div>
+     <div class="tlrow"><span class="sm">17 Sep 10:30</span><span class="bd">You opened this case</span></div></div></div></div>
+  <div class="card" style="border-left:2px solid var(--err)">
+   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
+    <div style="flex:1"><div class="h2">Decide this case</div>
+     <div class="bd" style="margin-top:6px;max-width:520px">Both outcomes move real money and <b>cannot be undone from here</b>. Whichever you choose, the other party is told, and the decision is logged with your name and your reason.</div>
+     <div style="margin-top:12px"><div class="eb">Your reason — the buyer and seller both see this</div>
+      <div style="margin-top:6px;border:1px solid var(--lineStrong);padding:10px;font-size:var(--fsSm);color:var(--ink3)">Proof shows a transfer to a different email than the buyer's…</div></div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;min-width:230px">
+     <div class="btn ${limited?'dis':'danger'}">${limited?'Refund the buyer — admin only':'Refund the buyer · $134.00'}</div>
+     <div class="btn ${limited?'dis':'danger'}">${limited?'Release to seller — admin only':'Release payout to seller · $108.00'}</div>
+     <div class="btn sec">Ask for more evidence</div>
+     <div class="sm">${limited?'Your role can read this case and ask for evidence. Deciding it needs a platform admin, and money movement needs a second approval after that.':'Either decision needs a second admin\'s approval before money moves. You are requesting, not executing.'}</div></div></div></div>
+ </div></div>`;
+}
+
+/* ---------- 5. SETTINGS & PERMISSIONS ---------- */
+function perm(st){
+ const limited=st==='limited', success=st==='success';
+ return `<div class="win-inner">${nav(5)}<div class="body">
+  <div><div class="crumb">Settings › People and permissions</div><div class="h1" style="margin-top:6px">Who can do what</div>
+   <div class="sm" style="margin-top:6px">Three roles, fixed. A role decides which actions someone can even request — and two actions always need a second person, whatever their role.</div></div>
+  ${success?`<div class="notice ok"><div><div class="h2">Role changed</div><div class="bd" style="margin-top:4px">A. Okafor is now a venue manager. They keep read access to their own events and lose platform-wide money pages. They'll see what changed the next time they sign in, and this change is in the audit log.</div></div></div>`:''}
+  <div class="card" style="padding:0">
+   <table><thead><tr><th>Action</th><th>Venue manager</th><th>Risk</th><th>Support</th><th>Platform admin</th><th>Second approval</th></tr></thead>
+   <tbody>
+    <tr><td class="strong">See your own events and sales</td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td>—</td></tr>
+    <tr><td class="strong">Open and read a case</td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td>—</td></tr>
+    <tr><td class="strong">Restrict a user</td><td><span class="st mute">No</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td><span class="st ok">Yes</span></td><td>—</td></tr>
+    <tr><td class="strong">Decide a dispute</td><td><span class="st mute">No</span></td><td><span class="st ok">Yes</span></td><td><span class="st mute">No</span></td><td><span class="st ok">Yes</span></td><td>—</td></tr>
+    <tr class="sel"><td class="strong">Release a payout early</td><td><span class="st mute">No</span></td><td><span class="st mute">No</span></td><td><span class="st mute">No</span></td><td><span class="st ok">Yes</span></td><td><span class="st warn">Always</span></td></tr>
+    <tr class="sel"><td class="strong">Issue a refund</td><td><span class="st mute">No</span></td><td><span class="st mute">No</span></td><td><span class="st mute">No</span></td><td><span class="st ok">Yes</span></td><td><span class="st warn">Always</span></td></tr>
+   </tbody></table></div>
+  <div class="grid2" style="align-items:start">
+   <div class="card"><div class="eb">People</div>
+    <div class="kv" style="margin-top:12px">
+     <div class="k">A. Okafor <span class="sm">· you</span></div><div class="v">Venue manager ${limited?'':'<span class="sm">· change</span>'}</div>
+     <div class="k">J. Tascón</div><div class="v">Platform admin</div>
+     <div class="k">M. Reyes</div><div class="v">Support <span class="sm">· ${limited?'read only':'change'}</span></div></div>
+    ${limited?`<div class="sm" style="margin-top:12px">You can see roles but not change them. A platform admin can.</div>`:`<div class="btn sec" style="margin-top:14px">Invite someone</div>`}</div>
+   <div class="card" style="border-left:2px solid var(--warn)"><div class="eb">Waiting for a second approval</div>
+    <div class="bd" style="margin-top:10px">One refund of <b>$134.00</b> requested by J. Tascón 20 minutes ago, for case #C-2291.</div>
+    <div class="sm" style="margin-top:8px">Nothing moves until a different admin approves it. You can't approve your own request — that's the point of the rule.</div>
+    <div style="display:flex;gap:8px;margin-top:12px"><div class="btn ${limited?'dis':'sec'}">${limited?'Approval needs an admin':'Review the request'}</div></div></div></div>
+ </div></div>`;
+}
+const B={onboard,home,event,ops,perm};
+
+let S={s:'home',st:'populated',lg:false,rm:false};
+function ctl(){
+ const sc=SCREENS.find(x=>x.id===S.s);
+ if(!sc.st.includes(S.st)) S.st=sc.st[0];
+ document.getElementById('ctl').innerHTML=
+  `<div class="grp"><b>Screen</b>${SCREENS.map(x=>`<button data-s="${x.id}" class="${S.s===x.id?'on':''}">${x.n}</button>`).join('')}</div>
+   <div class="grp"><b>State</b>${sc.st.map(t=>`<button data-t="${t}" class="${S.st===t?'on':''}">${t}</button>`).join('')}</div>
+   <div class="grp"><b>Text</b><button data-l="1" class="${S.lg?'on':''}">Largest ${S.lg?'ON':'off'}</button>
+   <button data-r="1" class="${S.rm?'on':''}">Reduce Motion ${S.rm?'ON':'off'}</button></div>`;
+ document.querySelectorAll('#ctl button').forEach(b=>b.onclick=()=>{
+  if(b.dataset.s)S.s=b.dataset.s; if(b.dataset.t)S.st=b.dataset.t;
+  if(b.dataset.l)S.lg=!S.lg; if(b.dataset.r)S.rm=!S.rm; render();});
+}
+function render(){
+ ctl();
+ const sc=SCREENS.find(x=>x.id===S.s);
+ document.getElementById('stage').innerHTML=
+  `<div class="unit"><div class="ulabel">${sc.n} — ${S.st} — ${S.lg?'largest text':'normal text'}</div>
+   <div class="win ${S.lg?'lg':''} ${S.rm?'reduce':''}"><div class="scroll">${B[S.s](S.st)}</div></div></div>`;
+ document.getElementById('note').innerHTML=`<b>${sc.n}</b> · state <b>${S.st}</b>. Roles and the second-approval rule follow the console's real model
+  (<code>platform_admin</code>, <code>platform_risk</code>, <code>platform_support</code>; payout release and refund execution always need a second approval).
+  Metric wording is B's proposal and is unverified until D confirms each definition.`;
+ // keep the inner app filling the window
+ document.querySelectorAll('.win-inner').forEach(e=>{e.style.display='flex';e.style.flexDirection='column';e.style.minHeight='100%';});
+}
+render();
+</script></body></html>
