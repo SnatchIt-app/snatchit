@@ -142,8 +142,10 @@ a byte-identical union of e6d9f2e + C's 8dc4cec and a609cbc, disjoint files, `su
 files after `npm ci`), `eas build --platform ios --profile preview --non-interactive --no-wait --message
 "candidate 2026-09-18 build-b2 aad5f75"`. **EAS build id `dcbf20e0-76dd-4b18-a48a-20c203ba0175`**, page
 `https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/dcbf20e0-76dd-4b18-a48a-20c203ba0175`
-(installation link once finished); assigned build number, finish time and artifact to be appended. Sandbox
-env compiled in as Build 17. Owner authorisation: the one combined sandbox build (direct, 2026-09-16) and the
+(installation link). **FINISHED: Build 18**, SDK 54.0.0, app version 1.0.0, commit
+aad5f752ef690270f91c820b02e57bcedc3799be (= the tag), started 2026-09-17 02:48:54Z, artifact
+`https://expo.dev/artifacts/eas/onEOmwhNsFrcM2iRKtyZ18ay-QzrRA47iZ75AxfTxTs.ipa`. Sandbox env compiled in as
+Build 17. Link sent to A → owner. Owner authorisation: the one combined sandbox build (direct, 2026-09-16) and the
 2026-09-17 ruling in A's session; no production change, no other build.
 
 Read-back protocol unchanged (C sends "row N ready + time"; A reads within minutes; D reads
