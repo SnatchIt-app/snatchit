@@ -3042,3 +3042,16 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   reason 'Other,' notes 'Test note abc.' Stop if the pre-check does not find exactly one matching report, any other
   report created since 1:30 PM, or any change to D7. Confirm afterward that no reports remain and D7, the buyer
   account, notices and background jobs are unchanged." Relayed to A (cc D) for execution. The handset is held.
+- **Report cleanup: A's pre-read PASSED every stop condition (2026-09-17T17:40:50Z); the WRITE IS HELD by A's rule that a
+  relayed permission is not authorization.** A asked the owner in A's own conversation to say: "A: go — delete
+  sandbox report 265b0041 per the scoped cleanup plan."
+  - **Pre-read:**
+    - reports total 1 / pending 1 / since 17:30Z 1 / others 0;
+    - keyed match 1 (row md5 b733b1aa…);
+    - D7 active, unchanged (row md5 f7d130c3…);
+    - buyer ACTIVE, 0 deletions, 2 sessions (newest 16:32:39Z), push row 140fcb44 active;
+    - f3abe550 unread and undismissed; notify.notification 9, delivery 18;
+    - claim 0, queue 0; cron 22/22 active (list md5 c2c5c079…); pg_net on its 2-minute cadence.
+  - **Write design:** one transaction re-checks, and raises on any difference: no other report since 17:30Z, D7 md5,
+    report md5. It then runs the keyed delete, raising unless exactly 1 row. D's independent pre-read requested. The
+    report stays inert (no outbound path).
