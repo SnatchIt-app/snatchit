@@ -2419,3 +2419,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   killed; full 2202/104; tsc 0; lint 0/29. *Evidence line (owner):* server outcomes 1–2 passed on the
   database side (A/B/D); conversion and buyer display unverified until a real iPhone round trip; device
   behaviour needs a build; the image issue is NOT described as fixed. DV-IMG rows wait for A's transfer ids.
+  **D review → 5e14a68 → D PASS (2026-09-18):** D found refresh and submit could overlap (a late
+  pre-submit read showing a confirmed proof vanish) → buttons wait for a refresh, a refresh waits for a
+  submit (single-flight ref); a reply outcome without a sent status pinned as unconfirmed. Four mutants,
+  each killed, re-run by D. Full 2204/104, tsc 0, lint 0/29. Head ready for A's integration; rendering,
+  sandbox round trip and DV-IMG rows unverified.
