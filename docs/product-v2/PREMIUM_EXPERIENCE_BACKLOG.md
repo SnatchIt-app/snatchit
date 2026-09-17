@@ -2952,3 +2952,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     - push row 140fcb44 active and session-bound;
     - push_binding_epoch still 16:12:37Z, with no bump.
   - Next: DV-N-3 (relaunch).
+- **DV-N-3: PASS (owner-reported + the owner's screenshot, Build 19, DV buyer, 2026-09-17 12:48 EDT).** After a force-quit
+  and reopen, the staged notice "A device stopped receiving your notifications" did NOT reappear. Only the existing
+  "Account deletion requested" notice shows (expected; F-NOTICE-1 unchanged). Nothing tapped. **DV-N-1..3 on Build
+  19: PASS.** The owner asked A to delete ONLY fb23b20a and verify cleanup (buyer rows = f3abe550 only, unchanged;
+  notification total 9; delivery 18; queue 0), then D's cleanup read.
