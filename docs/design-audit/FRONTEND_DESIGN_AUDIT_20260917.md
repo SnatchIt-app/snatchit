@@ -390,3 +390,23 @@ geometry (0 non-zero radii outside the pill allowance), the warning ink is exact
 - **Dynamic Type at its largest step, the real badge inset, and keyboard behaviour on Android** — all three need the app running.
 - **Whether the owner's screenshots show something these files do not.** C holds the observations; the images are the owner's.
 - **Whether ML-1's calmer treatment supersedes this audit's My Listings notes** — the owner's decision, pending on C's option.
+
+## 13. Routing and confirmations from A (2026-09-17, after the audit was published)
+
+- **P2 (checkout has no offline state) is a gated-surface item, not a visual one.** A owns pre-merge review of
+  `src/lib/payments.ts`, `src/lib/checkout/{setupDecision,payControl,holdState}.ts` and any authoritative-state read, and
+  classes this finding as payment correctness: *a server reply asserts only what it says, and a failure to reach the server
+  asserts nothing at all.* **When it becomes a proposal it routes to A as well as C**, and A reviews it as correctness
+  rather than styling. P1 (the bid screen's `0` floor) stays classified as a truthfulness defect, not a money defect, since
+  the server still validates — A agrees with that classification.
+- **`6561d1f` is confirmed as the audit head** by A, on the strength of the `f412d10..6561d1f` diff touching nothing under
+  `supabase/`. The per-finding tree annotations stay, because the Bids fix is in `6561d1f` and **not** in the Build 19 the
+  handset runs — A names this as the single place a reader is most likely to go wrong.
+- **A records the Reanimated constraint as an integration fact:** any Reanimated-based proposal implies a Babel config
+  change plus a new build to prove it, and no build is authorized. §7's use of RN `Animated` + `v2.motion` stands.
+- **Also settled, per A, and not re-litigated here:** the v2 system is in force (its visual direction was approved for the
+  admin analytics work), and the SANDBOX badge with the badge-aware header inset (F-SELL-2) was re-confirmed on Build 19.
+- **Ownership of the two cleanups:** A asks that the dead code (`StatCardStrip`, `TransferStatusBadge` with the one test that
+  reads it, `src/constants/theme.ts`) and the three stale status lines be **their own small change**, not folded into a
+  polish batch. They stay P9 and P15 here; **B does not make them** — deleting components is a product change, and the two
+  design docs belong to C's and A's records, not to this audit branch.
