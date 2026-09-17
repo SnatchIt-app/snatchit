@@ -62,7 +62,11 @@ describe('CFT-607 — session expiry says so on the login screen', () => {
     const so = stripComments(read('src/lib/auth/signOut.ts'));
     expect(so).toMatch(/markSessionEnd\(reason\);\s*const \{ error \} = await supabase\.auth\.signOut\(\{ scope \}\);/); // K-2: reason defaults to 'user', scope to 'local'; F-K2-3: the error is read
     const auth = stripComments(read('src/hooks/useAuth.ts'));
-    expect(auth).toContain("if (event === 'SIGNED_OUT' && newSession === null) markSessionEndIfUnmarked('expired');");
+    // The callback is now the synchronous handler (auth-lock deadlock fix, 2026-09-16); the
+    // unmarked SIGNED_OUT is still marked as an expiry, via the handler's markExpired dep.
+    expect(auth).toContain("markExpired: () => markSessionEndIfUnmarked('expired')");
+    const handler = stripComments(read('src/lib/auth/authStateHandler.ts'));
+    expect(handler).toContain("if (event === 'SIGNED_OUT' && session === null) deps.markExpired();");
     const login = stripComments(read('app/(auth)/login.tsx'));
     expect(login).toContain('useState<string | null>(() => sessionEndNotice(consumeSessionEnd()))');
     expect(login).toContain('{noticeRow}');
