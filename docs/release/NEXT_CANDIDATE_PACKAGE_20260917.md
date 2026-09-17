@@ -1,4 +1,4 @@
-# Candidate c3 — execution package and final approval request (A, 2026-09-17) — ISSUED FOR APPROVAL at `f412d10`; nothing here is tagged, built, applied or deployed
+# Candidate c3 — execution package and final approval request (A, 2026-09-17) — LINE 1 AUTHORIZED: tag `candidate/2026-09-18-build-c3` created at `f412d10`, one sandbox preview build by C; nothing is applied or deployed
 
 **Supersedes** the `4dbee98` version of this file, which is preserved byte-for-byte in git
 (`4dbee98:docs/release/NEXT_CANDIDATE_PACKAGE_20260917.md`, sha256 `347bf5eb842d588d2361d9af08e834c2f160ee290d7b65f269c9bb425629c8c8`).
@@ -11,7 +11,7 @@ survive are carried verbatim in §9.
 |---|---|
 | **Build** | **The hold's condition is met, and the package is issued for approval.** The owner held the build until C's Keep editing fix (F-NAV-1) passed D's review and was integrated. D PASSED 2ba9e3a (product) and 76b8622 (the required tests); A integrated at `f412d10`; CI 35237352892 SUCCEEDED on all five jobs; **D's merge-preservation gate on `f412d10`: PASS**. No build exists until the owner speaks line 1 |
 | Reviewed, CI-green tree | **`f412d10`** on `release/production-gate-20260918`, tree `0409138f` (= 76b8622's tree): CI 35237352892 success on all five jobs; D merge gate PASS. It contains `db16e1a` (tree `aa93c03b`, CI 35188006272, D merge gate PASS, D: no open review item). **Every constituent review is closed (§1). No review is pending on this tree** |
-| Tag line | names **`f412d10`** (= `db16e1a` + `frontend/unsaved-guard-native-dismiss @ 76b8622`, --no-ff; tree `0409138f`). `candidate/2026-09-18-build-c3` does not exist until the owner speaks line 1 |
+| Tag line | **AUTHORIZED by the owner (2026-09-17): "I authorize creating candidate/2026-09-18-build-c3 at f412d10 and having C submit one sandbox preview build from that exact commit."** Tag created by A, annotated `b4c3b908`, pushed, and resolving on origin to `f412d10a1131` (tree `0409138f`). Unchanged: `candidate/2026-09-18-build-b2` → `aad5f75` (Build 18), `candidate/2026-09-18-pin-b2` → `9bef640` (sandbox application pin), `candidate/2026-09-18-pin` → `aabe029`. **The build is C's; A relays the installation link to the owner.** W-C3, the staged notice, the round trip and the permanent transfer-test writes remain separate and unauthorized |
 | What a tag will mean | a reviewed, CI-green tree, **not a working image flow on a handset** |
 | Checks rerun for F-NAV-1 (only what it can affect) | **on `f412d10`, by A, run alone:** vitest 2229/2229 in 105 files (14:59:37–14:59:59Z); tsc exit 0; lint 0 errors / 29 warnings · **CI 35237352892 SUCCESS on all five jobs** · D's merge gate pending. **The DB evidence and the §3 pins carry over:** `db16e1a..f412d10` changes 0 files under `supabase/`, `scripts/`, `.github/` and the gated client surface |
 | Sandbox | unchanged since the B2 window; read 14:35:00–14:35:40Z and 14:51:11Z (§2) |
