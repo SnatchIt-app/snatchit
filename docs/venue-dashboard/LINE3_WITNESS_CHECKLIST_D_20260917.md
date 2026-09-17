@@ -53,6 +53,20 @@ Each line is compared against the previous read and against `pre-l3`:
 8. **Outbound**: `net_queue=0` and `net_2xx_total=0`.
 9. **Vault names**: `project_url` only — no service-role key, no push key.
 
+## 2b. The listing pair hazard (A's navigation finding, 2026-09-17)
+
+| transfer | listing on screen | venue | in scope |
+|---|---|---|---|
+| `3118bd30` | Device D1 | Club Device | yes (picker-only rows) |
+| `92ee5156` | Device D6 | Club Device | yes (DV-IMG-4) |
+| `bce07eef` | Device D2 | Club Device | yes |
+| `8f59d37e` | Sandbox S8only | Club | yes (DV-IMG-10, reached via listing detail → "View transfer"; it is already seller_sent, so it never appears in the "Send tickets" tab) |
+| `83b83858` | Sandbox L7 | Club | **NO — must not be touched** |
+
+The last two share a venue name, so the event name is the only discriminator on screen. C has the owner read the event
+name before every tap in that pair. D's part: the read taken immediately before that row records BOTH row md5s, so a
+tap on the wrong listing is detectable at once and unambiguously, and `83b83858` changing at all is a stop.
+
 ## 3. Stop conditions (D says stop, and nothing proceeds until the owner rules)
 
 - Any attached proof replaced or deleted, or an evidence path changing on a transfer that the step did not name.
