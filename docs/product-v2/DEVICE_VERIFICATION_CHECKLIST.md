@@ -132,6 +132,7 @@ ba9cf6c` (K-2) + `frontend/session-bound-131-r2 @ f2c1a1c` (131).
 | DV-IMG-6 | Navigate away and back (F-IMG-1f) | Pick, leave the screen, return | Selection state as the fix defines (kept or cleared, stated); nothing stuck | UNTESTED — next candidate |
 | DV-IMG-7 | Sell form parity | Same as DV-IMG-1..3 on Sell your ticket cover and proof | Same behaviour; the Sell form stays the baseline | UNTESTED — next candidate |
 | DV-IMG-8 | Android | DV-IMG-1..5 on an Android device | Same, incl. the photo picker without a permission prompt on Android 13+ | UNTESTED — no device or emulator |
+| DV-IMG-9 | iPhone HEIC proof → JPEG (F-IMG-1i, outcome 3) | Send tickets: attach a HEIC camera photo (not a screenshot) as transfer proof; A's read-back of the stored object; open it in the operator console and on the web receive page in Chrome | Stored object's bytes and label are JPEG with a .jpg name; it renders in Chrome and on the iPhone. If compatible mode does not transcode, the object must be labelled HEIC (never JPEG) and the row FAILS outcome 3 | UNTESTED — next candidate + sandbox round-trip |
 
 ## Out of scope for this candidate
 

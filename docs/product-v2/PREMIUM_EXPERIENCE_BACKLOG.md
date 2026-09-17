@@ -2249,3 +2249,51 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   clamp), and empty / loading / error (existing copy). Sample rows are illustrative; status words,
   time-left format, empty/error copy and the action line are the app's own strings. Awaiting the
   owner's approval before any implementation; no read or contract changes expected.
+- **F-IMG-1 repair (owner, 2026-09-18: proceed under the frontend-fix scope; one coordinated repair
+  — A owns the server contract and migration number, B implements server/upload changes, C owns
+  picker, retry and submission UX, D reviews combined behaviour; no build, deployment or production
+  change).** Evidence kept in three separate classes:
+  *Source findings (traced, not device-reproduced):* 1a–1g as recorded above, plus **1h** proof picks
+  were validated against the auction-media rules and the stored type came from the file name; and
+  **1i (from expo-image-picker 17.0.10 source)** — the proof path (PHPicker, no editing) hands over a
+  public.heic photo's raw bytes as .heic under the default `.current` representation, so Build 18
+  stores iPhone proof photos as HEIC, which browser viewers (operator console, web receive page)
+  cannot display; the cover path (editing) already re-encodes to JPEG. B's findings (lost response →
+  false failure; seller_sent without evidence stranded permanently; filename-derived type; bucket
+  missing from deps; no upload timeout) were measured by B on a local replay; A: `mark_transfer_sent`
+  is not idempotent, returns void, raises "...current status: seller_sent." on a second call.
+  *Automated results, `frontend/proof-image-flow`:* 3ca84a6 (first head) → **c0281aa** (after A, B and
+  D review; D PASS on c0281aa, re-running D's own three mutants). Client only; supabase/ and gated
+  surface diff empty. Pure modules `src/lib/media/uploadFlow.ts` (one picker at a time, gate released
+  on every exit; byte sniff decides type and extension, no file-name input; object name fixed at pick
+  time; after any upload error — a timeout included — `storage.exists` decides; reuse only for the
+  same account/bucket/folder/transfer/file; selection kept across a remount and never swapped over a
+  fresh pick; a cancelled pick restores the prior state) and `src/lib/transfer/markSent.ts` (status
+  read → upload → verb → read back; success only on a sent read-back; the already-sent raise never
+  shown as failure; a thrown/timed-out verb is uncertain → "Pull down to refresh"). Hook: iOS
+  Compatible representation, Open Settings on a final denial, failure keeps the selection. Control:
+  "Opening your photos…" state. Send tickets: single-flight, Try again after a failed/unconfirmed
+  attempt. Sell form: picking included in busy, publish single-flight. 33 tests; harness asserts a
+  clean baseline, each mutant applied and changed the file, digest-verified restore; RED on Build 18
+  files 5; 21 mutants killed; full suite 96 files / 2110; tsc 0; lint 0/29. Disclosure: one earlier
+  mutant run was VOID (zsh word-splitting made restores no-ops); rebuilt and re-run.
+  *Device reproduction:* NONE. DV-IMG-1..9 pending; outcome 3 (HEIC → JPEG) does NOT pass until
+  DV-IMG-9 observes it. The MIME display failure itself is not reproduced. Not done: converted_from
+  metadata (PHPicker does not report the original type); existing HEIC evidence cannot be replaced
+  (053) — viewer-side question with A; null-proof recovery UI waits for A's contract (140:
+  transitioned / already_sent, attach → attached / already_attached). A session designation: the
+  owner named the original A [2e7a9a] as the only A; the fork stood down.
+- **ML-1 preview v2, calmer (owner, 2026-09-18: keep grouping, Needs action priority and simplified
+  controls; calmer treatment; this approves the layout direction, not implementation):** same
+  artifact, version 3 — boards: Current; Proposed v2 All; Live filter with a "2 listings need action"
+  row and the More sheet open; largest text with long titles; 320-wide small screen at largest text;
+  empty / loading / error. Charcoal rows without outlines, a small amber dot for Needs action,
+  compact Send tickets buttons at 44 pt (52 pt at largest text), sentence case except the page title,
+  red only for Send tickets and ending-soon time. **Cancel check (source):** Cancel exists only for a
+  live listing with bids (`canCancelListing`), voids all bids behind a confirmation, and is also on
+  the listing detail's seller menu; nothing in the app flags a listing as needing cancellation, so it
+  is never a needs-action recovery — it goes behind More with a helper line. **Open for the owner:**
+  the calmer empty/error type belongs to the shared state component, used app-wide; it needs its own
+  approval or ML-1 keeps the shared look. New proposed copy is listed on the canvas.
+- **DV-ST2:** held until the owner designated a single A session (now [2e7a9a]); owner still on
+  DV-S1 step 2. **DV-S1 step 2** given to the owner as the next single step; not complete.
