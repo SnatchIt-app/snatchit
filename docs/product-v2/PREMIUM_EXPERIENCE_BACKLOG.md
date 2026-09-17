@@ -2424,3 +2424,5 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   submit (single-flight ref); a reply outcome without a sent status pinned as unconfirmed. Four mutants,
   each killed, re-run by D. Full 2204/104, tsc 0, lint 0/29. Head ready for A's integration; rendering,
   sandbox round trip and DV-IMG rows unverified.
+  **Integrated by A: candidate head db16e1a** (tree aa93c03b; supabase/ and gated surface unchanged at
+  merge), named in the owner's tag line subject to CI on that head and D's merge gate. No build yet.
