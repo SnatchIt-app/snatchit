@@ -330,6 +330,18 @@ blocked-webfont banner announced itself as a status on D's server, where the fon
    lesson is not about that tile: **when a reviewer corrects a class of error, the fix has to be swept across every state,
    not applied where the error was pointed out.**
 
+8. **D's fourth render, across all 25 combinations rather than home alone, found the states nobody re-reads.** Empty,
+   error and loading on dashboard home had **no level-1 heading** — the page title vanished exactly where the page had
+   least to say — and **the loading state had no text at all**: no `aria-live`, no `role="status"`, no `aria-busy`, no
+   visually-hidden label. Sighted users saw skeletons; everyone else got silence, in the state most likely to be reached on
+   a bad connection. Event management's loading state was the same, and so was onboarding's final screen.
+   **Fixed as D suggested, structurally rather than per-state:** a `shell()` that mounts the eyebrow, the level-1 page
+   title and a level-2 summary in *every* state, with only the content beneath it changing, and the loading region wrapped
+   in `role="status" aria-busy="true"` with a visually-hidden line ("Loading today's numbers — nothing has changed while
+   you wait."). Verified across all twenty states: exactly one level-1 heading and one `main` in each, no state with almost
+   no text, every loading state announced. D also confirmed what is **not** a defect, so it does not get chased: the
+   "Remind the seller" cells on the event table are `<td>` content naming the action, not controls styled as links.
+
 **The distinction worth keeping, in D's words rather than mine:** the markup and the rendered accessibility tree are
 **different artefacts**, and `role="heading"` on a div is exactly the case where *reading the source tells you the intent
 and only the tree tells you the result*. That is why this took three rounds rather than one — each render found what the
