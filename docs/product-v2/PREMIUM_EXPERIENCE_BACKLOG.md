@@ -1756,7 +1756,17 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   the harness and proposed for the combined-build session. A reads
   auth.sessions immediately before the delete and states the branch. The
   buyer's own re-registration returns contract_version 2, which Build 17
-  handles; row 18 deferred to the combined build. Build: not cut until the owner says so
+  handles; row 18 deferred to the combined build.
+  **Row 17 server half PASS (A, 02:38:30Z, branch (1)):** the buyer's only live
+  session d947bef4… deleted by id (one row); row 140fcb44… active=false,
+  revoked_reason='signed_out_everywhere', revoked_at 02:38:30Z,
+  device_secret_hash NULL, session_id retained; `identity_ext.push_binding_epoch`
+  null → 02:38:32Z (later than the deleted session's creation, so no
+  pre-existing session can re-register); zero drift elsewhere; D taking the
+  after-read. Client half pending the owner's foreground: expected the
+  expiry notice on the login screen (CFT-607), not a silent failure. Next
+  buyer sign-in on this device registers fresh with no proof → expected
+  `registered` + a new plant (A reads after). Row 18 stays deferred. Build: not cut until the owner says so
   in A's session; inclusion of 8dc4cec / ce310ef (new tag) is the owner's word.
 - **Owner request (2026-09-16): exhaustive notification inventory + gap
   matrix from source and migrations** (not memory); no notifications added,
