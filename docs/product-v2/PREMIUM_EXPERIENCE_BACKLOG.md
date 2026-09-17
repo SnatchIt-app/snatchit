@@ -3293,3 +3293,23 @@ Most of the app is already tested; close the remaining gaps efficiently.
   form (step 0a) through the SAME components (`MediaUpload` + `useImageUpload`), so they are not re-run on the
   transfer screen; what remains there is what differs — the permission rows (DV-IMG-2, run once), leave-and-return
   (DV-IMG-6), the no-image gate (DV-IMG-3a) and the submitting rows (DV-IMG-4, -5, -9+3b, -10).
+- **Delivery fixture write DONE (A, 2026-09-17T20:44:31Z), under the owner's own line to A.** `update public.transfers
+  set delivery_email = <DV buyer's sandbox email> where id in (3118bd30, 92ee5156, bce07eef) and status='pending' and
+  delivery_email is null and delivery_phone is null`, in a transaction raising unless exactly 3 rows changed.
+  `delivery_phone` left NULL. A diffed each row's full JSON in the same transaction: **changed keys = delivery_email on
+  the three; "(none)" on 8f59d37e and 83b83858.** No status, expiry, payment state or evidence path. No side effects
+  (notifications 105, inbox 41, queue 0, 2xx 0); the state-column guard protects status/expiry/payout, not delivery;
+  `notify-transfer` isn't deployed and the trigger can't call out without the Vault service key.
+- **Consolidated blocker sweep: ALL FOUR CLEAR (A).** 92ee5156 "Device D6" pending, delivery SET; bce07eef "Device D2"
+  pending, SET; 3118bd30 "Device D1" pending, SET; 8f59d37e "Sandbox S8only" seller_sent, delivery NULL but it does not
+  matter — the Add proof button is `disabled={busy || refreshing}` and the delivery warning gates only the Send
+  section. Storage INSERT policy requires the object under the seller's own uid folder (what the client builds); party
+  read requires the object to be referenced, which is what makes RT6 work and U1/RT5-P deny. Bucket private, 10 MiB,
+  allows jpeg/png/webp/heic/heif/pdf, so DV-IMG-9 passes either way. The append-only guard is harmless with NULL paths.
+  Expiry gates nothing.
+- **Probe sequencing (A, with one stated deviation):** N3 runs BEFORE the pass (it must precede DV-IMG-10, since
+  attaching proof changes the precondition); N1, N2 and N4 run AFTER the pass in one batch, which deviates from the
+  approved interleaving so the owner taps continuously — recorded as a deliberate deviation, with the reason, not as
+  the approved order. RT6, U1 and RT5-P follow once all four objects exist.
+- **Reuse recorded as C's judgement:** DV-IMG-1 and DV-IMG-3's replace/remove half are **PASSED on step 0a's evidence**
+  (same components), not re-tested on the transfer screen. DV-IMG-3a's no-image gate stays **UNTESTED** until the pass.
