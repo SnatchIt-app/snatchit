@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Snatch It — five visual directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ base ============ */
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#17181a;color:#fff;font-family:Inter,system-ui,sans-serif;padding:18px 18px 60px;display:flex;flex-direction:column;gap:16px;align-items:center}
+h1{font-family:Oswald;font-weight:700;font-size:24px;text-transform:uppercase;letter-spacing:-.4px}
+.sub{color:rgba(255,255,255,.55);font-size:13px;line-height:19px;max-width:900px;text-align:center}
+.bar{position:sticky;top:0;z-index:50;background:#101113;border:1px solid #2a2c30;padding:10px 12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1180px}
+.grp{display:flex;gap:6px;align-items:center}
+.grp b{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,.45);margin-right:4px}
+button{font:inherit;font-size:12px;padding:6px 10px;background:#1b1d21;color:rgba(255,255,255,.75);border:1px solid #303338;cursor:pointer}
+button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
+.stage{display:flex;gap:22px;flex-wrap:wrap;justify-content:center;width:100%}
+.unit{display:flex;flex-direction:column;gap:8px;align-items:center}
+.ulabel{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+.frame{width:375px;height:812px;overflow:hidden;position:relative;border:1px solid #2a2c30}
+.scroll{position:absolute;inset:0;overflow-y:auto;display:flex;flex-direction:column}
+.dirnote{max-width:375px;font-size:12px;line-height:17px;color:rgba(255,255,255,.55)}
+.dirnote b{color:#fff}
+
+/* ============ shared screen scaffold ============ */
+.app{flex:1;display:flex;flex-direction:column;min-height:100%}
+.sbadge{background:#7a3b00;color:#ffd9a0;font-size:11px;letter-spacing:1px;text-align:center;padding:3px 0;font-weight:700;flex:0 0 auto}
+.topbar{display:flex;align-items:center;gap:10px;padding:12px 16px;flex:0 0 auto}
+.topbar .ic{color:var(--ink3);font-size:18px}
+.wordmark,.screenTitle{font-family:var(--fDisplay);font-weight:var(--wDisplay);font-size:var(--fsTitleBar);line-height:var(--lhTitleBar);letter-spacing:var(--lsDisplay);text-transform:var(--ttDisplay)}
+.content{padding:0 16px 16px;display:flex;flex-direction:column;gap:var(--gap);flex:1}
+.eyebrow{font-size:var(--fsEyebrow);line-height:1.4;color:var(--ink3);font-weight:500;letter-spacing:var(--lsEyebrow);text-transform:var(--ttEyebrow)}
+.h2{font-size:var(--fsH2);line-height:var(--lhH2);font-weight:var(--wH2);font-family:var(--fH2);letter-spacing:var(--lsH2);text-transform:var(--ttH2)}
+.bd{font-size:var(--fsBody);line-height:var(--lhBody);color:var(--ink2)}
+.sm{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink3)}
+.price{font-weight:700;font-size:var(--fsPrice);font-variant-numeric:tabular-nums;color:var(--ink)}
+.rows{display:flex;flex-direction:column}
+.rw{display:flex;justify-content:space-between;gap:12px;padding:var(--rowPadV) 0;border-bottom:1px solid var(--line)}
+.rw .k{font-size:var(--fsSm);color:var(--ink3)}.rw .v{font-size:var(--fsSm);text-align:right;color:var(--ink)}
+.panel{background:var(--panel);border:var(--panelBorder);border-radius:var(--radius);padding:var(--panelPad);backdrop-filter:var(--panelBlur)}
+.notice{display:flex;gap:10px;padding:var(--panelPad);background:var(--noticeBg);border-left:var(--noticeRule);border-radius:var(--radius)}
+.notice.warn{border-left-color:var(--warn)}
+.notice.info{border-left-color:var(--noticeInfo)}
+.cta{background:var(--red);color:var(--onRed);font-weight:700;font-size:var(--fsBody);text-align:center;padding:15px;min-height:52px;display:flex;flex-direction:column;justify-content:center;border-radius:var(--radiusBtn)}
+.cta .sub{font-weight:400;font-size:var(--fsSm);opacity:.68;margin-top:2px}
+.cta.dis{background:var(--disabled);color:var(--ink4)}
+.cta.sec{background:var(--secBg);border:1px solid var(--secLine);color:var(--ink);font-weight:500}
+.bottombar{margin-top:auto;position:sticky;bottom:0;background:var(--barBg);border-top:1px solid var(--line);padding:12px 16px;display:flex;flex-direction:column;gap:8px;backdrop-filter:var(--panelBlur)}
+.art{background:#141414 var(--artGrad);border:var(--artBorder);position:relative;overflow:hidden;display:flex;align-items:flex-end}
+.art .meta{padding:10px;display:flex;gap:6px;align-items:center}
+.tagpill{background:var(--tagBg);color:var(--tagInk);font-size:var(--fsMicro);padding:3px 7px;border-radius:var(--radiusPill);backdrop-filter:var(--panelBlur);letter-spacing:.4px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.chip{border:1px solid var(--line);padding:7px 12px;border-radius:var(--radiusPill);font-size:var(--fsSm);color:var(--ink3);white-space:nowrap;background:var(--chipBg)}
+.chip.on{background:var(--chipOnBg);border-color:var(--chipOnLine);color:var(--chipOnInk);font-weight:500}
+.dock{display:flex;justify-content:space-around;align-items:center;flex:0 0 auto}
+.dock.pill{margin:0 16px 16px;background:var(--dockBg);border:1px solid var(--line);border-radius:33px;padding:10px 0;backdrop-filter:var(--panelBlur)}
+.dock.native{border-top:1px solid var(--line);background:var(--dockBg);padding:8px 0 14px;backdrop-filter:var(--panelBlur)}
+.dock.quiet{padding:12px 0 16px;background:transparent}
+.dock i{font-style:normal;color:var(--ink4);font-size:19px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.dock i.on{color:var(--dockOn)}
+.dock i s{text-decoration:none;font-size:9px;letter-spacing:.3px}
+.dock.native i s{font-size:10px}
+
+/* ============ text scales ============ */
+.frame{--fsTitleBar:20px;--lhTitleBar:25px;--fsH2:17px;--lhH2:22px;--fsBody:15px;--lhBody:22px;--fsSm:13px;--lhSm:18px;--fsEyebrow:11px;--fsMicro:10px;--fsPrice:20px;--gap:24px;--rowPadV:11px;--panelPad:13px}
+.frame.lgtext{--fsTitleBar:26px;--lhTitleBar:32px;--fsH2:22px;--lhH2:28px;--fsBody:20px;--lhBody:28px;--fsSm:17px;--lhSm:23px;--fsEyebrow:14px;--fsMicro:13px;--fsPrice:26px;--gap:20px;--rowPadV:13px;--panelPad:14px}
+
+/* ============ direction: shared defaults ============ */
+.frame{--ink:#fff;--ink2:rgba(255,255,255,.72);--ink3:rgba(255,255,255,.55);--ink4:rgba(255,255,255,.3);
+ --red:#FF1A1A;--onRed:#000;--warn:#FFB020;--err:#FF4D4D;--ok:#3DDC84;
+ --canvas:#000;--panel:#0A0A0A;--panelBorder:1px solid rgba(255,255,255,.1);--panelBlur:none;--line:rgba(255,255,255,.1);
+ --radius:0px;--radiusBtn:0px;--radiusPill:9999px;--noticeBg:rgba(255,255,255,.04);--noticeRule:2px solid rgba(255,255,255,.2);--noticeInfo:rgba(255,255,255,.2);
+ --disabled:#1E1E1E;--secBg:transparent;--secLine:rgba(255,255,255,.2);--barBg:#0A0A0A;--dockBg:rgba(18,18,20,.72);--dockOn:#fff;
+ --chipBg:transparent;--chipOnBg:rgba(255,255,255,.08);--chipOnLine:rgba(255,255,255,.2);--chipOnInk:#fff;
+ --tagBg:rgba(0,0,0,.6);--tagInk:rgba(255,255,255,.85);--artBorder:none;--artGrad:none;
+ --fDisplay:'Oswald';--wDisplay:700;--ttDisplay:uppercase;--lsDisplay:-.2px;
+ --fH2:'Inter';--wH2:600;--ttH2:none;--lsH2:0;--ttEyebrow:none;--lsEyebrow:.4px;
+ background:var(--canvas)}
+
+/* D1 GALLERY — image-led, quiet sans, flat black, red rare */
+.frame[data-dir="gallery"]{--fDisplay:'Inter';--wDisplay:600;--ttDisplay:none;--lsDisplay:-.3px;--gap:28px;--line:rgba(255,255,255,.08);--panel:transparent;--panelBorder:none;--tagBg:rgba(0,0,0,.55)}
+.frame[data-dir="gallery"] .art{--artGrad:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.75) 100%)}
+
+/* D2 INDEX — editorial condensed, dense list, hairline rules, native tabs */
+.frame[data-dir="index"]{--fDisplay:'Oswald';--wDisplay:500;--ttDisplay:none;--lsDisplay:0;--fH2:'Oswald';--wH2:500;--ttH2:none;--lsH2:0;
+ --gap:18px;--rowPadV:9px;--line:rgba(255,255,255,.14);--panel:transparent;--panelBorder:none;--fsPrice:17px;--dockBg:rgba(0,0,0,.85)}
+
+/* D3 CHARCOAL — soft charcoal cards, rounded, broader accent system, native tabs */
+.frame[data-dir="charcoal"]{--canvas:#0E0F11;--panel:#17191C;--panelBorder:none;--line:rgba(255,255,255,.08);--radius:12px;--radiusBtn:10px;
+ --fDisplay:'Inter';--wDisplay:600;--ttDisplay:none;--lsDisplay:-.3px;--barBg:#17191C;--dockBg:rgba(14,15,17,.92);--noticeBg:rgba(255,255,255,.05);
+ --noticeInfo:#6E8BFF;--disabled:#22252A;--secBg:#1D2024;--secLine:transparent;--chipOnBg:#22252A;--chipOnLine:transparent;--panelPad:14px}
+
+/* D4 LIQUID — glass chrome, opaque content, iOS 26 flavour */
+.frame[data-dir="liquid"]{--canvas:#000;--panel:rgba(255,255,255,.07);--panelBorder:1px solid rgba(255,255,255,.14);--panelBlur:saturate(160%) blur(18px);
+ --radius:18px;--radiusBtn:14px;--line:rgba(255,255,255,.12);--fDisplay:'Inter';--wDisplay:600;--ttDisplay:none;--lsDisplay:-.3px;
+ --barBg:rgba(20,20,22,.6);--dockBg:rgba(255,255,255,.08);--noticeBg:rgba(255,255,255,.08);--tagBg:rgba(255,255,255,.16);--panelPad:14px}
+.frame[data-dir="liquid"] .topbar{background:rgba(20,20,22,.55);backdrop-filter:saturate(160%) blur(18px);position:sticky;top:0;z-index:5}
+.frame[data-dir="liquid"] .art{--artGrad:linear-gradient(180deg,rgba(0,0,0,0) 55%,rgba(0,0,0,.6) 100%)}
+
+/* D5 UTILITY — compact, tabular, zero decoration */
+.frame[data-dir="utility"]{--fDisplay:'Inter';--wDisplay:600;--ttDisplay:none;--lsDisplay:-.2px;--fsTitleBar:17px;--lhTitleBar:22px;
+ --gap:14px;--rowPadV:8px;--line:rgba(255,255,255,.12);--panel:#0B0B0C;--panelBorder:1px solid rgba(255,255,255,.1);--fsPrice:17px;--panelPad:10px;--dockBg:#0B0B0C}
+.frame[data-dir="utility"] .lgtext,.frame[data-dir="utility"].lgtext{--gap:14px}
+
+/* motion */
+.frame .mo{transition:opacity .18s cubic-bezier(.22,1,.36,1),transform .18s cubic-bezier(.22,1,.36,1)}
+.frame.reduce .mo{transition:none}
+</style></head><body>
+<h1>Five visual directions</h1>
+<p class="sub">Local prototypes, synthetic data, rendered in a browser at 375&times;812 — not screenshots of the app, and no device
+check is claimed. Switch direction, screen and text size below. Every direction keeps the same transactional content: delivery
+blockers, expiry, payment state, proof requirements and price breakdowns are visible in all five.</p>
+<div class="bar" id="controls"></div>
+<div class="stage" id="stage"></div>
+<p class="sub" id="note"></p>
+<script>
+const DIRS=[
+ {id:'gallery',name:'1 · Gallery',tone:'A well-made zine. The flyer does the talking.',dock:'quiet',home:'poster'},
+ {id:'index',name:'2 · Index',tone:'An insider listings schedule. Fast, typographic, dense.',dock:'native',home:'list'},
+ {id:'charcoal',name:'3 · Charcoal',tone:'Calm and familiar. Reads like a bank you trust.',dock:'native',home:'cards'},
+ {id:'liquid',name:'4 · Liquid',tone:'Current iOS. Glass chrome, opaque content.',dock:'pill',home:'grid'},
+ {id:'utility',name:'5 · Utility',tone:'A terminal for tickets. Numbers first.',dock:'native',home:'rows'}];
+const SCREENS=[{id:'home',name:'Home'},{id:'listing',name:'Listing detail'},{id:'send',name:'Send transfer'},{id:'receive',name:'Receive transfer'},{id:'checkout',name:'Checkout'}];
+const EV=[{n:'Midnight Arcade',d:'Fri 24 Oct',v:'Test Venue',p:'$120.00',bids:6,tag:'ends 2h'},
+ {n:'Paper Cathedral',d:'Sat 25 Oct',v:'Test Hall',p:'$64.00',bids:2,tag:'buy now $80'},
+ {n:'Neon Choir',d:'Sun 26 Oct',v:'Test Room',p:'$38.00',bids:0,tag:''},
+ {n:'Static Bloom',d:'Tue 28 Oct',v:'Test Yard',p:'$95.00',bids:11,tag:'2 left'}];
+const ART=(h,extra='')=>`<div class="art mo" style="height:${h}px;${extra}"></div>`;
+const dock=(d,active)=>{const items=[['⌂','Home'],['⌕','Search'],['＋','Sell'],['◎','Bids'],['☺','You']];
+ const cls=d.dock==='pill'?'dock pill':d.dock==='native'?'dock native':'dock quiet';
+ return `<div class="${cls}">${items.map((it,i)=>`<i class="${i===active?'on':''}">${it[0]}${d.dock==='native'?`<s>${it[1]}</s>`:''}</i>`).join('')}</div>`;};
+const bar=(html)=>`<div class="bottombar">${html}</div>`;
+const sandbox=`<div class="sbadge">Sandbox</div>`;
+
+/* ---------- HOME, one layout per direction ---------- */
+function home(d){
+ const chips=`<div class="chips"><span class="chip on">All</span><span class="chip">Tonight</span><span class="chip">This week</span><span class="chip">Under $50</span></div>`;
+ let body='';
+ if(d.home==='poster'){ // D1: one event per screenful, name + bid + date only
+  body=EV.map(e=>`<div style="display:flex;flex-direction:column;gap:8px">${ART(430,'width:100%')}
+   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+     <div class="h2" style="flex:1">${e.n}</div><div class="price">${e.p}</div></div>
+   <div class="sm">${e.d}</div></div>`).join('');
+ } else if(d.home==='list'){ // D2: date-grouped index, thumbnail + condensed name
+  const group=(date,items)=>`<div><div class="eyebrow" style="padding-bottom:6px;border-bottom:1px solid var(--line)">${date}</div>
+   ${items.map(e=>`<div class="rw" style="align-items:center">${ART(52,'width:40px;flex:0 0 40px')}
+    <div style="flex:1;margin-left:12px"><div class="h2">${e.n}</div><div class="sm">${e.v}${e.tag?' · '+e.tag:''}</div></div>
+    <div class="price">${e.p}</div></div>`).join('')}</div>`;
+  body=group('Friday 24 October',[EV[0]])+group('Saturday 25 October',[EV[1],EV[3]])+group('Sunday 26 October',[EV[2]]);
+ } else if(d.home==='cards'){ // D3: 2-col minimal charcoal cards
+  body=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">${EV.map(e=>`<div class="panel" style="padding:0;overflow:hidden">
+   ${ART(140,'width:100%')}<div style="padding:12px;display:flex;flex-direction:column;gap:4px">
+   <div class="sm">${e.d}</div><div class="h2">${e.n}</div><div class="price">${e.p}</div></div></div>`).join('')}</div>`;
+ } else if(d.home==='grid'){ // D4: image grid, frosted price panel over art
+  body=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">${EV.map(e=>`<div style="position:relative;border-radius:var(--radius);overflow:hidden">
+   ${ART(210,'width:100%')}<div class="panel mo" style="position:absolute;left:8px;right:8px;bottom:8px;padding:10px">
+   <div class="sm" style="color:var(--ink2)">${e.d}</div><div class="h2" style="font-size:var(--fsBody)">${e.n}</div>
+   <div class="price" style="font-size:var(--fsBody)">${e.p}</div></div></div>`).join('')}</div>`;
+ } else { // D5: compact utility rows with full data
+  body=`<div class="rows">${EV.map(e=>`<div class="rw" style="align-items:center">
+   <div style="flex:1"><div class="h2" style="font-size:var(--fsBody)">${e.n}</div>
+   <div class="sm">${e.d} · ${e.v} · ${e.bids} bid${e.bids===1?'':'s'}${e.tag?' · '+e.tag:''}</div></div>
+   <div style="text-align:right"><div class="price">${e.p}</div><div class="sm">current</div></div></div>`).join('')}</div>`;
+ }
+ return `<div class="app">${sandbox}
+  <div class="topbar"><div class="wordmark">${d.id==='index'?'Listings':'Snatch It'}</div><div style="margin-left:auto" class="ic">⌕</div></div>
+  <div class="content" style="gap:${d.home==='poster'?'28px':'var(--gap)'}">${d.home==='poster'?'':chips}${body}</div>
+  ${dock(d,0)}</div>`;
+}
+
+/* ---------- LISTING DETAIL ---------- */
+function listing(d){
+ const e=EV[0];
+ return `<div class="app">${sandbox}
+ <div class="topbar"><div class="ic">‹</div><div class="screenTitle" style="font-size:var(--fsH2);line-height:var(--lhH2)">${d.id==='gallery'?'':'Listing'}</div><div style="margin-left:auto" class="ic">⋯</div></div>
+ <div class="content">
+  ${ART(d.id==='utility'?150:300,'width:100%')}
+  <div style="display:flex;flex-direction:column;gap:6px">
+   <div class="sm">${e.d} · ${e.v}</div>
+   <div class="h2" style="font-size:${d.id==='index'?'26px':'var(--fsH2)'}">${e.n}</div>
+  </div>
+  <div class="panel"><div style="display:flex;justify-content:space-between;align-items:baseline">
+    <div><div class="eyebrow">Current bid</div><div class="price" style="margin-top:2px">${e.p}</div></div>
+    <div style="text-align:right"><div class="sm">${e.bids} bids</div><div class="sm" style="color:var(--warn)">ends in 2h 14m</div></div></div></div>
+  <div class="rows">
+   <div class="rw"><span class="k">Seller</span><span class="v">the seller · 14 sales</span></div>
+   <div class="rw"><span class="k">Ticket type</span><span class="v">Mobile transfer · DICE</span></div>
+   <div class="rw"><span class="k">Restrictions</span><span class="v">Name change not allowed</span></div>
+   <div class="rw"><span class="k">All-in price</span><span class="v">Fees included</span></div>
+  </div>
+  <div class="sm">Your bid is a commitment. If you win, your card is charged automatically.</div>
+ </div>
+ ${bar(`<div class="cta">Place bid<span class="sub">Minimum $125.00</span></div><div class="cta sec">Buy now for $150.00</div>`)}
+ </div>`;
+}
+
+/* ---------- SEND TRANSFER (blocker + expiry + proof, all visible) ---------- */
+function send(d){
+ return `<div class="app">${sandbox}
+ <div class="topbar"><div class="ic">‹</div><div class="screenTitle">Send tickets</div></div>
+ <div class="content">
+  <div class="notice warn mo"><div><div class="h2">Delivery details needed</div>
+   <div class="bd" style="margin-top:4px">The buyer hasn't added them yet. We'll tell you here as soon as they do.</div>
+   <div class="sm" style="margin-top:6px">The 24-hour window has passed. You can still send while this transfer is open; if it closes first, the sale is cancelled and refunded.</div></div></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">Transfer proof</div>
+   <div class="panel" style="display:flex;gap:12px;align-items:center">
+    <div style="width:52px;height:52px;flex:0 0 52px;background:#1a1a1a;border:1px solid var(--line);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px">add</div>
+    <div><div class="bd" style="color:var(--ink)">Add a screenshot</div><div class="sm">The confirmation screen from DICE</div></div></div></div>
+  <div class="rw" style="border-top:1px solid var(--line)"><div><div class="bd" style="color:var(--ink)">How to transfer on DICE</div><div class="sm">5 steps · about 3 minutes · 3 cautions</div></div><div class="ic" style="align-self:center">›</div></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">This transfer</div>
+   <div class="rows">
+    <div class="rw"><span class="k">Event</span><span class="v">${EV[0].n}</span></div>
+    <div class="rw"><span class="k">Buyer</span><span class="v">the buyer</span></div>
+    <div class="rw"><span class="k">Send to</span><span class="v">not provided yet</span></div>
+    <div class="rw"><span class="k">Payout</span><span class="v">After the buyer confirms</span></div>
+   </div></div>
+ </div>
+ ${bar(`<div class="cta dis">Mark as sent<span class="sub">Available once the buyer adds delivery details</span></div>`)}
+ </div>`;
+}
+
+/* ---------- RECEIVE TRANSFER ---------- */
+function receive(d){
+ return `<div class="app">${sandbox}
+ <div class="topbar"><div class="ic">‹</div><div class="screenTitle">Receive tickets</div></div>
+ <div class="content">
+  <div class="notice info mo"><div><div class="h2">Tickets sent — check DICE</div>
+   <div class="bd" style="margin-top:4px">The seller marked these as sent 14 minutes ago and attached proof. Accept the transfer in DICE, then confirm below.</div></div></div>
+  <div class="panel" style="display:flex;gap:12px;align-items:center">
+   <div style="width:52px;height:52px;flex:0 0 52px;background:#1a1a1a;border:1px solid var(--line);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px">proof</div>
+   <div><div class="bd" style="color:var(--ink)">Seller's transfer proof</div><div class="sm">Screenshot · added 14 min ago · tap to view</div></div></div>
+  <div class="rw" style="border-top:1px solid var(--line)"><div><div class="bd" style="color:var(--ink)">How to accept on DICE</div><div class="sm">4 steps · about 2 minutes · 3 cautions</div></div><div class="ic" style="align-self:center">›</div></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">This transfer</div>
+   <div class="rows">
+    <div class="rw"><span class="k">Event</span><span class="v">${EV[0].n}</span></div>
+    <div class="rw"><span class="k">Seller</span><span class="v">the seller</span></div>
+    <div class="rw"><span class="k">Sent to</span><span class="v">buyer@example.test</span></div>
+    <div class="rw"><span class="k">Review window</span><span class="v">71h 46m left</span></div>
+   </div></div>
+ </div>
+ ${bar(`<div class="cta">Confirm receipt<span class="sub">This releases payment to the seller</span></div><div class="cta sec">Something's wrong</div>`)}
+ </div>`;
+}
+
+/* ---------- CHECKOUT ---------- */
+function checkout(d){
+ return `<div class="app">${sandbox}
+ <div class="topbar"><div class="ic">‹</div><div class="screenTitle">Checkout</div></div>
+ <div class="content">
+  <div class="panel" style="display:flex;gap:12px;align-items:center">
+   ${ART(62,'width:48px;flex:0 0 48px;border-radius:var(--radius)')}
+   <div><div class="bd" style="color:var(--ink)">${EV[0].n}</div><div class="sm">${EV[0].d} · ${EV[0].v}</div></div></div>
+  <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">Order</div>
+   <div class="rows">
+    <div class="rw"><span class="k">Ticket</span><span class="v price" style="font-size:var(--fsBody)">$120.00</span></div>
+    <div class="rw"><span class="k">Service fee</span><span class="v price" style="font-size:var(--fsBody)">$14.00</span></div>
+    <div class="rw" style="border-bottom:none"><span class="k" style="color:var(--ink)">Total</span><span class="v price">$134.00</span></div>
+   </div>
+   <div class="sm">All-in price. Nothing is added at the end.</div></div>
+  <div class="notice info mo"><div><div class="bd" style="color:var(--ink)">Your place is held for 7:42</div>
+   <div class="sm" style="margin-top:2px">Nothing has been charged yet.</div></div></div>
+  <div class="notice mo" style="border-left-color:var(--warn)"><div><div class="bd" style="color:var(--ink)">We couldn't confirm your payment yet</div>
+   <div class="sm" style="margin-top:2px">Your last attempt may or may not have gone through. Please don't pay again — we'll keep checking.</div>
+   <div class="cta sec" style="margin-top:10px;padding:10px">Check status</div></div></div>
+ </div>
+ ${bar(`<div class="cta dis">Pay $134.00<span class="sub">Waiting for confirmation</span></div><div class="sm" style="text-align:center">Payments secured by Stripe</div>`)}
+ </div>`;
+}
+const BUILD={home,listing,send,receive,checkout};
+
+/* ---------- controls + render ---------- */
+let state={dir:'gallery',screen:'home',compare:false,reduce:false};
+function controls(){
+ const c=document.getElementById('controls');
+ c.innerHTML=`<div class="grp"><b>Direction</b>${DIRS.map(d=>`<button data-d="${d.id}" class="${state.dir===d.id&&!state.compare?'on':''}">${d.name}</button>`).join('')}
+  <button data-cmp="1" class="${state.compare?'on':''}">Compare all</button></div>
+  <div class="grp"><b>Screen</b>${SCREENS.map(s=>`<button data-s="${s.id}" class="${state.screen===s.id?'on':''}">${s.name}</button>`).join('')}</div>
+  <div class="grp"><b>Motion</b><button data-r="1" class="${state.reduce?'on':''}">Reduce Motion ${state.reduce?'ON':'off'}</button></div>`;
+ c.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  if(b.dataset.d){state.dir=b.dataset.d;state.compare=false}
+  if(b.dataset.s){state.screen=b.dataset.s}
+  if(b.dataset.cmp){state.compare=!state.compare}
+  if(b.dataset.r){state.reduce=!state.reduce}
+  render();});
+}
+function frame(dirId,lg){
+ const d=DIRS.find(x=>x.id===dirId);
+ return `<div class="unit"><div class="ulabel">${d.name.replace(/^\d+ · /,'')} — ${lg?'largest text':'normal text'}</div>
+  <div class="frame ${lg?'lgtext':''} ${state.reduce?'reduce':''}" data-dir="${dirId}"><div class="scroll">${BUILD[state.screen](d)}</div></div></div>`;
+}
+function render(){
+ controls();
+ const st=document.getElementById('stage');
+ if(state.compare){ st.innerHTML=DIRS.map(d=>frame(d.id,false)).join(''); }
+ else { st.innerHTML=frame(state.dir,false)+frame(state.dir,true); }
+ const d=DIRS.find(x=>x.id===state.dir);
+ document.getElementById('note').innerHTML=state.compare
+  ? `All five directions, <b>${SCREENS.find(s=>s.id===state.screen).name}</b>, normal text. Pick one direction above to see it at the largest accessibility size too.`
+  : `<b>${d.name}</b> — ${d.tone} &nbsp;·&nbsp; Reduce Motion ${state.reduce?'ON: transitions are removed':'off: transitions run at 180ms'}.`;
+}
+render();
+</script></body></html>
