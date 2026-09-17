@@ -42,6 +42,22 @@ export function formatCountdown(ts: string | null, now: number = Date.now()): st
   return `${m}m remaining`;
 }
 
+/**
+ * F-XFER-1: what the send screen may say once the device clock passes `expires_at`.
+ *
+ * It may NOT say "expired". Nothing on the server enforces that word: `mark_transfer_sent` (140) gates on
+ * status alone and never reads `expires_at`, so a send past the window still succeeds until the sweep moves
+ * the row off `pending`. The old chip asserted an enforcement no layer performed, and it asserted it from
+ * the device's own clock. This says only what is true from here: the window has passed, sending may still
+ * work, and the system decides.
+ *
+ * Whether the window SHOULD be enforced server-side is the owner's, routed through A. This copy does not
+ * anticipate that answer, and it must be revisited if enforcement arrives.
+ */
+export const TRANSFER_EXPIRY_COPY = {
+  passed: 'Send window has passed — send now if you still can',
+} as const;
+
 /** The canonical badge label + tone for a status. Word carries the meaning. */
 export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
   switch (status) {
