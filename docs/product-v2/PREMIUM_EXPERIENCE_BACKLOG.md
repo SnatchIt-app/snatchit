@@ -2041,3 +2041,23 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   stored values preserved (one write site, no upsert/insert/delete, no default reset);
   RED first → tests/prefs-hide-unwired.test.ts; tsc clean; vitest 2080 / 96; lint 0
   errors; client-only from the build tag, no gated file. To D for review.
+- **Batch 1 status (2026-09-17):** (3) `frontend/challenge-copy-neutral @ 577ec40` — D
+  PASS on a3b67eb with one objection (Try again cannot succeed for a session that
+  predates the epoch; the banner sits beside that button) → D's sentence adopted by A:
+  "This device needs you to sign in again before it can confirm notifications for this
+  account." (pin /sign in again/, not "signed out"); D's disclosure: a first mutant
+  matched nothing and was redone with an asserted substitution count. (1)
+  `frontend/prefs-hide-unwired @ cf94311` — D PASS (one write site, no upsert/insert/
+  delete, four mutants die); **observation (D):** `fetchPrefs` uses `.single()`, so a
+  user with no `notification_preferences` row (profile predating the baseline trigger)
+  gets "Unable to load preferences" and now loses 6/6 switches instead of 1/6 — visible,
+  non-writing; follow-up candidate. `notify_listing_sold` default true in the baseline
+  matches the webhook's absent-row behaviour. (2) **`frontend/security-notice @
+  e3ef6d3` delivered** — no client title/body (A's template v2 is the source: no
+  {{device_name}} — attacker-chosen text —, no "sign in on that phone", no "change your
+  password"); only the two action labels; get_my_security_notices / mark_
+  security_notices_read({ p_ids }) per A's pin; PGRST202 = no notices; fetched on
+  sign-in + foreground; mounted above the tabs only; K-2 action via signOutAllDevices
+  (auth.uid()-scoped, cannot disturb the rebound token; does not undo the rebind). RED
+  first → 6/6; tsc clean; vitest 2083 / 96; lint 0 errors. With D. Nothing integrates
+  until D's PASS and the owner's word (new pin).
