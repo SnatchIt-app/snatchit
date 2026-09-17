@@ -2608,7 +2608,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
 - **S2-5 → DV-ST2 reached. Trigger sent to A (C, 2026-09-17).** Sequence (D's ask): A's fresh capture → D's
   before-read → **A holds the revoke until C relays that the owner is ready** → revoke (the T+360 s watchdog
   starts) → the owner's no-preload observation (ST2a: force-quit, reopen, Bids) → A restores + verifies → D's
-  after-read must match the before-read. ST2b (cached rows stay) UNTESTED: the buyer has 0 bid rows.
+  after-read must match the before-read. ST2b (cached rows stay) UNTESTED: the buyer has 0 bid rows [SUPERSEDED reason: Bids also shows the buyer's purchases, so rows exist and no fixture is needed — see the reconciliation entry below].
 - **DV-ST2 window (2026-09-17).** A's fresh capture 15:24:39Z (md5 5365050…, identical to 04:41:57Z; B and A
   confirmed quiet); D's before-read 15:25:09Z agrees; the owner said ready; **revoke 15:26:11Z** (`revoke select on
   table public.bids from authenticated`; authenticated select=false, insert/update/delete unchanged; watchdog
@@ -2624,12 +2624,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   authenticated select/insert/update/delete true; anon select unchanged; revoked flag cleared. The revoke lasted
   15:26:11Z → 15:27:32Z (81 s), inside the watchdog window; the watchdog will log idle at ≈15:32:12Z without
   acting. **Window still open until D's after-read equals D's 15:25:09Z before-read.** The ST2a classification is
-  held until the owner answers (force-quit/reopen first? Retry tapped?). ST2b UNTESTED (the buyer has 0 bids).
+  held until the owner answers (force-quit/reopen first? Retry tapped?). ST2b UNTESTED (the buyer has 0 bids) [SUPERSEDED reason: Bids also shows the buyer's purchases, so rows exist and no fixture is needed — see the reconciliation entry below].
 - **DV-ST2a: PASS (owner-reported + owner screenshot, Build 18, buyer, online, 2026-09-17 handset 11:26).** The owner
   confirmed they force-quit and reopened Snatch It before tapping Bids (no preload) and did NOT tap Retry. With
   the bids SELECT revoked, Bids showed the server-error state ("COULDN'T LOAD THIS" / "Something went wrong on our
   side. Try again in a moment." + RETRY), never the offline copy. Heading clear of the SANDBOX badge
-  (screenshot). **DV-ST2b (cached rows stay): UNTESTED**, the buyer has 0 bid rows. Retry behaviour under the error
+  (screenshot). **DV-ST2b (cached rows stay): UNTESTED**, the buyer has 0 bid rows [SUPERSEDED reason: Bids also shows the buyer's purchases, so rows exist and no fixture is needed — see the reconciliation entry below]. Retry behaviour under the error
   not exercised. The window closes on D's after-read matching the before-read (pending at this entry).
 - **DV-ST2 window CLOSED (D, 2026-09-17T15:29:36Z):** D's after-read is byte-identical to the 15:25:09Z before-read
   (md5 466fd2d8… both): relacl, authenticated S/I/U/D, anon select, RLS and 3 policies back to pre-revoke. D
@@ -2664,3 +2664,20 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   - **ST2b's recorded reason is corrected:** "0 bid rows" did not mean an empty tab. With the tab preloaded (21
     purchase rows), `loadError && bids.length === 0` keeps the rows on an error, so ST2b WAS testable with this
     buyer. It stays **UNTESTED** because this window ran no-preload (ST2a) only.
+
+- **Owner rulings (2026-09-17, after DV-ST3):**
+  - **DV-ST4 VoiceOver half: UNTESTED, the owner's skip** (standing). Its Reduce Motion and largest-text halves
+    run as two separate handset checks.
+  - **DV-ST2b: prepare a short repeat window using the existing 21 purchase rows; no bid fixture.** Coordinate A
+    and D first; ask the owner "ready" before any access removal; the window is **NOT started**.
+  - **The test plan was updated** so "no rows available" no longer generates fixture requests: checklist DV-ST2
+    and plan S2-5 now say ST2b uses the buyer's existing purchase rows. The earlier "0 bid rows" reasons are marked
+    superseded in place. A has withdrawn the cached-bids fixture (Line 2) at converge 558a58f, with the
+    premise-error note on A's side.
+  - **ST2b design (C, from Build 18 source):** the owner opens Bids online and sees the rows (preload) → A revokes
+    bids SELECT (D's before-read first; watchdog) → owner GO: pull down to refresh on Bids once (`onRefresh` →
+    `fetchMyBids(true)`), then wait a few seconds → note whether the rows stay and whether any message appears →
+    no Retry → A restores → D's after-read. *Expected from source:* the rows stay (the error returns before the
+    merge; the state keeps the prior rows) and **no error message is shown while rows exist**. `loadError` is used
+    only for the full-screen state, so an error with cached rows is silent. That would be a source observation for
+    the owner to judge, not assumed to be a defect.
