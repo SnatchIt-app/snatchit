@@ -3503,3 +3503,29 @@ owner's instruction authorizes that log read for this purpose), and who could re
 **Standing constraint that shapes the options:** `transfer_evidence_path` is append-only, and deleting or overwriting
 attached proof was explicitly excluded from the approved scope. Any handling option therefore needs a NEW owner
 authorization, and C will bring ONE consolidated recommendation once A and D report.
+- **A's metadata-and-access report (no bytes read; A confirms it downloaded nothing, and has never fetched a Line 3
+  object):**
+  - **Exactly two objects exist**, both in the seller's own folder: `2f5844b4…/transfer-evidence/1789679356721.png`
+    (210,364 B, image/png, eTag 2e8bb290…, created 21:09:21.894Z) referenced by **bce07eef (D2)**; and
+    `…/1789679485922.jpg` (5,829,677 B, image/jpeg, eTag 9fd322bc…, created 21:11:36.269Z) referenced by
+    **3118bd30 (D1)**. Referenced 2, orphans 0, nothing created in any other bucket since 20:55Z.
+  - **Two of the three photographs the owner saw were never stored.** The FACE was the D6 thumbnail: D6 is still
+    pending with a NULL path and no object — the offline attempt failed before upload, so that image never left the
+    phone. The CHAIR was S8only: selected but never attached, no object. **Stored exposure is one confirmed personal
+    photograph (the D1 JPEG) and one image of unknown content (the D2 PNG).**
+  - **Access records:** the D2 PNG — one seller upload (21:09:21.587Z, 200) and **no read of any kind, ever**. The D1
+    JPEG — one seller upload (21:11:35.628Z, 200), then the BUYER minted a signed URL at 21:13:40.493Z and it was
+    fetched three times (21:13:40.697Z, 21:14:33.950Z, 21:14:40.320Z), all 200, all `SnatchIt/19` from the same
+    device: the owner's own buyer-side view. **No other identity ever accessed either object** — no service_role, no
+    U2, no anonymous, nothing from A's or D's sessions.
+  - **Who could read them:** only the two `authenticated` policies — owner-folder read (the seller) and transfer-party
+    read (buyer or seller). **Both accounts are the owner's own.** No operator or admin read policy exists here.
+  - **One time-limited residual:** `receive/[id].tsx:105` mints a ONE-HOUR signed URL, so a bearer link to the D1
+    JPEG exists until ~22:13:40Z (18:13 EDT). Unguessable, only ever used by the owner's own device, and it lapses on
+    its own.
+  - **Completion from state:** D2 and D1 completed (each seller_sent + one object + one `buyer_confirmation_needed`);
+    **D6 did NOT complete**; **S8only did NOT complete**; 83b83858 unchanged; 2xx 0 of 191 — nothing outbound.
+  - A argues no content read is needed for the owner's decision, and the eTags already distinguish the files. C agrees.
+- **C's source check for the options:** if a stored object is deleted, the buyer's receive screen degrades cleanly —
+  `createSignedUrl` on a missing path yields no URL, `proofUrl` stays null and the proof section is simply not
+  rendered. The seller's send screen keeps its Add-proof section hidden, since the path is still set.
