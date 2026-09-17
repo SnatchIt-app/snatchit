@@ -2320,3 +2320,9 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   nothing running; A holds the revoke/restore with a watchdog. Trigger still waits for the owner to
   reach S2-5; A and D both carried step 3a as 01:17 — corrected to them as 01:14 per the owner's
   later report.
+- **DV-S1 step 3b (owner, Build 18, seller, 2026-09-18 01:18 EDT ≈ 05:18Z): PASS** (owner-reported), at
+  the largest accessibility text size: heading clears the SANDBOX badge; Event name stays visible;
+  List ticket bar correctly positioned with the keyboard up and down; text intact; nothing cut off or
+  overlapping. **DV-S1 (F-SELL-1, create) complete on Build 18: steps 1, 2, 3a, 3b PASS**, all
+  owner-reported, no listing submitted. Larger text left ON for S2-4. Still open in S2-3: DV-S2 (edit
+  listing with the keyboard), to run after S2-4 while larger text is still on.
