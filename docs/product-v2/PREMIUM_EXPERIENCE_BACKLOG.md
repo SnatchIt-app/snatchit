@@ -2311,3 +2311,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   the keyboard; no extra gap above the List ticket bar. No listing submitted. Also recorded: the
   heading-vs-SANDBOX-badge check passed at step 1 (time not captured); D's contrary wording was
   retracted by D. Next: step 3b at the largest accessibility text size.
+- **Open product question (from DV-S1 step 3a; not a device defect; C to propose, owner decides):** a
+  seller typing a long event name cannot see all of it at once, because Event name is a single-line
+  field that scrolls sideways. Options: a multi-line Event name that grows to 2–3 lines; or keep
+  single-line and show the full name under the field once it is typed. Recorded so it is not
+  rediscovered as a bug (D, 2026-09-18). No change until the owner chooses.
+- **DV-ST2 readiness (2026-09-18):** D reports the witness role authorized and live, kit paused,
+  nothing running; A holds the revoke/restore with a watchdog. Trigger still waits for the owner to
+  reach S2-5; A and D both carried step 3a as 01:17 — corrected to them as 01:14 per the owner's
+  later report.
