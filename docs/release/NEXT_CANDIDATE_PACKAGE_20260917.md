@@ -1,8 +1,11 @@
 # Next-candidate package (A, owner's sprint 2026-09-17) — FOR APPROVAL; nothing here is tagged, built, applied or deployed
 
 **What this is:** the one package the owner asked for — code, required sandbox updates, targeted device tests, and the exact
-image round-trip scope — brought once reviews and combined CI are complete. **Status: DRAFT until D's pass on 251cda2 and CI
-on the pushed candidate head; then final.** No production change, no shared-environment application, no build submission and
+image round-trip scope — brought once reviews and combined CI are complete. **Status: FINAL for the current candidate tree `4331ea4` (D PASS on the head; CI 35186869113 green on five jobs). Three heads still join on top before any tag, each through D → A → CI: C's F-SELL-2 fix (`frontend/sandbox-header-inset @ 9d01bad`, with D); C's client adaptation to 140's outcome codes plus the attach entry point (branched from 4331ea4, after F-SELL-2); B's test-only 050 follow-up. The approval lines in §5 can be given now; the tag line names the head at that time.**
+
+**Evidence limits (the owner's words, carried unsoftened):** database outcomes 1 and 2 pass; **outcome 3 does not** — image conversion and buyer display are unverified until a real iPhone round trip (DV-IMG-9); outcome 4's device half (DV-IMG-1..8) is unrun; **the whole image issue is not fixed**; DV-S2 header clearance FAILS at the largest accessibility text size on Build 18 (F-SELL-2, fix at 9d01bad pending D; device re-check on the next build); the sandbox push key stays deferred, so every push-delivery row remains UNTESTED, not passing; one known-vacuous test line is in this tree (050's new evidence-path assertion cannot fail as written — the property is covered by 207 R4/R7; B's follow-up makes the line real) — not to be counted twice.
+
+**D's post-integration PASS on 4331ea4 (tree and client only; not a deployment-readiness statement):** ancestry of e9b52ce, 251cda2, 912a7d6, c0281aa, 7612c8b, ae09f5b; load-bearing content present (140's `already_sent` writing nothing, the backfill refusal, the 2-arg delegation; the 050/207 additions; c0281aa's `sniffImageType`, `settleUpload`, recall guard, `statusAfterUnpicked`; 136 rev3's unread-only termination); tsc 0; vitest 2157/2157 in 102 files measured by D independently; 207 37/37 and 050 20/20 on D's own replay at 251cda2. The replay, Gate-2, full pgTAP and census figures are A's, from A's certified harness. No production change, no shared-environment application, no build submission and
 no outbound notification is proposed as already authorized; each is a line for the owner below.
 
 ## 1. Code — the candidate tree
