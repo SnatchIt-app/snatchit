@@ -1148,3 +1148,41 @@ grants (`refund_facts` service_role only); every assertion with a negative contr
 Rebuild: `scripts/rehearsal_reset.sh snatchit_d_int_rehears` in a detached worktree of the commit under test,
 then `scripts/rehearsal_test.sh snatchit_d_int_rehears`; re-run each probe with `psql -f` (128 probe takes
 `-v verb=new|legacy`). Task state is the board above; peer dispositions arrive by session message.
+
+## 2026-09-17 — build-source merge, the two-second window, and the owner's critical-path asks
+
+**`aad5f75` merge verified (a diff, not a re-review, as the owner asked).** Its tree is exactly `e6d9f2e` + the two
+heads I passed and nothing else: 10 files differ, every one **byte-identical** (`git hash-object`) to its source —
+six to `a609cbc`, four to `8dc4cec`. The two branches touch **disjoint file sets**, which is what makes the
+file-wise union lossless by construction: no merge resolution could have dropped one side. Union 10, merged 10.
+`supabase/` diff empty, gated-surface diff empty. Base `e6d9f2e` differs from the sandbox pin `9bef640` by the one
+docs-only runbook file. Sandbox pin stays clean; the build source is a strict superset of reviewed material.
+
+**Two-second epoch window (owner ask, answered jointly with C).** Verdict: **understandable and recoverable, no
+silent failure found in source, one LOW copy finding.** The reframing that matters: the margin is not the main
+route — `push_session_predates_epoch` bars *every* pre-epoch session, so this is the ordinary post-password-change
+experience and the two seconds only extend it. That removes the "too narrow to matter" argument.
+- Register path verified by me in the tag's source: the hook persists the failure, **publishes
+  `{state:'failed', kind:'session_stale'}` to Settings, and only then** forces the local sign-out — so the remedy
+  is visible either way, and the login copy is true by the time it is shown.
+- **F-2S-1 (LOW, copy), verified independently:** `session_stale` appears in the hook at exactly two places, a
+  comment and the register branch — **the challenge path does not route into `handleSessionStale`**. A challenge
+  refused across an invalidation shows `challenge.ts:255` "You were signed out on this device…" **while the user
+  is still signed in and the app is working**. I differ from C's first remedy: prefer the **neutral copy**, not
+  routing the challenge path into a forced sign-out — that is a materially bigger behaviour change out of a
+  background push flow, and the register path forces re-auth at the next attempt anyway.
+- No silent path found; C's one constructed edge (network drop between refusal and local sign-out) recorded rather
+  than dismissed. **Device-untested** for the exact 2 s case — DV-131-1 and DV-131-2 are what turn "found none"
+  into "proven none".
+
+**Critical-path inputs and the environment resolution** are in
+`docs/venue-dashboard/CRITICAL_PATH_INPUTS_D_20260917.md` (`a8cd818`). Headlines: trust root live / door edges dark
+are **production-only** facts (sandbox has neither — `signing_key` 0 from my own reads, and A's `functions list`
+shows nine functions with no door/credential one; local has neither and no edge runtime); **D-ONB-1 cuts the other
+way from the report** — 107 *un-parks* `mint_door_session` and 107 is applied, so scanning is gated by the flag,
+the dark edges and the absence of data, not by a parked function; the **operator surface is the real onboarding
+blocker and has no owner**; and **scanning is downstream of primary sales**, since tickets come from
+`issue_ticket_atoms` on a primary `payment_intent.succeeded` and `primary-checkout` is not deployed. Venue
+acceptance needs the owner at **two** moments (B4 exposure 3 min; evidence review 5 min; ≈10 min owner, ≈8 min
+automated, 25–30 min end to end), and `venue_api` is on **neither release branch**, so the evidence would age
+against a branch nothing ships from unless A sequences that merge.
