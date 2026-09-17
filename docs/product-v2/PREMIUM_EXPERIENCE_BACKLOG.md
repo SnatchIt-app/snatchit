@@ -3121,3 +3121,16 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   watchdog, immediate restore-and-verify, and the API-log check. A will re-read PC3 bodies and ACLs after the window,
   before any Line 3 P row. A is meanwhile scoping F-NOTICE-1 (server-side, nothing on the sandbox).
   Handset: the owner reported Bids preloaded with rows showing; they hold or re-preload just before GO.
+- **DV-ST2b window (2026-09-17):** D's before-read 18:35:23Z (md5 466fd2d8…, byte-identical to the ST2a baseline) and
+  A's capture agree. **Revoke 18:36:23Z** (authenticated SELECT on public.bids false; insert/update/delete unchanged;
+  anon SELECT untouched), hard stop 18:42:23Z. **A's disclosure:** A's first watchdog call failed (the script was
+  invoked by bare name), so for ≈28 s after the revoke there was no automatic restore; A fixed and re-armed it
+  against the original timestamp, and the 6-minute limit is unchanged.
+  **Observation (owner, 14:38 EDT ≈18:38Z, one pull-to-refresh, no Retry / tab switch / background / force-quit):
+  the purchase rows REMAINED VISIBLE.** Per the owner's instruction, whether any message or banner appeared, and
+  whether the screen changed to an error or empty state, is recorded as **NOT EXPLICITLY CAPTURED** — not inferred as
+  "none". So the "cached rows stay" half is observed; the "no message on Build 19" expectation is not evidenced by
+  this run. C sent RESTORE NOW on receipt.
+  **Row result pending:** A's restore and byte-for-byte ACL verify, whether the watchdog fired, D's after-read
+  reproducing md5 466fd2d8…, and A's API-log check ≥10 min after the window (a denied GET /rest/v1/bids inside the
+  window). Without that check the row is INCONCLUSIVE, not PASS. Line 3 stays paused until all of it is closed.
