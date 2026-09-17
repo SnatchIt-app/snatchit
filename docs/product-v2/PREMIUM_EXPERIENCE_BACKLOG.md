@@ -2872,3 +2872,11 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   application-table writes). **W-C3 next: handset PAUSED** (C to A at ≈12:2x EDT: the owner idle at a safe point on
   My Listings with no unsaved edit). No handset test and no transfer, proof or notice screen until A announces W-C3
   closed.
+- **A: W-C3 CLOSED (2026-09-17), D's closing read agrees:** 136/139/140 applied and verified; census 32|109|37|37 exactly;
+  stripe-webhook v5 and notify-report v4 byte-identical to f412d10; zero drift; the five transfers unchanged.
+  **Handset may resume Step 0 rows**; transfer and proof screens stay reserved for Line 3's sequence.
+  **Step 3 (staged notice) available:** A takes pre-counts and D a pre-read, then A writes ONE
+  `security_device_rebound` row for the DV buyer (device_name "iPhone (DV staged)", dedupe
+  dv-notice:140fcb44:2026-09-17) and verifies 0 delivery rows, **only after C's "buyer ready"**. C guides DV-N-1..3; A
+  reads back read_at after Dismiss, then deletes the row and verifies cleanup. Per the owner, C asks whether they
+  are ready before starting.
