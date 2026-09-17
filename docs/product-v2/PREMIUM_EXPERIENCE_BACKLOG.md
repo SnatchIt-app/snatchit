@@ -2063,3 +2063,10 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   until D's PASS and the owner's word (new pin).
 - **S2-1 step 2 (seller), step A (owner, 2026-09-17 23:49 EDT ≈ 03:49Z): signed out of
   Build 18 online** (owner-reported). Step B = sign in as the seller → Home.
+- **S2-1 step 2 (seller), step B (owner, 2026-09-17 23:51 EDT ≈ 03:51Z): signed in as the
+  sandbox seller on the same handset; Home loaded** (owner-reported: "home loaded 11:51"; no
+  spinner or force-quit reported). Step C = open Profile. A's read-back requested for the
+  03:49Z sign-out → 03:51Z seller sign-in window (expected: revoke → logout → token → then
+  either `register` 200 or, because the token was bound to the buyer, `challenge_required`
+  v3 — a pending challenge that Build 18 cannot complete without push delivery is DEFERRED,
+  not a failure).
