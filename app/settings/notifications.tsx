@@ -28,17 +28,11 @@ import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { NotificationPreferences } from '@/src/types';
+import { PREF_TOGGLES, visibleToggles, WIRED_PREF_KEYS, type PrefKey } from '@/src/lib/settings/notificationPrefs';
 
-type PrefKey = keyof Omit<NotificationPreferences, 'user_id' | 'updated_at'>;
-
-const TOGGLES: { key: PrefKey; label: string; description: string }[] = [
-  { key: 'notify_outbid',           label: 'Outbid alerts',        description: 'Get notified when someone outbids you' },
-  { key: 'notify_auction_ending',   label: 'Auction ending soon',  description: 'Reminder when auctions you bid on are ending' },
-  { key: 'notify_auction_won',      label: 'Auction won',          description: 'Know the moment you win an auction' },
-  { key: 'notify_auction_lost',     label: 'Auction lost',         description: 'Know when an auction you bid on ends without you winning' },
-  { key: 'notify_reservation_exp',  label: 'Reservation expiring', description: 'Reminder before your Buy Now reservation expires' },
-  { key: 'notify_listing_sold',     label: 'Listing sold',         description: 'Get notified when your listing sells' },
-];
+// Batch 1 (owner ruling 2026-09-17): only switches whose path exists are shown; the
+// rest are hidden, their stored values preserved — hiding never writes.
+const TOGGLES = visibleToggles(PREF_TOGGLES, WIRED_PREF_KEYS);
 
 export default function NotificationsScreen() {
   const { user } = useAuth();
