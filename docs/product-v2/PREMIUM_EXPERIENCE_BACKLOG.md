@@ -3748,3 +3748,44 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
     the two filter datasets need a loading state, a classified failure state and row preservation, exactly F-BIDS-1's
     pattern — so the answer would change the urgency ranking, not the code. Behavioural tests can pin both recovery
     paths off-device, since `onChipTap`, `onFiltersApply` and `onRefresh` are all reachable in the existing harness.
+
+## Consolidated recommendation on B's frontend audit (C, 2026-09-17)
+Owner's instruction: "After the handset pass, validate B's findings and give A and me one ranked implementation batch,
+separating CONFIRMED DEFECTS from DESIGN PROPOSALS and saying which genuinely block release." Handset work is finished
+or quarantined, so this is that batch. **B's audit: `design/frontend-audit-20260917 @ ea8a9a2`,
+`docs/design-audit/FRONTEND_DESIGN_AUDIT_20260917.md`.** B read at `6561d1f` (= Build 19's `f412d10` + F-BIDS-1);
+**C re-verified every confirmed defect below at `f412d10`, the tree the owner's phone actually runs.**
+
+### CONFIRMED DEFECTS — each verified by C in Build 19 source, not accepted on B's report
+| # | Defect | C's verification at f412d10 | Blocks release? |
+|---|---|---|---|
+| **1** | **F-BID-1 (B's P1) — Place bid builds its form on a $0 floor after a failed read.** `.then(({ data }) => …)` never destructures `error` and has no `.catch`; a resolved-with-error read leaves `listing` null, `loading` false, and `minNextBid(listing?.current_bid ?? 0, …)` offers a minimum derived from nothing, with no event name (`:200` renders it conditionally). A *rejected* read never runs the handler, so the spinner never clears. | `src/screens/PlaceBidScreen.tsx:70-85,180-201` — read directly; no null-listing guard exists between the loading branch and the form | **YES.** The app states a price it does not know on a screen where a user commits money, and the second path is a permanent stall. Smallest fix in the batch |
+| **2** | **F-HOME-1 (B's P5) — Home's filters report an empty marketplace when their fetch fails.** | `app/(tabs)/home.tsx:213,233` warn-and-return, no loading flag, no error state. **Confirmed on device twice** (5:57 PM and 6:46 PM, owner) | **YES**, with the same pattern as F-BIDS-1 |
+| **3** | **F-SEND-1 (B's P3, device-corroborated) — "Transfer window expired" is a device-clock claim the button contradicts.** The chip is `formatCountdown(transfer.expires_at)` on a 60-second interval, computed on the device; the CTA is `disabled={busy \|\| refreshing \|\| buyerDeliveryMissing}` with **no expiry term**, and `mark_transfer_sent` has no `expires_at` check, so sending still succeeds until the sweep flips the row. | `app/transfer/send/[id].tsx:110-115,306-313,347` | **YES for the contradiction**, which also violates the standing truth that *the device clock is not an authority*. The re-order and notice redesign around it do NOT block release |
+| **4** | **F-DESTRUCT-1 (B's P4) — destructive listing actions are re-entrant.** `performDelete` and `performCancel` carry no busy flag and nothing disables the row while the request is in flight. | `app/my-listings.tsx:105-130` | **No** — each sits behind a confirm dialog, so it needs a deliberate second confirmation. Include in the batch, not as a gate |
+| **5** | **F-AVATAR-1 (B's P6) — the busy flag clears before the write.** `setAvatarUploading(false)` (`:193`) runs *before* `profiles.update()` (`:199`), and `setAvatarUrl` only after it. | `app/(tabs)/profile.tsx:189-203` | **No.** *C corrects B's framing:* the user does not see "done" — they see the spinner stop with the **old avatar still showing**, so it reads as a no-op, and the guard is already false, so a second tap can race the first write |
+| **6** | **F-BIDS-1 — already fixed**, reviewed by D, integrated at `6561d1f`. Not in Build 19. | — | Carried by whatever candidate ships next |
+Also confirmed earlier and unchanged: **F-NOTICE-1** (stale deletion notice, server-side, A's lane) and **"Buyer: Unknown"**
+(B's P12 — three surfaces, three fallbacks, no shared resolver; `personLabel()` is the right fix, polish rank).
+
+### DESIGN PROPOSALS — the owner's call, none of them defects
+B's P7–P16 (ErrorBoundary→StateView, retiring the five live legacy components and two dead ones, legal/privacy onto
+`textStyle()`, one `ScreenHeader` for eleven hand-rolled bars, `personLabel()`, the `Notice` primitive with three ranks,
+the lint guard, doc hygiene, the setup-path transport copy), the Send Transfer re-order (§2a/2f), ML-1 v2, B's calm pass,
+and B's five directions. **Two are token decisions with whole-app effect and are the owner's alone:** whether
+`border.default` stops being red-tinted, and whether advisory notices get a muted non-red accent.
+
+### THE ONE DECISION C IS BRINGING — who owns the shared primitives
+ML-1, the calm pass and the five directions all edit the same files: `ui/StateView.tsx`, `ui/Chip.tsx`, `ui/Badge.tsx`,
+`ui/Button.tsx`, `ui/EmptyState.tsx`, a new `ui/Notice.tsx`, and the v2 tokens. Approving more than one without naming an
+owner means they overwrite each other. **C's recommendation: the calm pass owns the primitives and tokens; ML-1 ships as
+My Listings layout only, consuming whatever the primitives become; the five directions inform the token choices and ship
+nothing on their own.** Rationale: the calm pass is already scoped exactly at that layer, ML-1's value is its grouping and
+Needs-action priority rather than its styling, and the directions are exploratory by B's own labelling.
+
+### SEQUENCE C RECOMMENDS
+- **Batch 1 (next candidate, correctness only, zero token or layout change):** defects 1, 2, 3's contradiction, 4, 5,
+  riding with the already-integrated 6. Each gets a behavioural test with a negative control, per B's S0 acceptance bar.
+  Provable locally; no handset time required to build, and the device rows can be claimed on the next candidate.
+- **Batch 2 (after the ownership decision):** the primitives, the notice ranks, the Send Transfer re-order, the legacy
+  retirement. Nothing here blocks a release.
