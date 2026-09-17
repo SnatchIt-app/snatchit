@@ -150,6 +150,199 @@ as $ops$
 $ops$;
 revoke all on function ops.action_requires_approval(text) from public, anon, authenticated;
 
+-- ── 2b. the FRONT DOOR (from 118's applied body) ─────────────────────────────
+-- ops.execute_action is the only way into the framework and it validates against
+-- hardcoded lists. A type absent from them is unreachable however complete its dispatch
+-- arm is — 138's first cut widened the CHECK constraints and added the arms and left this
+-- untouched, so all fourteen types answered 'invalid_input: unknown action_type' and the
+-- migration did nothing. Found by A (F-138-2) by asking what the tests actually execute.
+-- Five edits: the known-type list, the known subject kinds, the action<->subject pairing,
+-- the subject_id exemptions, and the reason requirement.
+create or replace function ops.execute_action(
+  p_idempotency_key text, p_action_type text, p_subject_kind text, p_subject_id uuid,
+  p_params jsonb default '{}'::jsonb, p_reason text default null, p_expected jsonb default null,
+  p_subject_ref text default null)
+returns jsonb language plpgsql security definer set search_path = ''
+as $ops$
+declare
+  v_uid   uuid := auth.uid();
+  v_role  text;
+  a       ops.action%rowtype;
+  v_appr  uuid;
+  v_ttl   integer;
+  v_res   jsonb;
+  v_role_key    text;   -- 138: the params key this member/invite type's dispatch arm reads
+  v_target_role text;
+begin
+  perform ops.assert_reader();
+  -- The pause switch itself stays operable, so a founder can un-pause from
+  -- the console (platform_admin only; audited like every setting change).
+  if not (p_action_type = 'setting_set' and p_subject_ref = 'actions_enabled') then
+    perform ops.assert_actions_enabled();
+  end if;
+  v_role := ops.actor_role();
+
+  if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9._:-]{8,80}$' then
+    raise exception 'invalid_input: idempotency key must be 8-80 chars of [A-Za-z0-9._:-]';
+  end if;
+  if p_action_type is null or p_action_type not in (
+      'case_create','case_assign','case_status','case_priority','case_due','case_note',
+      'dispute_resolve','payout_release','listing_relist','report_resolve',
+      'user_restrict','user_unrestrict','refund_execute','job_retry','setting_set',
+      -- 138 operator onboarding. execute_action is the ONLY door into the framework and it
+      -- validates against these lists, so a type absent here is unreachable however complete
+      -- its dispatch arm is (D, found by A's F-138-2: the arms were live and no call could
+      -- reach them).
+      'org_create','org_update','org_status_set',
+      'org_member_invite','org_member_invite_admin',
+      'org_member_role_change','org_member_elevate',
+      'org_member_remove','org_invite_revoke','platform_role_grant',
+      'venue_create','venue_approve','venue_staff_grant','venue_staff_revoke') then
+    raise exception 'invalid_input: unknown action_type %', coalesce(p_action_type, '(null)');
+  end if;
+  if p_subject_kind is null or p_subject_kind not in ('case','payment','transfer','listing','user','report','job','setting','none',
+                                                      'organization','venue','org_invite') then
+    raise exception 'invalid_input: unknown subject_kind %', coalesce(p_subject_kind, '(null)');
+  end if;
+
+  -- action ↔ subject pairing (a case verb may only target a case, etc.)
+  if not (case p_action_type
+            when 'case_create'     then p_subject_kind in ('none','payment','transfer','listing','user','report','job')
+            when 'dispute_resolve' then p_subject_kind = 'transfer'
+            when 'payout_release'  then p_subject_kind = 'transfer'
+            when 'listing_relist'  then p_subject_kind = 'listing'
+            when 'report_resolve'  then p_subject_kind = 'report'
+            when 'user_restrict'   then p_subject_kind = 'user'
+            when 'user_unrestrict' then p_subject_kind = 'user'
+            when 'refund_execute'  then p_subject_kind = 'payment'
+            when 'job_retry'       then p_subject_kind = 'job'
+            when 'setting_set'     then p_subject_kind = 'setting'
+            -- 138: every onboarding verb names the thing it acts on. org_create has no
+            -- subject (it makes one); member and staff changes name the org or venue they
+            -- happen inside, with the identity in params.
+            when 'org_create'              then p_subject_kind = 'none'
+            when 'org_update'              then p_subject_kind = 'organization'
+            when 'org_status_set'          then p_subject_kind = 'organization'
+            when 'org_member_invite'       then p_subject_kind = 'organization'
+            when 'org_member_invite_admin' then p_subject_kind = 'organization'
+            when 'org_member_role_change'  then p_subject_kind = 'organization'
+            when 'org_member_elevate'      then p_subject_kind = 'organization'
+            when 'org_member_remove'       then p_subject_kind = 'organization'
+            when 'org_invite_revoke'       then p_subject_kind = 'org_invite'
+            when 'platform_role_grant'     then p_subject_kind = 'none'
+            when 'venue_create'            then p_subject_kind = 'organization'
+            when 'venue_approve'           then p_subject_kind = 'venue'
+            when 'venue_staff_grant'       then p_subject_kind = 'venue'
+            when 'venue_staff_revoke'      then p_subject_kind = 'venue'
+            else p_subject_kind = 'case' end) then
+    raise exception 'invalid_input: % cannot target a %', p_action_type, p_subject_kind;
+  end if;
+  -- ── 138: the type<->role agreement, HERE because here is where it always runs ──────
+  -- ops.action_precheck is only invoked for types that require approval (118: the call sits
+  -- inside `if ops.action_requires_approval(...)`). So a guard placed only in precheck is
+  -- inert for org_member_role_change and org_member_invite — the two ROUTINE types whose
+  -- whole purpose is to be refused when they carry an elevating role. That is the security
+  -- half of the split, and it must be checked on the path every action takes. (D, found by
+  -- following A's F-138-2 question one layer down: precheck's copies pass their direct tests
+  -- and never run in production for these two types.)
+  -- The role is read from EXACTLY the key the type's dispatch arm reads: role_change and elevate
+  -- dispatch kernel.change_org_role(params.new_role); invite and invite_admin dispatch
+  -- kernel.invite_org_member(params.role). F-138-6 (D): an earlier coalesce over both keys let a
+  -- routine invite carry a decoy new_role 'org_member' past this guard while dispatch invited at
+  -- params.role = 'org_owner', with no second approver. The other key is refused outright, so the
+  -- guard and the arm can never read different values.
+  if p_action_type in ('org_member_role_change', 'org_member_elevate', 'org_member_invite', 'org_member_invite_admin') then
+    v_role_key := case when p_action_type in ('org_member_invite', 'org_member_invite_admin') then 'role' else 'new_role' end;
+    if coalesce(p_params, '{}'::jsonb) ? (case when v_role_key = 'role' then 'new_role' else 'role' end) then
+      raise exception 'invalid_input: % takes params.% only; params.% is not accepted', p_action_type, v_role_key,
+        case when v_role_key = 'role' then 'new_role' else 'role' end;
+    end if;
+    v_target_role := p_params ->> v_role_key;
+    if p_action_type in ('org_member_role_change', 'org_member_invite')
+       and v_target_role in ('org_owner', 'org_admin') then
+      raise exception 'invalid_input: % to org_owner or org_admin requires two-person approval: request %',
+        case when p_action_type = 'org_member_invite' then 'inviting' else 'changing a role' end,
+        case when p_action_type = 'org_member_invite' then 'org_member_invite_admin' else 'org_member_elevate' end;
+    end if;
+    if p_action_type in ('org_member_elevate', 'org_member_invite_admin')
+       and v_target_role is distinct from 'org_owner'
+       and v_target_role is distinct from 'org_admin' then
+      raise exception 'invalid_input: % is only for org_owner or org_admin: request %', p_action_type,
+        case when p_action_type = 'org_member_invite_admin' then 'org_member_invite' else 'org_member_role_change' end;
+    end if;
+  end if;
+
+  -- 138: org_create makes the organisation and platform_role_grant names its target in
+  -- params (an identity, not an ops subject), so neither carries a subject_id.
+  if p_subject_id is null and p_action_type not in ('case_create','job_retry','setting_set',
+                                                    'org_create','platform_role_grant') then
+    raise exception 'invalid_input: subject_id required for %', p_action_type;
+  end if;
+
+  -- idempotency: the same key always returns the same action
+  select * into a from ops.action where idempotency_key = p_idempotency_key;
+  if found then
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end if;
+
+  if not (v_role = any(ops.action_allowed_roles(p_action_type))) then
+    raise exception 'insufficient_privilege: % may not perform %', v_role, p_action_type using errcode = '42501';
+  end if;
+  -- 138 adds the decisions someone will ask about later: the four that need two people,
+  -- plus suspending or closing an organisation.
+  if p_action_type in ('dispute_resolve','payout_release','listing_relist','report_resolve','user_restrict',
+                       'user_unrestrict','refund_execute','setting_set',
+                       'venue_approve','platform_role_grant','org_member_elevate',
+                       'org_member_invite_admin','org_status_set','org_member_remove')
+     and coalesce(trim(p_reason), '') = '' then
+    raise exception 'invalid_input: a reason is required for %', p_action_type;
+  end if;
+
+  begin
+    insert into ops.action (idempotency_key, action_type, subject_kind, subject_id, subject_ref, params, expected, reason, requested_by)
+    values (p_idempotency_key, p_action_type, p_subject_kind, p_subject_id, p_subject_ref,
+            coalesce(p_params, '{}'::jsonb), p_expected, nullif(trim(p_reason), ''), v_uid)
+    returning * into a;
+  exception when unique_violation then
+    select * into a from ops.action where idempotency_key = p_idempotency_key;
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end;
+
+  perform ops.audit_write('action.requested', a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                          a.expected, jsonb_build_object('action_type', a.action_type, 'params', a.params),
+                          'requested', a.correlation_id, a.id);
+  if a.subject_kind = 'case' and a.action_type <> 'case_create' then
+    insert into ops.case_event (case_id, actor, kind, data)
+    select a.subject_id, v_uid, 'action_requested', jsonb_build_object('action_id', a.id, 'action_type', a.action_type)
+     where exists (select 1 from ops."case" where id = a.subject_id);
+  end if;
+
+  if ops.action_requires_approval(a.action_type) then
+    v_res := ops.action_precheck(a);
+    if v_res is not null then
+      update ops.action set state = 'rejected', reject_reason = v_res ->> 'reject_reason', result = v_res,
+             completed_at = now(), version = version + 1 where id = a.id;
+      perform ops.audit_write('action.' || a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                              a.expected, v_res, 'rejected', a.correlation_id, a.id);
+      return jsonb_build_object('status','rejected','action_id', a.id, 'result', v_res,
+                                'reject_reason', v_res ->> 'reject_reason', 'message', v_res ->> 'message');
+    end if;
+    v_ttl := coalesce((select (value #>> '{}')::integer from ops.setting where key = 'approval_ttl_hours'), 72);
+    insert into ops.approval (action_id, action_hash, requested_by, expires_at)
+    values (a.id, ops.action_hash(a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.params),
+            v_uid, now() + make_interval(hours => v_ttl))
+    returning id into v_appr;
+    update ops.action set state = 'awaiting_approval', approval_id = v_appr, version = version + 1 where id = a.id;
+    return jsonb_build_object('status','awaiting_approval','action_id', a.id, 'approval_id', v_appr,
+                              'message','a second founder must approve this action');
+  end if;
+
+  return ops.action_run(a.id);
+end;
+$ops$;
+
 -- ── 3. precheck: the guard that makes the split a control (from 118) ────────
 create or replace function ops.action_precheck(p_action ops.action)
 returns jsonb language plpgsql stable security definer set search_path = ''
