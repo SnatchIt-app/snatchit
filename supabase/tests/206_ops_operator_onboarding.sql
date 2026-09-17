@@ -3,7 +3,7 @@
 -- audited action framework. Runs as postgres inside BEGIN … ROLLBACK like every
 -- suite here. Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md
 BEGIN;
-SELECT plan(136);
+SELECT plan(140);
 -- No tap.seed_core(): it builds listings, and 185's insert guard refuses the
 -- server-controlled columns it writes. This suite needs three identities and
 -- nothing else, so it makes them itself and stays independent of the fixture
@@ -567,6 +567,23 @@ SELECT is((kernel.create_organization('Direct Path LLC', 'Direct Path', 'k206-di
 SELECT tap.logout();
 SELECT is(tap._platform_members(), 1,
   'I90: ...and becomes org_owner of that organisation: "operators are never members" is NOT established by A4 alone');
+
+-- ── I.13 a failing verb's outcome never carries the address, however the verb spells it (A's review of 8ecc929, point c) ──
+-- The outcome is written to ops.action and ops.audit, which every operator reads. An exact-string mask misses a
+-- message that quotes the reference lower-cased or trimmed, so dispatch records fixed text instead.
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is(tap._ea206('k206-c-mask','org_owner_bootstrap_invite','organization',tap._org('Boot Three'),'{"invitee_ref":"  Pad.Case@Example.COM "}','x'), 'awaiting_approval',
+  'I99: requested for a padded, mixed-case address nobody holds yet');
+SELECT tap.logout();
+UPDATE auth.users SET email = 'pad.case@example.com' WHERE id = tap._B206();
+SELECT tap.login(tap._B206()); SELECT tap._aal2();
+SELECT is(tap._apr206('k206-c-mask','approve','ok'), 'rejected:precondition', 'I100: the approver now holds it, lower-cased, and the verb refuses');
+SELECT tap.logout();
+SELECT is((SELECT result ->> 'message' FROM ops.action WHERE idempotency_key = 'k206-c-mask'), 'precondition_failed: self_invite',
+  'I101: the recorded outcome is fixed text for the refusal, not the verb''s own message');
+SELECT is((SELECT count(*)::int FROM ops.action x WHERE x::text ~* 'pad\.case@example\.com')
+        + (SELECT count(*)::int FROM ops.audit u WHERE u::text ~* 'pad\.case@example\.com'), 0,
+  'I102: no row of ops.action or ops.audit holds that address, in any spelling');
 
 SELECT * FROM finish();
 ROLLBACK;

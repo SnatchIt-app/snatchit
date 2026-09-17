@@ -47,7 +47,9 @@
 -- role can read it, UPDATE refused) until dispatch hands it to the verb, and it is
 -- released on every terminal state. An expired request nobody touches keeps its
 -- reference: expiry is lazy, and no job is added. ops.get_action_invitee is the
--- audited way to see it. Server logs are an unverified channel outside the console.
+-- audited way to see it. A failing bootstrap invite records fixed text for the verb's
+-- refusal, never the verb's own message, so no spelling of the address reaches an
+-- outcome. Server logs are an unverified channel outside the console.
 --
 -- DEFECTS FOUND BUILDING THIS, kept for review: F-138-2 execute_action never admitted
 -- the new types (A); F-138-5 a guard placed only in precheck never ran for routine
@@ -741,11 +743,21 @@ begin
     begin
       v_res := kernel.invite_bootstrap_owner(a.subject_id, v_invitee, a.idempotency_key);
     exception when others then
-      -- a verb message may quote the reference; the outcome is recorded in ops.action and ops.audit,
-      -- so it carries the label, never the address
+      -- The outcome is recorded in ops.action and ops.audit, which every operator reads, so the verb's
+      -- message is never passed through: a mask on the exact reference misses a message quoting it
+      -- lower-cased or trimmed. Each message the verb raises maps to its fixed leading text; anything
+      -- else is withheld with its sqlstate (206 I99–I102).
       return jsonb_build_object('status', case when sqlstate = 'P0001' then 'rejected' else 'failed' end,
                                 'reject_reason', case when sqlstate = 'P0001' then 'precondition' end,
-                                'message', replace(sqlerrm, v_invitee, coalesce(a.params ->> 'invitee_label', '(reference withheld)')),
+                                'message', coalesce((select k.msg from unnest(array[
+                                    'insufficient_privilege: authentication required', 'insufficient_privilege: platform_admin required',
+                                    'precondition_failed: command key required', 'precondition_failed: invitee_ref required',
+                                    'not_found: organization', 'precondition_failed: organization is closed',
+                                    'precondition_failed: owner_exists', 'precondition_failed: owner_invite_pending',
+                                    'precondition_failed: self_invite', 'precondition_failed: platform_authority',
+                                    'precondition_failed: an open invite already exists']) k(msg)
+                                  where starts_with(sqlerrm, k.msg) limit 1),
+                                  'invite verb failed; message withheld (sqlstate ' || sqlstate || ')'),
                                 'sqlstate', sqlstate);
     end;
     return jsonb_build_object('status','succeeded','result', v_res);
