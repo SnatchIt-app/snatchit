@@ -663,7 +663,7 @@ jobs:
           # +3 public.request_push_token_challenge, public.confirm_push_token_challenge,
           # public.guard_push_token_client_delete; triggers 37 -> 38 (+trg_guard_push_token_client_delete).
           # The challenge table is in notify (outside this census).
-          EXPECT_FUNCS: 105
+          EXPECT_FUNCS: 107
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 38
 

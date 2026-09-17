@@ -163,7 +163,7 @@ SELECT is((SELECT string_agg(type_key, ',' ORDER BY type_key COLLATE "C") FROM n
   'A26: the type-key set equals the R2 classification''s 31 IN keys — catalogue/registry parity');
 SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE type_key LIKE 'announcement%' OR type_key IN ('transfer_received','transfer_accepted','listing_sold','attribution_recorded')), 0,
   'A27: no OUT type crossed the gate (announcements, resale/transfer rails, attribution_recorded)');
-SELECT is((SELECT count(*)::int FROM notify.template), 62, 'A28: 62 template rows — 32 in_app (135''s security_device_rebound) + 30 push (account_deletion_completed is E-only) + ZERO email (N1)');
+SELECT is((SELECT count(*)::int FROM notify.template), 63, 'A28: 63 template rows — 33 in_app (135''s security_device_rebound v1 + 136''s v2 with the D-verified copy) + 30 push (account_deletion_completed is E-only) + ZERO email (N1)');
 SELECT is((SELECT count(*)::int FROM notify.template WHERE channel='email'), 0, 'A29: no email template exists — email is owner-gated (N1); nothing is invented');
 SELECT is((SELECT count(*)::int FROM notify.notification_type t WHERE NOT EXISTS (SELECT 1 FROM notify.template x WHERE x.template_key=t.template_key AND x.channel='in_app' AND x.locale='en-US')), 0,
   'A30: every registry row has an en-US in_app template (the centre can always render)');
