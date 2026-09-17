@@ -773,3 +773,33 @@ text independently, and ran eight of its own mutants with predictions written fi
 CI: head `a9aa34e`, run 35257712408, all five jobs success. pgTAP Files=88, Tests=5441, Result: PASS; 206 ok.
 That is 5434 + 7 (206: 171 → 178). The migration and rollback are byte-identical to 5960b51; a9aa34e adds tests and
 the concurrency script only.
+
+### PFA-34 placement, verified by D (2026-09-17)
+A placed the amendment at governance `b7895bb` on `release/candidate-20260918`, status PROPOSED, NOT SIGNED. D
+verified it independently against that commit: the placed block is md5 `026cb858319bc7c0181e1dad01e23ef1`, 2726 bytes,
+27 lines, under the same extraction rule as PFA-33, and a line-by-line diff against D's source block
+(`ea1c2999dc1099f869e23eb227c1671f`) shows exactly ONE difference — the ID line, which D's own text invited. The block
+above now mirrors the placed text, so both records carry the same checksum. PFA-33's block is untouched
+(`2da381a1667b0c9e873b709ff3f1d7ce`, 5731 bytes, 59 lines).
+
+### Open test-precision item (A's nit on I136; not load-bearing)
+I136 adds two counts and asserts the sum is 1, so a compensating pair (0 `org.invite.accept` rows and 1
+`org.role.change` row) would also pass. The MA6 mutants kill it either way, so coverage is intact. Splitting it into
+two assertions is deliberately DEFERRED: a test-only head now would make PFA-34's IMPLEMENTED AT commit stale while it
+sits with the owner for signature. It goes into the next 138 head, whenever one is needed — for example if the owner
+extends D1 to venue staff.
+
+### The 115–120 sandbox prerequisite: D agrees with A's recommendation, with D's own reasons
+A recommends not applying 115–120 to the sandbox during the sprint, and treating CI, both replays, the mutants and the
+two-session proof as the rehearsal. D agrees, having checked the two claims in source rather than taking them:
+- `117_ops_console_automation.sql:1123-1126` schedules `ops-detect-tick` every 5 minutes and `ops-daily-summary`
+  daily. Every witness read D has taken pins `cron jobs=22 active=22 list_md5=c2c5c079fd854567942f821e5ab57a8e`; two
+  new jobs change that fingerprint and start detectors that WRITE (ops.job_run, ops cases) from live sandbox data.
+- `119_listing_block_insert_guard.sql:46,103` creates one PUBLIC function and one PUBLIC trigger. D's sandbox census
+  counts the public schema only, so the W-C3 closing figure 32|109|37|37 would become 32|110|37|38 mid-sprint, and the
+  Line 3 reconciliation would be comparing against a moved baseline.
+- D's witness scripts also use `to_regnamespace('ops') is null` as the sandbox-versus-production identity check. After
+  a 115–120 apply that check flips, so every earlier read's identity line stops being comparable and D would need a new
+  discriminator before the next witness.
+If the owner wants a hosted rehearsal of 138, D's position is the same as A's: it is its own window, after the sprint,
+with the census baselines re-taken first.
