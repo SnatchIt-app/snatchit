@@ -3348,3 +3348,19 @@ Most of the app is already tested; close the remaining gaps efficiently.
   **Line 3's approved scope excludes**. So "no transfer took two calls" is recorded as **NOT ESTABLISHED** unless the
   owner authorizes that read, which is not being asked for now. If the double-success stop condition fires on the
   phone, it becomes a real question and goes to the owner once, with everything else.
+- **Owner narrows the pass (2026-09-17).** Clarification: the transfer flow worked in EARLIER app versions; the remark
+  is not a statement about today's state, and **A confirms current transfer states from the planned pre-checks, never
+  from that comment**. Scope: only the proof-repair changes and their direct regression risks — upload failure and
+  retry, duplicate submission, selecting the correct replacement image, HEIC handling and buyer display, and attaching
+  proof after marking sent. Generic navigation and permission checks are dropped unless tied to a code change or an
+  unresolved release requirement. Transfer assignments and approved writes unchanged.
+  **Shortened sequence (C), approved transfer order kept:** DV-IMG-4 on D6 (offline then retry) → DV-IMG-5 on D2
+  (double tap) → D1: permission-denied alert with Open Settings, selection preserved across leaving the screen, then
+  screenshot → Replace with the camera photo → Mark as sent (DV-IMG-9 + 3b) → DV-IMG-10 on S8only → buyer display:
+  the owner switches to the buyer and confirms the stored proof renders on the receive screen (expect one
+  `transfer_viewed` row per transfer opened; C tells A which).
+  **Kept, with C's justification:** the Open Settings denial path and selection preservation are NEW code from the
+  F-IMG-1 repair (`useImageUpload`'s final-denial Alert with `Linking.openSettings()`;
+  `rememberSelection`/`recallSelection`/`selectionToRecall`) and are explicit items on the owner's own acceptance list.
+  **Dropped:** the limited-access row (no changed code behind it) and **DV-IMG-3a's no-image gate** — that early
+  return pre-dates the repair and is unchanged, so it stays **UNTESTED** with that reason, not called a pass.
