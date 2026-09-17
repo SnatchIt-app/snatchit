@@ -11,14 +11,14 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/media/uploadFlow';
-import { MARK_SENT_COPY, runMarkSent } from '@/src/lib/transfer/markSent';
+import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -64,6 +64,7 @@ export default function TransferSendScreen() {
   // F-IMG-1d: one Mark as sent at a time; F-IMG-1: after a failed or unconfirmed attempt the CTA says Try again.
   const flight = useSingleFlight();
   const [lastFailed, setLastFailed] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [expiryCountdown, setExpiryCountdown] = useState<string | null>(null);
   const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
@@ -130,23 +131,17 @@ export default function TransferSendScreen() {
     await flight.run(async () => {
       setSubmitting(true);
       try {
-        // mark_transfer_sent is not idempotent and returns nothing (A, 2026-09-18): the transfer's
-        // status is read before and after, and only a read-back of "sent" is shown as success.
+        // 140: mark_transfer_sent answers transitioned | already_sent; success is shown only when the
+        // transfer reads back as sent (or, if that read fails, when the reply itself says so).
         const outcome = await runMarkSent({
-          readStatus: async () => {
-            const { data, error: readErr } = await withUploadTimeout(
-              supabase.from('transfers').select('status').eq('id', id).eq('seller_id', userId).maybeSingle(),
-              REQUEST_TIMEOUT_MS,
-            );
-            return readErr || !data ? null : (data as { status: string }).status;
-          },
+          readTransfer,
           upload: () => evidenceUpload.uploadImage(),
           call: async (path) => {
-            const { error: rpcErr } = await withUploadTimeout(
+            const { data, error: rpcErr } = await withUploadTimeout(
               supabase.rpc('mark_transfer_sent', { p_transfer_id: id, p_user_id: userId, p_transfer_evidence_path: path }),
               REQUEST_TIMEOUT_MS,
             );
-            return { error: rpcErr ? { message: rpcErr.message } : null };
+            return { data, error: rpcErr ? { message: rpcErr.message } : null };
           },
         });
         if (outcome.kind === 'sent') {
@@ -154,6 +149,13 @@ export default function TransferSendScreen() {
           evidenceUpload.reset();
           await fetchTransfer(true);
           Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.");
+          return;
+        }
+        if (outcome.kind === 'needs_proof') {
+          // Already sent without a screenshot: keep the chosen photo and show the explicit Add proof action.
+          setLastFailed(false);
+          await fetchTransfer(true);
+          Alert.alert('Already marked as sent', MARK_SENT_COPY.needsProof);
           return;
         }
         setLastFailed(true);
@@ -172,6 +174,72 @@ export default function TransferSendScreen() {
       }
     });
   }
+
+  async function readTransfer(): Promise<TransferSnapshot | null> {
+    const { data, error: readErr } = await withUploadTimeout(
+      supabase.from('transfers').select('status, transfer_evidence_path').eq('id', id).eq('seller_id', userId).maybeSingle(),
+      REQUEST_TIMEOUT_MS,
+    );
+    if (readErr || !data) return null;
+    const row = data as { status: string; transfer_evidence_path: string | null };
+    return { status: row.status, evidencePath: row.transfer_evidence_path ?? null };
+  }
+
+  /** 140: the seller's explicit recovery for a transfer marked sent with no screenshot. */
+  async function handleAttachProof() {
+    if (!id || !userId) return;
+    if (!evidenceUpload.localUri) {
+      Alert.alert('Evidence required', 'Choose a screenshot of the transfer confirmation first.');
+      return;
+    }
+    await flight.run(async () => {
+      setSubmitting(true);
+      try {
+        const outcome = await runAttachEvidence({
+          readTransfer,
+          upload: () => evidenceUpload.uploadImage(),
+          attach: async (path) => {
+            const { data, error: rpcErr } = await withUploadTimeout(
+              supabase.rpc('attach_transfer_evidence', { p_transfer_id: id, p_transfer_evidence_path: path }),
+              REQUEST_TIMEOUT_MS,
+            );
+            return { data, error: rpcErr ? { message: rpcErr.message } : null };
+          },
+        });
+        if (outcome.kind === 'attached') {
+          setLastFailed(false);
+          evidenceUpload.reset();
+          await fetchTransfer(true);
+          Alert.alert('Proof added', ATTACH_COPY.added);
+          return;
+        }
+        if (outcome.kind === 'has_proof' || outcome.kind === 'not_eligible') {
+          setLastFailed(false);
+          await fetchTransfer(true);
+          Alert.alert('Transfer updated', outcome.kind === 'has_proof' ? ATTACH_COPY.hasProof : ATTACH_COPY.notEligible);
+          return;
+        }
+        setLastFailed(true);
+        if (outcome.kind === 'upload_failed') {
+          Alert.alert("Couldn't upload the transfer proof", evidenceUpload.readError() ?? UPLOAD_COPY.uploadFailed);
+        } else if (outcome.kind === 'failed') {
+          Alert.alert("Couldn't add the screenshot", outcome.message);
+        } else {
+          Alert.alert('Not confirmed yet', ATTACH_COPY.unconfirmed);
+        }
+      } finally {
+        setSubmitting(false);
+      }
+    });
+  }
+
+  // A refresh and a submit never overlap (D, 2026-09-18): a pre-submit read that lands after a confirmed
+  // result would show the seller their proof vanishing. The submit re-reads on its own.
+  const onRefresh = useCallback(async () => {
+    if (flight.inFlight) return;
+    setRefreshing(true);
+    try { await fetchTransfer(true); } finally { setRefreshing(false); }
+  }, [fetchTransfer, flight]);
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
@@ -210,7 +278,12 @@ export default function TransferSendScreen() {
   return (
     <View style={s.root}>
       <Header />
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+      >
         {/* Buyer delivery target */}
         <View style={s.section}>
           <Text style={[textStyle('micro'), s.sectionLabel]}>Send tickets to</Text>
@@ -271,7 +344,7 @@ export default function TransferSendScreen() {
             {buyerDeliveryMissing ? (
               <Text style={[textStyle('bodySm'), s.blockedText]}>Buyer must provide delivery info before you can send tickets.</Text>
             ) : null}
-            <Button label={lastFailed ? 'Try again' : 'Mark as sent'} onPress={handleMarkSent} loading={busy} disabled={busy || buyerDeliveryMissing} block style={s.cta} />
+            <Button label={lastFailed ? 'Try again' : 'Mark as sent'} onPress={handleMarkSent} loading={busy} disabled={busy || refreshing || buyerDeliveryMissing} block style={s.cta} />
           </View>
         ) : null}
 
@@ -293,6 +366,27 @@ export default function TransferSendScreen() {
             ) : null}
             <Text style={[textStyle('bodySm'), s.stateWarn]}>If the buyer reports an issue, your payout will be held for review.</Text>
           </StateBlock>
+        ) : null}
+
+        {/* SELLER_SENT without a screenshot — 140's explicit recovery */}
+        {transfer.status === 'seller_sent' && !transfer.transfer_evidence_path ? (
+          <View style={s.block}>
+            <Text style={[textStyle('micro'), s.sectionLabel]}>{ATTACH_COPY.title}</Text>
+            <Text style={[textStyle('bodySm'), s.confirmNote]}>{ATTACH_COPY.body}</Text>
+            <MediaUpload
+              variant="compact"
+              localUri={evidenceUpload.localUri}
+              status={evidenceUpload.status}
+              error={evidenceUpload.error}
+              onPress={evidenceUpload.pickImage}
+              onRemove={evidenceUpload.reset}
+              label="Transfer proof"
+              helper="Screenshot of the transfer confirmation"
+              icon="doc.text"
+              disabled={busy}
+            />
+            <Button label={lastFailed ? 'Try again' : ATTACH_COPY.cta} onPress={handleAttachProof} loading={busy} disabled={busy || refreshing} block style={s.cta} />
+          </View>
         ) : null}
 
         {/* BUYER_CONFIRMED */}
