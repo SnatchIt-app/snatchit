@@ -27,7 +27,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -54,6 +53,7 @@ import {
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 type TransferData = {
   id: string;
@@ -71,7 +71,8 @@ export default function TransferReceiveScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const [transfer, setTransfer] = useState<TransferData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -272,7 +273,7 @@ export default function TransferReceiveScreen() {
 
   function Header() {
     return (
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Receive transfer</Text>
         <View style={s.headerSpacer} />

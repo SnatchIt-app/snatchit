@@ -23,7 +23,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -45,6 +44,7 @@ import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/componen
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 type Props = { id: string };
 
@@ -56,7 +56,8 @@ const QUICK_CHIPS = [5, 10, 25] as const;
 
 export default function PlaceBidScreen({ id }: Props) {
   const { user } = useAuth();
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -189,7 +190,7 @@ export default function PlaceBidScreen({ id }: Props) {
   return (
     <View style={s.root}>
       {/* ── Header ──────────────────────────────────────────── */}
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Place bid</Text>
         <View style={s.headerSpacer} />

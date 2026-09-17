@@ -14,7 +14,7 @@
 
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { EASING_BEZIER, textStyle } from '@/src/theme/typography';
@@ -24,7 +24,8 @@ const [x1, y1, x2, y2] = EASING_BEZIER;
 
 export function OutbidToast({ visible, message }: { visible: boolean; message: string }) {
   const reduceMotion = useReducedMotion();
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export function OutbidToast({ visible, message }: { visible: boolean; message: s
         {
           // The hero artwork runs under the status bar, so the toast has to clear
           // it on its own rather than inheriting a safe-area frame.
-          paddingTop: v2.space.sm + insets.top,
+          paddingTop: v2.space.sm + topPad,
           opacity: progress,
           transform: [
             { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) },

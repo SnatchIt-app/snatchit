@@ -19,6 +19,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 import {
   isPlatformPaySupported,
   PlatformPay,
@@ -80,6 +81,8 @@ export default function CheckoutScreen() {
   const { user, loading: authLoading } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const params = useLocalSearchParams<{
     id:         string;
@@ -761,7 +764,7 @@ export default function CheckoutScreen() {
   return (
     <View style={s.safe}>
       {/* Header */}
-      <View style={[s.topBar, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.topBar, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => router.back()} />
         <Text style={[textStyle('displaySm'), s.topTitle]} accessibilityRole="header">Checkout</Text>
         <View style={s.topSpacer} />
@@ -915,13 +918,15 @@ function RefundView({
   cover: string | null; eventName: string; venue: string; whenLabel: string;
 }) {
   const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
   const copy = REFUND_COPY[state];
   const body = state === 'partially_refunded' ? partialRefundBody(formatCents(refundedCents ?? 0)) : copy.body;
   // A partial refund leaves a real order behind; the others leave nothing.
   const orderStands = state === 'partially_refunded';
   return (
     <View style={s.confirmWrap}>
-      <View style={[s.confirmBody, { paddingTop: insets.top + v2.space.xxl }]}>
+      <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>
         <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{copy.kicker}</Text>
         <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{copy.title}</Text>
         <View style={s.confirmCard}>
@@ -985,6 +990,8 @@ function ConfirmationView({
   purchaseKey: string;
 }) {
   const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
   const copy = SETTLEMENT_COPY[outcome];
   const completed = outcome === 'completed';
   // The one distinctive haptic (CFT-202), only for the face that is allowed to
@@ -999,7 +1006,7 @@ function ConfirmationView({
   const showTransfer = completed && !!transferId;
   return (
     <View style={s.confirmWrap}>
-      <View style={[s.confirmBody, { paddingTop: insets.top + v2.space.xxl }]}>
+      <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>
         <Text
           style={[
             textStyle('micro'),

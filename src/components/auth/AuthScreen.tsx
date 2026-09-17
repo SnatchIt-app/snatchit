@@ -10,7 +10,7 @@
  *
  * THE ARCHITECTURE: the brand header is rendered OUTSIDE the keyboard-responsive
  * region, so nothing about the keyboard can move it. It is pinned to the top with
- * `insets.top + space.xl` — safe-area aware, so it clears the Dynamic Island on
+ * `useTopInset() + space.xl` — safe-area and SANDBOX-badge aware, so it clears the Dynamic Island on
  * every device without a hardcoded Y for one screen size.
  *
  * The FORM stays inside the KeyboardAvoidingView and is free to move; it is also
@@ -20,18 +20,19 @@
 
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { AuthBrandMark } from './AuthBrandMark';
 import * as v2 from '@/src/theme/v2';
 
 export function AuthScreen({ children }: { children: ReactNode }) {
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   return (
     <View style={styles.root}>
       {/* Fixed: outside the KeyboardAvoidingView, so focus/keyboard never moves it. */}
-      <View style={[styles.header, { paddingTop: insets.top + v2.space.xl }]}>
+      <View style={[styles.header, { paddingTop: topPad + v2.space.xl }]}>
         <AuthBrandMark />
       </View>
 

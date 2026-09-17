@@ -17,7 +17,7 @@
  */
 
 import { StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { FromAFanBadge, IconButton } from '@/src/components/ui';
@@ -49,7 +49,8 @@ export function ListingHero({
   // The artwork runs under the status bar on purpose — a safe-area gap above it
   // would frame the image like a card. The CONTROLS still have to clear the
   // notch, so the inset is applied to them rather than to the frame.
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   return (
     <View>
@@ -60,7 +61,7 @@ export function ListingHero({
       */}
       <EventMedia asset={asset} slot="EVENT_HERO" title={eventName} fluid>
         <View
-          style={[styles.controls, { top: insets.top + v2.space.sm }]}
+          style={[styles.controls, { top: topPad + v2.space.sm }]}
           pointerEvents="box-none"
         >
           <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} onArt />

@@ -13,7 +13,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Alert, FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -24,6 +23,7 @@ import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 type FilterKey = 'all' | 'active' | 'needs_action' | 'ended' | 'sold';
 const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 'sold'];
@@ -33,7 +33,8 @@ type TransferInfo = { transferId: string; status: string };
 export default function MyListingsScreen() {
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
   const resolvedInitialFilter: FilterKey =
@@ -186,7 +187,7 @@ export default function MyListingsScreen() {
 
   return (
     <View style={s.root}>
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">My listings</Text>
         <View style={s.headerSpacer} />

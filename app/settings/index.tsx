@@ -16,7 +16,6 @@
 
 import { router } from 'expo-router';
 import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
@@ -26,6 +25,7 @@ import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 
 type SettingsRoute =
   | '/settings/edit-profile'
@@ -39,7 +39,8 @@ type SettingsRoute =
   | '/settings/blocked-users';
 
 export default function SettingsScreen() {
-  const insets = useSafeAreaInsets();
+  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
+  const topPad = useTopInset();
 
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -283,7 +284,7 @@ export default function SettingsScreen() {
   return (
     <View style={s.root}>
       {/* ── Header ──────────────────────────────────────────── */}
-      <View style={[s.header, { paddingTop: insets.top + v2.space.sm }]}>
+      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Settings</Text>
         <View style={s.headerSpacer} />

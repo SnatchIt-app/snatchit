@@ -65,8 +65,10 @@ describe('auth shell — the mark is pinned, only the form reacts to the keyboar
   });
 
   it('pins the header with safe-area-aware spacing, not a hardcoded Y', () => {
-    expect(shell).toContain('insets.top + v2.space.xl');
-    expect(shell).toContain('useSafeAreaInsets');
+    expect(shell).toContain('topPad + v2.space.xl'); // F-SELL-2: the badge-aware inset (status bar in production, + SANDBOX badge in sandbox)
+    expect(shell).toContain('const topPad = useTopInset();');
+    // safe-area aware through the helper: useTopInset() is built on useSafeAreaInsets
+    expect(read('src/lib/nav/navInsets.ts')).toContain('useSafeAreaInsets()');
     // no absolute positioning or per-device magic numbers
     expect(shell).not.toMatch(/position: 'absolute'|top: \d{2,}/);
   });
