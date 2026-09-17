@@ -215,6 +215,19 @@ Each is used by both products, and each exists in neither as a component today.
 | `MoneyFigure` (tabular, total-dominant, all-in labelled) | prices | payouts, buyer-paid vs seller-received |
 | `GettingStarted` (skippable, resumable, three steps) | could serve a first-time seller | first-time manager |
 
+### 9b. One invariant worth auditing against, not just designing to
+D's observation on the dispute-review loading state is that the principle behind it **generalises past this prototype and
+could be a rule the console is audited against**. Stated as a testable invariant:
+
+> **No irreversible action may be offered before the facts it depends on have arrived.**
+> Operationally: while a page is in a loading or unreachable state, its `main` region contains **no submit control** — not
+> a disabled one, not a partially-enabled one, none. The control appears with the facts, or not at all.
+
+That is checkable the way the console already checks one `main` and one `h1` per page: enumerate the interactive elements
+in `main` for each loading state and assert the set is empty. It is also the dashboard expression of a rule the consumer
+side already follows — the app withdraws Pay when the server cannot be reached rather than offering a tap that cannot
+succeed (`CheckoutNative.tsx:569-585`), which is the same sentence applied to a payment instead of a dispute.
+
 **Sequencing note:** `StateView`, `Notice` and `StatusChip` should be built once in the shared token package rather than
 twice. That package already exists (`packages/design-tokens`) and already has a parity test, so the mechanism is there —
 but the mobile tokens do not reach the web app until the package is repacked, which is A's constraint to schedule, not mine.
@@ -364,6 +377,12 @@ they are the same thing.
    - **Permissions, error.** A permissions screen that fails to load must never read as a permissions screen showing no
      permissions. The state says so in as many words: "this is a loading failure, not a permissions change… this is not a
      list showing zero permissions."
+   **D verified both in the rendered tree**, on the grounds that a safety claim is the last thing to take mechanically —
+   and the dispute state holds **more strongly than B claimed**: `main` contains **zero controls of any kind** while the
+   evidence loads, not merely no destructive one. Nothing focusable, nothing submittable, so there is no path to an
+   irreversible action *and* no partially-enabled control to reason about. The permissions error state verified with the
+   clause D singled out as the one they would have forgotten — *"your own role is unchanged"* — because someone reading a
+   failed permissions screen is asking two questions, not one.
    **Left unbuilt, consciously:** event management error, dispute review empty, permissions loading. Each is a
    completeness gap with no safety argument, and every added state is more surface to get wrong. **This is a stated limit
    of the prototype's coverage, not a discovery waiting for an implementer** — which is the distinction D asked for.
