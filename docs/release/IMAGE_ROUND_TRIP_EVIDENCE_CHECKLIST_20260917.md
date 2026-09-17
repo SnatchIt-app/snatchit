@@ -384,7 +384,9 @@ is now `6561d1f`, and the statement should name it.
 - 208's fixture calls match the real signatures (`notify.enqueue(uuid,text,text,uuid,jsonb,text)`; `purchase_confirmed` is a
   registered type), and plan(19) equals the 19 assertions.
 
-**Two findings sent to A:**
+**Two findings sent to A — both closed at `ea547e5` (branch head; the fixes landed in `b865b68`, and `ea547e5` added D's `lock_timeout`). What I verified myself, by reading the source at `ea547e5`:** 208's header now enumerates the matrix, and its enumeration matches the derivation I had done independently (regression B3, C3, D4; widening controls C1, C2, D3; revoke F1–F3; the remainder pass either way) · F1/F2 pin the revoke against anon, authenticated and service_role, F3 also pins `lock_timeout=2s` · `plan(22)` equals 22 assertion lines, counted mechanically · C3 is now a delta against a pre-count, so a database carrying unrelated retired notices cannot fail it spuriously. **A's evidence, not mine:** 208 22/22 and the full suite 5319/5319 on A's harness, and the measured rollback run behind the header's matrix. **D's evidence, not mine:** the review that produced `lock_timeout`. I ran nothing on A's branch. **New observation (source-only, sent to C):** because the retire is deliberately not best-effort, a lock timeout now aborts the withdrawal, so `kernel.withdraw_account_deletion` can fail where it previously could only succeed or noop — the Withdraw deletion request screen's copy for that case is worth a look.
+
+**The findings as sent:**
 1. **208's header claim is not generated from its matrix.** It says "Every assertion here fails on 077's body". On 077's body
    only **B3, C3 and D4** fail; A1–A7, B1, B2, C1, C2, D1–D3, E1 and E2 all pass, by design — they are fixtures and
    unchanged-behaviour controls. The widening controls are C1 (by type), C2 (by user) and D3 (the coalesce). Same class as
