@@ -3104,3 +3104,11 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   3118bd30 (DV-IMG-1, -2, -3a, -6, -7); synthetic images only; Camera location off before DV-IMG-9; the no-image Mark
   as sent must stop at "Evidence required" before any network call; 83b83858 untouched; nothing on the buyer's side;
   A releases each row only after D's witness read of the previous one.
+- **DV-ST2b blocked on A's side (2026-09-17):** A cannot open the window on C's relay. A quotes the owner's message to A:
+  "DV-ST2b remains optional and must use the existing purchase rows. Do not open another restriction window unless I
+  authorize it directly." A has asked the owner for one line in A's conversation ("A: go — run the DV-ST2b window as C
+  described"). A honours the relayed sequencing restriction, so A is ALSO holding Line 3, step 0 included. A's window
+  limit is 6 minutes with a watchdog; A's sequence and the INCONCLUSIVE-without-log-check rule are agreed. D similarly
+  needs the owner's word in D's session for DV-ST2b. **Nothing is running; the handset has nothing to do.** The owner
+  chooses: send A and D the DV-ST2b line, or run Line 3 first (which needs "ready for Line 3" to C) and DV-ST2b after.
+  The two must not overlap.
