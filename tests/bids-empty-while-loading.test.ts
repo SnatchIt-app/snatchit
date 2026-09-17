@@ -364,6 +364,46 @@ describe('F-BIDS-1 · overlapping loads: only the latest load decides what the s
     await flush();
     expect(view(host)).toEqual({ rows: 21, notice: null });
   });
+
+  /** First load fails, the full-screen Retry starts (loading), and a quiet focus refresh overtakes it. */
+  async function retryOvertakenByFocus(): Promise<HookHost> {
+    const host = await mountBids();
+    h.bids[0]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+    (findElement(host.output, (el) => el.type === 'ScreenState')!.props.onRetry as () => void)();   // bids[1]
+    await flush();
+    expect(view(host)).toBe('loading');
+    h.focus.current!();          // newer, quiet: bids[2]
+    await flush();
+    return host;
+  }
+
+  it('the overtaking focus refresh FAILS at its bids read: the error state, never stuck loading; the Retry answers late and changes nothing', async () => {
+    const host = await retryOvertakenByFocus();
+    h.bids[2]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    for (const d of h.transfers) d.resolve(OK(PURCHASES));
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+  });
+
+  it('the overtaking focus refresh FAILS at its purchases read: the error state, never stuck loading; the Retry answers late and changes nothing', async () => {
+    const host = await retryOvertakenByFocus();
+    h.bids[2]!.resolve(OK([]));
+    await flush();
+    h.transfers[0]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    for (const d of h.transfers) d.resolve(OK(PURCHASES));
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+  });
 });
 
 describe('F-BIDS-1 · copy', () => {
