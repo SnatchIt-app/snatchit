@@ -15,6 +15,9 @@
 --   dispute_opened          → the transfer_id         (one-shot)
 --   signing_invariant_alert → the monitor RUN         (NOT the alert text)
 --
+--   TRIGGER, not condition (D): moving 099's schedule to within ~an hour of
+--   00:00 UTC makes this LIVE. Today it is `23 5 * * *` = 05:23 UTC.
+--
 -- THE SIGNING ALERT IS THE REASON THE KEY MATTERS. That alert fires on a daily
 -- cron, and if the trust root is wrong it fires again tomorrow with the SAME
 -- codes. Keying it on (event, summary) would announce a compromise once and then

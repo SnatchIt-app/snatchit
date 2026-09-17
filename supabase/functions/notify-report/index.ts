@@ -114,10 +114,20 @@ serve(async (req: Request) => {
     });
   }
 
+  // Hoisted ABOVE the try so the finally can see them (D review 2). The release
+  // must not sit only on the success path: this handler's own work can throw —
+  // the admin_users read is the first thing after the claim — and the outer catch
+  // answers 200 without releasing, which stranded the claim exactly as before.
+  let claimHeld = false;
+  let claimKey: string | null = null;
+  let event = 'unknown';
+  let attempted = 0, delivered = 0;
+  const notify = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const payload = await req.json();
-    const event: string = payload?.event ?? 'unknown';
+    event = payload?.event ?? 'unknown';
 
     // ── G22: claim the delivery BEFORE sending anything ───────────────────────
     // This function is driven by DB triggers through pg_net and answers 200 even
@@ -130,13 +140,17 @@ serve(async (req: Request) => {
     // keying it on the alert text would announce a compromise once and silence
     // every later warning. It keys on the RUN — the UTC date, because the edge
     // cannot see the cron runid. Cost, accepted deliberately: two alerts in one
-    // UTC day collapse into one. If 099 ever passes a runid, use that instead.
+    // UTC day collapse into one. If 099 ever passes a runid, use that instead
+    // (A's 137 covers it).
+    // TRIGGER, not condition (D): moving 099's schedule to within ~an hour of
+    // 00:00 UTC makes this LIVE — a run just after midnight keys to tomorrow and
+    // then suppresses tomorrow's alarm. Today 099 is `23 5 * * *` = 05:23 UTC.
     //
     // FAIL TOWARD DELIVERING: only an explicit `false` (someone already
     // announced this) suppresses. A claim that errors sends anyway and logs — a
     // duplicate is a nuisance, a missing under-review notice or a missing
     // trust-root alarm is not.
-    const claimKey: string | null =
+    claimKey =
       event === 'report_created'          ? (payload?.report_id   != null ? String(payload.report_id)   : null)
       : event === 'dispute_opened'        ? (payload?.transfer_id != null ? String(payload.transfer_id) : null)
       : event === 'signing_invariant_alert' ? new Date().toISOString().slice(0, 10)
@@ -145,7 +159,6 @@ serve(async (req: Request) => {
     // Delivery accounting for the claim above (D's review of bcece84): every send
     // here swallows its error and the handler answers 200, so a claim that is taken
     // and never given back turns "at most once" into "sometimes zero".
-    let attempted = 0, delivered = 0;
     const push = async (userId: string, title: string, body: string, data?: Record<string, string>) => {
       attempted++; if (await sendPush(supabase, userId, title, body, data)) delivered++;
     };
@@ -154,8 +167,6 @@ serve(async (req: Request) => {
       if (r !== null) { attempted++; if (r) delivered++; }   // email switched off is NOT a failed attempt
     };
 
-    let claimHeld = false;
-    const notify = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
     if (claimKey !== null) {
       const { data: claimed, error: claimErr } = await notify.rpc('claim_report_delivery', { p_kind: event, p_key: claimKey });
       if (claimErr) {
@@ -261,16 +272,6 @@ serve(async (req: Request) => {
       console.warn('notify-report: unknown event', event);
     }
 
-    // Nothing landed on any channel: give the claim back so the next delivery of
-    // this event tries again. A PARTIAL success keeps it, so the normal path still
-    // cannot duplicate. signing_invariant_alert would self-heal tomorrow through its
-    // run key; report_created and dispute_opened have no next run, so without this
-    // the notice is lost permanently.
-    if (claimHeld && claimKey !== null && attempted > 0 && delivered === 0) {
-      const { error: relErr } = await notify.rpc('release_report_delivery', { p_kind: event, p_key: claimKey });
-      console.warn('notify-report: nothing delivered — claim released for retry', { event, released: !relErr, attempted });
-    }
-
     return new Response(JSON.stringify({ ok: true, event }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
@@ -280,5 +281,21 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: false }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
+  } finally {
+    // Nothing landed on any channel: give the claim back so the next delivery of
+    // this event tries again. A PARTIAL success keeps it (delivered > 0), so the
+    // normal path still cannot duplicate. The condition is `delivered === 0`, NOT
+    // `attempted > 0 && delivered === 0` (D): the claim asserts "this delivery has
+    // been announced", and zero deliveries means it has not — including the case
+    // where the handler threw before attempting anything. The cost is churn when
+    // there is genuinely nothing to send (no admins, email off), and that is the
+    // right trade: a notify-report with no configured recipient is a
+    // misconfiguration that should keep showing up, not one that quietly claims
+    // success. signing_invariant_alert would self-heal tomorrow through its run
+    // key; report_created and dispute_opened have no next run.
+    if (claimHeld && claimKey !== null && delivered === 0) {
+      const { error: relErr } = await notify.rpc('release_report_delivery', { p_kind: event, p_key: claimKey });
+      console.warn('notify-report: nothing delivered — claim released for retry', { event, released: !relErr, attempted });
+    }
   }
 });

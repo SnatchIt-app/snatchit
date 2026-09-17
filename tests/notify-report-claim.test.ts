@@ -26,7 +26,7 @@ import { json, loadEdgeHandler, mockSupabase, type RpcHandler } from './helpers/
 const SERVICE = 'service-role-test-key';
 const ADMIN   = 'admin-0001';
 
-function world(init: { claim?: boolean; claimError?: boolean; sends?: 'ok' | 'throw' | '500' | 'first-ok' } = {}) {
+function world(init: { claim?: boolean; claimError?: boolean; sends?: 'ok' | 'throw' | '500' | 'first-ok'; adminsThrow?: boolean } = {}) {
   const claims: Array<{ params: Record<string, unknown>; schema: string | null }> = [];
   const releases: Array<{ params: Record<string, unknown>; schema: string | null }> = [];
   const rpc: RpcHandler = (name, params, schema) => {
@@ -44,7 +44,7 @@ function world(init: { claim?: boolean; claimError?: boolean; sends?: 'ok' | 'th
   const sb = mockSupabase({
     rpc,
     tables: {
-      admin_users: () => ({ data: [{ user_id: ADMIN }] }),
+      admin_users: () => { if (init.adminsThrow) throw new Error('admin_users read blew up'); return { data: [{ user_id: ADMIN }] }; },
       listings: () => ({ data: { seller_id: 'seller-1' } }),
     },
   });
@@ -142,7 +142,7 @@ describe('notify-report — a delivery is claimed before anything is sent (G22)'
     expect(releases[0].schema).toBe('notify');
   });
 
-  it('G11 (D review): a send that THROWS is also a failed delivery, not a delivered one', async () => {
+  it('G11: a throw INSIDE a send is converted to a failed delivery by sendPush\'s own catch — the same release path as G10, pinned separately because the conversion is what makes it so', async () => {
     const w = world({ sends: 'throw' });
     const { releases } = await w.call({ event: 'dispute_opened', transfer_id: 'tr-9', buyer_id: 'b-1', seller_id: 's-1', reason: 'not_received' });
     expect(releases).toHaveLength(1);
@@ -159,6 +159,28 @@ describe('notify-report — a delivery is claimed before anything is sent (G22)'
   it('G13: nothing is released when every delivery succeeded', async () => {
     const w = world();
     const { releases } = await w.call({ event: 'signing_invariant_alert', alerts: ['fingerprint=MISMATCH'] });
+    expect(releases).toHaveLength(0);
+  });
+
+  it('G14 (D review 2): the handler THROWING before any send still gives the claim back — the release must not sit only on the success path', async () => {
+    // The outer catch answers 200 without releasing, so a throw in the handler's
+    // own work (the admin_users read is the FIRST thing after the claim) stranded
+    // the claim: nothing delivered, and every later delivery suppressed. G10/G11
+    // never reached this path — a throw inside a send is swallowed by sendPush.
+    // It also defeats an `attempted > 0` condition: nothing was ever attempted.
+    const w = world({ adminsThrow: true });
+    const { res, releases, sent } = await w.call({ event: 'report_created', report_id: 'rep-3', reporter_id: 'u-1', target_type: 'user', target_id: 'u-2', reason: 'spam' });
+    expect(res.status).toBe(200);
+    expect(sent).toHaveLength(0);
+    expect(releases).toHaveLength(1);
+    expect(releases[0].params).toEqual({ p_kind: 'report_created', p_key: 'rep-3' });
+  });
+
+  it('G15: a throw AFTER something was delivered keeps the claim — we do not re-announce what already landed', async () => {
+    const w = world({ sends: 'first-ok' });
+    // the first admin push lands, later sends fail; nothing throws in the body,
+    // so this pins the partner rule to G14: delivered > 0 means the claim stands.
+    const { releases } = await w.call({ event: 'dispute_opened', transfer_id: 'tr-11', buyer_id: 'b-1', seller_id: 's-1', reason: 'not_received' });
     expect(releases).toHaveLength(0);
   });
 
