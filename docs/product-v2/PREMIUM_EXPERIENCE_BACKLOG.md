@@ -3693,3 +3693,18 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   - **Release readiness:** C's assessment to A — same class as F-BIDS-1, consumer-visible, states a falsehood about
     the marketplace, but confined to two optional Home filters on a screen whose main feed does classify failures.
     Fix belongs with F-BIDS-1's pattern (latest-load guard + failure notice that preserves rows), NOT in Build 19.
+- **F-HOME-1 stickiness — C's PREDICTION, written and committed BEFORE the owner's observation** (so the result tests
+  the reading rather than being fitted to it). Read at f412d10, `app/(tabs)/home.tsx`:
+  - `soldLoadedOnce.current = true` / `endedLoadedOnce.current = true` are set **only on success** (`:218`, `:238`),
+    after the early `return` on error. A failed load therefore leaves the once-flag FALSE — the flag is not poisoned.
+  - `onChipTap` (`:345-351`) and `onFiltersApply` (`:353-360`) re-fire the fetch only `if (!soldLoadedOnce.current)`.
+    Because the flag stayed false, **re-selecting the filter retries the read**.
+  - Nothing else refreshes these two datasets: `useFocusEffect` (`:246-252`) re-runs `fetchListings()` only — the main
+    feed — and the realtime channel appends to `allListings`, not to sold/ended.
+  - **Therefore predicted:** (a) staying on Recently sold after reconnection → the false empty PERSISTS indefinitely,
+    no self-recovery, no spinner, no retry; (b) switching to All and back → refetches and populates.
+  - **Severity if that holds:** sticky until the user acts, but self-clearing on any re-selection, and the main feed
+    still classifies its own failures — so a user who leaves the filter sees the earlier-loaded feed rather than a
+    claim of emptiness. Note the honest limit: that feed is the last successful read, not a fresh one.
+  - **Not yet observed. Nothing here is a result**; the owner's report supersedes it either way, and a mismatch means
+    the source reading is wrong, not the device.
