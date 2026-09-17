@@ -19,6 +19,14 @@ const daysFromNow = (n: number): string => {
 };
 
 /** Every ownership x fulfillment x time_class combination worth eyeballing. */
+/**
+ * Shown above the list whenever fixture rows are rendered (owner ruling
+ * 2026-09-17): layout evidence only, so a screenshot carries its own caveat and
+ * a populated list can never circulate as issuance working. Exact wording is
+ * the owner's; pinned by tests/tickets-sample-label.test.ts.
+ */
+export const SAMPLE_TICKETS_LABEL = 'Sample tickets — no server data';
+
 export const DEV_TICKET_FIXTURES: MyTicketGroup[] = [
   // One upcoming event, three distinct rows (held x2, listed x1, in_transfer x1).
   {

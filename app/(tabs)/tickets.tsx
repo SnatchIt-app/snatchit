@@ -34,7 +34,7 @@ import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { TicketEventGroup } from '@/src/components/tickets/TicketEventGroup';
 import { fetchMyTickets } from '@/src/lib/tickets/api';
-import { DEV_TICKET_FIXTURES } from '@/src/lib/tickets/fixtures';
+import { DEV_TICKET_FIXTURES, SAMPLE_TICKETS_LABEL } from '@/src/lib/tickets/fixtures';
 import { classifyTicketsError, groupByEvent, splitByTimeClass, type EventGroup } from '@/src/lib/tickets/ticketState';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 import { phaseAfterError, shouldShowLoading } from '@/src/lib/screens/refreshPolicy';
@@ -127,6 +127,16 @@ export default function TicketsScreen() {
         ) : null}
       </View>
 
+      {/* Keyed on devFixtures ONLY — not on __DEV__ — so the label follows the
+          fixture rows wherever they go; gating it under __DEV__ would let a future
+          path that sets devFixtures elsewhere render fixtures without the caveat
+          (D's review, 2026-09-17). Body-size text so a screenshot cannot miss it. */}
+      {devFixtures ? (
+        <View style={s.sampleLabel} accessibilityRole="alert">
+          <Text style={[textStyle('bodySm'), s.sampleLabelText]}>{SAMPLE_TICKETS_LABEL}</Text>
+        </View>
+      ) : null}
+
       {phase === 'loading' ? (
         <ScreenState state="loading" />
       ) : phase === 'error' ? (
@@ -176,6 +186,9 @@ const s = StyleSheet.create({
   },
   title: { color: v2.text.primary },
   devToggle: { color: v2.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
+  // Owner-ruled caveat for fixture rows: high-contrast, full-width, not dismissable.
+  sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: v2.status.warning, borderRadius: v2.radius.none },
+  sampleLabelText: { color: v2.text.inverse, fontWeight: '700', textAlign: 'center' },
   list: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm },
   sectionHeader: { color: v2.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
 });
