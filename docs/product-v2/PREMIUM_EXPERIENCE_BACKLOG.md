@@ -2465,3 +2465,14 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   "no screen", not a fresh mount; no test adds routes. CFT-208 pin updated. Full vitest 2221/105, tsc 0, lint
   0/29. Not modelled: Android back, animation, keyboard. **D reviewing; A integrates after D.** Device rows
   DV-NAV-1/2 (checklist) on the next build.
+- **Owner ruling on F-NAV-1 (2026-09-18):** 2ba9e3a continues through D's review and A's integration. The M7
+  text-loss check addresses the evidence gap. **Remaining limit, recorded:** the iOS layer in the tests is a
+  model (native-stack / react-native-screens pinned to source and versions), not UIKit, and the harness does
+  not mount routes added after start. Native navigation is verified only by DV-NAV-1/2 on the next build.
+  **The fix is NOT device-verified until then.** DV-S2 on Build 18 stays **Discard PASS / Keep editing FAIL**;
+  Event name full visibility UNRESOLVED.
+- **S2-2 (DV-611C-2) started (owner, Build 18, Larger Text ON).** Step 1, on the normal network: seller sign-out
+  (Profile › Sign out) → buyer sign-in (Use email instead → Sign in) → Home; the owner also checks whether
+  Settings › Developer exists. Throttling from step 2: Network Link Conditioner if that menu exists; otherwise
+  weak Wi-Fi, recorded as unmeasured. This Mac has only Command Line Tools (no Xcode), so Developer Mode cannot
+  be enabled from here. A was notified for the expected registration outcome and the baseline read-back.
