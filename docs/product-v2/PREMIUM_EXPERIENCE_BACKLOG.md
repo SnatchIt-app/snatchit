@@ -2821,3 +2821,7 @@ Scope (owner): all later results are recorded against **Build 19**. The **Bids f
 The image rows (DV-IMG-*) wait for the sandbox window. Order: step 1 the sandbox badge and the signed-in account;
 then Keep editing (DV-NAV-1/2); then header spacing (the F-SELL-2 device rows). Carried settings at the start:
 Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link Conditioner OFF (since 11:39).
+- **F-BIDS-1: D PASS at accb40c** (reproduced: test-only delta, 21/21, GD4 {O5}, GD5 {O6}, D8 {R5}, guard removed =
+  {O1, O2, O4, O5, O6}, suite 2250/106, tsc 0, lint 0/29). The userId follow-up is accepted as a follow-up. **Sent
+  to A for the NEXT candidate** (never Build 19). Branch frontend/bids-load-states: 1ad216f, a02c824, 5da8a75, accb40c on
+  f412d10. **Device row still owed on a build that carries it.**
