@@ -2521,3 +2521,9 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   merge-preservation gate; the tag line names f412d10 only after both are green. No build yet. Evidence class:
   source + tests; DV-NAV-1/2 owed on the next build; phone-only residual: a swipe begun within one frame of the
   first keystroke.
+- **f412d10 cleared for the owner's decision:** CI 35237352892 **success on all five jobs** (Admin console, Migrations
+  apply cleanly, Typecheck/Lint/Unit tests, Web build, Deno type-check; C read `gh run view`); D's
+  merge-preservation gate PASS (per A). Package issued for approval at converge ab64f1e. **Line 1 (awaiting the
+  owner, not authorized yet):** "Create candidate/2026-09-18-build-c3 at f412d10 and have C submit one sandbox
+  preview build." Nothing is tagged or built until the owner speaks that line. Limits stand: no phone has run
+  F-NAV-1 or the image flow.
