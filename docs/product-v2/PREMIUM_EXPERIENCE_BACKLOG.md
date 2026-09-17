@@ -1766,7 +1766,16 @@ authorised candidate build; 128 RPC path until 128 exists on the sandbox.
   after-read. Client half pending the owner's foreground: expected the
   expiry notice on the login screen (CFT-607), not a silent failure. Next
   buyer sign-in on this device registers fresh with no proof → expected
-  `registered` + a new plant (A reads after). Row 18 stays deferred. Build: not cut until the owner says so
+  `registered` + a new plant (A reads after). Row 18 stays deferred.
+  **Row 17 client half PASS (owner, 2026-09-16):** on reopening the app the
+  login screen showed exactly "Your session expired. Sign in to pick up where
+  you left off." **Row 17: PASS** — single-session global invalidation
+  (branch (1)) verified server-side by A and D, client reaction owner-
+  reported. **The two-session case (branch (2), K-2 "this device only") remains
+  UNTESTED outside D's harness** — proposed for the combined-build session
+  with a second iPhone. **Row 18 stays deferred** to the combined build.
+  Session 1 on Build 17 is complete except the deferred rows (18, DV-A11Y-1
+  VoiceOver at the owner's request, and every push-delivery row). Build: not cut until the owner says so
   in A's session; inclusion of 8dc4cec / ce310ef (new tag) is the owner's word.
 - **Owner request (2026-09-16): exhaustive notification inventory + gap
   matrix from source and migrations** (not memory); no notifications added,
