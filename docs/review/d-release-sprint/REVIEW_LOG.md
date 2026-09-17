@@ -1186,3 +1186,37 @@ blocker and has no owner**; and **scanning is downstream of primary sales**, sin
 acceptance needs the owner at **two** moments (B4 exposure 3 min; evidence review 5 min; ≈10 min owner, ≈8 min
 automated, 25–30 min end to end), and `venue_api` is on **neither release branch**, so the evidence would age
 against a branch nothing ships from unless A sequences that merge.
+
+### My Tickets sandbox fixture — D's position (2026-09-17)
+
+A found the fixture is **eight rows including a global active ES256 `kernel.signing_key` row** that passes 110/111
+only with a well-formed non-existent ARN and a real P-256 SPKI, plus a custody tail — and the ownership log is
+**append-only** (`tg_ownership_log_append_only` refuses DELETE) with RESTRICT FKs, so the fixture is **permanent**
+and the manifest condition "`kernel.tickets` back to 0" is unreachable without a manual trigger override.
+
+**A consequence not yet named, and it argues against option A harder than the permanence.** From
+`kernel.check_signing_key_invariants` (099): gated on `signing.monitor_enabled`; compares the actual fingerprint to
+`signing.expected_key_fingerprint`; a present-but-different actual yields **`MISMATCH`**; every alert writes a
+`signing_key.invariant_alert` row to `kernel.admin_audit` **and** posts an egress alert through `net.http_post`.
+The `monitor-signing-key-invariants` cron **is in the sandbox's job list** (seen at V0), so it runs daily there;
+only `monitor_enabled` decides whether it acts. If that is true on the sandbox and the expected fingerprint holds
+production's D5, option A produces **a daily MISMATCH against a key we planted ourselves**, plus a daily outbound
+401 under (b). The cost is not noise — `signing_key.invariant_alert` is the highest-consequence alarm in the
+system, the one that fires if the production trust root is tampered with, and we would be training everyone to
+expect it to be wrong. **Asked A to read `signing.monitor_enabled` and `signing.expected_key_fingerprint` on the
+sandbox and put the result beside option A before the owner chooses.**
+
+**D's ranking:** **D now** (dev-client fixture mode; zero database impact, and the pattern is proven in-house —
+the venue dashboard already runs on fixtures with `NotWiredState` in database mode) · **C later** (the real path) ·
+**never B** (overriding an append-only trigger to delete a custody tail is a precedent, and that trigger exists to
+make ownership history non-repudiable) · **A only on the owner's explicit acceptance of permanence**, and not
+recommended even then for a layout preview.
+
+**Two framings I asked A to carry to the owner.** (1) **Permanence is a new category of authorization** — every
+window in this program has carried cleanup, and "`kernel.tickets` back to 0" has been part of what "authorized"
+meant; an irreversible change should be asked for as such, not as a line item inside a fixture plan. (2) A
+well-formed but non-existent ARN paired with a real P-256 SPKI is an object that **claims KMS backing it does not
+have**, on the one environment used to rehearse production procedures — a future reader finding a global active
+ES256 row would reasonably conclude the sandbox has a trust root, which my environment resolution says it does
+not, and no read distinguishes the two without resolving the ARN. If the owner chooses A, my read-back includes
+**the monitor's next run and its alert rows**, not just the eight fixture rows.
