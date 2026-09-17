@@ -1,6 +1,9 @@
 # Migration 132 / pgTAP 199 — pre-mint checkout group claim (DESIGN · PROPOSED · nothing written)
 
-**Author:** Claude B, 2026-09-15 · **Status:** allocated by A as PROPOSED; **no SQL until the owner places it** (this candidate, or the production gate alongside 131) · **Base:** `release/candidate-20260918` (121–130, edges #64/#66/#67).
+**Author:** Claude B, 2026-09-15 · **Base:** `release/candidate-20260918` (121–130, edges #64/#66/#67).
+
+**Status (updated 2026-09-16):** **APPLIED ON THE SANDBOX, PRODUCTION NO.** Applied to `ofaidukbieeekqaboscm` in the B2 window of 2026-09-16 04:35–04:56Z from the pin `9bef640` — ledger **138**, md5 `ecdd91761e3849ea73190f174cf2681c`, objects read back live (`checkout_group_claim` empty with service_role-only grants, `claim_checkout_group`, `record_checkout_attempt`, `release_checkout_group`); source `SANDBOX_ACCEPTANCE_WINDOW_MANIFEST.md` §11 on `release/candidate-20260918`, D's closing read PASS. **Nothing is applied on production.** Reviewed and passed by D at `74a4371`; the residual **N-132-2** below is unchanged and still carried.
+*Superseded, not deleted:* this line previously read "allocated by A as PROPOSED; no SQL until the owner places it". The owner placed it; the design and every review below stand as written.
 
 ## 1. The defect (D's disposition, accepted)
 130 serializes a checkout only when a **pending payment row already exists**, because the claim lives on that row. Two concurrent requests from one buyer that both find **no** pending row each mint at Stripe. Their idempotency key (`pi_{listing}_{buyer}_{mode}_{total}_c{customer}[_r{failed}]`) normally matches, so Stripe replays one intent. It diverges in three ways:
