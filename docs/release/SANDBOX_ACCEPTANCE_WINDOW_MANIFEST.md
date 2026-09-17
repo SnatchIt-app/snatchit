@@ -716,3 +716,10 @@ Exec tree: detached worktree at `f412d10a11310167fc0227fe58ea189822bec625`, 0 di
   - The delete is keyed; it raises unless exactly 1 row is deleted.
   - Post-reads by A and D use the same state lines.
 - **D's witness scope (D, 17:5xZ):** the cleanup belongs to no approved step or window, and D does not read on a relay. D reads only when the owner names the cleanup to D. A sent D the exact state read (17 lines, md5 `e78ab5a6a3bcf49bcf1999c1335122de`) with the expected values, so D writes the read before looking.
+- **EXECUTED 18:07:09.332Z.** The owner gave the go directly in the A conversation ("go — delete sandbox report 265b0041 per the scoped cleanup plan"), and D held the owner's witness authorization directly in D's own conversation, so neither of us acted on a relay.
+  - **D's pre-read 18:06:33.290Z** (`d_rep_pre.txt`, md5 `33419f363443249d105a4f62d1e025f4`): every expected value matched. D added two read-only lines of its own — a count and md5 over every report that is not the target, and a `to_regclass` check in place of the `\gset` schema lookup.
+  - **A's pre-read 3 at 18:07:06.405Z:** identical to A's earlier reads and to D's.
+  - **Write 18:07:08Z,** one transaction. The in-transaction guards passed: no other report since 17:30Z, D7 md5 `f7d130c3…`, report row md5 `b733b1aa…`. NOTICE "deleted 1 row 265b0041 at 2026-09-17T18:07:09.332Z"; post-commit `reports` total 0. The guard raises unless exactly one row is deleted.
+  - **A's post-read 18:07:15.755Z:** reports 0/0/0/0, keyed match 0, row_md5 none. Everything the owner named is unchanged: D7 md5 `f7d130c3…` active; buyer ACTIVE, deletion_requested_at null, account_deletions 0, sessions 2 (newest 16:32:39Z), push row 140fcb44 active with a live session; f3abe550 read_at and dismissed_at null, buyer notifications 1, totals 9 / 18 / 104; claim 0, queue 0; cron 22/22 with list md5 `c2c5c079…`; pg_net ids only on the 2-minute cadence (1126/1127/1128) — nothing fires on delete.
+  - D's post-read is expected to match; the incident closes when it lands.
+  - Log: scratchpad `report/cleanup_exec.log`, script `report/cleanup.sh`.
