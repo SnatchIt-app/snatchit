@@ -2694,3 +2694,22 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   showing ≥1 denied GET /rest/v1/bids between the revoke and the restore near the owner's refresh time (path,
   status and time only). Without it ST2b is INCONCLUSIVE. The owner's window authorization must name that log
   read. Not started.
+- **DV-ST4 Reduce Motion: recorded check by check, NOT a full Reduce Motion pass (owner, Build 18, buyer, Larger
+  Text ON, Very Bad Network ON 11:37–11:39 EDT, 2026-09-17).**
+  1. Reduce Motion enabled 11:37 EDT.
+  2. Bids loading placeholders: **no placeholder animation seen; static placeholders NOT confirmed** (the owner saw
+     an empty "no bids" message during loading instead; see F-BIDS-1).
+  3. Profile loading indicator: **NOT observed** (already loaded).
+  4. Home: **three dots until loading finished; whether they moved NOT confirmed.** Source (Build 18): the only
+     "• • •" in the app is `Spinner`'s Reduce Motion branch; the normal branch is a spinning wheel. The full-screen
+     launch overlay (`app/_layout.tsx`, "Loading Snatch It") uses it, and Home's own feed placeholder is a skeleton
+     grid. So the dots imply the Reduce Motion branch rendered (probably the launch overlay). Inference, not
+     observed.
+  5. Network Link Conditioner disabled 11:39 EDT.
+  - The largest-text half of DV-ST4 is already covered by DV-ST1's 11:18 Home offline screenshot at the largest
+    size: heading clear of the badge, badge not scaled, title and body unclipped, Retry visible without scrolling.
+    Other tabs not re-checked.
+  - VoiceOver half UNTESTED (owner skip).
+- **F-BIDS-1 (NEW, potential premature empty state; owner-observed on Build 18 under Very Bad Network; cause under
+  investigation, not yet claimed as a defect):** Bids showed a "no bids" empty message while loading, on an account
+  that shows 21 purchases. Exact wording not captured.
