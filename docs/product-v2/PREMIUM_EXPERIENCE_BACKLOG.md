@@ -2894,3 +2894,23 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     the SN header (the "interim double gap" D noted at da1d11d; the overlay is the follow-up). On Profile the tab
     dock sits over the SIGN OUT button at that scroll position.
   - No notice touched; the owner waits on Home.
+- **A's read-only answers (2026-09-17T16:35Z):** no staged row exists. The buyer's only security-set notice is
+  f3abe550…, `account_deletion_pending`, created 2026-09-14T04:28:00Z, unread and undismissed, with 2 pre-existing
+  delivery rows. **No deletion is pending:** deletion_state ACTIVE, deletion_requested_at null, 0 account_deletions
+  rows. Line 3/RT6 is unaffected. A disclosed one statement that errored on a column name and was re-run corrected.
+- **F-NOTICE-1 (NEW; A's finding, C triage; server-side): a stale "Account deletion requested" notice on an ACTIVE
+  account.** The notice says "…You can withdraw it from Settings while it is pending" while no request is pending;
+  withdrawal apparently does not retire the pending notice. Proposed severity MEDIUM (misleading account-security
+  statement). Fix lane: A/B (server). Does not block Build 19's client rows. The owner decides scope. Not touched.
+- **C correction (to A):** an earlier C line said Dismiss shows only for non-rebound types, which was wrong. Build
+  19 `actionsFor`: the rebound type gets "Sign out of all devices" + "Dismiss"; other types get "Dismiss" only.
+  `dismiss` marks only the displayed notice (`mark_security_notices_read`, `p_ids = [notice.id]`).
+- **DV-N plan (restated from Build 19 source; not started):**
+  - DV-N-1: after A's write, background and return (or relaunch). The staged rebound notice shows (newest unread),
+    matching A's expected rendered text, with both buttons. **Never tap "Sign out of all devices".**
+  - DV-N-2: Dismiss on the staged notice. The banner hides. A reads read_at set on the staged row; f3abe550
+    unchanged.
+  - DV-N-3: relaunch. The staged notice is not shown; the deletion notice showing again is expected (not a fail)
+    and is not touched.
+  - A deletes the staged row whatever the outcome.
+  - "buyer ready" goes to A only after the owner confirms.
