@@ -1,0 +1,22 @@
+# Sprint status — the ONE current table (A; owner's execution sprint 2026-09-17). Historical evidence stays in the other records; this table is replaced, never appended.
+
+**Frozen facts:** Build 18 = `aad5f75` (installed, under handset test) · integrated stack head = `e9b52ce` (batch 1: 136, 139, aeb4081, C's five heads; D PASS; CI green) · sandbox application pin = `9bef640` (ledger 141) · production ledger 135, nothing applied since 2026-09-12 · sandbox push key DEFERRED (option b) · no tag/build/application/production change/outbound notification authorized by the sprint message.
+
+| Task | Owner | Exact head | Remaining blocker | Next deliverable |
+|---|---|---|---|---|
+| 140 proof-upload repair (server): idempotent mark-sent, attach_transfer_evidence, rollback, 207 | B | `fix/140-proof-upload-repair @ 251cda2` (CI 35186394898 green; delta over 912a7d6 test-only: 050 asserts the evidence path unchanged; 207 summary regenerated) | D's delta review | D PASS → A integrates |
+| Proof-image repair (client): byte-sniffed type, HEIC via picker compatible mode, bounded upload + exists-check, status read before retry, recall-guard test | C | `frontend/proof-image-flow @ c0281aa` (D PASS client half; gated surface unchanged) | none for integration; device rows DV-IMG-1..9 need a build | joins the candidate |
+| Candidate tree | A | rehearsal `c3461a0` = `e9b52ce` + 251cda2 + c0281aa (clean merge) | combined checks running; D's 251cda2 pass; C's F-SELL-2 head | push to `release/production-gate-20260918`, CI, then the package |
+| F-SELL-2 badge/header clearance (my-listings.tsx raw top inset + ten surfaces; sandbox builds only) | C | not yet written (owner authorized the fix 2026-09-17) | — | head with tests at normal + largest text, no doubled spacing, production spacing preserved → D review → candidate |
+| F-AUTH-2 (doubled fetches per screen) / F-DT-1 (text-size change not applied until relaunch) | C | — | severity, next action, blocks-candidate decision (owner-required) | C's three fields for each → this table |
+| Handset session 2 on Build 18 | C guide, owner handset, A read-backs, D witness | — | DV-S2 step 2 (discard) in progress; Event name "mostly visible" UNRESOLVED until directly confirmed; DV-ST2 on C's trigger; ST2b needs the bid fixture (owner's line) | row-by-row results into the manifest |
+| Next-candidate package (code, sandbox updates, targeted device tests, exact image round-trip scope) | A | — | reviews + combined CI on the pushed candidate head | package to the owner for approval |
+| Sandbox image round-trip test (RT1–RT5, RT7) | A executes, D witnesses | scope in `SANDBOX_AUTHORIZATION_LINES_20260917.md` | owner's line 1 | execution record |
+| Cached-bids fixture ($101, Device D8, after DV-S2 completes; D7 never) | A reads back, owner's handset places | proposal + line 2 in the same document | owner's line 2 | DV-ST2b observation |
+| 138 operator onboarding | D | `ops/138-operator-onboarding @ b7ce654` + local fixes (execute_action from 118, guard relocated, reason set) — NOT review-ready | 206 rewrite: per-type tests through execute_action, no-second-approver, reason-required, role tests on the real path | head with CI green → A review; **off the candidate's critical path** |
+| Cleanup sweep (proof-docs orphans) | B design, D verifies the race, owner decides | design on `feature/venue-native-and-product-v2 @ 50495df` | owner's direction applied (≥30 d, dry-run first, no cron); implementation not requested | amended design; **off the candidate's critical path** |
+| Require proof before marking sent (future) | A | — | compatibility evidence (which clients send the 2-key body) + migration proposal | proposal to the owner before any enforcement |
+| Signing-monitor alert check | A (done), B witnessed | clean run 05:09:46–05:11:10Z, record `SIGNING_MONITOR_ALERT_CHECK_CLEAN_RUN_20260917.md`; 4ac8baf quarantined | none — separate scope; no further reads | preflight consequence: `project_url` production ceremony precedes 133 |
+| 137 notify_outbid Vault form + monitor cron run id | A | not written | after the candidate | migration + pgTAP 205 |
+| Venue read-only acceptance window | D runs, A integrates 20260910120000, owner's two MFA moments | — | after session 2; Track 2.0 integration | window announcement |
+| My Listings redesign (ML-1) | C | preview pending | separate visual approval by the owner | HTML preview |

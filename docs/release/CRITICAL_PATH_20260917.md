@@ -1,5 +1,7 @@
 # Task-level critical path (A, 2026-09-17; owner request) — five tracks, sandbox verification separated from production
 
+> **Status note (owner's sprint 2026-09-17):** the ONE current status table is `SPRINT_STATUS_20260917.md`. Status sentences inside this document are historical evidence as of the time they were written and are not updated further; completed work here must not be read as pending.
+
 Legend: **exists** = code/records present at the build tag `candidate/2026-09-18-build-b2` (`aad5f75`) or applied where
 stated · **missing** = no code and/or no owner · **owner** = the session that does it (A/B/C/D) or **Owner** (a ruling, an
 MFA act, a ceremony) · effort in working days for one session, review included, as each session estimated it (C's lane is
