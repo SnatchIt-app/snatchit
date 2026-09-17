@@ -233,10 +233,13 @@ export default function TransferSendScreen() {
     });
   }
 
+  // A refresh and a submit never overlap (D, 2026-09-18): a pre-submit read that lands after a confirmed
+  // result would show the seller their proof vanishing. The submit re-reads on its own.
   const onRefresh = useCallback(async () => {
+    if (flight.inFlight) return;
     setRefreshing(true);
     try { await fetchTransfer(true); } finally { setRefreshing(false); }
-  }, [fetchTransfer]);
+  }, [fetchTransfer, flight]);
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
@@ -341,7 +344,7 @@ export default function TransferSendScreen() {
             {buyerDeliveryMissing ? (
               <Text style={[textStyle('bodySm'), s.blockedText]}>Buyer must provide delivery info before you can send tickets.</Text>
             ) : null}
-            <Button label={lastFailed ? 'Try again' : 'Mark as sent'} onPress={handleMarkSent} loading={busy} disabled={busy || buyerDeliveryMissing} block style={s.cta} />
+            <Button label={lastFailed ? 'Try again' : 'Mark as sent'} onPress={handleMarkSent} loading={busy} disabled={busy || refreshing || buyerDeliveryMissing} block style={s.cta} />
           </View>
         ) : null}
 
@@ -382,7 +385,7 @@ export default function TransferSendScreen() {
               icon="doc.text"
               disabled={busy}
             />
-            <Button label={lastFailed ? 'Try again' : ATTACH_COPY.cta} onPress={handleAttachProof} loading={busy} disabled={busy} block style={s.cta} />
+            <Button label={lastFailed ? 'Try again' : ATTACH_COPY.cta} onPress={handleAttachProof} loading={busy} disabled={busy || refreshing} block style={s.cta} />
           </View>
         ) : null}
 

@@ -69,6 +69,12 @@ describe('Mark as sent against 140', () => {
     expect(await runMarkSent(mk(seq(snap('pending'), null), async () => ({ data: reply('queued', 'seller_sent', P), error: null })))).toEqual({ kind: 'unconfirmed' });
   });
 
+  it('a reply asserts only what it says: an outcome without a sent status is not a confirmation (D)', async () => {
+    // 140 cannot produce this; the check keeps the client from inferring status from outcome if a server drifts.
+    expect(await runMarkSent(mk(seq(snap('pending'), null), async () => ({ data: reply('already_sent', 'pending', P), error: null })))).toEqual({ kind: 'unconfirmed' });
+    expect(await runMarkSent(mk(seq(snap('pending'), null), async () => ({ data: { outcome: 'transitioned', transfer_evidence_path: P }, error: null })))).toEqual({ kind: 'unconfirmed' });
+  });
+
   it('a reply claiming "transitioned" that the read contradicts is unconfirmed, never success', async () => {
     expect(await runMarkSent(mk(seq(snap('pending'), snap('pending'))))).toEqual({ kind: 'unconfirmed' });
   });
@@ -229,6 +235,13 @@ describe('the send screen (source contract; rendering is a device row)', () => {
     expect(npBlock).toContain('MARK_SENT_COPY.needsProof');
     expect(npBlock).not.toContain('evidenceUpload.reset()');
     expect(npBlock).not.toContain("'Marked as sent'");
+  });
+  it('a refresh and a submit never overlap (D): buttons wait for a refresh; a refresh waits for a submit', () => {
+    expect(send).toContain("disabled={busy || refreshing || buyerDeliveryMissing}");
+    expect(send).toContain("onPress={handleAttachProof} loading={busy} disabled={busy || refreshing}");
+    const r = send.slice(send.indexOf('const onRefresh = useCallback('), send.indexOf('}, [fetchTransfer, flight]);'));
+    expect(r).toContain('if (flight.inFlight) return;');
+    expect(r.indexOf('if (flight.inFlight) return;')).toBeLessThan(r.indexOf('setRefreshing(true);'));
   });
   it('"Pull down to refresh" is true on this screen', () => {
     expect(MARK_SENT_COPY.unconfirmed).toMatch(/Pull down to refresh/);
