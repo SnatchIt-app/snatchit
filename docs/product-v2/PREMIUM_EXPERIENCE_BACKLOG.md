@@ -2302,3 +2302,11 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   correctly with the keyboard down. No listing submitted. DV-S1 still open: step 3a long event name at
   the current text size; step 3b largest accessibility text size (S2-4 row 11 residue runs at the same
   setting before it is turned back).
+- **DV-S1 step 3a (owner, Build 18, seller, 2026-09-18 01:17 EDT ≈ 05:17Z): PASS** (owner-reported),
+  long event name at the current text size. Observed behaviour, recorded exactly: Event name is a
+  single-line field — unfocused it shows only the portion of the name that fits; focused it scrolls
+  horizontally through the name; it does NOT wrap and the whole name is never visible at once. The
+  owner considers single-line scrolling expected. Text intact after dismiss/reopen; field stays above
+  the keyboard; no extra gap above the List ticket bar. No listing submitted. Also recorded: the
+  heading-vs-SANDBOX-badge check passed at step 1 (time not captured); D's contrary wording was
+  retracted by D. Next: step 3b at the largest accessibility text size.
