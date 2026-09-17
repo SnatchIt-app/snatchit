@@ -1220,3 +1220,27 @@ have**, on the one environment used to rehearse production procedures — a futu
 ES256 row would reasonably conclude the sandbox has a trust root, which my environment resolution says it does
 not, and no read distinguishes the two without resolving the ARN. If the owner chooses A, my read-back includes
 **the monitor's next run and its alert rows**, not just the eight fixture rows.
+
+**Correction accepted (A's sandbox read, 02:56:32Z):** `signing.monitor_enabled = false`,
+`signing.expected_key_fingerprint` null, `signing.expected_max_not_after` null; the
+`monitor-signing-key-invariants` cron is active at `23 5 * * *` and its last three runs succeeded as no-ops;
+`kernel.admin_audit` holds **zero** `invariant_alert` rows. **So option A raises nothing today and my
+alert-fatigue argument does not apply as I first stated it.** A read it rather than letting my concern stand
+unverified, which is the right handling.
+
+**But the latent cost is sharper than "if the monitor is ever enabled", and it goes to the owner at full
+strength.** The sandbox is the surface we would use to **rehearse arming the monitor** — precisely what a sandbox
+is for, and the production C5 ceremony is the kind of thing anyone would rehearse before repeating. With a planted
+key present that rehearsal has two outcomes and both are bad: it surfaces a MISMATCH against a key we put there
+and is therefore invalid, or somebody "fixes" it by setting `signing.expected_key_fingerprint` to the **fake**
+key's fingerprint — at which point the sandbox's monitor configuration attests to a forged trust root and every
+later comparison there is meaningless. The property is therefore not a conditional risk but a spent capability:
+**the sandbox could no longer be used to rehearse trust-root monitoring honestly**, permanently, in exchange for a
+layout preview.
+
+**Option D needs an on-page marker, not only a record note.** "Fixture mode, no server evidence" in the record is
+necessary but records do not travel with screenshots. The venue dashboard's precedent is the complete one:
+fixtures render behind a **visible** `NotWiredState` / DB-mode label so a screenshot carries its own caveat. My
+Tickets in fixture mode should do the same, or a clean screenshot of populated tickets circulates and is
+reasonably read as issuance working — the same discipline as labelling sample data on an analytics page. It is
+what makes D genuinely free rather than merely cheap.
