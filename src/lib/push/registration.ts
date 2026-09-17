@@ -31,6 +31,8 @@
  * unclaimable active legacy row into a claimable revoked one.
  */
 
+import { PRE_REGISTER_REMEDY, type PreRegisterKind } from './runGate';
+
 export type RegistrationMethod = 'rpc' | 'legacy';
 
 export type RpcOutcome = 'registered' | 'refreshed' | 'rebound' | 'rebound_legacy' | 'challenge_required';
@@ -72,7 +74,8 @@ export type RegistrationErrorKind =
   | 'auth'               // no valid session
   | 'secret_unavailable' // Keychain or CSPRNG unavailable on this device
   | 'network'
-  | 'unknown';
+  | 'unknown'
+  | PreRegisterKind;     // F-611C-1: the Expo token fetch threw or timed out before any register call
 
 export interface RegistrationFailure {
   kind: RegistrationErrorKind;
@@ -221,6 +224,7 @@ export function recordFailure(
 
 /** What the user can be told when the device is not registered for this account. */
 export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>> = {
+  ...PRE_REGISTER_REMEDY,
   // 131: after a "Sign out of all devices" the previous account's device proof
   // is cleared, so a different account on this install is refused (42501) and
   // "sign out here first" would be false advice — that account is already
