@@ -118,10 +118,11 @@ SELECT ok(NOT has_function_privilege('authenticated', 'notify.retire_account_del
 SELECT ok(NOT has_function_privilege('service_role', 'notify.retire_account_deletion_pending(uuid)', 'EXECUTE'),
   '208 F2: service_role may not either — principle 4, it has no business retiring a user''s notices');
 SELECT is((SELECT p.prosecdef::text || '/' || pg_get_userbyid(p.proowner) || '/' ||
-                  (('search_path=""' = ANY(p.proconfig)))::text
+                  (('search_path=""' = ANY(p.proconfig)))::text || '/' ||
+                  (('lock_timeout=2s' = ANY(p.proconfig)))::text
              FROM pg_proc p WHERE p.oid = 'notify.retire_account_deletion_pending(uuid)'::regprocedure),
-  'true/postgres/true',
-  '208 F3: SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline)');
+  'true/postgres/true/true',
+  '208 F3: SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline), and lock_timeout 2s so a stuck retire fails fast instead of holding kernel.identity_ext (D''s review)');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -29,6 +29,21 @@
 --   * it does not touch any notice belonging to anyone else, including the DV buyer's
 --     current stale row on the sandbox, which is a separate scoped plan.
 --
+-- THE TRADE-OFF, STATED PLAINLY (D's review of c70a9a6, and D is right that the header
+-- previously implied the abort was strictly safer):
+--   * best-effort would fail toward a cosmetic stale notice — the defect this fixes;
+--   * atomic, as written, fails toward the withdrawal ABORTING, which leaves the identity
+--     in DELETION_PENDING — and kernel.sweep_deletion_pending selects exactly
+--     `deletion_state = 'DELETION_PENDING'` with no grace window in its predicate, gated
+--     only by the BP blockers, while ERASED is terminal with no resurrection path.
+--     The user must retry the withdrawal; nothing here retries for them.
+-- Atomic is still the choice: the write is a local UPDATE of this identity's own rows in
+-- the same transaction, D looked for a lock inversion and found none (drain_outbox takes
+-- outbox rows FOR UPDATE SKIP LOCKED and never touches kernel.identity_ext), and the
+-- lock_timeout above makes a stuck retire fail in 2s instead of holding identity_ext.
+-- If the owner would rather no notify hiccup could ever block a withdrawal, that is their
+-- call to make, not ours, and it is a one-line change to a best-effort block.
+--
 -- FORWARD-ONLY, deliberately (B's review of c70a9a6): the retire sits AFTER the
 -- noop_replay early return, so an identity that is ALREADY ACTIVE with a stale notice —
 -- exactly the DV buyer's case — is never healed by calling withdraw again. Healing an
@@ -53,6 +68,9 @@ language plpgsql
 volatile
 security definer
 set search_path = ''
+-- lock_timeout in 076's shape (PFA-2's reasoning, D's review): a retire that cannot get
+-- its rows fails FAST rather than holding kernel.identity_ext locked behind it.
+set lock_timeout = '2s'
 as $$
 declare v_n integer;
 begin
