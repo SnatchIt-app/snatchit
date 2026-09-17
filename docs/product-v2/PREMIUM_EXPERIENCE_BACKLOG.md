@@ -3313,3 +3313,20 @@ Most of the app is already tested; close the remaining gaps efficiently.
   the approved order. RT6, U1 and RT5-P follow once all four objects exist.
 - **Reuse recorded as C's judgement:** DV-IMG-1 and DV-IMG-3's replace/remove half are **PASSED on step 0a's evidence**
   (same components), not re-tested on the transfer screen. DV-IMG-3a's no-image gate stays **UNTESTED** until the pass.
+- **Owner's three tightenings for the combined pass (2026-09-17), applied:**
+  1. Offline test: the owner confirms **Wi-Fi off as well as Airplane Mode on**, so the failure is a real network failure.
+  2. **HEIC:** a camera photo alone does not establish HEIC coverage. The owner reports the iPhone's Camera › Formats
+     setting ("High Efficiency" = HEIC, "Most Compatible" = JPEG), and **A verifies the STORED object's actual format
+     from its bytes** (magic bytes, extension, Content-Type, size, sha256) and states whether the row proves
+     HEIC→JPEG conversion, a JPEG that was never HEIC, or a stored HEIC. If the device never produced HEIC,
+     DV-IMG-9's conversion half is **UNTESTED**, not passed.
+  3. **Stop conditions are phone-observable**, replacing "success before the server confirms": a success message while
+     Airplane Mode is on; two success messages for one transfer; the transfer showing as sent without the button ever
+     showing its spinner; the no-image tap showing a spinner or delay instead of an instant alert; landing on
+     "Sandbox L7". **A verifies server-side timing afterwards** (each success followed a confirmed verb call; no
+     transfer took two calls).
+  Order preserved; A's post-checks batched. Shared picker coverage is REUSED EVIDENCE from step 0a, not a new
+  transfer-screen pass; DV-IMG-3a stays UNTESTED until performed.
+- **Sent to B for the frontend audit (owner's instruction):** the expired-window warning that gates nothing
+  (display-only at send/[id].tsx:309 beside a button disabled for a different reason) and the inconsistent "Unknown"
+  buyer label (the Send screen's embed fallback versus Profile's email fallback at profile.tsx:229).
