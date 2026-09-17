@@ -474,3 +474,48 @@ with the push rows deferred; handset row 17 on Build 17 (now a real A-131-K2 tes
 moved; client expiry notice) after C gives the owner the exact steps; row 18 deferred to the combined build (a v2 client
 rejects `contract_version` 3); no fixtures were staged in this window, so there is nothing to clean up; the closing census
 above is the record.
+
+## 12. Handset session 1, row 17 (DV-607a) on Build 17 — server-side session invalidation, 2026-09-17 02:34–02:39Z
+
+**Authorization:** owner 2026-09-16 ("C may proceed to row 17 only after giving me the exact handset instruction; A performs
+the documented session invalidation and read-back") and the owner's "row 17 ready" at 02:34Z (22:34 Eastern, 2026-09-16), Build
+17 signed in as `sandbox-buyer@snatchit.test` and backgrounded. Post-131 sandbox, so the row tests the real A-131-K2 path.
+
+**Before-reads (A 02:35:35Z; D 02:37:01Z, identical):** buyer `919d511e…` had exactly one session, `d947bef4-2613-4a53-8633-
+fc16e313b4e0` (created 2026-09-16 04:32:52.904518Z, `not_after` null, SnatchIt/17); token row `140fcb44…` active, reason null,
+`session_id` = that session, proof `4b8628e7…`, `last_used` 02:34:04.157162Z (this launch's register call, i.e. the client
+registered normally on the relaunch); `kernel.identity_ext` **one existing row** with `push_binding_epoch` null (D's correction
+to A's "no row"); `trg_push_bindings_on_sessions_gone` present. **Branch decided from the read, not the abstract:** one live
+session → deleting it leaves none → branch (1) `invalidate_push_bindings_for(buyer, 'signed_out_everywhere')`; the
+`session_ended` UPDATE (branch 2, proof kept, no epoch move) matches nothing because it is guarded `and t.is_active`. A's
+earlier restatement to C had fused the two branches ("session_ended, proof kept, epoch moved"); D caught it, A verified from
+the pinned 131, and C's owner instruction was corrected before the run.
+
+**Write:** `delete from auth.sessions … where left(id::text,8)='d947bef4'` by the buyer, inside a transaction whose guard
+asserts exactly one buyer session with that prefix. **First attempt 02:38:05Z aborted on the guard itself** (`min()` over a
+uuid is not defined), before the delete; the read-back proved nothing changed. Retry 02:38:29Z: transaction `now()`
+02:38:30.049923Z, one row deleted, committed.
+
+**Read-backs (A 02:38:30Z; D 02:39:25Z, every value identical): PASS, branch (1).** Buyer sessions 0 live / 0 total. Row
+`140fcb44…`: `is_active=false`, `revoked_reason='signed_out_everywhere'`, `revoked_at` 02:38:30.049923Z (= txn now),
+**`device_secret_hash` NULL** (the proof-clearing that separates the branches), `last_used` unchanged, `session_id` still
+`d947bef4…` — **a dangling reference by design**: the verb leaves it, the session no longer exists; harmless (row inactive, epoch
+bars re-registration) but a later join to `auth.sessions` finds nothing and must not be read as corruption. `identity_ext`: the
+existing row's `push_binding_epoch` null → **02:38:32.452494Z**. **O-3 property holds:** epoch ≥ `revoked_at` and epoch > the
+deleted session's `created_at`, so every pre-existing session is barred from re-registering until a fresh sign-in. Exactly one
+token row revoked; no other binding touched; counts 49/51/33/1, challenges 0, vault `project_url` only, ledger 141, census
+32|106|37|37.
+
+**The 2.4 s epoch offset is deliberate (pinned 131):** `v_epoch := greatest(coalesce(p_epoch, '-infinity'), clock_timestamp())
++ interval '2 seconds'` — the epoch is stamped two seconds into the future so a session created microseconds after the
+invalidation commits still predates it and fails closed. **Known property, recorded here rather than met on a handset:** a
+legitimate fresh sign-in landing inside that two-second window gets a session whose `created_at` precedes the epoch, and since
+`created_at` never changes that session can never register a push token; the remedy is signing in again (the same remedy 131
+already imposes after a credential change). Report shape if it ever surfaces: "I changed my password and notifications
+stopped."
+
+**Client half (owner via C):** pending at the time of writing — expected: the expiry notice on foreground and the login screen
+(CFT-607 path), not a silent failure; the next buyer sign-in on this device registers fresh with no proof (`registered`) and
+plants a new one. Row 18 stays deferred to the combined build (a v2 client rejects `contract_version` 3 now that 135 is on the
+sandbox). Branch (2), the K-2 "this device only" case, remains **untested outside D's harness**: it needs two live sandbox
+sessions for one user, i.e. Build 17 on a second iPhone; proposed for the combined-build session if the owner has one.
