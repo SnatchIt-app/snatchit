@@ -228,7 +228,7 @@ object in the folder that these tests did not create stops the read.
 | DV-611C-2 | N | register-call counting half; push half DEFERRED |
 | DV-131-1 | authorized write | the epoch bump within 2 s of a sign-in on C's trigger |
 | Settings truth (cf94311) · F-2S-1 wording (df5127c) · Tickets label ABSENT in the preview build (ac70643) | N | copy and visibility |
-| DV-ST2a / ST2b | T3 / Line 2 | as authorized / after the fixture |
+| DV-ST2a / ST2b | T3 | **ST2a PASS on Build 18** (window closed 15:29:36Z). ST2b UNTESTED: it needs a new revoke window (pull-to-refresh with rows loaded) on the owner's word, and **no bid fixture** (the Bids tab merges the buyer's transfers: 21 rows; manifest §13) |
 | Carried at true status | — | two-session K-2 UNTESTED · row 18 DEFERRED · A11Y-1 UNTESTED · every push-delivery row DEFERRED · HEIC conversion UNVERIFIED until DV-IMG-9 · F-AUTH-2 open (LOW, not blocking) |
 **Not run, by owner ruling 2:** N5 (attach with a different path) and any handset different-photo attempt; any delete or overwrite of
 attached proof. The evidence instead is PC3 (the live bodies of both `mark_transfer_sent` overloads, `attach_transfer_evidence` and
@@ -293,8 +293,8 @@ B's `pg_get_functiondef` md5s are recorded for reference: `3546027f…`, `37a46d
    - U2's and anon's denied reads;
    - PC1–PC8 and the close;
    - no N5, and no delete or overwrite of attached proof.
-6. **Bid fixture:** Line 2 of the same document.
-**Dependencies:** 1 before any device row · 2 before 3 and 5 · 4 can run before the build · 6 after C confirms DV-S2 complete.
+6. **Bid fixture: NOT REQUESTED.** Line 2's only purpose was DV-ST2b, and its premise ("0 rows, so the clause cannot be observed") was wrong: the Bids tab merges the buyer's transfers and held 21 rows. ST2b needs only a new revoke window, which is the owner's call.
+**Dependencies:** 1 before any device row · 2 before 3 and 5 · 4 can run before the build 
 Off this candidate's critical path by the owner's ruling: cleanup scheduling, native issuance/scanning, the broader onboarding build
 (138), the My Listings redesign (separate visual approval), 137, the venue window.
 

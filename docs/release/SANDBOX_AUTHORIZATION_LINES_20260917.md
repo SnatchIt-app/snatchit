@@ -26,7 +26,11 @@ writes; abort on the listed stopping conditions."
 | What it proves / does not | proves the bucket policies and allow-list behave as the contract states for the true types, that a same-name re-upload is refused, and that the buyer (unrelated to these unreferenced objects) and anon are denied; **does not** prove HEIC conversion, buyer display of a referenced proof (RT6), or anything on a device |
 
 ---
-## Line 2 — Cached-bids fixture (one sandbox bid so DV-ST2b can be observed; `CACHED_BIDS_FIXTURE_PROPOSAL.md`)
+## Line 2 — Cached-bids fixture — WITHDRAWN (not requested; kept for history)
+
+**Why withdrawn (2026-09-17, after DV-ST2):** the line's premise was that the Bids tab could hold no rows for the DV buyer because `public.bids` has 0 rows. Build 18's `app/(tabs)/bids.tsx` merges the buyer's transfers into the same list, and the tab held 21 rows, so DV-ST2b is observable without any bid. A permanent bid write is not needed for its stated purpose. ST2b needs a new revoke window on the owner's word. The text below is preserved as written.
+
+### (as proposed) Cached-bids fixture (one sandbox bid so DV-ST2b can be observed; `CACHED_BIDS_FIXTURE_PROPOSAL.md`)
 
 **Authorization line:** "Place one $101 bid as the DV buyer on listing `58cc00e3…` (Device D8) through the app's Place bid
 screen on the owner's handset, A reading back before and after; retain the row for the DV-ST2b observation; afterwards

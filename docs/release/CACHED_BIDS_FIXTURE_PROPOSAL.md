@@ -4,6 +4,8 @@ Owner's request (2026-09-17): "Prepare the exact sandbox bid fixture proposal: a
 auction/payment/notification side effects, notification suppression, and cleanup or retained-record consequences. Do not place
 a bid yet. Carry the cached-rows check as untested until the concrete plan is approved and executed."
 
+**SUPERSEDED (2026-09-17, after DV-ST2): the premise below is wrong.** `bids.length` counts the merged list, which includes the buyer's transfers (Build 18 `app/(tabs)/bids.tsx` 183+, 312). The DV buyer's tab held 21 rows, so DV-ST2b is observable without a fixture, and the fixture is not requested. The original text follows unchanged.
+
 **Why a fixture is needed at all.** DV-ST2b (the "cached rows stay" clause of the server-error state) renders only when the
 Bids tab already holds rows (`bids.length > 0`, C from source at `bf8b9ba`); `public.bids` on the sandbox holds **0 rows**
 (read 2026-09-17 04:27Z), so the clause cannot be observed. Every fact below is from the sandbox's *applied* trigger and
