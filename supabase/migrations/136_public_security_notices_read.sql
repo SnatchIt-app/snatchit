@@ -18,13 +18,22 @@
 --     The SECURITY TYPE SET is derived from the registry, never hard-coded
 --     (D, Q2): notify.notification_type rows with target_kind = 'account_security'
 --     and delivery_class = 'mandatory' (135's security_device_rebound today; a
---     later type joins this surface only by being classified so). The read
---     first COUNTS the caller's undismissed rows of those types straight from
---     notify.notification (the recipient keyset index; usually 0 → return
---     empty, no rendering at all), then pages notify.get_inbox — the single
---     renderer (templates, locale, params) — until every counted row has been
---     returned or the inbox is exhausted. NO CAP: truncation is impossible by
---     construction (D, Q1: a mandatory notice must never be silently absent).
+--     later type joins this surface only by being classified so). The surface
+--     is the ACTIONABLE one: it returns UNREAD, undismissed notices only (D's
+--     lifecycle finding: nothing ever sets dismissed_at on a security notice, so a
+--     count of undismissed rows would only ever grow and the read would page
+--     back to the oldest notice on every foreground for the life of the
+--     account; acknowledging must make the cost fall to zero). The read first
+--     COUNTS the caller's unread rows of those types straight from
+--     notify.notification — the partial index notification_recipient_unread_idx
+--     (recipient_id, created_at desc) where read_at is null and dismissed_at is
+--     null was built for exactly this predicate; usually 0 → return empty, no
+--     rendering at all — then pages notify.get_inbox — the single renderer
+--     (templates, locale, params) — until every counted row has been returned or
+--     the inbox is exhausted. NO CAP: truncation is impossible by construction
+--     (D, Q1: a mandatory notice must never be silently absent). A history of
+--     read notices is not this surface (a mobile notification centre is a
+--     separate backlog item).
 --     Newest first: {id, type_key, title, body, created_at, read_at}. The copy is
 --     the server template (highest version), so the mobile notice and the web
 --     centre say the same thing.
@@ -88,10 +97,11 @@ begin
     from notify.notification_type t
    where t.target_kind = 'account_security' and t.delivery_class = 'mandatory';
   if coalesce(array_length(v_types, 1), 0) = 0 then return; end if;
-  -- how many undismissed security rows the caller has (indexed; usually 0)
+  -- how many UNREAD, undismissed security rows the caller has (partial index; usually 0)
   select count(*) into v_expected
     from notify.notification n
-   where n.recipient_id = v_uid and n.type_key = any (v_types) and n.dismissed_at is null;
+   where n.recipient_id = v_uid and n.type_key = any (v_types)
+     and n.read_at is null and n.dismissed_at is null;
   if v_expected = 0 then return; end if;
   -- page the single renderer until every counted row has been returned (no cap)
   loop
@@ -99,7 +109,7 @@ begin
     for r in select * from notify.get_inbox(v_cursor, v_page) loop
       v_rows := v_rows + 1;
       v_min := least(coalesce(v_min, r.created_at), r.created_at);
-      if r.type_key = any (v_types) then
+      if r.type_key = any (v_types) and r.read_at is null then
         id := r.notification_id; type_key := r.type_key; title := r.rendered_title; body := r.rendered_body;
         created_at := r.created_at; read_at := r.read_at;
         return next;
@@ -113,7 +123,7 @@ begin
 end $$;
 
 comment on function public.get_my_security_notices() is
-  '136: PostgREST-reachable, owner-scoped read of the caller''s mandatory account_security notices (type set derived from notify.notification_type: target_kind=account_security AND delivery_class=mandatory), rendered by notify.get_inbox (server templates, highest version); newest first; pages until every counted row is returned — no cap, no silent truncation; dismissed rows excluded as get_inbox does. No new channel. authenticated only.';
+  '136: PostgREST-reachable, owner-scoped read of the caller''s mandatory account_security notices (type set derived from notify.notification_type: target_kind=account_security AND delivery_class=mandatory), UNREAD and undismissed only (acknowledged notices leave the surface and its cost), rendered by notify.get_inbox (server templates, highest version); newest first; pages until every counted unread row is returned — no cap, no silent truncation. No new channel. authenticated only.';
 
 create or replace function public.mark_security_notices_read(p_ids uuid[])
 returns integer

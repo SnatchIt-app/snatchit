@@ -4,7 +4,7 @@
 -- caller's own security-type rows, and are callable by authenticated only.
 -- Runs as postgres inside BEGIN … ROLLBACK like every suite here.
 BEGIN;
-SELECT plan(35);
+SELECT plan(36);
 
 -- ── A. shape and grants ──────────────────────────────────────────────────────
 SELECT has_function('public', 'get_my_security_notices', ARRAY[]::text[],
@@ -77,8 +77,10 @@ SELECT tap.logout();
 SELECT tap.login(tap.buyer());
 SELECT is(public.mark_security_notices_read(ARRAY[public._sec203(), public._oth203(), gen_random_uuid()]), 1,
   'E1: acknowledging [security id, own non-security id, unknown id] updates exactly the security notice');
-SELECT ok((SELECT read_at IS NOT NULL FROM public.get_my_security_notices()),
-  'E2: the notice now carries read_at (the client hides it)');
+SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 0::bigint,
+  'E2: the acknowledged notice LEAVES the surface — unread only (a read row is neither returned nor paged for, so the cost falls to zero on acknowledgement)');
+SELECT ok((SELECT n.read_at IS NOT NULL FROM notify.notification n WHERE n.notification_id = public._sec203()),
+  'E2b: ...while the row itself carries read_at (marked, not deleted or dismissed)');
 SELECT is((SELECT n.read_at FROM notify.notification n WHERE n.notification_id = public._oth203()), NULL,
   'E3: the non-security notice was NOT marked — the wrapper is scoped to security types, not just to the caller');
 SELECT is(public.mark_security_notices_read(ARRAY[public._sec203()]), 0,
@@ -87,32 +89,31 @@ SELECT is(public.mark_security_notices_read(NULL), 0,
   'E5: NULL ids → 0, no error');
 SELECT tap.logout();
 
--- ── G. pagination (E-160) and the input bound ────────────────────────────────
--- 60 newer non-security rows push the security notice onto get_inbox's SECOND page; it must still come back (no cap,
--- no silent truncation), and the cursor must not skip it (created_at defaults to clock_timestamp(): no keyset ties).
+-- ── G. pagination (E-160), unread-only termination, and the input bound ──────
+-- A second, UNREAD security notice (a different token's dedupe key), then 60 newer non-security rows push it onto
+-- get_inbox's SECOND page; it must still come back (no cap, no silent truncation), and the cursor must not skip it
+-- (created_at defaults to clock_timestamp(): no keyset ties). The first notice is already read (E) and must not be paged for.
 SELECT tap.login(tap.buyer());
-SELECT is(public.mark_security_notices_read(ARRAY[public._sec203()]), 0, 'G0: (setup) the notice is already read from E — re-acknowledging returns 0, not an error');
+SELECT is(public.mark_security_notices_read(ARRAY[public._sec203()]), 0, 'G0: (setup) re-acknowledging the read notice returns 0, not an error');
 SELECT tap.logout();
-SELECT count(*) FROM (SELECT notify.enqueue(tap.buyer(), 'purchase_failed', 'payment', gen_random_uuid(), '{}'::jsonb, NULL) FROM generate_series(1, 60)) g;
-SELECT tap.login(tap.buyer());
-SELECT is((SELECT count(*) FROM notify.get_inbox(NULL, 50) i WHERE i.type_key = 'security_device_rebound'), 0::bigint,
-  'G1a: the security notice is NOT on the first inbox page any more (60 newer rows above it)');
-SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 1::bigint,
-  'G1: ...and the wrapper still returns it — it pages until every counted security row is found; a 50-row or 200-row cap would have hidden a mandatory notice');
-SELECT is((SELECT id FROM public.get_my_security_notices()), public._sec203(),
-  'G1b: ...the same row, by id');
-SELECT tap.logout();
--- a second, UNREAD security notice (a different token's dedupe key) to exercise the input bound with a discriminating case
 CREATE TEMP TABLE _n203b AS
 SELECT notify.enqueue(tap.buyer(), 'security_device_rebound', 'account_security', gen_random_uuid(),
                       '{"device_name":"iPad 203"}'::jsonb, 'test-203-rebound-2') AS sec2_id;
 CREATE FUNCTION public._sec203b() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$ SELECT sec2_id FROM pg_temp._n203b $$;
+SELECT count(*) FROM (SELECT notify.enqueue(tap.buyer(), 'purchase_failed', 'payment', gen_random_uuid(), '{}'::jsonb, NULL) FROM generate_series(1, 60)) g;
 SELECT tap.login(tap.buyer());
-SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 2::bigint, 'G2a: both security notices are returned (the new one is newest-first on page 1, the old one on page 2)');
+SELECT is((SELECT count(*) FROM notify.get_inbox(NULL, 50) i WHERE i.type_key = 'security_device_rebound'), 0::bigint,
+  'G1a: neither security notice is on the first inbox page any more (60 newer rows above them)');
+SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 1::bigint,
+  'G1: the wrapper returns exactly the UNREAD one — it pages until every counted unread row is found; a 50-row or 200-row cap would have hidden a mandatory notice, and the read one is not paged for');
+SELECT is((SELECT id FROM public.get_my_security_notices()), public._sec203b(),
+  'G1b: ...and it is the unread notice, by id');
 SELECT is(public.mark_security_notices_read((SELECT array_agg(gen_random_uuid()) FROM generate_series(1, 100)) || ARRAY[public._sec203b()]), 0,
-  'G2: p_ids is bounded to its first 100 elements — an unread security id at position 101 is NOT considered (0)');
+  'G2: p_ids is bounded to its first 100 elements — the unread security id at position 101 is NOT considered (0)');
 SELECT is(public.mark_security_notices_read(ARRAY[public._sec203b()]), 1,
   'G3: ...and the same id within the bound is marked (1) — the bound, not the scope, produced the 0 above');
+SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 0::bigint,
+  'H1: after acknowledgement the surface is empty although both rows exist unread-free — the termination target is the unread count, so nothing is paged and nothing is rendered');
 SELECT tap.logout();
 
 -- ── F. the copy pin (owner-corrected meaning lives in the server template, one source for web and mobile) ─
