@@ -2880,3 +2880,17 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   dv-notice:140fcb44:2026-09-17) and verifies 0 delivery rows, **only after C's "buyer ready"**. C guides DV-N-1..3; A
   reads back read_at after Dismiss, then deletes the row and verifies cleanup. Per the owner, C asks whether they
   are ready before starting.
+- **Build 19 step 5 (owner, 2026-09-17; screenshots 12:32 Home and 12:33 Profile): signed in as the sandbox buyer**
+  (Profile "sandbox-buyer", 0 active, 0 sold, My listings 0 total). **A notice was already showing, NOT the
+  staged test notice:** "Account deletion requested" / "Your account deletion request was received. You can
+  withdraw it from Settings while it is pending." / DISMISS, on both Home and Profile. **The owner did not dismiss
+  it.** C did NOT send "buyer ready", so A has written nothing. A asked (read-only) to confirm no staged row
+  exists, list the buyer's notice rows (type, created, read), and say whether a deletion request is actually
+  pending for the buyer.
+  - *Source (Build 19):* the banner shows the NEWEST unread notice of any mandatory account_security type. A staged
+    rebound row would show first, then this deletion notice would reappear after Dismiss, which would confound
+    DV-N-3 unless DV-N-3 is defined against the staged row.
+  - *Screenshot observations (not assessed):* while the banner shows, Home has a large gap between the banner and
+    the SN header (the "interim double gap" D noted at da1d11d; the overlay is the follow-up). On Profile the tab
+    dock sits over the SIGN OUT button at that scroll position.
+  - No notice touched; the owner waits on Home.
