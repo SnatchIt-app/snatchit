@@ -142,6 +142,20 @@ supersedes the stored proof with the proving device's, so a stale secret gains a
 to the device; (b) rotating the secret would orphan an in-flight challenge, whose `secret_hash` was captured at issue time —
 a successful confirm would then store a proof the device no longer holds, a silent mismatch of exactly the class v3 removes.
 
+**The previous owner's notice on mobile (136, batch 1 item 2, 2026-09-17).** `security_device_rebound` is enqueued for the
+previous owner (135 §5) as in-app only (no delivery row; N1). The mobile client reads it through
+`public.get_my_security_notices()` → `{id, type_key, title, body, created_at, read_at}` (owner-scoped, security types only,
+newest first, rendered server-side by `notify.get_inbox` from the highest `notify.template` version — 136's v2 carries the
+owner-corrected, D-verified copy: "A device stopped receiving your notifications" / "A device that was getting notifications
+for this account is now registered to a different account. If that was you signing in to another account, there's nothing to
+do. If not, sign out of all devices.") and acknowledges it with `public.mark_security_notices_read(p_ids uuid[]) → integer`
+(own security ids only; foreign or non-security ids → 0). The client carries **no title/body strings**; it keys its two
+actions on `type_key = 'security_device_rebound'`: "Sign out of all devices" (K-2, `signOutAllDevices`; it does not undo the
+rebind — the row now belongs to the new owner — and the copy must never imply it does) and "Dismiss" (`mark_…_read`).
+Never on the shared login screen. `{{device_name}}` is not rendered: on the register path it is text the CLAIMING party
+supplies. Dedupe is one notice per token per UTC day, so the copy is present-tense and never "just". Absent migration →
+PGRST202 → the client treats it as "no notices", never an error.
+
 ## 8. Support
 `public.unbind_push_token(text)` (service_role) stays for the cases proof cannot reach (a lost or destroyed device, a user without
 a working handset). Runbook: B drafts, D reviews. It is no longer the only route for the account-switch case (acceptance evidence,
