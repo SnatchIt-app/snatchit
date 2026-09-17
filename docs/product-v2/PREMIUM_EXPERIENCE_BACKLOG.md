@@ -2297,3 +2297,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   approval or ML-1 keeps the shared look. New proposed copy is listed on the canvas.
 - **DV-ST2:** held until the owner designated a single A session (now [2e7a9a]); owner still on
   DV-S1 step 2. **DV-S1 step 2** given to the owner as the next single step; not complete.
+- **DV-S1 step 2 (owner, Build 18, seller, 2026-09-18 01:10 EDT ≈ 05:10Z): PASS** (owner-reported) —
+  scrolling with the keyboard open, dismiss, reopen, typed text preserved, List ticket bar positioned
+  correctly with the keyboard down. No listing submitted. DV-S1 still open: step 3a long event name at
+  the current text size; step 3b largest accessibility text size (S2-4 row 11 residue runs at the same
+  setting before it is turned back).
