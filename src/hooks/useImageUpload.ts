@@ -1,62 +1,48 @@
 /**
- * src/hooks/useImageUpload.ts
+ * src/hooks/useImageUpload.ts — pick one image and upload it to Supabase storage.
  *
- * Image-pick → upload → public-URL pipeline for Supabase Storage
- * bucket "auction-media".
+ * F-IMG-1 (2026-09-18): the decisions live in src/lib/media/uploadFlow.ts (pure,
+ * unit-tested); this hook wires the native picker, storage and alerts to them.
+ *  - One picker at a time, with a visible 'picking' state; cancel, denial and a
+ *    thrown picker error always end the picking state (1a, 1b). A final denial
+ *    offers Open Settings (1g).
+ *  - The stored type and extension come from the picked asset, not the file name
+ *    (1h, B F3). The object name is fixed when the photo is picked, so a retry after a
+ *    timeout or lost response targets the same object and "already exists" counts as
+ *    uploaded (A ruling: a timeout is not proof of failure; no duplicate uploads).
+ *  - An uploaded object is reused only for the same account, bucket/folder, reuseKey
+ *    (e.g. the transfer) and selected file (1c). A failure keeps the selection and
+ *    says what to do (1e). With a reuseKey the selection survives leaving the screen
+ *    for the rest of the session (1f).
+ *  - `readError()` returns the current error for callers that alert right after
+ *    `uploadImage()` resolves (the rendered `error` is one render behind).
  *
- * WHY WE USE fetch → arrayBuffer() INSTEAD OF fetch → blob()
- * ────────────────────────────────────────────────────────────
- * On React Native / Hermes, fetch(localUri).blob() returns a zero-byte
- * Blob for local "file://" / "ph://" URIs because the JS fetch API is not
- * wired to the native filesystem in Hermes.
- *
- * expo-file-system's readAsStringAsync with EncodingType.Base64 was tried
- * next, but FileSystem.EncodingType is undefined in the installed version,
- * causing a runtime crash: "Cannot read property 'Base64' of undefined".
- *
- * The working fix: fetch(uri).arrayBuffer() — React Native's fetch polyfill
- * does support arrayBuffer() on local URIs in Expo SDK 50+. We then wrap the
- * result in a Uint8Array and pass it directly to supabase.storage.upload().
- * Supabase JS accepts any ArrayBufferView.
- *
- * Storage path convention:
- *   <userId>/<folder>/<timestamp>.<ext>
- *   e.g. "abc-uuid/covers/1715000000000.jpg"
- *
- * Usage:
- *   const cover = useImageUpload({ userId, folder: 'covers' });
- *   await cover.pickImage();                     // open picker
- *   const storagePath = await cover.uploadImage(); // upload
+ * Nothing here deletes an object: cleanup of unreferenced objects is server-side (A).
  */
 
 import * as ImagePicker from 'expo-image-picker';
-import { useCallback, useState } from 'react';
-import { Alert } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Linking } from 'react-native';
 
+import {
+  classifyUploadError, createPickGate, EmptyFileError, isAlreadyUploaded, objectPath, recallSelection, rememberSelection,
+  resolveContentType, reusableUploadPath, runPick, UnsupportedTypeError, UPLOAD_COPY, UPLOAD_TIMEOUT_MS, uploadKey,
+  withUploadTimeout, type UploadRecord,
+} from '@/src/lib/media/uploadFlow';
 import { IMMUTABLE_CACHE_CONTROL } from '@/src/lib/media/url';
 import { supabase } from '@/src/lib/supabase';
 import { validateImage } from '@/src/utils/validateImage';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export type UploadStatus = 'idle' | 'picking' | 'ready' | 'uploading' | 'done' | 'error';
 
 export type UseImageUploadOptions = {
-  /** Supabase auth user ID — used as the top-level storage folder. */
   userId: string;
-  /** Sub-folder within the user's directory, e.g. "covers" | "proofs". */
   folder: string;
-  /** Crop aspect ratio. Defaults to [16, 9]. Pass null to skip crop. */
   aspect?: [number, number] | null;
-  /** JPEG quality 0–1. Defaults to 0.85. */
   quality?: number;
-  /**
-   * Storage bucket. Defaults to the public 'auction-media' bucket.
-   * Proof-of-ownership uploads use the PRIVATE 'proof-docs' bucket
-   * (migration 033) so proof screenshots are never publicly fetchable —
-   * only the owner (RLS) and admin review (service role) can read them.
-   */
   bucket?: 'auction-media' | 'proof-docs';
+  /** Scope for reuse and for keeping the selection across a remount (e.g. the transfer id). */
+  reuseKey?: string;
 };
 
 export type UseImageUploadReturn = {
@@ -69,9 +55,8 @@ export type UseImageUploadReturn = {
   pickImage:   () => Promise<void>;
   uploadImage: () => Promise<string | null>;
   reset:       () => void;
+  readError:   () => string | null;
 };
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useImageUpload({
   userId,
@@ -79,162 +64,160 @@ export function useImageUpload({
   aspect  = [16, 9],
   quality = 0.85,
   bucket  = 'auction-media',
+  reuseKey,
 }: UseImageUploadOptions): UseImageUploadReturn {
   const [localUri,    setLocalUri]    = useState<string | null>(null);
   const [publicUrl,   setPublicUrl]   = useState<string | null>(null);
   const [storagePath, setStoragePath] = useState<string | null>(null);
-  const [status,      setStatus]      = useState<UploadStatus>('idle');
-  const [error,       setError]       = useState<string | null>(null);
+  const [status,      setStatusState] = useState<UploadStatus>('idle');
+  const [error,       setErrorState]  = useState<string | null>(null);
 
-  // ── pickImage ───────────────────────────────────────────────────────────────
+  const gateRef = useRef(createPickGate());
+  const statusRef = useRef<UploadStatus>('idle');
+  const errorRef = useRef<string | null>(null);
+  const selRef = useRef<{ uri: string | null; contentType: string | null; stamp: string | null }>({ uri: null, contentType: null, stamp: null });
+  const recordRef = useRef<UploadRecord | null>(null);
+
+  const setStatus = useCallback((s: UploadStatus) => { statusRef.current = s; setStatusState(s); }, []);
+  const setError = useCallback((e: string | null) => { errorRef.current = e; setErrorState(e); }, []);
+  const key = uploadKey({ userId, bucket, folder, reuseKey });
+
+  const remember = useCallback(() => {
+    const { uri, contentType, stamp } = selRef.current;
+    if (!reuseKey || !userId) return;
+    rememberSelection(key, uri && contentType && stamp ? { uri, contentType, stamp, record: recordRef.current } : null);
+  }, [key, reuseKey, userId]);
+
+  // 1f: a keyed selection made earlier this session comes back when the screen does.
+  useEffect(() => {
+    if (!reuseKey || !userId || selRef.current.uri) return;
+    const r = recallSelection(key);
+    if (!r) return;
+    selRef.current = { uri: r.uri, contentType: r.contentType, stamp: r.stamp };
+    recordRef.current = r.record;
+    setLocalUri(r.uri);
+    setStoragePath(r.record?.path ?? null);
+    setStatus(r.record ? 'done' : 'ready');
+  }, [key, reuseKey, userId, setStatus]);
 
   const pickImage = useCallback(async () => {
+    const gate = gateRef.current;
+    if (gate.inFlight) return;
+    const prior = { status: statusRef.current, error: errorRef.current };
     setStatus('picking');
-    setError(null);
-
-    const { status: permStatus } =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permStatus !== 'granted') {
-      setStatus(localUri ? 'ready' : 'idle');
-      Alert.alert(
-        'Permission required',
-        'SnatchIt needs access to your photo library. Enable it in Settings.',
-        [{ text: 'OK' }],
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes:    ['images'],
-      allowsEditing: aspect !== null,
-      aspect:        aspect ?? undefined,
-      quality,
-      exif: false,
+    const out = await runPick(gate, {
+      requestPermission: async () => {
+        const p = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        return { granted: p.status === 'granted', canAskAgain: p.canAskAgain };
+      },
+      launch: async () => {
+        const r = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: aspect !== null,
+          aspect: aspect ?? undefined,
+          quality,
+          exif: false,
+        });
+        return r.canceled ? { canceled: true as const } : { canceled: false as const, assets: r.assets };
+      },
+      validate: (f) => validateImage(f, bucket),
     });
-
-    if (result.canceled || result.assets.length === 0) {
-      setStatus(localUri ? 'ready' : 'idle');
+    if (out.kind === 'picked') {
+      selRef.current = { uri: out.uri, contentType: out.contentType, stamp: out.stamp };
+      recordRef.current = null;
+      setLocalUri(out.uri);
+      setPublicUrl(null);
+      setStoragePath(null);
+      setError(null);
+      setStatus('ready');
+      remember();
       return;
     }
-
-    const asset = result.assets[0];
-    const check = validateImage(
-      { uri: asset.uri, type: asset.mimeType ?? undefined, fileSize: asset.fileSize ?? undefined },
-      'auction-media',
-    );
-    if (!check.valid) {
-      setStatus(localUri ? 'ready' : 'idle');
-      Alert.alert('Image too large or unsupported', check.error!);
-      return;
+    // Every other outcome restores what was there before the picker opened.
+    setStatus(prior.status === 'picking' ? (selRef.current.uri ? 'ready' : 'idle') : prior.status);
+    setError(prior.error);
+    if (out.kind === 'denied') {
+      Alert.alert('Photo access needed', UPLOAD_COPY.permission, out.canAskAgain
+        ? [{ text: 'OK' }]
+        : [{ text: 'Not now', style: 'cancel' }, { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } }]);
+    } else if (out.kind === 'invalid') {
+      Alert.alert('Choose another photo', out.message);
+    } else if (out.kind === 'error') {
+      Alert.alert("Couldn't open your photos", out.message);
     }
-
-    setLocalUri(result.assets[0].uri);
-    setPublicUrl(null);
-    setStoragePath(null);
-    setStatus('ready');
-  }, [aspect, quality, localUri]);
-
-  // ── uploadImage ─────────────────────────────────────────────────────────────
+  }, [aspect, quality, bucket, remember, setError, setStatus]);
 
   const uploadImage = useCallback(async (): Promise<string | null> => {
-    if (!localUri) {
-      setError('No image selected.');
+    const { uri, contentType: pickedType, stamp } = selRef.current;
+    if (!localUri || !uri || !stamp) {
+      setError(UPLOAD_COPY.noImage);
       setStatus('error');
       return null;
     }
     if (!userId) {
-      setError('User is not authenticated.');
+      setError(UPLOAD_COPY.notSignedIn);
       setStatus('error');
       return null;
     }
-
+    const reused = reusableUploadPath(recordRef.current, uri, key);
+    if (reused) {
+      setStoragePath(reused);
+      setError(null);
+      setStatus('done');
+      return reused;
+    }
     setStatus('uploading');
     setError(null);
-
     try {
-      // Derive a safe file extension (fallback → jpg)
-      const raw    = localUri.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'heic'].includes(raw) ? raw : 'jpg';
-      const mime    = `image/${safeExt === 'jpg' ? 'jpeg' : safeExt}`;
-
-      // Storage path: <userId>/<folder>/<timestamp>.<ext>
-      const path = `${userId}/${folder}/${Date.now()}.${safeExt}`;
-
-      // ── READ BYTES VIA fetch → arrayBuffer (RN-safe) ────────────────────────
-      // fetch(uri).blob()        → 0 bytes on Hermes (fetch not wired to FS)
-      // FileSystem.EncodingType  → undefined crash in installed expo-file-system
-      // fetch(uri).arrayBuffer() → works: Expo's fetch polyfill handles file:// URIs
-      const res = await fetch(localUri);
-      const arrayBuffer = await res.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-
-      // Guard: if bytes are still 0 something went wrong reading the file
-      if (bytes.length === 0) {
-        throw new Error(
-          'File read returned 0 bytes. The image may be an iCloud-only asset ' +
-          'not yet downloaded to the device — open it in Photos first.',
-        );
-      }
-
-      // ── UPLOAD UINT8ARRAY TO SUPABASE ────────────────────────────────────────
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(path, bytes, {
-          contentType:  mime,
-          upsert:       false,  // timestamp makes each path unique
-          // Immutable: the path carries a timestamp, so this object's bytes never
-          // change. One year, which is what `IMMUTABLE_CACHE_CONTROL` states in
-          // one place for both upload paths. '3600' re-fetched artwork hourly
-          // forever for no reason.
+      const contentType = pickedType ?? resolveContentType(null, uri);
+      if (!contentType) throw new UnsupportedTypeError();
+      const path = objectPath({ userId, folder, stamp, contentType });
+      const bytes = await withUploadTimeout((async () => {
+        const res = await fetch(uri);
+        return new Uint8Array(await res.arrayBuffer());
+      })(), UPLOAD_TIMEOUT_MS);
+      if (bytes.length === 0) throw new EmptyFileError();
+      const { error: uploadError } = await withUploadTimeout(
+        supabase.storage.from(bucket).upload(path, bytes, {
+          contentType,
+          upsert: false,   // the name is this selection's; "already exists" = an earlier attempt landed
           cacheControl: IMMUTABLE_CACHE_CONTROL,
-        });
-
-      if (uploadError) {
-        console.error('[useImageUpload] upload error:', {
-          message: uploadError.message,
-          bucket,
-          path,
-        });
-        throw new Error(uploadError.message);
-      }
-
-      // Public URL only exists for the public bucket. Private buckets
-      // (proof-docs) return null — callers store the path only.
+        }),
+        UPLOAD_TIMEOUT_MS,
+      );
+      if (uploadError && !isAlreadyUploaded(uploadError)) throw uploadError;
       if (bucket === 'auction-media') {
-        const { data: urlData } = supabase.storage
-          .from('auction-media')
-          .getPublicUrl(path);
-        setPublicUrl(urlData.publicUrl);
+        setPublicUrl(supabase.storage.from('auction-media').getPublicUrl(path).data.publicUrl);
       } else {
         setPublicUrl(null);
       }
-
+      recordRef.current = { key, uri, path };
+      remember();
       setStoragePath(path);
       setStatus('done');
       return path;
-
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown upload error.';
-      console.error('[useImageUpload] caught:', message);
-      setError(message);
-      setStatus('error');
+      const c = classifyUploadError(err);
+      console.error('[useImageUpload] upload failed:', { kind: c.kind, bucket });
+      setError(c.message);
+      setStatus('error');   // the selection stays: Retry uses the same photo and the same object name
       return null;
     }
-  }, [localUri, userId, folder]);
-
-  // ── reset ───────────────────────────────────────────────────────────────────
+  }, [localUri, userId, folder, bucket, reuseKey, key, remember, setError, setStatus]);
 
   const reset = useCallback(() => {
+    selRef.current = { uri: null, contentType: null, stamp: null };
+    recordRef.current = null;
+    if (reuseKey && userId) rememberSelection(key, null);
     setLocalUri(null);
     setPublicUrl(null);
     setStoragePath(null);
-    setStatus('idle');
     setError(null);
-  }, []);
+    setStatus('idle');
+  }, [key, reuseKey, userId, setError, setStatus]);
 
+  const readError = useCallback(() => errorRef.current, []);
   const busy = status === 'picking' || status === 'uploading';
 
-  return { localUri, publicUrl, storagePath, status, error, busy,
-           pickImage, uploadImage, reset };
+  return { localUri, publicUrl, storagePath, status, error, busy, pickImage, uploadImage, reset, readError };
 }

@@ -37,6 +37,7 @@ import { ctaLift } from '@/src/lib/nav/keyboardLift';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { Button, Chip, Input, MediaUpload, Sheet, StickyBar } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useCtaDockOffset, useTopInset } from '@/src/lib/nav/navInsets';
@@ -323,6 +324,9 @@ export default function CreateListingScreen() {
     bucket: 'proof-docs', // PRIVATE bucket (migration 033) — owner + admin only
   });
 
+  // F-IMG-1: one publish at a time (repeated taps and the risk-modal confirm share it).
+  const publishFlight = useSingleFlight();
+
   // Picker
   const [pickerMode,    setPickerMode]    = useState<'date' | 'time'>('date');
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -485,7 +489,7 @@ export default function CreateListingScreen() {
       // 1. Upload cover image
       const coverPath = await coverUpload.uploadImage();
       if (!coverPath) {
-        const msg = coverUpload.error ?? 'Unknown upload error — check console for details.';
+        const msg = coverUpload.readError() ?? 'Unknown upload error — check console for details.';
         console.error('[CreateListingScreen] cover upload failed:', msg);
         if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Upload failed', msg); }
         return;
@@ -494,7 +498,7 @@ export default function CreateListingScreen() {
       // 1b. Upload proof of ownership image
       const proofPath = await proofUpload.uploadImage();
       if (!proofPath) {
-        const msg = proofUpload.error ?? 'Unknown upload error — check console for details.';
+        const msg = proofUpload.readError() ?? 'Unknown upload error — check console for details.';
         console.error('[CreateListingScreen] proof upload failed:', msg);
         if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Proof upload failed', msg); }
         return;
@@ -560,10 +564,10 @@ export default function CreateListingScreen() {
   function handleRiskWarningContinue() {
     setRiskWarningVisible(false);
     setRiskCheckPassed(true);
-    handlePublish();
+    void publishFlight.run(handlePublish);
   }
 
-  const busy = loading || coverUpload.status === 'uploading' || proofUpload.status === 'uploading';
+  const busy = loading || coverUpload.busy || proofUpload.busy;
   const platformLabel = TICKET_PLATFORMS.find((p) => p.value === ticketPlatform)?.label ?? null;
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -859,7 +863,7 @@ export default function CreateListingScreen() {
       >
         <Button
           label={submitCtaLabel(quantity)}
-          onPress={handlePublish}
+          onPress={() => { void publishFlight.run(handlePublish); }}
           loading={busy}
           disabled={busy}
           block

@@ -20,6 +20,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Spinner } from '@/src/components/ui/Spinner';
 import { type UploadStatus } from '@/src/hooks/useImageUpload';
+import { UPLOAD_COPY } from '@/src/lib/media/uploadFlow';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -45,17 +46,21 @@ export function MediaUpload({
 }: MediaUploadProps) {
   const hasImage = !!localUri;
   const uploading = status === 'uploading';
+  // F-IMG-1a: while the photo sheet is opening the control says so and takes no taps.
+  const picking = status === 'picking';
+  const working = uploading || picking;
+  const locked = disabled || working;
   const isError = status === 'error';
   const errored = hasError || isError;
   const borderColor = errored ? v2.status.error : hasImage ? v2.border.strong : v2.border.default;
 
   const actions = hasImage && !uploading ? (
-    <View style={s.actions}>
-      <Pressable onPress={disabled ? undefined : onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Replace ${label}`}>
+    <View style={[s.actions, picking && s.disabled]}>
+      <Pressable onPress={locked ? undefined : onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Replace ${label}`} accessibilityState={{ disabled: locked, busy: picking }}>
         <Text style={[textStyle('label'), s.replace]}>Replace</Text>
       </Pressable>
       {onRemove ? (
-        <Pressable onPress={disabled ? undefined : onRemove} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${label}`}>
+        <Pressable onPress={locked ? undefined : onRemove} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} accessibilityState={{ disabled: locked }}>
           <Text style={[textStyle('label'), s.remove]}>Remove</Text>
         </Pressable>
       ) : null}
@@ -68,20 +73,21 @@ export function MediaUpload({
       return (
         <View>
           <Pressable
-            onPress={disabled ? undefined : onPress}
+            onPress={locked ? undefined : onPress}
             style={[s.emptyRow, { borderColor }, disabled && s.disabled]}
             accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityHint={helper}
+            accessibilityState={{ disabled: locked, busy: picking }}
           >
             <IconSymbol name={icon as never} size={22} color={v2.text.muted} />
             <View style={s.emptyText}>
               <Text style={[textStyle('title'), s.label]} numberOfLines={1}>{label}</Text>
-              <Text style={[textStyle('bodySm'), errored ? s.helperErr : s.helper]} numberOfLines={1}>
-                {isError && error ? error : helper}
+              <Text style={[textStyle('bodySm'), errored && !picking ? s.helperErr : s.helper]} numberOfLines={2}>
+                {picking ? UPLOAD_COPY.opening : isError && error ? error : helper}
               </Text>
             </View>
-            <IconSymbol name={'plus' as never} size={20} color={v2.brand.red} />
+            {picking ? <Spinner color={v2.brand.red} /> : <IconSymbol name={'plus' as never} size={20} color={v2.brand.red} />}
           </Pressable>
         </View>
       );
@@ -89,8 +95,8 @@ export function MediaUpload({
     return (
       <View style={[s.coverWrap, { borderColor }]}>
         <Image source={{ uri: localUri! }} style={s.coverImage} contentFit="cover" transition={200} />
-        {uploading ? (
-          <View style={s.overlay}><Spinner color={v2.text.primary} /></View>
+        {working ? (
+          <View style={s.overlay} accessibilityLabel={picking ? UPLOAD_COPY.opening : `Uploading ${label}`}><Spinner color={v2.text.primary} /></View>
         ) : (
           <View style={s.coverBar}>{actions}</View>
         )}
@@ -108,16 +114,16 @@ export function MediaUpload({
       )}
       <View style={s.compactText}>
         <Text style={[textStyle('title'), s.label]} numberOfLines={1}>{label}</Text>
-        <Text style={[textStyle('bodySm'), errored ? s.helperErr : s.helper]} numberOfLines={1}>
-          {isError && error ? error : hasImage ? 'Image added' : helper}
+        <Text style={[textStyle('bodySm'), errored && !picking ? s.helperErr : s.helper]} numberOfLines={2}>
+          {picking ? UPLOAD_COPY.opening : isError && error ? error : hasImage ? 'Image added' : helper}
         </Text>
       </View>
-      {uploading ? (
+      {working ? (
         <Spinner color={v2.brand.red} />
       ) : hasImage ? (
         actions
       ) : (
-        <Pressable onPress={disabled ? undefined : onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={helper}>
+        <Pressable onPress={locked ? undefined : onPress} hitSlop={8} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={helper} accessibilityState={{ disabled: locked }}>
           <Text style={[textStyle('label'), s.replace]}>Add</Text>
         </Pressable>
       )}
