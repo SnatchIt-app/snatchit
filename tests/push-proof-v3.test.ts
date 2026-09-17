@@ -201,6 +201,12 @@ describe('challenge lifecycle (pure)', () => {
     }
     // P3-1 (A): "Try again" always gets a new code, so the dead-challenge states say so.
     for (const k of ['expired', 'consumed', 'exhausted'] as const) expect(CHALLENGE_COPY.failed[k]).toMatch(/Try again/);
+    // F-2S-1 (owner ruling 2026-09-17): on the challenge path the user is still signed in, so the
+    // session_stale copy must not claim a sign-out; it names the remedy (sign in again) instead.
+    expect(CHALLENGE_COPY.failed.session_stale).not.toMatch(/signed out/i);
+    // D: "Try again" cannot succeed for a session that predates the epoch; name the remedy that works.
+    expect(CHALLENGE_COPY.failed.session_stale).toMatch(/sign in again/);
+    expect(CHALLENGE_COPY.failed.session_stale).toBe('This device needs you to sign in again before it can confirm notifications for this account.');
     expect(CHALLENGE_COPY.staleCode).toMatch(/latest notification/i);
     expect(CHALLENGE_COPY.staleCode).not.toMatch(/didn't match|wrong/i);
   });

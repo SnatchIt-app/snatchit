@@ -252,7 +252,9 @@ export const CHALLENGE_COPY = {
     stale_nonce: 'That code was replaced by a newer one. Enter the code from the latest notification.',
     register_instead: 'This device needs to be set up again. Tap Try again.',
     other_session: 'This confirmation was started from a different session. Sign in again and retry.',
-    session_stale: 'You were signed out on this device. Sign in again to keep notifications on.',
+    // F-2S-1 (owner ruling 2026-09-17): the user is still signed in when this shows on the
+    // challenge path, so it names the remedy (sign in again), not a sign-out that has not happened.
+    session_stale: 'This device needs you to sign in again before it can confirm notifications for this account.',
     rate_limited: 'Too many confirmation attempts. Try again in about 10 minutes.',
     auth: 'Sign in again to confirm notifications on this device.',
     network: "Couldn't reach the server. Check your connection and try again.",
