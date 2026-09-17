@@ -2713,3 +2713,26 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
 - **F-BIDS-1 (NEW, potential premature empty state; owner-observed on Build 18 under Very Bad Network; cause under
   investigation, not yet claimed as a defect):** Bids showed a "no bids" empty message while loading, on an account
   that shows 21 purchases. Exact wording not captured.
+- **F-BIDS-1: cause established (source + reproduction tests; the device observation is the owner's).** Build 18 and
+  c3 carry identical code (`app/(tabs)/bids.tsx`, `src/lib/bids`, EmptyState unchanged aad5f75..f412d10).
+  `fetchMyBids` reads `public.bids`, then the buyer's `transfers`, then `setBids(merge)`, but:
+  - **(A)** `setLoading(false)` runs right after the BIDS read, before the purchases read. For a buyer with 0 bids,
+    the screen has loading=false and rows=[] for as long as the purchases read takes, so the empty message ("No
+    active bids" in source) shows until the purchases arrive. Very Bad Network stretched that window.
+  - **(B)** the purchases read's error is ignored (`const { data: txData } = …`, no error check). If it fails, the
+    merge proceeds with nothing, so the empty message shows as if the buyer had no purchases. A silent refresh
+    whose purchases read fails would also replace rows already on screen with bids-only rows (source reading; no
+    test for this third path yet).
+  - **Evidence:** local branch `investigate/bids-empty-while-loading` @ f412d10 (not pushed, not for integration),
+    `tests/bids-empty-while-loading.test.ts` renders the real Bids screen with both reads controlled. Control
+    (both reads finish → 21 purchase rows) passes. R1 (empty while the purchases read is in flight) and R2 (empty
+    after a failed purchases read) FAIL on f412d10.
+  - **Causal probes** (temporary source edits, digest-verified restore): moving `setLoading(false)` to after the
+    merge makes R1 pass (R2 still fails); also surfacing the purchases-read error makes both pass.
+  - **Classification:** a presentation defect that misstates purchase state: a disputed purchase briefly, or on a
+    read failure indefinitely, looks absent. No money action. Pre-existing (the data layer predates V2). DV-ST3's
+    "not shown while a load is in flight" sub-check: observed failing on Bids (owner) and reproduced (tests).
+  - **Release readiness (C's recommendation to A and the owner):** does NOT block the c3 preview build (identical
+    code, no regression; c3 verifies F-NAV-1 and F-IMG-1). SHOULD be fixed before production release. Severity
+    MEDIUM (misleading state on a purchase with an open dispute). No fix without the owner's scope decision; the
+    fix shape is the two probes plus tests for R1, R2 and the refresh path.
