@@ -525,3 +525,173 @@ Evidence (local):
   handler's message, and none of those mutants touches it.
 CI: run 35249486531 at 0cfa8ba succeeded on all five jobs. pgTAP footer: Files=88, Tests=5403, Result: PASS; 206 ok
 (5399 + the 4 new assertions, as predicted).
+
+## Change log 4 — the owner's rulings after PFA-33 (D, 2026-09-17; head `d5fb9ae` on `ops/138-operator-onboarding`)
+
+### The owner's rulings (verbatim, in D's conversation; also received by A directly)
+> I approve and sign PFA-33 at governance commit bf7fd66, amendment checksum 2da381a1… . Record the signed block exactly
+> as defined in the corrected placement note.
+> For the remaining 138 decisions:
+> 1. A suspended organization may receive a recovery owner invite only when it has no current owner, using the same
+>    two-person approval, identity checks and audit controls. No invite may replace an existing owner.
+> 2. Approve A5: prevent a platform-authority identity from directly creating an organization and becoming its owner.
+>    Route creation through the approved platform bootstrap flow.
+> 3. Approve the names-only detection read for platform identities who also hold organization membership. It must be
+>    read-only, scoped, and reported without exposing unrelated personal data.
+> 4. Do not apply migration 138 yet. Integrate A5 and the approved amendment, rerun the front-door tests and review,
+>    then bring me a new apply package.
+> 5. Defer the server-log settings read; it remains a separately authorized production-read question.
+> Keep 138 outside the marketplace candidate. Continue the Build 19 handset checks and the already-approved sandbox
+> work independently. DV-ST2b may run before Line 3, but Line 3 remains a separate irreversible authorization and must
+> not start until I explicitly say "ready for Line 3."
+
+### What changed at d5fb9ae
+- **A5 (ruling 2).** `kernel.create_organization` is 077's body plus one refusal. An identity for which
+  `kernel.is_platform(platform_admin, platform_support, platform_risk)` holds, including the `public.admin_users`
+  bootstrap, gets `42501 insufficient_privilege: platform_authority`. Operators create through `org_bootstrap` (A1).
+  Grants are unchanged (206 I133), and the rollback restores 077's body.
+- **Recovery (ruling 1).** The verbs already allowed a suspended organisation with no owner, so the new tests pin the
+  behaviour and one audit field was added:
+  - A2's `kernel.admin_audit` row now carries `org_status`, so a recovery is distinguishable.
+  - The rest of the flow is unchanged: the same two-person action, the same identity checks, refusal at request
+    (precheck) and at execution (the verb) once an owner exists.
+- **Detection read (ruling 3).** `ops.list_platform_identity_memberships()`:
+  - Callable by platform_admin at aal2 only. It is STABLE, so the database refuses any write inside it, and it writes
+    nothing.
+  - Returns exactly (platform_authority, identity_name, organization_name, org_role). There is no identity id, no
+    address and no organisation id. A missing display name reads `(no display name)`.
+  - Scope follows the ruling: organisation membership only. Venue staff are not included; that is a one-line
+    extension if the owner wants it.
+- **A6, proposed (D's reading of "No invite may replace an existing owner"; the owner confirms or strikes).**
+  `kernel.accept_org_invite` refuses an invite whose role is not org_owner when the accepter is currently an org_owner
+  of that organisation (`precondition_failed: owner_role_change`). The check runs under the organisation row lock.
+- **F-138-12 (D; confirmed in source by A).** 077's acceptance does
+  `insert … on conflict (org_id, identity_id) do update set role = excluded.role, granted_by, granted_at = now()`.
+  - Probe on the local replay at 0cfa8ba: a sole org_owner invites their own address at org_member, accepts, and the
+    organisation has 0 owners.
+  - `change_org_role` refuses exactly that (077:1234–1240), and `remove_org_member` refuses the removal equivalent
+    (077:1330).
+  - An org_admin can also invite the owner's address at a lower tier. If the owner accepts, the owner is demoted by an
+    admin's invite, which bypasses "only an org_owner may change an org_owner".
+  - 077 is in production.
+- **Other effects of that upsert on an EXISTING member, stated as facts for the owner and NOT changed** (A asked;
+  compared with `change_org_role`):
+  1. Self-promotion is not reachable through an invite. Only org_owner and org_admin can invite, and only an org_owner
+     can invite at org_owner.
+  2. The maturity clock (AUTHZ-C1B) resets on EVERY acceptance, including lateral moves, demotions and an owner
+     re-accepting an owner invite (A6 allows that). `change_org_role` resets only on promotion INTO a money role. The
+     reset never shortens maturity, but it can restart an owner's clock.
+  3. A role change through acceptance emits no `security_org_role_granted/revoked` notice and writes
+     `org.invite.accept`, not `org.role.change`.
+  4. Whether an existing member's re-acceptance at the same or a lower role should be a no-op is an owner question.
+     A6 answers it only for owners.
+- **141 (fixture only).** Sections K, L and P had `tap.admin_user()` (a platform_admin through `public.admin_users`)
+  create org1 and act as its owner. A5 refuses that.
+  - org1's owner is now a customer identity, `tap._o141()`.
+  - Only L0d, the platform approval, runs as the admin.
+  - Every assertion is textually unchanged except the owner identity it names (K2, K10, K11, L2, L6f, L6h). 141 is
+    213/213.
+- **Header correction.** The 8ecc929 and 0cfa8ba headers said "SEVEN OBJECTS REDEFINED" but listed six. With
+  create_organization the count is seven and the list matches.
+
+### Evidence at d5fb9ae
+Local:
+- RED, written first, on 0cfa8ba's code: A5 (I89, I90, I103–I105, I107), I111 and A6 (I118, plus the I119–I122
+  cascade: without A6 the sole owner was demoted) failed. The detector did not exist.
+- Fresh replay: Gate-2 32|107|37|38. Census ops functions 91→104 (+13), kernel 157→159, catalog 17→18, ops tables
+  13→14.
+- Local pgTAP: 87 files, 5428/5428, ALL-PASS; 206 171/171; 141 213/213.
+- `mut206_d.py`: 14/14 on written predictions. One was corrected after its first run: MD-anon-granted was written as
+  I131, and also failed B2 (206's "anon can execute NOTHING in ops"). The reason is recorded in the harness.
+  - A5 removed: I89, I90, I103–I105, I107, I125.
+  - A5 admin-only: I104, I107, I125.
+  - A5 ACL widened: I133.
+  - A6 removed: I118–I122.
+  - A6 last-owner-only: I121, I122. This is what makes the "any owner" wording testable.
+  - Audit status dropped: I111.
+  - A2 refuses suspended: I110–I114, I116.
+  - owner_exists not rechecked: I46, I74, I92, I93, I115, I116.
+  - Detector admits support: I127. No gate: I127, I128. Exposes the identifier: I125, I126. Misses admin_users: I125.
+    Volatile: I130. anon granted: B2, I131.
+- `mut206_c.py` (outcome-message hardening): 6/6 at plan 170, before I133 was added.
+- `mut206_v3.py` (28) stands at 8ecc929 and was not re-run: its predictions predate I99–I133.
+- Rollback: identical to an exact no-138 replay (functions 352, tables 50, triggers 51, ops.action constraints 9).
+  accept_org_invite is a7bd0984…, create_organization is 11a046a6…, both with ACL
+  `{postgres=X/postgres,authenticated=X/postgres}`. Re-apply is identical (368 functions).
+CI: pending.
+
+### Follow-on amendment text (proposed; A assigns the ID and places it; the owner signs by the recorded method)
+```
+ID:                          (assigned by A at placement) — follow-on to PFA-33
+FROZEN RULES AFFECTED:       RPC §2.1 (create_organization makes the caller the first org_owner) and RPC §2.3
+                             (accept_org_invite binds the addressed invitee and writes the invite's role).
+WHY:                         owner rulings 1–3 of 2026-09-17, given after PFA-33 was signed.
+AMENDMENT:
+  A5 kernel.create_organization — refuses any identity holding platform authority (platform_role, or platform_admin
+     through public.admin_users). Operators create organisations only through the console's org_bootstrap (PFA-33 A1).
+     Customers' self-service creation is unchanged.
+  R1 Recovery — a SUSPENDED organisation with no current org_owner may receive the PFA-33 A2 owner invite through the
+     same two-person action, identity checks and audit. It is refused whenever an org_owner exists, at request and at
+     execution. The domain audit records the organisation's status at issue. No invite replaces an existing owner.
+  A6 kernel.accept_org_invite — refuses an invite whose role is not org_owner when the accepter is currently an
+     org_owner of that organisation. An owner's role changes only through kernel.change_org_role, which enforces the
+     last-owner and owner-tier rules. [D's reading of ruling 1; the owner confirms or strikes.]
+  D1 ops.list_platform_identity_memberships() — a detector, not a control: platform identities holding organisation
+     membership. platform_admin at aal2; read-only (STABLE; writes nothing, including no audit row); returns names
+     only (authority, identity name, organisation name, role). Running it against any hosted project is a read the
+     owner authorizes for that project.
+UNCHANGED:                   PFA-33 A1–A4 and its LIMIT; the tier guard, I-11, AUTHZ-C1B maturity; the invite verb;
+                             acceptance for non-owners (the upsert's other effects are recorded as facts, not changed).
+IMPLEMENTED AT:              ops/138-operator-onboarding @ d5fb9ae — migration 138 (unapplied, outside the marketplace
+                             candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
+OWNER SIGNATURE REQUIRED:    YES.
+```
+
+### Apply-package inputs (D → A; A assembles the package and brings it to the owner; nothing here authorizes anything)
+1. **Artifact.** `supabase/migrations/138_ops_operator_onboarding.sql` @ d5fb9ae. It is one transaction, and its
+   in-file sanity block aborts the whole migration on any mismatch, so a failure leaves nothing applied. Rollback:
+   `supabase/rollbacks/138_ops_operator_onboarding_rollback.sql`. It restores code, not data. It refuses rather than
+   narrowing the CHECK constraints if rows with a 138 action_type exist.
+2. **Prerequisites.**
+   - 077, 078 and 080 (kernel, catalog, venue) and 115 and 118 (ops) must be applied.
+   - Production: A's release package records 115–120 applied on 2026-09-08.
+   - Sandbox ofaidukbieeekqaboscm: my witness reads show NO `ops` schema (`ident_no_ops=true`), so a sandbox apply of
+     138 first needs 115–120 there. That is a separate, owner-authorized step.
+3. **Pre-apply reads, each authorized per target project.**
+   - (a) The ledger contains 077, 078, 080, 115 and 118, and not 138.
+   - (b) md5(prosrc) and ACL of the seven objects 138 redefines match an exact no-138 replay:
+     - `ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text)` 67cd21460e02fb5e53aa0e01e9858a03, ACL
+       `{postgres=X/postgres,authenticated=X/postgres}`
+     - `ops.action_dispatch(ops.action)` b37e66a70168c79b5eed9dccaf0d1917, ACL `{postgres=X/postgres}`
+     - `ops.action_precheck(ops.action)` 00e2e682a7ce88db32c9268dd264d066, ACL `{postgres=X/postgres}`
+     - `ops.action_allowed_roles(text)` 98d8aba103710706fd8fb6d4081a0a1c, ACL `{postgres=X/postgres}`
+     - `ops.action_requires_approval(text)` 57174426627268e60df6bae330f58b8a, ACL `{postgres=X/postgres}`
+     - `kernel.accept_org_invite(uuid,text)` a7bd098425f1ca041f402449bba4e1a9, ACL
+       `{postgres=X/postgres,authenticated=X/postgres}`
+     - `kernel.create_organization(text,text,text)` 11a046a68ef5f48e0b6d0ab62f2a6d7d, ACL
+       `{postgres=X/postgres,authenticated=X/postgres}`
+
+     Any mismatch is a stop: the rollback would restore the repo body over something else.
+   - (c) The detection query, run before apply as a names-only standalone read. A4 and A5 stop NEW memberships; they
+     remove none that already exist. Its text is the function body without the gate, and it is sent to the owner
+     before any run.
+   - (d) A census of ops/kernel/catalog function counts and ops table count, for the post-apply delta.
+4. **Post-apply verification.**
+   - Deltas: ops functions +13, kernel +2, catalog +1, ops tables +1, triggers +2 (action_invitee update refusal;
+     release on ops.action). public census unchanged.
+   - `kernel.bootstrap_organization`, `kernel.invite_bootstrap_owner`, `catalog.bootstrap_venue`,
+     `ops.identity_holds_platform_authority` and `ops.action_invitee_release_on_terminal` are executable by none of
+     public, anon, authenticated or service_role.
+   - `create_organization` and `accept_org_invite` ACLs are unchanged.
+   - `ops.list_platform_identity_memberships` is executable by authenticated only.
+5. **Blast radius.**
+   - Operators can no longer create organisations directly or accept customer invites.
+   - An owner can no longer be demoted by accepting an invite (if A6 is kept).
+   - Onboarding console actions become available; they require platform_admin, and invites require two people.
+   - No public-schema change, no data migration, no notification, no job.
+6. **Owner approval points.**
+   - Each pre-apply read, per project.
+   - The sandbox apply, including 115–120 there, if chosen.
+   - The production apply.
+   - The follow-on amendment's signature, including the A6 decision.
+   - The server-log settings read stays deferred (ruling 5).
