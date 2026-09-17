@@ -215,3 +215,13 @@ export function bidPresentation(row: BidRowInput, userId: string, now: number = 
         priceDollars: l?.winning_bid_amount ?? l?.current_bid ?? 0 });
   }
 }
+
+/**
+ * F-BIDS-1: a refresh failed while rows were already on screen. The rows stay (they were true when loaded) and
+ * this line says so, above them. Never the empty copy, and never the full-screen error body: those are for a
+ * screen with nothing to keep.
+ */
+export const BIDS_REFRESH_FAILED_COPY = {
+  offline: "You're offline. Showing your bids and purchases from earlier.",
+  error: "Couldn't refresh your bids and purchases. Showing what loaded earlier.",
+} as const;

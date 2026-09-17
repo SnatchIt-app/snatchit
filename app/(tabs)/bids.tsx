@@ -1,10 +1,16 @@
 /**
  * app/(tabs)/bids.tsx — Bids and purchases.
  *
- * V2. The DATA LAYER below is unchanged from the previous revision: the same bids
+ * V2. The DATA LAYER below keeps the previous revision's queries: the same bids
  * query, the same collapse-by-listing (one card per listing at the user's max
  * bid), the same merge of transfers (Buy Now purchases and completed auction wins
  * that have no or stale bid rows), the same refresh and focus behaviour.
+ *
+ * F-BIDS-1 (owner, Build 18): a load is BOTH reads. Loading lasts until both have
+ * answered, so a buyer with no bids never sees "No active bids" while purchases
+ * are still on their way. Either read failing fails the load, and nothing already
+ * on screen is replaced: with no rows the full error state shows (a failure is not
+ * emptiness); with rows they stay, under a line saying the refresh failed.
  *
  * The presentation is rebuilt. Status, grouping, copy, action and the one price to
  * show per state now live in src/lib/bids/bidState.ts, which is pure and tested.
@@ -17,7 +23,7 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -32,7 +38,7 @@ import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { BidCard } from '@/src/components/bids/BidCard';
-import { bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
+import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -145,14 +151,12 @@ export default function BidsScreen() {
       .eq('bidder_id', userId)
       .order('created_at', { ascending: false });
 
-    if (!silent) setLoading(false);
-
     if (error || !data) {
       console.warn('[BidsScreen] fetch error:', error?.message);
       setLoadError(classifyLoadFailure(error, offlineRef.current));
-      return;
+      if (!silent) setLoading(false);
+      return;   // rows already on screen stay as they were
     }
-    setLoadError(null);
 
     // Collapse multiple bids on the same listing into ONE card.
     // `amount` on the card = user's MAX bid for that listing (used for
@@ -185,7 +189,7 @@ export default function BidsScreen() {
     //   • Buy Now purchases have no bid row → never appeared in Bids tab.
     //   • Auction wins that completed checkout — transfer status drives
     //     the badge instead of the stale listing.status='sold' tile.
-    const { data: txData } = await supabase
+    const { data: txData, error: txError } = await supabase
       .from('transfers')
       .select(`
         id,
@@ -204,7 +208,16 @@ export default function BidsScreen() {
       .in('status', ['pending','seller_sent','disputed','buyer_confirmed','auto_released'])
       .order('created_at', { ascending: false });
 
-    for (const t of (txData ?? []) as any[]) {
+    // A failed purchases read fails the whole load. Showing the bids alone would
+    // read as "nothing bought"; replacing rows already on screen would hide them.
+    if (txError || !txData) {
+      console.warn('[BidsScreen] purchases fetch error:', txError?.message);
+      setLoadError(classifyLoadFailure(txError, offlineRef.current));
+      if (!silent) setLoading(false);
+      return;
+    }
+
+    for (const t of txData as any[]) {
       const listing  = Array.isArray(t.listing) ? t.listing[0] : t.listing;
       const coverUrl = getCoverImageUrl(listing?.cover_image_path ?? null);
       const ts       = t.status as PurchaseTransferStatus;
@@ -232,7 +245,9 @@ export default function BidsScreen() {
       }
     }
 
+    setLoadError(null);
     setBids(Array.from(byListing.values()));
+    if (!silent) setLoading(false);
   }, [userId]);
 
   // Hard load on mount
@@ -322,6 +337,16 @@ export default function BidsScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
           }
+          ListHeaderComponent={
+            loadError && bids.length > 0 ? (
+              <View style={s.notice} accessibilityRole="alert">
+                <Text style={[textStyle('bodySm'), s.noticeText]}>{BIDS_REFRESH_FAILED_COPY[loadError]}</Text>
+                <Pressable onPress={() => fetchMyBids(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading bids and purchases">
+                  <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <EmptyState
               title={segment === 'active' ? 'No active bids' : 'Nothing here yet'}
@@ -396,6 +421,15 @@ const s = StyleSheet.create({
     paddingBottom: v2.space.md,
   },
   list: { paddingHorizontal: v2.space.lg, paddingBottom: 96 },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.sm,
+    paddingBottom: v2.space.md,
+  },
+  noticeText: { color: v2.text.muted, flexShrink: 1 },
+  noticeAction: { color: v2.brand.red },
   skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
   skeletonBody: { flex: 1, justifyContent: 'center' },
 });
