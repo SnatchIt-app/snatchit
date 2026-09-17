@@ -28,7 +28,7 @@
 -- Census: notify tables 8 → 9, notify routines 20 → 21; five-schema relations
 -- 80 → 81, routines 303 → 304. Public census UNCHANGED (nothing here is public,
 -- so the grant-decision manifest and expected_grants.txt are untouched). Pins
--- updated in 157. pgTAP 203.
+-- updated in 157. pgTAP 204.
 -- =============================================================================
 begin;
 

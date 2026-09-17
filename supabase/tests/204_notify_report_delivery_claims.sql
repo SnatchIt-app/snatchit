@@ -1,4 +1,4 @@
--- 203_notify_report_delivery_claims.sql — pgTAP for migration 139 (G22).
+-- 204_notify_report_delivery_claims.sql — pgTAP for migration 139 (G22).
 -- Negative control: on the stack WITHOUT 139 the whole shape section fails at A1 and
 -- every C assertion errors on the missing function — i.e. the suite cannot pass by shape.
 -- Per-kind negative control (the "double send" this migration exists to stop) is C.2 / C.5 /
@@ -9,9 +9,9 @@ BEGIN;
 SELECT plan(31);
 SELECT tap.seed_core();
 
-CREATE FUNCTION tap._try203(stmt text) RETURNS text LANGUAGE plpgsql AS $$
+CREATE FUNCTION tap._try204(stmt text) RETURNS text LANGUAGE plpgsql AS $$
 BEGIN EXECUTE stmt; RETURN 'ok'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE || ' ' || SQLERRM; END $$;
-CREATE FUNCTION tap._claim203(k text, v text) RETURNS boolean LANGUAGE sql AS $$ SELECT notify.claim_report_delivery(k, v) $$;
+CREATE FUNCTION tap._claim204(k text, v text) RETURNS boolean LANGUAGE sql AS $$ SELECT notify.claim_report_delivery(k, v) $$;
 
 -- ── A. shape, RLS and the grant wall ────────────────────────────────────────
 SELECT has_table('notify', 'report_delivery_claim', 'A1: the claim table exists in notify');
@@ -48,31 +48,31 @@ SELECT ok(NOT has_function_privilege('authenticated', 'notify.claim_report_deliv
   'B6: no client may execute it');
 
 -- ── C. the behaviour: exactly one true per (kind, key) ──────────────────────
-SELECT is(tap._claim203('report_created', 'r-1'), true,  'C1: the first claim of a report wins');
-SELECT is(tap._claim203('report_created', 'r-1'), false, 'C2: the SECOND claim of the same report is refused — the duplicate send this migration exists to stop');
-SELECT is(tap._claim203('report_created', 'r-2'), true,  'C3: a different report is its own claim');
+SELECT is(tap._claim204('report_created', 'r-1'), true,  'C1: the first claim of a report wins');
+SELECT is(tap._claim204('report_created', 'r-1'), false, 'C2: the SECOND claim of the same report is refused — the duplicate send this migration exists to stop');
+SELECT is(tap._claim204('report_created', 'r-2'), true,  'C3: a different report is its own claim');
 
-SELECT is(tap._claim203('dispute_opened', 't-1'), true,  'C4: the first claim of a dispute wins');
-SELECT is(tap._claim203('dispute_opened', 't-1'), false, 'C5: the second is refused');
-SELECT is(tap._claim203('dispute_opened', 'r-1'), true,
+SELECT is(tap._claim204('dispute_opened', 't-1'), true,  'C4: the first claim of a dispute wins');
+SELECT is(tap._claim204('dispute_opened', 't-1'), false, 'C5: the second is refused');
+SELECT is(tap._claim204('dispute_opened', 'r-1'), true,
   'C6: kind NAMESPACES the key — a dispute whose id equals a report id is a separate claim');
 
 -- The signing alert: keyed on the RUN, never the alert text. Two different days
 -- must BOTH send, or an unresolved compromise is announced once and then silenced.
-SELECT is(tap._claim203('signing_invariant_alert', '2026-09-17'), true,  'C7: today''s monitor run announces');
-SELECT is(tap._claim203('signing_invariant_alert', '2026-09-17'), false, 'C8: a double delivery of the SAME run collapses');
-SELECT is(tap._claim203('signing_invariant_alert', '2026-09-18'), true,
+SELECT is(tap._claim204('signing_invariant_alert', '2026-09-17'), true,  'C7: today''s monitor run announces');
+SELECT is(tap._claim204('signing_invariant_alert', '2026-09-17'), false, 'C8: a double delivery of the SAME run collapses');
+SELECT is(tap._claim204('signing_invariant_alert', '2026-09-18'), true,
   'C9: TOMORROW''S run announces again — the alarm is not silenced while the trust root stays wrong');
 -- D's control, stated as D asked for it: leave the invariant violated for THREE
 -- consecutive runs and assert THREE notices. A recurring alarm that dedupes is
 -- not deduped, it is silenced — and it is silent exactly while the compromise lasts.
-SELECT is(tap._claim203('signing_invariant_alert', '2026-09-19'), true,
+SELECT is(tap._claim204('signing_invariant_alert', '2026-09-19'), true,
   'C10: a third consecutive run with the SAME violation announces a third time');
 
 -- ── D. arguments and storage ────────────────────────────────────────────────
-SELECT matches(tap._try203($$SELECT notify.claim_report_delivery(NULL, 'k')$$), '^P0001', 'D1: a null kind is refused');
-SELECT matches(tap._try203($$SELECT notify.claim_report_delivery('report_created', NULL)$$), '^P0001', 'D2: a null key is refused');
-SELECT matches(tap._try203($$SELECT notify.claim_report_delivery('report_created', '')$$), '^P0001', 'D3: an empty key is refused');
+SELECT matches(tap._try204($$SELECT notify.claim_report_delivery(NULL, 'k')$$), '^P0001', 'D1: a null kind is refused');
+SELECT matches(tap._try204($$SELECT notify.claim_report_delivery('report_created', NULL)$$), '^P0001', 'D2: a null key is refused');
+SELECT matches(tap._try204($$SELECT notify.claim_report_delivery('report_created', '')$$), '^P0001', 'D3: an empty key is refused');
 SELECT is((SELECT count(*)::int FROM notify.report_delivery_claim), 7, 'D4: exactly seven claims were stored — no row per refused call');
 SELECT ok((SELECT claimed_at IS NOT NULL FROM notify.report_delivery_claim WHERE kind = 'report_created' AND claim_key = 'r-1'),
   'D5: the claim records when it was taken');
