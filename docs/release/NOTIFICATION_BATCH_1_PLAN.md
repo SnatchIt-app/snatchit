@@ -1,4 +1,4 @@
-# Notification batch 1 — honour the existing preferences; surface the device-rebound notice on mobile (A, 2026-09-17; plan for the owner, before implementation)
+# Notification batch 1 — honour the existing preferences; surface the device-rebound notice on mobile (A, 2026-09-17) — **APPROVED for implementation and local verification 2026-09-17 (owner)**
 
 **Owner's frame (2026-09-17):** "prepare the next development batch around honouring the existing preferences and surfacing
 the device-rebound notice on mobile without a new outbound channel. Name the exact preference-to-event mapping, mandatory
@@ -39,10 +39,10 @@ any of these; the batch adds no new toggle.
 - **Server (B, edge):** `stripe-webhook` reads `public.notification_preferences.notify_listing_sold` for the seller before the
   A9 seller push; absent row ⇒ default true; edge test RED without the read (a seller with the toggle off still receives the
   push) then GREEN. No SQL change. **Effort 0.5 d B + 0.25 d D review.**
-- **Client (C):** the five toggles with no sending event get an inline truth label on the Settings screen — e.g. "Not sent yet —
-  this setting will apply when these notifications launch" — so a saved toggle is not read as a working control; the toggles
-  stay (they will govern the P2 producers when approved). Copy test. **Effort 0.5 d C.** (Alternative the owner may prefer:
-  hide the five until their producers exist — same effort, less honest about the roadmap.)
+- **Client (C), per the owner's choice:** the five toggles with no sending event are **hidden** until their paths exist;
+  stored preferences are **preserved** (no write on hide, no default reset; the rows keep their values and will govern the
+  P2 producers when approved). Tests: the five rows absent from the tree; stored values untouched; `notify_listing_sold`
+  still writes. **Effort 0.5 d C.**
 - **Not in scope:** re-enabling the outbid producer (N-6 / critical path 1.9) — a new outbound in effect; the Plane-C
   `notify.preference` matrix (pending the dispatcher decision P3-2).
 
@@ -67,6 +67,26 @@ any of these; the batch adds no new toggle.
   so the notice is exercised on a handset only by **staging one `security_device_rebound` row for the DV buyer** via
   `notify.enqueue` in an authorized sandbox window (a write; cleanable: `dismiss` marks it, and the row can be deleted by id),
   or by pgTAP alone. That staging is its own authorization line, not assumed.
+
+### Item 3 — F-2S-1 neutral copy (owner's choice 4)
+The challenge-failed banner's sentence "You were signed out on this device …" is replaced by neutral copy on the challenge
+path only — e.g. "This device couldn't confirm notifications for this account. Try again from Settings › Notifications." —
+with **no change to authentication behaviour** (no forced sign-out from a push flow; the register path's stale handling is
+untouched). D verifies. **Effort 0.25 d C.**
+
+## 3b. The staged-notice device test — prepared, NOT executed (its own authorization line)
+
+**Purpose:** exercise the mobile notice end to end on the next build without push delivery (deferred with the sandbox key):
+the rebound event's *server row* is what the notice reads, so one row staged for the DV buyer is sufficient and sends nothing.
+
+| Step | Exact action | Evidence |
+|---|---|---|
+| Pre | read-only: `notify.notification` rows for the buyer (`919d511e-c4e6-4422-a71d-e2bc0139de65`) = 1 today (type recorded at execution); `notify.delivery` total = 18; `net.http_request_queue` = 0; type row `security_device_rebound` `allowed_channels = {}` (read 2026-09-17) | A + D before-reads |
+| Write (one statement, as `postgres`, sandbox only, inside an owner-authorized window) | `select notify.enqueue('919d511e-c4e6-4422-a71d-e2bc0139de65', 'security_device_rebound', 'account_security', '140fcb44-4920-4c32-8333-1a551879d36b', '{"device_name":"iPhone (DV staged)"}'::jsonb, 'dv-notice:140fcb44:<YYYY-MM-DD>');` → returns the notification id (recorded) | the returned id |
+| Delivery suppression (the test's whole safety argument, verified, not assumed) | `select count(*) from notify.delivery where notification_id = <id>` = **0** (allowed_channels `{}` ⇒ enqueue creates no delivery row); `net.http_request_queue` unchanged; no new `net._http_response` row attributable to it; `notify.delivery` total still 18 | A read, D read |
+| Device | owner signs in as the buyer on the next build (or foregrounds): the notice renders the server title/body with "iPhone (DV staged)"; "Dismiss" → `mark_security_notices_read` → `read_at` set; relaunch → not shown | C guide, A read-back of `read_at`, D witness |
+| Cleanup (verified) | `notify.notification` carries no trigger and no append-only guard (092; checked 2026-09-17), so: `delete from notify.notification where notification_id = '<id>'` as `postgres`; verify buyer rows back to the pre-count and `notify.delivery` total unchanged at 18 | A + D read-backs; recorded in the manifest |
+| Excluded | no push, no email, no dispatcher, no change to any type row or template, no second row | — |
 
 ## 4. Owners, sequence, and what it does not include
 
