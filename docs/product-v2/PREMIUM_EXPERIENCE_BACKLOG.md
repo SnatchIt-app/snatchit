@@ -3212,3 +3212,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   - Both prerequisites satisfied: A's re-verify (20:17:58Z) and D's fresh read (20:22:33Z, md5 9113aeb2…) match their
     baselines. A takes a read-back after step 0; D reads after step 0 and after every permanent row; A releases each
     row only after D's read lands, with a fresh D read immediately before DV-IMG-4 if a gap opens.
+- **Line 3 step 0a, Sell form picker parity (DV-IMG-7; owner-reported, DV seller, Build 19; time and exit-prompt
+  wording not captured): PASS, no writes.** Cover image opened and cancelled normally; three quick taps opened only
+  ONE picker with nothing stuck; synthetic "blue 01" previewed, Replace swapped it to "orange 02", Remove cleared it;
+  Proof of ownership previewed synthetic "purple 03". The owner left without publishing and never tapped List ticket,
+  so no listing was created. A's read-back and D's post-step read requested; D's must match its 20:22:33Z read.
