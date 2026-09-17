@@ -1,6 +1,6 @@
 # Operator permissions for organisation onboarding — proposal for the owner's ruling (D, 2026-09-17)
 
-**Status:** a proposal. Nothing here is decided, applied or deployed. Migration 138 stays outside the marketplace
+**Status:** a proposal. Nothing here is decided, applied or deployed. **Revision 2** (same day) adds A's review of 215694c: F-138-11 (acceptance by email change), the corrected principle 4, the retention option and the server-log channel. Migration 138 stays outside the marketplace
 candidate. The proposal answers owner item 2 (facts O1–O4 in the 138 contract's change log 2), A's F-138-8
 (implemented in development at `ops/138-operator-onboarding` @ be80aad) and A's F-138-9. PFA-4 is preserved
 unchanged throughout, and the current restrictions are treated as compatibility constraints.
@@ -18,6 +18,9 @@ unchanged throughout, and the current restrictions are treated as compatibility 
 | F5 | O1–O3 as tested at be80aad. A platform operator with no org role passes every framework gate and is refused by the verb (I32, I44). support's four framework write permissions therefore do nothing (I16–I21). An elevation completes only when the **approver** holds org_owner/org_admin there (I72–I73). |
 | F6 | **No invite is delivered automatically.** There is no edge function, notification template or event for an organisation invite. The invitee's RLS policy shows an invite only when `invitee_identity_id = auth.uid()`, so an **email-addressed** invite is invisible to its invitee until they are given its id. Acceptance by `invite_id` works once they have it. |
 | F7 | PFA-4 (signed 2026-08-31): no platform role may be minted by any direct, single-actor, client-authored or bypass path. The grant arm stays fail-closed until the approved dual-control path exists (I61, I66). |
+| F9 | **F-138-11 (A; reproduced independently by D on a local replay).** The requester ≠ beneficiary check compares addresses at REQUEST time, but acceptance matches the accepting account's email at ACCEPTANCE time. The reproduction: platform_admin E, with no org role, requests an admin invite for `e1.alt@example.com`, which is not E's address. B approves. E's account email becomes `e1.alt@example.com`, and E calls `accept_org_invite`, which succeeds. **E is org_admin of the customer organisation while holding platform_admin.** In a real project the email change needs confirmation at the new address, which E would control. A2 in §4.2 has the same shape. |
+| F10 | **Function privileges.** A new function gets PostgreSQL's built-in PUBLIC EXECUTE, and a per-schema `ALTER DEFAULT PRIVILEGES` cannot remove it (PFA-1, proven on PG 17.11). D confirmed locally that a new kernel function with no grants is executable by anon, authenticated and service_role. The recorded compensating controls are sweeps: suite 140's PFA-1 witness allows zero PUBLIC or anon EXECUTE on any kernel, venue, market or notify function, and suite 141 F2 pins kernel's authenticated-executable set by exact name. **Neither sweep covers `service_role` or the `catalog` schema.** |
+| F11 | **A copy outside the console, unverified.** A failing RPC statement can reach the Postgres server log. Stock PostgreSQL does not log bind parameters on error (`log_parameter_max_length_on_error` defaults to 0), and PostgREST passes the request body as a parameter. The project's actual settings have not been read. Those logs are visible to dashboard users, not console operators. |
 | F8 | F-138-8, fixed in development: the requester can no longer be the beneficiary of `org_member_elevate` or `org_member_invite_admin` (L1–L4). F-138-9, still open: a routine, single-person `org_member_role_change` grants `org_finance` (I26, I38). |
 
 ## 2. Principles
@@ -30,9 +33,16 @@ unchanged throughout, and the current restrictions are treated as compatibility 
    identity **accepting** an invite. The maturity clock (AUTHZ-C1B) starts at acceptance, as frozen.
 3. **Two-person stays at least as strong.** Requester ≠ approver (118 plus `approval_sod_ck`).
    Beneficiary ≠ requester (F-138-8). Beneficiary ≠ approver, enforced in the verb that runs as the approver.
-4. **A console-only verb must not be callable by one person outside the console.** Any new platform verb that
-   needs two people is **not** granted to `authenticated`; only the framework's definer reaches it (F3).
-5. **Nothing frozen is widened except by a signed amendment.** Org-plane verbs, the tier guard, I-11,
+4. **A console-only verb must not be callable by one person outside the console.** Leaving out a grant does
+   not achieve that (F10). Each such verb carries `revoke all on function … from public, anon, authenticated,
+   service_role`. Its own pgTAP asserts `has_function_privilege` false for all three roles. Its name is absent
+   from 141 F2's authenticated set, and the 140 sweep stays green. A3, which lives in `catalog` (outside the
+   140 sweep), gets the same assertions in its own suite.
+5. **Operators are never members, enforced where membership is created (F9).** The requester check at the
+   console is not enough, because acceptance reads an email that can change afterwards. An identity holding
+   any platform authority (`kernel.platform_role`, or the `public.admin_users` bootstrap) cannot accept an
+   invite into a customer organisation.
+6. **Nothing frozen is widened except by a signed amendment.** Org-plane verbs, the tier guard, I-11,
    AUTHZ-C1B and PFA-4 stay exactly as they are.
 
 ## 3. Proposal
@@ -64,9 +74,12 @@ operator to hold one (F4).
    organisation already has an `org_owner` or a pending owner invite, or if the invitee is B.
 5. **Delivery.** Today an operator gives the customer the invite id or link by the verified channel (F6). A
    notification template is a later, separate package.
-6. The customer signs in with the addressed account and calls the frozen `accept_org_invite`. They become
-   `org_owner`; `granted_at` starts the maturity clock, and money approvals stay closed to them until it
-   matures (AUTHZ-C1B).
+6. The customer signs in with the addressed account and calls `accept_org_invite`. They become `org_owner`;
+   `granted_at` starts the maturity clock, and money approvals stay closed to them until it matures
+   (AUTHZ-C1B). **Acceptance refuses any identity holding platform authority (A4)**, so an operator who
+   moves their own email to the invited address still cannot accept (F9).
+   *Procedural belt:* in step 4, B compares the revealed address with the organisation's application contact
+   (`get_org_contact_email`, reason `onboarding_contact`), or records why they differ.
 7. From then on the **customer** runs their roster on the organisation plane. Operators keep only the
    platform actions in 3.1.
 8. **Venues.** A creates a draft venue for the organisation (A3), or the customer does once a customer surface
@@ -107,12 +120,20 @@ money role.
   Writes a `kernel.org_invite` row at `org_owner`. Audit reason `platform_bootstrap_owner` (a money-role class
   under AUTHZ-C1B).
 - **A3.** A platform_admin arm on `catalog.create_venue` that writes `draft` only.
-- **Grants.** A2 is executable by **no API role**; only the ops framework's definer reaches it (principle 4).
-  A1 and A3 are console-only for the same reason.
+- **A4 (F-138-11).** `kernel.accept_org_invite` refuses when the accepting identity holds any platform
+  authority (`kernel.is_platform(array['platform_admin','platform_support','platform_risk'])`, which includes
+  the `admin_users` bootstrap). This touches a frozen verb, so it belongs to the same amendment. It is
+  structural: it holds whatever address the invite names and whatever the account's email becomes.
+- **Grants (principle 4).** A1, A2 and A3 each carry `revoke all … from public, anon, authenticated,
+  service_role` and per-function privilege assertions. Only the ops framework's definer reaches them.
+  The existing 140 and 141 sweeps catch a forgotten revoke in `kernel`; A3's own suite covers `catalog`.
 - **Unchanged.** `accept_org_invite`, the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B, PFA-4, 118's
   approval machinery and `approval_sod_ck`.
 - **Test obligations.**
   - An operator is never a member after bootstrap.
+  - A4: an identity with a platform role, or in `admin_users`, cannot accept, including after its email is
+    changed to the invited address (F9's exact sequence).
+  - A1–A3 executable by none of public, anon, authenticated or service_role.
   - A2 refuses an owned organisation, a second pending owner invite, and self-invites by requester or approver.
   - A direct RPC call to A2 by one platform_admin is refused.
   - Acceptance by the addressed account yields `org_owner` with `granted_at` = acceptance, and the money
@@ -124,6 +145,7 @@ money role.
 
 | Alternative | Why not |
 |---|---|
+| **Check only the requester's address at request time** (the current dev check) | Defeated by an email change before acceptance (F9). It stays as an early refusal, but it is not the control. |
 | **Keep the status quo:** the operator becomes owner (O4) | Merges the planes, and puts a money role in the operator's hands. Through F4 that operator can grant ownership alone, without the console. |
 | **A platform arm inside `invite_org_member`/`change_org_role`/`remove_org_member`** | Gives every platform_admin standing owner authority over every organisation. Because `kernel` is exposed, it is single-person by direct call unless dual control moves into those verbs, which is the PFA-4 problem again, across the whole roster. |
 | **Give support an org or venue role so its permissions work** | Excluded by the owner. It is the same plane-merging as the status quo. |
@@ -139,8 +161,15 @@ money role.
 4. F-138-9: moot under 1–2. If console role changes are kept, `org_finance` becomes two-person.
 5. Bootstrap invite delivery: an operator sends the invite link by the verified channel for now (recommended),
    with a notification template later as its own package.
-6. Held invitee references for approvals that are denied or expire stay in the non-readable table. Accept
-   that, or add cleanup; cleanup would redefine 118's `approve_action`, a sixth object in 138.
+6. Held invitee references for approvals that never dispatch stay in the non-readable table. Accept that, or
+   add cleanup. **A's option needs no redefinition:** an AFTER UPDATE OF state trigger on `ops.action` deletes
+   the held reference when the action becomes terminal. It covers denials and stale approvals. **Caveat,
+   verified:** expiry is lazy. Only `approve_action` writes an expired approval, and no sweep exists, so a
+   request nobody touches after it expires keeps its reference until someone tries to decide it.
+7. **A4:** refuse acceptance by any identity holding platform authority (recommended, structural). Or rely only
+   on the procedural contact comparison in step 4.
+8. F11: record the server log as a known channel outside the console, and read the project's logging
+   settings under a separately authorized read.
 
 ---
 *Evidence for every fact above is on `ops/138-operator-onboarding` (206 at be80aad, 161 assertions; 52 mutants
