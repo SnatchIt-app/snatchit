@@ -2141,3 +2141,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   call, 60 s fallback on a held challenge — one build, and for the notification half the deferred
   push key. **D-cleared and awaiting the owner's word for A's integration:** cf94311, df5127c,
   da1d11d (batch 1), ac70643 (Tickets sample label), 296439c (F-611C-2). No build requested.
+- **F-611C-2 handset half (owner, Build 18, 2026-09-18 ≈ 00:0x EDT report): Settings ›
+  Notifications shows NO banner as the seller** after the 03:52:07Z 400 — the silence RC2 predicts
+  ('precondition' has no remedy copy; the wait is invisible). Owner confirms the 03:54:33Z Settings ›
+  Notifications read in A's log was their own open at ≈ 23:54 EDT. Owner-reported; no text captured
+  because none was shown. This is the device-side confirmation of RC2's visibility defect; the
+  fixed client (296439c) would show REGISTRATION_REMEDY.rate_limited here — device row for the
+  next candidate (needs the 400 to be provoked, so it sits with DV-611C-3).
+- **S2-3 started (seller signed in): DV-S1 (F-SELL-1, create) given as single steps; no listing is
+  submitted from the handset** (sandbox writes belong to A).
