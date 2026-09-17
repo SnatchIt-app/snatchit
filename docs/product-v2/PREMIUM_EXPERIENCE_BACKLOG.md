@@ -2061,3 +2061,5 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   (auth.uid()-scoped, cannot disturb the rebound token; does not undo the rebind). RED
   first → 6/6; tsc clean; vitest 2083 / 96; lint 0 errors. With D. Nothing integrates
   until D's PASS and the owner's word (new pin).
+- **S2-1 step 2 (seller), step A (owner, 2026-09-17 23:49 EDT ≈ 03:49Z): signed out of
+  Build 18 online** (owner-reported). Step B = sign in as the seller → Home.
