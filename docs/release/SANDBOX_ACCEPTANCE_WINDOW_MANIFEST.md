@@ -530,3 +530,37 @@ when they do, the next buyer sign-in on this device registers fresh with no proo
 the row on C's time. Row 18 stays deferred to the combined build (a v2 client rejects `contract_version` 3 now that 135 is on the
 sandbox). Branch (2), the K-2 "this device only" case, remains **untested outside D's harness**: it needs two live sandbox
 sessions for one user, i.e. Build 17 on a second iPhone; proposed for the combined-build session if the owner has one.
+
+## 13. Handset session 2 on Build 18 (tag `candidate/2026-09-18-build-b2` = `aad5f75`) — block S2-1, 2026-09-17 03:05–03:55Z
+
+**Build 18:** EAS `dcbf20e0-76dd-4b18-a48a-20c203ba0175`, cut by C from the tag in a clean worktree; installed by the owner;
+C guides, A reads back, D witnesses. Push delivery stays deferred (option (b)); every read is read-only.
+
+- **First sign-in (03:05Z):** session `ff1f1494…` created after row 17's epoch; row `140fcb44…` re-activated on it, `last_used`
+  03:05:08Z, proof re-planted with the same hash `4b8628e7` — **conformant** (V2 §41/§62 carried into V3: the device secret is
+  generated once per install; rotation does not exist).
+- **S2-1 step 1, buyer sign-out → sign-in (03:32Z): PASS (server half).** API log: `revoke_push_token` 200 then `auth/logout`
+  204 (03:32:30Z); `auth/token` 200 03:32:42Z; then within two seconds `auth/user`, `bids`, `get_my_profile`,
+  `register_push_token` 200, `user_blocks`, `transfers`, `listings` — data flowed with no relaunch: the sign-in hang (8dc4cec)
+  is not reproduced. Row re-registered on the new session `f0118de8…`, reason cleared, `last_used` 03:32:44Z, same proof.
+  **Observation F-AUTH-2 (C):** `get_my_profile` ×2 and `listings` ×2 per screen, `user_blocks` ×3 — the doubled-fetch pattern
+  first seen on Build 17 at 04:12Z; C sizing the double-mount root cause.
+- **S2-1 step 2, seller sign-out/sign-in on the same handset (03:49–03:52Z): PASS on what the step tests (Home and Profile
+  load); first live exercise of the v3 challenge path on a handset, DEFERRED as designed.** Buyer sign-out 03:49:34Z:
+  `revoke_push_token` 200 then `logout` 204; the buyer's only live session was deleted, so 131's global branch overwrote 129's
+  `signed_out` with **`signed_out_everywhere`** and cleared the proof — per design (as row 17); on a single-session account
+  every "sign out this device" is a global invalidation, recorded so the reason string is not read as a 129 defect. Seller
+  session `bfa87767…` 03:50:51Z; `register_push_token` 200 at 03:50:52Z → **`challenge_required`**: challenge `ae6b47d4…` on token
+  `140fcb44…`, requesting user = the seller, mode silent, re-issued at least once (`prev_nonce_hash` set), `dispatched_at`
+  03:51:42Z, attempts 0, not confirmed, expires 03:56:42Z; `push_tokens` still one row, the buyer's, inactive. `send-push`
+  dispatches refused: `net._http_response` 401 at 03:50:52, 03:50:57, 03:51:42Z — no push could arrive (no key), so the
+  challenge outcome is **deferred, not failed**. **Client behaviour for C (candidate finding F-611C-2):** the app called
+  `register_push_token` four times — 03:50:52, 03:50:57, 03:51:41 (all 200) and 03:52:07 (**400**: the verb's per-token limit,
+  3 issues per 10 min, refused the 4th) — and never called `request_push_token_challenge`; i.e. on `challenge_required` Build 18
+  re-registers on a retry cadence instead of waiting for the silent push and requesting the visible code at 60 s, and burns
+  the limit in 75 s. F-AUTH-2 reappears on the seller's Home and Profile loads. Owner opened Settings › Notifications at
+  03:54:33Z. No write by A.
+- **Still in session 2:** DV-611C-2 (registration visibility), DV-S1/S2 (seller keyboard), the large-text banner, DV-ST1..ST4
+  (refreshed offline/error/empty/no-match), DV-131-1 (two-second window, A bumps the epoch within 2 s of a sign-in on C's
+  trigger). Carried at their true status: two-session K-2 case UNTESTED, row 18 DEFERRED, A11Y-1 UNTESTED, every push-delivery
+  row DEFERRED.
