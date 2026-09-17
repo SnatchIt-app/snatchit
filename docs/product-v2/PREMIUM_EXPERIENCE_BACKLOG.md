@@ -2957,3 +2957,11 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   "Account deletion requested" notice shows (expected; F-NOTICE-1 unchanged). Nothing tapped. **DV-N-1..3 on Build
   19: PASS.** The owner asked A to delete ONLY fb23b20a and verify cleanup (buyer rows = f3abe550 only, unchanged;
   notification total 9; delivery 18; queue 0), then D's cleanup read.
+- **Staged notice cleanup (A, 2026-09-17):**
+  - Pre-check 16:49:11Z: the row matched exactly, with 0 delivery rows.
+  - Delete 16:49:12Z, on notification_id AND the dedupe key: exactly one id returned.
+  - Verify 16:49:13Z: buyer rows = f3abe550 only (unchanged: read_at null, dismissed_at null); staged rows 0;
+    notification total 9; delivery 18; queue 0; 2xx 0. **This equals the pre-write state.**
+
+  Step 3 closes on D's cleanup read (pending at this entry). Line 3 (Step 4) does not start without the owner's
+  separate readiness through C, and it begins with A's PC1–PC8.
