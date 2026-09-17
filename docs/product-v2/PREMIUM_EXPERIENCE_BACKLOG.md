@@ -3567,6 +3567,8 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
      key, with two transfers already 6.8 days past `auto_release_at`, one of them **Sandbox L7**. Adding the key to
      delete two files would arm an automatic payout release on rows nobody may touch, within two minutes. **Advise
      against.**
+     **→ WRONG PREMISE — corrected below ("A's correction to option 1"). The storage API takes the key as a request
+     header; nothing is written to the Vault; the cron is unaffected. Do not carry this cost into a later decision.**
   2. **postgres deleting the `storage.objects` row** — removes the row but **leaves the bytes in the storage
      backend**, so the owner would be told the photograph is gone when it is not. **A refuses; C agrees nobody does
      this.**
@@ -3614,6 +3616,18 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   produced a JPEG and no conversion could occur.
   **Line 3 rows as they stand:** D2 and D1 wrote (marked sent with proof); **D6 not performed**; **S8only not
   performed**; L7 untouched; RT6, U1, RT5-P, N1, N2 and N4 all held, unrun.
+- **A's correction to option 1 (2026-09-17, after the ruling): "a service-role delete would arm the payout timer" was
+  FALSE, and C verified the mechanics in the repo before recording it.** A's retraction: the Vault holds `project_url`
+  only, the **Vault is what the cron and the DB triggers read**, the sandbox service-role key already exists in the
+  owner's local env file (named only, never printed), and the **storage API takes that key as a request header** — so
+  using it writes nothing to the Vault and `enforce-transfer-expiry` keeps failing 401 exactly as it has 191 times.
+  *C's check:* `supabase/migrations/032_pre_testflight_blocker_fixes.sql:36,125` and `033_marketplace_expansion.sql:19`
+  show the cron/trigger auth is the **Vault secret `service_role_key`**, which a header-supplied key never creates.
+  Consistent with the standing record that this project's Vault has `project_url` only. So option 1's real cost was
+  narrow — lifting the owner's standing deferral on *using* the sandbox service key for one action — not arming payouts.
+  **Nothing to act on:** the owner's ruling forbids deletion by any route, so options 1 and 2 are both moot; this entry
+  exists so the false cost is not carried into a later decision. A recommended option 2 for the smaller reason (no
+  standing constraint lifted) before the ruling superseded it. D independently reached the same delete mechanics.
 - **Next handset check chosen by C (non-destructive; Home and its filter sheet only; no transfer, proof, payment or
   L7 screens): Home's lazy filter datasets — a failed or slow filter load reading as an empty marketplace.**
   *Verified in Build 19 source before proposing (C):* `fetchSoldListings` and `fetchEndedListings`
