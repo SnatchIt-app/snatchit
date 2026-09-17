@@ -154,7 +154,16 @@ actions on `type_key = 'security_device_rebound'`: "Sign out of all devices" (K-
 rebind — the row now belongs to the new owner — and the copy must never imply it does) and "Dismiss" (`mark_…_read`).
 Never on the shared login screen. `{{device_name}}` is not rendered: on the register path it is text the CLAIMING party
 supplies. Dedupe is one notice per token per UTC day, so the copy is present-tense and never "just". Absent migration →
-PGRST202 → the client treats it as "no notices", never an error.
+PGRST202 → the client treats it as "no notices", never an error. **The surface is unread-only** (136 rev3, D's lifecycle
+finding): `get_my_security_notices()` returns and pages for unread, undismissed notices only, so acknowledging a notice removes it
+from the surface and from the read's cost; a history of read notices is a separate surface (backlog row 18). **The client selects
+the newest unread row of ANY returned type** — the server derives the set from the registry (`target_kind = 'account_security'`
+and `delivery_class = 'mandatory'`), the client keeps a type branch only for its action labels, unknown types default to
+"Dismiss". **Constraint for any future notification-centre wrapper (D, 2026-09-17):** `notify.mark_all_read()` sets `read_at`
+on every unread undismissed row of the caller, and `notify.dismiss()` hides rows from every inbox read; a `public` wrapper over
+either would let one tap silently clear a mandatory security notice the user may never have seen on the banner surface. Any
+such wrapper must **exclude the mandatory account-security types** (the same registry-derived set) so those notices can only be
+acknowledged deliberately through `mark_security_notices_read`. Today 136 is the only `public` door into notify's inbox verbs.
 
 ## 8. Support
 `public.unbind_push_token(text)` (service_role) stays for the cases proof cannot reach (a lost or destroyed device, a user without

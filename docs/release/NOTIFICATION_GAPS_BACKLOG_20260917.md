@@ -51,7 +51,7 @@ only; **P3** = decisions to take before any work.
 | 15 | G5 reservation expiry | push at T-2 min, honouring `notify_reservation_exp` | A + B | 1 d |
 | 16 | G8 payment failed / canceled | in-app state + push `purchase_failed` (template exists) | A + C | 1 d |
 | 17 | G17 password changed | push `security_password_changed` to every other live device (template exists) | A + B | 1 d |
-| 18 | G27 mobile inbox | a mobile notification centre reading `public.notifications` + `notify.notification` (owner-scoped RLS exists) | C + A | 4–5 d |
+| 18 | G27 mobile inbox | a mobile notification centre reading `public.notifications` + `notify.notification` (owner-scoped RLS exists). **Constraint recorded 2026-09-17 (D):** its `mark_all_read` / `dismiss` wrappers, if any, must exclude the mandatory account-security types (registry-derived set), which are acknowledged only through `mark_security_notices_read` — otherwise one tap silently clears a mandatory security banner | C + A | 4–5 d |
 
 ## P3 — decisions the owner takes before any P0/P2 work starts
 
