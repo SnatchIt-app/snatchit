@@ -2527,3 +2527,7 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   owner, not authorized yet):** "Create candidate/2026-09-18-build-c3 at f412d10 and have C submit one sandbox
   preview build." Nothing is tagged or built until the owner speaks that line. Limits stand: no phone has run
   F-NAV-1 or the image flow.
+- **S2-2 step 2 (owner, Build 18, buyer, Larger Text ON):** Settings › Developer › Network Link Conditioner:
+  profile **Very Bad Network** selected and **Enable ON** (the owner confirmed on their own screenshot). Enabled
+  11:01 EDT; profile confirmed 11:03 EDT (2026-09-17). Snatch It not reopened since the buyer sign-in (10:55).
+  Next: throttled cold launch 1; C asked A for a read after EACH launch, so each outcome can be attributed.
