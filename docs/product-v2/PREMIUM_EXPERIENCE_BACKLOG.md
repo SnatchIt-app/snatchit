@@ -2126,3 +2126,18 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   from the registry; the client never narrows it; unknown types get Dismiss only; fixture pin
   replaced), ③ a failed Dismiss puts `DISMISS_FAILED_COPY` on the screen and each action clears the
   previous error. 6/6, tsc 0, lint 0/29. Also from A: 136 rev3 returns unread-undismissed only.
+- **D review (2026-09-18): 296439c PASS, da1d11d PASS, df5127c confirmed comment-only.** D
+  re-ran 13/13, tsc 0, full suite 2090/96 on 296439c and killed four mutants: (a) isChallengeOpen
+  without 'confirming' → 2 failed (D: confirming is exactly when Face ID or the keyboard raises
+  inactive→active — the common path, not an edge); (b) resumeChallenge ignoring mode → 1 failed (a
+  visible re-issue resumed as awaiting_push would be a silent dead end); (c) gate moved before
+  armFallback → 1 failed; (d) `reRequest && !open` → 2 failed. D's note on (c), recorded as an
+  evidence limit: the pin is a source-position pin (re-arm before gate); it does not prove a held
+  challenge keeps its timer — that property lives on the device row DV-611C-3a, now extended with
+  "and the visible-code fallback still appears after 60 s". da1d11d: three mutants (drop paddingTop;
+  restore the type filter; delete setError(DISMISS_FAILED_COPY)) each 1 failed; ① style-array order
+  verified (inline paddingTop wins over paddingVertical). Open on all three = the same four device
+  rows: banner under the SANDBOX badge, K-2 ending sessions, inactive→active → no second register
+  call, 60 s fallback on a held challenge — one build, and for the notification half the deferred
+  push key. **D-cleared and awaiting the owner's word for A's integration:** cf94311, df5127c,
+  da1d11d (batch 1), ac70643 (Tickets sample label), 296439c (F-611C-2). No build requested.

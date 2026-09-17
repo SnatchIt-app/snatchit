@@ -166,7 +166,8 @@ run first while the seller is signed in — S2-3 (DV-S1/DV-S2 keyboard) and S2-4
 and S2-2 (DV-611C-2) plus S2-5 run as the buyer after the switch back. Deferred with the DV-131 rows
 (need push delivery), for the candidate that carries 296439c: DV-611C-3a — with a challenge open,
 pull the notification shade and release (iOS inactive→active): A's read-back shows no second
-register_push_token call; DV-611C-3b — background the app for 10 s and return: exactly one re-issue
+register_push_token call, and the visible-code fallback still appears in Settings after 60 s (the
+property the source pin cannot prove — D, 2026-09-18); DV-611C-3b — background the app for 10 s and return: exactly one re-issue
 (same challenge row, prev_nonce_hash set) and the Settings banner keeps its remaining 60 s budget.
 | carried | Two-session "this device only" (131 branch 2) | needs a second iPhone | UNTESTED outside D's harness |
 | carried | Row 18 (DV-611S, rebind by the seller) | — | DEFERRED: challenge_required needs push delivery; stays deferred while the key deferral stands |
