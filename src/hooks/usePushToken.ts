@@ -34,9 +34,9 @@ import { getOrCreateDeviceSecret } from '@/src/lib/push/deviceSecret';
 import { secureSecretStore } from '@/src/lib/push/deviceSecretStore';
 import { setRegisteredPushToken } from '@/src/lib/push/registeredToken';
 import {
-  beginChallenge, classifyChallengeError, fallbackDelayMs, interpretConfirmReply, isChallengeExpired, onBackground,
+  classifyChallengeError, fallbackDelayMs, interpretConfirmReply, isChallengeExpired, onBackground,
   onCodeEntered, onConfirmError, onConfirmOk, onConsumed, onFallbackDue, onForeground, onPushReceived, onStaleNonce, onVisibleIssued, onWrongCode,
-  retryPlan, type ChallengeState,
+  resumeChallenge, retryPlan, shouldReattemptOnForeground, type ChallengeState,
 } from '@/src/lib/push/challenge';
 import { handleSessionStale } from '@/src/lib/push/sessionStale';
 import { markSessionEnd } from '@/src/lib/auth/sessionEnd';
@@ -199,7 +199,8 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
             publishRegistrationStatus({ state: 'failed', kind: 'unknown', at: now });
             return;
           }
-          setChallenge(beginChallenge(info, now, AppState.currentState === 'active'), token);
+          // F-611C-2: the same challenge re-issued in place resumes its 60 s budget.
+          setChallenge(resumeChallenge(challengeRef.current, info, now, AppState.currentState === 'active'), token);
           return;
         }
         if (result.ok) {
@@ -414,7 +415,11 @@ export function usePushToken(userId: string | undefined): PushTokenResult {
         if (r.state.phase !== 'none') publishChallenge();
         const token = tokenRef.current;
         if (r.state.phase === 'awaiting_push' && token) armFallback(token);
-        // Re-request the same open challenge (the server re-dispatches, no new nonce) or start over.
+        // F-611C-2: an open challenge that never left the foreground (iOS inactive → active)
+        // is held — each re-register re-issues it (135: fresh nonce, same row) and spends
+        // the 3-per-token budget. Only a real background (reRequest) or no open challenge
+        // reaches the register verb.
+        if (!shouldReattemptOnForeground(r)) return;
         void attempt();
         return;
       }

@@ -205,8 +205,10 @@ export function classifyRegistrationError(err: ErrorLike | null | undefined): Re
   }
   // Legacy path: unique_violation on push_tokens(token) is the same fact (F7).
   if (code === '23505' || /duplicate key/.test(msg)) return 'bound_to_other';
-  // Contract v2: > 20 calls per 600 s per user. Not a shape bug — back off and retry.
-  if (code === 'P0001' && /too many registration attempts/.test(msg)) return 'rate_limited';
+  // Contract v2: > 20 calls per 600 s per user; v3 (135) adds the challenge budget on the
+  // register verb's rebind path — 'too many challenge requests' (3 per token, 5 per user,
+  // per 600 s). Both are windows, not shape bugs: back off and retry (F-611C-2).
+  if (code === 'P0001' && /too many (registration attempts|challenge requests)/.test(msg)) return 'rate_limited';
   if (code === 'P0001' && /precondition_failed/.test(msg)) return 'precondition';
   if (code === 'PGRST301' || err.status === 401 || /jwt|not authenticated|invalid claim/.test(msg)) return 'auth';
   if (/network request failed|failed to fetch|timeout|timed out|abort/.test(msg)) return 'network';
@@ -236,6 +238,10 @@ export const REGISTRATION_REMEDY: Partial<Record<RegistrationErrorKind, string>>
     "Notifications can't be set up on this device right now because secure storage is unavailable.",
   session_stale:
     'You were signed out on this device. Sign in again to turn notifications back on.',
+  // F-611C-2: a server window, never permanent — decideRegistration waits RATE_LIMIT_WAIT_MS
+  // then registers again; a silent wait looked like a dead device on Build 18.
+  rate_limited:
+    'This device asked to set up notifications too many times in a row. It retries by itself in about 10 minutes, or the next time the app opens.',
   // v3: the server speaks a contract this build was not written for (an old build on a newer server, or the reverse).
   contract_mismatch:
     "This version of the app can't set up notifications on this device. Update the app to continue.",

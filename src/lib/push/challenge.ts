@@ -128,6 +128,36 @@ export function onForeground(state: ChallengeState, now: number): { state: Chall
   return { state: next, reRequest: true };
 }
 
+/** Open = the server holds a live challenge for this device. A re-register while one is
+ * open re-issues it in place (135: fresh nonce, same row) and spends one of the three
+ * issues per token per 10 min that the visible-code fallback also needs. */
+export function isChallengeOpen(state: ChallengeState): boolean {
+  return state.phase === 'awaiting_push' || state.phase === 'awaiting_code' || state.phase === 'confirming';
+}
+
+/**
+ * F-611C-2 (Build 18): the register verb is reached from an AppState 'active' event only
+ * when there is no open challenge, or when a real background ended (reRequest). iOS
+ * `inactive` → `active` (shade, system prompt, Face ID) with the challenge still in the
+ * foreground is not a re-request — Build 18 re-registered on each one and burned the
+ * budget in 75 s.
+ */
+export function shouldReattemptOnForeground(r: { state: ChallengeState; reRequest: boolean }): boolean {
+  return r.reRequest || !isChallengeOpen(r.state);
+}
+
+/**
+ * challenge_required for the challenge that is already open (same id, still silent):
+ * the server re-issued it in place, so the cumulative 60 s foreground budget resumes
+ * where it stood and only the expiry is refreshed. Anything else begins fresh.
+ */
+export function resumeChallenge(prior: ChallengeState, info: ChallengeInfo, now: number, foreground: boolean): ChallengeState {
+  if (prior.phase === 'awaiting_push' && prior.challengeId === info.id && info.mode === 'silent') {
+    return { ...prior, expiresAt: now + info.expires_in_s * 1000 };
+  }
+  return beginChallenge(info, now, foreground);
+}
+
 /** A real background (not iOS `inactive`): bank the foreground time so far and pause. */
 export function onBackground(state: ChallengeState, now: number): ChallengeState {
   if (state.phase !== 'awaiting_push' || !state.foreground) return state;
