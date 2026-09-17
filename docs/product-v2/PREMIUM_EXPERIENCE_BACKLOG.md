@@ -1971,3 +1971,27 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   invalidation, so A's read-back should show a fresh `registered` with a new proof).
   Next single step: open Profile (S2-1 continues: then sign out → sign in same account →
   Home → Profile, then the seller).
+  **A read-back 03:08:22Z (first sign-in on Build 18):** buyer session ff1f1494… created
+  03:05:06Z (UA SnatchIt/18), after the epoch 02:38:32Z → registration permitted; row
+  140fcb44… active, revoked_* null, session_id = the new session, last_used 03:05:08Z,
+  same row re-activated. **Observed, recorded neither pass nor fail:** device_secret_hash
+  is set with the SAME prefix as before the invalidation (4b8628e7) — Build 18 re-planted
+  the secret it already held in SecureStore rather than generating a new one. C's reading
+  of the client design (128): the device secret is created once per install and survives
+  sign-out and account switch by design (pinned in `tests/push-registration.test.ts`); the
+  server's global path clears the ROW's proof so that only a device holding the secret can
+  re-plant it, and the 131 session binding (session_id + epoch) is what changes per
+  session. Rotation on a server-side proof clear is not a contract requirement C knows of;
+  D asked to confirm from the 128/131 design before it is called expected. Challenges 0.
+- **Populated Tickets, labelled fixture preview delivered (owner ruling via A):**
+  `frontend/tickets-sample-label @ 068843f` (from the build tag; +60/−1; no gated file,
+  no `supabase/`): `SAMPLE_TICKETS_LABEL = 'Sample tickets — no server data'` and a
+  full-width, high-contrast, non-dismissable alert banner above the list whenever the
+  `__DEV__` fixture toggle swaps in the fixture rows; toggle unchanged, off by default,
+  compiled out of preview/release builds; fixtures still written nowhere. Tests RED first
+  → `tests/tickets-sample-label.test.ts` green; tsc clean; vitest 2079 / 96; lint 0
+  errors. **Which client shows it:** a development build only (Expo Go / dev client /
+  simulator); the recorded local-simulator blocker stands, so verification here is
+  source-pinned tests; native rendering needs a dev client. Recorded as **layout
+  evidence, fixture mode, no server data** — never beside CFT-801's server rows. To D
+  for review; head to A; changes no pin.
