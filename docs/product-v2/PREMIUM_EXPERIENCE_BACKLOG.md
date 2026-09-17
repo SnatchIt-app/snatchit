@@ -3544,3 +3544,13 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   notifications, queue and 2xx unchanged. C confirmed from source that the buyer's screen degrades cleanly afterwards
   (no signed URL → `proofUrl` null → the proof section is not rendered). A and D may each ask the owner for the line in
   their own sessions; the owner is expecting that.
+- **DV-IMG-9 (HEIC → JPEG conversion): UNTESTED on this device, by A's pre-fixed decision rule.** The owner reports
+  **Camera › Formats = "Most Compatible"**, so the iPhone produced a JPEG in the first place; the stored D1 object is
+  `image/jpeg` with a `.jpg` name (5,829,677 B). Under the rule written before the row, a JPEG from a "Most
+  Compatible" phone is **a file that was never HEIC**, so the conversion half is UNTESTED, not passed — and the bytes
+  could not settle it afterwards even if anyone were allowed to read them.
+  **What the row DOES evidence, from metadata only:** a camera photograph went through the repaired picker and upload
+  path, and the stored object's type and extension match what the client's byte-sniff decided (`image/jpeg` / `.jpg`),
+  which is the sniff-over-filename behaviour the F-IMG-1 repair introduced.
+  **To test the conversion half later** the device must be set to "High Efficiency" before the photo is taken, on a
+  transfer with a synthetic image, and it needs a fresh owner authorization since Line 3 is stopped.
