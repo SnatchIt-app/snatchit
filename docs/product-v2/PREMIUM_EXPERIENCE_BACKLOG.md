@@ -2531,3 +2531,9 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   profile **Very Bad Network** selected and **Enable ON** (the owner confirmed on their own screenshot). Enabled
   11:01 EDT; profile confirmed 11:03 EDT (2026-09-17). Snatch It not reopened since the buyer sign-in (10:55).
   Next: throttled cold launch 1; C asked A for a read after EACH launch, so each outcome can be attributed.
+- **S2-2 launch 1 (owner, Build 18, buyer, Very Bad Network + Larger Text ON, 2026-09-17):** force-quit →
+  reopened **11:06 EDT** (≈15:06Z, minutes only). Home loaded after "a couple of seconds". Settings ›
+  Notifications: **no banner**; Try again not tapped. **Result pending A's read.** The owner's rule: no banner
+  alone does not confirm registration. PASS for this launch needs A's read to show it registered (last_used on
+  140fcb44 advanced to ≈15:06Z with the counter incremented). No banner and no registration is silence = FAIL
+  (D's rule). Launch 2 waits for the read.
