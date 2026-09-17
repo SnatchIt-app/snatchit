@@ -2006,3 +2006,24 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
 - **Session 2 (owner, 2026-09-17): Profile loads normally on Build 18, no persistent
   spinner; Home loaded without a force-quit** (owner-reported; fresh-install sign-in,
   buyer). S2-1 (DV-AUTH-1, the sign-out → sign-in regression) starts next.
+- **S2-1 step 1 (owner, 2026-09-17 23:33 EDT ≈ 03:33Z): sign out online → sign back in
+  as the buyer on Build 18, no force-quit → Home and Profile both loaded** (owner-
+  reported; the Build 17 blocker sequence). "S2-1 step 1 ready + time" sent to A;
+  read-back pending (new session, row re-registered on it, request counts). Step 2 =
+  the seller account, same sequence.
+- **Notification batch 1 (owner ruling 2026-09-17 via A; local implementation + tests,
+  D reviewing; no dispatcher, no outbound, no build; Build 18 pin preserved):** C's items
+  — (1) Settings › Notifications keeps only "Listing sold" live and HIDES the five
+  unwired switches, preserving stored preferences (no write on hide); (2) a security-
+  notice surface on the first signed-in screen for an unread `security_device_rebound`
+  from A's 136 `public.get_my_security_notices()` / `mark_security_notices_read(uuid[])`,
+  rendering {title, body} exactly as returned (A's correction: the server template
+  carries the corrected meaning — a device that was receiving THIS account's
+  notifications is now registered to ANOTHER account; the only client copy is the two
+  action labels "Sign out of all devices" (K-2) and "Dismiss"); never on the login
+  screen; (3) F-2S-1 neutral challenge copy, no auth change. **(3) delivered:
+  `frontend/challenge-copy-neutral @ a3b67eb`** — `CHALLENGE_COPY.failed.session_stale`
+  = "This device couldn't confirm notifications for this account. Try again from
+  Settings › Notifications."; RED first; push-proof-v3 + session-bound-131 green; tsc
+  clean; vitest 2077 / 95; lint 0 errors. DV rows for the next build to be prepared,
+  not run.
