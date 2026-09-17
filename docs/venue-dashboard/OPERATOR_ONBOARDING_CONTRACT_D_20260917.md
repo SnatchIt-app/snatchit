@@ -463,4 +463,6 @@ Local:
   fixture dependency (I83) are recorded in the harness.
 - rollback identical to an exact no-138 replay across ops/kernel/catalog/venue functions (bodies and ACLs), tables,
   triggers and constraints; `accept_org_invite` restored byte-identical to 077; re-apply identical.
-CI: recorded when green.
+CI: run 35247904544 at 8ecc929 succeeded on all five jobs. pgTAP footer: Files=88, Tests=5399, Result: PASS; 206 ok.
+The total matches the written prediction (5424 at be80aad minus 25, the only count change being 206 going from 161 to 136).
+The local run above covered 87 of the 88 files, so CI is the evidence for the full set.
