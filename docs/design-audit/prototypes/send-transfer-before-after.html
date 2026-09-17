@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Send Transfer — Before / After</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --canvas:#000;--surface:#0A0A0A;--elevated:#111;--text:#fff;--text2:rgba(255,255,255,.70);
+  --muted:rgba(255,255,255,.55);--faint:rgba(255,255,255,.30);--red:#FF1A1A;--redSoft:rgba(255,26,26,.10);
+  --border:rgba(255,26,26,.15);--borderStrong:rgba(255,26,26,.30);--warning:#FFB020;--error:#FF4D4D;--success:#3DDC84;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;color:var(--text);font-family:Inter,system-ui,sans-serif;padding:24px;display:flex;flex-direction:column;gap:20px;align-items:center}
+h1{font-family:Oswald;font-size:26px;letter-spacing:-.5px;text-transform:uppercase}
+.note{color:var(--muted);font-size:13px;line-height:18px;max-width:840px;text-align:center}
+.pair{display:flex;gap:28px;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.cap{font-family:Inter;font-weight:700;font-size:12px;letter-spacing:2.2px;text-transform:uppercase;color:var(--muted)}
+.cap b{color:var(--text)}
+.phone{width:375px;height:812px;background:var(--canvas);overflow-y:auto;border:1px solid #333;position:relative}
+.phone::-webkit-scrollbar{width:0}
+.badge-sandbox{background:var(--red);color:#000;font-size:9px;font-weight:700;letter-spacing:2px;text-align:center;padding:4px 0;text-transform:uppercase}
+.nav{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s4);border-bottom:1px solid var(--border)}
+.nav .back{color:var(--text);font-size:20px;line-height:1}
+.nav h2{font-family:Oswald;font-size:20px;line-height:22px;letter-spacing:-.2px;text-transform:uppercase}
+.body{padding:var(--s4);display:flex;flex-direction:column;gap:var(--s4)}
+.lbl{font-family:Inter;font-weight:500;font-size:10px;line-height:14px;letter-spacing:3px;text-transform:uppercase;color:var(--muted)}
+.row{display:flex;justify-content:space-between;gap:var(--s3);padding:var(--s2) 0;border-bottom:1px solid var(--border)}
+.row span:first-child{color:var(--muted);font-size:13px}
+.row span:last-child{font-size:13px;text-align:right}
+.warn{border:1px solid var(--warning);background:rgba(255,176,32,.10);padding:var(--s3)}
+.warn .t{color:var(--warning);font-weight:600;font-size:13px;line-height:18px}
+.warn .d{color:var(--text2);font-size:13px;line-height:18px;margin-top:var(--s1)}
+.card{background:var(--surface);border:1px solid var(--border);padding:var(--s3)}
+.steps{display:flex;flex-direction:column;gap:var(--s3)}
+.step{display:flex;gap:var(--s3);align-items:flex-start}
+.n{width:22px;height:22px;border-radius:9999px;background:var(--redSoft);color:var(--red);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 22px}
+.step p{font-size:13px;line-height:18px;color:var(--text)}
+.amber{border:1px solid var(--warning);background:rgba(255,176,32,.10);padding:var(--s3);display:flex;flex-direction:column;gap:6px}
+.amber p{color:var(--warning);font-size:11px;line-height:16px}
+.tips{color:var(--muted);font-size:13px;padding-top:var(--s2)}
+.chip{align-self:flex-start;border:1px solid var(--borderStrong);padding:6px 10px;border-radius:9999px;font-size:13px;color:var(--text2)}
+.chip.exp{border-color:var(--error);color:var(--error)}
+.pill{border-radius:9999px;background:var(--redSoft);color:var(--red);font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:4px 10px}
+.head{display:flex;justify-content:space-between;align-items:center}
+.upload{border:1px dashed var(--borderStrong);background:var(--surface);padding:var(--s4);display:flex;gap:var(--s3);align-items:center}
+.upload .ic{width:36px;height:36px;background:var(--redSoft);color:var(--red);display:flex;align-items:center;justify-content:center;font-size:16px}
+.upload .t{font-size:13px;font-weight:600}
+.upload .h{font-size:11px;color:var(--muted);margin-top:2px}
+.cta{background:var(--red);color:#000;font-family:Inter;font-weight:700;font-size:15px;letter-spacing:.2px;text-align:center;padding:16px;text-transform:uppercase}
+.cta.dis{background:#2A2A2A;color:var(--faint)}
+.cta .sub{display:block;font-weight:400;font-size:11px;letter-spacing:0;text-transform:none;color:rgba(0,0,0,.65);margin-top:3px}
+.attest{color:var(--muted);font-size:13px;line-height:18px}
+.blocked{color:var(--error);font-size:13px;line-height:18px}
+.state{border-left:2px solid var(--red);background:var(--surface);padding:var(--s3)}
+.state .t{font-family:Oswald;font-size:20px;text-transform:uppercase;letter-spacing:-.2px}
+.state p{font-size:13px;line-height:18px;color:var(--text2);margin-top:var(--s2)}
+.disc{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);background:var(--surface);padding:var(--s3)}
+.disc .t{font-size:13px;font-weight:600}
+.disc .c{color:var(--muted);font-size:11px;margin-top:2px}
+.disc .x{color:var(--red);font-size:16px}
+.ann{max-width:375px;font-size:12px;line-height:17px;color:var(--muted)}
+.ann b{color:#fff}
+.ann ol{padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.tag{display:inline-block;font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:3px 7px;border:1px solid var(--faint);color:var(--muted)}
+</style></head><body>
+<h1>Send Transfer — before / after</h1>
+<p class="note">Both frames are <b>reconstructions rendered locally in a browser from the source at 6561d1f</b>, with synthetic data
+(no real listing, buyer or ticket). They are not screenshots of the app, and no device check is claimed. The left frame follows
+<code>app/transfer/send/[id].tsx</code> block for block; the right frame is B's proposal, built from the approved v2 tokens
+(<code>src/theme/v2.ts</code>: canvas #000, brand #FF1A1A, radius 0 or pill only, 4pt spacing, Oswald display + Inter body).</p>
+
+<div class="pair">
+  <div class="col">
+    <div class="cap"><b>Before</b> — pending, delivery info missing, window expired</div>
+    <div class="phone">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><h2>Send tickets</h2></div>
+      <div class="body">
+        <div>
+          <div class="lbl">Send tickets to</div>
+          <div class="warn" style="margin-top:8px"><div class="t">Delivery info not yet provided</div>
+            <div class="d">The buyer must provide their delivery info before you can send tickets. They are prompted for it when they open the transfer.</div></div>
+        </div>
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span style="font-size:20px">🎟️</span>
+            <div><div style="font-size:15px;font-weight:600">Transfer via DICE</div><div style="font-size:11px;color:var(--muted)">About 3 minutes</div></div></div>
+          <div class="card steps">
+            <div class="step"><div class="n">1</div><p>Open the DICE app and sign in to the account holding the tickets.</p></div>
+            <div class="step"><div class="n">2</div><p>Find the event under Tickets and tap Transfer.</p></div>
+            <div class="step"><div class="n">3</div><p>Enter the buyer's email exactly: buyer@example.test</p></div>
+            <div class="step"><div class="n">4</div><p>Confirm the transfer in DICE and wait for the confirmation screen.</p></div>
+            <div class="step"><div class="n">5</div><p>Screenshot that confirmation — you will upload it here.</p></div>
+          </div>
+          <div class="amber" style="margin-top:12px">
+            <p>⚠️ Transfers are final once accepted in DICE.</p>
+            <p>⚠️ Do not share screenshots containing the barcode.</p>
+            <p>⚠️ Name changes can take up to 24 hours to appear.</p>
+          </div>
+          <div class="tips">▶ Tips</div>
+        </div>
+        <div class="chip exp">Transfer window expired</div>
+        <div>
+          <div class="head"><div class="lbl">Transfer</div><div class="pill">Pending</div></div>
+          <div class="row"><span>Event</span><span>Synthetic Test Event</span></div>
+          <div class="row"><span>Buyer</span><span>Test Buyer</span></div>
+          <div class="row"><span>Method</span><span>mobile transfer</span></div>
+        </div>
+        <div>
+          <div class="lbl">Transfer evidence</div>
+          <div class="upload" style="margin-top:8px"><div class="ic">▤</div><div><div class="t">Transfer proof</div><div class="h">Screenshot of the transfer confirmation</div></div></div>
+          <p class="attest" style="margin-top:12px">I have transferred the ticket(s) to the buyer using the instructions above.</p>
+          <p class="blocked" style="margin-top:8px">Buyer must provide delivery info before you can send tickets.</p>
+          <div class="cta dis" style="margin-top:12px">Mark as sent</div>
+        </div>
+      </div>
+    </div>
+    <div class="ann"><b>What the seller meets first:</b> five decorated surfaces — warning box, steps card, amber warnings,
+    expiry chip, status pill — before one primary button, which is disabled. The same blocking condition is stated three times
+    (warning box, red line, disabled button). The expiry chip says the window has passed, yet the server would still accept
+    a send until the sweep closes the row.</div>
+  </div>
+
+  <div class="col">
+    <div class="cap"><b>After</b> — same data, same states, one voice each</div>
+    <div class="phone">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><h2>Send tickets</h2></div>
+      <div class="body">
+        <div class="state">
+          <div class="t">Waiting on the buyer</div>
+          <p>You can't send yet: the buyer hasn't given their delivery details. They're asked for them when they open the
+          transfer — we'll notify you here as soon as they do.</p>
+          <p style="color:var(--warning)">The 24-hour send window has passed. You can still send while the transfer is open;
+          if it closes first, the sale is cancelled and refunded.</p>
+        </div>
+
+        <div>
+          <div class="lbl">Step 1 · Transfer proof</div>
+          <div class="upload" style="margin-top:8px"><div class="ic">▤</div><div><div class="t">Add a screenshot</div><div class="h">The DICE confirmation screen</div></div></div>
+          <div class="cta dis" style="margin-top:12px">Mark as sent<span class="sub">Available once the buyer adds delivery details</span></div>
+        </div>
+
+        <div class="disc"><div><div class="t">How to transfer on DICE</div><div class="c">5 steps · about 3 minutes · 3 cautions</div></div><div class="x">›</div></div>
+
+        <div>
+          <div class="lbl">This transfer</div>
+          <div class="row"><span>Event</span><span>Synthetic Test Event</span></div>
+          <div class="row"><span>Buyer</span><span>Test Buyer</span></div>
+          <div class="row"><span>Send to</span><span>buyer@example.test</span></div>
+          <div class="row"><span>Method</span><span>Mobile transfer</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="ann"><b>What changed, and why:</b>
+      <ol>
+        <li><b>One state, one voice.</b> The blocking condition is stated once, and the button carries its own reason instead of a
+        separate red line. Disabled buttons that explain themselves need no second warning.</li>
+        <li><b>Expiry tells the truth.</b> The copy matches what the code does: sending still works until the sweep closes the
+        transfer, and the consequence of closure is named.</li>
+        <li><b>The task is above the fold.</b> Proof and CTA come first; the instructions collapse to one row that keeps its
+        useful metadata (steps, time, cautions) so nothing is hidden, only folded.</li>
+        <li><b>The attestation moved onto the action.</b> On an enabled button the sub-line reads "I transferred these tickets",
+        so the claim is made by the tap, not by grey text near it.</li>
+        <li><b>Approved geometry.</b> Square corners, red-tinted hairlines, Oswald for the state title — the legacy panel's
+        rounded cards and neutral borders are gone.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+<p class="note"><span class="tag">Not verified visually</span> Type sizes here follow the v2 scale, but this is a browser at
+375 px — not iOS, not Dynamic Type at its largest setting, and not the real SANDBOX badge inset. Those need a device or a
+simulator, which this audit does not claim.</p>
+</body></html>

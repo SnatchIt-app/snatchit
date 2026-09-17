@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receive Transfer & Checkout — Before / After</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--canvas:#000;--surface:#0A0A0A;--elevated:#111;--text:#fff;--text2:rgba(255,255,255,.70);--muted:rgba(255,255,255,.55);
+--faint:rgba(255,255,255,.30);--red:#FF1A1A;--redSoft:rgba(255,26,26,.10);--border:rgba(255,26,26,.15);--bs:rgba(255,26,26,.30);
+--warning:#FFB020;--error:#FF4D4D;--success:#3DDC84;
+--legacyBg:#0B0F14;--legacyCard:#11161C;--legacyInput:#1a2030;--legacyBorder:#2e3a50;--legacyRed:#E10600;--legacyMuted:#8a94a6;--legacyBlue:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;color:#fff;font-family:Inter,system-ui,sans-serif;padding:24px;display:flex;flex-direction:column;gap:28px;align-items:center}
+h1{font-family:Oswald;font-size:26px;text-transform:uppercase;letter-spacing:-.5px}
+h2{font-family:Oswald;font-size:20px;text-transform:uppercase;letter-spacing:-.2px;margin-top:8px}
+.note{color:var(--muted);font-size:13px;line-height:18px;max-width:860px;text-align:center}
+.pair{display:flex;gap:28px;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center;max-width:375px}
+.cap{font-weight:700;font-size:12px;letter-spacing:2.2px;text-transform:uppercase;color:var(--muted)}
+.cap b{color:#fff}
+.phone{width:375px;height:812px;background:var(--canvas);overflow-y:auto;border:1px solid #333;position:relative}
+.phone.legacy{background:var(--legacyBg)}
+.badge-sandbox{background:var(--red);color:#000;font-size:9px;font-weight:700;letter-spacing:2px;text-align:center;padding:4px 0;text-transform:uppercase}
+.nav{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.nav.legacy{border-bottom:1px solid #1C232B}
+.nav .back{font-size:20px}.nav h3{font-family:Oswald;font-size:20px;text-transform:uppercase;letter-spacing:-.2px}
+.body{padding:16px;display:flex;flex-direction:column;gap:16px}
+.lbl{font-weight:500;font-size:10px;line-height:14px;letter-spacing:3px;text-transform:uppercase;color:var(--muted)}
+.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)}
+.row span:first-child{color:var(--muted);font-size:13px}.row span:last-child{font-size:13px;text-align:right}
+.card{background:var(--surface);border:1px solid var(--border);padding:12px}
+.card.legacy{background:var(--legacyCard);border:1px solid #1C232B;border-radius:10px}
+.steps{display:flex;flex-direction:column;gap:12px}
+.step{display:flex;gap:12px}.n{width:22px;height:22px;border-radius:11px;background:rgba(225,6,0,.15);color:var(--legacyRed);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 22px}
+.step p{font-size:13px;line-height:18px}
+.amber{border:1px solid #fbbf24;background:rgba(251,191,36,.10);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.amber p{color:#fbbf24;font-size:11px;line-height:16px}
+.inputWell{background:var(--legacyInput);border:1px solid var(--legacyBorder);border-radius:10px;padding:14px;color:var(--legacyMuted);font-size:15px}
+.inputV2{border-bottom:1px solid var(--bs);padding:14px 0 10px;color:var(--faint);font-size:15px}
+.cta{background:var(--red);color:#000;font-weight:700;font-size:15px;text-align:center;padding:16px;text-transform:uppercase}
+.cta.legacy{background:var(--legacyRed);color:#fff;border-radius:10px;text-transform:none}
+.cta.sec{background:transparent;border:1px solid var(--bs);color:#fff}
+.cta.dis{background:#2A2A2A;color:var(--faint)}
+.cta .sub{display:block;font-weight:400;font-size:11px;text-transform:none;letter-spacing:0;color:rgba(0,0,0,.65);margin-top:3px}
+.ghost{color:var(--error);font-size:13px;text-align:center;padding:12px}
+.state{border-left:2px solid var(--red);background:var(--surface);padding:12px}
+.state.ok{border-left-color:var(--success)}
+.state .t{font-family:Oswald;font-size:20px;text-transform:uppercase;letter-spacing:-.2px}
+.state p{font-size:13px;line-height:18px;color:var(--text2);margin-top:8px}
+.disc{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);background:var(--surface);padding:12px}
+.disc .t{font-size:13px;font-weight:600}.disc .c{color:var(--muted);font-size:11px;margin-top:2px}.disc .x{color:var(--red)}
+.proof{display:flex;gap:12px;align-items:center;border:1px solid var(--border);background:var(--surface);padding:12px}
+.proof .th{width:56px;height:56px;background:#1c1c1c;border:1px solid var(--bs);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
+.alertOverlay{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center}
+.alertBox{width:270px;background:#1c1c1e;border-radius:14px;overflow:hidden;text-align:center}
+.alertBox .t{font-size:17px;font-weight:600;padding:18px 16px 4px}
+.alertBox .m{font-size:13px;color:#d1d1d6;padding:0 16px 16px;line-height:18px}
+.alertBox .b{border-top:1px solid #38383a;color:#0a84ff;font-size:17px;padding:11px}
+.price{font-weight:700;font-size:20px;font-variant-numeric:tabular-nums}
+.priceLegacy{font-weight:800;font-size:24px;color:#fff;letter-spacing:1px}
+.priceSub{color:var(--legacyMuted);font-size:11px}
+.priceSubV2{color:var(--muted);font-size:13px}
+.stickybar{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--bs);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.ann{font-size:12px;line-height:17px;color:var(--muted)}.ann b{color:#fff}.ann ol{padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.tag{display:inline-block;font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;padding:3px 7px;border:1px solid var(--faint);color:var(--muted)}
+</style></head><body>
+<h1>Receive transfer &amp; Checkout — before / after</h1>
+<p class="note">Reconstructions rendered locally from source at 6561d1f with synthetic data. Not screenshots of the app; no device
+check claimed. The "before" frames reproduce the legacy components' own tokens (<code>src/theme/index.ts</code>: #0B0F14 canvas,
+#E10600 red, 10 px radii, #60a5fa accent) exactly as those files declare them, which is why they look like a different app —
+because, in those components, it is one.</p>
+
+<h2>1 · Receive transfer (buyer) — substantial redesign</h2>
+<div class="pair">
+  <div class="col">
+    <div class="cap"><b>Before</b> — seller has sent, buyer must confirm</div>
+    <div class="phone legacy">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav legacy"><span class="back">‹</span><h3>Receive transfer</h3></div>
+      <div class="body">
+        <div><div class="lbl">Your delivery info</div>
+          <div class="inputWell" style="margin-top:8px">buyer@example.test</div></div>
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><span style="font-size:20px">🎟️</span>
+            <div><div style="font-size:15px;font-weight:600">Receiving via DICE</div><div style="font-size:11px;color:var(--legacyMuted)">About 2 minutes</div></div></div>
+          <div class="card legacy steps">
+            <div class="step"><div class="n">1</div><p>Open the DICE app with the email above.</p></div>
+            <div class="step"><div class="n">2</div><p>Look under Tickets for the transfer.</p></div>
+            <div class="step"><div class="n">3</div><p>Accept the transfer in DICE.</p></div>
+            <div class="step"><div class="n">4</div><p>Come back here and confirm you received them.</p></div>
+          </div>
+          <div class="amber" style="margin-top:12px">
+            <p>⚠️ Transfers are final once accepted in DICE.</p>
+            <p>⚠️ Do not share screenshots containing the barcode.</p>
+            <p>⚠️ Name changes can take up to 24 hours to appear.</p>
+          </div>
+        </div>
+        <div class="card legacy"><div class="lbl" style="color:var(--legacyMuted)">Seller's proof</div>
+          <div style="margin-top:8px;height:120px;background:#0d1319;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--legacyMuted);font-size:11px">tap to view</div></div>
+        <div style="color:var(--legacyMuted);font-size:13px;line-height:18px">By confirming, you release payment to the seller. Only confirm once the tickets are in your account.</div>
+        <div class="cta legacy">Confirm receipt</div>
+        <div class="ghost">Report a problem</div>
+      </div>
+      <div class="alertOverlay"><div class="alertBox"><div class="t">Receipt confirmed</div>
+        <div class="m">You confirmed you received the tickets. Enjoy the event.</div><div class="b">OK</div></div></div>
+    </div>
+    <div class="ann"><b>Three legacy components live here</b> — the instructions panel, the delivery-info form's rounded input
+    well, and the proof viewer — so the buyer's most consequential screen renders in the pre-migration palette, geometry and
+    accent blue. Success arrives as a system alert the buyer must dismiss (<code>:219</code>), and there is no pull-to-refresh
+    while they wait for the seller's proof to appear.</div>
+  </div>
+  <div class="col">
+    <div class="cap"><b>After</b> — same states, v2 tokens, action on the bar</div>
+    <div class="phone">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><h3>Receive tickets</h3></div>
+      <div class="body">
+        <div class="state"><div class="t">Tickets sent — check DICE</div>
+          <p>The seller marked these as sent 14 minutes ago and attached proof. Accept the transfer in DICE, then confirm below.</p></div>
+        <div class="proof"><div class="th">proof</div>
+          <div><div style="font-size:13px;font-weight:600">Seller's transfer proof</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Screenshot · added 14 min ago · tap to view</div></div></div>
+        <div class="disc"><div><div class="t">How to accept on DICE</div><div class="c">4 steps · about 2 minutes · 3 cautions</div></div><div class="x">›</div></div>
+        <div><div class="lbl">This transfer</div>
+          <div class="row"><span>Event</span><span>Synthetic Test Event</span></div>
+          <div class="row"><span>Seller</span><span>the seller</span></div>
+          <div class="row"><span>Sent to</span><span>buyer@example.test</span></div></div>
+      </div>
+      <div class="stickybar">
+        <div class="cta">Confirm receipt<span class="sub">This releases payment to the seller</span></div>
+        <div class="cta sec" style="text-transform:none;font-weight:500">Something's wrong</div>
+      </div>
+    </div>
+    <div class="ann"><b>What changed, and why:</b>
+      <ol>
+        <li><b>Status first.</b> The buyer's question is "where are my tickets?", answered in the first block instead of after the form and the instructions.</li>
+        <li><b>The release warning is on the button</b>, not four blocks above it. A consequence stated next to the tap is a consequence read.</li>
+        <li><b>The proof is a real row</b>, with when it arrived — the current viewer is a rounded well with no metadata.</li>
+        <li><b>Success stays on the screen</b> (state block + the existing haptic) instead of a system alert to dismiss.</li>
+        <li><b>Never "Unknown"</b>: with no display name, the row says "the seller" — the role is always known.</li>
+        <li><b>Pull-to-refresh added</b>, because this is the one screen whose content arrives from someone else.</li>
+      </ol></div>
+  </div>
+</div>
+
+<h2>2 · Checkout — targeted polish, not a redesign</h2>
+<div class="pair">
+  <div class="col">
+    <div class="cap"><b>Before</b> — connection lost mid-checkout</div>
+    <div class="phone">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><h3>Checkout</h3></div>
+      <div class="body">
+        <div class="card" style="display:flex;gap:12px;align-items:center">
+          <div style="width:56px;height:70px;background:#1c1c1c;border:1px solid var(--border)"></div>
+          <div><div style="font-size:15px;font-weight:600">Synthetic Test Event</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">Fri 24 Oct · Test Venue</div></div></div>
+        <div><div class="lbl">Order</div>
+          <div class="row"><span>Ticket</span><span class="priceLegacy">$120</span></div>
+          <div class="row"><span>Fees</span><span class="priceLegacy">$14</span></div>
+          <div class="row"><span>Total</span><span class="priceLegacy">$134</span></div>
+          <div class="priceSub" style="margin-top:8px">All-in price. No fees added at the end.</div></div>
+        <div class="state" style="border-left-color:var(--error)"><div class="t" style="font-size:17px;font-family:Inter;text-transform:none">Something went wrong</div>
+          <p>We couldn't complete that. Please try again.</p></div>
+        <div class="cta">Pay $134</div>
+        <div style="font-size:11px;color:var(--muted);text-align:center">Payments secured by Stripe</div>
+      </div>
+    </div>
+    <div class="ann"><b>Two problems, both narrow.</b> The screen has <b>no offline state at all</b> — zero references to
+    <code>useNetworkStatus</code>, <code>isNetworkError</code> or "offline" — so a dead connection produces the same generic
+    sentence as a declined card. And the prices come from the legacy <code>PriceDisplay</code>: 800-weight synthetic bold at an
+    off-scale 24 px, in the deprecated blue-grey ink, with no tabular figures, so the column does not align.</div>
+  </div>
+  <div class="col">
+    <div class="cap"><b>After</b> — same layout, the two gaps closed</div>
+    <div class="phone">
+      <div class="badge-sandbox">Sandbox</div>
+      <div class="nav"><span class="back">‹</span><h3>Checkout</h3></div>
+      <div class="body">
+        <div class="card" style="display:flex;gap:12px;align-items:center">
+          <div style="width:56px;height:70px;background:#1c1c1c;border:1px solid var(--border)"></div>
+          <div><div style="font-size:15px;font-weight:600">Synthetic Test Event</div>
+            <div style="font-size:13px;color:var(--muted);margin-top:2px">Fri 24 Oct · Test Venue</div></div></div>
+        <div><div class="lbl">Order</div>
+          <div class="row"><span>Ticket</span><span class="price">$120.00</span></div>
+          <div class="row"><span>Fees</span><span class="price">$14.00</span></div>
+          <div class="row"><span>Total</span><span class="price">$134.00</span></div>
+          <div class="priceSubV2" style="margin-top:8px">All-in price. No fees added at the end.</div></div>
+        <div class="state" style="border-left-color:var(--warning)"><div class="t">You're offline</div>
+          <p>Your card was not charged. Your hold is kept for 6 more minutes — reconnect and try again.</p></div>
+        <div class="cta dis">Pay $134.00<span class="sub" style="color:var(--faint)">Waiting for a connection</span></div>
+        <div style="font-size:11px;color:var(--muted);text-align:center">Payments secured by Stripe</div>
+      </div>
+    </div>
+    <div class="ann"><b>What changed, and why:</b>
+      <ol>
+        <li><b>Offline is named</b>, with the two facts a buyer needs: the card was not charged, and the hold is still theirs
+        (both already known to the screen — the hold countdown exists today).</li>
+        <li><b>The button stops lying.</b> Disabled while unreachable, with its reason, instead of inviting a tap that cannot succeed.</li>
+        <li><b>Prices use <code>textStyle('price')</code></b> — tabular figures, real 700 face, on-scale — so the column aligns and no synthetic bold is requested.</li>
+        <li><b>Everything else is untouched:</b> layout, copy, hold countdown, Stripe line, haptic success. This screen is the app's best-instrumented; the audit does not rebuild it.</li>
+      </ol></div>
+  </div>
+</div>
+<p class="note"><span class="tag">Not verified visually</span> Browser at 375 px with web fonts. Not iOS, not Dynamic Type at
+its largest step, not the real badge inset. On-device checks belong to C.</p>
+</body></html>
