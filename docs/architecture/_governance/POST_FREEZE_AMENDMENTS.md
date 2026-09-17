@@ -3601,3 +3601,37 @@ IMPLEMENTED AT:              ops/138-operator-onboarding @ 0cfa8ba — migration
                              candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
 OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how the owner signs.
 ```
+
+## PFA-34 — follow-on to PFA-33: direct organisation creation closed for platform identities (A5), recovery owner invite (R1), no invitation overwrites or demotes an owner (A6), and the names-only overlap detector (D1) (migration 138, unapplied) — PROPOSED, NOT SIGNED
+
+**Placement (A, 2026-09-17):** the text below is placed from D's contract, `docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md` on `review/d-release-sprint @ 5b501b8`, with ONE deviation, which D's own text invites: the ID line read "(assigned by A at placement)" and now reads "PFA-34 (proposed)". Source block md5 `ea1c2999dc1099f869e23eb227c1671f`; **placed block md5 `026cb858319bc7c0181e1dad01e23ef1`, 2726 bytes, 27 lines** (extraction rule: the contents of the fenced code block under this PFA-34 heading, excluding both fence lines and with no trailing newline, UTF-8). D mirrors the placed text so both checksums converge. **Implementation:** `ops/138-operator-onboarding @ a9aa34e` (CI 35257712408 green on five jobs; pgTAP Files=88, Tests=5441, Result: PASS). **A's independent review at a9aa34e:** replay 157/157, Gate-2 32|107|37|38, local 5435/5435 with a strict TAP::Parser pass, the migration and rollback byte-identical to the reviewed 5960b51, all seven pre-apply prosrc md5s recomputed from source, A's mutants killing exactly the predicted tests (the over-broad A6 mutant is now killed by I134/I135/I135b/I136, closing A's F-A6-TEST), and A's own run of `scripts/rehearsal_138_a6_concurrency.sh`: S1, S2, S3, C1 and C2 ALL PASS — including the control in which, without A6, two concurrent acceptances commit and leave the organisation with ZERO owners. **The owner's approval of A6 (2026-09-17, in the A conversation):** "Approve A6 for the follow-on amendment: accepting an invite must never overwrite or demote an existing organization owner. Keep the existing maturity-clock and audit behavior unless a separate change is approved. Add tests for a sole owner, multiple owners, lower-role invites and concurrent acceptance, with rollback evidence." **OWNER SIGNATURE: NOT YET RECORDED.** Signing this amendment does NOT apply migration 138: the owner ruled "applying 138 still requires a separate authorization, including the prerequisite 115–120 sandbox chain and any hosted-project detection read."
+
+```
+ID:                          PFA-34 (proposed) — follow-on to PFA-33
+FROZEN RULES AFFECTED:       RPC §2.1 (create_organization makes the caller the first org_owner) and RPC §2.3
+                             (accept_org_invite binds the addressed invitee and writes the invite's role).
+WHY:                         owner rulings 1–3 of 2026-09-17, given after PFA-33 was signed.
+AMENDMENT:
+  A5 kernel.create_organization — refuses any identity holding platform authority (platform_role, or platform_admin
+     through public.admin_users). Operators create organisations only through the console's org_bootstrap (PFA-33 A1).
+     Customers' self-service creation is unchanged.
+  R1 Recovery — a SUSPENDED organisation with no current org_owner may receive the PFA-33 A2 owner invite through the
+     same two-person action, identity checks and audit. It is refused whenever an org_owner exists, at request and at
+     execution. The domain audit records the organisation's status at issue. No invite replaces an existing owner.
+  A6 kernel.accept_org_invite — APPROVED by the owner, 2026-09-17: "accepting an invite must never overwrite or
+     demote an existing organization owner." It refuses an invite whose role is not org_owner when the accepter is
+     currently an org_owner of that organisation, checked under the organisation row lock. An owner's role changes
+     only through kernel.change_org_role, which enforces the last-owner and owner-tier rules. The owner also ruled:
+     "Keep the existing maturity-clock and audit behavior unless a separate change is approved" — so an owner
+     accepting an org_owner invite still rewrites granted_by, still resets granted_at, and is still audited as
+     org.invite.accept. That is pinned by 206 I134-I136, so a later change to it cannot pass silently.
+  D1 ops.list_platform_identity_memberships() — a detector, not a control: platform identities holding organisation
+     membership. platform_admin at aal2; read-only (STABLE; writes nothing, including no audit row); returns names
+     only (authority, identity name, organisation name, role). Running it against any hosted project is a read the
+     owner authorizes for that project.
+UNCHANGED:                   PFA-33 A1–A4 and its LIMIT; the tier guard, I-11, AUTHZ-C1B maturity; the invite verb;
+                             acceptance for non-owners (the upsert's other effects are recorded as facts, not changed).
+IMPLEMENTED AT:              ops/138-operator-onboarding @ a9aa34e — migration 138 (unapplied, outside the marketplace
+                             candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
+OWNER SIGNATURE REQUIRED:    YES.
+```
