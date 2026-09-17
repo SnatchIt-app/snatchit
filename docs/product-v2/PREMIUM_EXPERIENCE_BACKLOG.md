@@ -2575,3 +2575,14 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   Bids, Tickets, Profile, each reached fresh. Build 18 copy (`src/lib/ui/loadState.ts`): "You're offline" /
   "Check your internet connection and try again." / Retry. Retry not tapped in this step. DV-ST2 stays gated:
   the trigger goes to A only after D confirms the witness is live and the kit is idle.
+- **DV-ST1 step 1 (owner, Build 18, buyer, Larger Text ON, 2026-09-17): Airplane Mode ON at 11:17 EDT;** app
+  force-quit and reopened offline. **Owner-reported for all five screens (Home, Explore, Bids, Tickets, Profile):**
+  the same updated styling and message: "YOU'RE OFFLINE" / "Check your internet connection and try again." /
+  "RETRY" (black text on a red button). Tickets therefore shows offline too (F-OFF-1). **Screenshot evidence
+  (the owner's own, Home only, 11:18):** airplane icon; the SANDBOX — TEST MONEY ONLY badge; the SN header, MIAMI,
+  the search icon and the YOUR SCENE / PRICE / FILTERS controls sit below the badge (clear, no overlap); a
+  wifi-off glyph in a ringed disc; the three strings above; a red RETRY button with dark text; the tab dock below.
+  *Evidence class:* Home by screenshot; the other four by the owner's observation only. **Heading clearance on
+  the offline state is reported for Home only, not for the other four.** Profile's offline branch renders the
+  state view without its header, so it stays unconfirmed there. Retry not tapped. Airplane Mode left ON.
+  Remaining DV-ST1: Airplane Mode off → the screen retries by itself.
