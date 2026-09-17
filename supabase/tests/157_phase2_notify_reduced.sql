@@ -121,15 +121,15 @@ SELECT has_column('public','push_tokens','revoked_at','A10: push_tokens.revoked_
 SELECT has_column('public','push_tokens','revoked_reason','A11: push_tokens.revoked_reason');
 SELECT has_column('public','push_tokens','provider_receipt_checked_at','A12: push_tokens.provider_receipt_checked_at');
 SELECT has_column('public','push_tokens','last_provider_error','A13: push_tokens.last_provider_error');
-SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace='notify'::regnamespace), 21,
-  'A14: notify holds 21 routines — 076''s emit pair + 092''s fifteen (the reduced 16 minus emit_event; no announcement RPC, no sweep_scheduled) + 135''s issue_push_token_challenge, get_push_token_challenge and record_push_token_challenge_delivery + 139''s claim_report_delivery');
+SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace='notify'::regnamespace), 22,
+  'A14: notify holds 22 routines — 076''s emit pair + 092''s fifteen (the reduced 16 minus emit_event; no announcement RPC, no sweep_scheduled) + 135''s issue_push_token_challenge, get_push_token_challenge and record_push_token_challenge_delivery + 139''s claim_report_delivery');
 SELECT is((SELECT string_agg(p.oid::regprocedure::text, E'\n' ORDER BY p.oid::regprocedure::text COLLATE "C")
              FROM pg_proc p WHERE p.pronamespace='notify'::regnamespace AND p.proname NOT LIKE 'emit_event%'),
-  E'notify.channel_enabled(uuid,text,text)\nnotify.claim_deliveries(text,integer)\nnotify.claim_report_delivery(text,text)\nnotify.dismiss(uuid[])\nnotify.drain_outbox(integer)\nnotify.enqueue(uuid,text,text,uuid,jsonb,text)\nnotify.get_inbox(timestamp with time zone,integer)\nnotify.get_preference_matrix()\nnotify.get_push_token_challenge(uuid)\nnotify.get_unread_count()\nnotify.issue_push_token_challenge(uuid,uuid,uuid,text,text,text,text)\nnotify.mark_all_read()\nnotify.mark_read(uuid[])\nnotify.record_delivery_result(uuid,text,text,text,text,text,text)\nnotify.record_push_token_challenge_delivery(uuid,text,text,text)\nnotify.register_push_token(text,text,text,text)\nnotify.resolve_web_link(text,uuid)\nnotify.revoke_push_token(text)\nnotify.set_preference(text,text,boolean)',
+  E'notify.channel_enabled(uuid,text,text)\nnotify.claim_deliveries(text,integer)\nnotify.claim_report_delivery(text,text)\nnotify.dismiss(uuid[])\nnotify.drain_outbox(integer)\nnotify.enqueue(uuid,text,text,uuid,jsonb,text)\nnotify.get_inbox(timestamp with time zone,integer)\nnotify.get_preference_matrix()\nnotify.get_push_token_challenge(uuid)\nnotify.get_unread_count()\nnotify.issue_push_token_challenge(uuid,uuid,uuid,text,text,text,text)\nnotify.mark_all_read()\nnotify.mark_read(uuid[])\nnotify.record_delivery_result(uuid,text,text,text,text,text,text)\nnotify.record_push_token_challenge_delivery(uuid,text,text,text)\nnotify.register_push_token(text,text,text,text)\nnotify.release_report_delivery(text,text)\nnotify.resolve_web_link(text,uuid)\nnotify.revoke_push_token(text)\nnotify.set_preference(text,text,boolean)',
   'A15: the fifteen 092 routines + 135''s three + 139''s claim_report_delivery by exact signature — OBJECTS EXTRA 0, MISSING 0');
 SELECT is((SELECT count(*)::int FROM pg_proc p WHERE p.pronamespace='notify'::regnamespace AND p.proname NOT LIKE 'emit_event%'
              AND p.prosecdef AND p.proowner = (SELECT oid FROM pg_roles WHERE rolname='postgres')
-             AND 'search_path=""' = ANY(p.proconfig)), 19,
+             AND 'search_path=""' = ANY(p.proconfig)), 20,
   'A16: all fifteen + 135''s three + 139''s one are SECURITY DEFINER, owned by postgres, search_path = '''' (067 discipline)');
 -- 2026-09-03 (package 099): 19 -> 22 (+monitor-signing-key-invariants, +refund-execute-tick, +payout-execute-tick).
 SELECT is((SELECT count(*)::int FROM cron.job), 24, 'A17: cron census 24 — 18 post-091 + notify-drain-outbox + 099''s three signing/executor jobs + 117''s ops-detect-tick and ops-daily-summary (an absolute census)');
@@ -194,7 +194,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
 -- settlement_primary_lines (A3) · sync_org_connect_state + get_org_connect_state (A6) ·
 -- stage_org_connect_ref + get_org_connect_ref (A7/A9, RT-A-3) · get_refund_execution_context (D3) ·
 -- is_order_buyer (F). notify itself is unmoved at 17, which is what this row guards.
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 304,
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 305,
   -- 2026-09-05 (package 114): 294 -> 296 (+2 venue: get_signing_keys_door, get_manifest_signing_context).
   -- 2026-09-05 (package 113): 292 -> 294 (+2 venue: _get_door_manifest_core, get_door_manifest_door).
   -- 2026-09-03 (package 095, payout state machine): 259 -> 266. SEVEN added, zero removed
@@ -217,7 +217,7 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pr
   -- their grant class, and 141 F3 moves 39 -> 45 by exactly these six.
   -- 2026-09-03 (package 096): +9 kernel. 097/098: +0 (body-only re-creates). 099: +1 kernel.
   -- 270 -> 280. Re-derived from the live catalog.
-  'A46: five-schema routines 304 (139''s notify.claim_report_delivery + 135''s 3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery + 131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
+  'A46: five-schema routines 305 (139''s notify.claim_report_delivery and release_report_delivery + 135''s 3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery + 131''s 4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch + 111''s 3 kernel + 228 + 092''s 15 + 093''s 16 + 095''s 7 + 094''s 4 + 096''s 9 + 099''s 1 + 102''s 1 + 105''s 1 all kernel + 108''s 4 venue + 109''s 1 kernel + 1 catalog + 110''s 1 kernel + 113''s 2 venue + 114''s 2 venue)');
 SELECT is((SELECT count(*)::int FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 72, 'A47: policy register 72 (67 + 5 notify owner policies)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market')
              AND p.prosrc ~ '(notify|"notify")\s*\.\s*"?(notification_type|notification|delivery|preference|template|identity_channel_state)"?\M'), 0,

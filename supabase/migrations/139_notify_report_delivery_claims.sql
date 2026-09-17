@@ -25,8 +25,8 @@
 -- grants — service_role is BYPASSRLS, so the grant wall IS its wall). The edge
 -- reaches this only through notify.claim_report_delivery, service_role EXECUTE.
 --
--- Census: notify tables 8 → 9, notify routines 20 → 21; five-schema relations
--- 80 → 81, routines 303 → 304. Public census UNCHANGED (nothing here is public,
+-- Census: notify tables 8 → 9, notify routines 20 → 22 (claim + release); five-schema relations
+-- 80 → 81, routines 303 → 305. Public census UNCHANGED (nothing here is public,
 -- so the grant-decision manifest and expected_grants.txt are untouched). Pins
 -- updated in 157. pgTAP 204.
 -- =============================================================================
@@ -62,9 +62,15 @@ begin
   if p_kind is null or p_kind = '' or p_key is null or p_key = '' then
     raise exception 'precondition_failed: kind and key are required' using errcode = 'P0001';
   end if;
+  -- NO SILENT TRUNCATION (D). Truncating and then deduping on the truncated value
+  -- would let two different deliveries collapse into one claim — the exact failure
+  -- direction this table exists to prevent. Refuse instead; no caller is near these.
+  if length(p_kind) > 64 or length(p_key) > 200 then
+    raise exception 'precondition_failed: kind (max 64) or key (max 200) too long' using errcode = 'P0001';
+  end if;
 
   insert into notify.report_delivery_claim (kind, claim_key)
-  values (left(p_kind, 64), left(p_key, 200))
+  values (p_kind, p_key)
   on conflict (kind, claim_key) do nothing;
 
   get diagnostics v_n = row_count;
@@ -79,5 +85,41 @@ comment on function notify.claim_report_delivery(text, text) is
 
 revoke execute on function notify.claim_report_delivery(text, text) from public, anon, authenticated;
 grant  execute on function notify.claim_report_delivery(text, text) to service_role;
+
+-- ── the release (D's review of bcece84) ─────────────────────────────────────
+-- A claim taken before the send, never released, turns "at most once" into
+-- "sometimes zero": notify-report swallows every delivery error and answers 200,
+-- so a claimed event whose sends ALL failed would stay claimed and every later
+-- delivery of it would be suppressed for good. signing_invariant_alert self-heals
+-- because its key is the run — tomorrow delivers. report_created and
+-- dispute_opened have no next run, so the notice is lost permanently.
+--
+-- The caller releases when EVERY delivery attempt failed, which makes the pair
+-- "at least once" without allowing duplicates on the normal path: a partial
+-- success keeps the claim.
+create or replace function notify.release_report_delivery(p_kind text, p_key text)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare v_n int;
+begin
+  if p_kind is null or p_kind = '' or p_key is null or p_key = '' then
+    raise exception 'precondition_failed: kind and key are required' using errcode = 'P0001';
+  end if;
+
+  delete from notify.report_delivery_claim where kind = p_kind and claim_key = p_key;
+  get diagnostics v_n = row_count;
+  return v_n = 1;
+end;
+$$;
+
+comment on function notify.release_report_delivery(text, text) is
+  '139 (G22, D review): give back the claim for (kind, key) so the delivery can be retried. The caller releases only when EVERY delivery attempt failed — a partial success keeps the claim, so the normal path still cannot duplicate. Returns true when a claim was actually given back. service_role only.';
+
+revoke execute on function notify.release_report_delivery(text, text) from public, anon, authenticated;
+grant  execute on function notify.release_report_delivery(text, text) to service_role;
 
 commit;

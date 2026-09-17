@@ -6,12 +6,13 @@
 -- `on conflict (kind, claim_key) do nothing` → `do update set claimed_at = now()`, which makes
 -- ROW_COUNT 1 forever and every one of those three flip to true.
 BEGIN;
-SELECT plan(31);
+SELECT plan(41);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._try204(stmt text) RETURNS text LANGUAGE plpgsql AS $$
 BEGIN EXECUTE stmt; RETURN 'ok'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE || ' ' || SQLERRM; END $$;
 CREATE FUNCTION tap._claim204(k text, v text) RETURNS boolean LANGUAGE sql AS $$ SELECT notify.claim_report_delivery(k, v) $$;
+CREATE FUNCTION tap._rel204(k text, v text) RETURNS boolean LANGUAGE sql AS $$ SELECT notify.release_report_delivery(k, v) $$;
 
 -- ── A. shape, RLS and the grant wall ────────────────────────────────────────
 SELECT has_table('notify', 'report_delivery_claim', 'A1: the claim table exists in notify');
@@ -69,11 +70,34 @@ SELECT is(tap._claim204('signing_invariant_alert', '2026-09-18'), true,
 SELECT is(tap._claim204('signing_invariant_alert', '2026-09-19'), true,
   'C10: a third consecutive run with the SAME violation announces a third time');
 
+-- ── R. the release (D's review of bcece84) ──────────────────────────────────
+-- A claim taken before the send and never given back turns "at most once" into
+-- "sometimes zero": notify-report swallows every delivery error and answers 200,
+-- so a claimed event whose sends ALL failed stays claimed and is suppressed for
+-- good. The signing alert self-heals through its run key; report_created and
+-- dispute_opened have no next run.
+SELECT has_function('notify', 'release_report_delivery', ARRAY['text','text'], 'R1: notify.release_report_delivery(text,text)');
+SELECT is((SELECT p.prosecdef FROM pg_proc p WHERE p.oid = 'notify.release_report_delivery(text,text)'::regprocedure), true, 'R2: SECURITY DEFINER');
+SELECT ok((SELECT 'search_path=""' = ANY(p.proconfig) FROM pg_proc p WHERE p.oid = 'notify.release_report_delivery(text,text)'::regprocedure), 'R3: search_path = ''''');
+SELECT ok(has_function_privilege('service_role', 'notify.release_report_delivery(text,text)', 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', 'notify.release_report_delivery(text,text)', 'EXECUTE')
+      AND NOT has_function_privilege('anon', 'notify.release_report_delivery(text,text)', 'EXECUTE'),
+  'R4: service_role only');
+SELECT is(tap._rel204('report_created', 'r-1'), true, 'R5: releasing a held claim gives it back');
+SELECT is(tap._claim204('report_created', 'r-1'), true,
+  'R6: and the delivery can then be RETRIED — this is the difference between "at most once" and "sometimes zero"');
+SELECT is(tap._rel204('report_created', 'never-claimed'), false, 'R7: releasing something never claimed reports false and changes nothing');
+SELECT matches(tap._try204($$SELECT notify.release_report_delivery('report_created', NULL)$$), '^P0001', 'R8: a null key is refused');
+
 -- ── D. arguments and storage ────────────────────────────────────────────────
 SELECT matches(tap._try204($$SELECT notify.claim_report_delivery(NULL, 'k')$$), '^P0001', 'D1: a null kind is refused');
 SELECT matches(tap._try204($$SELECT notify.claim_report_delivery('report_created', NULL)$$), '^P0001', 'D2: a null key is refused');
 SELECT matches(tap._try204($$SELECT notify.claim_report_delivery('report_created', '')$$), '^P0001', 'D3: an empty key is refused');
 SELECT is((SELECT count(*)::int FROM notify.report_delivery_claim), 7, 'D4: exactly seven claims were stored — no row per refused call');
+-- D: truncate-then-dedupe is the wrong failure direction for a device whose job is
+-- not silencing things — two different deliveries must never collapse into one claim.
+SELECT matches(tap._try204($$SELECT notify.claim_report_delivery(repeat('k', 65), 'x')$$), '^P0001', 'D6: an over-length kind is REFUSED, not silently truncated');
+SELECT matches(tap._try204($$SELECT notify.claim_report_delivery('report_created', repeat('k', 201))$$), '^P0001', 'D7: an over-length key is REFUSED, not silently truncated');
 SELECT ok((SELECT claimed_at IS NOT NULL FROM notify.report_delivery_claim WHERE kind = 'report_created' AND claim_key = 'r-1'),
   'D5: the claim records when it was taken');
 
@@ -81,8 +105,8 @@ SELECT ok((SELECT claimed_at IS NOT NULL FROM notify.report_delivery_claim WHERE
 SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'notify' AND c.relkind = 'r'), 9,
   'E1: notify holds nine tables — the eight before 139 plus this one (157 A7 pins the same number)');
-SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'notify'::regnamespace), 21,
-  'E2: notify holds 21 routines — 20 before 139 plus claim_report_delivery (157 A14)');
+SELECT is((SELECT count(*)::int FROM pg_proc WHERE pronamespace = 'notify'::regnamespace), 22,
+  'E2: notify holds 22 routines — 20 before 139 plus claim_report_delivery and release_report_delivery (157 A14)');
 
 SELECT * FROM finish();
 ROLLBACK;

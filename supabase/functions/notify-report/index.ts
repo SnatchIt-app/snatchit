@@ -43,9 +43,11 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function sendPush(supabase: SupabaseClient, userId: string, title: string, body: string, data?: Record<string, string>) {
+/** true when the push was accepted. A non-OK response is a FAILURE: it used to be
+ *  ignored entirely, which made "delivered" mean only "we managed to call fetch". */
+async function sendPush(supabase: SupabaseClient, userId: string, title: string, body: string, data?: Record<string, string>): Promise<boolean> {
   try {
-    await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
@@ -53,19 +55,23 @@ async function sendPush(supabase: SupabaseClient, userId: string, title: string,
       },
       body: JSON.stringify({ user_id: userId, title, body, data }),
     });
+    if (!res.ok) { console.error('notify-report: send-push refused', res.status); return false; }
+    return true;
   } catch (err) {
     console.error('notify-report: sendPush failed:', err);
+    return false;
   }
 }
 
-async function sendEmail(to: string, subject: string, text: string) {
+/** null = not attempted (email off, or no key); true/false = attempted and its outcome. */
+async function sendEmail(to: string, subject: string, text: string): Promise<boolean | null> {
   if (!EMAIL_ENABLED) {
     console.log(`notify-report: EMAIL_ENABLED=false — skipped email to ${to} ("${subject}")`);
-    return;
+    return null;
   }
   if (!RESEND_API_KEY) {
     console.warn('notify-report: RESEND_API_KEY not set — email skipped');
-    return;
+    return null;
   }
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -76,9 +82,11 @@ async function sendEmail(to: string, subject: string, text: string) {
       },
       body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, text }),
     });
-    if (!res.ok) console.error('notify-report: Resend error:', res.status, await res.text());
+    if (!res.ok) { console.error('notify-report: Resend error:', res.status, await res.text()); return false; }
+    return true;
   } catch (err) {
     console.error('notify-report: email send failed:', err);
+    return false;
   }
 }
 
@@ -134,8 +142,21 @@ serve(async (req: Request) => {
       : event === 'signing_invariant_alert' ? new Date().toISOString().slice(0, 10)
       : null;
 
+    // Delivery accounting for the claim above (D's review of bcece84): every send
+    // here swallows its error and the handler answers 200, so a claim that is taken
+    // and never given back turns "at most once" into "sometimes zero".
+    let attempted = 0, delivered = 0;
+    const push = async (userId: string, title: string, body: string, data?: Record<string, string>) => {
+      attempted++; if (await sendPush(supabase, userId, title, body, data)) delivered++;
+    };
+    const mail = async (to: string, subject: string, text: string) => {
+      const r = await sendEmail(to, subject, text);
+      if (r !== null) { attempted++; if (r) delivered++; }   // email switched off is NOT a failed attempt
+    };
+
+    let claimHeld = false;
+    const notify = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
     if (claimKey !== null) {
-      const notify = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
       const { data: claimed, error: claimErr } = await notify.rpc('claim_report_delivery', { p_kind: event, p_key: claimKey });
       if (claimErr) {
         console.warn('notify-report: delivery claim failed, sending anyway', { event, code: claimErr.code ?? null });
@@ -144,6 +165,8 @@ serve(async (req: Request) => {
         return new Response(JSON.stringify({ ok: true, event, duplicate: true }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
+      } else {
+        claimHeld = true;
       }
     }
 
@@ -166,31 +189,31 @@ serve(async (req: Request) => {
 
       // 1. Admin push + email
       for (const id of adminIds) {
-        await sendPush(supabase, id, 'New report filed',
+        await push(id, 'New report filed',
           `${target_type} report — reason: ${reason}. Review in the admin dashboard.`,
           { type: 'admin_report', reportId: String(report_id) });
       }
-      await sendEmail(ADMIN_EMAIL, `[Snatch It] New ${target_type} report (${reason})`,
+      await mail(ADMIN_EMAIL, `[Snatch It] New ${target_type} report (${reason})`,
         `A new report was filed.\n\nReport ID: ${report_id}\nType: ${target_type}\nTarget: ${target_id}\nReason: ${reason}\n\nReview it in the admin SQL pack / dashboard.`);
 
       // 2. Reporter: confirmation
       if (reporter_id) {
-        await sendPush(supabase, reporter_id, 'Report received',
+        await push(reporter_id, 'Report received',
           `Thanks — our team is reviewing your report. ${UNDER_REVIEW_COPY}`,
           { type: 'report_ack' });
         const e = await emailForUser(supabase, reporter_id);
-        if (e) await sendEmail(e, 'We received your report',
+        if (e) await mail(e, 'We received your report',
           `Thanks for the report.\n\n${UNDER_REVIEW_COPY}\n\n— Snatch It Support`);
       }
 
       // 3. Reported party: under review (neutral copy — no accusation)
       if (reportedUserId && reportedUserId !== reporter_id) {
         const what = target_type === 'listing' ? 'One of your listings' : 'Your profile';
-        await sendPush(supabase, reportedUserId, 'Under review',
+        await push(reportedUserId, 'Under review',
           `${what} is being reviewed by Snatch It support. ${UNDER_REVIEW_COPY}`,
           { type: 'under_review' });
         const e = await emailForUser(supabase, reportedUserId);
-        if (e) await sendEmail(e, 'Your Snatch It account: item under review',
+        if (e) await mail(e, 'Your Snatch It account: item under review',
           `${what} is currently under review by Snatch It support.\n\n${UNDER_REVIEW_COPY}\n\n— Snatch It Support`);
       }
 
@@ -198,20 +221,20 @@ serve(async (req: Request) => {
       const { transfer_id, buyer_id, seller_id, reason } = payload;
 
       for (const id of adminIds) {
-        await sendPush(supabase, id, 'Dispute opened',
+        await push(id, 'Dispute opened',
           `Transfer dispute (${reason}). Review required.`,
           { type: 'admin_dispute', transferId: String(transfer_id) });
       }
-      await sendEmail(ADMIN_EMAIL, `[Snatch It] Dispute opened (${reason})`,
+      await mail(ADMIN_EMAIL, `[Snatch It] Dispute opened (${reason})`,
         `A transfer dispute was opened.\n\nTransfer: ${transfer_id}\nReason: ${reason}\n\nSee DAY5_ADMIN_DISPUTE_SOP.md.`);
 
       for (const [id, label] of [[buyer_id, 'buyer'], [seller_id, 'seller']] as const) {
         if (!id) continue;
-        await sendPush(supabase, id, 'Transaction under review',
+        await push(id, 'Transaction under review',
           `This transaction is under review by Snatch It support. ${UNDER_REVIEW_COPY}`,
           { type: 'dispute_review', transferId: String(transfer_id), role: label });
         const e = await emailForUser(supabase, id);
-        if (e) await sendEmail(e, 'Your Snatch It transaction is under review',
+        if (e) await mail(e, 'Your Snatch It transaction is under review',
           `A dispute was opened on one of your transactions and Snatch It support is reviewing it.\n\n${UNDER_REVIEW_COPY}\n\n— Snatch It Support`);
       }
 
@@ -225,17 +248,27 @@ serve(async (req: Request) => {
       const summary = alerts.length > 0 ? alerts.join(', ') : '(no alert codes provided)';
 
       for (const id of adminIds) {
-        await sendPush(supabase, id, 'Signing-key invariant alert',
+        await push(id, 'Signing-key invariant alert',
           `KMS signing-key monitor: ${summary}`,
           { type: 'signing_invariant_alert' });
       }
-      await sendEmail(ADMIN_EMAIL, '[Snatch It] Signing-key invariant alert',
+      await mail(ADMIN_EMAIL, '[Snatch It] Signing-key invariant alert',
         `The KMS signing-key invariant monitor (kernel.check_signing_key_invariants, migration 099) fired:\n\n${summary}\n\nSee docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md §4 and docs/phase2/_impl/KJ_kms_runbook_monitor.md.`);
 
       await captureException('signing-monitor', new Error('signing_invariant_alert: ' + summary));
 
     } else {
       console.warn('notify-report: unknown event', event);
+    }
+
+    // Nothing landed on any channel: give the claim back so the next delivery of
+    // this event tries again. A PARTIAL success keeps it, so the normal path still
+    // cannot duplicate. signing_invariant_alert would self-heal tomorrow through its
+    // run key; report_created and dispute_opened have no next run, so without this
+    // the notice is lost permanently.
+    if (claimHeld && claimKey !== null && attempted > 0 && delivered === 0) {
+      const { error: relErr } = await notify.rpc('release_report_delivery', { p_kind: event, p_key: claimKey });
+      console.warn('notify-report: nothing delivered — claim released for retry', { event, released: !relErr, attempted });
     }
 
     return new Response(JSON.stringify({ ok: true, event }), {
