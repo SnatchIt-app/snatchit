@@ -35,6 +35,7 @@ const h = vi.hoisted(() => {
     session: { user: { id: 'buyer-1' } },
     dock: { onScroll: () => {}, expand: () => {} },
     network: { isOffline: false },
+    focus: { current: null as null | (() => void) },
   };
 });
 
@@ -43,7 +44,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: <T,>(s: T) => s },
 }));
 vi.mock('expo-router', () => ({ router: { push: () => {} } }));
-vi.mock('@react-navigation/native', () => ({ useFocusEffect: () => {} }));
+vi.mock('@react-navigation/native', () => ({ useFocusEffect: (cb: () => void) => { h.focus.current = cb; } }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ session: h.session }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => h.network }));
 vi.mock('@/src/lib/coverImage', () => ({ getCoverImageUrl: () => null }));
@@ -293,6 +294,75 @@ describe('F-BIDS-1 · a refresh fails: purchases already shown stay, with a clea
     h.transfers[2]!.resolve(OK(PURCHASES.slice(0, 20)));
     await flush();
     expect(view(host)).toEqual({ rows: 20, notice: null });
+  });
+});
+
+describe('F-BIDS-1 · overlapping loads: only the latest load decides what the screen shows (D review of 1ad216f)', () => {
+  it('a pull and a focus refresh overlap; the older fails after the newer succeeded: fresh rows, no false failure notice', async () => {
+    const host = await loadedWithPurchases();
+    await pullToRefresh(host);   // older: bids[1]
+    h.focus.current!();          // newer (returning to the tab): bids[2]
+    await flush();
+    h.bids[2]!.resolve(OK([]));
+    await flush();
+    h.transfers[1]!.resolve(OK(PURCHASES.slice(0, 20)));
+    await flush();
+    expect(view(host)).toEqual({ rows: 20, notice: null });
+    h.bids[1]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ rows: 20, notice: null });
+  });
+
+  it('the older succeeds after the newer failed: the older snapshot does not replace the screen or clear the failure', async () => {
+    const host = await loadedWithPurchases();
+    await pullToRefresh(host);   // older: bids[1]
+    h.focus.current!();          // newer: bids[2]
+    await flush();
+    h.bids[2]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.error });
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    for (const d of h.transfers) d.resolve(OK(PURCHASES.slice(0, 19)));   // any purchases read the older load started
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.error });
+  });
+
+  it('the newer starts while the older awaits its purchases, then fails; the older purchases arrive last: ignored', async () => {
+    const host = await loadedWithPurchases();
+    await pullToRefresh(host);   // older: bids[1]
+    h.bids[1]!.resolve(OK([]));
+    await flush();               // older now waits on transfers[1]
+    h.focus.current!();          // newer: bids[2]
+    await flush();
+    h.bids[2]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.error });
+    h.transfers[1]!.resolve(OK(PURCHASES.slice(0, 19)));
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.error });
+  });
+
+  it('a full-screen Retry overtaken by a focus refresh: the newer result shows at once, and loading is never left on', async () => {
+    const host = await mountBids();
+    h.bids[0]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+    (findElement(host.output, (el) => el.type === 'ScreenState')!.props.onRetry as () => void)();   // bids[1], shows loading
+    await flush();
+    expect(view(host)).toBe('loading');
+    h.focus.current!();          // newer, quiet: bids[2]
+    await flush();
+    h.bids[2]!.resolve(OK([]));
+    await flush();
+    h.transfers[0]!.resolve(OK(PURCHASES));
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: null });
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    for (const d of h.transfers) d.resolve(OK(PURCHASES));
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: null });
   });
 });
 

@@ -121,9 +121,15 @@ export default function BidsScreen() {
   const [segment,    setSegment]    = useState<BidGroup>('active');
 
   const initialLoadDone = useRef(false);
+  // Only the latest load may change the screen (D review of F-BIDS-1): a pull, a
+  // return to the tab and a Retry can overlap, and an older answer arriving last
+  // must neither show a failure over fresher rows nor replace them with older ones.
+  const loadGen = useRef(0);
 
   const fetchMyBids = useCallback(async (silent = false) => {
     if (!userId) return;
+    const gen = ++loadGen.current;
+    const superseded = () => gen !== loadGen.current;
     if (!silent) setLoading(true);
 
     const { data, error } = await supabase
@@ -151,10 +157,11 @@ export default function BidsScreen() {
       .eq('bidder_id', userId)
       .order('created_at', { ascending: false });
 
+    if (superseded()) return;   // a newer load owns the screen, loading included
     if (error || !data) {
       console.warn('[BidsScreen] fetch error:', error?.message);
       setLoadError(classifyLoadFailure(error, offlineRef.current));
-      if (!silent) setLoading(false);
+      setLoading(false);
       return;   // rows already on screen stay as they were
     }
 
@@ -208,12 +215,13 @@ export default function BidsScreen() {
       .in('status', ['pending','seller_sent','disputed','buyer_confirmed','auto_released'])
       .order('created_at', { ascending: false });
 
+    if (superseded()) return;
     // A failed purchases read fails the whole load. Showing the bids alone would
     // read as "nothing bought"; replacing rows already on screen would hide them.
     if (txError || !txData) {
       console.warn('[BidsScreen] purchases fetch error:', txError?.message);
       setLoadError(classifyLoadFailure(txError, offlineRef.current));
-      if (!silent) setLoading(false);
+      setLoading(false);
       return;
     }
 
@@ -247,7 +255,9 @@ export default function BidsScreen() {
 
     setLoadError(null);
     setBids(Array.from(byListing.values()));
-    if (!silent) setLoading(false);
+    // Unconditional: the latest load ends loading even when it is a quiet one that
+    // overtook a Retry, which returned above without touching the screen.
+    setLoading(false);
   }, [userId]);
 
   // Hard load on mount
