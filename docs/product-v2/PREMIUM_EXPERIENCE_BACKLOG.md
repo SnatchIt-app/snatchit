@@ -3085,3 +3085,13 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   **C's position:** the DV-ST2b pause is a restriction and is honoured now. **Line 3 does not start until the owner
   says "ready for Line 3" to C**, which has not happened; a relay is not that. The handset is also still signed in as
   the BUYER, and Line 3's first rows are seller rows, so a switch is needed first.
+- **DV-ST2b AUTHORIZED by the owner directly to C (2026-09-17):** "I authorize the DV-ST2b window: A may temporarily
+  remove read access to bids for signed-in sandbox users for up to six minutes; D takes matching before and after
+  readings; A performs one read-only API-log check at least ten minutes after the window. Use the existing purchase
+  rows, do not create a bid fixture, and restore access immediately after the refresh." And: "C: wait for A and D to
+  confirm their pre-checks, then give me GO. I will pull to refresh Bids once, without tapping Retry. Stop on any
+  mismatch and keep Line 3 paused until this window is fully closed."
+  Relayed to A and D; D's own rule may need the owner's words in D's session. Handset step now: preload Bids as the
+  buyer and hold (Build 19 lacks the F-BIDS-1 fix, so the empty message may flash before the purchases arrive).
+  PASS also requires A's later API-log check showing a denied GET /rest/v1/bids inside the window; otherwise
+  INCONCLUSIVE. Line 3 stays paused until the window is fully closed.
