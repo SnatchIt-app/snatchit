@@ -2508,4 +2508,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   `challenge_required`: the buyer requested 0 challenges). The seller owns 0 rows (1 challenge, requested
   03:50:52Z at session 2's seller sign-in). Rebind epoch 2026-09-15, before the buyer session: no 42501 risk.
   Throttled launches are judged by last_used, is_active and session_id on 140fcb44; A reads after the step
-  from the relaunch times.
+  from the relaunch times.- **F-NAV-1: D PASS on 76b8622 (gate given to A).** D reproduced on the head: test-only delta (+60; 0 lines outside
+  tests/, the gated surface, supabase/, scripts/ and .github/ since db16e1a); R0 / M7 / M8 fail 8 (7 + the CFT-208
+  pin) / 12 / 12 of 46 across the two files; suite 2229/105 alone; tsc 0; lint 0/29. **Head ready for A's
+  integration → new candidate head; the db16e1a build HOLD stays until A integrates.** Evidence class: source
+  + tests only. **Device rows DV-NAV-1/2 are still owed on the next build**; nothing here stands in for them.
