@@ -2544,3 +2544,10 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   re-sign-in); 0 buyer challenges; consistent with `refreshed`. **Launch 1: PASS**: a visible outcome (the
   registration, confirmed server-side, with no failure banner) under Very Bad Network. The reply's arrival
   in the app is not observable server-side. Launch 2 before ≈15:16:09Z should read counter 2.
+- **S2-2 launch 2 (owner, Build 18, buyer, Very Bad Network + Larger Text ON, 2026-09-17):** force-quit →
+  reopened **11:08 EDT** (≈15:08Z). **Home finished loading 11:09 EDT, roughly one minute; exact duration not
+  measured.** Launch 1's Home loaded in a couple of seconds. Settings › Notifications: **no banner**; Try again
+  not tapped. **Registration result pending A's separate read** (PASS needs last_used past 15:06:09.326Z with
+  counter 2 in the 15:06:09Z window; otherwise silence = FAIL). The slow Home load is recorded with the result
+  as an observation, not a pass criterion; whether it is only Very Bad Network or a finding is open until the
+  read.
