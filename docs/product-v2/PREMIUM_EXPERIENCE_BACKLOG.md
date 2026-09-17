@@ -3809,3 +3809,31 @@ Needs-action priority rather than its styling, and the directions are explorator
     clears only when the user acts. Combined with the property that a failed pull is silent, the full shape is: offline,
     a pull ends its spinner on the same "NOTHING SOLD YET"; online, the same gesture fixes it. The user cannot tell those
     two apart from the screen.
+
+## Batch 1 — state correctness (C, 2026-09-17). `frontend/batch1-state-correctness @ 812ec45`
+Owner authorised the five items, one branch, tests with negative controls, D reviews the tests, A reviews
+transfer/payment behaviour, no build, no sandbox, Build 19 and Line 3 evidence untouched. Cut from A's
+integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users/josetascon/snatchit-b1state`.
+
+| # | Commit | Fix | Tests | Negative controls |
+|---|---|---|---|---|
+| 1 | `ff8427c` | **F-BID-1** `PlaceBidScreen.tsx` — the read is awaited in one place; an error, a missing row or a thrown read classifies and ends loading, and no form renders without a listing. Retry re-reads. | 8 | full revert to shipped code kills 7/8 as predicted (B5, the happy path, survives by design); M2/M3/M5 kill their one test each; **M1/M4 survive — three layers hold independently** |
+| 2 | `2745dc7` | **F-HOME-1** `home.tsx` + new `src/lib/home/filterLoad.ts` — each lazy dataset carries loading / classified error / settled; rows survive a failed refresh behind an alert-role notice with Retry; the settled empty copy needs a successful read. | 11 | 7/7 as predicted **after correcting the harness and three predictions** (below) |
+| 3 | `75f6673` | **F-AVATAR-1** `profile.tsx` — busy spans upload *and* save, cleared in a `finally`. | 6 | 2/2 |
+| 4 | `cc1c9c4` | **F-DESTRUCT-1** `my-listings.tsx` + `SellerListingCard.tsx` — per-listing ref lock, `busy` prop stands the row down, confirmation refuses to re-open. Rules, precondition and RPC arguments unchanged. | 7 | 6/6 after one correction; DM2 survives by design |
+| 5 | `ffd0f06` | **F-XFER-1 (client half)** `transfer/send/[id].tsx` + `TRANSFER_EXPIRY_COPY` — the screen stops asserting an expiry nothing enforces. **CTA enablement deliberately unchanged.** | 6 | 5/5; XM2 (disabling the CTA on expiry) kills X2 *by design* — that would be a transfer-rule change, A's and the owner's, not this batch |
+| 6 | `812ec45` | `tests/candidate-recovery.test.ts` — the CFT-604 Home pin follows the new shape and additionally asserts the settled empty copy is unreachable until the dataset returns. Intent widened, not weakened. | — | — |
+
+**Gates, run fresh in the same session:** `npx vitest run` **2288 passed / 111 files**; `npx tsc --noEmit -p tsconfig.json` clean; `npm run lint` **0 errors, 29 warnings** (the recorded baseline — no new warnings).
+**Gated surface:** `git diff --stat 6561d1f..HEAD -- src/lib/payments.ts src/lib/checkout/{setupDecision,payControl,holdState}.ts src/lib/auth/signOut.ts supabase/ scripts/ .github/` → **zero lines**.
+
+**Method notes kept because they are the evidence, not decoration:**
+- **A test weakness the mutants found, not the reviewer:** the Home `view()` helper read "nothing rendered" as
+  loading, so HM1 (dropping the loading flag) survived. It is now a distinct `'blank'` verdict and HM1 kills H1.
+- **Four predictions of C's were wrong and are corrected in place, with the tests vindicated each time:** HM2 also
+  kills H10; HM6 spares H8 because a pull does not go through `retryDataset`; HM7 also kills H9; DM1 also kills D2.
+- **Survivors recorded as defense in depth, with the combined control that does kill:** F-BID-1's M1/M4 (and M6,
+  which also survived until the full revert — a null dereference throws into the catch, a third layer);
+  F-DESTRUCT-1's DM2; F-XFER-1's XM4, whose combined XM5 removes both status gates and kills X5 as predicted.
+- **Nothing here is device-verified.** No build, no sandbox, no handset time; device rows are owed on whatever
+  candidate carries this.
