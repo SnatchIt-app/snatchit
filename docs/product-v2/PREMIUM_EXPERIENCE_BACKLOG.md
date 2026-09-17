@@ -3623,3 +3623,20 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   without a sale show up here."). The screen-level offline state cannot mask it, because `loadError` belongs to the
   main listings fetch, not to these two. **Same defect class as F-BIDS-1, unverified on a device** — this is B's audit
   item 5, now confirmed in source by C.
+- **B's five-direction exploration (prototypes only): `design/frontend-audit-20260917 @ c41e597`,
+  `docs/design-audit/FIVE_DIRECTIONS_20260917.md` + `prototypes/five-directions.html`** (five directions × Home,
+  Listing detail, Send, Receive, Checkout × normal and largest text, with a Reduce Motion toggle). No product code, no
+  tests, no sandbox, no build; the Line 3 screens are reconstructions.
+  **If the owner picks B's recommendation ("Gallery / Ledger"), what would land in C's code:** a new full-bleed 4:5
+  Home media slot in `src/lib/media/slots.ts` consumed through the existing `EventMedia` (a slot, not a component
+  rewrite); Home gains date section headers, i.e. `SectionList` on Home, the pattern `app/(tabs)/tickets.tsx` already
+  uses; a frosted-panel treatment built on `experimental_backgroundImage` (expo-blur is NOT installed, and B checked);
+  and **one token change — a muted non-red advisory accent** so advisory notices stop using the action colour, which is
+  the three-file token shape (v2 + the design-tokens mirror + the parity test) and therefore an owner decision.
+  **B's rule across all five:** nothing transactional is removed to make a screen calmer — the delivery blocker, the
+  expiry consequence, the proof requirement, the payment-state notice and the full price breakdown stay visible.
+  **B rejected two ideas specifically to protect C's work:** a bottom sheet as the primary checkout surface (a sheet
+  implies dismissibility; a payment in flight is not, and `Sheet` has no drag-dismiss guard), and collapsing the
+  delivery blocker or expiry line into an icon.
+  **C's note for the eventual consolidated recommendation:** this overlaps ML-1 and the calm pass on the same shared
+  primitives and tokens; whichever the owner approves, ONE of them must own those files.
