@@ -2003,3 +2003,6 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   inside `__DEV__`; banner keyed on `devFixtures` only — the stronger arrangement, kept
   and commented); D's non-blocking point taken: label text raised from `micro` to
   `bodySm` so a screenshot cannot miss it — head now **`ac70643`**; changes no pin.
+- **Session 2 (owner, 2026-09-17): Profile loads normally on Build 18, no persistent
+  spinner; Home loaded without a force-quit** (owner-reported; fresh-install sign-in,
+  buyer). S2-1 (DV-AUTH-1, the sign-out → sign-in regression) starts next.
