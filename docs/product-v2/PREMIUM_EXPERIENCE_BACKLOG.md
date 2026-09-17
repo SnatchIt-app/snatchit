@@ -2537,3 +2537,10 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   alone does not confirm registration. PASS for this launch needs A's read to show it registered (last_used on
   140fcb44 advanced to ≈15:06Z with the counter incremented). No banner and no registration is silence = FAIL
   (D's rule). Launch 2 waits for the read.
+- **S2-2 launch 1 → registered (A's read, server now 2026-09-17T15:07:51Z).** 140fcb44 last_used 14:55:17.174Z →
+  **15:06:09.326Z** (11:06:09 EDT, matching the 11:06 reopen); active, no revoke, no provider error; one buyer
+  row. Rate-limit counter **1** in a **new window** (window_start 15:06:09Z; the 14:55:17Z window had expired),
+  so exactly one register call reached the verb, and it moved last_used. Same single live buyer session (no
+  re-sign-in); 0 buyer challenges; consistent with `refreshed`. **Launch 1: PASS**: a visible outcome (the
+  registration, confirmed server-side, with no failure banner) under Very Bad Network. The reply's arrival
+  in the app is not observable server-side. Launch 2 before ≈15:16:09Z should read counter 2.
