@@ -3276,3 +3276,20 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   (C prefers one column, `delivery_email` = the DV buyer's sandbox email), what it does not touch, pre/post reads by
   A and D, and stop conditions — so the owner's line can be precise. **Nothing runs until then.** The no-image
   "Evidence required" check stays NOT PASSED.
+## Owner's testing direction for the rest of the sprint (2026-09-17)
+Most of the app is already tested; close the remaining gaps efficiently.
+- Before proposing a test, check the device records and name the specific change or unresolved behaviour it covers.
+- **Reuse prior evidence when the relevant code and conditions are unchanged**; never repeat a whole flow to verify one
+  changed part.
+- Line 3: use the approved direct delivery fixture update (no buyer data entry); **check ALL remaining transfers for
+  blockers together before the owner taps**; preserve completed picker results and run only what remains; **combine
+  compatible observations into one handset pass**; keep the necessary server verification but coordinate it without
+  asking the owner repeatedly for the same readiness or approval.
+- Results stay precise: PASSED / FAILED / BLOCKED / UNTESTED. A missing detail becomes neither a pass nor an automatic
+  demand to repeat: first decide whether it matters to release readiness.
+- Roles: C is the sole handset guide; A coordinates execution and records; D verifies independently; B continues the
+  frontend audit. **Only genuinely new scope decisions go to the owner, with one consolidated recommendation.**
+- **C's application to the open rows:** DV-IMG-1 and DV-IMG-3's picker behaviour are already evidenced on the Sell
+  form (step 0a) through the SAME components (`MediaUpload` + `useImageUpload`), so they are not re-run on the
+  transfer screen; what remains there is what differs — the permission rows (DV-IMG-2, run once), leave-and-return
+  (DV-IMG-6), the no-image gate (DV-IMG-3a) and the submitting rows (DV-IMG-4, -5, -9+3b, -10).
