@@ -22,8 +22,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  classifyUploadError, createPickGate, extensionFor, isAlreadyUploaded, objectPath, reusableUploadPath, resolveContentType,
-  runPick, UPLOAD_COPY, UPLOAD_TIMEOUT_MS, uploadKey, UploadTimeoutError, withUploadTimeout, type PickDeps,
+  classifyUploadError, createPickGate, extensionFor, objectPath, recallSelection, rememberSelection, reusableUploadPath,
+  resolveContentType, runPick, selectionToRecall, settleUpload, sniffImageType, statusAfterUnpicked, UPLOAD_COPY,
+  UPLOAD_TIMEOUT_MS, uploadKey, UploadTimeoutError, withUploadTimeout, type PickDeps,
 } from '@/src/lib/media/uploadFlow';
 import { isAlreadySentRaise, MARK_SENT_COPY, runMarkSent } from '@/src/lib/transfer/markSent';
 import { validateImage } from '@/src/utils/validateImage';
@@ -90,23 +91,39 @@ describe('1b — recovery: cancel, denial, thrown errors always release the gate
   });
 });
 
-describe('1h — content type comes from the asset, normalised to the storage allow-list', () => {
-  it('asset mime wins; jpg → jpeg; unknown falls back to the extension; non-images are refused', () => {
-    expect(resolveContentType('image/heic', 'file:///x/IMG_1.HEIC')).toBe('image/heic');
-    expect(resolveContentType('image/jpg', 'file:///x/a.jpg')).toBe('image/jpeg');
-    expect(resolveContentType(null, 'file:///x/a.JPEG')).toBe('image/jpeg');
-    expect(resolveContentType(undefined, 'file:///x/a.png?x=1')).toBe('image/png');
-    expect(resolveContentType(null, 'file:///x/a.webp')).toBe('image/webp');
-    expect(resolveContentType('image/heif', 'file:///x/a.heif')).toBe('image/heif');
-    expect(resolveContentType('image/gif', 'file:///x/a.gif')).toBeNull();
-    expect(resolveContentType(null, 'file:///x/a.pdf')).toBeNull();
-    expect(resolveContentType(null, 'file:///x/noext')).toBeNull();
+describe('1h — the bytes decide the type; a reported type only screens the pick; a file name never counts', () => {
+  const bytes = (...xs: (number | string)[]) => new Uint8Array(xs.flatMap((x) => typeof x === 'string' ? Array.from(x).map((c) => c.charCodeAt(0)) : [x]));
+  const ftyp = (brand: string) => bytes(0, 0, 0, 0x18, 'ftyp', brand, 0, 0, 0, 0);
+  it('sniffs JPEG, PNG, WebP, HEIC and HEIF; anything else is null', () => {
+    expect(sniffImageType(bytes(0xff, 0xd8, 0xff, 0xe0, 0, 0x10))).toBe('image/jpeg');
+    expect(sniffImageType(bytes(0x89, 'PNG', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d))).toBe('image/png');
+    expect(sniffImageType(bytes('RIFF', 0x24, 0, 0, 0, 'WEBP', 'VP8 '))).toBe('image/webp');
+    expect(sniffImageType(ftyp('heic'))).toBe('image/heic');
+    expect(sniffImageType(ftyp('heix'))).toBe('image/heic');
+    expect(sniffImageType(ftyp('mif1'))).toBe('image/heif');
+    expect(sniffImageType(ftyp('avif'))).toBeNull();                       // AVIF is not on the allow-list
+    expect(sniffImageType(bytes('GIF89a', 0, 0, 0, 0, 0, 0))).toBeNull();
+    expect(sniffImageType(bytes('%PDF-1.7', 0, 0, 0, 0))).toBeNull();
+    expect(sniffImageType(new Uint8Array(0))).toBeNull();
+    expect(sniffImageType(bytes(0xff, 0xd8))).toBeNull();                  // truncated
   });
-  it('B F3: when the asset type and the file name disagree, the asset type wins', () => {
-    expect(resolveContentType('image/heic', 'file:///x/IMG_0001.jpg')).toBe('image/heic');
-    expect(resolveContentType('image/heif', 'file:///x/IMG_0001.JPG')).toBe('image/heif');
-    expect(resolveContentType('image/png', 'ph://ABCD-1234/L0/001')).toBe('image/png');
-    expect(resolveContentType('image/gif', 'file:///x/looks-fine.jpg')).toBeNull();   // a named .jpg is not a JPEG
+  it('the reported type is normalised; a missing one is null — the file name is not an input at all', () => {
+    expect(resolveContentType('image/heic')).toBe('image/heic');
+    expect(resolveContentType('image/jpg')).toBe('image/jpeg');
+    expect(resolveContentType('IMAGE/PNG ')).toBe('image/png');
+    expect(resolveContentType('image/gif')).toBeNull();
+    expect(resolveContentType(null)).toBeNull();
+    expect(resolveContentType(undefined)).toBeNull();
+    expect(resolveContentType.length).toBe(1);
+  });
+  it('a pick with no reported type is accepted for byte-sniffing at upload, not guessed from its name', async () => {
+    const d = deps({ launch: vi.fn(async () => ({ canceled: false as const, assets: [{ uri: 'file:///x/IMG_0001.jpg', mimeType: null, fileSize: 10 }] })) });
+    expect(await runPick(createPickGate(), d)).toMatchObject({ kind: 'picked', uri: 'file:///x/IMG_0001.jpg', contentType: null });
+  });
+  it('a HEIC named .jpg is stored as HEIC: the extension follows the bytes', () => {
+    const type = sniffImageType(ftyp('heic'));
+    expect(type).toBe('image/heic');
+    expect(objectPath({ userId: 'u1', folder: 'proofs', stamp: '1', contentType: type! })).toBe('u1/proofs/1.heic');
   });
   it('a pick whose type is refused is invalid before validation runs', async () => {
     const d = deps({ launch: vi.fn(async () => ({ canceled: false as const, assets: [{ uri: 'file:///x/a.gif', mimeType: 'image/gif', fileSize: 10 }] })) });
@@ -140,13 +157,33 @@ describe('A ruling (4) — a timeout is not proof of failure: retries never crea
     expect(objectPath({ userId: 'u1', folder: 'transfer-evidence', stamp: '1789600000000', contentType: 'image/heic' })).toBe(a);
     expect(objectPath({ userId: 'u2', folder: 'transfer-evidence', stamp: '1789600000000', contentType: 'image/heic' })).not.toBe(a);
   });
-  it('storage "already exists" for that path means the earlier attempt landed: treat as uploaded', () => {
-    expect(isAlreadyUploaded({ message: 'The resource already exists', statusCode: '409' })).toBe(true);
-    expect(isAlreadyUploaded({ message: 'Duplicate', statusCode: 409 })).toBe(true);
-    expect(isAlreadyUploaded({ message: 'Conflict', statusCode: '409' })).toBe(true);          // the code alone
-    expect(isAlreadyUploaded({ message: 'The resource already exists' })).toBe(true);        // the message alone
-    expect(isAlreadyUploaded({ message: 'new row violates row-level security policy', statusCode: '403' })).toBe(false);
-    expect(isAlreadyUploaded(new Error('Network request failed'))).toBe(false);
+  it('after any upload error — a timeout included — the object\'s existence decides; a status code alone never does', () => {
+    expect(settleUpload({ error: null, exists: null })).toBe('uploaded');
+    expect(settleUpload({ error: new UploadTimeoutError(1), exists: true })).toBe('uploaded');
+    expect(settleUpload({ error: { statusCode: '409', message: 'The resource already exists' }, exists: true })).toBe('uploaded');
+    expect(settleUpload({ error: { statusCode: '409', message: 'The resource already exists' }, exists: false })).toBe('failed');
+    expect(settleUpload({ error: { statusCode: '409', message: 'The resource already exists' }, exists: null })).toBe('failed');
+    expect(settleUpload({ error: new UploadTimeoutError(1), exists: null })).toBe('failed');
+  });
+});
+
+describe('D review — a fresh pick is never swapped; a cancelled Replace keeps the failure message', () => {
+  it('(b) on remount the remembered selection comes back only when nothing is selected now', () => {
+    const remembered = { uri: 'file:///old.jpg', stamp: '1', record: null };
+    rememberSelection('k1', remembered);
+    expect(selectionToRecall({ uri: null }, recallSelection('k1'))).toEqual(remembered);
+    expect(selectionToRecall({ uri: 'file:///fresh.jpg' }, recallSelection('k1'))).toBeNull();   // the fresh pick survives
+    expect(selectionToRecall({ uri: null }, recallSelection('other'))).toBeNull();
+    rememberSelection('k1', null);
+    expect(recallSelection('k1')).toBeNull();
+  });
+  it('(c) a pick that produced no photo restores the prior state — an upload error stays an error', () => {
+    expect(statusAfterUnpicked('error', true)).toBe('error');
+    expect(statusAfterUnpicked('done', true)).toBe('done');
+    expect(statusAfterUnpicked('ready', true)).toBe('ready');
+    expect(statusAfterUnpicked('idle', false)).toBe('idle');
+    expect(statusAfterUnpicked('picking', true)).toBe('ready');
+    expect(statusAfterUnpicked('picking', false)).toBe('idle');
   });
 });
 
@@ -268,10 +305,25 @@ describe('the surfaces (source contract; the device rows DV-IMG-1..8 prove the b
     expect(hook).toContain('Linking.openSettings()');
     expect(hook).toContain('reusableUploadPath(');
     expect(hook).toContain('classifyUploadError(');
-    expect(hook).toContain('resolveContentType(');
     expect(hook).not.toMatch(/localUri\.split\('\.'\)\.pop\(\)/);   // 1h / B F3: the extension no longer decides the type
     expect(hook).toContain('objectPath(');
-    expect(hook).toContain('isAlreadyUploaded(');
+    expect(hook).toContain('settleUpload({ error: uploadError, exists })');
+    expect(hook).toContain('.exists(path)');
+    expect(hook).toContain('ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible');
+    // the stored type comes from the bytes: the sniff precedes the path and the upload
+    const sniff = hook.indexOf('sniffImageType(bytes)');
+    expect(sniff).toBeGreaterThan(-1);
+    expect(sniff).toBeLessThan(hook.indexOf('objectPath({ userId, folder, stamp, contentType })'));
+    expect(sniff).toBeLessThan(hook.indexOf('.upload(path, bytes,'));
+    expect(hook).not.toMatch(/resolveContentType\(/);
+    // D (b)/(c): the hook uses the tested rules
+    expect(hook).toContain('selectionToRecall(selRef.current, recallSelection(key))');
+    expect(hook).toContain('statusAfterUnpicked(prior.status, !!selRef.current.uri)');
+    // D (a): the uploaded record is set before it is remembered
+    const upStart = hook.indexOf('const uploadImage = useCallback(');
+    const rec = hook.indexOf('recordRef.current = { key, uri, path };', upStart);
+    expect(rec).toBeGreaterThan(upStart);
+    expect(hook.indexOf('remember();', upStart)).toBeGreaterThan(rec);
     expect(hook).toContain('withUploadTimeout(');
     expect(hook).toMatch(/\[localUri, userId, folder, bucket, reuseKey\b/);   // B F4: bucket is a dependency
     expect(hook).toContain('readError');

@@ -6,10 +6,11 @@
  *  - One picker at a time, with a visible 'picking' state; cancel, denial and a
  *    thrown picker error always end the picking state (1a, 1b). A final denial
  *    offers Open Settings (1g).
- *  - The stored type and extension come from the picked asset, not the file name
- *    (1h, B F3). The object name is fixed when the photo is picked, so a retry after a
- *    timeout or lost response targets the same object and "already exists" counts as
- *    uploaded (A ruling: a timeout is not proof of failure; no duplicate uploads).
+ *  - iOS is asked for the most compatible representation (a HEIC photo should arrive
+ *    as JPEG — to be OBSERVED on a device, DV-IMG-9), and the stored type and
+ *    extension come from the file's own bytes, never its name (1h; A/B review). The
+ *    object name is fixed when the photo is picked; after any upload error, a timeout
+ *    included, the object's existence decides, so no second object is made.
  *  - An uploaded object is reused only for the same account, bucket/folder, reuseKey
  *    (e.g. the transfer) and selected file (1c). A failure keeps the selection and
  *    says what to do (1e). With a reuseKey the selection survives leaving the screen
@@ -25,9 +26,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 
 import {
-  classifyUploadError, createPickGate, EmptyFileError, isAlreadyUploaded, objectPath, recallSelection, rememberSelection,
-  resolveContentType, reusableUploadPath, runPick, UnsupportedTypeError, UPLOAD_COPY, UPLOAD_TIMEOUT_MS, uploadKey,
-  withUploadTimeout, type UploadRecord,
+  classifyUploadError, createPickGate, EmptyFileError, objectPath, recallSelection, rememberSelection, REQUEST_TIMEOUT_MS,
+  reusableUploadPath, runPick, selectionToRecall, settleUpload, sniffImageType, statusAfterUnpicked, UnsupportedTypeError,
+  UPLOAD_COPY, UPLOAD_TIMEOUT_MS, uploadKey, withUploadTimeout, type UploadRecord,
 } from '@/src/lib/media/uploadFlow';
 import { IMMUTABLE_CACHE_CONTROL } from '@/src/lib/media/url';
 import { supabase } from '@/src/lib/supabase';
@@ -75,7 +76,7 @@ export function useImageUpload({
   const gateRef = useRef(createPickGate());
   const statusRef = useRef<UploadStatus>('idle');
   const errorRef = useRef<string | null>(null);
-  const selRef = useRef<{ uri: string | null; contentType: string | null; stamp: string | null }>({ uri: null, contentType: null, stamp: null });
+  const selRef = useRef<{ uri: string | null; stamp: string | null }>({ uri: null, stamp: null });
   const recordRef = useRef<UploadRecord | null>(null);
 
   const setStatus = useCallback((s: UploadStatus) => { statusRef.current = s; setStatusState(s); }, []);
@@ -83,17 +84,17 @@ export function useImageUpload({
   const key = uploadKey({ userId, bucket, folder, reuseKey });
 
   const remember = useCallback(() => {
-    const { uri, contentType, stamp } = selRef.current;
+    const { uri, stamp } = selRef.current;
     if (!reuseKey || !userId) return;
-    rememberSelection(key, uri && contentType && stamp ? { uri, contentType, stamp, record: recordRef.current } : null);
+    rememberSelection(key, uri && stamp ? { uri, stamp, record: recordRef.current } : null);
   }, [key, reuseKey, userId]);
 
   // 1f: a keyed selection made earlier this session comes back when the screen does.
   useEffect(() => {
-    if (!reuseKey || !userId || selRef.current.uri) return;
-    const r = recallSelection(key);
+    if (!reuseKey || !userId) return;
+    const r = selectionToRecall(selRef.current, recallSelection(key));
     if (!r) return;
-    selRef.current = { uri: r.uri, contentType: r.contentType, stamp: r.stamp };
+    selRef.current = { uri: r.uri, stamp: r.stamp };
     recordRef.current = r.record;
     setLocalUri(r.uri);
     setStoragePath(r.record?.path ?? null);
@@ -117,13 +118,15 @@ export function useImageUpload({
           aspect: aspect ?? undefined,
           quality,
           exif: false,
+          // A HEIC photo is handed over as JPEG so browsers (operator console, web receive page) can show it.
+          preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
         });
         return r.canceled ? { canceled: true as const } : { canceled: false as const, assets: r.assets };
       },
       validate: (f) => validateImage(f, bucket),
     });
     if (out.kind === 'picked') {
-      selRef.current = { uri: out.uri, contentType: out.contentType, stamp: out.stamp };
+      selRef.current = { uri: out.uri, stamp: out.stamp };
       recordRef.current = null;
       setLocalUri(out.uri);
       setPublicUrl(null);
@@ -134,7 +137,7 @@ export function useImageUpload({
       return;
     }
     // Every other outcome restores what was there before the picker opened.
-    setStatus(prior.status === 'picking' ? (selRef.current.uri ? 'ready' : 'idle') : prior.status);
+    setStatus(statusAfterUnpicked(prior.status, !!selRef.current.uri));
     setError(prior.error);
     if (out.kind === 'denied') {
       Alert.alert('Photo access needed', UPLOAD_COPY.permission, out.canAskAgain
@@ -148,7 +151,7 @@ export function useImageUpload({
   }, [aspect, quality, bucket, remember, setError, setStatus]);
 
   const uploadImage = useCallback(async (): Promise<string | null> => {
-    const { uri, contentType: pickedType, stamp } = selRef.current;
+    const { uri, stamp } = selRef.current;
     if (!localUri || !uri || !stamp) {
       setError(UPLOAD_COPY.noImage);
       setStatus('error');
@@ -169,23 +172,37 @@ export function useImageUpload({
     setStatus('uploading');
     setError(null);
     try {
-      const contentType = pickedType ?? resolveContentType(null, uri);
-      if (!contentType) throw new UnsupportedTypeError();
-      const path = objectPath({ userId, folder, stamp, contentType });
       const bytes = await withUploadTimeout((async () => {
         const res = await fetch(uri);
         return new Uint8Array(await res.arrayBuffer());
       })(), UPLOAD_TIMEOUT_MS);
       if (bytes.length === 0) throw new EmptyFileError();
-      const { error: uploadError } = await withUploadTimeout(
-        supabase.storage.from(bucket).upload(path, bytes, {
-          contentType,
-          upsert: false,   // the name is this selection's; "already exists" = an earlier attempt landed
-          cacheControl: IMMUTABLE_CACHE_CONTROL,
-        }),
-        UPLOAD_TIMEOUT_MS,
-      );
-      if (uploadError && !isAlreadyUploaded(uploadError)) throw uploadError;
+      // The bytes decide the stored type and the extension — never the picker's label or the file name.
+      const contentType = sniffImageType(bytes);
+      if (!contentType) throw new UnsupportedTypeError();
+      const path = objectPath({ userId, folder, stamp, contentType });
+      let uploadError: unknown = null;
+      try {
+        const res = await withUploadTimeout(
+          supabase.storage.from(bucket).upload(path, bytes, {
+            contentType,
+            upsert: false,   // the name belongs to this selection
+            cacheControl: IMMUTABLE_CACHE_CONTROL,
+          }),
+          UPLOAD_TIMEOUT_MS,
+        );
+        uploadError = res.error;
+      } catch (err) {
+        uploadError = err;   // a timeout too: not proof the upload failed
+      }
+      let exists: boolean | null = null;
+      if (uploadError) {
+        try {
+          const probe = await withUploadTimeout(supabase.storage.from(bucket).exists(path), REQUEST_TIMEOUT_MS);
+          exists = probe.error ? null : probe.data;
+        } catch { exists = null; }
+      }
+      if (settleUpload({ error: uploadError, exists }) === 'failed') throw uploadError;
       if (bucket === 'auction-media') {
         setPublicUrl(supabase.storage.from('auction-media').getPublicUrl(path).data.publicUrl);
       } else {
@@ -206,7 +223,7 @@ export function useImageUpload({
   }, [localUri, userId, folder, bucket, reuseKey, key, remember, setError, setStatus]);
 
   const reset = useCallback(() => {
-    selRef.current = { uri: null, contentType: null, stamp: null };
+    selRef.current = { uri: null, stamp: null };
     recordRef.current = null;
     if (reuseKey && userId) rememberSelection(key, null);
     setLocalUri(null);
