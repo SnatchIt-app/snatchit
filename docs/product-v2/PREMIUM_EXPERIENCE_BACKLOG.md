@@ -3055,3 +3055,11 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   - **Write design:** one transaction re-checks, and raises on any difference: no other report since 17:30Z, D7 md5,
     report md5. It then runs the keyed delete, raising unless exactly 1 row. D's independent pre-read requested. The
     report stays inert (no outbound path).
+- **Accidental report DELETED (A, 2026-09-17), on the owner's go given directly in A's session, with D holding the same
+  authorization directly.** A's pre-read 18:07:06.405Z and D's 18:06:33.290Z were identical (keyed match 1, report md5
+  b733b1aa…, D7 md5 f7d130c3…, cron md5 c2c5c079…). The guarded delete at 18:07:08Z removed exactly 1 row
+  ("deleted 1 row 265b0041 at 18:07:09.332Z"). A's post-read 18:07:15.755Z: reports total 0; D7 unchanged and active;
+  buyer account unchanged (ACTIVE, 0 account_deletions, 2 sessions, push row active); notices unchanged (f3abe550
+  still unread and undismissed; 9 / 18 / 104); jobs unchanged (claim 0, queue 0, 22 cron, same list md5, pg_net on
+  cadence). No HTTP request before or after. D's post-read closes the incident in A's manifest §14. **Handset work may
+  resume.** Line 3 unstarted (needs "ready for Line 3"); DV-ST2b may run first on the owner's word.
