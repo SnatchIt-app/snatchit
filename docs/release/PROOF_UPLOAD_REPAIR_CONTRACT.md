@@ -163,3 +163,20 @@ amendments, which are now part of it:
 **Go-ahead:** B implements migration 140 / pgTAP 207 to §1–§2 and §7 as amended, on a branch from `e9b52ce`; A reviews first
 (0553 bodies as the rollback baseline, exact grants re-issued after the drop/recreate, manifest + `expected_grants` rows, the
 `storage.objects` existence check, notification counts unchanged across a retry), then D reviews the combined behaviour.
+
+## 9. §4 cleanup sweep — superseded in two respects by B's design (`PROOF_DOCS_CLEANUP_SWEEP_DESIGN.md`, converge `50495df`; A accepted 2026-09-17)
+1. **An orphan is a recovery candidate.** `attach_transfer_evidence` (§2) exists so a seller can attach proof uploaded EARLIER
+   and currently unreferenced — the definition of an orphan — so the age-based sweep in §4 as written would delete exactly the
+   objects §2 rescues, with certainty increasing with age. The sweep therefore **excludes every object under
+   `<uid>/transfer-evidence/` for any seller who has at least one transfer in `seller_sent` with a null evidence path** (per
+   seller, because the server cannot know which object the seller intends to attach). That exclusion also closes the
+   check-then-delete race between attach and the sweep where it has consequences; the single-statement form is kept as well.
+2. **The reference set in §4 named a column that does not exist in the chain.** `transfer_screenshot_path` is defined by no
+   migration (only `transfer_evidence_path`, `dispute_evidence_path` and `proof_of_ownership_path` are real); 118 reads the
+   legacy name defensively as `to_jsonb(t) ->> 'transfer_screenshot_path'` (null where absent). The sweep uses that idiom, so it
+   compiles where the column is absent and still honours the reference where it exists (production is not read and is not
+   assumed either way).
+Also in the design: v1 scope = transfer evidence only; a bounded per-run limit; a dry-run counting function; one audit row per
+run; pgTAP controls "a referenced object survives" and "a recovery-candidate object survives". **Owner decisions, not made
+here:** the retention N (B recommends ≥ 30 days), the cron itself (a new scheduled job), and whether a dry-run count is
+reported before the job is ever scheduled (B recommends yes). No migration number allocated; nothing implemented.
