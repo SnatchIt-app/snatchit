@@ -3468,3 +3468,38 @@ Most of the app is already tested; close the remaining gaps efficiently.
   implemented, Pay is withdrawn when the server can't be reached, and the copy already says the attempt may or may not
   have gone through and not to pay again. **C does not build a batch on B's original framing.** What survives is a
   setup-path copy gap, polish-level, routed through A. C still owns verifying the narrower pre-request question.
+
+## PRIVACY INCIDENT — Line 3 STOPPED (owner, 2026-09-17)
+**Owner's declaration:** "Stop Line 3. I completed the visible steps, but the selected/uploaded images may include real
+personal photos rather than only synthetic ticket images… Have A identify exactly which files were stored, their
+transfer IDs, timestamps, metadata and access records; have D independently verify. Quarantine this Line 3 result and
+determine the safest authorized handling for any real personal images before continuing." The owner also instructed:
+do not ask them to upload anything else, delete or overwrite proof, or open another transfer.
+**C's observation from the owner's screenshots (evidence, attributed to the owner):** the D6 proof thumbnail is a
+photograph of a person's face; the buyer's view of the D1 transfer renders a photograph of a car in a car park with a
+number plate visible; the S8only thumbnail is a room interior. These are personal photographs, not synthetic tickets.
+**Owner-reported screen outcomes (17:08–17:13 EDT):** D6 "Couldn't upload the transfer proof / You're offline. Check
+your internet connection and try again." with the selection kept and a TRY AGAIN control; D2 "Marked as sent / You've
+marked this transfer as sent. The buyer still needs to confirm they received the tickets."; D1 the same dialog;
+S8only the Add proof section with an image selected ("Image added"); the buyer's Receive transfer screen showing the
+seller's proof for D1.
+**A's state read (21:13:59–21:15Z), no boundary reported to A, D witnessed neither row:**
+- bce07eef "Device D2" marked sent 21:09:22Z, evidence `…/transfer-evidence/1789679356721.png`, 210,364 bytes,
+  image/png, object created 21:09:21Z, one `buyer_confirmation_needed` at 21:09:22Z, row md5 57c2d304….
+- 3118bd30 "Device D1" marked sent 21:11:36Z, evidence `…/transfer-evidence/1789679485922.jpg`, **5,829,677 bytes**,
+  image/jpeg, object created 21:11:36Z, one notification, row md5 89080d2c….
+- 92ee5156 "Device D6" still pending and untouched, so DV-IMG-4 never completed; 8f59d37e unchanged (no evidence);
+  83b83858 unchanged (md5 d1b36045…). Folder: 2 objects, both referenced, no orphans; 2xx 0 of 191; executors false.
+**Process deviations recorded plainly:** the approved order was D6 → D2 → D1; what ran was D2 → D1 with D6 pending. No
+row boundary reached A and D witnessed neither row, so the state BETWEEN the two rows is unreconstructable. Neither is
+a reason to re-run: the writes are permanent and the data is consistent.
+**C's immediate holds:** A was about to download both objects to verify bytes — C stopped that, since byte
+verification (sha256, EXIF, magic bytes) requires reading content that is likely photographs of a person and of
+identifiable property. A asked to report what, if anything, it already fetched and to delete local copies. RT6, U1,
+RT5-P, N1, N2, N4 and every further handset row are HELD. Nothing is deleted, overwritten or moved by anyone.
+**Asked of A and D (read-only, no bytes):** object paths, owning uid folder, size, mimetype, eTag, created_at, the
+referencing transfer, the transfers' exact `transfer_evidence_path` values, **access records** for those objects (the
+owner's instruction authorizes that log read for this purpose), and who could read them under current policy.
+**Standing constraint that shapes the options:** `transfer_evidence_path` is append-only, and deleting or overwriting
+attached proof was explicitly excluded from the approved scope. Any handling option therefore needs a NEW owner
+authorization, and C will bring ONE consolidated recommendation once A and D report.
