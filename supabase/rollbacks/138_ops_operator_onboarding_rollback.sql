@@ -16,7 +16,8 @@
 --   ops.action_allowed_roles     <- 115's body  (verbatim)
 --   ops.action_requires_approval <- 115's body  (verbatim)
 --   ops.action CHECK constraints <- 115's lists
---   the nine ops functions 138 added -> dropped
+--   the ten ops functions 138 added -> dropped
+--   ops.action_invitee (held invitee references) -> dropped with its trigger
 --
 -- ops.audit_write is not touched here because 138 does not touch it.
 -- Rows already written with a 138 action_type would violate the narrowed CHECK,
@@ -25,6 +26,7 @@
 -- =============================================================================
 begin;
 
+drop function if exists ops.get_action_invitee(uuid, text);
 drop function if exists ops.get_org_contact_email(uuid, text);
 drop function if exists ops.list_venue_staff(uuid);
 drop function if exists ops.list_org_invites(uuid);
@@ -44,11 +46,14 @@ begin
    where action_type in ('org_create','org_update','org_status_set','org_member_invite',
                          'org_member_invite_admin','org_member_role_change','org_member_elevate',
                          'org_member_remove','org_invite_revoke','platform_role_grant',
-                         'venue_create','venue_approve','venue_staff_grant','venue_staff_revoke');
+                         'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke');
   if v_n > 0 then
     raise exception '138 rollback: % onboarding action row(s) exist; archive or delete them before narrowing the CHECK', v_n;
   end if;
 end $rb$;
+
+-- no onboarding action rows exist (refused above), so no reference can be held
+drop table if exists ops.action_invitee;
 
 alter table ops.action drop constraint action_action_type_check;
 alter table ops.action add constraint action_action_type_check check (action_type in (

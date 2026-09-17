@@ -34,8 +34,13 @@
 -- owner/admin" cannot be expressed as a property of one type. Ruling (A, ①(a)):
 -- SPLIT the types — org_member_role_change / org_member_elevate and
 -- org_member_invite / org_member_invite_admin — and refuse a type/role MISMATCH
--- IN BOTH DIRECTIONS in ops.action_precheck. Without the second direction the
--- caller would choose whether approval applies, which is not a control.
+-- IN BOTH DIRECTIONS in ops.execute_action, the path every action takes (F-138-5;
+-- ops.action_precheck keeps a copy as a second layer, but it runs only for gated
+-- types). The guard reads exactly the params key its dispatch arm reads and refuses
+-- the other key (F-138-6). Without the second direction the caller would choose
+-- whether approval applies, which is not a control. The beneficiary of an elevating
+-- action may not be its requester (F-138-8): the kernel's self-promotion checks see
+-- the APPROVER as the caller when the action finally runs.
 -- Widening action_requires_approval to the action row was rejected deliberately:
 -- it is a change to the approval model every other action depends on, and would
 -- be its own migration with its own review.
@@ -53,12 +58,26 @@
 -- restricted, only labelled. ops.get_org_contact_email writes an ops.audit row
 -- with a closed reason code on every call.
 --
--- TWO BASELINES IN ONE MIGRATION — the part most likely to go wrong.
---   ops.action_dispatch, ops.action_precheck        redefined from 118's APPLIED body
---   ops.action_allowed_roles, action_requires_approval  redefined from 115's body
--- 115 defines all four; 118 redefines only the first two. Restoring 115's body for
--- dispatch or precheck would silently revert 118's corrections. The rollback
--- restores EACH object from its own applied body, not one baseline for all four.
+-- AN INVITEE'S ADDRESS IS NEVER STORED WHERE AN OPERATOR CAN READ IT (owner item 1,
+-- 2026-09-17). ops.action.params and ops.audit are returned whole by action_detail,
+-- list_actions, list_approvals and audit_log. Invite actions store a label (masked
+-- address, or the identity UUID the owner ruled displayable); the raw reference is
+-- held in ops.action_invitee (no API role can read it; UPDATE refused) until dispatch
+-- hands it to kernel.invite_org_member and deletes it; a verb message quoting it is
+-- recorded with the label instead. kernel.org_invite keeps the delivery copy.
+-- ops.get_action_invitee is the audited way to see it, shaped like the contact verb.
+--
+-- A CONSOLE-CREATED VENUE REACHES THE QUEUE BY venue_submit (owner item 3). create_venue
+-- writes draft; the frozen verb's own 'pending' decision (RPC §3.2) is the submission,
+-- taken by one platform_admin. venue_approve decides approved|archived only, and only
+-- for a pending venue — checked when requested and again when the approval runs.
+--
+-- TWO BASELINES, FIVE OBJECTS — the part most likely to go wrong.
+--   ops.execute_action, ops.action_dispatch, ops.action_precheck   redefined from 118's APPLIED body
+--   ops.action_allowed_roles, ops.action_requires_approval          redefined from 115's body
+-- 115 defines all five; 118 redefines the first three. Restoring 115's body for any
+-- of those three would silently revert 118's corrections. The rollback restores
+-- EACH object from its own applied body, not one baseline for all five.
 -- ops.audit_write is NOT touched: it takes p_action text and ops.audit.subject_kind
 -- has no CHECK, so new action names and subject kinds flow through as data.
 -- Verified by searching the whole chain: no other migration defines any of them,
@@ -72,9 +91,12 @@
 -- owner. A bare drop fails at migration time, which is the right moment to learn
 -- the name differs. The widening is proved in this file's own do-block.
 --
--- Census: ops routines +8 (6 reads + the contact-email verb + the invite mask is
--- reused, not new — ops.mask_email already exists in 115 and the console already
--- shows email_masked on every user card). public census UNCHANGED: nothing here is
+-- Census (measured on a replay, not asserted): ops functions +10 — six reads
+-- (list_organizations, get_organization, list_venues, list_org_members, list_org_invites,
+-- list_venue_staff), two audited verbs (get_org_contact_email, get_action_invitee) and two
+-- internal helpers (org_connect_readiness, identity_display_name); ops tables +1
+-- (action_invitee) with its one trigger. ops.mask_email is reused from 115. public census
+-- UNCHANGED (Gate-2 32|107|37|38 on the 138 branch = e9b52ce's EXPECT): nothing here is
 -- public, so the grant-decision manifest and expected_grants.txt are untouched.
 -- pgTAP 206. Applied nowhere by this file.
 -- =============================================================================
@@ -91,13 +113,30 @@ alter table ops.action add constraint action_action_type_check check (action_typ
   'org_member_invite','org_member_invite_admin',
   'org_member_role_change','org_member_elevate',
   'org_member_remove','org_invite_revoke','platform_role_grant',
-  'venue_create','venue_approve','venue_staff_grant','venue_staff_revoke'));
+  'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke'));
 
 alter table ops.action drop constraint action_subject_kind_check;
 alter table ops.action add constraint action_subject_kind_check check (subject_kind in (
   'case','payment','transfer','listing','user','report','job','setting','none',
   -- 138 operator onboarding
   'organization','venue','org_invite'));
+
+-- ── 1b. where a raw invitee reference is held (owner item 1, F-138-3) ────────
+-- ops.action.params is returned whole by ops.action_detail, ops.list_actions and ops.list_approvals,
+-- and ops.audit by ops.audit_log, to every operator at aal2. An invite's address therefore never goes
+-- there. It is held here from the request until dispatch passes it to kernel.invite_org_member, then
+-- deleted; kernel.org_invite keeps the copy delivery and acceptance use. No API role can read this table,
+-- no function returns it except ops.get_action_invitee (audited), and a held reference cannot be changed.
+create table if not exists ops.action_invitee (
+  action_id   uuid primary key references ops.action(id) on delete cascade,
+  invitee_ref text not null check (length(invitee_ref) between 1 and 320),
+  created_at  timestamptz not null default now()
+);
+alter table ops.action_invitee enable row level security;
+revoke all on table ops.action_invitee from public, anon, authenticated, service_role;
+drop trigger if exists action_invitee_no_update on ops.action_invitee;
+create trigger action_invitee_no_update before update on ops.action_invitee
+  for each row execute function ops.raise_append_only();
 
 -- ── 2. role gating and the approval set (redefined from 115's bodies) ────────
 -- 115 defines these; 118 does NOT redefine them. The rollback restores 115's.
@@ -128,6 +167,7 @@ as $ops$
     when 'org_invite_revoke'       then array['platform_admin','platform_support']
     when 'platform_role_grant'     then array['platform_admin']
     when 'venue_create'            then array['platform_admin']
+    when 'venue_submit'            then array['platform_admin']
     when 'venue_approve'           then array['platform_admin']
     when 'venue_staff_grant'       then array['platform_admin','platform_support']
     when 'venue_staff_revoke'      then array['platform_admin','platform_support']
@@ -173,6 +213,9 @@ declare
   v_res   jsonb;
   v_role_key    text;   -- 138: the params key this member/invite type's dispatch arm reads
   v_target_role text;
+  v_params      jsonb;  -- 138: what is STORED; for invites the raw address is replaced by a label
+  v_invitee     text;   -- 138: the raw invitee reference, held only in ops.action_invitee
+  v_self_email  text;
 begin
   perform ops.assert_reader();
   -- The pause switch itself stays operable, so a founder can un-pause from
@@ -197,7 +240,7 @@ begin
       'org_member_invite','org_member_invite_admin',
       'org_member_role_change','org_member_elevate',
       'org_member_remove','org_invite_revoke','platform_role_grant',
-      'venue_create','venue_approve','venue_staff_grant','venue_staff_revoke') then
+      'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke') then
     raise exception 'invalid_input: unknown action_type %', coalesce(p_action_type, '(null)');
   end if;
   if p_subject_kind is null or p_subject_kind not in ('case','payment','transfer','listing','user','report','job','setting','none',
@@ -231,6 +274,7 @@ begin
             when 'org_invite_revoke'       then p_subject_kind = 'org_invite'
             when 'platform_role_grant'     then p_subject_kind = 'none'
             when 'venue_create'            then p_subject_kind = 'organization'
+            when 'venue_submit'            then p_subject_kind = 'venue'
             when 'venue_approve'           then p_subject_kind = 'venue'
             when 'venue_staff_grant'       then p_subject_kind = 'venue'
             when 'venue_staff_revoke'      then p_subject_kind = 'venue'
@@ -299,10 +343,43 @@ begin
     raise exception 'invalid_input: a reason is required for %', p_action_type;
   end if;
 
+  -- ── 138: checks that name params, after authorization so a refused caller learns nothing ──
+  v_params := coalesce(p_params, '{}'::jsonb);
+  -- F-138-8 (A): the BENEFICIARY of an elevating action may not be its requester. The kernel's own
+  -- self-promotion checks see auth.uid() = the APPROVER when the action finally runs, so without this
+  -- an org_admin could request org_owner for themselves and any second operator's approval would grant it.
+  if p_action_type = 'org_member_elevate' and (v_params ->> 'identity_id') = v_uid::text then
+    raise exception 'invalid_input: org_member_elevate cannot target the requester: another operator must request it';
+  end if;
+  if p_action_type = 'venue_approve' and coalesce(v_params ->> 'decision', '') not in ('approved', 'archived') then
+    raise exception 'invalid_input: venue_approve decides approved or archived; a draft venue reaches the approval queue by venue_submit';
+  end if;
+  -- F-138-3 / owner item 1: the raw invitee reference is NEVER stored in a row an operator can read.
+  -- ops.action.params, its audit copy and every console read carry a label instead (the masked address,
+  -- or the identity UUID the owner ruled displayable). The raw value is held in ops.action_invitee, which
+  -- no API role can read, until dispatch hands it to kernel.invite_org_member; kernel.org_invite keeps it
+  -- for delivery exactly as before. The approval hash covers the stored params, and ops.action_invitee
+  -- refuses UPDATE, so what was approved is what is dispatched.
+  if p_action_type in ('org_member_invite', 'org_member_invite_admin') then
+    v_invitee := nullif(trim(v_params ->> 'invitee_ref'), '');
+    if v_invitee is null then
+      raise exception 'invalid_input: invitee_ref required for %', p_action_type;
+    end if;
+    if p_action_type = 'org_member_invite_admin' then
+      select lower(u.email) into v_self_email from auth.users u where u.id = v_uid;
+      if lower(v_invitee) = v_uid::text or lower(v_invitee) = v_self_email then
+        raise exception 'invalid_input: org_member_invite_admin cannot invite the requester: another operator must request it';
+      end if;
+    end if;
+    v_params := (v_params - 'invitee_ref' - 'invitee_label') || jsonb_build_object('invitee_label',
+      case when v_invitee ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then lower(v_invitee)
+           else coalesce(ops.mask_email(v_invitee), '(reference withheld)') end);
+  end if;
+
   begin
     insert into ops.action (idempotency_key, action_type, subject_kind, subject_id, subject_ref, params, expected, reason, requested_by)
     values (p_idempotency_key, p_action_type, p_subject_kind, p_subject_id, p_subject_ref,
-            coalesce(p_params, '{}'::jsonb), p_expected, nullif(trim(p_reason), ''), v_uid)
+            v_params, p_expected, nullif(trim(p_reason), ''), v_uid)
     returning * into a;
   exception when unique_violation then
     select * into a from ops.action where idempotency_key = p_idempotency_key;
@@ -310,6 +387,9 @@ begin
                               'result', a.result, 'approval_id', a.approval_id);
   end;
 
+  if v_invitee is not null then
+    insert into ops.action_invitee (action_id, invitee_ref) values (a.id, v_invitee);
+  end if;
   perform ops.audit_write('action.requested', a.subject_kind, a.subject_id, a.subject_ref, a.reason,
                           a.expected, jsonb_build_object('action_type', a.action_type, 'params', a.params),
                           'requested', a.correlation_id, a.id);
@@ -322,6 +402,7 @@ begin
   if ops.action_requires_approval(a.action_type) then
     v_res := ops.action_precheck(a);
     if v_res is not null then
+      delete from ops.action_invitee where action_id = a.id;   -- 138: a refused request holds nothing
       update ops.action set state = 'rejected', reject_reason = v_res ->> 'reject_reason', result = v_res,
              completed_at = now(), version = version + 1 where id = a.id;
       perform ops.audit_write('action.' || a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.reason,
@@ -408,6 +489,14 @@ begin
       return jsonb_build_object('status','rejected','reject_reason','precondition',
                'message','inviting someone as org_owner or org_admin requires two-person approval: request org_member_invite_admin');
     end if;
+  -- 138: approval is decided from the queue. A venue is approved only once it has been submitted, so
+  -- no second operator is asked to approve a draft (venue_submit moves draft -> pending).
+  when 'venue_approve' then
+    if (p_action.params ->> 'decision') = 'approved'
+       and (select v.approval_status from catalog.venue v where v.venue_id = p_action.subject_id) is distinct from 'pending' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+               'message','only a pending venue can be approved: submit it first (venue_submit)');
+    end if;
   when 'org_member_invite_admin' then
     if (p_action.params ->> 'role') is distinct from 'org_owner'
        and (p_action.params ->> 'role') is distinct from 'org_admin' then
@@ -441,6 +530,7 @@ declare
   v_note   uuid;
   v_status text;
   v_before jsonb;
+  v_invitee text;   -- 138
 begin
   -- ── case_* ──────────────────────────────────────────────────────────────
   if a.action_type like 'case_%' and a.action_type <> 'case_create' then
@@ -733,16 +823,30 @@ begin
   -- elevating one; ops.action_precheck refuses a type/role mismatch in BOTH
   -- directions, so the caller never chooses whether approval applies.
   when 'org_member_invite', 'org_member_invite_admin' then
+    -- The raw reference was never in a.params (see execute_action); it is held beside the action.
+    -- Take it and delete it FIRST: whatever this dispatch decides, the action is then terminal, and
+    -- the domain invite row is the only copy delivery needs.
+    select i.invitee_ref into v_invitee from ops.action_invitee i where i.action_id = a.id;
+    delete from ops.action_invitee where action_id = a.id;
     if a.subject_id is null then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) required');
-    end if;
-    if coalesce(trim(a.params ->> 'invitee_ref'), '') = '' then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','invitee_ref required');
     end if;
     if (a.params ->> 'role') not in ('org_owner','org_admin','org_finance','org_marketing','org_promoter_manager','org_member') then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','role is not an organisation role');
     end if;
-    v_res := kernel.invite_org_member(a.subject_id, a.params ->> 'invitee_ref', a.params ->> 'role', a.idempotency_key);
+    if v_invitee is null then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','no invitee reference is held for this action');
+    end if;
+    begin
+      v_res := kernel.invite_org_member(a.subject_id, v_invitee, a.params ->> 'role', a.idempotency_key);
+    exception when others then
+      -- a verb message may quote the reference (077: 'an open invite already exists for %'); the
+      -- outcome is recorded in ops.action and ops.audit, so it carries the label, never the address
+      return jsonb_build_object('status', case when sqlstate = 'P0001' then 'rejected' else 'failed' end,
+                                'reject_reason', case when sqlstate = 'P0001' then 'precondition' end,
+                                'message', replace(sqlerrm, v_invitee, coalesce(a.params ->> 'invitee_label', '(reference withheld)')),
+                                'sqlstate', sqlstate);
+    end;
     return jsonb_build_object('status','succeeded','result', v_res);
 
   when 'org_member_role_change', 'org_member_elevate' then
@@ -789,12 +893,35 @@ begin
     v_res := catalog.create_venue(a.subject_id, a.params ->> 'name', a.params ->> 'neighborhood', a.params ->> 'address', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
+  -- 138: draft -> pending is the frozen verb's own 'pending' decision (RPC §3.2), taken by a single
+  -- platform_admin as the explicit submission; approval and archiving stay two-person (venue_approve).
+  when 'venue_submit' then
+    if a.subject_id is null then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (venue) required');
+    end if;
+    select v.approval_status into v_status from catalog.venue v where v.venue_id = a.subject_id;
+    if v_status is null then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','venue not found');
+    end if;
+    if v_status <> 'draft' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+               'message', format('only a draft venue can be submitted for approval (this venue is %s)', v_status));
+    end if;
+    v_res := catalog.approve_venue(a.subject_id, 'pending', coalesce(nullif(trim(a.params ->> 'reason_code'), ''), 'submitted_for_approval'), a.idempotency_key);
+    return jsonb_build_object('status','succeeded','result', v_res);
+
   when 'venue_approve' then
     if a.subject_id is null then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (venue) required');
     end if;
-    if (a.params ->> 'decision') not in ('approved','archived','pending') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','decision must be approved|archived|pending');
+    if (a.params ->> 'decision') not in ('approved','archived') then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','decision must be approved|archived');
+    end if;
+    -- re-checked when the approval runs: the venue may have left the queue since it was requested
+    select v.approval_status into v_status from catalog.venue v where v.venue_id = a.subject_id;
+    if (a.params ->> 'decision') = 'approved' and v_status is distinct from 'pending' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+               'message', format('only a pending venue can be approved (this venue is %s)', coalesce(v_status, 'missing')));
     end if;
     v_res := catalog.approve_venue(a.subject_id, a.params ->> 'decision', a.params ->> 'reason_code', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
@@ -1014,6 +1141,38 @@ begin
   return v_email;
 end $ops$;
 
+-- ── 6b. an invite's address, for the people who must see it — audited like 6 ─────
+-- A second operator approving an org_owner invite should be able to see exactly who is invited, and
+-- support may need the address to help with delivery. Neither needs it in every list. Same shape as the
+-- contact-email verb: operator at aal2, closed reason set, one ops.audit row per call that names the
+-- action and whether a reference was found, never the reference itself.
+create or replace function ops.get_action_invitee(p_action_id uuid, p_reason_code text)
+returns text language plpgsql volatile security definer set search_path = ''
+as $ops$
+declare
+  a      ops.action%rowtype;
+  v_ref  text;
+begin
+  perform ops.assert_role(array['platform_admin','platform_support']);
+  if p_reason_code is null or p_reason_code not in ('approval_review','invite_delivery_support') then
+    raise exception 'invalid_input: reason_code must be approval_review|invite_delivery_support';
+  end if;
+  select * into a from ops.action where id = p_action_id;
+  if not found or a.action_type not in ('org_member_invite','org_member_invite_admin') then
+    raise exception 'not_found: no invite action %', p_action_id using errcode = 'P0002';
+  end if;
+  -- held until dispatch; afterwards the domain invite the action created is the only copy
+  select i.invitee_ref into v_ref from ops.action_invitee i where i.action_id = a.id;
+  if v_ref is null and (a.result -> 'result' ->> 'invite_id') is not null then
+    select oi.invitee_ref into v_ref from kernel.org_invite oi
+     where oi.invite_id = (a.result -> 'result' ->> 'invite_id')::uuid;
+  end if;
+  perform ops.audit_write('action_invitee_read', a.subject_kind, a.subject_id, null,
+                          p_reason_code, null,
+                          jsonb_build_object('action_id', a.id, 'found', v_ref is not null), 'ok', a.correlation_id, a.id);
+  return v_ref;
+end $ops$;
+
 -- ── 7. grants: execute to authenticated, authorization inside (116 pattern) ──
 revoke all on function ops.list_organizations(text, text, integer)      from public, anon, authenticated;
 revoke all on function ops.get_organization(uuid)                        from public, anon, authenticated;
@@ -1022,6 +1181,7 @@ revoke all on function ops.list_org_members(uuid)                        from pu
 revoke all on function ops.list_org_invites(uuid)                        from public, anon, authenticated;
 revoke all on function ops.list_venue_staff(uuid)                        from public, anon, authenticated;
 revoke all on function ops.get_org_contact_email(uuid, text)             from public, anon, authenticated;
+revoke all on function ops.get_action_invitee(uuid, text)                from public, anon, authenticated;
 grant execute on function ops.list_organizations(text, text, integer)    to authenticated;
 grant execute on function ops.get_organization(uuid)                     to authenticated;
 grant execute on function ops.list_venues(uuid, text, integer)           to authenticated;
@@ -1029,6 +1189,7 @@ grant execute on function ops.list_org_members(uuid)                     to auth
 grant execute on function ops.list_org_invites(uuid)                     to authenticated;
 grant execute on function ops.list_venue_staff(uuid)                     to authenticated;
 grant execute on function ops.get_org_contact_email(uuid, text)          to authenticated;
+grant execute on function ops.get_action_invitee(uuid, text)             to authenticated;
 
 -- ── 8. sanity inside the migration ───────────────────────────────────────────
 -- The constraint widening is proved HERE rather than left to pgTAP: a drop that
@@ -1053,7 +1214,7 @@ begin
   foreach v_new in array array['org_create','org_update','org_status_set','org_member_invite',
                                'org_member_invite_admin','org_member_role_change','org_member_elevate',
                                'org_member_remove','org_invite_revoke','platform_role_grant',
-                               'venue_create','venue_approve','venue_staff_grant','venue_staff_revoke'] loop
+                               'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke'] loop
     if position(v_new in v_type) = 0 then
       raise exception '138: action_type CHECK does not admit %', v_new;
     end if;
@@ -1090,6 +1251,7 @@ begin
   if ops.action_requires_approval('org_member_role_change')
      or ops.action_requires_approval('org_member_invite')
      or ops.action_requires_approval('venue_create')
+     or ops.action_requires_approval('venue_submit')
      or ops.action_requires_approval('org_create') then
     raise exception '138: a routine action was placed behind two-person approval';
   end if;
@@ -1105,7 +1267,8 @@ begin
                      'ops.list_org_members(uuid)'::regprocedure,
                      'ops.list_org_invites(uuid)'::regprocedure,
                      'ops.list_venue_staff(uuid)'::regprocedure,
-                     'ops.get_org_contact_email(uuid,text)'::regprocedure)
+                     'ops.get_org_contact_email(uuid,text)'::regprocedure,
+                     'ops.get_action_invitee(uuid,text)'::regprocedure)
        and not (p.prosecdef
                 and coalesce(p.proconfig @> array['search_path=""'], false)
                 and has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -1114,6 +1277,12 @@ begin
       raise exception '138: read surface is not definer / search_path-pinned / authenticated-only: %', v_bad_fn;
     end if;
   end;
+
+  -- the held invitee reference is readable by no API role
+  if has_table_privilege('anon', 'ops.action_invitee', 'SELECT') or has_table_privilege('authenticated', 'ops.action_invitee', 'SELECT')
+     or has_table_privilege('service_role', 'ops.action_invitee', 'SELECT') then
+    raise exception '138: ops.action_invitee is readable by an API role';
+  end if;
 end $chk$;
 
 commit;

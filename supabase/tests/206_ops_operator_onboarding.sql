@@ -3,7 +3,7 @@
 -- audited action framework. Runs as postgres inside BEGIN … ROLLBACK like every
 -- suite here. Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md
 BEGIN;
-SELECT plan(118);
+SELECT plan(161);
 -- No tap.seed_core(): it builds listings, and 185's insert guard refuses the
 -- server-controlled columns it writes. This suite needs three identities and
 -- nothing else, so it makes them itself and stays independent of the fixture
@@ -312,6 +312,7 @@ BEGIN
       ('org_member_role_change','organization',tap._orgX(),'{}'), ('org_member_elevate','organization',tap._orgX(),'{"new_role":"org_admin"}'),
       ('org_member_remove','organization',tap._orgX(),'{}'), ('org_invite_revoke','org_invite','ffffffff-0000-0000-0000-00000000e206','{}'),
       ('platform_role_grant','none',NULL,'{}'), ('venue_create','organization',tap._orgX(),'{}'),
+      ('venue_submit','venue',tap._venX(),'{}'),
       ('venue_approve','venue',tap._venX(),'{}'), ('venue_staff_grant','venue',tap._venX(),'{}'),
       ('venue_staff_revoke','venue',tap._venX(),'{}')) t(typ, sk, sid, prm)
   LOOP
@@ -326,7 +327,7 @@ END $f$;
 SELECT tap.login(tap._A206()); SELECT tap._aal2();
 SELECT is(tap._reasonset206(),
   ARRAY['org_member_elevate','org_member_invite_admin','org_member_remove','org_status_set','platform_role_grant','venue_approve'],
-  'I13: across all fourteen types sent WITHOUT a reason, exactly the six the owner named are refused — no more, no fewer');
+  'I13: across all fifteen types sent WITHOUT a reason, exactly the six the owner named are refused — no more, no fewer');
 SELECT matches(tap._ea206('k206-rs-blank','org_status_set','organization',tap._orgX(),
   '{"target_status":"suspended","reason_code":"x"}', '   '), 'a reason is required for org_status_set',
   'I14: a whitespace-only reason is no reason');
@@ -343,6 +344,7 @@ BEGIN
       ('org_member_role_change','organization',tap._orgX(),'{}'), ('org_member_elevate','organization',tap._orgX(),'{"new_role":"org_admin"}'),
       ('org_member_remove','organization',tap._orgX(),'{}'), ('org_invite_revoke','org_invite','ffffffff-0000-0000-0000-00000000e206','{}'),
       ('platform_role_grant','none',NULL,'{}'), ('venue_create','organization',tap._orgX(),'{}'),
+      ('venue_submit','venue',tap._venX(),'{}'),
       ('venue_approve','venue',tap._venX(),'{}'), ('venue_staff_grant','venue',tap._venX(),'{}'),
       ('venue_staff_revoke','venue',tap._venX(),'{}')) t(typ, sk, sid, prm)
   LOOP
@@ -357,8 +359,8 @@ END $f$;
 SELECT tap.logout(); SELECT tap.login(tap._S206()); SELECT tap._aal2();
 SELECT is(tap._roleset206(),
   ARRAY['org_create','org_member_elevate','org_member_invite_admin','org_member_remove','org_member_role_change',
-        'org_status_set','org_update','platform_role_grant','venue_approve','venue_create'],
-  'I15: platform_support is refused AT THE DOOR for exactly the ten platform_admin-only types');
+        'org_status_set','org_update','platform_role_grant','venue_approve','venue_create','venue_submit'],
+  'I15: platform_support is refused AT THE DOOR for exactly the eleven platform_admin-only types');
 -- support passes the door for its four; each verb's own check still decides (contract §3.2)
 SELECT is(tap._ea206('k206-sp-invite','org_member_invite','organization',tap._orgX(),'{"invitee_ref":"s.inv@example.com","role":"org_member"}'), 'failed',
   'I16: support''s invite reaches dispatch and the DOMAIN refuses it (support holds no org role)');
@@ -403,7 +405,7 @@ SELECT is(tap._role206(tap._orgX(), tap.seller()), 'org_finance', 'I38: org_memb
 SELECT is(tap._role206(tap._orgX(), '88888888-8888-8888-8888-888888888888'), '(not a member)', 'I39: org_member_remove removed the member');
 SELECT is((SELECT status FROM kernel.org_invite WHERE invite_id = tap._invX()), 'revoked', 'I40: org_invite_revoke revoked the invite');
 SELECT is((SELECT approval_status FROM catalog.venue WHERE org_id = tap._orgX() AND name = 'Created Room'), 'draft',
-  'I41: venue_create made the venue — at DRAFT (078''s verb). OPEN FOR THE OWNER: list_venues(status => pending), the approval queue, does not show a venue the console just created');
+  'I41: venue_create made the venue — at DRAFT (078''s verb); section K submits it to the approval queue');
 SELECT is((SELECT count(*)::int FROM venue.staff_role WHERE venue_id = tap._venX() AND identity_id = tap.seller() AND role = 'venue_scanner'), 1, 'I42: venue_staff_grant granted the role');
 SELECT is((SELECT count(*)::int FROM venue.staff_role WHERE venue_id = tap._venX() AND identity_id = tap.other_user()), 0, 'I43: venue_staff_revoke revoked the role');
 SELECT is((SELECT error FROM ops.action WHERE idempotency_key = 'k206-r-nonmember') || ' | invites=' || (SELECT count(*) FROM kernel.org_invite WHERE invitee_ref = 'nonmember@example.com'),
@@ -458,6 +460,160 @@ SELECT tap.logout();
 SELECT is(tap._role206(tap._orgX(), 'abababab-abab-abab-abab-abababababab') || ' | ' || (SELECT error FROM ops.action WHERE idempotency_key = 'k206-h-elevate-c'),
   'org_member | insufficient_privilege: org_owner or org_admin required',
   'I73: ...so the member is unchanged. OPEN FOR THE OWNER: an elevation completes only when the APPROVER is org_owner or org_admin of that organisation');
+
+-- ── J. an operator cannot read an invitee's address through the logs (owner item 1) ──
+-- Raw addresses sent by this suite: staff.x, founder.x, denied.x, s.inv, nonmember (all @example.com).
+-- kernel.org_invite keeps them — that is the delivery copy. Nothing an operator can read may carry one:
+-- not ops.action params, results or errors; not ops.audit; not any reader built on them.
+-- a reveal, returning the value or the error, so one missing action fails one test rather than aborting the suite
+CREATE FUNCTION tap._inv206(k text, rc text) RETURNS text LANGUAGE plpgsql AS $f$
+BEGIN RETURN coalesce(ops.get_action_invitee(tap._aid206(k), rc), '(null)');
+EXCEPTION WHEN OTHERS THEN RETURN 'RAISED: ' || SQLERRM; END $f$;
+CREATE FUNCTION tap._email206(u uuid) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $f$ SELECT email FROM auth.users WHERE id = u $f$;
+-- everything an operator can page through, concatenated: every list_actions and audit_log page, every
+-- approval, and the detail of every invite action (ids taken from what list_actions itself returned)
+CREATE FUNCTION tap._readall206() RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE v text := ''; j jsonb; cur text; it jsonb;
+BEGIN
+  cur := NULL;
+  LOOP
+    j := ops.list_actions('{}'::jsonb, cur, 200);
+    v := v || (j -> 'items')::text;
+    FOR it IN SELECT * FROM jsonb_array_elements(j -> 'items') LOOP
+      IF it ->> 'action_type' IN ('org_member_invite','org_member_invite_admin') THEN
+        v := v || ops.action_detail((it ->> 'id')::uuid)::text;
+      END IF;
+    END LOOP;
+    cur := j ->> 'next_cursor'; EXIT WHEN cur IS NULL;
+  END LOOP;
+  cur := NULL;
+  LOOP
+    j := ops.audit_log(cur, 200);
+    v := v || (j -> 'items')::text;
+    cur := j ->> 'next_cursor'; EXIT WHEN cur IS NULL;
+  END LOOP;
+  RETURN v || ops.list_approvals('all')::text;
+END $f$;
+
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is(tap._ea206('k206-j-dup','org_member_invite','organization',tap._orgX(),'{"invitee_ref":"staff.x@example.com","role":"org_member"}'), 'rejected',
+  'J1: inviting an address that already has an open invite is refused by the verb (whose message quotes the address)');
+SELECT tap.logout(); SELECT tap.login(tap._S206()); SELECT tap._aal2();
+SELECT is(tap._inv206('k206-h-invadmin2', 'approval_review'), 'denied.x@example.com',
+  'J2: the audited verb shows a support operator the address of an invite still held (denied, never dispatched)');
+SELECT is(tap._inv206('k206-r-invite', 'invite_delivery_support'), 'staff.x@example.com',
+  'J3: ...and of a dispatched invite, from the domain invite it created');
+SELECT matches(tap._try206($$ SELECT ops.get_action_invitee(tap._aid206('k206-r-invite'), 'curiosity') $$), 'reason_code must be',
+  'J4: the reason is a closed set');
+SELECT matches(tap._try206($$ SELECT ops.get_action_invitee(tap._aid206('k206-r-orgcreate'), 'approval_review') $$), 'no invite action',
+  'J5: it answers only for invite actions');
+SELECT tap._aal1();
+SELECT matches(tap._try206($$ SELECT ops.get_action_invitee(tap._aid206('k206-r-invite'), 'approval_review') $$), 'step_up_required',
+  'J6: an operator without aal2 is refused');
+SELECT tap.logout(); SELECT tap.login(tap.seller()); SELECT tap._aal2();
+SELECT matches(tap._try206($$ SELECT ops.get_action_invitee(tap._aid206('k206-r-invite'), 'approval_review') $$), '^42501',
+  'J7: a non-operator is refused');
+-- the ordinary operator reads everything the console offers
+SELECT tap.logout(); SELECT tap.login(tap._S206()); SELECT tap._aal2();
+SELECT ok(tap._readall206() !~* '(staff\.x|founder\.x|denied\.x|s\.inv|nonmember)@example\.com',
+  'J8: a SUPPORT operator paging through list_actions, action_detail, audit_log and list_approvals finds no invitee address');
+SELECT ok(tap._readall206() ~ 's\*\*\*@example\.com' AND tap._readall206() ~ 'f\*\*\*@example\.com' AND tap._readall206() ~ 'd\*\*\*@example\.com',
+  'J9: ...while the masked labels ARE there, so J8 is reading the invite actions, not an empty page');
+SELECT tap.logout(); SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT ok(tap._readall206() !~* '(staff\.x|founder\.x|denied\.x|s\.inv|nonmember)@example\.com',
+  'J10: ...nor does a platform_admin');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM ops.action x WHERE x::text ~* '(staff\.x|founder\.x|denied\.x|s\.inv|nonmember)@example\.com')
+        + (SELECT count(*)::int FROM ops.audit u WHERE u::text ~* '(staff\.x|founder\.x|denied\.x|s\.inv|nonmember)@example\.com'), 0,
+  'J11: no row of ops.action or ops.audit, in any column (params, result, error, before, after), holds an address — including J1''s error and the reveal audit rows');
+SELECT is((SELECT count(*)::int FROM ops.action WHERE action_type IN ('org_member_invite','org_member_invite_admin')
+            AND params ? 'invitee_label' AND NOT params ? 'invitee_ref'),
+          (SELECT count(*)::int FROM ops.action WHERE action_type IN ('org_member_invite','org_member_invite_admin')),
+  'J12: every stored invite action carries a label and no invitee_ref');
+SELECT is((SELECT result ->> 'message' FROM ops.action WHERE idempotency_key = 'k206-j-dup'),
+  'precondition_failed: an open invite already exists for s***@example.com in this org',
+  'J13: the verb''s refusal is recorded with the label in place of the address');
+SELECT is((SELECT count(*)::int FROM kernel.org_invite WHERE invitee_ref IN ('staff.x@example.com','founder.x@example.com')), 2,
+  'J14: DELIVERY IS PRESERVED — the domain invites hold the real addresses');
+SELECT is((SELECT array_agg(x.idempotency_key ORDER BY x.idempotency_key) FROM ops.action_invitee i JOIN ops.action x ON x.id = i.action_id),
+  ARRAY['k206-h-invadmin2'],
+  'J15: a reference is held only until dispatch; every dispatched or refused invite holds none (the denied one is never dispatched)');
+SELECT ok(NOT has_table_privilege('anon','ops.action_invitee','SELECT') AND NOT has_table_privilege('authenticated','ops.action_invitee','SELECT')
+          AND NOT has_table_privilege('service_role','ops.action_invitee','SELECT'),
+  'J16: no API role can read the held references');
+SELECT matches(tap._try206($$ UPDATE ops.action_invitee SET invitee_ref = 'someone.else@example.com' $$), 'append_only',
+  'J17: a held reference cannot be changed after the request — what was approved is what is dispatched');
+SELECT is((SELECT count(*)::int FROM ops.audit WHERE action = 'action_invitee_read' AND actor = tap._S206()
+            AND reason IN ('approval_review','invite_delivery_support') AND (after ->> 'found')::boolean), 2,
+  'J18: each reveal wrote one audit row with its reason — the two that succeeded, none for the refused calls');
+
+-- ── K. a console-created venue reaches the approval queue by an explicit submission (owner item 3) ──
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is((SELECT count(*)::int FROM ops.list_venues(tap._orgX(), 'pending') WHERE name = 'Created Room'), 0,
+  'K1: a venue made by venue_create is not in the approval queue (it is draft)');
+SELECT is(tap._ea206('k206-k-submit','venue_submit','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'draft') WHERE name = 'Created Room'),'{}'), 'succeeded',
+  'K2: venue_submit, one platform_admin, succeeds');
+SELECT is((SELECT count(*)::int FROM ops.list_venues(tap._orgX(), 'pending') WHERE name = 'Created Room'), 1,
+  'K3: ...and the venue is now in the approval queue');
+SELECT is(tap._ea206('k206-k-resubmit','venue_submit','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'pending') WHERE name = 'Created Room'),'{}'), 'rejected',
+  'K4: a pending venue cannot be submitted again');
+SELECT is(tap._ea206('k206-k-submit-approved','venue_submit','venue',tap._venX(),'{}'), 'rejected',
+  'K5: an approved venue cannot be sent back to the queue by submission');
+SELECT matches(tap._ea206('k206-k-approve-pending','venue_approve','venue',tap._venX(),'{"decision":"pending","reason_code":"x"}','x'), 'decides approved or archived',
+  'K6: venue_approve can no longer move a venue to pending — submission has one door');
+SELECT is(tap._ea206('k206-k-create2','venue_create','organization',tap._orgX(),'{"name":"Draft Two","neighborhood":"midtown"}'), 'succeeded', 'K7: a second draft venue');
+SELECT is(tap._ea206('k206-k-approve-draft','venue_approve','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'draft') WHERE name = 'Draft Two'),'{"decision":"approved","reason_code":"x"}','x'), 'rejected',
+  'K8: approving a DRAFT venue is refused when requested — no second operator is asked to approve something never submitted');
+SELECT is(tap._ea206('k206-k-approve','venue_approve','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'pending') WHERE name = 'Created Room'),'{"decision":"approved","reason_code":"site_visit"}','visited'), 'awaiting_approval',
+  'K9: approving the SUBMITTED venue is held for a second operator');
+SELECT is(tap._ea206('k206-k-submit2','venue_submit','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'draft') WHERE name = 'Draft Two'),'{}'), 'succeeded', 'K10: Draft Two submitted');
+SELECT is(tap._ea206('k206-k-approve2','venue_approve','venue',(SELECT venue_id FROM ops.list_venues(tap._orgX(), 'pending') WHERE name = 'Draft Two'),'{"decision":"approved","reason_code":"site_visit"}','visited'), 'awaiting_approval', 'K11: ...and its approval requested');
+SELECT tap.logout();
+UPDATE catalog.venue SET approval_status = 'draft' WHERE org_id = tap._orgX() AND name = 'Draft Two';   -- it leaves the queue before approval
+SELECT tap.login(tap._B206()); SELECT tap._aal2();
+SELECT is(tap._apr206('k206-k-approve','approve','agree'), 'succeeded', 'K12: the second operator approves the submitted venue');
+SELECT is(tap._apr206('k206-k-approve2','approve','agree'), 'rejected:precondition', 'K13: a venue that left the queue after the request is not approved when the approval runs');
+SELECT tap.logout();
+SELECT is((SELECT string_agg(name || '=' || approval_status, ',' ORDER BY name) FROM catalog.venue WHERE org_id = tap._orgX() AND name IN ('Created Room','Draft Two')),
+  'Created Room=approved,Draft Two=draft', 'K14: draft -> pending -> approved for the submitted venue; the other is unchanged');
+SELECT is((SELECT count(*)::int FROM ops.approval p JOIN ops.action x ON x.approval_id = p.id WHERE x.idempotency_key = 'k206-k-approve-draft')
+        + (SELECT count(*)::int FROM ops.action WHERE idempotency_key = 'k206-k-approve-pending'), 0,
+  'K15: K6 wrote no action and K8 parked no approval');
+-- by content, not by created_at: now() is frozen per transaction, so this row and K12's approval row tie on
+-- created_at and "the first one" is whatever the heap returns (a mutant that changed row counts flipped it)
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit
+            WHERE action = 'venue.approve'
+              AND subject_id = (SELECT venue_id FROM catalog.venue WHERE org_id = tap._orgX() AND name = 'Created Room')
+              AND before ->> 'approval_status' = 'draft' AND after ->> 'approval_status' = 'pending'
+              AND actor_identity = tap._A206()), 1,
+  'K16: the submission is in the domain audit once, as draft -> pending by the submitting operator');
+SELECT ok(NOT ops.action_requires_approval('venue_submit') AND ops.action_allowed_roles('venue_submit') = ARRAY['platform_admin'],
+  'K17: submission is single-person and platform_admin only (the verb it calls is platform_admin only)');
+
+-- ── L. the beneficiary of an elevation is never its requester (F-138-8, A) ──
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT matches(tap._ea206('k206-l-self-elev','org_member_elevate','organization',tap._orgX(),jsonb_build_object('identity_id', tap._A206(), 'new_role', 'org_admin'),'x'), 'cannot target the requester',
+  'L1: an operator cannot request their own elevation — a second approver would otherwise grant it, because the verb sees the approver as the caller');
+SELECT matches(tap._ea206('k206-l-self-inv-id','org_member_invite_admin','organization',tap._orgX(),jsonb_build_object('invitee_ref', tap._A206()::text, 'role', 'org_owner'),'x'), 'cannot invite the requester',
+  'L2: ...nor invite themselves at owner/admin by identity');
+SELECT matches(tap._ea206('k206-l-self-inv-mail','org_member_invite_admin','organization',tap._orgX(),jsonb_build_object('invitee_ref', upper(tap._email206(tap._A206())), 'role', 'org_owner'),'x'), 'cannot invite the requester',
+  'L3: ...nor by their own address, in any letter case');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM ops.action WHERE idempotency_key LIKE 'k206-l-%') + (SELECT count(*)::int FROM ops.action_invitee), 1,
+  'L4: none of L1–L3 wrote an action or held a reference (the one held reference is J15''s denied invite)');
+
+-- ── M. the guard compares raw values, so the arm must too (A's probes PA1–PA3) ──
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is(tap._ea206('k206-m-upper','org_member_invite','organization',tap._orgX(),'{"invitee_ref":"pa1@example.com","role":"ORG_OWNER"}'), 'rejected',
+  'M1: role ORG_OWNER passes the routine guard (not an exact match) and the arm refuses it (not an exact label)');
+SELECT is(tap._ea206('k206-m-space','org_member_invite','organization',tap._orgX(),'{"invitee_ref":"pa2@example.com","role":"org_owner "}'), 'rejected',
+  'M2: ...and "org_owner " with a trailing space');
+SELECT matches(tap._ea206('k206-m-dupkey','org_member_invite','organization',tap._orgX(),'{"invitee_ref":"pa3@example.com","role":"org_member","role":"org_owner"}'), 'requires two-person approval',
+  'M3: duplicate role keys collapse to the last, org_owner, and are refused at the door');
+SELECT tap.logout();
+SELECT is((SELECT count(*)::int FROM kernel.org_invite WHERE invitee_ref IN ('pa1@example.com','pa2@example.com','pa3@example.com')), 0,
+  'M4: no invite was written for M1–M3 — a normalising arm would have written two org_owner invites with no approver');
 
 SELECT * FROM finish();
 ROLLBACK;
