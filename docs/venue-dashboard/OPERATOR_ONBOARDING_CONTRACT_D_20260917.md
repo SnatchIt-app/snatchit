@@ -410,7 +410,8 @@ AMENDMENT:
   A2 kernel.invite_bootstrap_owner(org_id, invitee_ref, command_key) — platform_admin; runs as the APPROVER of the
      two-person console action; refuses a closed organisation, an organisation with an org_owner, a pending org_owner
      invite, the caller as invitee, and an invitee holding platform authority; writes a pending org_owner invite;
-     admin_audit reason 'platform_bootstrap_owner'.
+     admin_audit reason 'platform_bootstrap_owner'. A 'suspended' organisation is NOT refused (only 'closed' is), so
+     an owner can be bootstrapped during recovery. Owner to confirm this is intended.
   A3 catalog.bootstrap_venue(org_id, name, neighborhood, address, command_key) — platform_admin; draft venue for an
      approved/active organisation; admin_audit venue.create reason 'platform_bootstrap'.
      DEVIATION FROM THE APPROVED WORDING ("a platform_admin arm on catalog.create_venue"): a separate verb, because
@@ -425,6 +426,10 @@ AMENDMENT:
 UNCHANGED:                   the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B maturity, PFA-4 (platform-role
                              grants fail-closed, 206 I63–I65), 118's approval machinery and approval_sod_ck.
 SECURITY IMPACT:             strictly narrowing for operators; no new single-person path to any organisation role.
+LIMIT:                       every guard here is per identity (auth.uid()). "Operators are never members" is enforced
+                             per ACCOUNT, not per PERSON. A person who holds platform authority on one account and
+                             joins a customer organisation with a second, ordinary account is governed by operator
+                             account policy, not by these guards. No in-database control or detector can see it.
 OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how the owner signs.
 ```
 
@@ -436,6 +441,7 @@ OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how 
 | (c) venue staff | `venue.grant_staff_role` (080:224), platform_admin arm | **closed at the console** (I57–I59). STANDING CONDITION: `venue` is not API-exposed; if it ever is, the refusal must move into the verb by amendment |
 | (d) platform authority granted to an existing member | `grant_platform_role` (fail-closed, PFA-4); an `admin_users` insert by SQL | **not closed by any guard**. PFA-4 keeps the first shut. The second is out-of-band. Proposed: a read that lists identities holding both platform authority and any org/venue role, as a detector, not a control |
 | (e) out-of-band SQL | postgres / service_role writes | outside any in-database control; covered only by access policy and the (d) detector |
+| (f) a second, ordinary account held by an operator | any customer path, as an identity with no platform authority | **not closable in SQL** (A, review of 8ecc929). Every guard is per identity; this is operator account policy. Stated as LIMIT in PFA-33 |
 Role changes of existing members (`change_org_role`, 077:1244) confer no membership and stay customer-side.
 
 ### Lazy-expiry retention and a bounded cleanup proposal (ruling 6)
@@ -466,3 +472,18 @@ Local:
 CI: run 35247904544 at 8ecc929 succeeded on all five jobs. pgTAP footer: Files=88, Tests=5399, Result: PASS; 206 ok.
 The total matches the written prediction (5424 at be80aad minus 25, the only count change being 206 going from 161 to 136).
 The local run above covered 87 of the 88 files, so CI is the evidence for the full set.
+
+### Independent review at 8ecc929 (A, 2026-09-17): no defect found
+A verified CI 35247904544 and a local fresh replay (Gate-2 32|107|37|38). Suites 206 136/136, 141 213/213, 140 59/59,
+142 261/261, 144 118/118 and 181 128/128 passed.
+Effective EXECUTE ACLs (coalesce(proacl, acldefault)):
+- A1, A2, A3, the helper and the release trigger function: no anon, authenticated, service_role or PUBLIC.
+- accept_org_invite, create_organization and create_venue: authenticated only, unchanged.
+A2 locks the organisation row, so concurrent bootstrap invites serialise.
+Answers to D's four points:
+- (a) The only membership-creating writes in migrations are 077:811, 077:1147 (redefined at 138:1282) and 080:224. A
+  added path (f), a second ordinary account, recorded above.
+- (b) Agreed.
+- (c) No current leak. Hardening is not required for the verdict, but A recommends it before 138 is applied anywhere.
+- (d) Agreed.
+Observation for the owner: A2 does not refuse a suspended organisation (recorded in A2's text above).
