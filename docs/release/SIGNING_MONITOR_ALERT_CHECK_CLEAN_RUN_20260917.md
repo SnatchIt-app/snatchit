@@ -78,3 +78,36 @@ R7's digests were written to the scratch file only and are not reproduced. Nothi
 
 **Witness:** B, after completion only, by comparing scope and timestamps against the review document; B triggered nothing and
 validates nothing about the quarantined run.
+
+## 6. Witness findings (B, after completion, by comparing scope and timestamps) — accepted by A, and they narrow §2
+**Scope and order conform:** ten statements, once each, document order, timestamps strictly ascending 05:09:46 → 05:11:10;
+R1 read `vault.secrets`, never `vault.decrypted_secrets`; R9/R10 aggregates only. B triggered nothing, read nothing, and does
+not validate the quarantined run.
+
+**Where a result establishes MORE than §2 said (R1):** the bearer secret `service_role_key` exists and, with 133 unapplied on
+production, the 099 poster's host is the hardcoded literal — so an invariant alert **would be dispatched** (POST attempted).
+Whether a post *succeeds* is still unverified, and `net._http_response` is a ~6 h cache whose emptiness is not history.
+**Consequence for the production preflight:** R1 also shows **no `project_url` row**. 133's F-133-1 guard refuses to apply where
+`service_role_key` exists without a well-formed `project_url` — exactly this pair — so the Vault `project_url` production
+ceremony is a **hard precondition of applying 133**, not a tidy-up. (To be carried into the preflight package when that work is authorized.)
+
+**Where §2/§3 claimed more than the reads support, corrected:**
+1. **R5 and R6 are evidence about the notify RAIL, not about this alarm.** `notify-report`'s `signing_invariant_alert` branch calls
+   sendPush and sendEmail directly, then `captureException`; nothing in its path enqueues, so the lease key and the absent
+   dispatcher jobs do not bear on whether the alarm reaches anyone. §3's "no sender" item therefore describes a separate open
+   problem (other notification types), not this check. B corrects its own earlier bundling of the two.
+2. **"The email arm is off" is sound only on the deployed code.** It rests on the repo source of `notify-report`; R8 shows
+   production runs **v9**, and nothing in this set establishes that v9's bytes are that source. The C6 record holds hashes for the
+   legacy functions; comparing them against the repo at the production commit would close this from records with no new read.
+   Until then the claim is **conditional on v9 = the held source**.
+3. R2/R3/R4/R5 establish existence and execution, never values (as already stated in §3).
+4. R9/R10: the admin push route lacks recipients today; not "every channel is impossible".
+
+**The strongest statement this set supports (B's wording, adopted verbatim):**
+> An invariant alert would be dispatched: the bearer secret exists and the host is hardcoded pre-133. Of its three delivery arms,
+> the admin push fan-out has no recipients (two admins, zero active tokens); the email arm is off because EMAIL_ENABLED is absent
+> and the code defaults it to false, conditional on deployed v9 being the source we hold; and Sentry is the only arm whose
+> prerequisite is present (SENTRY_SERVER_DSN is in the name list) and whose delivery is unverified. Nothing here establishes
+> whether an alert has ever fired, or whether any post has ever succeeded.
+
+That is a falsification of two of three arms — the one thing the check could do — and not proof that the alarm works.
