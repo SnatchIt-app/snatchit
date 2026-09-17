@@ -2921,3 +2921,7 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   another account, there's nothing to do. If not, sign out of all devices." Buttons: "Sign out of all devices" +
   "Dismiss". Seeing the device name would mean v1 rendered, which would be a finding. A has added F-NOTICE-1 to the
   sprint table for the owner's scope decision. Still waiting on the owner's "buyer ready".
+- **Staged notice, owner READY (2026-09-17):** "I'm ready as the DV buyer on Build 19 for the staged security-notice
+  test. The existing 'Account deletion requested' notice is visible and must remain untouched. … I will not tap
+  'Sign out of all devices' or dismiss the existing deletion notice." C sent A "buyer ready" and cc'd D.
+  Sequence: A pre-counts → D pre-read → A's ONE write → A "written" → C GO → DV-N-1..3 → A deletes → D after-read.
