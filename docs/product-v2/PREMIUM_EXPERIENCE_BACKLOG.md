@@ -3134,3 +3134,14 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   **Row result pending:** A's restore and byte-for-byte ACL verify, whether the watchdog fired, D's after-read
   reproducing md5 466fd2d8…, and A's API-log check ≥10 min after the window (a denied GET /rest/v1/bids inside the
   window). Without that check the row is INCONCLUSIVE, not PASS. Line 3 stays paused until all of it is closed.
+- **DV-ST2b restored (A, 2026-09-17T18:38:56Z) and verified clean; the watchdog did NOT fire** (A restored on C's word,
+  2m33s into the 6-minute bound). Permissions are byte-for-byte back to the capture: authenticated
+  select/insert/update/delete true, anon SELECT untouched throughout, 3 policies, RLS on. The revoke was in place
+  18:36:23Z → 18:38:56Z.
+  **A's second disclosure, same root cause as the watchdog failure:** the automatic verify step also failed to run
+  (bare-name self-invocation). A ran it explicitly 11 s later and it passed. Both are recorded as one defect in A's
+  script; it now has no bare self-invocations and refuses to hold a window whose automatic restore isn't confirmed
+  running. Window bounds and evidence are unaffected.
+  **Row still INCONCLUSIVE** until A's API-log check, no earlier than 18:48:56Z, finds a denied GET /rest/v1/bids
+  inside 18:36:23Z–18:38:56Z; D's after-read must also reproduce md5 466fd2d8…. Then A re-verifies PC2/PC3 and the
+  bids ACL before Line 3 resumes at step 0 (the picker-only rows on 3118bd30), which needs the owner's go through C.
