@@ -918,3 +918,19 @@ A does not think a content read is needed for the owner's decision and is not as
 3. **The owner deletes both objects in the Supabase Storage dashboard** — removes row and bytes, needs no key in the Vault, arms nothing, touches no reference. **A's recommendation.**
 Either way A and D perform the matching pre- and post-checks the owner specified, by **existence, path, size and eTag only — never content**. Expected post-state: proof-docs 0 objects; both transfers still seller_sent with their paths intact; no orphans; notifications, queue and 2xx unchanged; L7 unchanged. C confirms from source that the buyer's receive screen degrades cleanly when the object is gone (`createSignedUrl` yields nothing, `proofUrl` stays null, the proof section is not rendered).
 **The one-hour signed link** minted for the D1 image at 21:13:40Z lapses by itself at ~22:13:40Z; deleting the object kills it immediately.
+
+### The owner's ruling: RETAIN. Line 3 closed as QUARANTINED, 2026-09-17
+
+**The owner ruled (relayed by C):** *"Leave the two stored proof files in place. No deletion, overwrite, reference clearing, service key or further storage access."*
+This is a **prohibition, not an authorization**, so it takes effect in every session without needing to be restated to each — A honours relayed restrictions and acts on relayed permissions from nobody. Both deletion routes are moot: no dashboard deletion, no env service key used for anything, **no further reads of those objects by anyone, ever, including as part of any later verification.**
+
+**Final state, and it is the state that stands:**
+- `…/transfer-evidence/1789679356721.png` — 210,364 B, image/png, **RETAINED**, referenced by bce07eef (D2).
+- `…/transfer-evidence/1789679485922.jpg` — 5,829,677 B, image/jpeg, **RETAINED**, referenced by 3118bd30 (D1).
+- Both transfers remain `seller_sent` with their `transfer_evidence_path` intact; statuses, payment state, notices, notifications and logs unchanged; **Sandbox L7 untouched** (`d1b36045…`).
+- The one-hour signed link minted at 21:13:40Z for the D1 image **lapsed on its own at ~22:13:40Z**; nothing was needed to end it.
+- **Nobody ever read the content of either object** — no download, no hash, no EXIF, by any session, at any point. The access records show only the seller's two uploads and the owner's own buyer-side views.
+
+**A's correction, recorded because it was about to become a durable premise:** A had told the owner that a service-role delete would require a key in the project's **Vault** and would therefore arm `enforce-transfer-expiry` within two minutes. **That was false.** The Vault holds `project_url` only; the service key lives in the sandbox **env file** and the storage API takes it as a request header, which creates no Vault secret. C verified this independently against `032_pre_testflight_blocker_fixes.sql:36,125` and `033_marketplace_expansion.sql:19`, where the cron and trigger auth is the Vault secret `service_role_key`. The real cost of that route was only that it would have used a key whose use the owner had deferred — a much smaller thing than the one A described. **The hazard D found remains true and unaffected:** a key placed in the **Vault** would still arm the 2-minute timer against transfers past `auto_release_at`, including Sandbox L7.
+
+**Line 3 is CLOSED as quarantined.** Held permanently unless the owner reopens them: RT6, U1, RT5-P, N1, N2, N4, DV-IMG-4's retry half, DV-IMG-10, and the HEIC conversion half. The results table above stands as the record: nothing inferred, nothing upgraded, and the two process failures — the order deviation and the missing row boundaries — recorded as failures rather than smoothed over.
