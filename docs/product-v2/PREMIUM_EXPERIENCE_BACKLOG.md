@@ -2830,3 +2830,5 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   for DV-NAV-1. Buyer sign-out → `signed_out` on the buyer's token row. A was told that the seller's sign-in on this
   install may request a proof-of-possession challenge (the token row is buyer-owned; push delivery is deferred,
   so it cannot confirm). That is expected and does not block the Keep editing rows.
+- **Build 19 step 2 (owner, 12:12 EDT):** signed out of the buyer, signed in as the seller; Home loaded; Profile shows
+  the seller. Separate sign-out and Home-load times not captured. No notice reported. Next: DV-NAV-1, swipe path.
