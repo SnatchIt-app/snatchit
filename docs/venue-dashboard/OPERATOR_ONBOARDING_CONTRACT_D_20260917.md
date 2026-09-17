@@ -357,3 +357,110 @@ and bodies identical to a replay stopped at 136; constraints identical; re-apply
 | O5 | `kernel.grant_platform_role` is **fail-closed pending PFA-4**: an approved platform-role grant always ends `rejected` | I61, I66 |
 | O6 (F-138-7) | `catalog.create_venue` writes `draft`, so a venue the console creates is **not in `list_venues(status => pending)`**, the approval queue this contract names | I41 |
 | O7 (F-138-3) | The raw invitee address is stored in `ops.action.params` and in the `action.requested` row's `after.params` in `ops.audit` (not in `kernel.admin_audit`). `authenticated` cannot select either table, but `ops.action_detail`, `ops.list_actions` and `ops.audit_log` return whole rows to **any operator at aal2**. The masked invite label and the audited contact-email read can therefore be bypassed by reading the action log | probe only; not yet a test — the pin depends on the ruling |
+
+---
+
+## Change log 3 — under the owner's rulings on the permission proposal (D, 2026-09-17; head `8ecc929`)
+
+Still applied nowhere; outside the marketplace candidate. What changed from `215694c`:
+- **Removed from the console:** `org_create`, `org_update`, `org_member_invite`, `org_member_invite_admin`,
+  `org_member_role_change`, `org_member_elevate`, `org_member_remove`, and every `platform_support` write.
+- **Added:** `org_bootstrap` (A1) and `org_owner_bootstrap_invite` (A2), the second two-person with a
+  required reason. `venue_create` now dispatches A3.
+- **Venue staff:** grants refuse any target holding platform authority.
+- **Invitee addresses:** held references are released on every terminal state.
+- **Delivery:** stays manual, through a verified channel. Nothing sends anything.
+
+### Amendment text for the owner's signature — PFA-33 (proposed id; A places it in `_governance/POST_FREEZE_AMENDMENTS.md`)
+
+```
+ID:                          PFA-33 (proposed)
+FROZEN RULES AFFECTED:       RPC §2.1–2.5 (organisation verbs are org-plane: create_organization makes the caller the
+                             first org_owner; roster verbs require has_org_role; accept_org_invite binds to the
+                             addressed invitee) and RPC §3.1 (create_venue requires has_org_role).
+WHY:                         the operator console must onboard a customer organisation without the operator becoming a
+                             member of it. kernel is API-exposed and authenticated may execute the roster verbs, so any
+                             operator holding an org role can bypass console two-person approval by direct RPC (proposal
+                             F3–F4).
+OWNER RULINGS (verbatim, 2026-09-17, in chat to D):
+  1. "Approve the proposed platform-assisted bootstrap flow and the A1–A4 contract amendments for implementation and
+     review. Creating an organization must not make the operator its owner. The customer gains ownership by accepting
+     the invitation."
+  2. "Remove the seven organization-management console actions identified in §3.1 and support's write permissions."
+  3. "Support retains authorized reads and the two audited contact reveals, with the stated purpose restrictions.
+     Organization membership must not be a workaround for support access."
+  4. "Customer roster management stays on the customer side. Preserve the existing role restrictions and maturity
+     rules; do not introduce single-person platform elevation."
+  5. "Use manual invite delivery through a verified channel initially. This approves the workflow design, not sending a
+     particular invitation or enabling outbound notifications."
+  6. "Implement cleanup of held invite addresses when an action becomes terminal. Document that untouched expired
+     requests remain retained under lazy expiry, and propose bounded cleanup for those separately. Do not enable a new
+     scheduled job under this instruction."
+  7. "Approve A4: refuse customer-organization invitation acceptance by identities holding platform authority,
+     including the bootstrap admin path. Test the email-change sequence A and D reproduced. Also identify other
+     membership-creation paths so the broader 'operators are never members' claim is not inferred from this acceptance
+     guard alone."
+  8. "Record server-log exposure as unverified. Prepare the exact logging-settings read scope separately; no
+     production read is authorized here."
+  Also: "Require explicit per-function privilege revokes and tests covering the identified catalog and service-role
+  gaps. Preserve PFA-4 and two-person approval."
+AMENDMENT:
+  A1 kernel.bootstrap_organization(legal_name, display_name, command_key) — platform_admin; organisation at 'applied'
+     with NO org_member row; admin_audit org.create reason 'platform_bootstrap'.
+  A2 kernel.invite_bootstrap_owner(org_id, invitee_ref, command_key) — platform_admin; runs as the APPROVER of the
+     two-person console action; refuses a closed organisation, an organisation with an org_owner, a pending org_owner
+     invite, the caller as invitee, and an invitee holding platform authority; writes a pending org_owner invite;
+     admin_audit reason 'platform_bootstrap_owner'.
+  A3 catalog.bootstrap_venue(org_id, name, neighborhood, address, command_key) — platform_admin; draft venue for an
+     approved/active organisation; admin_audit venue.create reason 'platform_bootstrap'.
+     DEVIATION FROM THE APPROVED WORDING ("a platform_admin arm on catalog.create_venue"): a separate verb, because
+     create_venue carries authenticated EXECUTE by frozen contract and an arm inside it could not be console-only
+     (principle 4). create_venue's body and grants are unchanged and pinned (206 I86).
+  A4 kernel.accept_org_invite — 077's body plus one refusal: an identity for which
+     kernel.is_platform(platform_admin, platform_support, platform_risk) holds (including the public.admin_users
+     bootstrap) cannot accept. Grants unchanged (206 I87).
+  Console-only: A1–A3 revoked from public, anon, authenticated and service_role, asserted per function (206 I84). The
+  service_role gap is closed PER FUNCTION for these verbs, not schema-wide (service_role holds intended grants
+  elsewhere). The catalog gap: 206 I85 asserts zero PUBLIC/anon EXECUTE on any catalog function.
+UNCHANGED:                   the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B maturity, PFA-4 (platform-role
+                             grants fail-closed, 206 I63–I65), 118's approval machinery and approval_sod_ck.
+SECURITY IMPACT:             strictly narrowing for operators; no new single-person path to any organisation role.
+OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how the owner signs.
+```
+
+### Membership-creation paths (ruling 7) — so "operators are never members" is not inferred from A4 alone
+| Path | Writer (source) | State at 8ecc929 |
+|---|---|---|
+| (a) accepting an invite | `kernel.accept_org_invite` (077:1147) | **closed by A4**; email-change sequence refused (I36); support (I37) and admin_users bootstrap (I38) refused |
+| (b) creating an organisation directly | `kernel.create_organization` (077:811), authenticated over RPC | **OPEN** — a platform identity becomes org_owner (pinned I89–I90). Proposed **A5**: refuse it for identities holding platform authority (they use A1). Needs the owner's word |
+| (c) venue staff | `venue.grant_staff_role` (080:224), platform_admin arm | **closed at the console** (I57–I59). STANDING CONDITION: `venue` is not API-exposed; if it ever is, the refusal must move into the verb by amendment |
+| (d) platform authority granted to an existing member | `grant_platform_role` (fail-closed, PFA-4); an `admin_users` insert by SQL | **not closed by any guard**. PFA-4 keeps the first shut. The second is out-of-band. Proposed: a read that lists identities holding both platform authority and any org/venue role, as a detector, not a control |
+| (e) out-of-band SQL | postgres / service_role writes | outside any in-database control; covered only by access policy and the (d) detector |
+Role changes of existing members (`change_org_role`, 077:1244) confer no membership and stay customer-side.
+
+### Lazy-expiry retention and a bounded cleanup proposal (ruling 6)
+The terminal-state trigger releases a held address on succeeded, succeeded_at_provider, failed, unknown or rejected
+(206 I67–I73). **An expired request nobody touches keeps its reference** (I71), because only `approve_action` writes
+expiry. Proposed separately, NOT built:
+- an operator-invoked `ops.release_expired_invitee_references(p_dry_run boolean default true)`: platform_admin at aal2,
+  audited.
+- It lists (dry run), or marks rejected, actions whose pending approval has `expires_at` older than a bound (for
+  example 7 days past expiry). The existing trigger then releases their references.
+- No schedule. Each run is a person's decision, dry-run first.
+
+### Server logs (ruling 8)
+Server-log exposure of request parameters is **unverified**. Stock PostgreSQL does not log bind parameters on error,
+and PostgREST binds the request body, but the project's settings have not been read. A has prepared the read scope
+(`SERVER_LOG_SETTINGS_READ_SCOPE_20260917.md`). No production read is authorized.
+
+### Evidence at 8ecc929
+Local:
+- fresh replay Gate-2 32|107|37|38
+- every pgTAP file: 87 files, 0 not-ok, 0 errors (5393 assertions)
+- 206 = 136
+- census pins updated with named additions in ten suites
+- 28 mutants, 28/28 on written predictions. Four prediction errors (a test dependency I missed each time) and one
+  fixture dependency (I83) are recorded in the harness.
+- rollback identical to an exact no-138 replay across ops/kernel/catalog/venue functions (bodies and ACLs), tables,
+  triggers and constraints; `accept_org_invite` restored byte-identical to 077; re-apply identical.
+CI: recorded when green.
