@@ -526,7 +526,7 @@ Evidence (local):
 CI: run 35249486531 at 0cfa8ba succeeded on all five jobs. pgTAP footer: Files=88, Tests=5403, Result: PASS; 206 ok
 (5399 + the 4 new assertions, as predicted).
 
-## Change log 4 — the owner's rulings after PFA-33 (D, 2026-09-17; head `d5fb9ae` on `ops/138-operator-onboarding`)
+## Change log 4 — the owner's rulings after PFA-33 (D, 2026-09-17; head `5960b51` on `ops/138-operator-onboarding`)
 
 ### The owner's rulings (verbatim, in D's conversation; also received by A directly)
 > I approve and sign PFA-33 at governance commit bf7fd66, amendment checksum 2da381a1… . Record the signed block exactly
@@ -545,7 +545,7 @@ CI: run 35249486531 at 0cfa8ba succeeded on all five jobs. pgTAP footer: Files=8
 > work independently. DV-ST2b may run before Line 3, but Line 3 remains a separate irreversible authorization and must
 > not start until I explicitly say "ready for Line 3."
 
-### What changed at d5fb9ae
+### What changed at d5fb9ae (code) and 5960b51 (test output only)
 - **A5 (ruling 2).** `kernel.create_organization` is 077's body plus one refusal. An identity for which
   `kernel.is_platform(platform_admin, platform_support, platform_risk)` holds, including the `public.admin_users`
   bootstrap, gets `42501 insufficient_privilege: platform_authority`. Operators create through `org_bootstrap` (A1).
@@ -594,7 +594,7 @@ CI: run 35249486531 at 0cfa8ba succeeded on all five jobs. pgTAP footer: Files=8
 - **Header correction.** The 8ecc929 and 0cfa8ba headers said "SEVEN OBJECTS REDEFINED" but listed six. With
   create_organization the count is seven and the list matches.
 
-### Evidence at d5fb9ae
+### Evidence at 5960b51
 Local:
 - RED, written first, on 0cfa8ba's code: A5 (I89, I90, I103–I105, I107), I111 and A6 (I118, plus the I119–I122
   cascade: without A6 the sole owner was demoted) failed. The detector did not exist.
@@ -618,7 +618,16 @@ Local:
 - Rollback: identical to an exact no-138 replay (functions 352, tables 50, triggers 51, ops.action constraints 9).
   accept_org_invite is a7bd0984…, create_organization is 11a046a6…, both with ACL
   `{postgres=X/postgres,authenticated=X/postgres}`. Re-apply is identical (368 functions).
-CI: pending.
+- The 14 mutants were re-run on 5960b51's suite text: 14/14.
+- Every local pgTAP output was parsed with TAP::Parser, the parser pg_prove uses: 87 files, tests_run 5428, no
+  failures, no parse errors.
+CI:
+- d5fb9ae, run 35255295038: FAILED. 206 reported "Tests: 173, Failed: 170-171" against plan 171. Two unasserted setup
+  calls returned the text `ok`, which pg_prove counts as tests. The local runner counts only numbered lines, so it
+  passed. Reproduced by parsing the local output with TAP::Parser (tests_run=173, failed 170,171).
+- 5960b51 prefixes every unasserted setup call with `setup: `. No assertion changed.
+- 5960b51, run 35255707849: succeeded on all five jobs. pgTAP Files=88, Tests=5434, Result: PASS; 141 ok, 206 ok.
+  That is 5403 + 31 (206: 140 → 171).
 
 ### Follow-on amendment text (proposed; A assigns the ID and places it; the owner signs by the recorded method)
 ```
@@ -642,13 +651,13 @@ AMENDMENT:
      owner authorizes for that project.
 UNCHANGED:                   PFA-33 A1–A4 and its LIMIT; the tier guard, I-11, AUTHZ-C1B maturity; the invite verb;
                              acceptance for non-owners (the upsert's other effects are recorded as facts, not changed).
-IMPLEMENTED AT:              ops/138-operator-onboarding @ d5fb9ae — migration 138 (unapplied, outside the marketplace
+IMPLEMENTED AT:              ops/138-operator-onboarding @ 5960b51 — migration 138 (unapplied, outside the marketplace
                              candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
 OWNER SIGNATURE REQUIRED:    YES.
 ```
 
 ### Apply-package inputs (D → A; A assembles the package and brings it to the owner; nothing here authorizes anything)
-1. **Artifact.** `supabase/migrations/138_ops_operator_onboarding.sql` @ d5fb9ae. It is one transaction, and its
+1. **Artifact.** `supabase/migrations/138_ops_operator_onboarding.sql` @ 5960b51 (the migration is unchanged since d5fb9ae). It is one transaction, and its
    in-file sanity block aborts the whole migration on any mismatch, so a failure leaves nothing applied. Rollback:
    `supabase/rollbacks/138_ops_operator_onboarding_rollback.sql`. It restores code, not data. It refuses rather than
    narrowing the CHECK constraints if rows with a 138 action_type exist.
