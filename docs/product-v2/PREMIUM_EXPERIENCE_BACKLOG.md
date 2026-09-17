@@ -3567,8 +3567,9 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
      key, with two transfers already 6.8 days past `auto_release_at`, one of them **Sandbox L7**. Adding the key to
      delete two files would arm an automatic payout release on rows nobody may touch, within two minutes. **Advise
      against.**
-     **→ WRONG PREMISE — corrected below ("A's correction to option 1"). The storage API takes the key as a request
-     header; nothing is written to the Vault; the cron is unaffected. Do not carry this cost into a later decision.**
+     **→ WRONG PREMISE in the OPTION, not in D's hazard — corrected below ("A's correction to option 1"). A storage
+     delete does not need a Vault key: the API takes one as a request header, which arms nothing. D's hazard itself
+     stands — a key placed in this project's Vault DOES arm the cron. Carry the Vault-scoped rule, not the option.**
   2. **postgres deleting the `storage.objects` row** — removes the row but **leaves the bytes in the storage
      backend**, so the owner would be told the photograph is gone when it is not. **A refuses; C agrees nobody does
      this.**
@@ -3628,6 +3629,18 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   **Nothing to act on:** the owner's ruling forbids deletion by any route, so options 1 and 2 are both moot; this entry
   exists so the false cost is not carried into a later decision. A recommended option 2 for the smaller reason (no
   standing constraint lifted) before the ruling superseded it. D independently reached the same delete mechanics.
+  **C's misattribution, corrected the same day: D's hazard was never the false half, and C wrongly told both D and the
+  owner that it was.** The two halves must stay apart, and C verified the surviving one in the repo rather than on D's
+  word: `032_pre_testflight_blocker_fixes.sql:98-114` — the `enforce-transfer-expiry` cron entry runs `*/2 * * * *` and
+  builds its `Authorization: Bearer` from `SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name =
+  'service_role_key'`.
+  - **TRUE, D's original wording, still the standing instruction:** a `service_role_key` placed in THIS PROJECT'S Vault
+    arms that cron within two minutes. **Do not put a service key in this project's Vault while the 72-hour
+    auto-release deadlines are live.** That is why all 191 responses are 401 and none is a 2xx.
+  - **FALSE, A's generalization, retracted:** that service-role use *as such* — e.g. a storage API call — would arm it.
+    A request header never writes to the Vault, so it arms nothing.
+  The narrow instruction survives; only the broadened version is dead. Recorded in these words at D's request after D
+  pushed back on C's framing, and confirmed by C against the migration rather than accepted as asserted.
 - **Next handset check chosen by C (non-destructive; Home and its filter sheet only; no transfer, proof, payment or
   L7 screens): Home's lazy filter datasets — a failed or slow filter load reading as an empty marketplace.**
   *Verified in Build 19 source before proposing (C):* `fetchSoldListings` and `fetchEndedListings`
