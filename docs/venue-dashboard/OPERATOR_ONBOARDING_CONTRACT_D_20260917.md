@@ -818,9 +818,15 @@ with the census baselines re-taken first.
 > 6. Extend the detection read to include platform identities holding venue-staff roles. Carry the deferred test split
 >    with that change and send the revised head for review.
 
-PFA-34 is therefore SIGNED at governance `b7895bb`, block md5 `026cb858319bc7c0181e1dad01e23ef1` (2726 bytes, 27
-lines), verified by D against that commit. Signing does not authorize applying 138, and no production apply is
-authorized.
+**PFA-34's signature status is UNRESOLVED and is treated here as NOT SIGNED.** Two owner statements conflict, and
+both are recorded rather than reconciled by D:
+- to D, 2026-09-17: "I sign PFA-34 at governance commit b7895bb, checksum 026cb858… . Record the amendment exactly;
+  signing does not authorize applying migration 138."
+- to A, the same day, as A reports it: "Keep PFA-34 proposed and unsigned until I explicitly approve its checksum."
+The governance file at `b7895bb` says PROPOSED, NOT SIGNED, and A has not changed it. D takes the conservative state:
+unsigned. Nothing D holds depends on the signature — applying 138 is separately barred either way — so the only action
+needed is the owner's own word on which statement stands. D verified the block itself against `b7895bb`: md5
+`026cb858319bc7c0181e1dad01e23ef1`, 2726 bytes, 27 lines.
 
 ### Ruling 6 implemented, held locally
 `ops.list_platform_identity_memberships()` now returns
@@ -842,7 +848,7 @@ the away-period scope to "migration 138/PFA-34 documentation review only". It go
 returns.
 
 ### Documentation finding: PFA-34's D1 clause and ruling 6 diverge
-PFA-34, as signed, says D1 lists "platform identities holding organisation membership". Ruling 6 widens the detector to
+PFA-34, as placed (unsigned — see above), says D1 lists "platform identities holding organisation membership". Ruling 6 widens the detector to
 venue staff. The moment the head above lands, the signed amendment and the implementation will disagree about D1's
 scope. That is a governance item, not a code defect, and it needs the owner's signature either way.
 
@@ -856,7 +862,16 @@ Proposed replacement clause, for A to place as an erratum to PFA-34 or as its ow
      organisation or venue id. Running it against any hosted project is a read the owner authorizes for that project.
 ```
 
-Until that is placed and signed, the contract records the divergence rather than papering over it.
+Because PFA-34 is unsigned, this is a correction to a proposed text rather than an erratum to a signed one: A replaces
+the clause, the placed checksum changes, and the owner approves that checksum. The contract records the divergence
+rather than papering over it.
+
+**A second conflict of the same kind, also unresolved and also recorded rather than acted on:** the owner told D
+"Extend the detection read to include platform identities holding venue-staff roles… and send the revised head for
+review" (ruling 6), and told A "Prepare the remaining proposal decision about whether the membership detector should
+include venue-staff roles. Do not expand the detector or run any hosted read yet." D's implementation of ruling 6 is
+finished but held locally at `1cacdf5`, unpushed, with no CI run, so nothing lands until the owner reconciles the two.
+A has recorded the decision as still open, not taken.
 
 ### Away-period scope (owner, 2026-09-17)
 > Finish the independent DV-ST2b after-read and API-log evidence when A's ten-minute window completes. Confirm the
