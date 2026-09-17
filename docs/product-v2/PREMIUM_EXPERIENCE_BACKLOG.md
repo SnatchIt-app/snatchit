@@ -3722,3 +3722,29 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
     pulls while offline sees a spinner and then the same false "nothing sold yet".
   - **Severity language agreed with A, replacing "sees real state":** the main feed *never claims emptiness, may be
     stale, and says so when it cannot read* (`:191-197` classifies its own failures).
+- **F-HOME-1 stickiness run, 2026-09-17 — TWO CONFIRMED SCREEN STATES, RECOVERY PATH UNCAPTURED.** Owner-reported with
+  two screenshots, Build 19, sandbox buyer, Larger Text on.
+  - **6:46 PM Eastern, Airplane Mode on (status bar shows the airplane glyph, no Wi-Fi or cellular):** Home with
+    FILTERS 1 active, Recently sold → "NOTHING SOLD YET" / "Completed sales show up here." Empty body, no error text,
+    no banner, no Retry, no spinner. **Confirms the 5:57 PM observation a second time.**
+  - **6:47 PM Eastern, connectivity restored (status bar shows cellular bars and Wi-Fi):** the same screen, same
+    FILTERS 1, now populated with sold listings — Device D6 and Device D1 visible ("SOLD", "Club Device", "SOLD FOR
+    $110 all in"), D2 and D3 below.
+  - **UNCAPTURED, and NOT to be inferred — the owner said so explicitly and C is recording it that way:** whether the
+    screen recovered on its own, after a pull-to-refresh, or after switching filters; and the exact recovery moment.
+    The screenshots establish two end states one minute apart, nothing about the transition between them.
+  - **C's committed prediction (7dcdf22, refined e9dd55f) is therefore NEITHER CONFIRMED NOR REFUTED.** It predicted
+    no self-recovery while the filter stays applied, with recovery on a pull or a re-selection. This run cannot
+    distinguish those, because the interaction sequence was not captured. **The prediction stands UNTESTED.** It is
+    not evidence, and must not be quoted later as though the 6:47 screenshot supported it.
+  - **A's severity claim "lowers severity a notch" is WITHDRAWN** (A, cc409b6), with C's inversion as the reading that
+    stands: a pull-to-refresh while still offline ends its spinner on the same settled empty copy, so the gesture a
+    user reaches for when a list looks wrong is the one that most convincingly confirms the lie. A's earlier "sees real
+    state" was also withdrawn, replaced by: the main feed never claims emptiness, may be stale, and says so when it
+    cannot read.
+  - **What this run settles:** the defect itself, twice observed. **What it leaves open:** stickiness and the
+    slow-network premature-empty path, both UNTESTED.
+  - **C's recommendation: do not spend another handset run on the stickiness half.** The fix is identical either way —
+    the two filter datasets need a loading state, a classified failure state and row preservation, exactly F-BIDS-1's
+    pattern — so the answer would change the urgency ranking, not the code. Behavioural tests can pin both recovery
+    paths off-device, since `onChipTap`, `onFiltersApply` and `onRefresh` are all reachable in the existing harness.
