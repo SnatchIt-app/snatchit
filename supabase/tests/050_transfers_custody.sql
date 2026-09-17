@@ -8,7 +8,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(18);
+SELECT plan(20);
 SELECT tap.seed_core();
 
 -- ── Read scoping ────────────────────────────────────────────────────────────
@@ -95,10 +95,26 @@ SELECT ok((SELECT auto_release_at IS NOT NULL FROM public.transfers WHERE id = t
   'mark_transfer_sent armed the 72h auto-release clock');
 
 SELECT tap.login(tap.seller());
-SELECT throws_ok(
-  $$ SELECT public.mark_transfer_sent(tap.transfer_a(), tap.seller()) $$,
-  'P0001', 'Transfer cannot be marked as sent from current status: seller_sent.',
-  'mark-sent is not replayable (state guard)');
+-- 140 CHANGED THIS DELIBERATELY. Until 140 a replay RAISED, which meant a lost
+-- HTTP response was shown to the seller as a failure on a transfer that had in
+-- fact been sent. The invariant this assertion exists to protect is that the
+-- state is not REPLAYED — not that the caller is punished for asking twice. So
+-- the verb now answers `already_sent` and writes nothing, and the test pins both
+-- halves: the answer, and that the recorded seller_sent_at did not move.
+CREATE TEMP TABLE _sent050 AS
+  SELECT t.seller_sent_at, t.transfer_evidence_path FROM public.transfers t WHERE t.id = tap.transfer_a();
+SELECT is(
+  (SELECT public.mark_transfer_sent(tap.transfer_a(), tap.seller()))->>'outcome',
+  'already_sent',
+  'mark-sent replays as already_sent (140) — a lost response is no longer reported as a failure');
+SELECT is(
+  (SELECT t.seller_sent_at FROM public.transfers t WHERE t.id = tap.transfer_a()),
+  (SELECT seller_sent_at FROM _sent050),
+  'and the state is NOT replayed — seller_sent_at is untouched by the retry (the invariant this test has always protected)');
+SELECT is(
+  (SELECT t.transfer_evidence_path FROM public.transfers t WHERE t.id = tap.transfer_a()),
+  (SELECT transfer_evidence_path FROM _sent050),
+  'and accepted proof is NOT replaced by the retry either — the other half of "not replayed" (D)');
 
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
