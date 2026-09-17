@@ -4,7 +4,7 @@
 -- caller's own security-type rows, and are callable by authenticated only.
 -- Runs as postgres inside BEGIN … ROLLBACK like every suite here.
 BEGIN;
-SELECT plan(28);
+SELECT plan(35);
 
 -- ── A. shape and grants ──────────────────────────────────────────────────────
 SELECT has_function('public', 'get_my_security_notices', ARRAY[]::text[],
@@ -85,6 +85,34 @@ SELECT is(public.mark_security_notices_read(ARRAY[public._sec203()]), 0,
   'E4: acknowledging again updates 0 (idempotent)');
 SELECT is(public.mark_security_notices_read(NULL), 0,
   'E5: NULL ids → 0, no error');
+SELECT tap.logout();
+
+-- ── G. pagination (E-160) and the input bound ────────────────────────────────
+-- 60 newer non-security rows push the security notice onto get_inbox's SECOND page; it must still come back (no cap,
+-- no silent truncation), and the cursor must not skip it (created_at defaults to clock_timestamp(): no keyset ties).
+SELECT tap.login(tap.buyer());
+SELECT is(public.mark_security_notices_read(ARRAY[public._sec203()]), 0, 'G0: (setup) the notice is already read from E — re-acknowledging returns 0, not an error');
+SELECT tap.logout();
+SELECT count(*) FROM (SELECT notify.enqueue(tap.buyer(), 'purchase_failed', 'payment', gen_random_uuid(), '{}'::jsonb, NULL) FROM generate_series(1, 60)) g;
+SELECT tap.login(tap.buyer());
+SELECT is((SELECT count(*) FROM notify.get_inbox(NULL, 50) i WHERE i.type_key = 'security_device_rebound'), 0::bigint,
+  'G1a: the security notice is NOT on the first inbox page any more (60 newer rows above it)');
+SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 1::bigint,
+  'G1: ...and the wrapper still returns it — it pages until every counted security row is found; a 50-row or 200-row cap would have hidden a mandatory notice');
+SELECT is((SELECT id FROM public.get_my_security_notices()), public._sec203(),
+  'G1b: ...the same row, by id');
+SELECT tap.logout();
+-- a second, UNREAD security notice (a different token's dedupe key) to exercise the input bound with a discriminating case
+CREATE TEMP TABLE _n203b AS
+SELECT notify.enqueue(tap.buyer(), 'security_device_rebound', 'account_security', gen_random_uuid(),
+                      '{"device_name":"iPad 203"}'::jsonb, 'test-203-rebound-2') AS sec2_id;
+CREATE FUNCTION public._sec203b() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$ SELECT sec2_id FROM pg_temp._n203b $$;
+SELECT tap.login(tap.buyer());
+SELECT is((SELECT count(*) FROM public.get_my_security_notices()), 2::bigint, 'G2a: both security notices are returned (the new one is newest-first on page 1, the old one on page 2)');
+SELECT is(public.mark_security_notices_read((SELECT array_agg(gen_random_uuid()) FROM generate_series(1, 100)) || ARRAY[public._sec203b()]), 0,
+  'G2: p_ids is bounded to its first 100 elements — an unread security id at position 101 is NOT considered (0)');
+SELECT is(public.mark_security_notices_read(ARRAY[public._sec203b()]), 1,
+  'G3: ...and the same id within the bound is marked (1) — the bound, not the scope, produced the 0 above');
 SELECT tap.logout();
 
 -- ── F. the copy pin (owner-corrected meaning lives in the server template, one source for web and mobile) ─
