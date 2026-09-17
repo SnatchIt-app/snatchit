@@ -3395,3 +3395,19 @@ Most of the app is already tested; close the remaining gaps efficiently.
     disabled-in-render and guarded-in-handler fail differently under a fast double tap.
   These match C's mutation discipline and will be used if the owner authorizes any of it. B will not touch a screen
   the handset pass is on, and asks to be given the item and constraints rather than guessing scope.
+- **A's boundary read before the pass (2026-09-17T20:55:11.785Z), from A's own query, not from the owner's remark:**
+  92ee5156 "Device D6" pending, delivery set, no evidence (md5 198c9918…); bce07eef "Device D2" pending, set, none
+  (4116ee1a…); 3118bd30 "Device D1" pending, set, none (17a9dddb…); 8f59d37e "Sandbox S8only" seller_sent, delivery
+  NULL (irrelevant to Add proof), none (c74e9fd0…); 83b83858 "Sandbox L7" untouched, seller_sent, none (d1b36045…).
+  Three transfers carry delivery info and **0 remain eligible for the fixture, so it cannot fire twice**;
+  notifications 105; queue 0; 2xx 0.
+- **Step 5's expected write, agreed in advance:** when the owner switches to the buyer and opens the D1 transfer, that
+  writes a `transfer_viewed` notification to the seller. It is recorded now as an EXPECTED and ACCEPTED consequence of
+  a step the owner put in scope ("HEIC handling and buyer display"), so it won't read as an unexplained increment.
+  C tells A exactly which transfers the owner opens; **a `transfer_viewed` for a transfer they did NOT open remains a
+  stop condition.**
+- **A's per-row boundary reads:** the row's full state and md5, the object's name and metadata (size, mimetype, eTag),
+  the `buyer_confirmation_needed:<id>` dedupe count, notifications, queue and 2xx. For DV-IMG-9, A additionally pulls
+  the stored bytes and applies the fixed decision rule — and needs the owner's **Camera › Formats** setting BEFORE
+  that row, or the conversion half is UNTESTED by rule.
+  A has nothing pending: N3 done, fixture written, boundary read taken. **Only D's post-read is outstanding.**
