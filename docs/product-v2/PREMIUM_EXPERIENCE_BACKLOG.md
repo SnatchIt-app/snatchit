@@ -2609,3 +2609,14 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   before-read → **A holds the revoke until C relays that the owner is ready** → revoke (the T+360 s watchdog
   starts) → the owner's no-preload observation (ST2a: force-quit, reopen, Bids) → A restores + verifies → D's
   after-read must match the before-read. ST2b (cached rows stay) UNTESTED: the buyer has 0 bid rows.
+- **DV-ST2 window (2026-09-17).** A's fresh capture 15:24:39Z (md5 5365050…, identical to 04:41:57Z; B and A
+  confirmed quiet); D's before-read 15:25:09Z agrees; the owner said ready; **revoke 15:26:11Z** (`revoke select on
+  table public.bids from authenticated`; authenticated select=false, insert/update/delete unchanged; watchdog
+  armed for ≈15:32:11Z). C told the owner GO.
+  **Observation (the owner's screenshot, handset 11:26, no text sent):** online (Wi-Fi and cellular, no airplane
+  icon); the "YOUR BIDS" heading clear below the SANDBOX badge; an amber warning glyph in a ringed disc;
+  **"COULDN'T LOAD THIS" / "Something went wrong on our side. Try again in a moment."** with a red RETRY; the dock
+  with Bids selected. **Not the offline copy.** Matches Build 18 `loadState.ts` error copy. *Not stated by the
+  owner, asked:* whether the app was force-quit and reopened first (ST2a no-preload) and whether Retry was
+  tapped. The screenshot alone shows neither. C sent A RESTORE NOW on receipt; restore, verify and D's
+  after-read pending.
