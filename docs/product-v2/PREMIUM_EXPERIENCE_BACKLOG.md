@@ -2586,3 +2586,11 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   the offline state is reported for Home only, not for the other four.** Profile's offline branch renders the
   state view without its header, so it stays unconfirmed there. Retry not tapped. Airplane Mode left ON.
   Remaining DV-ST1: Airplane Mode off → the screen retries by itself.
+- **DV-ST2 readiness (D, 2026-09-17, before C's trigger):** witness live (d_st2_witness.sh md5 acd1d6d1…,
+  read-only; target checked without connecting: sandbox ref present, production ref absent; refuses phases
+  other than before/after; never overwrites an earlier file; no ST2 witness file yet; the sandbox NOT read before
+  the trigger). D's acceptance kit idle; nothing of D's running against the sandbox; no other D window open. D's
+  sequence for A: trigger → A's fresh capture → D's before-read (UTC + md5) → A revokes → owner observes → A
+  restores + verifies → D's after-read. The window closes only when the after-read matches the before-read; a
+  mismatch stops everything until A investigates. A to confirm nothing of A's or B's is running at the trigger.
+  **Trigger not sent.** It goes to A when the owner reaches DV-ST2 (after DV-ST1 step 2).
