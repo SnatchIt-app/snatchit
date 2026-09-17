@@ -74,3 +74,16 @@ Without reading secret values, and without sending a test alert, none of the fol
 ## 5. If the owner authorizes only part of it
 The cheapest falsifying subset is **R10 with R9** (does any admin device exist to receive the push?) and **R7** (are the email
 secrets set at all?). Those three can show the alarm is impossible today. They cannot show it is possible.
+
+---
+
+## 6. CORRECTIONS (owner, 2026-09-17) — three claims in §2 and §5 above were too strong
+The text above is preserved as the owner reviewed it (packaged verbatim as §B of `SIGNING_MONITOR_ALERT_CHECK_OWNER_REVIEW.md`, converge `4115b42`). **These corrections govern; where they conflict with §2 or §5, they win.** All three are cases of a read establishing less than the sentence around it claimed.
+
+1. **Successful monitor cron runs do NOT establish that monitoring is currently enabled.** §2's R2/R3 entry leaned on the runs as corroboration. They are not evidence of the flag's state: a job can run and return clean for reasons unrelated to whether alerting is switched on. The separate evidence is the **config value** — which these reads deliberately do not fetch — together with the **C5/C6 execution records**. Report the runs as "the job executes on its schedule and its recent runs succeeded", nothing more.
+2. **Missing sender cron jobs do NOT establish the absence of every possible sender.** §2's R5/R6 entry said the rail's sender "really is absent by construction". R6 shows only that two *named* jobs are not scheduled. The absence must be argued from **separate, cited source and config evidence** — the senders are unauthored in the tree, `notify.delivery_lease_interval` is seeded null, and PFA-22 makes the claim fail closed — each stated as its own item, not folded into the cron read.
+3. **If R10 is zero the finding is "the admin push route lacks recipients", NOT "every channel is impossible".** §5's "those three can show the alarm is impossible today" overreaches: it speaks only to the push route, and says nothing about email or any other path. Correct the scope in any report.
+
+**And a standing one that applies to every line of the result:** nothing is to be inferred from successful runs, or from the absence of short-lived log rows, about whether an alert has **ever fired**. `net._http_response` is a ~6-hour cache; absence there is not history.
+
+**Execution status:** the owner authorized R1–R10 as packaged, **executed by A with B witnessing**. B executes nothing, and B has made no production read. B's witness duty is to receive A's exact statements and each result with its timestamp and check them against this file — not to pre-approve them.
