@@ -140,7 +140,7 @@ SELECT ok(NOT has_table_privilege('authenticated','kernel.door_freeze_override',
 
 -- function closed world + EXEC classes
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'kernel'), 157,
+           WHERE n.nspname = 'kernel'), 159,
   -- 2026-09-03 (package 095, payout state machine): 125 -> 132. SEVEN added, zero removed
   -- (get_payout_execution_context was RE-CREATED body-only by 095 E-6, not added). The seven:
   -- guard_payout_org_payable and guard_settlement_forward_only (the two new trigger functions —
@@ -172,14 +172,14 @@ SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.
   -- 2026-09-03 (package 096): +9 (payout reversal + obligation recovery). 097/098: +0 (body-only
   -- re-creates). 2026-09-03 (package 099): +1 (check_signing_key_invariants). 136 -> 146 -> 147 -> 148,
   -- re-derived from the live catalog, not accepted as a delta.
-  'A32: kernel holds EXACTLY 157 functions [131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (111''s three + 109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one + 110''s one)');
+  'A32: kernel holds EXACTLY 159 functions [138 +2 kernel: bootstrap_organization, invite_bootstrap_owner] [131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch] (111''s three + 109 post-090 + 093''s sixteen + 095''s seven + 094''s four + 096''s nine + 099''s one + 102''s one + 105''s one + 109''s one + 110''s one)');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-           WHERE n.nspname = 'catalog'), 17,
+           WHERE n.nspname = 'catalog'), 18,
   -- 2026-09-02 (package 088): 15 -> 16 (cancel_event, FR-2b).
   -- 2026-08-31 (package 081): 10 -> 11 (publish_event, SEAM-1).
   -- 2026-09-01 (package 086): 11 -> 15 (engage_door_freeze, set_session_door_schedule,
   -- sweep_implicit_door_freezes, tg_door_open_at_is_ledger_head).
-  'A33: catalog holds EXACTLY 17 functions (15 post-086 + 088''s cancel_event + 109''s tg_session_terminal_force_close)');
+  'A33: catalog holds EXACTLY 18 functions (15 post-086 + 088''s cancel_event + 109''s tg_session_terminal_force_close + 138''s bootstrap_venue)');
 SELECT ok(has_function_privilege('authenticated','kernel.is_transfer_frozen(uuid)','EXECUTE'),
   'A34: is_transfer_frozen EXEC authenticated — the RN eligibility boolean (RLS §11.4)');
 SELECT ok(has_function_privilege('authenticated','catalog.update_event_session(uuid, jsonb, text)','EXECUTE'),

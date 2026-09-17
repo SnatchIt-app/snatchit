@@ -92,8 +92,8 @@ SELECT is((SELECT provolatile FROM pg_proc WHERE oid = 'venue.get_door_manifest_
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='venue'), 87,
   -- 2026-09-05 (package 114): 85 -> 87 (+2 M1 door read + manifest signing context).
   'A8: venue holds 87 functions — 83 post-108 + 113''s core and machine entrypoint + 114''s two');
-SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 305,
-  'A9: five-schema routine census 305 (292 post-111 + 113''s two + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
+SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('kernel','venue','catalog','market','notify')), 308,
+  'A9: five-schema routine census 308 (138 +3: kernel.bootstrap_organization, kernel.invite_bootstrap_owner, catalog.bootstrap_venue; 292 post-111 + 113''s two + 114''s two = 296; 131 +4 kernel: invalidate_push_bindings_for, trg_push_bindings_on_password_change, trg_push_bindings_on_sessions_gone, push_session_predates_epoch; 135 +3 notify: issue_push_token_challenge, get_push_token_challenge, record_push_token_challenge_delivery; 139 +2 notify: claim_report_delivery, release_report_delivery)');
 
 -- ── B. valid bound device — full + incremental sync, identical to the staff read ──
 SELECT tap.login_service();

@@ -1,103 +1,74 @@
 -- =============================================================================
 -- 138_ops_operator_onboarding.sql — the operator-onboarding surface: the console
--- can SEE organisations, venues, members and staff, and can ACT on them only
--- through the existing audited, role-gated, approval-capable action framework.
+-- can SEE organisations, venues, members and staff, and can ACT only through the
+-- existing audited, role-gated, approval-capable action framework — and operating
+-- the platform never makes an operator a member of a customer organisation.
+-- Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md.
+-- Design: docs/venue-dashboard/OPERATOR_PERMISSION_PROPOSAL_D_20260917.md (rev 2),
+-- ruled by the owner 2026-09-17; amendment text PFA-33 (proposed).
 --
--- WHY. Every onboarding verb already exists (077 kernel, 078 catalog, 080 venue)
--- and half of them are unreachable from a browser: catalog and venue are NOT
--- PostgREST-exposed and stay that way. `ops` meanwhile holds NO organisation,
--- venue, staff or event read at all, so the console cannot list an organisation
--- and therefore cannot offer one to act on. The write side was finished; the read
--- side did not exist. Bespoke screens calling the verbs directly would bypass the
--- console's own two-person approval, role gating and audit trail — the machinery
--- every other privileged console action already goes through. Contract:
--- docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md.
+-- TWO PLANES. Platform operators act on the platform plane (organisation status,
+-- venue lifecycle, approvals, audited reads). Customer organisation members act on
+-- their own roster through the frozen org-plane verbs (077), with the tier guard,
+-- I-11 and AUTHZ-C1B maturity untouched. The console has NO roster action: the
+-- seven org-management types of the first design (org_create, org_update,
+-- org_member_invite, org_member_invite_admin, org_member_role_change,
+-- org_member_elevate, org_member_remove) are gone, and support has no write.
 --
--- NO NEW DOORS. ops.action_dispatch is SECURITY DEFINER owned by postgres, so it
--- reaches catalog and venue as the definer; the browser never does. Schema
--- exposure is a PostgREST setting, not a privilege, and that asymmetry is what
--- lets the framework be the only door. 138 adds no schema exposure.
+-- HOW A CUSTOMER BECOMES THE OWNER. org_bootstrap (A1) creates an organisation with
+-- no member. org_owner_bootstrap_invite (A2) is two-person: a second platform_admin
+-- approves, and the verb refuses when the organisation already has an owner or a
+-- pending owner invite, or when the invitee is the approver or holds platform
+-- authority. The customer accepts through kernel.accept_org_invite, which now refuses
+-- any identity holding platform authority (A4) — the structural control, because an
+-- address can change hands after any request-time check (F-138-11). venue_create
+-- dispatches catalog.bootstrap_venue (A3, draft). Invites are delivered manually
+-- through a verified channel; nothing here sends anything.
 --
--- OWNER RULINGS (2026-09-17, relayed by A).
---   * Visible: organisation id, legal and display name, status, venue details,
---     member display name and ACCOUNT IDENTIFIER = the identity UUID (not email),
---     roles, invitation status, Connect READINESS STATUS. Contact email is
---     restricted to workflows that need it. Excluded: gender, bank/tax details,
---     secrets, unrelated account data.
---   * Two-person approval: venue approval, platform-role grants, and any change
---     elevating someone to organisation ownership/admin authority.
---   * Preserve stronger existing controls; use the audited action framework and
---     narrow wrappers; do not expose catalog or venue.
+-- CONSOLE-ONLY VERBS (principle 4). PostgreSQL grants PUBLIC EXECUTE on every new
+-- function and a per-schema default cannot subtract it (PFA-1). A1–A3 and the two
+-- internal helpers carry explicit revokes from public, anon, authenticated and
+-- service_role; 206 asserts each. The service_role gap is closed PER FUNCTION here,
+-- not schema-wide. A3 is a separate verb rather than an arm inside the frozen
+-- catalog.create_venue (whose authenticated grant would defeat principle 4) — a
+-- stated deviation from the approved wording.
 --
--- THE ELEVATION RULE IS PARAMS-DEPENDENT AND THE FRAMEWORK'S PREDICATE IS NOT.
--- ops.action_requires_approval(text) sees only the action type, so "elevating to
--- owner/admin" cannot be expressed as a property of one type. Ruling (A, ①(a)):
--- SPLIT the types — org_member_role_change / org_member_elevate and
--- org_member_invite / org_member_invite_admin — and refuse a type/role MISMATCH
--- IN BOTH DIRECTIONS in ops.execute_action, the path every action takes (F-138-5;
--- ops.action_precheck keeps a copy as a second layer, but it runs only for gated
--- types). The guard reads exactly the params key its dispatch arm reads and refuses
--- the other key (F-138-6). Without the second direction the caller would choose
--- whether approval applies, which is not a control. The beneficiary of an elevating
--- action may not be its requester (F-138-8): the kernel's self-promotion checks see
--- the APPROVER as the caller when the action finally runs.
--- Widening action_requires_approval to the action row was rejected deliberately:
--- it is a change to the approval model every other action depends on, and would
--- be its own migration with its own review.
+-- MEMBERSHIP PATHS (ruling 7). org_member is inserted only by create_organization
+-- (077) and accept_org_invite (077, A4); venue.staff_role only by grant_staff_role
+-- (080, refused here for a platform-authority target). STILL OPEN, identified not
+-- closed: create_organization called directly over RPC by a platform identity (A5,
+-- proposed); platform authority granted to an existing member (grant_platform_role
+-- is fail-closed, PFA-4; an admin_users insert by SQL); out-of-band SQL. The venue
+-- staff refusal depends on venue NOT being API-exposed: if it ever is, that refusal
+-- must move into the verb by amendment.
 --
--- ATTRIBUTION IS SPLIT, DELIBERATELY (owner ruling ③). The onboarding verbs take
--- no actor: each resolves auth.uid() itself. Called from the framework that is the
--- EXECUTING session, which for an approval-gated action is the APPROVER. So the
--- domain's own audit records the approver while ops.action records requester and
--- approver separately. Two trails, one event. ops.action is the authoritative
--- record of who decided, and the console shows both. Giving the verbs an actor
--- parameter is a later migration on kernel/catalog/venue, not this one.
+-- AN INVITEE'S ADDRESS IS NEVER STORED WHERE AN OPERATOR CAN READ IT. The bootstrap
+-- invite stores a label; the raw reference is held in ops.action_invitee (no API
+-- role can read it, UPDATE refused) until dispatch hands it to the verb, and it is
+-- released on every terminal state. An expired request nobody touches keeps its
+-- reference: expiry is lazy, and no job is added. ops.get_action_invitee is the
+-- audited way to see it. Server logs are an unverified channel outside the console.
 --
--- CONTACT EMAIL IS A SEPARATE AUDITED VERB, NOT A COLUMN. A field an operator is
--- asked to read "only when needed" but which arrives in every list is not
--- restricted, only labelled. ops.get_org_contact_email writes an ops.audit row
--- with a closed reason code on every call.
+-- DEFECTS FOUND BUILDING THIS, kept for review: F-138-2 execute_action never admitted
+-- the new types (A); F-138-5 a guard placed only in precheck never ran for routine
+-- types (D); F-138-6 a guard read a different params key than its dispatch arm (D);
+-- F-138-8 self-targeted elevation (A); F-138-11 acceptance after an email change (A).
+-- The first three concerned the removed role types; their lessons shape the rest.
 --
--- AN INVITEE'S ADDRESS IS NEVER STORED WHERE AN OPERATOR CAN READ IT (owner item 1,
--- 2026-09-17). ops.action.params and ops.audit are returned whole by action_detail,
--- list_actions, list_approvals and audit_log. Invite actions store a label (masked
--- address, or the identity UUID the owner ruled displayable); the raw reference is
--- held in ops.action_invitee (no API role can read it; UPDATE refused) until dispatch
--- hands it to kernel.invite_org_member and deletes it; a verb message quoting it is
--- recorded with the label instead. kernel.org_invite keeps the delivery copy.
--- ops.get_action_invitee is the audited way to see it, shaped like the contact verb.
+-- BASELINES — SEVEN OBJECTS REDEFINED, EACH RESTORED BY THE ROLLBACK FROM ITS OWN
+-- APPLIED BODY:
+--   ops.execute_action, ops.action_dispatch, ops.action_precheck   118's body
+--   ops.action_allowed_roles, ops.action_requires_approval          115's body
+--   kernel.accept_org_invite                                        077's body (A4)
+-- ops.audit_write is not touched. No other migration defines any of these, and the
+-- twelve verbs dispatch calls are single-defined (077 / 078 / 080). The two CHECK
+-- constraints are 115's inline, auto-named ones, dropped BY NAME without `if exists`
+-- so a mismatch fails at migration time; the widening is proved in this file.
 --
--- A CONSOLE-CREATED VENUE REACHES THE QUEUE BY venue_submit (owner item 3). create_venue
--- writes draft; the frozen verb's own 'pending' decision (RPC §3.2) is the submission,
--- taken by one platform_admin. venue_approve decides approved|archived only, and only
--- for a pending venue — checked when requested and again when the approval runs.
---
--- TWO BASELINES, FIVE OBJECTS — the part most likely to go wrong.
---   ops.execute_action, ops.action_dispatch, ops.action_precheck   redefined from 118's APPLIED body
---   ops.action_allowed_roles, ops.action_requires_approval          redefined from 115's body
--- 115 defines all five; 118 redefines the first three. Restoring 115's body for any
--- of those three would silently revert 118's corrections. The rollback restores
--- EACH object from its own applied body, not one baseline for all five.
--- ops.audit_write is NOT touched: it takes p_action text and ops.audit.subject_kind
--- has no CHECK, so new action names and subject kinds flow through as data.
--- Verified by searching the whole chain: no other migration defines any of them,
--- and all twelve onboarding verbs are single-defined (077 / 078 / 080).
---
--- THE TWO CHECK CONSTRAINTS ARE 115'S INLINE, AUTO-NAMED ONES. Nothing alters them
--- afterwards (118 adds columns only). They are dropped BY NAME and WITHOUT
--- `if exists`: a drop that matches nothing does not fail — it would leave the old
--- constraint standing, 138 would apply "successfully", and the first onboarding
--- action of a new type would be rejected at insert, in the window, in front of the
--- owner. A bare drop fails at migration time, which is the right moment to learn
--- the name differs. The widening is proved in this file's own do-block.
---
--- Census (measured on a replay, not asserted): ops functions +10 — six reads
--- (list_organizations, get_organization, list_venues, list_org_members, list_org_invites,
--- list_venue_staff), two audited verbs (get_org_contact_email, get_action_invitee) and two
--- internal helpers (org_connect_readiness, identity_display_name); ops tables +1
--- (action_invitee) with its one trigger. ops.mask_email is reused from 115. public census
--- UNCHANGED (Gate-2 32|107|37|38 on the 138 branch = e9b52ce's EXPECT): nothing here is
--- public, so the grant-decision manifest and expected_grants.txt are untouched.
+-- Census (measured on a replay): ops functions +12 (six reads, two audited verbs, two
+-- helpers, identity_holds_platform_authority, action_invitee_release_on_terminal);
+-- kernel +2 (A1, A2); catalog +1 (A3); ops tables +1 (action_invitee) with two
+-- triggers (its update refusal; release on ops.action). public census UNCHANGED.
 -- pgTAP 206. Applied nowhere by this file.
 -- =============================================================================
 begin;
@@ -109,10 +80,7 @@ alter table ops.action add constraint action_action_type_check check (action_typ
   'dispute_resolve','payout_release','listing_relist','report_resolve',
   'user_restrict','user_unrestrict','refund_execute','job_retry','setting_set',
   -- 138 operator onboarding
-  'org_create','org_update','org_status_set',
-  'org_member_invite','org_member_invite_admin',
-  'org_member_role_change','org_member_elevate',
-  'org_member_remove','org_invite_revoke','platform_role_grant',
+  'org_bootstrap','org_status_set','org_owner_bootstrap_invite','org_invite_revoke','platform_role_grant',
   'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke'));
 
 alter table ops.action drop constraint action_subject_kind_check;
@@ -124,7 +92,7 @@ alter table ops.action add constraint action_subject_kind_check check (subject_k
 -- ── 1b. where a raw invitee reference is held (owner item 1, F-138-3) ────────
 -- ops.action.params is returned whole by ops.action_detail, ops.list_actions and ops.list_approvals,
 -- and ops.audit by ops.audit_log, to every operator at aal2. An invite's address therefore never goes
--- there. It is held here from the request until dispatch passes it to kernel.invite_org_member, then
+-- there. It is held here from the request until dispatch passes it to kernel.invite_bootstrap_owner, then
 -- deleted; kernel.org_invite keeps the copy delivery and acceptance use. No API role can read this table,
 -- no function returns it except ops.get_action_invitee (audited), and a held reference cannot be changed.
 create table if not exists ops.action_invitee (
@@ -152,25 +120,20 @@ as $ops$
     when 'job_retry'       then array['platform_admin']
     when 'user_restrict'   then array['platform_admin','platform_risk','platform_support']
     when 'user_unrestrict' then array['platform_admin','platform_risk']
-    -- 138 operator onboarding. Everything that creates or changes an organisation,
-    -- a venue or a platform role is platform_admin. Support may invite a member at
-    -- a non-elevating role, revoke a pending invite, and grant or revoke venue
-    -- staff — the day-to-day of standing a venue up — and nothing else.
-    when 'org_create'              then array['platform_admin']
-    when 'org_update'              then array['platform_admin']
-    when 'org_status_set'          then array['platform_admin']
-    when 'org_member_invite'       then array['platform_admin','platform_support']
-    when 'org_member_invite_admin' then array['platform_admin']
-    when 'org_member_role_change'  then array['platform_admin']
-    when 'org_member_elevate'      then array['platform_admin']
-    when 'org_member_remove'       then array['platform_admin']
-    when 'org_invite_revoke'       then array['platform_admin','platform_support']
-    when 'platform_role_grant'     then array['platform_admin']
-    when 'venue_create'            then array['platform_admin']
-    when 'venue_submit'            then array['platform_admin']
-    when 'venue_approve'           then array['platform_admin']
-    when 'venue_staff_grant'       then array['platform_admin','platform_support']
-    when 'venue_staff_revoke'      then array['platform_admin','platform_support']
+    -- 138 operator onboarding (owner rulings on the permission proposal, 2026-09-17). Every onboarding
+    -- write is platform_admin. Support keeps reads and the two audited reveals and has NO write here:
+    -- the domain refused its old write permissions anyway (O2), and organisation membership must not
+    -- become a workaround for support access (ruling 3).
+    when 'org_bootstrap'              then array['platform_admin']
+    when 'org_status_set'             then array['platform_admin']
+    when 'org_owner_bootstrap_invite' then array['platform_admin']
+    when 'org_invite_revoke'          then array['platform_admin']
+    when 'platform_role_grant'        then array['platform_admin']
+    when 'venue_create'               then array['platform_admin']
+    when 'venue_submit'               then array['platform_admin']
+    when 'venue_approve'              then array['platform_admin']
+    when 'venue_staff_grant'          then array['platform_admin']
+    when 'venue_staff_revoke'         then array['platform_admin']
     else array['platform_admin','platform_risk','platform_support']   -- case_*, report_resolve
   end;
 $ops$;
@@ -179,14 +142,11 @@ revoke all on function ops.action_allowed_roles(text) from public, anon, authent
 create or replace function ops.action_requires_approval(p_action_type text)
 returns boolean language sql immutable
 as $ops$
-  -- 138 adds the owner's three (2026-09-17): venue approval, platform-role grants,
-  -- and elevation to organisation ownership/admin authority. Elevation is a
-  -- property of the target ROLE, not of the action, and this predicate sees only
-  -- the type — hence the split types, whose type/role agreement ops.action_precheck
-  -- enforces in both directions.
+  -- 138 (owner rulings 2026-09-17): venue approval, platform-role grants (fail-closed, PFA-4) and the
+  -- bootstrap owner invite — the one path by which organisation ownership is conferred from the console.
+  -- There is no other elevating console action: customer roster changes stay on the customer side.
   select p_action_type in ('payout_release','refund_execute',
-                           'venue_approve','platform_role_grant',
-                           'org_member_elevate','org_member_invite_admin');
+                           'venue_approve','platform_role_grant','org_owner_bootstrap_invite');
 $ops$;
 revoke all on function ops.action_requires_approval(text) from public, anon, authenticated;
 
@@ -211,8 +171,6 @@ declare
   v_appr  uuid;
   v_ttl   integer;
   v_res   jsonb;
-  v_role_key    text;   -- 138: the params key this member/invite type's dispatch arm reads
-  v_target_role text;
   v_params      jsonb;  -- 138: what is STORED; for invites the raw address is replaced by a label
   v_invitee     text;   -- 138: the raw invitee reference, held only in ops.action_invitee
   v_self_email  text;
@@ -236,10 +194,7 @@ begin
       -- validates against these lists, so a type absent here is unreachable however complete
       -- its dispatch arm is (D, found by A's F-138-2: the arms were live and no call could
       -- reach them).
-      'org_create','org_update','org_status_set',
-      'org_member_invite','org_member_invite_admin',
-      'org_member_role_change','org_member_elevate',
-      'org_member_remove','org_invite_revoke','platform_role_grant',
+      'org_bootstrap','org_status_set','org_owner_bootstrap_invite','org_invite_revoke','platform_role_grant',
       'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke') then
     raise exception 'invalid_input: unknown action_type %', coalesce(p_action_type, '(null)');
   end if;
@@ -260,18 +215,13 @@ begin
             when 'refund_execute'  then p_subject_kind = 'payment'
             when 'job_retry'       then p_subject_kind = 'job'
             when 'setting_set'     then p_subject_kind = 'setting'
-            -- 138: every onboarding verb names the thing it acts on. org_create has no
-            -- subject (it makes one); member and staff changes name the org or venue they
-            -- happen inside, with the identity in params.
-            when 'org_create'              then p_subject_kind = 'none'
-            when 'org_update'              then p_subject_kind = 'organization'
-            when 'org_status_set'          then p_subject_kind = 'organization'
-            when 'org_member_invite'       then p_subject_kind = 'organization'
-            when 'org_member_invite_admin' then p_subject_kind = 'organization'
-            when 'org_member_role_change'  then p_subject_kind = 'organization'
-            when 'org_member_elevate'      then p_subject_kind = 'organization'
-            when 'org_member_remove'       then p_subject_kind = 'organization'
-            when 'org_invite_revoke'       then p_subject_kind = 'org_invite'
+            -- 138: every onboarding verb names the thing it acts on. org_bootstrap has no
+            -- subject (it makes one); invites and venues name the organisation, staff changes
+            -- the venue, with the identity in params.
+            when 'org_bootstrap'              then p_subject_kind = 'none'
+            when 'org_status_set'             then p_subject_kind = 'organization'
+            when 'org_owner_bootstrap_invite' then p_subject_kind = 'organization'
+            when 'org_invite_revoke'          then p_subject_kind = 'org_invite'
             when 'platform_role_grant'     then p_subject_kind = 'none'
             when 'venue_create'            then p_subject_kind = 'organization'
             when 'venue_submit'            then p_subject_kind = 'venue'
@@ -281,45 +231,10 @@ begin
             else p_subject_kind = 'case' end) then
     raise exception 'invalid_input: % cannot target a %', p_action_type, p_subject_kind;
   end if;
-  -- ── 138: the type<->role agreement, HERE because here is where it always runs ──────
-  -- ops.action_precheck is only invoked for types that require approval (118: the call sits
-  -- inside `if ops.action_requires_approval(...)`). So a guard placed only in precheck is
-  -- inert for org_member_role_change and org_member_invite — the two ROUTINE types whose
-  -- whole purpose is to be refused when they carry an elevating role. That is the security
-  -- half of the split, and it must be checked on the path every action takes. (D, found by
-  -- following A's F-138-2 question one layer down: precheck's copies pass their direct tests
-  -- and never run in production for these two types.)
-  -- The role is read from EXACTLY the key the type's dispatch arm reads: role_change and elevate
-  -- dispatch kernel.change_org_role(params.new_role); invite and invite_admin dispatch
-  -- kernel.invite_org_member(params.role). F-138-6 (D): an earlier coalesce over both keys let a
-  -- routine invite carry a decoy new_role 'org_member' past this guard while dispatch invited at
-  -- params.role = 'org_owner', with no second approver. The other key is refused outright, so the
-  -- guard and the arm can never read different values.
-  if p_action_type in ('org_member_role_change', 'org_member_elevate', 'org_member_invite', 'org_member_invite_admin') then
-    v_role_key := case when p_action_type in ('org_member_invite', 'org_member_invite_admin') then 'role' else 'new_role' end;
-    if coalesce(p_params, '{}'::jsonb) ? (case when v_role_key = 'role' then 'new_role' else 'role' end) then
-      raise exception 'invalid_input: % takes params.% only; params.% is not accepted', p_action_type, v_role_key,
-        case when v_role_key = 'role' then 'new_role' else 'role' end;
-    end if;
-    v_target_role := p_params ->> v_role_key;
-    if p_action_type in ('org_member_role_change', 'org_member_invite')
-       and v_target_role in ('org_owner', 'org_admin') then
-      raise exception 'invalid_input: % to org_owner or org_admin requires two-person approval: request %',
-        case when p_action_type = 'org_member_invite' then 'inviting' else 'changing a role' end,
-        case when p_action_type = 'org_member_invite' then 'org_member_invite_admin' else 'org_member_elevate' end;
-    end if;
-    if p_action_type in ('org_member_elevate', 'org_member_invite_admin')
-       and v_target_role is distinct from 'org_owner'
-       and v_target_role is distinct from 'org_admin' then
-      raise exception 'invalid_input: % is only for org_owner or org_admin: request %', p_action_type,
-        case when p_action_type = 'org_member_invite_admin' then 'org_member_invite' else 'org_member_role_change' end;
-    end if;
-  end if;
-
-  -- 138: org_create makes the organisation and platform_role_grant names its target in
+  -- 138: org_bootstrap makes the organisation and platform_role_grant names its target in
   -- params (an identity, not an ops subject), so neither carries a subject_id.
   if p_subject_id is null and p_action_type not in ('case_create','job_retry','setting_set',
-                                                    'org_create','platform_role_grant') then
+                                                    'org_bootstrap','platform_role_grant') then
     raise exception 'invalid_input: subject_id required for %', p_action_type;
   end if;
 
@@ -333,43 +248,54 @@ begin
   if not (v_role = any(ops.action_allowed_roles(p_action_type))) then
     raise exception 'insufficient_privilege: % may not perform %', v_role, p_action_type using errcode = '42501';
   end if;
-  -- 138 adds the decisions someone will ask about later: the four that need two people,
-  -- plus suspending or closing an organisation.
+  -- 138 adds the decisions someone will ask about later: the three that need two people, plus
+  -- suspending or closing an organisation. (The owner's original six named org_member_elevate,
+  -- org_member_invite_admin and org_member_remove, which the rulings removed from the console.)
   if p_action_type in ('dispute_resolve','payout_release','listing_relist','report_resolve','user_restrict',
                        'user_unrestrict','refund_execute','setting_set',
-                       'venue_approve','platform_role_grant','org_member_elevate',
-                       'org_member_invite_admin','org_status_set','org_member_remove')
+                       'venue_approve','platform_role_grant','org_owner_bootstrap_invite','org_status_set')
      and coalesce(trim(p_reason), '') = '' then
     raise exception 'invalid_input: a reason is required for %', p_action_type;
   end if;
 
   -- ── 138: checks that name params, after authorization so a refused caller learns nothing ──
   v_params := coalesce(p_params, '{}'::jsonb);
-  -- F-138-8 (A): the BENEFICIARY of an elevating action may not be its requester. The kernel's own
-  -- self-promotion checks see auth.uid() = the APPROVER when the action finally runs, so without this
-  -- an org_admin could request org_owner for themselves and any second operator's approval would grant it.
-  if p_action_type = 'org_member_elevate' and (v_params ->> 'identity_id') = v_uid::text then
-    raise exception 'invalid_input: org_member_elevate cannot target the requester: another operator must request it';
-  end if;
   if p_action_type = 'venue_approve' and coalesce(v_params ->> 'decision', '') not in ('approved', 'archived') then
     raise exception 'invalid_input: venue_approve decides approved or archived; a draft venue reaches the approval queue by venue_submit';
+  end if;
+  -- Operators are never members (principle 1; ruling 7, path (c)). venue.grant_staff_role's platform_admin
+  -- arm would let one operator make another venue staff at a customer venue. The venue schema is not
+  -- API-exposed, so this console is the only API path to that verb TODAY. STANDING CONDITION (A): if venue
+  -- is ever exposed, this path reopens through the verb itself and the refusal must move into the verb by
+  -- amendment.
+  if p_action_type = 'venue_staff_grant'
+     and ops.identity_holds_platform_authority(nullif(v_params ->> 'identity_id', '')::uuid) then
+    raise exception 'invalid_input: venue_staff_grant cannot make an identity holding platform authority a member of a customer venue';
   end if;
   -- F-138-3 / owner item 1: the raw invitee reference is NEVER stored in a row an operator can read.
   -- ops.action.params, its audit copy and every console read carry a label instead (the masked address,
   -- or the identity UUID the owner ruled displayable). The raw value is held in ops.action_invitee, which
-  -- no API role can read, until dispatch hands it to kernel.invite_org_member; kernel.org_invite keeps it
-  -- for delivery exactly as before. The approval hash covers the stored params, and ops.action_invitee
-  -- refuses UPDATE, so what was approved is what is dispatched.
-  if p_action_type in ('org_member_invite', 'org_member_invite_admin') then
+  -- no API role can read, until dispatch hands it to kernel.invite_bootstrap_owner; kernel.org_invite keeps
+  -- it for delivery. The approval hash covers the stored params, and ops.action_invitee refuses UPDATE, so
+  -- what was approved is what is dispatched.
+  if p_action_type = 'org_owner_bootstrap_invite' then
+    if v_params ? 'role' or v_params ? 'new_role' then
+      raise exception 'invalid_input: org_owner_bootstrap_invite always invites at org_owner; params.role is not accepted';
+    end if;
     v_invitee := nullif(trim(v_params ->> 'invitee_ref'), '');
     if v_invitee is null then
       raise exception 'invalid_input: invitee_ref required for %', p_action_type;
     end if;
-    if p_action_type = 'org_member_invite_admin' then
-      select lower(u.email) into v_self_email from auth.users u where u.id = v_uid;
-      if lower(v_invitee) = v_uid::text or lower(v_invitee) = v_self_email then
-        raise exception 'invalid_input: org_member_invite_admin cannot invite the requester: another operator must request it';
-      end if;
+    -- early refusals; the controls are the verb (approver) and acceptance (A4), because an
+    -- address can change hands after this check (F-138-11)
+    select lower(u.email) into v_self_email from auth.users u where u.id = v_uid;
+    if lower(v_invitee) = v_uid::text or lower(v_invitee) = v_self_email then
+      raise exception 'invalid_input: org_owner_bootstrap_invite cannot invite the requester';
+    end if;
+    if ops.identity_holds_platform_authority((select u.id from auth.users u
+                                                where u.id::text = lower(v_invitee) or lower(u.email) = lower(v_invitee)
+                                                limit 1)) then
+      raise exception 'invalid_input: org_owner_bootstrap_invite cannot invite an identity holding platform authority';
     end if;
     v_params := (v_params - 'invitee_ref' - 'invitee_label') || jsonb_build_object('invitee_label',
       case when v_invitee ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then lower(v_invitee)
@@ -469,39 +395,29 @@ begin
                'message','partial refunds are not supported in this release: the local money model records refund status only (no refunded amount), so a partial refund would be reported as a full one. Request a full refund or use the Stripe Dashboard SOP.');
     end if;
 
-  -- ── 138: the guard that makes the routine/elevating split a CONTROL ──────
-  -- Without the second direction the split is cosmetic: the CALLER would choose
-  -- whether two-person approval applies by choosing a type. Both directions are
-  -- refused here, before anything is dispatched or approved.
-  when 'org_member_role_change' then
-    if (p_action.params ->> 'new_role') in ('org_owner','org_admin') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition',
-               'message','elevating a member to org_owner or org_admin requires two-person approval: request org_member_elevate');
-    end if;
-  when 'org_member_elevate' then
-    if (p_action.params ->> 'new_role') is distinct from 'org_owner'
-       and (p_action.params ->> 'new_role') is distinct from 'org_admin' then
-      return jsonb_build_object('status','rejected','reject_reason','precondition',
-               'message','org_member_elevate is only for org_owner or org_admin: request org_member_role_change');
-    end if;
-  when 'org_member_invite' then
-    if (p_action.params ->> 'role') in ('org_owner','org_admin') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition',
-               'message','inviting someone as org_owner or org_admin requires two-person approval: request org_member_invite_admin');
-    end if;
-  -- 138: approval is decided from the queue. A venue is approved only once it has been submitted, so
-  -- no second operator is asked to approve a draft (venue_submit moves draft -> pending).
+  -- ── 138 ──────────────────────────────────────────────────────────────────
+  -- approval is decided from the queue: a venue is approved only once it has been submitted, so no
+  -- second operator is asked to approve a draft (venue_submit moves draft -> pending).
   when 'venue_approve' then
     if (p_action.params ->> 'decision') = 'approved'
        and (select v.approval_status from catalog.venue v where v.venue_id = p_action.subject_id) is distinct from 'pending' then
       return jsonb_build_object('status','rejected','reject_reason','precondition',
                'message','only a pending venue can be approved: submit it first (venue_submit)');
     end if;
-  when 'org_member_invite_admin' then
-    if (p_action.params ->> 'role') is distinct from 'org_owner'
-       and (p_action.params ->> 'role') is distinct from 'org_admin' then
+  -- a bootstrap owner invite is only for an organisation with no owner and no pending owner invite; asked
+  -- here so a second operator is never asked to approve one that cannot run (the verb re-checks)
+  when 'org_owner_bootstrap_invite' then
+    if not exists (select 1 from kernel.organization o where o.org_id = p_action.subject_id) then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','organisation not found');
+    end if;
+    if exists (select 1 from kernel.org_member m where m.org_id = p_action.subject_id and m.role = 'org_owner') then
       return jsonb_build_object('status','rejected','reject_reason','precondition',
-               'message','org_member_invite_admin is only for org_owner or org_admin: request org_member_invite');
+               'message','the organisation already has an owner: its roster is managed by the customer');
+    end if;
+    if exists (select 1 from kernel.org_invite i where i.org_id = p_action.subject_id and i.role = 'org_owner'
+                  and i.status = 'pending' and i.expires_at > now()) then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+               'message','an owner invite is already pending for this organisation');
     end if;
 
   else
@@ -791,21 +707,13 @@ begin
   -- this command, already shaped by ops.action's CHECK, so a retried dispatch of
   -- the same action row reaches the domain with the same key.
 
-  when 'org_create' then
+  when 'org_bootstrap' then
     if coalesce(trim(a.params ->> 'legal_name'), '') = '' or coalesce(trim(a.params ->> 'display_name'), '') = '' then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','legal_name and display_name are required');
     end if;
-    v_res := kernel.create_organization(a.params ->> 'legal_name', a.params ->> 'display_name', a.idempotency_key);
-    return jsonb_build_object('status','succeeded','result', v_res);
-
-  when 'org_update' then
-    if a.subject_id is null then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) required');
-    end if;
-    if a.params -> 'patch' is null or jsonb_typeof(a.params -> 'patch') <> 'object' then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','params.patch must be an object');
-    end if;
-    v_res := kernel.update_organization(a.subject_id, a.params -> 'patch', a.idempotency_key);
+    -- A1: an organisation with NO member. The frozen self-service kernel.create_organization would make
+    -- the calling operator its org_owner (O4); the customer becomes owner only by accepting (A2 + A4).
+    v_res := kernel.bootstrap_organization(a.params ->> 'legal_name', a.params ->> 'display_name', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
   when 'org_status_set' then
@@ -818,52 +726,28 @@ begin
     v_res := kernel.set_org_status(a.subject_id, a.params ->> 'target_status', a.params ->> 'reason_code', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
-  -- invite: the routine type and the elevating type call the SAME verb. The split
-  -- exists so ops.action_requires_approval (which sees only the type) can gate the
-  -- elevating one; ops.action_precheck refuses a type/role mismatch in BOTH
-  -- directions, so the caller never chooses whether approval applies.
-  when 'org_member_invite', 'org_member_invite_admin' then
-    -- The raw reference was never in a.params (see execute_action); it is held beside the action.
-    -- Take it and delete it FIRST: whatever this dispatch decides, the action is then terminal, and
-    -- the domain invite row is the only copy delivery needs.
+  -- A2, the only console path that confers organisation ownership. The raw reference was never in
+  -- a.params (see execute_action); it is held beside the action. Take it and delete it FIRST: whatever
+  -- this dispatch decides, the action is then terminal, and the domain invite is the delivery copy.
+  when 'org_owner_bootstrap_invite' then
     select i.invitee_ref into v_invitee from ops.action_invitee i where i.action_id = a.id;
     delete from ops.action_invitee where action_id = a.id;
     if a.subject_id is null then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) required');
     end if;
-    if (a.params ->> 'role') not in ('org_owner','org_admin','org_finance','org_marketing','org_promoter_manager','org_member') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','role is not an organisation role');
-    end if;
     if v_invitee is null then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','no invitee reference is held for this action');
     end if;
     begin
-      v_res := kernel.invite_org_member(a.subject_id, v_invitee, a.params ->> 'role', a.idempotency_key);
+      v_res := kernel.invite_bootstrap_owner(a.subject_id, v_invitee, a.idempotency_key);
     exception when others then
-      -- a verb message may quote the reference (077: 'an open invite already exists for %'); the
-      -- outcome is recorded in ops.action and ops.audit, so it carries the label, never the address
+      -- a verb message may quote the reference; the outcome is recorded in ops.action and ops.audit,
+      -- so it carries the label, never the address
       return jsonb_build_object('status', case when sqlstate = 'P0001' then 'rejected' else 'failed' end,
                                 'reject_reason', case when sqlstate = 'P0001' then 'precondition' end,
                                 'message', replace(sqlerrm, v_invitee, coalesce(a.params ->> 'invitee_label', '(reference withheld)')),
                                 'sqlstate', sqlstate);
     end;
-    return jsonb_build_object('status','succeeded','result', v_res);
-
-  when 'org_member_role_change', 'org_member_elevate' then
-    if a.subject_id is null or (a.params ->> 'identity_id') is null then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) and params.identity_id required');
-    end if;
-    if (a.params ->> 'new_role') not in ('org_owner','org_admin','org_finance','org_marketing','org_promoter_manager','org_member') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','new_role is not an organisation role');
-    end if;
-    v_res := kernel.change_org_role(a.subject_id, (a.params ->> 'identity_id')::uuid, a.params ->> 'new_role', a.idempotency_key);
-    return jsonb_build_object('status','succeeded','result', v_res);
-
-  when 'org_member_remove' then
-    if a.subject_id is null or (a.params ->> 'identity_id') is null then
-      return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) and params.identity_id required');
-    end if;
-    v_res := kernel.remove_org_member(a.subject_id, (a.params ->> 'identity_id')::uuid, a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
   when 'org_invite_revoke' then
@@ -883,6 +767,9 @@ begin
     v_res := kernel.grant_platform_role((a.params ->> 'identity_id')::uuid, a.params ->> 'role', a.params ->> 'reason_code', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
+  -- A3: a platform_admin creates a DRAFT venue for an organisation without being its member. A separate
+  -- console-only verb, not an arm inside the frozen catalog.create_venue, whose authenticated grant would
+  -- break principle 4 (deviation from the approved wording, stated in PFA-33).
   when 'venue_create' then
     if a.subject_id is null then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','subject_id (org) required');
@@ -890,7 +777,7 @@ begin
     if coalesce(trim(a.params ->> 'name'), '') = '' or coalesce(trim(a.params ->> 'neighborhood'), '') = '' then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','name and neighborhood are required');
     end if;
-    v_res := catalog.create_venue(a.subject_id, a.params ->> 'name', a.params ->> 'neighborhood', a.params ->> 'address', a.idempotency_key);
+    v_res := catalog.bootstrap_venue(a.subject_id, a.params ->> 'name', a.params ->> 'neighborhood', a.params ->> 'address', a.idempotency_key);
     return jsonb_build_object('status','succeeded','result', v_res);
 
   -- 138: draft -> pending is the frozen verb's own 'pending' decision (RPC §3.2), taken by a single
@@ -1158,7 +1045,7 @@ begin
     raise exception 'invalid_input: reason_code must be approval_review|invite_delivery_support';
   end if;
   select * into a from ops.action where id = p_action_id;
-  if not found or a.action_type not in ('org_member_invite','org_member_invite_admin') then
+  if not found or a.action_type <> 'org_owner_bootstrap_invite' then
     raise exception 'not_found: no invite action %', p_action_id using errcode = 'P0002';
   end if;
   -- held until dispatch; afterwards the domain invite the action created is the only copy
@@ -1172,6 +1059,267 @@ begin
                           jsonb_build_object('action_id', a.id, 'found', v_ref is not null), 'ok', a.correlation_id, a.id);
   return v_ref;
 end $ops$;
+
+-- ── 6c. the amendment's verbs (owner rulings on the permission proposal, 2026-09-17; PFA-33) ──
+-- Principle 1: operating the platform never makes an operator a member of a customer organisation.
+-- Principle 4: A1–A3 are console-only — PostgreSQL grants PUBLIC EXECUTE on every new function and a
+-- per-schema default cannot subtract it (PFA-1), so each carries an explicit revoke from public, anon,
+-- authenticated AND service_role, asserted per function in 206 (the service_role gap is closed PER
+-- FUNCTION for these verbs, not schema-wide; service_role holds intended grants elsewhere).
+
+-- identity-parameterized "holds platform authority": kernel.is_platform reads auth.uid(), and a
+-- grantee-side check needs another identity. Covers kernel.platform_role AND the admin_users bootstrap.
+create or replace function ops.identity_holds_platform_authority(p_identity uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $ops$
+  select p_identity is not null and (
+         exists (select 1 from kernel.platform_role r where r.identity_id = p_identity)
+      or exists (select 1 from public.admin_users a where a.user_id = p_identity));
+$ops$;
+
+-- A1: an organisation with no member, at applied.
+create or replace function kernel.bootstrap_organization(p_legal_name text, p_display_name text, p_command_key text)
+returns jsonb language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_org_id uuid;
+begin
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
+  end if;
+  if not kernel.is_platform(array['platform_admin']) then
+    raise exception 'insufficient_privilege: platform_admin required' using errcode = '42501';
+  end if;
+  if p_legal_name is null or length(trim(p_legal_name)) = 0
+     or p_display_name is null or length(trim(p_display_name)) = 0 then
+    raise exception 'precondition_failed: names must be non-empty';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  insert into kernel.organization (legal_name, display_name, status, home_region)
+  values (trim(p_legal_name), trim(p_display_name), 'applied', 'us-east')
+  returning org_id into v_org_id;
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.create', 'organization', v_org_id, 'platform_bootstrap',
+          null, jsonb_build_object('status', 'applied', 'members', 0));
+  return jsonb_build_object('status', 'ok', 'org_id', v_org_id);
+end;
+$$;
+
+-- A2: the bootstrap owner invite. Runs as the APPROVER (two-person at the console).
+create or replace function kernel.invite_bootstrap_owner(p_org_id uuid, p_invitee_ref text, p_command_key text)
+returns jsonb language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_uid        uuid := auth.uid();
+  v_status     text;
+  v_ref        text := trim(p_invitee_ref);
+  v_invitee    uuid;
+  v_self_email text;
+  v_invite_id  uuid;
+begin
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
+  end if;
+  if not kernel.is_platform(array['platform_admin']) then
+    raise exception 'insufficient_privilege: platform_admin required' using errcode = '42501';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  if v_ref is null or length(v_ref) = 0 then
+    raise exception 'precondition_failed: invitee_ref required';
+  end if;
+  select o.status into v_status from kernel.organization o where o.org_id = p_org_id for update;
+  if v_status is null then
+    raise exception 'not_found: organization %', p_org_id using errcode = 'P0002';
+  end if;
+  if v_status = 'closed' then
+    raise exception 'precondition_failed: organization is closed';
+  end if;
+  if exists (select 1 from kernel.org_member m where m.org_id = p_org_id and m.role = 'org_owner') then
+    raise exception 'precondition_failed: owner_exists — the organisation has an owner; its roster is the customer''s';
+  end if;
+  if exists (select 1 from kernel.org_invite i where i.org_id = p_org_id and i.role = 'org_owner'
+                and i.status = 'pending' and i.expires_at > now()) then
+    raise exception 'precondition_failed: owner_invite_pending';
+  end if;
+  -- beneficiary is neither this caller (the approver) nor an identity holding platform authority
+  select lower(u.email) into v_self_email from auth.users u where u.id = v_uid;
+  if lower(v_ref) = v_uid::text or lower(v_ref) = v_self_email then
+    raise exception 'precondition_failed: self_invite — the approver cannot be the invitee';
+  end if;
+  if exists (select 1 from auth.users u
+              where (u.id::text = lower(v_ref) or lower(u.email) = lower(v_ref))
+                and (exists (select 1 from kernel.platform_role r where r.identity_id = u.id)
+                     or exists (select 1 from public.admin_users a where a.user_id = u.id))) then
+    raise exception 'precondition_failed: platform_authority — an identity holding platform authority cannot own a customer organisation';
+  end if;
+  v_invitee := case when v_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then v_ref::uuid end;
+  begin
+    insert into kernel.org_invite (org_id, invitee_ref, invitee_identity_id, role, status, invited_by, expires_at, command_idempotency_key)
+    values (p_org_id, v_ref, v_invitee, 'org_owner', 'pending', v_uid, now() + interval '14 days', p_command_key)
+    returning invite_id into v_invite_id;
+  exception when unique_violation then
+    select i.invite_id into v_invite_id from kernel.org_invite i
+     where i.org_id = p_org_id and i.command_idempotency_key = p_command_key;
+    if v_invite_id is not null then
+      return jsonb_build_object('status', 'noop_replay', 'invite_id', v_invite_id);
+    end if;
+    raise exception 'precondition_failed: an open invite already exists for this reference in this org';
+  end;
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.invite', 'org_invite', v_invite_id, 'platform_bootstrap_owner',
+          null, jsonb_build_object('org_id', p_org_id, 'role', 'org_owner'));
+  return jsonb_build_object('status', 'ok', 'invite_id', v_invite_id);
+end;
+$$;
+
+-- A3: a draft venue created by a platform_admin who is not a member (mirrors 078's create_venue
+-- preconditions: organisation approved or active; name required; neighborhood by the table CHECK).
+create or replace function catalog.bootstrap_venue(p_org_id uuid, p_name text, p_neighborhood text, p_address text, p_command_key text)
+returns jsonb language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_uid      uuid := auth.uid();
+  v_status   text;
+  v_venue_id uuid;
+begin
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required' using errcode = '42501';
+  end if;
+  if not kernel.is_platform(array['platform_admin']) then
+    raise exception 'insufficient_privilege: platform_admin required' using errcode = '42501';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  select o.status into v_status from kernel.organization o where o.org_id = p_org_id;
+  if v_status is null then
+    raise exception 'not_found: organization %', p_org_id using errcode = 'P0002';
+  end if;
+  if v_status not in ('approved','active') then
+    raise exception 'precondition_failed: organization is not approved/active';
+  end if;
+  if p_name is null or length(trim(p_name)) = 0 then
+    raise exception 'precondition_failed: venue name required';
+  end if;
+  insert into catalog.venue (org_id, name, neighborhood, address, approval_status)
+  values (p_org_id, trim(p_name), p_neighborhood, p_address, 'draft')
+  returning venue_id into v_venue_id;
+  insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'venue.create', 'venue', v_venue_id, 'platform_bootstrap',
+          null, jsonb_build_object('approval_status', 'draft', 'org_id', p_org_id));
+  return jsonb_build_object('status', 'ok', 'venue_id', v_venue_id);
+end;
+$$;
+
+-- A4: 077's kernel.accept_org_invite, byte-identical except the one refusal marked A4. create or replace
+-- keeps its grants (postgres, authenticated). The rollback restores 077's body.
+create or replace function kernel.accept_org_invite(p_invite_id uuid, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid;
+  v_inv record;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  -- OR-17 F-6: an accepted invite creates org_member obligations and can mint
+  -- a new BP-11.
+  if kernel.is_deletion_pending(v_uid) then
+    raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
+  end if;
+  -- dsm §1.3 ERASED acquisition refusal — the E-8 defensive twin (red-team C).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
+
+  select * into v_inv from kernel.org_invite where invite_id = p_invite_id for update;
+  if not found then
+    raise exception 'not_found: invite %', p_invite_id;
+  end if;
+  if v_inv.status = 'accepted' then
+    return jsonb_build_object('status', 'noop_replay', 'org_id', v_inv.org_id, 'role', v_inv.role);
+  end if;
+  if v_inv.status <> 'pending' then
+    raise exception 'precondition_failed: invite is % — only a pending invite can be accepted', v_inv.status;
+  end if;
+  if v_inv.expires_at <= now() then
+    raise exception 'precondition_failed: invite expired';
+  end if;
+  -- A4 (owner ruling 7, 2026-09-17; PFA-33): an identity holding platform authority cannot become a
+  -- member of a customer organisation by accepting. Structural: it holds whatever address the invite
+  -- names and whatever this account's email has become (F-138-11: request-time checks can be defeated
+  -- by an email change). kernel.is_platform includes the public.admin_users bootstrap for platform_admin.
+  if kernel.is_platform(array['platform_admin','platform_support','platform_risk']) then
+    raise exception 'insufficient_privilege: platform_authority — an identity holding platform authority cannot accept an invitation into a customer organisation'
+      using errcode = '42501';
+  end if;
+  -- authority = being the addressed invitee (RLS §7.3b)
+  if not (v_inv.invitee_identity_id = v_uid
+          or (v_inv.invitee_identity_id is null
+              and exists (select 1 from auth.users u
+                           where u.id = v_uid
+                             and lower(u.email) = lower(v_inv.invitee_ref)))) then
+    raise exception 'insufficient_privilege: not the addressed invitee'
+      using errcode = '42501';
+  end if;
+
+  -- serialize the roster on the org row
+  perform 1 from kernel.organization o where o.org_id = v_inv.org_id for update;
+
+  -- granted_at is the maturity clock and is set HERE, not at invite (AUTHZ-C1B)
+  insert into kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
+  values (v_inv.org_id, v_uid, v_inv.role, v_inv.invited_by, now())
+  on conflict (org_id, identity_id) do update
+     set role       = excluded.role,
+         granted_by = excluded.granted_by,
+         granted_at = now();
+
+  update kernel.org_invite
+     set status = 'accepted', invitee_identity_id = v_uid
+   where invite_id = p_invite_id;
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.invite.accept', 'org_invite', p_invite_id, 'invite_accept',
+          null, jsonb_build_object('org_id', v_inv.org_id, 'role', v_inv.role));
+
+  return jsonb_build_object('status', 'ok', 'org_id', v_inv.org_id, 'role', v_inv.role);
+end;
+$$;
+
+-- held invitee references are released when the action becomes terminal (owner ruling 6). Dispatch
+-- already deletes on its way through; this covers denial, staleness and a lazily expired approval once
+-- something touches it. Terminal = every state the ops.action CHECK allows except requested,
+-- awaiting_approval and processing — including succeeded_at_provider and unknown, so no state an
+-- action can reach strands an address (A's condition). An expired request NOBODY touches keeps its
+-- reference: expiry is lazy (only approve_action writes it) and no job is added here.
+create or replace function ops.action_invitee_release_on_terminal()
+returns trigger language plpgsql security definer set search_path = ''
+as $ops$
+begin
+  delete from ops.action_invitee where action_id = new.id;
+  return null;
+end;
+$ops$;
+drop trigger if exists action_invitee_release_on_terminal on ops.action;
+create trigger action_invitee_release_on_terminal
+  after update of state on ops.action
+  for each row
+  when (new.state in ('succeeded','succeeded_at_provider','failed','unknown','rejected')
+        and old.state is distinct from new.state)
+  execute function ops.action_invitee_release_on_terminal();
 
 -- ── 7. grants: execute to authenticated, authorization inside (116 pattern) ──
 revoke all on function ops.list_organizations(text, text, integer)      from public, anon, authenticated;
@@ -1190,6 +1338,12 @@ grant execute on function ops.list_org_invites(uuid)                     to auth
 grant execute on function ops.list_venue_staff(uuid)                     to authenticated;
 grant execute on function ops.get_org_contact_email(uuid, text)          to authenticated;
 grant execute on function ops.get_action_invitee(uuid, text)             to authenticated;
+-- console-only and internal: no API role, service_role included (principle 4)
+revoke all on function ops.identity_holds_platform_authority(uuid)                 from public, anon, authenticated, service_role;
+revoke all on function ops.action_invitee_release_on_terminal()                   from public, anon, authenticated, service_role;
+revoke all on function kernel.bootstrap_organization(text, text, text)             from public, anon, authenticated, service_role;
+revoke all on function kernel.invite_bootstrap_owner(uuid, text, text)             from public, anon, authenticated, service_role;
+revoke all on function catalog.bootstrap_venue(uuid, text, text, text, text)       from public, anon, authenticated, service_role;
 
 -- ── 8. sanity inside the migration ───────────────────────────────────────────
 -- The constraint widening is proved HERE rather than left to pgTAP: a drop that
@@ -1211,10 +1365,9 @@ begin
     raise exception '138: a CHECK constraint is missing after the widening (type=%, kind=%)', v_type is not null, v_kind is not null;
   end if;
   -- every new value admitted...
-  foreach v_new in array array['org_create','org_update','org_status_set','org_member_invite',
-                               'org_member_invite_admin','org_member_role_change','org_member_elevate',
-                               'org_member_remove','org_invite_revoke','platform_role_grant',
-                               'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke'] loop
+  foreach v_new in array array['org_bootstrap','org_status_set','org_owner_bootstrap_invite','org_invite_revoke',
+                               'platform_role_grant','venue_create','venue_submit','venue_approve',
+                               'venue_staff_grant','venue_staff_revoke'] loop
     if position(v_new in v_type) = 0 then
       raise exception '138: action_type CHECK does not admit %', v_new;
     end if;
@@ -1242,18 +1395,23 @@ begin
   -- the approval set is exactly the owner's three plus the two money actions
   if not (ops.action_requires_approval('venue_approve')
           and ops.action_requires_approval('platform_role_grant')
-          and ops.action_requires_approval('org_member_elevate')
-          and ops.action_requires_approval('org_member_invite_admin')
+          and ops.action_requires_approval('org_owner_bootstrap_invite')
           and ops.action_requires_approval('payout_release')
           and ops.action_requires_approval('refund_execute')) then
     raise exception '138: an action that must be approved is not in the approval set';
   end if;
-  if ops.action_requires_approval('org_member_role_change')
-     or ops.action_requires_approval('org_member_invite')
+  if ops.action_requires_approval('org_bootstrap')
+     or ops.action_requires_approval('org_status_set')
      or ops.action_requires_approval('venue_create')
-     or ops.action_requires_approval('venue_submit')
-     or ops.action_requires_approval('org_create') then
+     or ops.action_requires_approval('venue_submit') then
     raise exception '138: a routine action was placed behind two-person approval';
+  end if;
+  -- support has no onboarding write (ruling 2)
+  if exists (select 1 from unnest(array['org_bootstrap','org_status_set','org_owner_bootstrap_invite','org_invite_revoke',
+                                        'platform_role_grant','venue_create','venue_submit','venue_approve',
+                                        'venue_staff_grant','venue_staff_revoke']) t
+              where 'platform_support' = any(ops.action_allowed_roles(t))) then
+    raise exception '138: platform_support holds an onboarding write';
   end if;
 
   -- the reads exist, are definer, pin search_path, and are authenticated-only
@@ -1283,6 +1441,21 @@ begin
      or has_table_privilege('service_role', 'ops.action_invitee', 'SELECT') then
     raise exception '138: ops.action_invitee is readable by an API role';
   end if;
+
+  -- console-only verbs and internal helpers: executable by NO API role (principle 4)
+  declare v_open text;
+  begin
+    select string_agg(x.fn || ':' || x.role, ', ') into v_open
+      from (select f.fn, r.role
+              from unnest(array['kernel.bootstrap_organization(text,text,text)', 'kernel.invite_bootstrap_owner(uuid,text,text)',
+                                'catalog.bootstrap_venue(uuid,text,text,text,text)', 'ops.identity_holds_platform_authority(uuid)',
+                                'ops.action_invitee_release_on_terminal()']) f(fn)
+             cross join unnest(array['public','anon','authenticated','service_role']) r(role)
+             where has_function_privilege(r.role, f.fn::regprocedure, 'EXECUTE')) x;
+    if v_open is not null then
+      raise exception '138: a console-only function is executable by an API role: %', v_open;
+    end if;
+  end;
 end $chk$;
 
 commit;

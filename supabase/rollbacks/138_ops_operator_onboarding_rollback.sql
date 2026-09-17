@@ -2,9 +2,10 @@
 -- 138_ops_operator_onboarding_rollback.sql — reverse 138.
 --
 -- EACH OBJECT IS RESTORED FROM ITS OWN APPLIED BODY, not from one baseline for
--- all five. 115 defines all five; 118 redefines execute_action, action_dispatch
--- and action_precheck. Restoring 115's body for any of those three would
--- silently revert 118's corrections — the failure this file exists to avoid.
+-- all. 115 defines the five ops objects; 118 redefines execute_action,
+-- action_dispatch and action_precheck. Restoring 115's body for any of those three
+-- would silently revert 118's corrections — the failure this file exists to avoid.
+-- kernel.accept_org_invite (A4) is restored from 077's body.
 --
 -- A ROLLBACK RESTORES CODE, NOT DATA. Organisations, members, invites, venues and
 -- staff roles written by dispatched onboarding actions stay where the domain verbs
@@ -15,9 +16,14 @@
 --   ops.action_precheck          <- 118's body  (verbatim)
 --   ops.action_allowed_roles     <- 115's body  (verbatim)
 --   ops.action_requires_approval <- 115's body  (verbatim)
+--   kernel.accept_org_invite     <- 077's body  (verbatim)  [removes A4]
 --   ops.action CHECK constraints <- 115's lists
---   the ten ops functions 138 added -> dropped
---   ops.action_invitee (held invitee references) -> dropped with its trigger
+--   the twelve ops functions 138 added -> dropped
+--   kernel.bootstrap_organization, kernel.invite_bootstrap_owner (A1, A2) -> dropped
+--   catalog.bootstrap_venue (A3) -> dropped
+--   ops.action_invitee and its trigger; the release trigger on ops.action -> dropped
+--
+-- Organisations bootstrapped with no member, and bootstrap owner invites, stay as data.
 --
 -- ops.audit_write is not touched here because 138 does not touch it.
 -- Rows already written with a 138 action_type would violate the narrowed CHECK,
@@ -26,6 +32,12 @@
 -- =============================================================================
 begin;
 
+drop trigger if exists action_invitee_release_on_terminal on ops.action;
+drop function if exists ops.action_invitee_release_on_terminal();
+drop function if exists ops.identity_holds_platform_authority(uuid);
+drop function if exists kernel.bootstrap_organization(text, text, text);
+drop function if exists kernel.invite_bootstrap_owner(uuid, text, text);
+drop function if exists catalog.bootstrap_venue(uuid, text, text, text, text);
 drop function if exists ops.get_action_invitee(uuid, text);
 drop function if exists ops.get_org_contact_email(uuid, text);
 drop function if exists ops.list_venue_staff(uuid);
@@ -43,10 +55,9 @@ do $rb$
 declare v_n integer;
 begin
   select count(*) into v_n from ops.action
-   where action_type in ('org_create','org_update','org_status_set','org_member_invite',
-                         'org_member_invite_admin','org_member_role_change','org_member_elevate',
-                         'org_member_remove','org_invite_revoke','platform_role_grant',
-                         'venue_create','venue_submit','venue_approve','venue_staff_grant','venue_staff_revoke');
+   where action_type in ('org_bootstrap','org_status_set','org_owner_bootstrap_invite','org_invite_revoke',
+                         'platform_role_grant','venue_create','venue_submit','venue_approve',
+                         'venue_staff_grant','venue_staff_revoke');
   if v_n > 0 then
     raise exception '138 rollback: % onboarding action row(s) exist; archive or delete them before narrowing the CHECK', v_n;
   end if;
@@ -518,5 +529,79 @@ begin
   return ops.action_run(a.id);
 end;
 $ops$;
+
+-- ── kernel.accept_org_invite: 077's body, verbatim (removes A4) ─────────────
+create or replace function kernel.accept_org_invite(p_invite_id uuid, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid;
+  v_inv record;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  -- OR-17 F-6: an accepted invite creates org_member obligations and can mint
+  -- a new BP-11.
+  if kernel.is_deletion_pending(v_uid) then
+    raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
+  end if;
+  -- dsm §1.3 ERASED acquisition refusal — the E-8 defensive twin (red-team C).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
+
+  select * into v_inv from kernel.org_invite where invite_id = p_invite_id for update;
+  if not found then
+    raise exception 'not_found: invite %', p_invite_id;
+  end if;
+  if v_inv.status = 'accepted' then
+    return jsonb_build_object('status', 'noop_replay', 'org_id', v_inv.org_id, 'role', v_inv.role);
+  end if;
+  if v_inv.status <> 'pending' then
+    raise exception 'precondition_failed: invite is % — only a pending invite can be accepted', v_inv.status;
+  end if;
+  if v_inv.expires_at <= now() then
+    raise exception 'precondition_failed: invite expired';
+  end if;
+  -- authority = being the addressed invitee (RLS §7.3b)
+  if not (v_inv.invitee_identity_id = v_uid
+          or (v_inv.invitee_identity_id is null
+              and exists (select 1 from auth.users u
+                           where u.id = v_uid
+                             and lower(u.email) = lower(v_inv.invitee_ref)))) then
+    raise exception 'insufficient_privilege: not the addressed invitee'
+      using errcode = '42501';
+  end if;
+
+  -- serialize the roster on the org row
+  perform 1 from kernel.organization o where o.org_id = v_inv.org_id for update;
+
+  -- granted_at is the maturity clock and is set HERE, not at invite (AUTHZ-C1B)
+  insert into kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
+  values (v_inv.org_id, v_uid, v_inv.role, v_inv.invited_by, now())
+  on conflict (org_id, identity_id) do update
+     set role       = excluded.role,
+         granted_by = excluded.granted_by,
+         granted_at = now();
+
+  update kernel.org_invite
+     set status = 'accepted', invitee_identity_id = v_uid
+   where invite_id = p_invite_id;
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.invite.accept', 'org_invite', p_invite_id, 'invite_accept',
+          null, jsonb_build_object('org_id', v_inv.org_id, 'role', v_inv.role));
+
+  return jsonb_build_object('status', 'ok', 'org_id', v_inv.org_id, 'role', v_inv.role);
+end;
+$$;
 
 commit;
