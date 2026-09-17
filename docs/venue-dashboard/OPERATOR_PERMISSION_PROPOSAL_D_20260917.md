@@ -18,10 +18,10 @@ unchanged throughout, and the current restrictions are treated as compatibility 
 | F5 | O1–O3 as tested at be80aad. A platform operator with no org role passes every framework gate and is refused by the verb (I32, I44). support's four framework write permissions therefore do nothing (I16–I21). An elevation completes only when the **approver** holds org_owner/org_admin there (I72–I73). |
 | F6 | **No invite is delivered automatically.** There is no edge function, notification template or event for an organisation invite. The invitee's RLS policy shows an invite only when `invitee_identity_id = auth.uid()`, so an **email-addressed** invite is invisible to its invitee until they are given its id. Acceptance by `invite_id` works once they have it. |
 | F7 | PFA-4 (signed 2026-08-31): no platform role may be minted by any direct, single-actor, client-authored or bypass path. The grant arm stays fail-closed until the approved dual-control path exists (I61, I66). |
+| F8 | F-138-8, fixed in development: the requester can no longer be the beneficiary of `org_member_elevate` or `org_member_invite_admin` (L1–L4). F-138-9, still open: a routine, single-person `org_member_role_change` grants `org_finance` (I26, I38). |
 | F9 | **F-138-11 (A; reproduced independently by D on a local replay).** The requester ≠ beneficiary check compares addresses at REQUEST time, but acceptance matches the accepting account's email at ACCEPTANCE time. The reproduction: platform_admin E, with no org role, requests an admin invite for `e1.alt@example.com`, which is not E's address. B approves. E's account email becomes `e1.alt@example.com`, and E calls `accept_org_invite`, which succeeds. **E is org_admin of the customer organisation while holding platform_admin.** In a real project the email change needs confirmation at the new address, which E would control. A2 in §4.2 has the same shape. |
 | F10 | **Function privileges.** A new function gets PostgreSQL's built-in PUBLIC EXECUTE, and a per-schema `ALTER DEFAULT PRIVILEGES` cannot remove it (PFA-1, proven on PG 17.11). D confirmed locally that a new kernel function with no grants is executable by anon, authenticated and service_role. The recorded compensating controls are sweeps: suite 140's PFA-1 witness allows zero PUBLIC or anon EXECUTE on any kernel, venue, market or notify function, and suite 141 F2 pins kernel's authenticated-executable set by exact name. **Neither sweep covers `service_role` or the `catalog` schema.** |
 | F11 | **A copy outside the console, unverified.** A failing RPC statement can reach the Postgres server log. Stock PostgreSQL does not log bind parameters on error (`log_parameter_max_length_on_error` defaults to 0), and PostgREST passes the request body as a parameter. The project's actual settings have not been read. Those logs are visible to dashboard users, not console operators. |
-| F8 | F-138-8, fixed in development: the requester can no longer be the beneficiary of `org_member_elevate` or `org_member_invite_admin` (L1–L4). F-138-9, still open: a routine, single-person `org_member_role_change` grants `org_finance` (I26, I38). |
 
 ## 2. Principles
 
@@ -42,8 +42,9 @@ unchanged throughout, and the current restrictions are treated as compatibility 
    console is not enough, because acceptance reads an email that can change afterwards. An identity holding
    any platform authority (`kernel.platform_role`, or the `public.admin_users` bootstrap) cannot accept an
    invite into a customer organisation.
-6. **Nothing frozen is widened except by a signed amendment.** Org-plane verbs, the tier guard, I-11,
-   AUTHZ-C1B and PFA-4 stay exactly as they are.
+6. **Nothing frozen changes except by a signed amendment.** The amendment in §4.2 adds three platform verbs
+   (A1–A3) and one refusal at acceptance (A4). Everything else — the org-plane roster verbs, the tier guard,
+   I-11, AUTHZ-C1B and PFA-4 — stays exactly as it is.
 
 ## 3. Proposal
 
@@ -127,7 +128,7 @@ money role.
 - **Grants (principle 4).** A1, A2 and A3 each carry `revoke all … from public, anon, authenticated,
   service_role` and per-function privilege assertions. Only the ops framework's definer reaches them.
   The existing 140 and 141 sweeps catch a forgotten revoke in `kernel`; A3's own suite covers `catalog`.
-- **Unchanged.** `accept_org_invite`, the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B, PFA-4, 118's
+- **Unchanged.** `accept_org_invite` apart from A4, the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B, PFA-4, 118's
   approval machinery and `approval_sod_ck`.
 - **Test obligations.**
   - An operator is never a member after bootstrap.
