@@ -29,6 +29,12 @@
 --   * it does not touch any notice belonging to anyone else, including the DV buyer's
 --     current stale row on the sandbox, which is a separate scoped plan.
 --
+-- FORWARD-ONLY, deliberately (B's review of c70a9a6): the retire sits AFTER the
+-- noop_replay early return, so an identity that is ALREADY ACTIVE with a stale notice —
+-- exactly the DV buyer's case — is never healed by calling withdraw again. Healing an
+-- existing row is a data change on someone's inbox, and that belongs in the owner's
+-- scoped plan, not in a migration that runs everywhere.
+--
 -- ROLLBACK: supabase/rollbacks/141_withdraw_retires_deletion_notice_rollback.sql
 -- restores 077's body verbatim and drops the notify function. Code, not data: notices
 -- retired while 141 was applied stay retired, which is correct for them anyway.
