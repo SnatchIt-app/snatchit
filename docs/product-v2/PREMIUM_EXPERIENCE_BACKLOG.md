@@ -3667,3 +3667,29 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   delivery blocker or expiry line into an icon.
   **C's note for the eventual consolidated recommendation:** this overlaps ML-1 and the calm pass on the same shared
   primitives and tokens; whichever the owner approves, ONE of them must own those files.
+- **F-HOME-1 — Home's "Recently sold" and "Ended" filters report an EMPTY MARKETPLACE when their fetch FAILS.
+  CONFIRMED ON DEVICE, Build 19, 2026-09-17 5:57 PM Eastern (owner-reported).** Same defect class as F-BIDS-1:
+  a failed load is indistinguishable from genuine emptiness.
+  - **Owner's observation, offline (Airplane Mode ON *and* Wi-Fi off — both confirmed by the owner):**
+    Recently sold → "NOTHING SOLD YET" / "Completed sales show up here."; Ended → "NO ENDED AUCTIONS" /
+    "Auctions that closed without a sale show up here." **No connection error, no offline banner, no Retry, no loading
+    indicator in either state.** The filter control showed one active filter; Home stayed in place and no other screen
+    opened (screenshots, owner's).
+  - **Cause, read at the built commit f412d10 (not the worktree):** `app/(tabs)/home.tsx` — the main listings fetch
+    classifies failures (`:191-197`, `setLoadError(classifyLoadFailure(...))`), but the two filter datasets do not:
+    `:213` `if (error) { console.warn('[HomeScreen] sold fetch error:', …); return; }` and `:233` the same for ended.
+    No loading flag, no error state, no row preservation — the chip has already flipped, so the list renders its
+    settled empty copy. The screen-level offline state cannot mask it because `loadError` belongs to the main fetch.
+    Device wording matches the source copy exactly, so observation and cause are the same defect, not two.
+  - **Sibling screens are NOT affected — checked at f412d10 before widening scope:** `explore.tsx` classifies and
+    renders `ScreenState`/`SearchFailureNotice` (`:131-188`), `tickets.tsx` keeps current rows on a failed refresh
+    (`:79-84,143`), `profile.tsx` keeps current on catch (`:163`) and shows `ScreenState` (`:221-224`). **Home's two
+    filter datasets are the outlier in Build 19**; Bids was the other and is fixed on `frontend/bids-load-states`
+    @ accb40c, which is NOT in Build 19.
+  - **Status: FAILED (failure path).** Two halves remain **UNTESTED** and must not be inferred from this run:
+    (a) the *slow-network* premature-empty path (same missing loading flag, never observed on a device);
+    (b) **online recovery — the owner did not observe it and explicitly said not to infer it.** Whether the false
+    empty state is sticky after connectivity returns decides severity, and is the next handset check C proposed.
+  - **Release readiness:** C's assessment to A — same class as F-BIDS-1, consumer-visible, states a falsehood about
+    the marketplace, but confined to two optional Home filters on a screen whose main feed does classify failures.
+    Fix belongs with F-BIDS-1's pattern (latest-load guard + failure notice that preserves rows), NOT in Build 19.
