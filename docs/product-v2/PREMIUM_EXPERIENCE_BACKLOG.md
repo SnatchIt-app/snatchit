@@ -3862,3 +3862,26 @@ integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users
   rather than taking C's word, and endorsed leaving the CTA's `disabled` untouched with the expiry-term mutant
   killing X2 by design. **A's own push is blocked by a permission gate and A will not route a PR through C** —
   opening one is the owner's call, and A has put it to them. Branch holds at 812ec45; nothing owed by C meanwhile.
+
+- **D's review of Batch 1: the five fixes PASS, the tests had four gaps — all closed at `2fe7abd`.** D re-ran
+  the gates itself (2288/111, tsc 0, gated surface zero lines) rather than taking C's report, then read the
+  helpers and the diff. **C verified every finding against the code before accepting it; all four reproduced.**
+  - **(a)** place-bid `view()` returned `{form:true}` for anything that was not a state or a spinner, so an empty
+    tree read as "the bid form is up" — the outcome the fix exists to prevent. **(b)** profile `busy()` returned
+    `false` for "absent" and "idle" alike, because `findElement` yields undefined rather than throwing
+    (`nav-stack-harness.ts:194`). **(c)** B2's `$0` pin sat behind `'texts' in shown`, false for every passing
+    verdict, so it never executed. **(d)** X5 had two `not.toContain` and no positive anchor.
+  - **The correction C accepted on its own commit message:** "three independent layers" was WRONG. The refusal
+    lives in ONE place — the render guard, whose two terms are each sufficient — with the catch supplying
+    classification, not refusal. D's real point: **no mutant removed that guard alone.** `M7` now does, and
+    kills **7 of 8**, one more than C predicted (with the guard gone there is no `ScreenState` at all, so B3
+    falls too); only B5, the happy path, survives.
+  - **The general fix, not a fourth specific one:** `tests/helpers/screen-view.ts` — one reader, one rule: a
+    verdict is reported only when something positively identifies it, and "nothing matched" is `'blank'`, which
+    no assertion expects. D's framing, kept because it is the lesson: *four of six findings were the same defect
+    C had already found and fixed once in the Home helper, and left standing in three others.*
+  - **New controls:** `M7` (render guard alone) · `DM7` (id-keyed lock → global) kills the new **D8**, which taps
+    a second row while the first is in flight — nothing in D1–D7 distinguished per-listing from global ·
+    `AM3` (avatar control goes missing) kills all six, where the old boolean helper passed four.
+  - **Gates after hardening:** vitest **2289 passed / 111 files**; tsc clean; lint 0 errors / 29 warnings.
+  - Still true: no device verification, no build, no sandbox, Build 19 untouched. Branch head **2fe7abd**.
