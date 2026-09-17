@@ -2302,7 +2302,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   correctly with the keyboard down. No listing submitted. DV-S1 still open: step 3a long event name at
   the current text size; step 3b largest accessibility text size (S2-4 row 11 residue runs at the same
   setting before it is turned back).
-- **DV-S1 step 3a (owner, Build 18, seller, 2026-09-18 01:17 EDT ≈ 05:17Z): PASS** (owner-reported),
+- **DV-S1 step 3a (owner, Build 18, seller, 2026-09-18 01:14 EDT ≈ 05:14Z): PASS** (owner-reported; the
+  owner's first message said 01:17, the resent report says 01:14 — recorded as 01:14, the later report),
   long event name at the current text size. Observed behaviour, recorded exactly: Event name is a
   single-line field — unfocused it shows only the portion of the name that fits; focused it scrolls
   horizontally through the name; it does NOT wrap and the whole name is never visible at once. The
