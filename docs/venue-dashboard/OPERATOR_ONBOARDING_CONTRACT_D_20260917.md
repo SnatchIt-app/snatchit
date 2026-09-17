@@ -286,3 +286,31 @@ Inside 138's `do $chk$` block, before `commit`: insert a row bearing one new `ac
 roll both back. A widened constraint that silently admits everything, or still admits nothing new, is the
 failure this catches — and it catches it in the migration rather than in pgTAP 206, where a fixture could
 mask it.
+
+---
+
+## Change log — what the contract got wrong, and what the build corrected (D, 2026-09-18)
+
+Migration written and delivered as `ops/138-operator-onboarding` @ **b49bc55** (off the integrated head
+e9b52ce). Applied nowhere. Four corrections to the draft above, each found while building rather than while
+writing:
+
+| Draft said | Built as | Why |
+|---|---|---|
+| "console role only, never `authenticated`" | `grant execute … to authenticated` + `perform ops.assert_reader()` | The 116 house pattern is the opposite shape and **stronger**: assert_reader requires an operator role *and* an aal2 MFA session. The draft line was weaker than what already existed. |
+| Five objects redefined, incl. `audit_write` | **Four** | `audit_write` takes `p_action text` and `ops.audit.subject_kind` has no CHECK, so new action names and subject kinds flow through as data. One less baseline to get wrong. |
+| Member rows show "display name" | `ops.identity_display_name`, never `ops.actor_label` | `actor_label` falls back to `ops.mask_email(auth.users.email)`, so an accepted member with no profile display name would have shown a masked address on a list where the owner ruled the identifier is the identity UUID. |
+| Contact email is the only masked field question | Pending invites needed their own ruling | `kernel.org_invite.invitee_ref` **is** the address and `invitee_identity_id` is null until acceptance, so a pending invite has no other handle. Owner ruled (2026-09-17): masked address for pending invites only, always beside the stable `invite_id`, never searchable, full address only via the audited verb. `ops.mask_email` already existed in 115 and the console already shows `email_masked` on every user card, so this is the established treatment rather than a new concession. |
+
+**One thing the contract did not anticipate at all, now pinned in 206 (B1/B2):** `ops` is the
+PostgREST-exposed schema holding the console's privileged surface and it has **no census anywhere** — not
+Gate-2 (which counts `public`), not the five-schema pins, not the grant manifest. 206 asserts that every
+`ops` function reachable by `authenticated` is `SECURITY DEFINER` with `search_path` pinned and that anon can
+execute nothing in `ops`. True today across all 38 such functions. It earns its place: a mutant that added a
+function with plain `create function` kept PostgreSQL's default PUBLIC execute grant, and B2 caught it.
+
+**Evidence at b49bc55:** fresh local replay 157/157 with 138 applied, Gate-2 32/107/37/38 (public census
+unchanged); pgTAP 206 44/44 with the plan counted programmatically; six negative controls, each on a
+baseline verified clean first. The 118-vs-115 baseline rule is proved rather than asserted — the new arms
+were spliced into bodies extracted from 118 and both are byte-identical to 118 outside the single insertion,
+and after the rollback all four `prosrc` values are byte-identical to 118's and 115's respectively.
