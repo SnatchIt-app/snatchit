@@ -133,3 +133,33 @@ Read-backs by A before and after: `select count(*) from storage.objects where bu
 | Client: byte-derived type, conversion decision, deterministic names, bounded waits, status read before retry, attach entry point | **C** | — | D review; device rows UNTESTED until a build |
 | Cleanup sweep design | **B** | not allocated yet | owner approval of the cron |
 | Round-trip test §5 | **A** executes, **D** witnesses | — | owner's authorization line |
+
+## 8. Adoption by the designated A session (2026-09-17, after the owner resumed the work) — amendments from C's and B's findings
+The contract above (written by the fork at `bceac68`, in this branch's history) is **adopted as the server contract** with these
+amendments, which are now part of it:
+1. **§3 HEIC decision — CONVERT, via the picker, not a new dependency.** C and B settled it from source (expo-image-picker 17.0.10):
+   the proof path uses PHPicker without editing and returns raw HEIC under the default representation mode; setting
+   `preferredAssetRepresentationMode: 'compatible'` makes iOS transcode to JPEG at selection. **No `converted_from` metadata** —
+   PHPicker does not report the original type in compatible mode, so it cannot be recorded truthfully; if transcoding does not
+   happen the bytes still say HEIC and the object is stored honestly as `image/heic`. Browser rendering of a converted object
+   stays **UNVERIFIED until DV-IMG-9** observes a JPEG from an iPhone HEIC; D does not pass outcome 3 on the conversion before that.
+2. **§3 type derivation — bytes first.** `resolveContentType` takes no file name; the stored type and extension come from the
+   leading bytes (JPEG, PNG, WebP, HEIC/HEIF `ftyp` brands); unrecognised bytes are refused; a reported non-allowed type is refused
+   at pick; an absent reported type waits for the sniff (C `c0281aa`, D PASS on the client half).
+3. **§4 bounds and duplicate prevention as implemented by C:** upload bounded at 120 s (not 30 s); after ANY upload error,
+   timeout included, `storage.exists(path)` under a 30 s bound decides, so a 409 is no longer trusted on its own (B could not
+   observe a 409 locally); a pick-time object name with `upsert: false` prevents duplicate objects. The sha256-derived name in §4
+   is therefore not required; **RT2 in §5 stays** (a repeated same-name upload) because the server-side answer is what the client
+   now interprets.
+4. **§1 outcome codes are fixed for the client:** `mark_transfer_sent` → `transitioned` | `already_sent`; `attach_transfer_evidence`
+   → `attached` | `already_attached`. C adapts `runMarkSent` to them when 140 lands.
+5. **B's two questions, answered in the contract's own terms:** a retry carrying a DIFFERENT evidence path on a `seller_sent` row
+   is **not** a conflict to reject — §1 returns `already_sent` and never replaces the accepted proof (the second upload is an
+   orphan); the conflicts rejected are the other statuses. The recovery path is gated on `status = 'seller_sent'` only, i.e. **not**
+   after buyer confirmation, dispute, reversal or expiry (§2 v1), so attaching proof to a completed transfer is impossible in v1.
+6. **Evidence line, unchanged:** retry and stranded-proof reproduced locally; the MIME **mislabelling** is reproduced (B ran the
+   real derivation from source against representative URIs); the MIME **display failure** is not — it needs real files on a
+   device and viewer.
+**Go-ahead:** B implements migration 140 / pgTAP 207 to §1–§2 and §7 as amended, on a branch from `e9b52ce`; A reviews first
+(0553 bodies as the rollback baseline, exact grants re-issued after the drop/recreate, manifest + `expected_grants` rows, the
+`storage.objects` existence check, notification counts unchanged across a retry), then D reviews the combined behaviour.
