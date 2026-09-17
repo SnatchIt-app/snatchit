@@ -514,8 +514,10 @@ legitimate fresh sign-in landing inside that two-second window gets a session wh
 already imposes after a credential change). Report shape if it ever surfaces: "I changed my password and notifications
 stopped."
 
-**Client half (owner via C):** pending at the time of writing — expected: the expiry notice on foreground and the login screen
-(CFT-607 path), not a silent failure; the next buyer sign-in on this device registers fresh with no proof (`registered`) and
-plants a new one. Row 18 stays deferred to the combined build (a v2 client rejects `contract_version` 3 now that 135 is on the
+**Client half (owner via C): PASS.** On reopening, the owner saw exactly "Your session expired. Sign in to pick up where you
+left off." on the login screen; no silent failure (CFT-607 path). C recorded row 17 PASS at `0bf7558+` (backlog and plan).
+**Row 17 PASS on both halves; handset session 1 on Build 17 is otherwise complete.** The owner has not signed in again yet;
+when they do, the next buyer sign-in on this device registers fresh with no proof (`registered`) and plants a new one — A reads
+the row on C's time. Row 18 stays deferred to the combined build (a v2 client rejects `contract_version` 3 now that 135 is on the
 sandbox). Branch (2), the K-2 "this device only" case, remains **untested outside D's harness**: it needs two live sandbox
 sessions for one user, i.e. Build 17 on a second iPhone; proposed for the combined-build session if the owner has one.
