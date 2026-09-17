@@ -560,6 +560,10 @@ C guides, A reads back, D witnesses. Push delivery stays deferred (option (b)); 
   re-registers on a retry cadence instead of waiting for the silent push and requesting the visible code at 60 s, and burns
   the limit in 75 s. F-AUTH-2 reappears on the seller's Home and Profile loads. Owner opened Settings › Notifications at
   03:54:33Z. No write by A.
+- **Owner's handset half of S2-1 step 2 (reported to A 2026-09-17, for C's record):** "Settings → Notifications showed no
+  banner"; the owner confirms opening that screen around 11:54 PM Eastern — the 03:54:33Z open in the API log. Consistent
+  with RC2 as C traced it (the "too many challenge requests" refusal fell through to the never-retry branch with no remedy
+  copy, so nothing rendered) — recorded as the owner's observation; C matches it to the row. Not a PASS.
 - **F-611C-2 CONFIRMED from source by C (2026-09-17), not the intended v3 flow; fix on `frontend/challenge-foreground-rerequest @
   296439c` (client-only from `aad5f75`, RED 11/13 → GREEN, six negative controls, full suite 2090/96, tsc 0).** Three root
   causes, all client: RC1 the AppState 'active' handler ran `attempt()` on EVERY 'active' event (iOS inactive→active: the

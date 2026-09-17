@@ -12,13 +12,15 @@ means a device previously receiving THIS account's notifications was registered 
 device was linked to this account** — D verifies the message and the recovery actions against the actual contract. (4)
 include the neutral wording fix for F-2S-1 without changing authentication behaviour. The staged-notice device test is
 prepared in §3b and **not executed**. Dispatcher activation, new outbound notifications and another hosted build remain
-separate decisions. Status: implementation and local verification in progress across A/B/C, D reviewing.
+separate decisions. Status 2026-09-17 (later): every C head and A's 136 D PASS; B's `aeb4081` D PASS; B's 139 carries one D residual (claim release in `finally`, no `attempted > 0` gate). **Owner 2026-09-17: the D-reviewed corrected device-rebound wording (136 template v2) and the neutral challenge-banner wording (`df5127c`) are approved; all five reviewed C heads join the next candidate.** A integrates after D clears 139; no additional build, sandbox application, production change or outbound notification is authorized by that ruling.
 
-**Copy source, settled:** the server template already carries the corrected meaning — 135's `notify.template` en-US in_app
-v1 for `security_device_rebound`: subject "A device was re-registered to another account"; body "A device that was receiving
-your notifications ({{device_name}}) was just registered to another account. If that was you switching accounts on your own
-phone, nothing to do. If not, sign in on that phone to take it back, then change your password." The 136 wrapper returns it
-rendered through `notify.get_inbox`, so the mobile notice and the web notification centre say the same thing from one source;
+**Copy source, settled:** the server template carries the meaning. 136 adds `notify.template` en-US in_app **v2** for
+`security_device_rebound` — D's verified wording, **owner-approved 2026-09-17**: subject "A device stopped receiving your
+notifications"; body "A device that was getting notifications for this account is now registered to a different account. If
+that was you signing in to another account, there's nothing to do. If not, sign out of all devices." `notify.get_inbox`
+renders the highest version (`order by version desc limit 1`), so 135's v1 ("A device was re-registered to another account" /
+"… sign in on that phone to take it back, then change your password") stays in the table untouched and is no longer
+selected. The 136 wrapper returns the rendered row, so the mobile notice and the web notification centre say the same thing from one source;
 the client renders `{title, body}` and owns only its two action labels. A's first client draft ("another device was linked")
 was wrong in exactly the way the owner corrected and is withdrawn. Any change to the wording is a new template version in
 136, reviewed by D, never a client string.
@@ -91,8 +93,8 @@ any of these; the batch adds no new toggle.
 
 ### Item 3 — F-2S-1 neutral copy (owner's choice 4)
 The challenge-failed banner's sentence "You were signed out on this device …" is replaced by neutral copy on the challenge
-path only — e.g. "This device couldn't confirm notifications for this account. Try again from Settings › Notifications." —
-with **no change to authentication behaviour** (no forced sign-out from a push flow; the register path's stale handling is
+path only — final wording (D, `df5127c`, **owner-approved 2026-09-17**): "This device needs you to sign in again before it can
+confirm notifications for this account." — with **no change to authentication behaviour** (no forced sign-out from a push flow; the register path's stale handling is
 untouched). D verifies. **Effort 0.25 d C.**
 
 ## 3b. The staged-notice device test — prepared, NOT executed (its own authorization line)
