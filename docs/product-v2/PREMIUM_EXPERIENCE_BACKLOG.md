@@ -3837,3 +3837,27 @@ integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users
   F-DESTRUCT-1's DM2; F-XFER-1's XM4, whose combined XM5 removes both status gates and kills X5 as predicted.
 - **Nothing here is device-verified.** No build, no sandbox, no handset time; device rows are owed on whatever
   candidate carries this.
+
+- **F-XFER-1 is NOT fully closed by Batch 1 — the buyer's screen still makes the claim the seller's no longer
+  makes.** Found by A reviewing the batch; **C verified it at the batch head and found the gate is looser than
+  A reported.** `app/transfer/receive/[id].tsx`:
+  - `:341` renders the literal `'Transfer window expired'` from the same device-clock `formatCountdown`.
+  - `:338` the render condition is `transfer.status !== 'buyer_confirmed'` — wider than the send screen's
+    `=== 'pending'`.
+  - **`:166` the countdown effect has NO status gate at all** (`if (!transfer?.expires_at) return;`), where the
+    send screen's effect also required `status === 'pending'`. So the buyer can be shown "Transfer window
+    expired" on a **seller_sent** transfer — the tickets are already on their way, and the screen announces an
+    expiry about a window that no longer matters, for an enforcement that does not exist.
+  - Same false claim, counterparty's screen, and the same non-enforcement underneath: `mark_transfer_sent` (140)
+    reads status only. **Fix is the same shape as the send half** — `TRANSFER_EXPIRY_COPY` plus a status gate —
+    and it is a SIXTH item, on a screen the owner's Batch 1 scope did not name. **C is not expanding scope
+    unasked: recorded and put to the owner with a recommendation.**
+- **A's residual on the batch, accepted and recorded rather than argued:** the new send-screen copy still derives
+  from the device clock, so a skewed clock says "has passed" early. Much weaker than the old chip — it gates
+  nothing and invites the action rather than forbidding it — but under the standing truth that the device clock
+  is not an authority, it is not nothing. Closing it properly means the server saying whether the window has
+  passed, which is the same decision A has already put to the owner.
+- **A's review outcome on Batch 1: transfer half PASSES.** A independently verified the zero-line gated surface
+  rather than taking C's word, and endorsed leaving the CTA's `disabled` untouched with the expiry-term mutant
+  killing X2 by design. **A's own push is blocked by a permission gate and A will not route a PR through C** —
+  opening one is the owner's call, and A has put it to them. Branch holds at 812ec45; nothing owed by C meanwhile.
