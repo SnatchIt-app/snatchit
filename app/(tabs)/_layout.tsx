@@ -13,13 +13,19 @@
  */
 
 import { Tabs } from 'expo-router';
+import { View } from 'react-native';
 
 import { AdaptiveDock } from '@/src/components/nav/AdaptiveDock';
 import { NavDockProvider } from '@/src/components/nav/dockContext';
+import { SecurityNoticeBanner } from '@/src/components/SecurityNoticeBanner';
 
 export default function TabLayout() {
   return (
     <NavDockProvider>
+      {/* Batch 1 (owner ruling 2026-09-17): an unread account-security notice sits above
+          the first signed-in screen; this layout is only mounted when signed in (K-2). */}
+      <View style={{ flex: 1 }}>
+      <SecurityNoticeBanner />
       <Tabs
         screenOptions={{ headerShown: false }}
         tabBar={(props) => <AdaptiveDock {...props} />}
@@ -34,6 +40,7 @@ export default function TabLayout() {
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="explore" options={{ href: null }} />
       </Tabs>
+      </View>
     </NavDockProvider>
   );
 }
