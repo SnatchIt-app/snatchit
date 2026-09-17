@@ -47,6 +47,8 @@ function piEvent(id: string, over: Record<string, unknown> = {}) {
 /** `pref: undefined` = row present and true; `null` = no row; `prefError` = the read fails. */
 function harness(opts: { pref?: Pref; prefError?: boolean; outcome?: string } = {}) {
   const prefQueries: Array<{ filters: Array<[string, ...unknown[]]>; select: string | null }> = [];
+  /** one ordered trace of everything the handler did that we care about ordering. */
+  const trace: string[] = [];
   const rpc: RpcHandler = (name) => {
     if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
     if (name === 'complete_stripe_webhook_event') return { data: true };
@@ -62,6 +64,7 @@ function harness(opts: { pref?: Pref; prefError?: boolean; outcome?: string } = 
       listings: () => ({ data: { event_name: 'Fixture Event', transfer_method: 'mobile_transfer' } }),
       payments: () => ({ data: { id: 'pay_1', listing_id: LISTING } }),
       notification_preferences: (q) => {
+        trace.push('pref-read');
         prefQueries.push({ filters: q.filters, select: q.select });
         if (opts.prefError) return { data: null, error: { message: 'boom', code: 'XX000' } };
         return { data: opts.pref === undefined ? { notify_listing_sold: true } : opts.pref };
@@ -70,7 +73,9 @@ function harness(opts: { pref?: Pref; prefError?: boolean; outcome?: string } = 
   });
   const pushes: Array<Record<string, unknown>> = [];
   const fetchMock = (async (_url: string | URL | Request, init?: RequestInit) => {
-    pushes.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    trace.push(`push:${String(body.title)}`);
+    pushes.push(body);
     return new Response('{}', { status: 200 });
   }) as unknown as typeof fetch;
   const deliver = async (event: Record<string, unknown>) => {
@@ -83,7 +88,7 @@ function harness(opts: { pref?: Pref; prefError?: boolean; outcome?: string } = 
     const res = await edge.handler(signedStripeWebhookRequest(SECRET, event));
     return { res, body: await json(res), edge };
   };
-  return { sb, pushes, deliver, prefQueries };
+  return { sb, pushes, deliver, prefQueries, trace };
 }
 
 const titles = (pushes: Array<Record<string, unknown>>) => pushes.map((p) => String(p.title));
@@ -116,7 +121,20 @@ describe('stripe-webhook — the seller\'s "Listing sold" preference is honoured
     const h = harness({ prefError: true });
     const { edge } = await h.deliver(piEvent('evt_p4'));
     expect(titles(h.pushes)).toEqual(['Payment Confirmed!', 'Your ticket sold!']);
-    expect(logsOf(edge).toLowerCase()).toContain('preference');
+    // D's condition (a): fail-open must be OBSERVABLE. A read error that becomes
+    // "send" must not look identical to a successful read that said true, or a
+    // broad preference outage shows up only as user complaints.
+    expect(logsOf(edge)).toContain('pref_read_failed');
+  });
+
+  it('P7 (D condition b): the buyer\'s mandatory push happens BEFORE the preference read — ordering is the guarantee, so it is pinned', async () => {
+    // Statement order is what protects the buyer's confirmation from a preference
+    // failure, and any future edit can invert it silently. P4 only inverts the
+    // preference VALUE, so on its own it would not notice.
+    const h = harness({ pref: { notify_listing_sold: false } });
+    await h.deliver(piEvent('evt_p7'));
+    expect(h.trace).toEqual(['push:Payment Confirmed!', 'pref-read']);
+    expect(h.trace.indexOf('push:Payment Confirmed!')).toBeLessThan(h.trace.indexOf('pref-read'));
   });
 
   it('P5: the preference is read for the SELLER, selecting only that column', async () => {

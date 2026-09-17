@@ -365,7 +365,9 @@ serve(async (req: Request) => {
           .eq('user_id', metadata.seller_id)
           .maybeSingle();
         if (prefErr) {
-          console.warn('Webhook: seller sold-notification preference unreadable, defaulting to send', { code: prefErr.code ?? null });
+          // Stable token so "we are currently ignoring preferences" is greppable:
+          // a fail-open that cannot be seen becomes a permanent degradation (D).
+          console.warn('Webhook: seller sold-notification preference unreadable, defaulting to send', { reason: 'pref_read_failed', code: prefErr.code ?? null });
         } else if (sellerPrefs?.notify_listing_sold === false) {
           sellerOptedOut = true;
         }
