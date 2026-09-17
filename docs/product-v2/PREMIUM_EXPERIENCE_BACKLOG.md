@@ -2426,3 +2426,37 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   sandbox round trip and DV-IMG rows unverified.
   **Integrated by A: candidate head db16e1a** (tree aa93c03b; supabase/ and gated surface unchanged at
   merge), named in the owner's tag line subject to CI on that head and D's merge gate. No build yet.
+  **CI on db16e1a: green** (run 35188006272, workflow CI, conclusion success, headSha db16e1a — read by C
+  with `gh run view`); **D's merge gate: PASS, no open review item** (per A). **Build HOLD (owner + A,
+  2026-09-18): db16e1a is not to be built until F-NAV-1 is resolved** — see below.
+- **DV-S2 step 3 (owner, Build 18, seller, largest text ON; time not captured)** (owner-reported):
+  *PASS — Discard path.* **FAIL — separate navigation defect F-NAV-1:** tapping **Keep editing** also took
+  the owner back to My Listings instead of keeping the listing being edited open. **DV-S2 is NOT a full
+  pass.** Whether the unsaved text survived Keep editing was NOT observed — the owner was taken off the edit
+  screen, and asked that it not be inferred. The prompt's exact wording was not reported in this step.
+  Event name full visibility stays UNRESOLVED (owner). The step-2 Keep editing outcome was not reported at
+  the time; nothing is inferred about it.
+- **F-NAV-1 (NEW, owner-reported, Build 18; C; repair scope; blocks building the candidate — owner + A HOLD).**
+  *Source finding (C, read from the installed libraries):* `useUnsavedChangesGuard` held removal with a bare
+  `beforeRemove` listener + `preventDefault()`, which holds navigation state only. native-stack 7.14.4 sets
+  iOS `preventNativeDismiss` only from `usePreventRemove` registrations, so a swipe back completed in UIKit
+  first (react-native-screens 4.16.0 `viewDidDisappear` → `onDismissed`); the pop that followed was refused
+  and the prompt showed over My Listings. Discard replayed the pop so state caught up (looked right); Keep
+  editing left the edit route in state but off screen. native-stack's own `useDismissedRouteError` names
+  this case. The in-screen Back arrow (`router.back()` → GO_BACK) starts in JS and is held before anything
+  moves — source predicts it already held on Build 18; **not device-checked.** Same hook: Report form
+  ("Keep writing") and Settings → Preferences ("Still saving") — same swipe defect expected from source,
+  not device-observed.
+  *Fix:* **`frontend/unsaved-guard-native-dismiss` @ 2ba9e3a** (from db16e1a; client only; supabase/ and the
+  gated payment/auth files: 0 lines) — the guard uses `usePreventRemove(when, …)`; Discard replays the
+  action once. *Automated results only:* `tests/unsaved-guard-native-dismiss.test.ts` (17) renders the real
+  Edit listing screen and the real hook with React Navigation core + StackRouter over a native-stack /
+  react-native-screens iOS model pinned to installed source and exact versions
+  (`tests/helpers/nav-stack-harness.ts`); per path (swipe back, Back button): the prompt does not navigate;
+  Keep editing keeps the screen mounted with the typed Event name (read from the screen's own field); asks
+  again; Discard leaves without saving after one prompt; clean and undone edits leave without asking. RED on
+  db16e1a's hook: 3 swipe tests fail (native shows only My Listings); swipe-Discard and all Back-button tests
+  pass there. 6 mutants killed as predicted (harness: clean baseline, anchor once, digest restore); no
+  dedicated mutant for the typed-text assertion. CFT-208 pin updated. Full vitest 2221/105, tsc 0, lint
+  0/29. Not modelled: Android back, animation, keyboard. **D reviewing; A integrates after D.** Device rows
+  DV-NAV-1/2 (checklist) on the next build.
