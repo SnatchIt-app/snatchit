@@ -2825,3 +2825,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   {O1, O2, O4, O5, O6}, suite 2250/106, tsc 0, lint 0/29). The userId follow-up is accepted as a follow-up. **Sent
   to A for the NEXT candidate** (never Build 19). Branch frontend/bids-load-states: 1ad216f, a02c824, 5da8a75, accb40c on
   f412d10. **Device row still owed on a build that carries it.**
+- **Build 19 step 1 (owner, 2026-09-17 12:10 EDT):** opened on Home, still signed in after the install; the SANDBOX
+  badge is visible (exact wording not transcribed); Profile shows the sandbox **buyer**. Next: switch to the seller
+  for DV-NAV-1. Buyer sign-out → `signed_out` on the buyer's token row. A was told that the seller's sign-in on this
+  install may request a proof-of-possession challenge (the token row is buyer-owned; push delivery is deferred,
+  so it cannot confirm). That is expected and does not block the Keep editing rows.
