@@ -3579,3 +3579,28 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   (no signed URL → `proofUrl` null), which is a change the owner should not meet by surprise.
   **The one-hour signed link** minted for the D1 image at 21:13:40Z lapses by itself at ~22:13:40Z; deleting the
   object kills it immediately.
+- **D's independent verification (21:23Z, metadata only — no bytes, no download, no hash, no EXIF) MATCHES A's report.**
+  - The same two objects, both owned by the seller: the 210,364 B PNG (created 21:09:21.894868Z, referenced by D2) and
+    the 5,829,677 B JPEG (21:11:36.269845Z, referenced by D1), with the stored eTags 2e8bb290… and 9fd322bc… — stored
+    by storage at upload, not computed by D. Orphans 0; nothing created anywhere else since 20:00Z.
+  - Transfers: D2 seller_sent 21:09:22Z and D1 seller_sent 21:11:36Z, each with its path and auto_release 2026-09-20,
+    buyer not confirmed, not released; **D6 pending, never sent; S8only unchanged with evidence still null** ("selection
+    is not attachment"); **L7 untouched**, md5 identical to D's pre-pass read.
+  - Readers: the bucket is private and the public-read policy covers only auction-media and avatars; owner read (the
+    seller) and transfer-party read (the buyer, for its own transfer's object) are the whole RLS surface — no
+    anonymous, no other signed-in user, no cross-transfer access. **Two caveats outside RLS:** a service-role key
+    bypasses RLS entirely, including the Supabase dashboard (the Vault has none, which is why the cron 401s, but the
+    project's key exists wherever it is held); and a signed URL bypasses sign-in for its lifetime — the buyer's
+    1-hour link for the D1 JPEG lapses ~22:13:40Z. D cannot see signed-URL issuance; that is A's evidence.
+  - Totals moved by exactly the two writes: notifications 105 → 107, buyer inbox 41 → 43, both `buyer_confirmation_needed`;
+    queue 0; **2xx 0 of 191 — no outbound call has ever succeeded on this project.**
+  - **What D's evidence cannot settle, stated by D:** what any image depicts (D has not looked and will not without the
+    owner's instruction); which photograph was which on screen — "the face was D6" is the owner's identification, not
+    D's read, though it follows from D6 and S8only having no object. D's row md5s are not comparable with A's
+    (different projections); compare field by field across sessions.
+  - D independently names the same delete mechanics: the policy refuses a seller delete while a transfer references
+    the object, so deleting as the seller would need the reference cleared first, or a service-role delete — the
+    owner's call, and D proposes nothing.
+  **Both reports agree, so the owner's condition ("after D confirms") is satisfied.** The recommendation stands:
+  the owner deletes the two objects in the Supabase Storage dashboard, which uses the project's own key without
+  putting one in the Vault, so the expiry cron stays inert.
