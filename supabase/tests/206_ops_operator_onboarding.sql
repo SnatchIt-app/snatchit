@@ -605,6 +605,7 @@ SELECT is((SELECT proacl::text FROM pg_proc WHERE oid = 'kernel.create_organizat
   '{postgres=X/postgres,authenticated=X/postgres}', 'I133: A5 kept create_organization''s grants exactly (authenticated only, as frozen)');
 
 -- ── I.15 recovery owner invite for a SUSPENDED organisation with no owner (owner ruling 1) ──
+-- Setup calls that assert nothing print 'setup: <result>': a bare 'ok' line is parsed by pg_prove as a TAP test.
 CREATE FUNCTION tap._CUST3() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT 'c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3'::uuid $f$;
 CREATE FUNCTION tap._CUST4() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT 'c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4'::uuid $f$;
 INSERT INTO auth.users (id, email, aud, role, created_at) VALUES
@@ -612,9 +613,9 @@ INSERT INTO auth.users (id, email, aud, role, created_at) VALUES
   (tap._CUST4(), 'rec2.second@example.com', 'authenticated', 'authenticated', now())
 ON CONFLICT (id) DO NOTHING;
 SELECT tap.login(tap._A206()); SELECT tap._aal2();
-SELECT tap._ea206('k206-r1-org','org_bootstrap','none',NULL,'{"legal_name":"Recover One LLC","display_name":"Recover One"}');
-SELECT tap._ea206('k206-r1-appr','org_status_set','organization',tap._org('Recover One'),'{"target_status":"approved"}','reviewed');
-SELECT tap._ea206('k206-r1-susp','org_status_set','organization',tap._org('Recover One'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
+SELECT 'setup: ' || tap._ea206('k206-r1-org','org_bootstrap','none',NULL,'{"legal_name":"Recover One LLC","display_name":"Recover One"}');
+SELECT 'setup: ' || tap._ea206('k206-r1-appr','org_status_set','organization',tap._org('Recover One'),'{"target_status":"approved"}','reviewed');
+SELECT 'setup: ' || tap._ea206('k206-r1-susp','org_status_set','organization',tap._org('Recover One'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
 SELECT tap.logout();
 SELECT is((SELECT status || '/' || tap._members(org_id) FROM kernel.organization WHERE display_name = 'Recover One'), 'suspended/(none)',
   'I108: Recover One is suspended and has no owner');
@@ -636,15 +637,15 @@ SELECT tap.login(tap._A206()); SELECT tap._aal2();
 SELECT is(tap._ea206('k206-r1-inv2','org_owner_bootstrap_invite','organization',tap._org('Recover One'),'{"invitee_ref":"someone.else@example.com"}','x'), 'rejected',
   'I114: once it has an owner, a suspended organisation cannot receive another owner invite');
 -- two requests race: the one approved second must not add an owner after the first made one
-SELECT tap._ea206('k206-r2-org','org_bootstrap','none',NULL,'{"legal_name":"Recover Two LLC","display_name":"Recover Two"}');
-SELECT tap._ea206('k206-r2-appr','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"approved"}','reviewed');
-SELECT tap._ea206('k206-r2-susp','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
-SELECT tap._ea206('k206-r2-a','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.first@example.com"}','x');
-SELECT tap._ea206('k206-r2-b','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.second@example.com"}','x');
+SELECT 'setup: ' || tap._ea206('k206-r2-org','org_bootstrap','none',NULL,'{"legal_name":"Recover Two LLC","display_name":"Recover Two"}');
+SELECT 'setup: ' || tap._ea206('k206-r2-appr','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"approved"}','reviewed');
+SELECT 'setup: ' || tap._ea206('k206-r2-susp','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
+SELECT 'setup: ' || tap._ea206('k206-r2-a','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.first@example.com"}','x');
+SELECT 'setup: ' || tap._ea206('k206-r2-b','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.second@example.com"}','x');
 SELECT tap.logout(); SELECT tap.login(tap._B206()); SELECT tap._aal2();
-SELECT tap._apr206('k206-r2-b','approve','ok');
+SELECT 'setup: ' || tap._apr206('k206-r2-b','approve','ok');
 SELECT tap.logout(); SELECT tap.login(tap._CUST4());
-SELECT tap._accept206('rec2.second@example.com',tap._org('Recover Two'),'k206-r2-accept');
+SELECT 'setup: ' || tap._accept206('rec2.second@example.com',tap._org('Recover Two'),'k206-r2-accept');
 SELECT tap.logout(); SELECT tap.login(tap._C206()); SELECT tap._aal2();
 SELECT is(tap._apr206('k206-r2-a','approve','ok'), 'rejected:precondition',
   'I115: a recovery request approved after the organisation gained an owner does not run (the verb re-checks at execution)');
@@ -674,7 +675,7 @@ SELECT is(tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer')
 SELECT tap.logout(); SELECT tap.login(tap._CUST1());
 SELECT is(tap._acckey206('k206-a6-co', 'k206-a6-co-acc'), 'ok', 'I120: the co-owner accepts (an owner invite to a non-member is unchanged)');
 SELECT tap.logout(); SELECT tap.login(tap._CUST2());
-SELECT tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.one@example.com', 'org_member', 'k206-a6-demote') $$);
+SELECT 'setup: ' || tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.one@example.com', 'org_member', 'k206-a6-demote') $$);
 SELECT tap.logout(); SELECT tap.login(tap._CUST1());
 SELECT matches(tap._acckey206('k206-a6-demote', 'k206-a6-demote-acc'), 'owner_role_change',
   'I121: A6 applies to ANY owner, not only the last one — a co-owner is not demoted by an invitation either');
