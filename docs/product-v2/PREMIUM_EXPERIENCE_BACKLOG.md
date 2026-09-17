@@ -3256,3 +3256,23 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     app defects. **Any corrective write — the buyer supplying delivery info in the app, a DB write of delivery
     fields, or extending expires_at — is outside the approved Line 3 scope; A sends options, executes nothing, and the
     owner decides.**
+- **A's read-only prerequisite answers (2026-09-17):** `delivery_email` and `delivery_phone` are NULL on all four
+  transfers and on **all 33 transfers (0 with delivery info)** — so the block is MISSING TEST DATA, and the client's
+  disable is the product rule working. `expires_at` is past on all four (3118bd30 09-12T01:05Z, 92ee5156
+  09-12T01:19Z, bce07eef 09-11T20:58Z, 8f59d37e 09-09T01:20Z) but **neither the client gate nor
+  `mark_transfer_sent` / `attach_transfer_evidence` reads it**, so extending it would change nothing.
+  `transfer_method` is mobile_transfer on all four. `profiles.display_name` is NULL for both DV accounts and
+  `authenticated` holds column SELECT, so **"Buyer: Unknown" is the app's null fallback, not RLS**.
+- **Minor consistency finding (C, source-confirmed, not a defect):** Profile renders
+  `profile?.display_name ?? user?.email?.split('@')[0] ?? 'User'`, so the owner saw "sandbox-buyer" from their email,
+  while the Send screen has only the embedded `display_name` and falls back to "Unknown". Two surfaces, two
+  fallbacks. For the owner's scope list.
+- **OWNER DECISION (2026-09-17): fix the fixtures FIRST and then run Line 3 in the originally approved order** (so
+  A's Option 4, running the attach subset first, is declined as a reordering), **and take Option 2: A writes the two
+  delivery fields directly** on 3118bd30, 92ee5156 and bce07eef (Option 1, the owner entering them as the buyer, is
+  declined; Option 3, extending expiry, is declined as pointless).
+  This is a NEW authorization outside the approved Line 3 scope. It reached A through C, so A must get the owner's
+  line in A's own session. C asked A to send the exact statement first — rows, columns, proposed synthetic values
+  (C prefers one column, `delivery_email` = the DV buyer's sandbox email), what it does not touch, pre/post reads by
+  A and D, and stop conditions — so the owner's line can be precise. **Nothing runs until then.** The no-image
+  "Evidence required" check stays NOT PASSED.
