@@ -2620,3 +2620,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   owner, asked:* whether the app was force-quit and reopened first (ST2a no-preload) and whether Retry was
   tapped. The screenshot alone shows neither. C sent A RESTORE NOW on receipt; restore, verify and D's
   after-read pending.
+- **DV-ST2 restored (A): 2026-09-17T15:27:32Z; verified 15:27:35Z.** relacl matches the 15:24:39Z capture exactly;
+  authenticated select/insert/update/delete true; anon select unchanged; revoked flag cleared. The revoke lasted
+  15:26:11Z → 15:27:32Z (81 s), inside the watchdog window; the watchdog will log idle at ≈15:32:12Z without
+  acting. **Window still open until D's after-read equals D's 15:25:09Z before-read.** The ST2a classification is
+  held until the owner answers (force-quit/reopen first? Retry tapped?). ST2b UNTESTED (the buyer has 0 bids).
