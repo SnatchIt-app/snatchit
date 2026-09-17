@@ -3447,3 +3447,24 @@ Most of the app is already tested; close the remaining gaps efficiently.
   minutes but fails 401 because this project has no service key — so **nothing moves on its own during the pass,
   provided no service key or push key is added while Line 3 is open.** D has sent A the same with evidence, and D's
   witness of step 0a stands (it wrote nothing; nothing to repeat).
+- **B's "calm pass" draft (artifacts only): `design/frontend-audit-20260917 @ 457f8fe`,
+  `docs/design-audit/CALM_VISUAL_DIRECTION_20260917.md` + `prototypes/calm-pass.html`** (Home, Send Transfer, Checkout
+  at normal and largest text). No product code, no tests, nothing on C's branches; Send Transfer's re-order is parked
+  until the handset pass is off that screen.
+  **Touching C's surfaces if approved:** `ui/StateView.tsx`, `ui/Sheet.tsx`, `ui/EmptyState.tsx` (in-content titles
+  move from Oswald caps to Inter 600 sentence case, copy verbatim); `ui/Chip.tsx` and `ui/Badge.tsx` (selection and
+  count stop using brand red); `ui/Button.tsx` (secondary's border red-tinted → white 20%, primary unchanged); a new
+  `ui/Notice.tsx` with three ranks absorbing the hand-rolled warning boxes on the transfer screens, settings index and
+  the create-listing risk banner. One new type token `eyebrow` replacing `micro` caps as section labels.
+  **Owner's decision, not B's or C's:** whether `border.default` stops being red-tinted (rgba(255,26,26,0.15) → white
+  10%, red kept for selection/focus) — one token, whole-app effect.
+  **Named as preserved:** `loadState.ts` copy verbatim, F-SELL-2's `useTopInset()`, the 20 pt badge,
+  MAX_DISPLAY_FONT_SCALE, the 1.25 line-height floor, `useReducedMotion()` and its nine sites, AdaptiveDock's
+  geometry, the four haptic meanings, F-BIDS-1's Bids states. Motion limited to four transitions on existing
+  `v2.motion` tokens, all collapsing through `useReducedMotion()`.
+  **Overlap C must manage:** these primitives are the same ones ML-1 proposes to calm on My Listings, so if the owner
+  approves both, one of them owns the shared components. C raises that when the ML-1 decision returns.
+- **F-CHK-1 WITHDRAWN by B**, which verified A's disproof: the reachable / not_verified / unreachable path is
+  implemented, Pay is withdrawn when the server can't be reached, and the copy already says the attempt may or may not
+  have gone through and not to pay again. **C does not build a batch on B's original framing.** What survives is a
+  setup-path copy gap, polish-level, routed through A. C still owns verifying the narrower pre-request question.
