@@ -2404,3 +2404,18 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   no data loss). **140 client adaptation** (outcome codes transitioned/already_sent, attach →
   attached/already_attached, attach entry point for a sent transfer with no proof): separate client head
   from the stack tip 4331ea4 after D closes F-SELL-2; exact raise texts requested from A.
+- **F-SELL-2: D PASS on 9d01bad; A integrated at stack head e9413d8** (release/production-gate-20260918).
+  D's independent sweep found only the badge and the helper reading the raw inset. D's intention for the
+  security-notice banner's DV-N row: render it as an overlay like SandboxBadge rather than the interim
+  paddingTop, since every other surface now pays its own inset — later, not this candidate.
+- **140 client adaptation — `frontend/proof-outcome-attach` @ 5e9c80b** (from e9413d8; client only; supabase/
+  and gated payment files unchanged; D reviewing). *Automated results only:* Mark as sent reads transitioned /
+  already_sent with a sent read-back (the reply counts only when the read fails; a contradicted reply is
+  unconfirmed); a transfer sent without a screenshot routes to an explicit **Add proof** section on transfer
+  send (seller_sent with no stored proof only) calling `attach_transfer_evidence` (attached /
+  already_attached); append-only refusal → has proof; raw `precondition_failed:` text never shown. Found and
+  fixed on the way: c0281aa's "Pull down to refresh" copy had no pull-to-refresh on that screen. 27 new tests
+  + 33 converted; literal guard pinned to 140 and the append-only guard; RED 30 on e9413d8's files; 15 mutants
+  killed; full 2202/104; tsc 0; lint 0/29. *Evidence line (owner):* server outcomes 1–2 passed on the
+  database side (A/B/D); conversion and buyer display unverified until a real iPhone round trip; device
+  behaviour needs a build; the image issue is NOT described as fixed. DV-IMG rows wait for A's transfer ids.
