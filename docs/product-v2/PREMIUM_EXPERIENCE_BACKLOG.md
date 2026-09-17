@@ -2776,3 +2776,16 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
     code).
 - **c3 build 8ebf4d81 status (C, `eas build:view`):** IN_PROGRESS, build number **19**, commit
   f412d10a11310167fc0227fe58ea189822bec625 (= the tag), profile preview.
+- **Build c3 FINISHED: Build 19** (EAS `8ebf4d81-2938-41d9-9bfd-6d20e8645325`; installation link
+  https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/8ebf4d81-2938-41d9-9bfd-6d20e8645325). iOS, profile
+  preview, app 1.0.0, SDK 54.0.0.
+  - **Commit f412d10a11310167fc0227fe58ea189822bec625, which matches tag `candidate/2026-09-18-build-c3`.**
+  - Started 15:48:20Z, completed 15:55:30Z (2026-09-17); artifact
+    https://expo.dev/artifacts/eas/ZRK55cDy9yKaWJACZepCxj60KaDVRTqWTnYll9IPaGg.ipa.
+  - **Exactly one c3 build:** the all-platform list reads 19 (f412d10) → 18 (aad5f75) → 17 (aabe029). The c3
+    worktree still has 0 dirty files.
+  - Sandbox configuration: eas.json, app.json and envGuard are identical to Build 18. The dev-only Tickets
+    label is not reachable in a release build.
+  - Build 18 and the sandbox pins are untouched. Link sent to the owner and A.
+  - **Device evidence: none yet.** The F-NAV-1 rows (DV-NAV-1/2) and the F-IMG-1 rows (DV-IMG-*) are owed on
+    Build 19. F-BIDS-1 is NOT in Build 19 (the fix is on 1ad216f, for a later candidate).
