@@ -175,3 +175,42 @@ real A-131-K2 path. C's agreed expectation — "token row UNCHANGED, any revocat
 right for the pre-131 sandbox and is **wrong** after it: the deleted session's own binding should now be revoked
 with the proof kept. Restate before the run, and sequence row 17 after this window — now because it finally proves
 the right thing, not because it proves nothing.
+
+---
+
+## Row 17 / DV-607a — server-side session invalidation (2026-09-17, after the window)
+
+Now meaningful because 131 is applied: `trg_push_bindings_on_sessions_gone` exists, so a server-side session
+delete exercises the real A-131-K2 path rather than proving nothing. Inside the handset-session-1 authorization
+(owner: "perform the authorized session invalidation"); A performs the single delete by full id, D reads either
+side, read-only.
+
+### D's before-read — 2026-09-17 02:37:01Z
+| Reading | Value |
+|---|---|
+| buyer | `919d511e-…` `sandbox-buyer@snatchit.test` |
+| sessions | **exactly one, total one** — `d947bef4…`, created 2026-09-16 04:32:52.904518Z, `not_after` null → LIVE |
+| token row `140fcb44…` | `active=true`, reason null, `session_id = d947bef4…` (matches the live session), hash `4b8628e7…` set, `revoked_at` null, `last_used 2026-09-17 02:34:04.157162Z` (this launch's register call — the client registered normally on the relaunch) |
+| `kernel.identity_ext` | **row EXISTS (1), `push_binding_epoch` null** |
+| trigger | `trg_push_bindings_on_sessions_gone` present |
+| window invariants overnight | vault `project_url` only · ledger 141 · census 32\|106\|37\|37 · counts 49/51/33/1 · challenges 0 |
+
+### Correction raised before the delete
+A's before-read said "`kernel.identity_ext` has no row for the buyer (epoch null)". **There is a row; its epoch is
+null.** So the expectation is "the existing row's `push_binding_epoch` goes null → timestamp", not "a row
+appears" — a 0→1 row-count check would find 1→1 and read as a miss. Same class as the branch mix-up: substance
+right, assertion as worded wrong.
+
+### Branch prediction, recorded before the write
+**Branch (1).** Deleting the only live session leaves zero, so `r.any_live_gone and not exists(live)` holds and
+`kernel.invalidate_push_bindings_for(buyer, 'signed_out_everywhere')` fires; the `session_ended` UPDATE then
+matches nothing, being guarded `and t.is_active` which the global invalidation has already cleared.
+
+**Expected after:** `is_active=false` · `revoked_reason='signed_out_everywhere'` · **`device_secret_hash` NULL**
+(the proof-clearing is the observable that separates the two branches, and the one C's earlier wording had
+backwards) · `revoked_at` set · `session_id` recorded rather than predicted · `identity_ext.push_binding_epoch`
+null → timestamp on the **existing** row · buyer sessions 0 · no drift elsewhere.
+
+**Also asked for, free only while in there:** the epoch's value against the delete's timestamp. If the epoch lands
+at or after the delete, every pre-existing session is correctly barred from re-registering until the owner signs
+in again — the property O-3 turns on.
