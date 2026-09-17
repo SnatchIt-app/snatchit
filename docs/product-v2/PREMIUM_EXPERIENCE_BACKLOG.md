@@ -3604,3 +3604,22 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   **Both reports agree, so the owner's condition ("after D confirms") is satisfied.** The recommendation stands:
   the owner deletes the two objects in the Supabase Storage dashboard, which uses the project's own key without
   putting one in the Vault, so the expiry cron stays inert.
+- **OWNER RULING on the privacy cleanup (2026-09-17): LEAVE the two stored proof files in place.** "No deletion,
+  overwrite, reference clearing, service key or further storage access." So: no dashboard deletion, no service key in
+  the Vault (the expiry cron stays inert), no reference clearing, and no further storage access by anyone.
+  **Line 3 RESULT: QUARANTINED, with the two objects RETAINED** — the D2 PNG (210,364 B) and the D1 JPEG (5,829,677 B),
+  both in the seller's folder, both still referenced by their transfers. Reachable only by the owner's own two
+  accounts; nothing else has ever accessed them; the buyer's 1-hour signed link lapsed at ~22:13:40Z.
+  **DV-IMG-9's HEIC conversion check: UNTESTED**, because Camera › Formats was "Most Compatible", so the phone
+  produced a JPEG and no conversion could occur.
+  **Line 3 rows as they stand:** D2 and D1 wrote (marked sent with proof); **D6 not performed**; **S8only not
+  performed**; L7 untouched; RT6, U1, RT5-P, N1, N2 and N4 all held, unrun.
+- **Next handset check chosen by C (non-destructive; Home and its filter sheet only; no transfer, proof, payment or
+  L7 screens): Home's lazy filter datasets — a failed or slow filter load reading as an empty marketplace.**
+  *Verified in Build 19 source before proposing (C):* `fetchSoldListings` and `fetchEndedListings`
+  (`app/(tabs)/home.tsx:204-240`) have **no loading flag** and swallow failures with `console.warn` + `return`, while
+  the chip flips immediately. So while the dataset is in flight — or when its fetch FAILS — the feed renders the
+  settled empty copy ("Nothing sold yet / Completed sales show up here."; "No ended auctions / Auctions that closed
+  without a sale show up here."). The screen-level offline state cannot mask it, because `loadError` belongs to the
+  main listings fetch, not to these two. **Same defect class as F-BIDS-1, unverified on a device** — this is B's audit
+  item 5, now confirmed in source by C.
