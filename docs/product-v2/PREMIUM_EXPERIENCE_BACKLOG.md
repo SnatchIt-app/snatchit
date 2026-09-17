@@ -2164,3 +2164,27 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   outbound notification is authorized here." Build 18 stays the handset build, 9bef640 the sandbox
   pin. C continues guiding the seller-side tests; S2-3 (DV-S1/DV-S2) has no server half — A's next
   read-back is at S2-2 (buyer cold launches) and S2-5 (DV-ST2 staged read).
+- **DV-S1 step 1 (owner, Build 18, seller, time not captured): PASS on the three checks** — no
+  excessive keyboard gap above the List ticket bar, Event name stays visible, heading clears the
+  SANDBOX badge. Steps 2 (scroll / dismiss / reopen / dock) and 3 (long name, largest text) still
+  open; DV-S1 NOT complete (owner's instruction). No listing submitted.
+- **NEW (owner, 2026-09-18) — F-IMG-1, PRIORITY functional defect:** on a listing that needs action,
+  the buttons for adding ticket-proof images get stuck and do not behave like the Sell form's image
+  controls. Owner's brief: trace and reproduce before changing; audit every image attachment entry
+  point (selling, listing edits, proof submission, action-required screens) with the Sell form as
+  the quality baseline; exercise permission granted/denied, picker cancel, select/replace, removal,
+  upload failure, offline/reconnection, retry, repeated taps, navigate away/back, submission
+  failure; iOS and Android where tooling exists (Xcode is deleted on the owner's Mac — no iOS
+  simulator; no Android emulator recorded — so device rows stay UNTESTED and are labelled); fix what
+  is reproduced with regression coverage; every operation finishes or shows an actionable error —
+  no stuck controls, lost selections, duplicate submissions, or success before server confirmation;
+  A owns storage / permissions / submission contracts; evidence and transaction behaviour
+  preserved. Sub-findings F-IMG-1a… as traced. Owner: first report = defect IDs, reproduction
+  findings, affected screens, owners; "Do not claim an exhaustive pass from source inspection alone."
+- **NEW (owner, 2026-09-18) — ML-1, My Listings visual redesign:** the screen feels crowded and
+  overwhelming; propose stronger grouping, clearer status and action hierarchy, consistent images
+  and spacing, fewer competing controls; "needs action" stays easy to find; nothing important
+  hidden. **Preview before implementing**, covering long lists, long titles, large text,
+  empty/loading/error states, small screens. D reviews independently. Both initiatives: Build 18's
+  pin unchanged; fixes go to the next candidate with an explicit device checklist; **no new build,
+  deployment or production change is authorized.**
