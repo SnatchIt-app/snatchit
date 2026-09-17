@@ -94,3 +94,37 @@ D states a stop in plain terms, names the read and the line, and does not contin
 Permanent transfer writes; uploading or replacing proof; adding the push key; changing payout or executor flags;
 outbound notifications; production reads or changes; sandbox writes of any kind; new builds; applying migration 138 or
 115–120; the detection read; the server-log settings read.
+
+---
+
+## Outcome — Line 3 QUARANTINED (2026-09-17, owner's ruling relayed by C)
+
+The pass stopped on a privacy incident: images uploaded during it may be the owner's real photographs.
+
+**What the database says, from D's reads:**
+
+| row | listing | result |
+|---|---|---|
+| bce07eef | Device D2 | **write completed** 21:09:22Z — evidence PNG 210,364 B, auto_release 2026-09-20 21:09Z, one buyer notice |
+| 3118bd30 | Device D1 | **write completed** 21:11:36Z — evidence JPEG 5,829,677 B, auto_release 2026-09-20 21:11Z, one buyer notice |
+| 92ee5156 | Device D6 | **not performed** — still pending, no object, no notice (the offline attempt wrote nothing) |
+| 8f59d37e | Sandbox S8only | **not performed** — unchanged, evidence still null (an image selected is not an image attached) |
+| 83b83858 | Sandbox L7 | **untouched**, as required |
+
+Held, not failed: RT6, U1, RT5-P, N1, N2, N4. DV-IMG-9's conversion half is **UNTESTED**, not failed — the phone was on
+Camera › Formats "Most Compatible", so it produced a JPEG and no HEIC conversion could occur.
+
+**Owner's ruling (via C):** "Leave the two stored proof files in place. No deletion, overwrite, reference clearing,
+service key or further storage access." D's pre-delete baseline (`d_incident_pre.txt`, md5
+`f5ce8094d7e1a0f32b06ec6147f085e7`, 21:38:30Z) therefore stands as evidence of the RETAINED state, not as half of a
+delete pair. No post-check exists because no delete happened. D takes no further reads of those objects.
+
+**Access, verified by D against the project's edge logs (not taken from A):** two seller uploads; one buyer-minted
+signed URL for the D1 JPEG at 21:13:40Z, fetched three times from the same device; and across 24 hours no other
+identity of any kind touched the bucket. The signed URL lapsed on its own about 22:13:40Z.
+
+**Correction to carry (C, verified against D's own earlier read of the cron command):** the claim that a service-role
+delete would arm `enforce-transfer-expiry` within two minutes is FALSE. The cron and the notify trigger read the Vault
+secret `service_role_key`; a storage API call carries a key in a request header and never writes it to the Vault. D's
+original framing was Vault-scoped and remains accurate — *a key stored in this Vault* arms the timer — but the
+extension to *any* service-role use does not follow, and must not be reused in a later decision.
