@@ -3554,3 +3554,28 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
   which is the sniff-over-filename behaviour the F-IMG-1 repair introduced.
   **To test the conversion half later** the device must be set to "High Efficiency" before the photo is taken, on a
   transfer with a synthetic image, and it needs a fresh owner authorization since Line 3 is stopped.
+- **The authorized deletion cannot be executed by A, and C verified why in the repo.**
+  `supabase/migrations/049_proof_docs_owner_delete_unreferenced.sql:37-52` — policy "proof-docs owner delete
+  unreferenced" (DELETE, `authenticated`) requires the object to be in proof-docs, in the caller's own uid folder,
+  **AND not referenced by any `listings.proof_of_ownership_path` AND not referenced by any
+  `transfers.transfer_evidence_path`.** Both objects ARE referenced, and the owner's instruction is that the
+  references stay, so the seller-JWT path — the only client path — is refused by design. The policy is doing exactly
+  what it exists to do.
+  **A's three alternatives, with C's agreement on the ranking:**
+  1. **service_role via the storage API** — needs a service key in this project's Vault, the deferral held all sprint.
+     D's hazard makes the cost concrete: `enforce-transfer-expiry` runs every 2 minutes and fails only for want of that
+     key, with two transfers already 6.8 days past `auto_release_at`, one of them **Sandbox L7**. Adding the key to
+     delete two files would arm an automatic payout release on rows nobody may touch, within two minutes. **Advise
+     against.**
+  2. **postgres deleting the `storage.objects` row** — removes the row but **leaves the bytes in the storage
+     backend**, so the owner would be told the photograph is gone when it is not. **A refuses; C agrees nobody does
+     this.**
+  3. **The owner deletes both objects in the Supabase Storage dashboard** — removes row and bytes, needs no key in
+     the Vault, arms nothing, touches no reference. **A's and C's recommendation.**
+  A and D then do the matching pre- and post-checks the owner specified: existence, path, size and eTag only, never
+  content. Everything else unchanged: references, statuses, payment state, notices, logs, Sandbox L7, and the
+  append-only guard left untested.
+  **Visible consequence to state in advance:** after deletion the buyer's receive screen renders no proof section
+  (no signed URL → `proofUrl` null), which is a change the owner should not meet by surprise.
+  **The one-hour signed link** minted for the D1 image at 21:13:40Z lapses by itself at ~22:13:40Z; deleting the
+  object kills it immediately.
