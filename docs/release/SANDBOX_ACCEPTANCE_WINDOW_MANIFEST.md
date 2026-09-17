@@ -673,3 +673,45 @@ Exec tree: detached worktree at `f412d10a11310167fc0227fe58ea189822bec625`, 0 di
 - **DV-N-3 PASS** (force-quit and relaunch, 12:48 EDT, owner screenshot): the staged notice did not reappear; only the expected deletion notice showed; nothing tapped.
 - **Cleanup:** pre-check 16:49:11Z matched the staged row exactly; delete by id and dedupe at 16:49:12Z returned exactly that id. Verify 16:49:13Z: buyer rows = f3abe550 only (unchanged), staged rows 0, totals 9/18/0, 2xx 0. **D's cleanup read at 16:58:13Z** (md5 `e5330ba3…`): every non-timestamp line identical to D's pre-read. **CLOSED.**
 - A's log `notice/notice_exec.log` (md5 `19ca33bbb7dabc451cef318fcc8198c9`). No push, email or dispatcher was involved; the push key is still deferred. D witnessed the database state, not the device steps.
+
+### Step 4 — Line 3 permanent transfer tests: NOT STARTED
+**Owner, 2026-09-17 (to A, and separately to D), verbatim:** "DV-ST2b may run before Line 3, but Line 3 remains a separate irreversible authorization and must not start until I explicitly say 'ready for Line 3.'" This replaces the earlier trigger (C relaying the owner's readiness): Line 3 starts only on those words from the owner. D witnesses nothing for Line 3 before the owner tells D the same. DV-ST2b remains as drafted in §13. The message sets DV-ST2b's order relative to Line 3; A still waits for the owner's word before opening its restriction window.
+
+### Incident — accidental report during Build 19 check 2 (DV-NAV-2a), 17:31:05Z: READ-ONLY FINDINGS; CLEANUP NOT EXECUTED
+- **What happened (C, 2026-09-17):** after the Keep writing checks passed and Discard returned to the listing, the owner accidentally tapped "Submit report". The owner asks for identification and cleanup "only under the existing scoped test rules".
+- **A's reads, read-only, 17:34–17:36Z** (scratchpad `report/r1_read.sh`–`r3_read.sh`; logs `r2.log` md5 `acbb672a8475ad8c50c93aa3eeaa4279`, `r3.log` md5 `ffa593028255bb456954e4af3d56cfce`). The first r1 run stopped on the known `text || "char"` cast. The read was re-run whole with a cast; it wrote nothing.
+  - **Row:** `public.reports` holds exactly one row on the sandbox:
+    - id `265b0041-88a0-4294-b0b1-699811bfe6d1`;
+    - reporter `919d511e` (DV buyer);
+    - listing `b1c3c478-b32e-4167-8f8d-2b9a4a4fd212` = **"Device D7"** (C had guessed D8), seller `2f5844b4`, status active;
+    - reason `other`, notes `'Test note abc'`;
+    - status `pending`, created 2026-09-17T17:31:05.486Z, resolved_at null.
+  - **No outbound call:**
+    - The live `public.notify_moderation_event` (md5 `5509159a…`, 1779 chars) calls `net.http_post` only when both Vault `service_role_key` and `project_url` are present. Vault holds `project_url` only (`service_role_key` rows 0, deferred), so no request was made to any URL.
+    - Corroboration: `net.http_request_queue` 0; pg_net ids 1110 (17:30:00Z) → 1111 (17:32:00Z) with no gap. Those rows are a pre-existing 2-minute cron call returning 401. They are not from this insert and not used as proof of silence (owner ruling 4).
+    - `notify.report_delivery_claim` 0, so notify-report was never invoked.
+    - Project secret names: RESEND_API_KEY, EMAIL_ENABLED, EMAIL_FROM, ADMIN_EMAIL and EXPO_ACCESS_TOKEN absent. Edge-function logs not read.
+  - **No other rows:**
+    - The `ops` schema is absent on the sandbox (no `detect_reports`, no case).
+    - No cron job touches reports.
+    - Every non-system table with a created_at/claimed_at column shows exactly one row since 17:30Z: this report.
+  - **Delete safety:** no FK references `public.reports` and it has no rules. Its triggers are the FK constraint triggers (insert/update) and `trg_notify_report_created` (AFTER INSERT only). Nothing fires on delete.
+- **Cleanup plan (sent to C and D; NOT executed).** None of the four approved actions covers it, so it needs the owner's explicit go.
+  - **PRE:** A and D read independently. Exact match required: reports total 1, pending 1, fields as above; claim 0; queue 0; D7 active; the since-17:30Z scan shows only this row.
+  - **WRITE:** one transaction deleting `public.reports`, keyed by id, reporter, target, reason, notes, status `pending` and resolved_at null. A `row_count <> 1` raises and rolls back.
+  - **POST:** A and D read: reports 0, claim 0, queue 0, D7 unchanged, scan empty.
+  - **Left untouched:** listing D7 and its seller; the DV buyer's account and inbox (including `f3abe550…`); pg_net cron response rows.
+  - **STOP with no write** if the pre-read differs in any respect.
+- **Owner authorization, received through C only (17:3xZ):**
+  - Quoted by C: "I authorize A to delete sandbox report 265b0041 per the scoped cleanup plan, with A and D pre- and post-reads. Delete only that exact pending report for Device D7, reason 'Other,' notes 'Test note abc.' Stop if the pre-check does not find exactly one matching report, any other report created since 1:30 PM, or any change to D7. Confirm afterward that no reports remain and D7, the buyer account, notices and background jobs are unchanged."
+  - A's standing rule is that a relayed permission is not authorization. **The write is HELD until the owner gives the same go in the A conversation.**
+- **A's pre-read at 17:40:50Z** (read-only; `report/cleanup.sh state`, log `report/cleanup_exec.log`; the first attempt stopped on a wrong column name before any notice line and wrote nothing):
+  - reports: total 1, pending 1, since-17:30Z 1, other since 17:30Z 0; keyed match 1, row md5 `b733b1aa…`.
+  - D7: md5 `f7d130c3…`, active, updated_at 2026-09-11T03:23:21.876Z.
+  - Buyer: kernel.identity_ext ACTIVE, deletion_requested_at null, updated 16:12:35Z; account_deletions 0; auth sessions 2, newest 16:32:39Z; push row 140fcb44 active, session live.
+  - Notices: f3abe550 read_at and dismissed_at null; buyer notifications 1; totals 9/18, public.notifications 104.
+  - Jobs and queues: claim 0, queue 0; cron 22/22 active, list md5 `c2c5c079…`; pg_net 1113–1115 on the 2-minute cadence.
+- **Write design:**
+  - One transaction re-checks inside itself before deleting: no other report since 17:30Z, D7 md5 equal to the pre-read, report row md5 equal to the pre-read.
+  - The delete is keyed; it raises unless exactly 1 row is deleted.
+  - Post-reads by A and D use the same state lines.
