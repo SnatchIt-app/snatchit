@@ -3438,3 +3438,12 @@ Most of the app is already tested; close the remaining gaps efficiently.
   PRE-REQUEST case (starting checkout with no connectivity) and whether the initial screen fetches show content-free
   states while in flight. Any test here must drive a network failure that is NOT a Stripe decline; a generic-failure
   test passes on the current tree and proves nothing.
+- **D's independent blocker survey (all five transfers): NOTHING BLOCKS THE PASS.** D1, D6 and D2 are pending, each
+  carrying its own buyer's delivery email and no phone, so the client's gate is satisfied with no buyer typing; no
+  evidence attached, not disputed, not released. S8only is seller_sent since 2026-09-08 with no proof, reachable only
+  via the listing detail's "View transfer". "Sandbox L7" is out of scope and sits beside S8only under the same venue
+  name, so **the event name is the only on-screen discriminator**.
+  **Run-sheet note from D:** both seller_sent rows are 6.8 days past auto-release, and the release job runs every 2
+  minutes but fails 401 because this project has no service key — so **nothing moves on its own during the pass,
+  provided no service key or push key is added while Line 3 is open.** D has sent A the same with evidence, and D's
+  witness of step 0a stands (it wrote nothing; nothing to repeat).
