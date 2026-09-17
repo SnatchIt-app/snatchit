@@ -560,6 +560,22 @@ C guides, A reads back, D witnesses. Push delivery stays deferred (option (b)); 
   re-registers on a retry cadence instead of waiting for the silent push and requesting the visible code at 60 s, and burns
   the limit in 75 s. F-AUTH-2 reappears on the seller's Home and Profile loads. Owner opened Settings › Notifications at
   03:54:33Z. No write by A.
+- **F-611C-2 CONFIRMED from source by C (2026-09-17), not the intended v3 flow; fix on `frontend/challenge-foreground-rerequest @
+  296439c` (client-only from `aad5f75`, RED 11/13 → GREEN, six negative controls, full suite 2090/96, tsc 0).** Three root
+  causes, all client: RC1 the AppState 'active' handler ran `attempt()` on EVERY 'active' event (iOS inactive→active: the
+  keychain "save password?" sheet after the login form, Face ID, the shade, the switcher) and with a challenge open nothing was
+  persisted, so each event re-registered — 135 re-issues a live challenge in place (fresh nonce, same row, `prev_nonce_hash`)
+  and counts it against the per-token budget (3 per 600 s), the same budget the visible-code request needs; the 5 s / 44 s /
+  26 s cadence was one foreground event each, not a timer. RC2 the error classifier mapped only "too many registration
+  attempts"; 135's "precondition_failed: too many challenge requests" fell through to a deterministic never-retry with no
+  remedy copy — **which is why the 03:54 relaunch made no register call: Build 18 is permanently silent for (seller, token) on
+  this handset until a different user or token.** RC3 every `challenge_required` restarted the cumulative 60 s visible-code
+  budget, so with RC1 the fallback could never fire while 'active' events arrived under 60 s apart. Fixes: gate the
+  foreground re-attempt on "re-request or no open challenge"; classify both limit texts as `rate_limited` (wait 600 s, visible
+  remedy); resume an open silent challenge's elapsed time when the id matches. Device-only proof (an inactive→active during an
+  open challenge → no second call; a real background→foreground → exactly one re-issue) needs push delivery and joins the
+  deferred DV-131 rows. With D for review; joins the next candidate only on the owner's word. **Consequence for session 2:** the
+  seller account cannot register push on this handset on Build 18; rows that need no registration proceed.
 - **Still in session 2:** DV-611C-2 (registration visibility), DV-S1/S2 (seller keyboard), the large-text banner, DV-ST1..ST4
   (refreshed offline/error/empty/no-match), DV-131-1 (two-second window, A bumps the epoch within 2 s of a sign-in on C's
   trigger). Carried at their true status: two-session K-2 case UNTESTED, row 18 DEFERRED, A11Y-1 UNTESTED, every push-delivery
