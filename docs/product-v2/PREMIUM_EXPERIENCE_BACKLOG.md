@@ -2631,3 +2631,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   side. Try again in a moment." + RETRY), never the offline copy. Heading clear of the SANDBOX badge
   (screenshot). **DV-ST2b (cached rows stay): UNTESTED**, the buyer has 0 bid rows. Retry behaviour under the error
   not exercised. The window closes on D's after-read matching the before-read (pending at this entry).
+- **DV-ST2 window CLOSED (D, 2026-09-17T15:29:36Z):** D's after-read is byte-identical to the 15:25:09Z before-read
+  (md5 466fd2d8… both): relacl, authenticated S/I/U/D, anon select, RLS and 3 policies back to pre-revoke. D
+  witnessed the before and after states only, not the revoked state or the observation. ST2a PASS is C's and the
+  owner's record; ST2b UNTESTED. Sandbox access returns to normal (B's hold ends on A's announcement).
+- **S2-5 → DV-ST3 next (buyer, online, Larger Text ON):** Explore no-match, then the Bids empty states (the buyer
+  has 0 bids), then Tickets. Build 18 source copy for reference only; the owner reads what is shown:
+  - no-match: "Nothing matches" / "Try the venue name, or a shorter word.";
+  - Bids: "No active bids" (Active) and "Nothing here yet" (Past);
+  - Tickets: "No tickets yet", only if truly empty.
