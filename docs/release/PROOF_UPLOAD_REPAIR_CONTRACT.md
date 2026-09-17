@@ -164,7 +164,7 @@ amendments, which are now part of it:
 (0553 bodies as the rollback baseline, exact grants re-issued after the drop/recreate, manifest + `expected_grants` rows, the
 `storage.objects` existence check, notification counts unchanged across a retry), then D reviews the combined behaviour.
 
-## 9. §4 cleanup sweep — superseded in two respects by B's design (`PROOF_DOCS_CLEANUP_SWEEP_DESIGN.md`, converge `50495df`; A accepted 2026-09-17)
+## 9. §4 cleanup sweep — superseded in two respects by B's design (`docs/release/PROOF_DOCS_CLEANUP_SWEEP_DESIGN.md` on B's branch `feature/venue-native-and-product-v2` @ `50495df` — not yet on the converge branch; A accepted 2026-09-17)
 1. **An orphan is a recovery candidate.** `attach_transfer_evidence` (§2) exists so a seller can attach proof uploaded EARLIER
    and currently unreferenced — the definition of an orphan — so the age-based sweep in §4 as written would delete exactly the
    objects §2 rescues, with certainty increasing with age. The sweep therefore **excludes every object under
