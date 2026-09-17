@@ -2854,3 +2854,11 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   editing twice, or Keep editing then Discard on a second attempt), the report form and Preferences rows
   (DV-NAV-2), and D's one-frame residual. The unsaved edit was discarded, so nothing is held. Build 18's F-NAV-1
   failure is not re-described; this is the Build 19 result.
+- **Owner's DIRECT confirmation to C (2026-09-17):** "I directly confirm the four sandbox actions I approved with A:
+  temporary storage round trip; W-C3 migrations 136 → 139 → 140 and the two scoped edge updates; the temporary buyer
+  security notice; and the permanent photo-proof tests on the four named sandbox transfers. Follow the exact package
+  scope, order, safeguards and stopping conditions. No production changes, push key, payouts or additional builds."
+  C guides the notice and the permanent transfer tests **only after A and D confirm their prerequisites and the
+  owner says they are ready**. The screen restrictions stand, with no overlapping DV-ST2b.
+  The swipe-back result (12:14 EDT, Keep editing + Discard PASS, owner-reported) is already recorded above and is
+  not repeated. The Back-arrow and repeated-attempt checks are separate and still unconfirmed.
