@@ -2070,3 +2070,59 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   either `register` 200 or, because the token was bound to the buyer, `challenge_required`
   v3 — a pending challenge that Build 18 cannot complete without push delivery is DEFERRED,
   not a failure).
+- **S2-1 step 2 (seller), step C (owner, ≈ 2026-09-17 23:52 EDT): Profile loaded** (owner-reported);
+  then, unscripted, the owner force-quit and relaunched at 23:54 EDT — "it loaded again"
+  (owner-reported; a cold relaunch on the seller session, not part of the script). **S2-1 step 2
+  client half: PASS** — Home and Profile loaded after the buyer→seller switch, the Build 17 hang
+  did not reproduce.
+- **S2-1 step 2 server half (A, read-back 2026-09-18 03:54:43Z, edge_logs 03:47–03:56Z,
+  UA SnatchIt/18): PASS on the sign-out/sign-in ordering.** (1) buyer sign-out 03:49:34Z:
+  revoke_push_token 200 → auth/logout 204, order preserved; (2) buyer after: sessions 0, token row
+  active=false, revoked 03:49:34Z, reason `signed_out_everywhere`, hash NULL — 131's sessions
+  trigger, not a 129 defect: on a single-session account every "sign out this device" ends in the
+  global branch (row 17 showed the same); buyer epoch moved again; (3) seller session created
+  03:50:51Z; register_push_token 200 at 03:50:52 → `challenge_required` (challenge row, mode silent,
+  requesting_user = seller, attempts 0, prev_nonce_hash present, expires 03:56:42Z); push_tokens
+  still one row (the buyer's, inactive); send-push posted three times, all 401 (option (b), no
+  service key) → **DEFERRED, not a failure**. F-AUTH-2 reappeared on the seller (get_my_profile ×3,
+  user_blocks ×4, listings HEAD ×2 + GET ×3 at sign-in; Profile ×2/×2/×2; another burst 03:52:20–22).
+  A's log shows a Settings › Notifications read at 03:54:33Z (notification_preferences) — owner to
+  confirm whether they opened it and what it showed. Nothing written by A.
+- **F-611C-2 (NEW, from the same read-back; MEDIUM; fixed locally, awaiting D review + A
+  integration; no build):** Build 18 called register_push_token four times in 75 s as the seller
+  (03:50:52 200, 03:50:57 200, 03:51:41 200, 03:52:07 **400** `too many challenge requests`), never
+  called request_push_token_challenge, and made no register call on the 03:54 relaunch. Three client
+  root causes, all from source (Build 18 = aad5f75):
+  RC1 the AppState 'active' handler ignored `onForeground().reRequest` and ran `attempt()` on every
+  'active' event, iOS inactive→active included (shade, keychain save-password sheet, Face ID); with a
+  challenge open nothing is persisted, so each event re-registered, and 135 re-issues a live
+  challenge in place (fresh nonce, same row — the prev_nonce_hash) and counts each against
+  push_challenge_token 3/600 s and push_challenge_user 5/600 s, the budget the visible-code fallback
+  also needs. RC2 `classifyRegistrationError` knew only 'too many registration attempts'; 135's
+  rebind path raises 'precondition_failed: too many challenge requests' → 'precondition' =
+  decideRegistration's never-retried refusal, with no remedy copy → silent and permanent for this
+  signed-in session (the store is cleared by a sign-out on this device, so a later sign-in starts
+  fresh). RC3 every `challenge_required` reply ran `beginChallenge()` (elapsedMs 0), restarting the
+  cumulative 60 s visible-code budget that `fallbackDelayMs` is specified to resume.
+  **Fix: `frontend/challenge-foreground-rerequest` @ 296439c** (from aad5f75, client only; gated
+  surface and supabase/ diff empty): `isChallengeOpen`, `shouldReattemptOnForeground` (reRequest ||
+  no open challenge) gating `attempt()` after the fallback re-arm; `resumeChallenge` (same id +
+  silent → keep elapsed/startedAt, refresh expiry); classifier `/too many (registration
+  attempts|challenge requests)/` → rate_limited + `REGISTRATION_REMEDY.rate_limited`. Evidence:
+  `tests/push-challenge-foreground-rerequest.test.ts` 13 tests, RED 11/13 before the fix; six
+  negative controls each fail 1–2; push-proof-v3 22/22, push-token-fetch-visibility 10/10,
+  push-registration 30/30, classifier-migration-guard 17/17; full suite 96 files / 2090; tsc 0; lint
+  0/29. From source: the visible code is requested at most once per challenge (the fallback is
+  one-shot and only armed in awaiting_push; awaiting_code never re-registers on foreground). What
+  only a device proves (needs push delivery → deferred with DV-131): inactive→active during an open
+  challenge → no second register call; real background→foreground → exactly one re-issue.
+  Session-2 consequence (A): the seller cannot register push on Build 18 while this sign-in lasts;
+  rows that need no registration proceed as the seller; S2-2 runs as the buyer.
+- **Batch 1 review heads (D, 2026-09-18):** 577ec40 PASS (comment nit fixed → `frontend/
+  challenge-copy-neutral` @ df5127c, comment-only, 22/22, tsc 0); e3ef6d3 CHANGES REQUESTED → fixed
+  at **`frontend/security-notice` @ da1d11d**: ① banner pays the top inset (`useTopInset()`;
+  otherwise the title sat under the SANDBOX badge, F-SELL-1 again — interim double gap, overlay is
+  the follow-up), ② newest unread notice of ANY type renders (A's ruling: 136 rev2 derives the set
+  from the registry; the client never narrows it; unknown types get Dismiss only; fixture pin
+  replaced), ③ a failed Dismiss puts `DISMISS_FAILED_COPY` on the screen and each action clears the
+  previous error. 6/6, tsc 0, lint 0/29. Also from A: 136 rev3 returns unread-undismissed only.
