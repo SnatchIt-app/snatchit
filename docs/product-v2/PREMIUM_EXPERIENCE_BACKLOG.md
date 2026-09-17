@@ -2326,3 +2326,22 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   overlapping. **DV-S1 (F-SELL-1, create) complete on Build 18: steps 1, 2, 3a, 3b PASS**, all
   owner-reported, no listing submitted. Larger text left ON for S2-4. Still open in S2-3: DV-S2 (edit
   listing with the keyboard), to run after S2-4 while larger text is still on.
+- **S2-4 (owner, Build 18, seller, largest accessibility text ON, 2026-09-18, time not captured) — two
+  observations recorded separately; S2-4 NOT passed:**
+  *(1) SANDBOX badge:* stayed unchanged in size (owner-reported) — matches the design
+  (`allowFontScaling={false}` in the root layout).
+  *(2) Text scaling:* no apparent text-size increase on Home, Bids, Your Tickets or Profile; text did
+  grow in Settings and on Sell your ticket; Explore not confirmed (owner-reported). Because text did
+  not grow on those four tabs, **heading clearance at the largest size was not evaluated there** —
+  that criterion stays open, not passed.
+  **F-DT-1 (NEW, severity pending cause) — text on four tabs did not scale at the largest
+  accessibility size.** Source check (Build 18 = aad5f75), not a device result: nothing in source
+  fixes text on those screens. The only opt-out is the SANDBOX badge. `Chip`, `Button`, `Badge` and
+  two Place bid elements cap scaling at `MAX_DISPLAY_FONT_SCALE` = 1.3× (intentional; the largest iOS
+  setting is 3.571×, so those controls grow only 30% there). `textStyle()` sets fixed sizes that React
+  Native scales by default; no global Text override, no `fontScale` reads, no caps in navigation or card
+  components. Build 18 runs the new architecture (`newArchEnabled: true`, RN 0.81.5); its surface
+  re-applies the font multiplier on a Dynamic Type change, but whether already-mounted tab screens
+  re-measure is not provable from source. Working hypothesis, untested: screens mounted before the
+  setting changed kept their old size. Discriminating check given to the owner: force-quit, relaunch
+  with the setting on, look at Home.
