@@ -2808,3 +2808,16 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   - D re-reviews; A integrates into a later candidate. **Not in Build 19; not device-verified.**
   - **Per-build expectation for a future DV-ST2b:** on c3/Build 19 and Build 18, a failed refresh keeps rows with
     NO notice; on a build with this fix, it keeps rows WITH the notice.
+- **F-BIDS-1: D PASS on 5da8a75 (the guard included), with two test-only pins required → accb40c.** O5 and O6: a
+  quiet refresh that overtakes a full-screen Retry and then fails (at its bids read / its purchases read) shows the
+  error state, never stuck placeholders. These kill D's surviving GD4 and GD5. 21 tests; 19 mutants each fail
+  exactly the predicted set on the first run (predictions written before); full 2250/106, tsc 0, lint 0/29;
+  delta test-only; gated surface 0. D's userId note (the generation bump happens after the `!userId` return) is
+  left as a follow-up: the root layout redirects on auth change, so the tabs unmount. Awaiting D's gate on
+  accb40c, then A (next candidate).
+
+## Handset session 3 — Build 19 (c3 = f412d10; owner installed 2026-09-17)
+Scope (owner): all later results are recorded against **Build 19**. The **Bids fix (F-BIDS-1) is NOT in Build 19**.
+The image rows (DV-IMG-*) wait for the sandbox window. Order: step 1 the sandbox badge and the signed-in account;
+then Keep editing (DV-NAV-1/2); then header spacing (the F-SELL-2 device rows). Carried settings at the start:
+Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link Conditioner OFF (since 11:39).
