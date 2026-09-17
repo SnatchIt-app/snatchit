@@ -8,7 +8,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(19);
+SELECT plan(20);
 SELECT tap.seed_core();
 
 -- ── Read scoping ────────────────────────────────────────────────────────────
@@ -111,6 +111,10 @@ SELECT is(
   (SELECT t.seller_sent_at FROM public.transfers t WHERE t.id = tap.transfer_a()),
   (SELECT seller_sent_at FROM _sent050),
   'and the state is NOT replayed — seller_sent_at is untouched by the retry (the invariant this test has always protected)');
+SELECT is(
+  (SELECT t.transfer_evidence_path FROM public.transfers t WHERE t.id = tap.transfer_a()),
+  (SELECT transfer_evidence_path FROM _sent050),
+  'and accepted proof is NOT replaced by the retry either — the other half of "not replayed" (D)');
 
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());

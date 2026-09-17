@@ -5,20 +5,41 @@
 -- The assertions carrying the fix are R2-R6: a retry on an already-sent transfer
 -- RETURNS instead of raising, writes nothing (xmin unchanged), fires no second
 -- notification, and never replaces accepted proof.
--- NEGATIVE CONTROL PER BRANCH (A's §7). Each refusal branch of 140 was disabled in
--- turn and the suite re-run; each killed exactly ONE assertion, and no two branches
--- killed the same one — so every branch is defended, and each test defends something
--- different. Measured, not asserted:
---   remove the already-sent arm ......................... 5 fail (the pre-140 defect)
---   let a retry replace accepted proof .................. 4 fail
---   attach writes WITH the bypass GUC ................... 3 fail
---   drop the storage.objects existence check ............ 1 fail  (S11)
---   drop mark-sent's pointer to attach .................. 1 fail  (S1)
---   drop attach's status gate ........................... 1 fail  (S8)
---   drop attach's own-folder check ...................... 1 fail  (S9)
---   drop attach's transfer-evidence/ check .............. 1 fail  (S10)
---   drop attach's empty-path check ...................... 1 fail  (S12)
---   drop attach's seller check .......................... 1 fail  (S13)
+-- NEGATIVE CONTROL PER BRANCH (A's §7). Each branch of 140 was disabled in turn on
+-- a fresh replay and the suite re-run. THIS TABLE IS THE MEASUREMENT; the sentences
+-- under it are read off it, not written beside it (D caught an earlier header here
+-- claiming "each killed exactly ONE assertion, and no two branches killed the same
+-- one" — false against this very table, and it travelled a hop before anyone checked
+-- it against the rows):
+--
+--   BRANCH DISABLED                              ASSERTIONS THAT DIE
+--   already-sent arm removed ................... R3 R6 R8 R9 S1
+--   retry replaces proof (writes AND reports) .. R4 R7 R8 S7
+--   attach writes WITH the bypass GUC .......... S5 S6 S7
+--   storage.objects existence check ............ S11
+--   mark-sent's pointer to attach .............. S1
+--   attach status gate ......................... S8
+--   attach own-folder check .................... S9
+--   attach transfer-evidence/ check ............ S10
+--   attach empty-path check .................... S12
+--   attach seller check ........................ S13
+--   (nothing disabled) ......................... none
+--
+-- Read off the table: every branch is defended — disabling any one kills at least one
+-- assertion, and restoring kills none. The three core branches kill 5, 4 and 3; a
+-- branch many tests depend on is better defended, not worse. R8, S1 and S7 each die
+-- under more than one breakage, which makes them invariants several branches uphold
+-- rather than duplicated tests.
+--
+-- MUTATION FIDELITY, learned here: the "replaces proof" row needs a mutation that
+-- actually WRITES the new path. A report-only version (changing the returned jsonb
+-- and nothing else) kills R8 alone and would have understated the coverage by three.
+-- A mutant has to be the real defect, not a gesture at it.
+--
+-- HARNESS: needs a postgres connection. Run as the OS user it dies at tap.seed_core()
+-- on 119's "Cannot set server-controlled listing columns on insert." — 072 records
+-- that the listing guard deliberately does NOT honour its bypass GUC on INSERT.
+-- Use PGUSER=postgres (scripts/rehearsal_test.sh does).
 BEGIN;
 SELECT plan(37);
 SELECT tap.seed_core();
