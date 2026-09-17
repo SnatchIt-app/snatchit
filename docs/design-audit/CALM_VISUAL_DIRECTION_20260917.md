@@ -116,7 +116,7 @@ distinction A corrected me on · the four haptic meanings · tabular prices · r
 
 | Change | Files / components |
 |---|---|
-| `eyebrow` token + in-content title rule | `src/theme/v2.ts` (+`type.eyebrow`), `src/theme/typography.ts` (+mapping), **and the byte-identical mirror** `packages/design-tokens/src/brand.ts` — `tests/product-v2-foundation.test.ts` fails on drift. Then per-screen: `ui/StateView.tsx`, `ui/Sheet.tsx`, `ui/EmptyState.tsx`, `listing/ListingStatusBanner.tsx`, both `app/transfer/*/[id].tsx`, `app/settings/*` section labels |
+| `eyebrow` token + in-content title rule | `src/theme/v2.ts` (+`type.eyebrow`), `src/theme/typography.ts` (+mapping), **and the byte-identical mirror** `packages/design-tokens/src/brand.ts` — `tests/product-v2-foundation.test.ts:49-52` asserts `expect(pkg.brandTokens).toStrictEqual(mobile.brandTokens)`, so a token move is always both files plus that test (B verified the assertion; A verified it independently). **And it does not reach the web app**: `packages/design-tokens/src/brand.ts:9` says the vendored tarball web installs from "renders the legacy palette until the package is repacked", so any token proposal must state which it intends — mobile-only, or mobile plus a repack. Then per-screen: `ui/StateView.tsx`, `ui/Sheet.tsx`, `ui/EmptyState.tsx`, `listing/ListingStatusBanner.tsx`, both `app/transfer/*/[id].tsx`, `app/settings/*` section labels |
 | Neutral hairline + `border.accent` | `src/theme/v2.ts`, `packages/design-tokens/src/brand.ts`, the parity test; consumers inherit. Explicit overrides to review: `ui/Input.tsx` (focus), `ui/Chip.tsx`, `ui/StickyBar.tsx`, `ui/Sheet.tsx` |
 | `Notice` primitive, three ranks | new `src/components/ui/Notice.tsx` + `ui/index.ts`; replaces hand-rolled boxes in `app/transfer/send/[id].tsx:292-299`, `app/transfer/receive/[id].tsx:309-318`, `app/settings/index.tsx:295-318`, `src/screens/CreateListingScreen.tsx:822-836` (removing its four invented hexes), and `SecurityNoticeBanner.tsx` becomes its blocking instance |
 | Neutral selection | `src/components/ui/Chip.tsx`, `src/components/ui/Badge.tsx` |
@@ -129,4 +129,4 @@ distinction A corrected me on · the four haptic meanings · tabular prices · r
 ## 10. What B cannot verify
 No device, no simulator, no screenshot of the running app. Every claim here is source-derived or measured in a browser
 reconstruction; "largest text" is simulated by scaling the type tokens. Real Dynamic Type, iOS font metrics and the live
-badge inset are C's to observe. One decision is the owner's, not B's: whether the default hairline stops being red.
+badge inset are C's to observe. One decision is the owner's, not B's: whether the default hairline stops being red — and if approved it should land **alone**, since it is the only calm change that alters every screen at once, which makes it the one change that must stay cleanly revertible (A concurs, and wants the same treatment for the dead-code and stale-doc cleanups).
