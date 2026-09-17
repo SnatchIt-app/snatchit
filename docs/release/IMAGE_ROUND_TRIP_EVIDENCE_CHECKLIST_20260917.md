@@ -25,7 +25,7 @@ never removed · **N** no-write API probes.
 | **N** mark sent again on `92ee5156`, same path and then a different path | none: returns `already_sent` before any UPDATE; takes a `FOR UPDATE` row lock only | unchanged | +0 | None |
 | **N** mark sent with a path on `8f59d37e`, **before** DV-IMG-10 | none: raises `precondition_failed: transfer already sent without evidence — use attach_transfer_evidence` | unchanged | +0 | None |
 | **N** attach with the same path on `8f59d37e`, after DV-IMG-10 | none: returns `already_attached` (140:175-177) before the UPDATE | unchanged | +0 | None |
-| **N** attach with a different path, after DV-IMG-10 | BEFORE guard raises `transfer_evidence_path is append-only.`, **but only if the path names an existing object** (see §4 C4) | unchanged (the statement rolls back) | +0 | None |
+| **N** attach with a different path, after DV-IMG-10 | BEFORE guard raises `transfer_evidence_path is append-only.`, **but only if the path names an existing object** (see §3 item 5, C4) | unchanged (the statement rolls back) | +0 | None |
 
 `public.notifications` has no trigger anywhere in the chain (grep of every `CREATE TRIGGER`), so an inbox row never
 causes a push by itself. **A's expectation of "inbox rows only" holds.**
