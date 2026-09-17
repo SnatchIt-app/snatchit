@@ -2941,3 +2941,14 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   error shown; nothing else was tapped (not "Sign out of all devices"). Per source, the banner hides until the next
   load, so the deletion notice is not expected back until a refocus or relaunch. **Result pending A's read-back:**
   read_at on fb23b20a only, f3abe550 unchanged. DV-N-3 waits for it.
+- **DV-N-2: PASS (owner tap + A's read-back at 2026-09-17T16:47:20Z).**
+  - fb23b20a read_at **16:46:11.195Z**, matching the 12:46 EDT tap; dismissed_at null (Dismiss calls
+    mark_security_notices_read, which sets read_at).
+  - **f3abe550 (deletion notice) unchanged** (read_at null, dismissed_at null).
+  - Buyer rows 2; notification total 10; delivery 18; 0 delivery rows for the staged id; queue 0; 2xx 0.
+  - **No sign-out or session change from the tap:**
+    - the buyer's newest session is 16:32:39Z (the owner's Build 19 sign-in); the other session is A's Line 1
+      password-grant sign-in at 16:16Z;
+    - push row 140fcb44 active and session-bound;
+    - push_binding_epoch still 16:12:37Z, with no bump.
+  - Next: DV-N-3 (relaunch).
