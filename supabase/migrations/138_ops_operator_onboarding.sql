@@ -5,7 +5,9 @@
 -- the platform never makes an operator a member of a customer organisation.
 -- Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md.
 -- Design: docs/venue-dashboard/OPERATOR_PERMISSION_PROPOSAL_D_20260917.md (rev 2),
--- ruled by the owner 2026-09-17; amendment text PFA-33 (proposed).
+-- ruled by the owner 2026-09-17; PFA-33 SIGNED 2026-09-17 (governance bf7fd66). A5, the
+-- recovery rule, the detection read and A6 follow the owner's later rulings 1–3 of
+-- 2026-09-17 and await a follow-on amendment (A6 is D's reading, to confirm or strike).
 --
 -- TWO PLANES. Platform operators act on the platform plane (organisation status,
 -- venue lifecycle, approvals, audited reads). Customer organisation members act on
@@ -21,7 +23,10 @@
 -- pending owner invite, or when the invitee is the approver or holds platform
 -- authority. The customer accepts through kernel.accept_org_invite, which now refuses
 -- any identity holding platform authority (A4) — the structural control, because an
--- address can change hands after any request-time check (F-138-11). venue_create
+-- address can change hands after any request-time check (F-138-11). A SUSPENDED
+-- organisation may receive the same invite as a recovery, only while it has no owner
+-- (ruling 1); the domain audit records the status at issue. An invitation never
+-- changes an existing owner's role (A6). venue_create
 -- dispatches catalog.bootstrap_venue (A3, draft). Invites are delivered manually
 -- through a verified channel; nothing here sends anything.
 --
@@ -34,13 +39,15 @@
 -- stated deviation from the approved wording.
 --
 -- MEMBERSHIP PATHS (ruling 7). org_member is inserted only by create_organization
--- (077) and accept_org_invite (077, A4); venue.staff_role only by grant_staff_role
--- (080, refused here for a platform-authority target). STILL OPEN, identified not
--- closed: create_organization called directly over RPC by a platform identity (A5,
--- proposed); platform authority granted to an existing member (grant_platform_role
--- is fail-closed, PFA-4; an admin_users insert by SQL); out-of-band SQL. The venue
--- staff refusal depends on venue NOT being API-exposed: if it ever is, that refusal
--- must move into the verb by amendment.
+-- (077, A5) and accept_org_invite (077, A4); venue.staff_role only by grant_staff_role
+-- (080, refused here for a platform-authority target). Both org_member writers now
+-- refuse any identity holding platform authority. NOT CLOSABLE HERE, detected
+-- instead by ops.list_platform_identity_memberships (names only, platform_admin, aal2):
+-- platform authority granted to an existing member (grant_platform_role is
+-- fail-closed, PFA-4; an admin_users insert by SQL) and out-of-band SQL. A person with
+-- a second, ordinary account is neither closed nor detectable (PFA-33 LIMIT). The
+-- venue staff refusal depends on venue NOT being API-exposed: if it ever is, that
+-- refusal must move into the verb by amendment.
 --
 -- AN INVITEE'S ADDRESS IS NEVER STORED WHERE AN OPERATOR CAN READ IT. The bootstrap
 -- invite stores a label; the raw reference is held in ops.action_invitee (no API
@@ -54,20 +61,22 @@
 -- DEFECTS FOUND BUILDING THIS, kept for review: F-138-2 execute_action never admitted
 -- the new types (A); F-138-5 a guard placed only in precheck never ran for routine
 -- types (D); F-138-6 a guard read a different params key than its dispatch arm (D);
--- F-138-8 self-targeted elevation (A); F-138-11 acceptance after an email change (A).
+-- F-138-8 self-targeted elevation (A); F-138-11 acceptance after an email change (A);
+-- F-138-12 accept_org_invite's upsert demotes an owner past the last-owner rule (D; A6).
 -- The first three concerned the removed role types; their lessons shape the rest.
 --
 -- BASELINES — SEVEN OBJECTS REDEFINED, EACH RESTORED BY THE ROLLBACK FROM ITS OWN
 -- APPLIED BODY:
 --   ops.execute_action, ops.action_dispatch, ops.action_precheck   118's body
 --   ops.action_allowed_roles, ops.action_requires_approval          115's body
---   kernel.accept_org_invite                                        077's body (A4)
+--   kernel.accept_org_invite                                        077's body (A4, A6)
+--   kernel.create_organization                                      077's body (A5)
 -- ops.audit_write is not touched. No other migration defines any of these, and the
 -- twelve verbs dispatch calls are single-defined (077 / 078 / 080). The two CHECK
 -- constraints are 115's inline, auto-named ones, dropped BY NAME without `if exists`
 -- so a mismatch fails at migration time; the widening is proved in this file.
 --
--- Census (measured on a replay): ops functions +12 (six reads, two audited verbs, two
+-- Census (measured on a replay): ops functions +13 (seven reads, two audited verbs, two
 -- helpers, identity_holds_platform_authority, action_invitee_release_on_terminal);
 -- kernel +2 (A1, A2); catalog +1 (A3); ops tables +1 (action_invitee) with two
 -- triggers (its update refusal; release on ops.action). public census UNCHANGED.
@@ -1016,6 +1025,34 @@ begin
      order by s.role, s.created_at;
 end $ops$;
 
+-- names-only detection read (owner ruling 3, 2026-09-17): platform identities that hold organisation membership.
+-- A detector, not a control: it finds what A4/A5 cannot prevent (authority granted to an existing member, path d;
+-- out-of-band SQL, path e). platform_admin at aal2 only. STABLE, so the database refuses any write inside it; it
+-- writes no audit row. Names only: no identity id, no address, no organisation id — the operator follows up
+-- through the audited console reads. A person using a second, ordinary account is invisible here (PFA-33 LIMIT).
+create or replace function ops.list_platform_identity_memberships()
+returns table (platform_authority text, identity_name text, organization_name text, org_role text)
+language plpgsql stable security definer set search_path = ''
+as $ops$
+begin
+  perform ops.assert_role(array['platform_admin']);
+  return query
+    with authority as (
+      select r.identity_id, r.role from kernel.platform_role r
+      union
+      select a.user_id, 'platform_admin' from public.admin_users a
+    )
+    select string_agg(distinct au.role, ',' order by au.role),
+           coalesce(ops.identity_display_name(m.identity_id), '(no display name)'),
+           o.display_name,
+           m.role
+      from kernel.org_member m
+      join authority au on au.identity_id = m.identity_id
+      join kernel.organization o on o.org_id = m.org_id
+     group by m.identity_id, m.org_id, o.display_name, m.role
+     order by o.display_name, 2, m.role;
+end $ops$;
+
 -- ── 6. contact email: a separate, audited, purpose-limited verb ─────────────
 create or replace function ops.get_org_contact_email(p_org_id uuid, p_reason_code text)
 returns text language plpgsql volatile security definer set search_path = ''
@@ -1184,7 +1221,7 @@ begin
   end;
   insert into kernel.admin_audit (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
   values (v_uid, 'org.invite', 'org_invite', v_invite_id, 'platform_bootstrap_owner',
-          null, jsonb_build_object('org_id', p_org_id, 'role', 'org_owner'));
+          null, jsonb_build_object('org_id', p_org_id, 'role', 'org_owner', 'org_status', v_status));
   return jsonb_build_object('status', 'ok', 'invite_id', v_invite_id);
 end;
 $$;
@@ -1225,6 +1262,72 @@ begin
   values (v_uid, 'venue.create', 'venue', v_venue_id, 'platform_bootstrap',
           null, jsonb_build_object('approval_status', 'draft', 'org_id', p_org_id));
   return jsonb_build_object('status', 'ok', 'venue_id', v_venue_id);
+end;
+$$;
+
+-- A5 — kernel.create_organization: 077's body, verbatim, plus one refusal (owner ruling 2). Grants unchanged
+-- (create or replace keeps the ACL; 206 I133). The rollback restores 077's body.
+create or replace function kernel.create_organization(
+  p_legal_name text, p_display_name text, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid    uuid;
+  v_org_id uuid;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  -- A5 (owner ruling 2, 2026-09-17): an identity holding platform authority cannot create a customer
+  -- organisation directly, because this verb makes the caller its org_owner. Operators create organisations
+  -- through the console's org_bootstrap (A1), which creates it with no member; the customer becomes owner by
+  -- accepting the two-person owner invite (A2, A4). kernel.is_platform includes the public.admin_users bootstrap.
+  if kernel.is_platform(array['platform_admin','platform_support','platform_risk']) then
+    raise exception 'insufficient_privilege: platform_authority — an identity holding platform authority cannot create a customer organisation; operators use org_bootstrap'
+      using errcode = '42501';
+  end if;
+  -- OR-17 F-6: creating an org makes the caller a sole org_owner by
+  -- construction — an instant self-inflicted completion blocker.
+  if kernel.is_deletion_pending(v_uid) then
+    raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
+  end if;
+  -- dsm §1.3: ERASED is terminal and sits OUTSIDE the pending freeze operand,
+  -- yet sessions can outlive erasure while OPEN-7 is unresolved — the
+  -- acquisition gate refuses the erased caller too (the E-8 defensive twin;
+  -- red-team C blocker 2).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
+  if p_legal_name is null or length(trim(p_legal_name)) = 0
+     or p_display_name is null or length(trim(p_display_name)) = 0 then
+    raise exception 'precondition_failed: names must be non-empty';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  -- E-3: kernel.organization carries no command-key column in the frozen DDL,
+  -- so replay dedupe here is non-structural; a duplicate apply yields a second
+  -- inert 'applied' row (recorded errata).
+
+  insert into kernel.organization (legal_name, display_name, status, home_region)
+  values (trim(p_legal_name), trim(p_display_name), 'applied', 'us-east')
+  returning org_id into v_org_id;
+
+  insert into kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
+  values (v_org_id, v_uid, 'org_owner', v_uid, now());
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.create', 'organization', v_org_id, 'self_service',
+          null, jsonb_build_object('status', 'applied'));
+
+  return jsonb_build_object('status', 'ok', 'org_id', v_org_id);
 end;
 $$;
 
@@ -1289,6 +1392,16 @@ begin
 
   -- serialize the roster on the org row
   perform 1 from kernel.organization o where o.org_id = v_inv.org_id for update;
+  -- A6 (owner ruling 1, 2026-09-17: "No invite may replace an existing owner"; D's reading, for the owner to
+  -- confirm or strike): the upsert below sets role = the invite's role, so accepting a lower-tier invite would
+  -- demote an org_owner — the last one included — past the last-owner rule change_org_role and
+  -- remove_org_member enforce (077). An owner's role changes only through kernel.change_org_role. Checked under
+  -- the org row lock taken above, so a concurrent acceptance cannot slip between the read and the upsert.
+  if v_inv.role <> 'org_owner'
+     and exists (select 1 from kernel.org_member m
+                  where m.org_id = v_inv.org_id and m.identity_id = v_uid and m.role = 'org_owner') then
+    raise exception 'precondition_failed: owner_role_change — an invitation cannot change an org_owner''s role; roles change through kernel.change_org_role';
+  end if;
 
   -- granted_at is the maturity clock and is set HERE, not at invite (AUTHZ-C1B)
   insert into kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
@@ -1342,6 +1455,7 @@ revoke all on function ops.list_org_invites(uuid)                        from pu
 revoke all on function ops.list_venue_staff(uuid)                        from public, anon, authenticated;
 revoke all on function ops.get_org_contact_email(uuid, text)             from public, anon, authenticated;
 revoke all on function ops.get_action_invitee(uuid, text)                from public, anon, authenticated;
+revoke all on function ops.list_platform_identity_memberships()          from public, anon, authenticated;
 grant execute on function ops.list_organizations(text, text, integer)    to authenticated;
 grant execute on function ops.get_organization(uuid)                     to authenticated;
 grant execute on function ops.list_venues(uuid, text, integer)           to authenticated;
@@ -1350,6 +1464,7 @@ grant execute on function ops.list_org_invites(uuid)                     to auth
 grant execute on function ops.list_venue_staff(uuid)                     to authenticated;
 grant execute on function ops.get_org_contact_email(uuid, text)          to authenticated;
 grant execute on function ops.get_action_invitee(uuid, text)             to authenticated;
+grant execute on function ops.list_platform_identity_memberships()       to authenticated;
 -- console-only and internal: no API role, service_role included (principle 4)
 revoke all on function ops.identity_holds_platform_authority(uuid)                 from public, anon, authenticated, service_role;
 revoke all on function ops.action_invitee_release_on_terminal()                   from public, anon, authenticated, service_role;
@@ -1438,7 +1553,8 @@ begin
                      'ops.list_org_invites(uuid)'::regprocedure,
                      'ops.list_venue_staff(uuid)'::regprocedure,
                      'ops.get_org_contact_email(uuid,text)'::regprocedure,
-                     'ops.get_action_invitee(uuid,text)'::regprocedure)
+                     'ops.get_action_invitee(uuid,text)'::regprocedure,
+                     'ops.list_platform_identity_memberships()'::regprocedure)
        and not (p.prosecdef
                 and coalesce(p.proconfig @> array['search_path=""'], false)
                 and has_function_privilege('authenticated', p.oid, 'EXECUTE')

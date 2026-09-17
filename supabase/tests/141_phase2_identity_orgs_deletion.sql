@@ -785,13 +785,19 @@ SELECT is(
   1, '077 J7 [§17.21]: the effective change is audited (crm_contact.pref_changed)');
 
 -- ── K. ORG LIFECYCLE (RPC §2; F-6; AUTHZ-C1B; OR-18) ───────────────────────
+-- 138 A5 (PFA-33 follow-on, owner ruling 2026-09-17): an identity holding platform authority can no longer
+-- create an organisation and become its owner, so org1's owner is a customer identity, not tap.admin_user()
+-- (a platform_admin through public.admin_users). Only L0d, the platform approval, is performed by the admin.
+CREATE FUNCTION tap._o141() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT '0f0f0f0f-0f0f-0f0f-0f0f-0f0f0f0f0f0f'::uuid $f$;
+INSERT INTO auth.users (id, email, aud, role, created_at)
+VALUES (tap._o141(), 'org1.owner@test.local', 'authenticated', 'authenticated', now()) ON CONFLICT (id) DO NOTHING;
 
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT lives_ok($$SELECT tap._store('org1', (kernel.create_organization('Fixture Org LLC','Fixture Org','ck1'))->>'org_id')$$,
   '077 K1: create_organization succeeds for an ACTIVE caller');
 SELECT is(
   (SELECT role FROM kernel.org_member
-    WHERE org_id = tap._fetch('org1')::uuid AND identity_id = tap.admin_user()),
+    WHERE org_id = tap._fetch('org1')::uuid AND identity_id = tap._o141()),
   'org_owner', '077 K2: the creator becomes the first org_owner');
 SELECT is(
   (SELECT status FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
@@ -801,7 +807,7 @@ SELECT is(
   (SELECT count(*)::int FROM kernel.admin_audit
     WHERE action = 'org.create' AND subject_id = tap._fetch('org1')::uuid),
   1, '077 K4 [§0.3]: the privileged mutation wrote its audit row in-txn');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 -- invite at org_marketing — the M-5 pair is storable end-to-end
 SELECT lives_ok($$SELECT tap._store('inv_mkt', (kernel.invite_org_member(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_marketing', 'ck2'))->>'invite_id')$$,
@@ -809,7 +815,7 @@ SELECT lives_ok($$SELECT tap._store('inv_mkt', (kernel.invite_org_member(tap._fe
 SELECT tap.login('55555555-5555-5555-5555-555555555555'::uuid);
 SELECT is((kernel.accept_org_invite(tap._fetch('inv_mkt')::uuid, 'ck3'))->>'status', 'ok',
   '077 K6: the addressed invitee accepts');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 -- promote 55 into org_admin, then test the tier guard from 55's side
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_admin', 'ck4'))->>'status', 'ok',
@@ -821,19 +827,19 @@ SELECT throws_ok(
 SELECT throws_ok(
   $$SELECT kernel.change_org_role(tap._fetch('org1')::uuid, '55555555-5555-5555-5555-555555555555', 'org_owner', 'ck6')$$,
   'P0001', NULL, '077 K9 [§2.4]: an org_admin cannot grant org_owner (and self-promotion is refused)');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 -- last-owner invariant
 SELECT throws_ok(
-  $$SELECT kernel.change_org_role(tap._fetch('org1')::uuid, tap.admin_user(), 'org_member', 'ck7')$$,
+  $$SELECT kernel.change_org_role(tap._fetch('org1')::uuid, tap._o141(), 'org_member', 'ck7')$$,
   'P0001', NULL, '077 K10 [>=1 owner]: demoting the last org_owner is refused');
 SELECT throws_ok(
-  $$SELECT kernel.remove_org_member(tap._fetch('org1')::uuid, tap.admin_user(), 'ck8')$$,
+  $$SELECT kernel.remove_org_member(tap._fetch('org1')::uuid, tap._o141(), 'ck8')$$,
   'P0001', NULL, '077 K11 [>=1 owner]: removing the last org_owner is refused');
 -- AUTHZ-C1B: the maturity clock resets on promotion INTO a money role only
 SELECT tap.logout();
 UPDATE kernel.org_member SET granted_at = now() - interval '10 days'
  WHERE org_id = tap._fetch('org1')::uuid AND identity_id = '55555555-5555-5555-5555-555555555555';
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_finance', 'ck9'))->>'status', 'ok',
   '077 K12a: promotion into a money role succeeds');
@@ -844,7 +850,7 @@ SELECT is(
   true, '077 K12 [T-SCHEMA-APPR-07/X-11]: granted_at ADVANCES on promotion into a money role');
 UPDATE kernel.org_member SET granted_at = now() - interval '10 days'
  WHERE org_id = tap._fetch('org1')::uuid AND identity_id = '55555555-5555-5555-5555-555555555555';
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_member', 'ck10'))->>'status', 'ok',
   '077 K13a: demotion out of the money role succeeds');
@@ -853,7 +859,7 @@ SELECT is(
   (SELECT granted_at < now() - interval '9 days' FROM kernel.org_member
     WHERE org_id = tap._fetch('org1')::uuid AND identity_id = '55555555-5555-5555-5555-555555555555'),
   true, '077 K13 [AUTHZ-C1B]: a demotion does NOT reset the clock — nothing is being acquired');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 -- revoke_org_invite releases the pending partial unique (T-RPC-ORG-04)
 SELECT lives_ok($$SELECT tap._store('inv_g', (kernel.invite_org_member(tap._fetch('org1')::uuid,
   'grace@test.local', 'org_member', 'ck11'))->>'invite_id')$$, '077 K14a: invite by email ref');
@@ -887,7 +893,7 @@ SELECT throws_ok(
 SELECT tap.logout();
 SELECT is((kernel.sweep_expired_org_invites())->>'swept', '1',
   '077 K16b: one tick flips the lapsed invite to expired');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT lives_ok(
   $$SELECT kernel.invite_org_member(tap._fetch('org1')::uuid, 'grace@test.local', 'org_member', 'ck17')$$,
   '077 K16 [T-RPC-ORG-06]: after the tick the same invitee_ref can be re-invited — the unique-release half');
@@ -915,7 +921,7 @@ BEGIN
     (coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true);
 END $f$;
 
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 -- (ii) AUTHZ-M4 fail-closed arm — an absent claim can never evaluate as satisfied
 SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0a')$$,
@@ -933,12 +939,13 @@ SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0c')$$,
   '%org_not_bindable%',
   '077 L0c [093/A9, G-6]: an APPLIED org may not bind a payee — approval precedes the payee');
+SELECT tap.login(tap.admin_user());   -- the platform approval is the admin's act, not the owner's (138 A5)
 SELECT is((kernel.set_org_status(tap._fetch('org1')::uuid, 'approved', 'review_passed', 'ck-l0d'))->>'org_status',
   'approved', '077 L0d: platform approval moves org1 applied -> approved — the 093 precondition for any bind');
 -- (iv) G-1 — the cross-plane refusal, asserted on a real individual-plane id
 SELECT tap.logout();
 UPDATE public.profiles SET stripe_connect_id = 'acct_PERSONAL1' WHERE id = tap.seller();
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_PERSONAL1', 'cl0e')$$,
@@ -958,7 +965,7 @@ UPDATE public.profiles SET stripe_connect_id = NULL WHERE id = tap.seller();
 -- gains connect_pending_ref, written ONLY by kernel.stage_org_connect_ref
 -- (service_role only), and the bind must match it and CONSUMES it.
 -- These three assertions are that P0's proof and had no coverage before.
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0f')$$,
@@ -969,7 +976,7 @@ SELECT tap.logout();
 -- context, as G2-style machine paths are throughout this suite.
 SELECT is((kernel.stage_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl0g'))->>'status', 'ok',
   '077 L0g [093/A7]: the server stages the account it minted — the only writer of connect_pending_ref');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT throws_like(
   $$SELECT kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_OTHER999', 'cl0h')$$,
@@ -983,8 +990,8 @@ SELECT is(
   NULL, '077 L1a [093/A7]: the successful bind CONSUMED connect_pending_ref — one staging authorises exactly one bind, never a later re-point');
 SELECT is(
   (SELECT payout_destination_set_by FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
-  tap.admin_user(), '077 L2 [T-RPC-CONNECT-01/SoD-1]: the bind stamps payout_destination_set_by');
-SELECT tap.login(tap.admin_user());
+  tap._o141(), '077 L2 [T-RPC-CONNECT-01/SoD-1]: the bind stamps payout_destination_set_by');
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT is((kernel.set_org_connect_ref(tap._fetch('org1')::uuid, 'acct_TESTABC123', 'cl2'))->>'status', 'noop_replay',
   '077 L3 [T-RPC-CONNECT-03]: re-binding the same id is noop_replay (the re-onboarding retry path)');
@@ -1013,9 +1020,9 @@ SELECT throws_ok(
 -- money roles could re-point the real destination, silently, past SoD-1.
 -- kernel.authorize_org_payout_dashboard is the gate the edge must now clear
 -- before minting that link, and L6a-L6j are its proof.
--- org1 is approved and bound to acct_TESTABC123 (L1); tap.admin_user() is its
+-- org1 is approved and bound to acct_TESTABC123 (L1); tap._o141() is its
 -- org_owner; 5555…5 was promoted to org_finance at K12a.
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT throws_like(
   $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd0')$$,
   '%step_up_unavailable%',
@@ -1041,7 +1048,7 @@ SELECT throws_ok(
   $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd3')$$,
   '42501', NULL,
   '077 L6d [093 §9]: a claims-less (service-path) connection is refused — a machine never opens a dashboard, and admin_audit.actor_identity must be a real human');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT is((kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd4'))->>'status', 'ok',
   '077 L6e [093 §9]: the org_owner on aal2 IS authorized — the control narrows the door, it does not close it');
@@ -1050,7 +1057,7 @@ SELECT is(
   (SELECT count(*)::int FROM kernel.admin_audit
     WHERE action = 'org.payout_destination.dashboard_grant'
       AND subject_kind = 'organization' AND subject_id = tap._fetch('org1')::uuid
-      AND reason_code = 'express_dashboard_login' AND actor_identity = tap.admin_user()),
+      AND reason_code = 'express_dashboard_login' AND actor_identity = tap._o141()),
   1, '077 L6f [093 §9/A9]: the grant writes an admin_audit row naming the human — the fact that was previously recorded NOWHERE');
 -- The audit row is read by support. G §6.1 bars Connect ids from leaving the
 -- trust boundary, so the row carries last4 and never the identifier.
@@ -1066,7 +1073,7 @@ SELECT is(
 -- exclusion (087:428-431) merely by opening their Stripe dashboard.
 SELECT is(
   (SELECT payout_destination_set_by FROM kernel.organization WHERE org_id = tap._fetch('org1')::uuid),
-  tap.admin_user(),
+  tap._o141(),
   '077 L6h [093 §9/SoD-1]: authorizing the dashboard does NOT touch payout_destination_set_by — the grant is not a destination change and must not clear the setter''s payout exclusion');
 -- …and it must not arm destination probation either (087:465-495 reads
 -- org.payout_destination.change / org.connect_ref.bind). A distinct action name
@@ -1080,7 +1087,7 @@ SELECT is(
 -- that has to include the bank account behind it.
 SELECT tap.logout();
 UPDATE kernel.organization SET status = 'suspended' WHERE org_id = tap._fetch('org1')::uuid;
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT tap._aal2();
 SELECT throws_like(
   $$SELECT kernel.authorize_org_payout_dashboard(tap._fetch('org1')::uuid, 'cd5')$$,
@@ -1405,7 +1412,7 @@ SELECT tap._store('g_pre', (SELECT count(*)::text FROM notify.outbox
 SELECT tap._store('r_pre', (SELECT count(*)::text FROM notify.outbox
   WHERE event_type = 'security_org_role_revoked'
     AND aggregate_id = '55555555-5555-5555-5555-555555555555'));
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_finance', 'cp1'))->>'status', 'ok',
   '077 P1a: promotion into a SENSITIVE role');
@@ -1417,7 +1424,7 @@ SELECT is(
       AND event_key LIKE 'security_role_grant:%'),
   tap._fetch('g_pre')::int + 1,
   '077 P1 [R2 row 22]: the sensitive grant BE-emits ONE security_org_role_granted keyed on its own audit row');
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_member', 'cp2'))->>'status', 'ok',
   '077 P2a: demotion out of the sensitive role');
@@ -1431,7 +1438,7 @@ SELECT is(
 SELECT tap._store('t_pre', (SELECT count(*)::text FROM notify.outbox
   WHERE event_type IN ('security_org_role_granted','security_org_role_revoked')
     AND aggregate_id = '55555555-5555-5555-5555-555555555555'));
-SELECT tap.login(tap.admin_user());
+SELECT tap.login(tap._o141());
 SELECT is((kernel.change_org_role(tap._fetch('org1')::uuid,
   '55555555-5555-5555-5555-555555555555', 'org_marketing', 'cp3'))->>'status', 'ok',
   '077 P3a: a non-sensitive lateral change');

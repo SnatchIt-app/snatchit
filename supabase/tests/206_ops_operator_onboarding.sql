@@ -3,7 +3,7 @@
 -- audited action framework. Runs as postgres inside BEGIN … ROLLBACK like every
 -- suite here. Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md
 BEGIN;
-SELECT plan(140);
+SELECT plan(171);
 -- No tap.seed_core(): it builds listings, and 185's insert guard refuses the
 -- server-controlled columns it writes. This suite needs three identities and
 -- nothing else, so it makes them itself and stays independent of the fixture
@@ -558,15 +558,15 @@ SELECT is((SELECT md5(prosrc) || ' ' || proacl::text FROM pg_proc WHERE oid = 'c
 SELECT is((SELECT proacl::text FROM pg_proc WHERE oid = 'kernel.accept_org_invite(uuid,text)'::regprocedure),
   '{postgres=X/postgres,authenticated=X/postgres}', 'I87: A4 kept accept_org_invite''s grants exactly');
 
--- ── I.12 the membership paths the acceptance guard does NOT close (ruling 7) — facts, not decisions ──
+-- ── I.12 the membership paths (ruling 7); direct creation closed by A5 (owner, 2026-09-17) ──
 SELECT is(tap._platform_members(), 0,
   'I88: after everything above, no identity holding platform authority is an organisation member or venue staff anywhere in this suite''s world');
 SELECT tap.login(tap._A206()); SELECT tap._aal2();
-SELECT is((kernel.create_organization('Direct Path LLC', 'Direct Path', 'k206-direct')) ->> 'status', 'ok',
-  'I89: OPEN (A5 proposed) — a platform identity can still call the frozen self-service kernel.create_organization directly over RPC');
+SELECT matches(tap._try206($$ SELECT kernel.create_organization('Direct Path LLC', 'Direct Path', 'k206-direct') $$), '^42501 insufficient_privilege: platform_authority',
+  'I89: A5 — a platform identity calling kernel.create_organization directly over RPC is refused (route: org_bootstrap)');
 SELECT tap.logout();
-SELECT is(tap._platform_members(), 1,
-  'I90: ...and becomes org_owner of that organisation: "operators are never members" is NOT established by A4 alone');
+SELECT is(tap._platform_members() + (SELECT count(*)::int FROM kernel.organization WHERE display_name = 'Direct Path'), 0,
+  'I90: ...so it neither creates the organisation nor becomes a member of anything');
 
 -- ── I.13 a failing verb's outcome never carries the address, however the verb spells it (A's review of 8ecc929, point c) ──
 -- The outcome is written to ops.action and ops.audit, which every operator reads. An exact-string mask misses a
@@ -584,6 +584,142 @@ SELECT is((SELECT result ->> 'message' FROM ops.action WHERE idempotency_key = '
 SELECT is((SELECT count(*)::int FROM ops.action x WHERE x::text ~* 'pad\.case@example\.com')
         + (SELECT count(*)::int FROM ops.audit u WHERE u::text ~* 'pad\.case@example\.com'), 0,
   'I102: no row of ops.action or ops.audit holds that address, in any spelling');
+
+-- ── I.14 A5 for every kind of platform authority; customers keep self-service creation (owner ruling 2) ──
+SELECT tap.login(tap._B206());
+SELECT matches(tap._try206($$ SELECT kernel.create_organization('A5 B LLC', 'A5 B', 'k206-a5-b') $$), '^42501 insufficient_privilege: platform_authority',
+  'I103: A5 — a platform_admin through kernel.platform_role is refused');
+SELECT tap.logout(); SELECT tap.login(tap._S206());
+SELECT matches(tap._try206($$ SELECT kernel.create_organization('A5 S LLC', 'A5 S', 'k206-a5-s') $$), '^42501 insufficient_privilege: platform_authority',
+  'I104: ...platform_support is refused');
+SELECT tap.logout(); SELECT tap.login(tap._ADM2());
+SELECT matches(tap._try206($$ SELECT kernel.create_organization('A5 ADM2 LLC', 'A5 ADM2', 'k206-a5-adm2') $$), '^42501 insufficient_privilege: platform_authority',
+  'I105: ...and an admin_users-bootstrap identity is refused');
+SELECT tap.logout(); SELECT tap.login(tap._CUST2());
+SELECT is(tap._try206($$ SELECT kernel.create_organization('A5 Customer LLC', 'A5 Customer', 'k206-a5-cust2') $$), 'ok',
+  'I106: a customer still creates an organisation over RPC (frozen self-service behaviour unchanged)');
+SELECT tap.logout();
+SELECT is((SELECT string_agg(o.display_name || '=' || tap._members(o.org_id), ',' ORDER BY o.display_name) FROM kernel.organization o WHERE o.display_name LIKE 'A5 %'),
+  'A5 Customer=' || tap._CUST2()::text || '=org_owner', 'I107: only the customer''s organisation exists, and the customer is its owner');
+SELECT is((SELECT proacl::text FROM pg_proc WHERE oid = 'kernel.create_organization(text,text,text)'::regprocedure),
+  '{postgres=X/postgres,authenticated=X/postgres}', 'I133: A5 kept create_organization''s grants exactly (authenticated only, as frozen)');
+
+-- ── I.15 recovery owner invite for a SUSPENDED organisation with no owner (owner ruling 1) ──
+CREATE FUNCTION tap._CUST3() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT 'c3c3c3c3-c3c3-c3c3-c3c3-c3c3c3c3c3c3'::uuid $f$;
+CREATE FUNCTION tap._CUST4() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT 'c4c4c4c4-c4c4-c4c4-c4c4-c4c4c4c4c4c4'::uuid $f$;
+INSERT INTO auth.users (id, email, aud, role, created_at) VALUES
+  (tap._CUST3(), 'recover.owner@example.com', 'authenticated', 'authenticated', now()),
+  (tap._CUST4(), 'rec2.second@example.com', 'authenticated', 'authenticated', now())
+ON CONFLICT (id) DO NOTHING;
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT tap._ea206('k206-r1-org','org_bootstrap','none',NULL,'{"legal_name":"Recover One LLC","display_name":"Recover One"}');
+SELECT tap._ea206('k206-r1-appr','org_status_set','organization',tap._org('Recover One'),'{"target_status":"approved"}','reviewed');
+SELECT tap._ea206('k206-r1-susp','org_status_set','organization',tap._org('Recover One'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
+SELECT tap.logout();
+SELECT is((SELECT status || '/' || tap._members(org_id) FROM kernel.organization WHERE display_name = 'Recover One'), 'suspended/(none)',
+  'I108: Recover One is suspended and has no owner');
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is(tap._ea206('k206-r1-inv','org_owner_bootstrap_invite','organization',tap._org('Recover One'),'{"invitee_ref":"recover.owner@example.com"}','owner verified by phone'), 'awaiting_approval',
+  'I109: a recovery owner invite is requested through the same two-person action');
+SELECT tap.logout(); SELECT tap.login(tap._B206()); SELECT tap._aal2();
+SELECT is(tap._apr206('k206-r1-inv','approve','verified'), 'succeeded', 'I110: a second platform_admin approves and the invite is written');
+SELECT tap.logout();
+SELECT is((SELECT after ->> 'org_status' FROM kernel.admin_audit WHERE action = 'org.invite' AND reason_code = 'platform_bootstrap_owner'
+            AND subject_id = tap._inviteid('recover.owner@example.com', tap._org('Recover One'))), 'suspended',
+  'I111: the domain audit records that the owner invite was issued while the organisation was suspended (a recovery)');
+SELECT tap.login(tap._CUST3());
+SELECT is(tap._accept206('recover.owner@example.com',tap._org('Recover One'),'k206-r1-accept'), 'ok', 'I112: the customer accepts');
+SELECT tap.logout();
+SELECT is((SELECT status || '/' || tap._members(org_id) FROM kernel.organization WHERE display_name = 'Recover One'), 'suspended/' || tap._CUST3()::text || '=org_owner',
+  'I113: the customer is the owner; accepting does not reinstate the organisation');
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is(tap._ea206('k206-r1-inv2','org_owner_bootstrap_invite','organization',tap._org('Recover One'),'{"invitee_ref":"someone.else@example.com"}','x'), 'rejected',
+  'I114: once it has an owner, a suspended organisation cannot receive another owner invite');
+-- two requests race: the one approved second must not add an owner after the first made one
+SELECT tap._ea206('k206-r2-org','org_bootstrap','none',NULL,'{"legal_name":"Recover Two LLC","display_name":"Recover Two"}');
+SELECT tap._ea206('k206-r2-appr','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"approved"}','reviewed');
+SELECT tap._ea206('k206-r2-susp','org_status_set','organization',tap._org('Recover Two'),'{"target_status":"suspended","reason_code":"owner_left"}','owner left');
+SELECT tap._ea206('k206-r2-a','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.first@example.com"}','x');
+SELECT tap._ea206('k206-r2-b','org_owner_bootstrap_invite','organization',tap._org('Recover Two'),'{"invitee_ref":"rec2.second@example.com"}','x');
+SELECT tap.logout(); SELECT tap.login(tap._B206()); SELECT tap._aal2();
+SELECT tap._apr206('k206-r2-b','approve','ok');
+SELECT tap.logout(); SELECT tap.login(tap._CUST4());
+SELECT tap._accept206('rec2.second@example.com',tap._org('Recover Two'),'k206-r2-accept');
+SELECT tap.logout(); SELECT tap.login(tap._C206()); SELECT tap._aal2();
+SELECT is(tap._apr206('k206-r2-a','approve','ok'), 'rejected:precondition',
+  'I115: a recovery request approved after the organisation gained an owner does not run (the verb re-checks at execution)');
+SELECT tap.logout();
+SELECT is((SELECT string_agg(i.invitee_ref || '=' || i.status, ',' ORDER BY i.invitee_ref) FROM kernel.org_invite i WHERE i.org_id = tap._org('Recover Two'))
+          || ' ' || tap._members(tap._org('Recover Two')),
+  'rec2.second@example.com=accepted ' || tap._CUST4()::text || '=org_owner', 'I116: one invite, one owner — no invite replaced or added an owner');
+
+-- ── I.16 A6 (D's reading of ruling 1, for the owner to confirm): no invitation changes an existing owner's role ──
+-- 'A5 Customer' (I106) is CUST2's self-service organisation: CUST2 is its only owner. (Boot One lost its owner in I.7.)
+CREATE FUNCTION tap._acckey206(p_key text, p_cmd text) RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE v jsonb;
+BEGIN
+  v := kernel.accept_org_invite(tap._invkey206(p_key), p_cmd);
+  RETURN coalesce(v ->> 'status', '(null)');
+EXCEPTION WHEN OTHERS THEN RETURN 'RAISED: ' || SQLERRM;
+END $f$;
+CREATE FUNCTION tap._invkey206(p_key text) RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ''
+AS $f$ SELECT invite_id FROM kernel.org_invite WHERE command_idempotency_key = p_key $f$;
+SELECT tap.login(tap._CUST2());
+SELECT is(tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.two@example.com', 'org_member', 'k206-a6-self') $$), 'ok',
+  'I117: the sole owner can still invite their own address at a lower tier (the invite verb is unchanged)');
+SELECT matches(tap._acckey206('k206-a6-self', 'k206-a6-self-acc'), 'owner_role_change',
+  'I118: A6 — accepting it is refused: the invite would have demoted the only owner past the last-owner rule');
+SELECT is(tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.one@example.com', 'org_owner', 'k206-a6-co') $$), 'ok',
+  'I119: the owner invites a co-owner');
+SELECT tap.logout(); SELECT tap.login(tap._CUST1());
+SELECT is(tap._acckey206('k206-a6-co', 'k206-a6-co-acc'), 'ok', 'I120: the co-owner accepts (an owner invite to a non-member is unchanged)');
+SELECT tap.logout(); SELECT tap.login(tap._CUST2());
+SELECT tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.one@example.com', 'org_member', 'k206-a6-demote') $$);
+SELECT tap.logout(); SELECT tap.login(tap._CUST1());
+SELECT matches(tap._acckey206('k206-a6-demote', 'k206-a6-demote-acc'), 'owner_role_change',
+  'I121: A6 applies to ANY owner, not only the last one — a co-owner is not demoted by an invitation either');
+SELECT tap.logout();
+SELECT is(tap._members(tap._org('A5 Customer')), (SELECT string_agg(x, ',' ORDER BY x) FROM unnest(array[tap._CUST1()::text || '=org_owner', tap._CUST2()::text || '=org_owner']) x),
+  'I122: both owners are still owners');
+INSERT INTO kernel.org_invite (org_id, invitee_ref, role, status, invited_by, expires_at, command_idempotency_key)
+VALUES (tap._org206(), 'cust.two@example.com', 'org_marketing', 'pending', tap.seller(), now() + interval '7 days', 'k206-a6-nonowner');
+SELECT tap.login(tap._CUST2());
+SELECT is(tap._acckey206('k206-a6-nonowner', 'k206-a6-nonowner-acc'), 'ok', 'I123: a NON-owner member accepting an invite at another role is unchanged by A6');
+SELECT tap.logout();
+SELECT is((SELECT role FROM kernel.org_member WHERE org_id = tap._org206() AND identity_id = tap._CUST2()), 'org_marketing', 'I124: ...and their role follows the invite, as before');
+
+-- ── I.17 the names-only detection read (owner ruling 3): platform identities holding organisation membership ──
+-- Both remaining paths are seeded as postgres, the way they would arise: (e) out-of-band SQL makes platform_support and
+-- the admin_users-only ADM2 members; (d) platform authority is granted to someone who is already a member (other_user,
+-- who has no profile name).
+INSERT INTO public.profiles (id, display_name) VALUES (tap._S206(), 'Sam Support') ON CONFLICT (id) DO UPDATE SET display_name = excluded.display_name;
+INSERT INTO kernel.org_member (org_id, identity_id, role) VALUES (tap._org206(), tap._S206(), 'org_member'), (tap._org206(), tap._ADM2(), 'org_finance');
+INSERT INTO kernel.platform_role (identity_id, role) VALUES (tap.other_user(), 'platform_risk');
+CREATE TEMP TABLE _cnt206 AS SELECT (SELECT count(*) FROM ops.audit) AS a, (SELECT count(*) FROM kernel.admin_audit) AS k, (SELECT count(*) FROM ops.action) AS x;
+GRANT SELECT ON _cnt206 TO authenticated;
+SELECT tap.login(tap._A206()); SELECT tap._aal2();
+SELECT is((SELECT string_agg(d.organization_name || '|' || d.identity_name || '|' || d.platform_authority || '|' || d.org_role, ' ; '
+                             ORDER BY d.organization_name COLLATE "C", d.identity_name COLLATE "C") FROM ops.list_platform_identity_memberships() d),
+  'Club 206|(no display name)|platform_risk|org_member ; Club 206|ADM2 bootstrap only|platform_admin|org_finance ; Club 206|Sam Support|platform_support|org_member',
+  'I125: a platform_admin at aal2 sees exactly the three overlaps, by name — including authority held only through public.admin_users');
+SELECT ok((SELECT coalesce(string_agg(d::text, ''), '') FROM ops.list_platform_identity_memberships() d) !~ '(@|[0-9a-f]{8}-[0-9a-f]{4}-)',
+  'I126: no address and no identifier in any row');
+SELECT tap.logout(); SELECT tap.login(tap._S206()); SELECT tap._aal2();
+SELECT matches(tap._try206($$ SELECT * FROM ops.list_platform_identity_memberships() $$), '^42501 insufficient_privilege',
+  'I127: platform_support cannot run it (platform_admin only)');
+SELECT tap.logout(); SELECT tap.login(tap._B206());
+SELECT matches(tap._try206($$ SELECT * FROM ops.list_platform_identity_memberships() $$), 'step_up',
+  'I128: a platform_admin without an MFA (aal2) session cannot run it');
+SELECT tap.logout();
+SELECT is(pg_get_function_result('ops.list_platform_identity_memberships()'::regprocedure),
+  'TABLE(platform_authority text, identity_name text, organization_name text, org_role text)', 'I129: its result is four name columns and nothing else');
+SELECT is((SELECT provolatile::text || '/' || prosecdef::text FROM pg_proc WHERE oid = 'ops.list_platform_identity_memberships()'::regprocedure), 's/true',
+  'I130: STABLE (the database refuses any write inside it), security definer');
+SELECT is((SELECT string_agg(r, ',' ORDER BY r) FROM unnest(array['public','anon','authenticated','service_role']) r
+            WHERE has_function_privilege(r, 'ops.list_platform_identity_memberships()', 'EXECUTE')), 'authenticated',
+  'I131: executable by authenticated only (the admin and aal2 gate is inside, like every console read)');
+SELECT is((SELECT (SELECT count(*) FROM ops.audit) = a AND (SELECT count(*) FROM kernel.admin_audit) = k AND (SELECT count(*) FROM ops.action) = x FROM _cnt206), true,
+  'I132: running it wrote nothing — no action, no console audit row, no domain audit row');
 
 SELECT * FROM finish();
 ROLLBACK;

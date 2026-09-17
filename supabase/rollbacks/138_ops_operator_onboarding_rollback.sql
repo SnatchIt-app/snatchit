@@ -5,7 +5,7 @@
 -- all. 115 defines the five ops objects; 118 redefines execute_action,
 -- action_dispatch and action_precheck. Restoring 115's body for any of those three
 -- would silently revert 118's corrections — the failure this file exists to avoid.
--- kernel.accept_org_invite (A4) is restored from 077's body.
+-- kernel.accept_org_invite (A4, A6) and kernel.create_organization (A5) are restored from 077's bodies.
 --
 -- A ROLLBACK RESTORES CODE, NOT DATA. Organisations, members, invites, venues and
 -- staff roles written by dispatched onboarding actions stay where the domain verbs
@@ -16,9 +16,10 @@
 --   ops.action_precheck          <- 118's body  (verbatim)
 --   ops.action_allowed_roles     <- 115's body  (verbatim)
 --   ops.action_requires_approval <- 115's body  (verbatim)
---   kernel.accept_org_invite     <- 077's body  (verbatim)  [removes A4]
+--   kernel.accept_org_invite     <- 077's body  (verbatim)  [removes A4 and A6]
+--   kernel.create_organization   <- 077's body  (verbatim)  [removes A5]
 --   ops.action CHECK constraints <- 115's lists
---   the twelve ops functions 138 added -> dropped
+--   the thirteen ops functions 138 added -> dropped
 --   kernel.bootstrap_organization, kernel.invite_bootstrap_owner (A1, A2) -> dropped
 --   catalog.bootstrap_venue (A3) -> dropped
 --   ops.action_invitee and its trigger; the release trigger on ops.action -> dropped
@@ -38,6 +39,7 @@ drop function if exists ops.identity_holds_platform_authority(uuid);
 drop function if exists kernel.bootstrap_organization(text, text, text);
 drop function if exists kernel.invite_bootstrap_owner(uuid, text, text);
 drop function if exists catalog.bootstrap_venue(uuid, text, text, text, text);
+drop function if exists ops.list_platform_identity_memberships();
 drop function if exists ops.get_action_invitee(uuid, text);
 drop function if exists ops.get_org_contact_email(uuid, text);
 drop function if exists ops.list_venue_staff(uuid);
@@ -529,6 +531,63 @@ begin
   return ops.action_run(a.id);
 end;
 $ops$;
+
+-- A5 undone: kernel.create_organization restored from 077, verbatim (grants are kept by create or replace)
+create or replace function kernel.create_organization(
+  p_legal_name text, p_display_name text, p_command_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid    uuid;
+  v_org_id uuid;
+begin
+  v_uid := auth.uid();
+  if v_uid is null then
+    raise exception 'insufficient_privilege: authentication required'
+      using errcode = '42501';
+  end if;
+  -- OR-17 F-6: creating an org makes the caller a sole org_owner by
+  -- construction — an instant self-inflicted completion blocker.
+  if kernel.is_deletion_pending(v_uid) then
+    raise exception 'precondition_failed: deletion_pending — a pending-deletion account cannot acquire new roles or organizations (OR-17 F-6)';
+  end if;
+  -- dsm §1.3: ERASED is terminal and sits OUTSIDE the pending freeze operand,
+  -- yet sessions can outlive erasure while OPEN-7 is unresolved — the
+  -- acquisition gate refuses the erased caller too (the E-8 defensive twin;
+  -- red-team C blocker 2).
+  if exists (select 1 from kernel.identity_ext e
+              where e.identity_id = v_uid and e.deletion_state = 'ERASED') then
+    raise exception 'precondition_failed: identity is erased — acquisition is forbidden (dsm §1.3)';
+  end if;
+  if p_legal_name is null or length(trim(p_legal_name)) = 0
+     or p_display_name is null or length(trim(p_display_name)) = 0 then
+    raise exception 'precondition_failed: names must be non-empty';
+  end if;
+  if p_command_key is null or length(trim(p_command_key)) = 0 then
+    raise exception 'precondition_failed: command key required';
+  end if;
+  -- E-3: kernel.organization carries no command-key column in the frozen DDL,
+  -- so replay dedupe here is non-structural; a duplicate apply yields a second
+  -- inert 'applied' row (recorded errata).
+
+  insert into kernel.organization (legal_name, display_name, status, home_region)
+  values (trim(p_legal_name), trim(p_display_name), 'applied', 'us-east')
+  returning org_id into v_org_id;
+
+  insert into kernel.org_member (org_id, identity_id, role, granted_by, granted_at)
+  values (v_org_id, v_uid, 'org_owner', v_uid, now());
+
+  insert into kernel.admin_audit
+         (actor_identity, action, subject_kind, subject_id, reason_code, before, after)
+  values (v_uid, 'org.create', 'organization', v_org_id, 'self_service',
+          null, jsonb_build_object('status', 'applied'));
+
+  return jsonb_build_object('status', 'ok', 'org_id', v_org_id);
+end;
+$$;
 
 -- ── kernel.accept_org_invite: 077's body, verbatim (removes A4) ─────────────
 create or replace function kernel.accept_org_invite(p_invite_id uuid, p_command_key text)
