@@ -2925,3 +2925,9 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   test. The existing 'Account deletion requested' notice is visible and must remain untouched. … I will not tap
   'Sign out of all devices' or dismiss the existing deletion notice." C sent A "buyer ready" and cc'd D.
   Sequence: A pre-counts → D pre-read → A's ONE write → A "written" → C GO → DV-N-1..3 → A deletes → D after-read.
+- **Staged notice WRITTEN (A, 2026-09-17T16:42:48Z):** notification_id fb23b20a-72fa-4fa7-968c-3a4191136a3d,
+  security_device_rebound / account_security, read_at null, dismissed_at null, dedupe dv-notice:140fcb44:2026-09-17.
+  Pre-counts matched exactly (so exactly one write). Post: 0 delivery rows for it; the buyer now has 2 rows;
+  notification total 10; delivery 18; queue 0; f3abe550 unchanged. **Stop rule (A + owner):** if the banner shown
+  does not exactly match the staged title and the two-button layout, the owner taps nothing and C stops. C sent the
+  owner GO for DV-N-1.
