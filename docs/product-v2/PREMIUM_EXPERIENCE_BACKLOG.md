@@ -3224,3 +3224,18 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   and is bounded by the read (before 20:30:02Z, database identical to 20:22:33Z); and D's read proves only the
   database state, not what the owner saw on screen — the picker behaviour is the owner's and C's evidence.
   Step 0b waits for A's read-back.
+- **A's step 0a read-back (20:30:22.970Z): step 0a wrote nothing.** Listings 49, none created since 18:00Z (nothing
+  published); no object created in any bucket since 18:00Z and proof-docs still 0; the five tracked transfers
+  unchanged by row md5 (all 33 hash b2547604…); executors false; vault project_url only; net queue 0; 2xx 0;
+  notify.notification 9, delivery 18, buyer inbox 41.
+  **One new row, identified and NOT ours:** public.notifications went 104 → 105. The extra row 9c2ea626 is to the
+  SELLER, type `transfer_viewed` ("Buyer viewed your transfer"), for transfer 9869cb08 — a disputed transfer on
+  "Sandbox L6", not one of the five tracked — created 18:32:31.953Z, while the owner was preloading Bids as the buyer,
+  four minutes before the DV-ST2b window. It is the owner's own buyer-side viewing, not step 0a and not any session.
+  **Accounting change A is applying: the closing equation keys on the tracked dedupe keys, never on gross
+  notification totals**, since the seller's inbox moves with ordinary buyer-side viewing; the three existing
+  `transfer_viewed` rows for tracked transfers are baseline.
+  **Owner note (not blocking):** while signed in as the seller this cannot recur, but if they switch to the buyer and
+  open any purchase, each first view writes another `transfer_viewed` row to the seller; C tells A at once if it
+  happens mid-sequence.
+  Step 0b is clear: DV-IMG-1, -2, -3a, -6 on 3118bd30 / "Device D1"; nothing on "Sandbox L7".
