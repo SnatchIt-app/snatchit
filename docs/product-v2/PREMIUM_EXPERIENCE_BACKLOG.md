@@ -3192,3 +3192,23 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   listing-name mapping for 3118bd30 / 92ee5156 / bce07eef / 8f59d37e (and the listing behind 83b83858 to avoid) is
   outstanding. Build 19 Sell form: Photos section with "Cover image" and "Proof of ownership" pickers; a selected
   image shows Replace and Remove. Nothing is uploaded until the listing is published, and the owner will not publish.
+- **Line 3 navigation map (A, read from Build 19 source + the sandbox, read-only):**
+  - 3118bd30 (pending; step 0 + DV-IMG-9/3b) → listing 086dd027 **"Device D1"**, venue "Club Device".
+  - 92ee5156 (pending; DV-IMG-4) → 96799125 **"Device D6"**, "Club Device".
+  - bce07eef (pending; DV-IMG-5) → 9c6eecd4 **"Device D2"**, "Club Device".
+  - 8f59d37e (seller_sent, no proof; DV-IMG-10) → 92f8effe **"Sandbox S8only"**, venue "Club".
+  - **AVOID: 83b83858 → c0dd0706 "Sandbox L7"**, venue "Club" — the same venue label as S8only, so the EVENT NAME is
+    the only separator. The owner reads the event name before every tap in that pair.
+  - **Entry points:** pending transfers → My listings → the **"Send tickets"** tab → tap the CARD BODY (routes to
+    `/transfer/send/<transferId>`); the pencil is Edit (the F-NAV-1 screen) and there is also a delete action, neither
+    part of Line 3.
+  - **Trap, recorded as a device-row detail:** DV-IMG-10 is NOT reachable from "Send tickets", because
+    `needsTicketSend` requires the transfer to be pending, and 8f59d37e is already seller_sent. Route that works:
+    My listings → Sold (or All) → "Sandbox S8only" → the listing detail's primary button reads **"View transfer"** →
+    `/transfer/send/8f59d37e`, where the Add proof section renders (seller_sent with no path).
+  - **A's caution:** DV-IMG-7 on the Sell form is picker-only with nothing submitted; creating or saving a listing is
+    a write outside Line 3's scope (which covers the four named transfers and their objects only). C's step 0a
+    instruction already forbids publishing.
+  - Both prerequisites satisfied: A's re-verify (20:17:58Z) and D's fresh read (20:22:33Z, md5 9113aeb2…) match their
+    baselines. A takes a read-back after step 0; D reads after step 0 and after every permanent row; A releases each
+    row only after D's read lands, with a fresh D read immediately before DV-IMG-4 if a gap opens.
