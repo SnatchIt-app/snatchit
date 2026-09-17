@@ -138,11 +138,24 @@ B directly in source** and are marked accordingly.
 **Priority: release-critical, and it belongs to C.** B proposes no patch here — the fix is one error branch plus the shared
 `ScreenState`, in C's lane, and this audit does not touch their active work.
 
-### 3b. Checkout has no offline state at all
-**[source, B verified]** `src/screens/checkout/CheckoutNative.tsx` contains **zero** occurrences of `useNetworkStatus`,
-`isNetworkError` or `offline`. Every other transactional screen classifies the failure and says "You're offline"
-(`src/lib/ui/loadState.ts:32-47`); the screen where the buyer commits money says "something went wrong" instead
-(`SAFE_PAYMENT_ERROR`, `:68`). A buyer who loses signal mid-checkout cannot tell a dead connection from a declined payment.
+### 3b. ~~Checkout has no offline state at all~~ — **WITHDRAWN: this finding was wrong (§14)**
+**What B published:** that `CheckoutNative.tsx` has zero occurrences of `useNetworkStatus`, `isNetworkError` or `offline`,
+and therefore cannot tell a dead connection from a decline at the moment of payment.
+**Why it was wrong:** the keyword count was right; the conclusion did not follow. The distinction is fully implemented under
+other names, and B verified each line in source before accepting A's correction: `reconcileAfterSheetError()` returns
+`'verified' | 'not_verified' | 'unreachable'` (`:569-585`); on `unreachable` it calls `setPaymentReady(false)`, so Pay is
+**withdrawn, not re-offered**, and the buyer reads "We couldn't confirm your payment yet - Your last attempt may or may not
+have gone through. Please don't pay again. We'll keep checking; you can also check now." with a **Check status** button
+(`:851-858`). A sheet error is explicitly not proof of failure (`:508-519`, A-04), and `revalidateAgainstServer()` is
+settled-first so Pay is never restored on the device clock alone. A has reclassified F-CHK-1 in the release records.
+
+**What survives, narrower and not release-critical [source, B verified]:** on the **setup path**, before any Stripe sheet
+exists, a transport failure falls to the final `else` of the catch at `:383-422` and yields `SAFE_PAYMENT_ERROR` - "We
+couldn't start payment. Please try again." - the same copy as any unexpected server failure. The repository already owns a
+transport classifier, `isNetworkPaymentError` (`src/lib/checkout/paymentErrors.ts:16`, copy "Payment connection timed out.
+Try again."), used **only inside that file**; the setup path never consults it. That is a diagnosis gap on the pre-request
+path, not a correctness defect, so its honest severity is **polish**. The discriminating test is still a transport failure
+that is not a Stripe decline.
 
 ### 3c. Pull-to-refresh is missing exactly where recovery matters
 **[source, inventory]** No `RefreshControl` on: `src/screens/ListingDetailScreen.tsx`, `app/(tabs)/explore.tsx`,
@@ -324,7 +337,7 @@ starts.
 | # | Item | Why now | Owner |
 |---|---|---|---|
 | **P1** | Place bid renders a bid form on a **$0 floor** after a failed read (§3a) | The app states a price it does not know, on the screen where a user commits money. One error branch + `ScreenState` | **C** |
-| **P2** | Checkout has **no offline state** (§3b) | A dead connection is indistinguishable from a declined payment at the moment of payment | **C** |
+| ~~**P2**~~ | ~~Checkout has no offline state~~ | **WITHDRAWN - the finding was wrong (§3b, §14).** What remains is a setup-path copy gap, demoted to polish as **P16** | - |
 | **P3** | Send Transfer: expiry warning that gates nothing, one blocker stated three times, action below the fold (§2, corroborated on device by C) | The owner named this screen; it is also the screen the sandbox sequence is exercising right now | **C**, after the handset pass |
 | **P4** | Actions with no busy state re-fire on repeat taps: Unblock, delete listing, cancel listing (§ inventory A.4 #1-3) | Delete and cancel are destructive and currently re-entrant | **C** |
 | **P5** | Home's lazy filter fetches show "nothing here" **while loading** and swallow errors into `console.warn` | A failed filter looks like an empty marketplace | **C** |
@@ -336,7 +349,7 @@ legacy components, starting with `PriceDisplay` on the money screens · **P9** d
 dead constants shim · **P10** `legal`/`privacy` onto `textStyle()` (21 hand-rolled styles, zero behaviour risk) ·
 **P11** one `ScreenHeader` to replace eleven hand-rolled bars · **P12** `personLabel()` so no seller is told their buyer is
 "Unknown" · **P13** the `Notice` primitive and the three ranks · **P14** the lint guard, last, once the above have landed ·
-**P15** the three stale doc status lines.
+**P15** the three stale doc status lines · **P16** the setup path's transport copy (what survived the withdrawn P2).
 
 ## 9. Implementation sequence, dependencies, acceptance criteria
 
@@ -410,3 +423,23 @@ geometry (0 non-zero radii outside the pill allowance), the warning ink is exact
   reads it, `src/constants/theme.ts`) and the three stale status lines be **their own small change**, not folded into a
   polish batch. They stay P9 and P15 here; **B does not make them** — deleting components is a product change, and the two
   design docs belong to C's and A's records, not to this audit branch.
+
+
+## 14. Correction: a wrong finding, and the method error behind it
+
+**P2/F-CHK-1 as B published it was wrong.** A checked it instead of accepting it and produced the disproving lines; B then
+verified those lines in source. §3b now carries the withdrawal and the much narrower finding that survives.
+
+**The method error, stated plainly, because it is the same one this audit criticises elsewhere:** B ran
+`grep -c "useNetworkStatus\|isNetworkError\|offline"` on one file, got 0, and published a behavioural conclusion labelled
+**[source, B verified]**. What was verified was the grep, not the claim. The screen implements the distinction under its own
+vocabulary - `reachable`, `verified`, `unreachable`, `checkUnreachable` - so the probe was looking for other screens'
+words. **A keyword absence is not a behaviour absence**, and the rule this audit applies to tests applies to audit findings
+too: state what would distinguish the claim, then go looking for that. A did exactly that and found the distinguishing code
+already present.
+
+Everything else in §3 was derived by reading the relevant code paths rather than counting keywords, and the two other
+load-bearing items (§3a's discarded fetch error, §7a's absent Babel config) were re-verified line by line by B and again
+independently by A. The failure was one finding's method, not the audit's, but the label **[source, B verified]** now means
+less than it did, so §0's table gains this rule: that label is only used where B read the code path, never where B counted
+occurrences.
