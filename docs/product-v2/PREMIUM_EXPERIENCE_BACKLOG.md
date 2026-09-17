@@ -2997,3 +2997,16 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   or reservation), the outbid toast (needs an event), and the sign-in screen (at the next account switch).
 - **F-NOTICE-1 (recorded separately from the header test, per the owner):** the "Account deletion requested" banner is
   still present on the buyer's tab screens during check 1a; not interacted with.
+- **Build 19 check 2, DV-NAV-2a report form (owner-reported, DV buyer, 2026-09-17; time and prompt wording not
+  captured): Keep writing PASS.** After both navigation attempts (swipe back, then the Back arrow) the report screen,
+  the selected "Other" reason and the notes "test note abc" remained. Discard returned to the listing.
+  **SIDE EFFECT (owner-disclosed): the owner then accidentally tapped "Submit report", so a real sandbox report was
+  probably created. This check is NOT a no-write test.** Report target not confirmed (a listing; probably Device D8).
+  - *Source:* a reports insert fires the notify-report path (pg_net; the URL comes from Vault `project_url` since
+    133). notify-report v4 (sandbox, from f412d10) claims delivery (139), calls send-push for admins (refused under
+    option b) and sends Resend email only if a key is set and EMAIL_ENABLED=true.
+  - **C asked A (read-only) to** identify the report row(s) and any moderation, queue or notification rows; confirm
+    the trigger posted to the SANDBOX URL; and confirm whether any email or push actually left. If anything left
+    the system, that breaches "no outbound notification" and the owner is told at once.
+  - **Cleanup:** not covered by the four approved actions. A prepares an exact scoped plan without executing; the
+    owner gives an explicit go. Line 3 unstarted.
