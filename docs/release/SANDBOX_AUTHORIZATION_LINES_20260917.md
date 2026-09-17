@@ -1,6 +1,6 @@
 # Sandbox authorization lines for the owner (A, 2026-09-17; Line 3 added the same day) — nothing below is executed until the owner speaks it
 
-**Classes (package §5):** Line 1 is TEMPORARY (every object it creates is deleted in the same run). Line 2 and Line 3 are PERMANENT: their rows cannot be removed, only superseded or left to end. probe NP writes nothing by design but invokes a transfer verb, so it is named separately.
+**Classes (package §5):** Line 1 is TEMPORARY (every object it creates is deleted in the same run). Line 2 and Line 3 are PERMANENT: their rows cannot be removed, only superseded or left to end. Line 3's probes N1–N4 write nothing by design but invoke transfer verbs, so they are named inside Line 3.
 
 Both are **sandbox `ofaidukbieeekqaboscm` only**, both are A-executed with D witnessing, and neither touches production, a
 build, a flag, a secret or an outbound notification. Each is one line to say, plus the constraints it carries.
