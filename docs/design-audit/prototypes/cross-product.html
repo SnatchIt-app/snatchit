@@ -44,6 +44,8 @@ button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
 .tile{background:var(--surf);border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:6px}
 .tile .num{font-weight:700;font-size:var(--fsNum);font-variant-numeric:tabular-nums;letter-spacing:-.6px}
 .tile .lab{font-size:var(--fsBody);font-weight:600}
+/* D: the console's older tiles put the definition in an abbr[title], which is hover-only and
+   unreachable on touch and by keyboard. Definitions are printed inline here, always. */
 .tile .def{font-size:var(--fsSm);color:var(--ink3);line-height:1.4}
 .tile .cmp{font-size:var(--fsSm);color:var(--ink3)}
 .tile .next{font-size:var(--fsSm);color:var(--ink);border-top:1px solid var(--line);padding-top:8px;margin-top:2px;display:flex;justify-content:space-between}
@@ -145,15 +147,15 @@ function onboard(st){
   <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">How to read the numbers</div>
    <div class="bd" style="margin-top:8px;max-width:660px">Every number on your dashboard says what it counts, what period it covers, and what to do about it. If a number can't tell you those three things, tell us — that's our bug, not your misunderstanding.</div></div>
   <div class="grid2">
-   <div class="tile needs"><div class="num">3</div><div class="lab">Sellers who haven't sent tickets</div>
-    <div class="def">Sold, paid for, and the seller hasn't marked them sent. Counted right now, not over a period.</div>
-    <div class="cmp">Yesterday at this time: 5</div>
+   <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
+    <div class="def">Sold, paid for, and the seller hasn't marked them sent. <b>Counted right now</b>, not over a period — so there is nothing to compare it with.</div>
+    <div class="cmp">Oldest has waited 3h 40m</div>
     <div class="next"><span>Remind the seller</span><span>→</span></div></div>
    <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
-    <div class="def">Money that actually left our account to your sellers' banks. Last 7 days, compared with the 7 days before.</div>
+    <div class="def">Money that actually left our account to your sellers' banks. <b>Last 7 days</b>, compared with the 7 days before — only money measures have a period.</div>
     <div class="cmp">Previous 7 days: $1,102 · up 17%</div>
     <div class="next"><span>See each payout</span><span>→</span></div></div></div>
-  <div class="notice ok"><div><div class="bd" style="color:var(--ink)">One rule worth remembering</div><div class="bd" style="margin-top:4px">A number that needs you is on the left with an amber edge. A number that's just information sits quietly. If nothing has an amber edge, there is nothing for you to do today — that's the dashboard working, not the dashboard being empty.</div></div></div>
+  <div class="notice ok"><div><div class="bd" style="color:var(--ink)">Two rules worth remembering</div><div class="bd" style="margin-top:4px">A number that needs you has an amber edge; a number that's just information sits quietly. If nothing is amber, there's nothing to do today — that's the dashboard working, not the dashboard being empty.</div><div class="bd" style="margin-top:6px"><b>And:</b> counts of open work are <b>as of right now</b>. Only the money measures cover a period and can be compared with the period before. A count has no "last week" to compare with, so we don't invent one.</div></div></div>
   <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Finish — take me to Today</div></div>
  </div></div>`;
  return `<div class="win-inner">${nav(0)}<div class="body">
@@ -171,8 +173,9 @@ function home(st){
  if(st==='error') return `<div class="win-inner">${nav(0)}<div class="body">${center('!','Couldn\'t load today\'s numbers','This is a loading problem on our side. Nothing about your events, payouts or cases has changed — and no action you took has been lost.','Try again')}</div></div>`;
  if(st==='limited') return `<div class="win-inner">${nav(0)}<div class="body">
   <div><div class="eb">Today · Test Venue</div><div class="h1" style="margin-top:4px">Two things need you</div></div>
-  <div class="notice info"><div><div class="bd" style="color:var(--ink)">Some numbers are hidden for your role</div>
-   <div class="bd" style="margin-top:4px">You're signed in as <b>venue manager</b>, so platform-wide money and system health aren't shown. That's a permission, not an outage — a platform admin sees them.</div></div></div>
+  <div class="notice info"><div><div class="bd" style="color:var(--ink)">Some numbers aren't shown for your role</div>
+   <div class="bd" style="margin-top:4px">You're signed in as <b>venue manager</b>, so platform-wide money and system health aren't shown. That's a permission, not an outage.</div>
+   <div class="bd" style="margin-top:6px"><b>Who can:</b> a platform admin — J. Tascón. <span class="sm">Ask them →</span></div></div></div>
   <div class="grid3">
    <div class="tile needs"><div class="num">2</div><div class="lab">Sellers who haven't sent tickets</div><div class="def">Sold and paid, seller hasn't marked sent. Counted now.</div><div class="cmp">Yesterday: 5</div><div class="next"><span>Remind the seller</span><span>→</span></div></div>
    <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div><div class="def">A buyer opened a case on one of your events. Counted now.</div><div class="cmp">Open for 4h</div><div class="next"><span>Read the case</span><span>→</span></div></div>
@@ -185,31 +188,44 @@ function home(st){
    <div style="display:flex;gap:8px"><div class="btn sec">Last 7 days ▾</div><div class="btn sec">Export</div></div></div>
   <div><div class="eb" style="margin-bottom:10px">Needs you now</div>
   <div class="grid3">
-   <div class="tile needs"><div class="num">3</div><div class="lab">Sellers who haven't sent tickets</div>
-    <div class="def">Sold, paid for, seller hasn't marked them sent. Counted right now.</div><div class="cmp">Yesterday at this time: 5</div>
+   <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
+    <div class="def">Sold and paid for; the seller has not marked them sent. Counted right now — this is not a total over a period.</div><div class="cmp">Oldest has waited 3h 40m</div>
     <div class="next"><span>Remind the seller</span><span>→</span></div></div>
-   <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div>
+   <div class="tile needs"><div class="num">1</div><div class="lab">Disputes open</div>
     <div class="def">A buyer opened a case and is waiting for a person. Counted right now.</div><div class="cmp">Oldest has waited 4h</div>
     <div class="next"><span>Read the case</span><span>→</span></div></div>
-   <div class="tile needs"><div class="num">2</div><div class="lab">Payouts waiting for review</div>
-    <div class="def">Held for a manual check before money moves. Counted right now.</div><div class="cmp">Both from one seller</div>
+   <div class="tile needs"><div class="num">2</div><div class="lab">Payouts in manual review</div>
+    <div class="def">Transfers flagged for manual payout review, with no Stripe transfer id yet. Counted right now.</div><div class="cmp">Both from one seller</div>
     <div class="next"><span>Review them</span><span>→</span></div></div></div></div>
-  <div><div class="eb" style="margin-bottom:10px">Worth watching</div>
+  <div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+   <div class="eb">Money · last 7 days</div>
+   <div class="sm">Figures computed 3 min ago</div></div>
   <div class="grid3">
    <div class="tile quiet"><div class="num">$1,284</div><div class="lab">Paid out to sellers</div>
-    <div class="def">Money that left our account to sellers' banks. Last 7 days.</div><div class="cmp">Previous 7 days: $1,102 · up 17%</div>
+    <div class="def">Money that left our account to sellers' banks. Last 7 days — a period total, so it can be compared.</div><div class="cmp">Previous 7 days: $1,102 · up 17%</div>
     <div class="next"><span>See each payout</span><span>→</span></div></div>
-   <div class="tile quiet"><div class="num">41</div><div class="lab">Tickets sold</div>
-    <div class="def">Completed sales, refunds excluded. Last 7 days.</div><div class="cmp">Previous 7 days: 38 · up 8%</div>
+   <div class="tile quiet"><div class="num">$5,406</div><div class="lab">Captured sales <span class="sm">incl. buyer fees</span></div>
+    <div class="def">Everything buyers paid, fees included. Last 7 days. <b>Refunds are not subtracted</b> — a refunded sale still counts here in full.</div><div class="cmp">Previous 7 days: $4,980 · up 9%</div>
     <div class="next"><span>See the sales</span><span>→</span></div></div>
-   <div class="tile quiet"><div class="num">6h 12m</div><div class="lab">Typical time to send tickets</div>
-    <div class="def">Middle value from paid to marked-sent. Last 7 days, sales that completed.</div><div class="cmp">Previous 7 days: 9h 40m · faster</div>
-    <div class="next"><span>See slowest first</span><span>→</span></div></div></div></div>
+   <div class="tile quiet"><div class="num">2</div><div class="lab">Fully refunded payments</div>
+    <div class="def">Payments refunded in full. Last 7 days. <b>Partial refunds are not here</b> — only whole-total refunds are counted.</div>
+    <div class="cmp">Amount: <b>not known exactly</b> · at most $268.00</div>
+    <div class="next"><span>See each refund</span><span>→</span></div></div>
+   <div class="tile quiet"><div class="num">$487</div><div class="lab">Platform fees <span class="sm">gross</span></div>
+    <div class="def">Buyer and seller fees on succeeded payments. Last 7 days. <b>Gross, before refunds — this is not net revenue.</b></div><div class="cmp">Previous 7 days: $449 · up 8%</div>
+    <div class="next"><span>How fees are made up</span><span>→</span></div></div>
+   <div class="tile quiet" style="opacity:.75"><div class="num">—</div><div class="lab">Bank payouts</div>
+    <div class="def">Money actually arriving in sellers' banks. <b>Not tracked</b> — we only see the release from our side, so we don't show a number we can't stand behind.</div>
+    <div class="cmp">Why this is blank</div>
+    <div class="next"><span>What we do track</span><span>→</span></div></div>
+   <div class="tile quiet"><div class="num">$412</div><div class="lab">Seller funds pending release</div>
+    <div class="def">Money held, not yet released to sellers. <b>Counted right now</b> — it ignores the date range, so it is deliberately never compared or charted.</div><div class="cmp">No comparison: there is no date to compare on</div>
+    <div class="next"><span>See what's held</span><span>→</span></div></div></div></div>
   <div><div class="eb" style="margin-bottom:10px">Healthy — no action</div>
   <div class="grid3">
-   <div class="tile ok"><div class="num">0</div><div class="lab">Sales stuck mid-payment</div><div class="def">Paid but not recorded as complete. Counted now.</div><div class="cmp">None for 6 days</div><div class="next"><span>How this clears itself</span><span>→</span></div></div>
-   <div class="tile ok"><div class="num">0</div><div class="lab">Background jobs failing</div><div class="def">Scheduled work that errored on its last run.</div><div class="cmp">Last failure: 11 days ago</div><div class="next"><span>See the schedule</span><span>→</span></div></div>
-   <div class="tile ok"><div class="num">0</div><div class="lab">Card disputes from banks</div><div class="def">Chargebacks needing evidence. Counted now.</div><div class="cmp">None this quarter</div><div class="next"><span>What evidence we send</span><span>→</span></div></div></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Paid orders without a transfer</div><div class="def">Buyer paid, past the grace window, and no seller-side transfer record exists yet. Money at rest — not a failed payment.</div><div class="cmp">Counted now</div><div class="next"><span>What this means</span><span>→</span></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Stripe webhooks stuck</div><div class="def">Events received from Stripe and not processed past the staleness threshold. Not lost events, and not a Stripe outage.</div><div class="cmp">Counted now</div><div class="next"><span>What this affects</span><span>→</span></div></div>
+   <div class="tile ok"><div class="num">0</div><div class="lab">Card disputes from banks</div><div class="def">Chargebacks needing evidence. Counted now.</div><div class="cmp">Counted now</div><div class="next"><span>What evidence we send</span><span>→</span></div></div></div></div>
  </div></div>`;
 }
 
