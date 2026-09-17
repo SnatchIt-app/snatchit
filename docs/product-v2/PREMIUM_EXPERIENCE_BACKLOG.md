@@ -2384,3 +2384,23 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   `src/components/account/SettingsHeader.tsx:26` (shared by the settings sub-screens). Proposed fix,
   not applied: switch each to `useTopInset()` with a source pin that no screen header pays `insets.top`
   directly; C, client-only, next candidate; device rows per screen.
+- **DV-S2 step 2 (owner, Build 18, seller, largest text ON, 2026-09-18 01:40 EDT ≈ 05:40Z)** (owner-reported):
+  *PASS:* the Edit listing heading clears the SANDBOX badge; swiping back with an unsaved change
+  brought up a prompt; the owner tapped Keep editing. *Not reported:* the prompt's exact title, message
+  and button labels, and whether the screen and the three letters remained after Keep editing — open,
+  asked in step 3. Event name full visibility stays UNRESOLVED until directly confirmed (owner).
+- **Execution sprint (owner via A, 2026-09-18):** F-SELL-2 implemented — **`frontend/sandbox-header-inset`
+  @ 9d01bad** (from aad5f75; client only; supabase/ and gated payment files unchanged): `useTopInset()` on
+  My listings, Settings, Transfer send/receive, Place bid, Checkout (top bar + both confirmation bodies),
+  the auth shell, the shared settings header, the listing hero controls and the outbid toast; spacing
+  tokens kept, production spacing identical, no doubled insets. 19 tests; RED 11 on Build 18 files; 9
+  mutants killed; stated survivor: an aliased import of the helper in a host. Full 2096/96, tsc 0, lint
+  0/29. D reviewing. Rendering unverified — device rows for the next candidate at normal and largest text.
+  **Sprint fields sent to A:** F-AUTH-2 — severity LOW; next action: trace repeated loader effects
+  (auth events or double mount) with a request-count test, device re-check by edge-log count; blocks
+  this candidate: NO (load, not correctness). F-DT-1 — severity LOW–MED (accessibility); next action:
+  upstream React Native record for live Dynamic Type under the new architecture, plus a next-candidate
+  device row; mitigation only with the owner's decision; blocks this candidate: NO (relaunch recovers,
+  no data loss). **140 client adaptation** (outcome codes transitioned/already_sent, attach →
+  attached/already_attached, attach entry point for a sent transfer with no proof): separate client head
+  from the stack tip 4331ea4 after D closes F-SELL-2; exact raise texts requested from A.
