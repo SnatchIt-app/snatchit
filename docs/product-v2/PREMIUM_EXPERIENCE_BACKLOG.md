@@ -1954,3 +1954,13 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   table; the single-row assumption in the readiness map §2.1.3 and the estimates is
   withdrawn — A puts the real shape to the owner. Estimates for CFT-801/811–816 and the
   session-2 matrix sent to A for the critical path.
+- **Populated Tickets: joint A+D recommendation (2026-09-17) — option D:** the existing
+  `__DEV__` fixture toggle in `app/(tabs)/tickets.tsx` on a dev client, for layout
+  evidence only, with D's requirement adopted: fixture rows render behind a VISIBLE
+  "fixture mode / no server data" label on the Tickets screen (the venue dashboard's
+  NotWiredState precedent), so a screenshot carries its own caveat and a populated list
+  can never circulate as issuance working. Client-only commit from the build tag, D
+  reviews, never in a preview build's default path; **not built until the owner picks
+  D.** Option A (server-side fixture) not recommended by either: eight rows incl. a fake
+  global ES256 signing key, permanent under the append-only ownership ledger, and it
+  would spend the sandbox's ability to rehearse trust-root monitoring honestly.
