@@ -2594,3 +2594,18 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   restores + verifies → D's after-read. The window closes only when the after-read matches the before-read; a
   mismatch stops everything until A investigates. A to confirm nothing of A's or B's is running at the trigger.
   **Trigger not sent.** It goes to A when the owner reaches DV-ST2 (after DV-ST1 step 2).
+- **DV-ST1 step 2 (owner, Build 18, buyer, Larger Text ON, 2026-09-17): Home recovered by itself.** Home changed
+  from the offline screen to loaded content around **11:20 EDT**, without Retry and without touching Home.
+  *Sequence, as the owner clarified:* Airplane Mode had already been turned off to send the screenshots, and the
+  owner watched Home recover during that reconnection instead of repeating the toggle. **The time Airplane Mode
+  went off and the recovery duration were not captured: both UNKNOWN.** Source (Build 18): `ScreenState` retries
+  when the network changes from offline to online while the offline state is showing.
+  **DV-ST1 per check:**
+  - offline copy and Retry on all five screens: observed (Home by the owner's screenshot, the other four by the
+    owner's observation);
+  - self-recovery: observed on Home, timing unknown;
+  - heading clearance on the offline state: confirmed on Home only.
+- **S2-5 → DV-ST2 reached. Trigger sent to A (C, 2026-09-17).** Sequence (D's ask): A's fresh capture → D's
+  before-read → **A holds the revoke until C relays that the owner is ready** → revoke (the T+360 s watchdog
+  starts) → the owner's no-preload observation (ST2a: force-quit, reopen, Bids) → A restores + verifies → D's
+  after-read must match the before-read. ST2b (cached rows stay) UNTESTED: the buyer has 0 bid rows.
