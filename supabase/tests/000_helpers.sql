@@ -112,6 +112,19 @@ END $$;
 CREATE OR REPLACE FUNCTION tap.seed_core()
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
+  -- M6 (migration 110): kernel.signing_key now carries a BEFORE INSERT guard
+  -- that refuses every scoped / placeholder key (the bare-INSERT threat model).
+  -- The legacy suites (143–175) seed exactly such rows as superuser FIXTURES,
+  -- so the guard is DISABLED for the duration of the calling suite's own
+  -- transaction (DDL is transactional; the suite's ROLLBACK restores it).
+  -- Rehearsal-only harness plumbing in `tap` — the guard's code has no bypass.
+  -- Suite 176 does NOT call seed_core and exercises the guard live.
+  IF EXISTS (SELECT 1 FROM pg_trigger
+              WHERE tgrelid = 'kernel.signing_key'::regclass
+                AND tgname = 'tg_signing_key_insert_guard') THEN
+    EXECUTE 'ALTER TABLE kernel.signing_key DISABLE TRIGGER tg_signing_key_insert_guard';
+  END IF;
+
   -- Users. handle_new_user() auto-creates public.profiles rows.
   INSERT INTO auth.users (id, instance_id, aud, role, email, raw_app_meta_data, raw_user_meta_data, phone, phone_confirmed_at, created_at, updated_at)
   VALUES

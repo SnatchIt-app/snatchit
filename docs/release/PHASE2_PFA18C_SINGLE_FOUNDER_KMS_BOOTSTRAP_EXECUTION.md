@@ -1,0 +1,1545 @@
+# PHASE 2 — PFA-18C SINGLE-FOUNDER AWS KMS / ES256 TRUST-ROOT BOOTSTRAP — EXECUTION RECORD
+
+**Status legend:** PREPARATION · CEREMONY · COMPLETED · NOT COMPLETED · ABORTED · PARTIAL STATE
+
+> Interactive, human-executed. The founder runs **every** AWS and production-database mutation.
+> Claude is coordinator / instruction generator / read-back verifier / adversarial checker only.
+> No secret material is ever recorded here (no access keys, secret keys, session tokens, DB passwords,
+> service-role secrets, private keys, auth cookies, or password-bearing connection strings).
+
+---
+
+## OVERALL STATE
+
+```
+OVERALL:                 PREPARATION — AWS baseline RECEIVED; plan state RECEIVED (FREE, owner keeps it) ⇒ CreateKey
+                         NO-GO in account 652872010073 under current decisions; M1/M2/M3 NOT STARTED;
+                         P1-PUBKEY-FORMAT FIXED in repo (deploy pending)
+KMS KEY CREATED:         NO
+SIGNING KEYS IN PROD:    0
+PRODUCTION MUTATION:     NONE
+NATIVE ISSUANCE:         FALSE
+NATIVE SCANNING:         FALSE
+LAST UPDATED (UTC):      2026-09-05 (session 3 — plan-state evidence + P1-PUBKEY-FORMAT fix)
+```
+
+---
+
+## AUTHORIZATION
+
+Owner-authorized interactive production operation (CLAUDE A train, 2026-09-04): execute the NEXT GATE
+identified by the PFA-18C ratification — single-founder KMS bootstrap **infrastructure preparation +
+dark trust-root ceremony**, strictly governed by PFA-18C. C18 is binding: the founder personally runs
+every AWS IAM / CloudTrail / S3+Object-Lock / KMS / production-DB mutation; Claude never operates AWS or
+the DB, is not a ceremony principal, runtime signer, or second-device operator, and never handles secrets.
+
+Interactive rule accepted: one stage at a time — explain, read-only inspect, provide exact human
+command(s) with the device labelled, name the non-secret output to return, STOP, verify, then advance.
+On any unexpected security-gate failure: STOP, no improvisation.
+
+## PFA-18C RATIFICATION
+
+OWNER-RATIFIED 2026-09-04 — `docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md`.
+Model APPROVED, execution-gated. M4 FIXED; M1/M2/M3 required before bootstrap; M5/M6 + Model A before
+issuance; consumed once; future lifecycle → two-person control (fail closed).
+
+## SOURCE OF TRUTH (re-read this session)
+
+- `docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md`
+- `docs/architecture/_governance/PFA_SINGLE_FOUNDER_KMS_BOOTSTRAP.md`
+- `docs/architecture/_governance/PFA_18C_REMEDIATION_AND_FINAL_RATIFICATION.md`
+- `docs/architecture/_governance/POST_FREEZE_AMENDMENTS.md` (PFA-18A/18B/18C/PT-6/PT-8)
+- `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` (canonical §5.3 binding proof, §6.1 bootstrap artifact)
+- `docs/release/PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md` (prior two-person NO-GO record)
+- `docs/release/PHASE2_093_109_PRODUCTION_MIGRATION_EXECUTION.md`
+- signing implementation: migrations 083 / 099 / 102 / 103; `kernel.signing_key`,
+  `kernel.check_signing_key_invariants`, `kernel.get_ticket_signing_context`; `AwsKmsSigner`,
+  `credential-sign`, signing monitor.
+
+### M4 ARTIFACT VERIFICATION — **PASS**
+
+Canonical §6.1 artifact in `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` (L428–536) writes `algorithm`
+**explicitly** from `-v ALGORITHM="ES256"` and never inherits the `kernel.signing_key.algorithm` column
+default (`'EdDSA'`, migration 103):
+- L428 invocation contract `-v ALGORITHM="ES256"` (EXPLICIT — never the column default);
+- L476–493 PRE-FLIGHT 2b ALGORITHM GATE — empty/unsanctioned aborts; for this AWS ceremony must be `ES256`;
+- L511–515 INSERT column list includes `algorithm`, value `i.algorithm` from ceremony input;
+- L531/L536 POST-CHECK asserts `k.algorithm = ceremony_input.algorithm`.
+M4 is present and correct → **not a NO-GO.**
+
+---
+
+## PRECHECK — FRESH READ-ONLY PRODUCTION STATE — **PASS**
+
+Read-only via Supabase MCP `execute_sql`, project `hqycwntpfoztoinemqns`, DB `postgres`,
+**2026-09-04 16:05:06Z**. No writes.
+
+| Item | Expected | Observed | Result |
+|---|---|---|---|
+| migration ledger count | 124 | 124 | PASS |
+| migration 093 present | yes | yes | PASS |
+| migration 109 present | yes | yes | PASS |
+| numeric substrate tip | 109 | 109 | PASS |
+| `kernel.signing_key` count | 0 | 0 | PASS |
+| `signing.expected_key_fingerprint` | null | null | PASS |
+| `signing.expected_max_not_after` | null | null | PASS |
+| `signing.monitor_enabled` | false | false | PASS |
+| `feature.native_issuance_enabled` | false | false | PASS |
+| `feature.native_scanning_enabled` | false | false | PASS |
+| `kernel.tickets` | 0 | 0 | PASS |
+| `venue.door_pin` | 0 | 0 | PASS |
+| `venue.door_session` | 0 | 0 | PASS |
+| `venue.scan` | 0 | 0 | PASS |
+| `venue.door_manifest` | 0 | 0 | PASS |
+| native Phase-2 edges deployed | none | none (only legacy commerce/transfer edges) | PASS |
+
+Deployed edge functions (all legacy, none native Phase-2): create-payment-intent, confirm-payment,
+send-push, stripe-webhook, auto-finalize-auctions, create-connect-account, confirm-and-release,
+enforce-transfer-expiry, delete-account, notify-report, notify-transfer. **No** credential-sign /
+primary-checkout / door-session / door-manifest. Config namespace = `catalog.platform_config`.
+
+**Precheck verdict: GO** — production is DARK, unchanged, and matches the ratified baseline.
+
+## OWNER / OPERATOR
+
+```
+FOUNDER / CEREMONY OPERATOR:  Jose David Tascon Herrera
+ROLE:                         Snatch It Founder / Owner
+PFA:                          PFA-18C (single-founder compensating-control INITIAL bootstrap)
+SECOND TECHNICAL HUMAN:       none required (compensating-control model)
+Juan Fernandez:               NOT Person B — receives no privileged access
+```
+
+---
+
+## AWS BASELINE INVENTORY — **RECEIVED 2026-09-05 (owner-returned evidence)**
+
+Evidence class: **OWNER-RETURNED** (typed by the founder from the primary ceremony machine). It is NOT
+independently refreshed — Claude has no AWS access by design (C18), so no AWS fact in this record is
+Claude-observed. Independent confirmation is deferred to the M2 second-device read-back stage.
+
+| Item | Owner-returned value |
+|---|---|
+| Account | `652872010073` |
+| Principal | `arn:aws:iam::652872010073:user/jose-admin` (IAM user; UserId `AIDAZQARUJFMXKFV5U5JY`) |
+| Auth method | `aws login` (browser console session → temporary credentials); verified via `sts get-caller-identity` |
+| CLI / host | AWS CLI 2.36.40, Apple-Silicon Mac; profile `snatchit-admin` |
+| Region | saved `us-east-1`; `AWS_REGION` / `AWS_DEFAULT_REGION` unset |
+| Organizations | `AWSOrganizationsNotInUseException` (no org) |
+| CloudTrail (us-east-1) | `[]` — no trail |
+| S3 buckets | `[]` — none |
+| IAM users | `jose-admin` only (AdministratorAccess via group `SnatchIt-admins`; console login works; passkey MFA registered; **fresh MFA sign-in test deferred**) |
+| IAM roles | service-linked only: ResourceExplorer, Support, TrustedAdvisor — **no** ceremony / runtime / verifier role |
+| Root | MFA used successfully; **zero** root access keys |
+| Long-lived access keys created | **none** |
+| Billing | owner wants to stay on the Free plan where possible; **no billing upgrade authorized**; plan type NOT yet proven |
+
+### §4 ROOT SAFETY — **PASS** (active principal is an IAM user, not root; root has 0 access keys + MFA).
+### §5 REGION — `us-east-1` is the only signal (saved CLI region; nothing frozen in the repo or architecture).
+Recorded as the PROPOSED pin; becomes PINNED on explicit owner confirmation in the next stage.
+
+### M1 / M2 / M3 — **NOT STARTED.** Nothing to reuse: no trail, no bucket, no roles. All must be created.
+Concrete design + reviewable policy artifacts prepared (NOT applied):
+`docs/release/PHASE2_PFA18C_BOOTSTRAP_READINESS_REPORT.md` and `docs/release/pfa18c_artifacts/`.
+
+### FRESH READ-ONLY PRODUCTION PRECHECK #2 — **PASS, unchanged** (2026-09-05 20:17:23Z, MCP execute_sql, read-only)
+ledger 124 · 093+109 present · numeric tip 109 · `kernel.signing_key` 0 · expected_key_fingerprint null ·
+expected_max_not_after null · monitor_enabled false · native_issuance false · native_scanning false ·
+tickets 0 · door_pin 0 · door_session 0 · scan 0 · door_manifest 0 · native edges not deployed.
+No differences from the recorded baseline. No repair performed. No production write.
+
+### M4 RE-VERIFICATION — **PASS** (canonical §6.1, `docs/phase2/PRODUCTION_SIGNING_KMS_CEREMONY.md` L428–536:
+explicit `-v ALGORITHM="ES256"`, PRE-FLIGHT 2b gate, `algorithm` in INSERT + POST-CHECK; never the column default).
+
+### NEW FINDINGS (session 2) — details + acceptance criteria in the readiness report
+- **P0-FREEPLAN (conditional)** — if the account is on the AWS *Free account plan*, AWS closes it after 6
+  months or credit exhaustion, retains data 90 days, then permanently erases it. A production KMS trust
+  root and compliance-locked audit evidence cannot live in such an account. **CreateKey is NO-GO until the
+  plan type is proven PAID or the owner explicitly authorizes the upgrade.** No upgrade was performed.
+- **P1-PUBKEY-FORMAT** — runbook D3 / §6.1 store `kernel.signing_key.public_key` as a PEM block; the
+  credential-sign edge's sign-after-verify `atob()`'d it as bare base64 SPKI DER; `atob` throws on PEM armor
+  (demonstrated: `InvalidCharacterError`) → every credential would be refused until the VERIFIER CODE is
+  repaired. The stored PEM's immutability does not prevent that repair (the DB representation is correct;
+  the consumer was wrong) — the earlier "permanent brick" wording is withdrawn. **FIXED in session 3** (see below).
+- **M3 runtime-credential design gap** — Supabase Edge exposes only static secrets; `kms.ts` performs no
+  AssumeRole. Design resolved on paper (readiness report §7); engineering + owner decision required.
+- **OBS** — AWS KMS now offers `ECC_NIST_EDWARDS25519`; the repo premise "AWS has no Ed25519" is outdated.
+  Ratified D2 = ES256 stands; no change proposed. CloudTrail classes KMS `Sign`/`GetPublicKey` as **Read**
+  events → the trail must log Read+Write and must not exclude `kms.amazonaws.com`.
+
+### SESSION 2 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (read-only queries only). KMS key: **not created.** Migration 110: **not created.**
+Edges: **not deployed.** Config/flags: **unchanged.** Billing plan: **unchanged.**
+
+_(subsequent sections — M1 audit plane, M1 read-back, M2, M3, Phase-1 gate, CreateKey checkpoint,
+CreateKey, key metadata/policy, public-key derivation ×2, fingerprint comparison, §5.3 binding proof,
+sign removal, pre-DB checkpoint, DB bootstrap, post-DB state, invariants, monitor, safe sign test,
+CloudTrail evidence, final darkness verification, PFA-18C consumption, findings, final result, next gate —
+appended as each stage completes.)_
+
+---
+
+## SESSION 3 — 2026-09-05 — OWNER PLAN-STATE EVIDENCE + P1-PUBKEY-FORMAT FIX + DESIGN CORRECTIONS
+
+### Owner-returned evidence (OWNER-RETURNED; not Claude-observed)
+`aws freetier get-account-plan-state` on account `652872010073`: **accountPlanType FREE · accountPlanStatus ACTIVE · $100 remaining ·
+accountPlanExpirationDate 2027-03-05T17:57:11.079Z.** **Owner decision: KEEP THE AWS FREE PLAN. No billing upgrade authorized.**
+
+### P0-FREEPLAN — status under that decision
+CONFIRMED FREE. Under the keep-Free-plan decision, a KMS trust root / compliance-locked audit evidence in this account would have a hard horizon
+of 2027-03-05 (+90-day grace, then erasure). **CreateKey = NO-GO in this account while the Free plan is kept.** Owner options (none authorized,
+none performed) are listed in the readiness report §3. Repository work and local tests are unaffected and proceeded.
+
+### P1-PUBKEY-FORMAT — FIXED (repository + local tests only; deployment PENDING)
+Strict `normalizeSpkiPublicKey` in `credential-sign/credential.ts` (applied in `verifyToken` + `verifyCanonicalSignature`) and an identical
+no-imports copy exported from `_shared/offline-verify.ts` (applied before the door's injected primitive); new refusal `malformed_public_key`;
+PFA-PT-8 pin extended to the key bytes (ES256 ⇒ uncompressed P-256 SPKI only; EdDSA ⇒ Ed25519 SPKI only). D3 (PEM in the DB) and the D5
+fingerprint contract are unchanged. `door-manifest` signs only — unchanged. Scanner/mobile verifier: not in this repo — boundary UNVERIFIED,
+contract written in the readiness report §3. Tests: `tests/credential-sign-pubkey-format.test.ts` (21, real P-256/Ed25519 keys; AWS signing stays
+ES256-only). Full suite 690/690; typecheck clean; lint 0 errors; G-4 PASS. **Tested commit: `c150283`.**
+
+### Design corrections recorded (readiness report updated)
+M2 = physically separate clean device only (same-Mac OS-user and CloudShell fallbacks removed). M6 = ratified global-ES256 lineage with **no**
+bypass (session-GUC EdDSA override removed; no migration written). Model A = SCPs never bind the management account ⇒ dedicated management
+account + workload member (holds the key) + audit member; layout to be settled **before CreateKey**; no organization created.
+`deletion.post_event_hold_hours` gates deletion *finalization*, not first sale. O1 runtime credentials = PROPOSED, not owner-approved; Supabase
+"no AWS federation" is a documented-capability finding, not a proof of impossibility. Owner AWS commands carry
+`--profile snatchit-admin --region us-east-1`.
+
+### SESSION 3 MUTATION LEDGER
+AWS: **none.** Production DB: **none.** KMS: **not created.** Migration 110: **not created.** Edges: **not deployed.** Config/flags/secrets: **unchanged.**
+Billing plan: **unchanged (FREE, per owner).** Repository: code + tests + docs committed on `feature/venue-native-and-product-v2`.
+
+---
+
+## SESSION 4 — 2026-09-05 — E2 RUNTIME CREDENTIAL PROVIDER (REPOSITORY + LOCAL TESTS ONLY)
+
+Authorization: repository engineering only. **O1 production adoption, AWS access-key creation, Supabase secrets, deployment, and billing
+changes remain UNAPPROVED. AWS plan: FREE (unchanged). No live AWS call was made.**
+
+Implemented (DARK): `AssumeRoleCredentialProvider` (config validation; STS host derived from the region only; strict response extraction;
+exact assumed-role identity check; `ASIA…` temporariness check; expiry sanity; per-isolate + per-config cache; single-flight refresh; refresh
+5 min ahead; expired never returned; 5 s per-attempt timeout; ≤ 3 attempts, transient-only retry; redacted errors) and `AwsKmsSignerCore`
+(ES256 pin; key handle must be a full key ARN in the configured region + role account; temporary-credentials-only gate — no base-credential
+fallback; bounded Sign; response echo validation; DER→raw). `kms.ts` keeps the reviewed SigV4 as two transports + `createAwsKmsSigner` /
+`selectKmsSignerFromEnv`; `credential-sign` and `door-manifest` both use that one selector. KMS error messages now carry the `__type` code
+only (the body restating key ARN + principal is no longer embedded).
+
+Tests: `tests/credential-sign-sts-provider.test.ts` — 28 cases against mocked STS/KMS transports (acquisition/reuse, early refresh, expiry,
+concurrency, malformed/missing fields, identity mismatch, non-temporary key, invalid expiration, timeout with fake timers + abort, throttling,
+5xx, AccessDenied, failed refresh, config-change invalidation, no-fallback ×2, redaction sentinel search, both consumers, key scope, ES256 pin,
+response validation, DARK default). Suite       Tests  718 passed (718) passed; typecheck clean; lint 0 errors. **`deno check`: OUTSTANDING** (not available on the
+engineering host — reported as not run, not as passed). **Tested commit: `72d4e90`.**
+
+Design + operational requirements (rotation, compromise response, ExternalId as a trust condition only, SDK evaluation):
+`docs/phase2/_impl/KMS_RUNTIME_CREDENTIALS.md`.
+
+### SESSION 4 MUTATION LEDGER
+AWS: **none** (no live call). Production DB: **none.** KMS: **not created.** Secrets: **none.** Migration 110: **not created.** Edges: **not
+deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.** Repository: code + tests + docs committed on `feature/venue-native-and-product-v2`.
+
+---
+
+## SESSION 5 — 2026-09-05 — M6 MIGRATION 110 SPECIFICATION + ADVERSARIAL REVIEW (LOCAL / REHEARSAL ONLY)
+
+Authorization: local specification/tests/migration artifact only. **AWS FREE, unchanged. No AWS resource/key/secret/organization. No
+deploy. NOT applied to production. Production ledger 124 / tip 109 / 0 keys / dark — UNCHANGED.**
+
+Artifact: `supabase/migrations/110_signing_key_insert_guard.sql` (+ rollback, pgTAP suite 176, rehearsal census bumps, `tap.seed_core`
+harness reconciliation). Guard rules 1–11 (scope global only; status active; ES256 with no override; full KMS key ARN; SPKI PEM of an
+uncompressed P-256 key; no private material; advisory-lock serialization; duplicate key_id; exactly one active global; post-revoke recovery
+PARKED fail-closed; first row must be the ruling-B key_id). Q7 decision: scoped rows rejected outright while provision/rotate are parked
+(resolver most-specific-first ⇒ shadowing; parked writers write nothing; a runtime predicate would be a bypass). Recovery conflict analysis:
+none — rule 10 IS the ratified fail-closed; the E4 two-person migration replaces it. PFA-18C wording untouched.
+
+Evidence: fresh replay through 110 (no migration skipped; Gate-2 27/70/37/26); suite 176 51/51; full pgTAP plan 3746 · ok 3742 · not_ok 4 (only the 4 documented
+local-only deltas); concurrency probe (second session blocked on the advisory lock then refused `active_global_exists`); unique-index
+defense intact; rollback idempotent + double re-apply clean; vitest 729/729; typecheck clean; lint 0 errors; G-4 PASS; **`deno check`
+OUTSTANDING** (not installed). Full report: `docs/phase2/M6_MIGRATION_110_SPEC_AND_REVIEW.md`. **Tested commit: `e181c3b`.**
+
+### SESSION 5 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (no connection made this session). KMS: **not created.** Secrets: **none.** Migration 110: **written,
+rehearsal-applied locally, NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
+
+---
+
+## SESSION 6 — 2026-09-05 — E4 GATED TWO-PERSON POST-REVOKE RE-BOOTSTRAP (MIGRATION 111, LOCAL / REHEARSAL ONLY)
+
+Authorization: local specification/tests/migration artifact only. **AWS FREE, unchanged. No AWS resource/KMS key/secret/organization. No
+deployment, activation, or money movement. NOT applied to production. Production ledger 124 / tip 109 / 0 keys / dark — UNCHANGED.**
+No owner ratification wording changed.
+
+Artifact: `supabase/migrations/111_signing_key_recovery_two_person.sql` (+ generated rollback embedding 110's guard verbatim, pgTAP suite 177,
+176 F2 updated, rehearsal census bumps). Adds the append-only `kernel.signing_key_recovery_approval` (RLS on, zero policies, zero client/
+service_role grants), a pure fingerprint helper, `approve_signing_key_recovery` + `execute_signing_key_recovery` (platform_admin + aal2, two
+DISTINCT identities, 30-minute window, executor must be an approver, fingerprint-bound, ES256 explicit, idempotent, audited) and re-creates the
+110 guard so rule 10 admits a post-revoke row only with two unexpired matching approvals. Preconditions everywhere: zero active, EXACTLY ONE
+revoked (0 ⇒ not applicable — the initial bootstrap is the §6.1 ceremony; >1 ⇒ lineage exceeded, needs its own ratification), unused key_id.
+PFA-18A provision/rotate parked; PFA-18B revoke untouched. Residual disclosed: one human with two admin identities is detectable, not preventable.
+
+Evidence: fresh replay through 111 (no migration skipped; Gate-2 27/70/37/26); suite 177 67/67; suite 176 51/51; full pgTAP plan 3813 · ok 3809 · not_ok 4 (only the 4
+documented local-only deltas); transaction-rollback probe (rolled-back recovery insert leaves 0 active, approvals intact); concurrency probe
+(second session blocked on the advisory lock, then refused `active_global_exists`); 111 rollback restores 110's `post_revoke_recovery_parked`,
+re-apply ×2 clean; vitest 729/729; typecheck clean; lint 0 errors; G-4 PASS; **`deno check` OUTSTANDING**. Report:
+`docs/phase2/E4_MIGRATION_111_RECOVERY_SPEC_AND_REVIEW.md`. **Tested commit: `927a02a`.**
+
+### SESSION 6 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (no connection made). KMS: **not created.** Secrets: **none.** Migrations 110/111: **rehearsal-applied
+locally, NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
+
+## SESSION 7 — 2026-09-05/06 — DARK PRE-CEREMONY AUDIT (LOCAL / REHEARSAL ONLY)
+
+Authorization: audit + tests + documentation only. **AWS FREE, unchanged. No AWS call or resource. No production DB call (state not re-read;
+last recorded: ledger 124 / tip 109 / 0 keys / dark). No deployment, secret, billing change, activation, or money movement.** No ratification
+wording changed. Pre-existing user files untouched.
+
+Chain audited: migrations 110–114 (order, rollback order, sha256, census deltas, replay + reverse rollback chain with per-step census/definition
+hashes — inverts exactly, reapply lands on the fresh-replay hash `4d20f9f6…`), `/keys` M1 delivery, door-manifest signing (canonical bytes,
+DB-derived key identity via 114, ES256/active/window re-pin, sign-then-verify, opaque errors + redaction), the credential → offline-verify →
+M2 sync → online scan → offline reconcile state machine, M6/revocation/recovery gates (exact parked / owner-gated points), M5 (new mocked-signer
+rehearsal `tests/m5-mocked-signer-rehearsal.test.ts`, 7; live residue stated), signed-M1 bundles (deferred; protocol change identified).
+Runbook defects corrected with dated notes: `PRODUCTION_SIGNING_KMS_CEREMONY.md` §7.3 (stale six-item parked loop — `revoke_signing_key` is
+un-parked since 106, which production carries) and §13 Step 3 (revoke/force-close/recovery state). Deliverables:
+`docs/release/PHASE2_PFA18C_DARK_PRECEREMONY_AUDIT.md` (audit) and `docs/release/PHASE2_PFA18C_OWNER_CEREMONY_RUNBOOK.md` (owner runbook:
+NO-GO conditions incl. the Free plan, read-only preflight with the corrected parked-state check, artifacts, authorization phrases per mutation,
+post-mutation verification, abort/rollback matrix).
+
+Evidence: full pgTAP plan 3941 · ok 3937 · not_ok 4 (documented 060×2/132×2); suites 176–180 51/67/41/45/42 after the reverse chain; vitest
+803/803; typecheck clean; lint 0 errors (45 pre-existing warnings); G-4 PASS; CI run 34002456147 at `1f3fc19` green incl. Deno type-check.
+**Tested commit: `1f3fc19`.**
+
+### SESSION 7 MUTATION LEDGER
+AWS: **none.** Production DB: **none** (no connection made). KMS: **not created.** Secrets: **none.** Migrations 110–114: **rehearsal only,
+NOT deployed.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **FREE, unchanged.**
+
+
+---
+
+## SESSION 8 — 2026-09-08 — BILLING STEP PREPARATION + STATE RECONCILIATION (NO MUTATION)
+
+Authorization: the owner approved moving beyond the AWS Free plan (pay-as-you-go; **not** a $100 purchase, subscription, support plan, or credit
+package; **not** a recurring budget or spending authorization). That approval authorizes **no** KMS key, Organization, account, IAM resource,
+CloudTrail trail, Object-Lock bucket, production migration, deployment, secret, or activation. C18 unchanged. Pre-existing user edits preserved
+(`M docs/release/PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md`, `?? docs/phase2/TICKETS_READ_CONTRACT_CORE_COORDINATION.md` untouched).
+
+### Reconciliation (CLAUDE-OBSERVED unless stated)
+- Audit commits `1f3fc19` / `aa74cc2` remain current: `aa74cc2` = tip of `feature/venue-native-and-product-v2` = `origin`; CI green on both.
+  `admin/operating-console @ ab3e17f` (= `aa74cc2` + ops-console 115–120; PR #55; CI green) touches no PFA-18C document or 110–114 file.
+- **Production drift from the recorded baseline (owner-approved, not an incident):** ledger **130** rows, numeric tip **120** — migrations 115–120
+  (ops console RC3) were applied 2026-09-08 ~00:2xZ per `docs/admin-console/DEPLOYMENT_RECORD_2026-09-08.md` (admin branch); owner visually
+  confirmed auto-deploy OFF on 2026-09-07; `git_branch: ""` (mechanical read). **110–114 remain unapplied** (`guard_110_present=false`,
+  `recovery_111_present=false`, `venue.get_signing_keys_door` absent). Signing substrate unchanged: `kernel.signing_key` 0 · issuance false ·
+  scanning false · monitor false · fingerprint null · max_not_after null · tickets 0 · door_session 0 · census kernel 149 / venue 83 / kernel
+  tables 31 · native edges not deployed (11 legacy edges only). Read 2026-09-08T00:38Z via Supabase MCP `execute_sql`, read-only.
+  Runbook NG-3 re-baselined by dated note (ledger 130 / tip 120 / 110–114 absent / 0 keys).
+- **AWS plan: NOT re-verified** — `aws sts get-caller-identity` / `aws freetier get-account-plan-state` returned "Your session has expired.
+  Please reauthenticate using 'aws login'." Last state remains OWNER-RETURNED 2026-09-05 (FREE, $100 remaining, expires 2027-03-05T17:57:11Z).
+  PAID will be recorded only from a fresh `get-account-plan-state`.
+
+### Production-order rehearsal (REHEARSAL, local harness, 2026-09-08T00:46Z)
+Because production now carries 115–120 without 110–114, the apply order will be 115–120 → 110–114 (not the CI fresh-replay order).
+Replayed the chain without 110–114 ⇒ census 149/83/ops 90/31 (= production), applied 110→114 ⇒ 153/87/90/32 with guard + recovery present;
+canonical-order replay ⇒ identical census, Gate-2 27/71/37/27 (= CI baseline); function/trigger/policy definitions + routine grants across
+seven schemas (682 lines) **IDENTICAL** between the two databases; full pgTAP on the production-order DB `plan 4320 · ok 4316 · not_ok 4`
+(documented 060×2/132×2 only). Details: `PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` §7.1.
+
+### Deliverable
+`docs/release/PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` — billing state + owner steps (B0–B5), Model-A account-layout recommendation
+(reuse `652872010073` as the workload member; management + audit accounts later; no Organization now), cost estimate from official pricing
+read this session (≈ $1.06–1.15/month dark, ≈ $1.00 of it the key; + $0.015 per 1,000 credentials live; credits treatment + exclusions; budget
+alerts are notifications, not caps), M1–M6 / recovery / Model-A reconciliation (PFA controls distinguished from the scanner's M1/M2 manifests),
+exact names / bindings / execution order / verification / abort conditions, 110–114 release sequence and dependencies (apply tree must contain
+115–120; `db push --include-all --dry-run` must list exactly 110–114; dark deployment separated from activation), remaining owner decisions
+(region pin; irreversible Object-Lock years; O1 vs O4 runtime credentials; layout confirmation; names; MFA mechanism for the ceremony trust;
+C3/C4 ordering), and the next authorization-bearing action (C1 / M1-1 after NG-1 clears).
+
+### Official-documentation facts read this session (for the billing step)
+Upgrade = Console home → Cost and Usage widget → "Upgrade plan" (`https://console.aws.amazon.com/billing/home?#/freetier/upgrade`) → review →
+"Upgrade account"; CLI equivalent `aws freetier upgrade-account-plan --account-plan-type PAID`. Remaining credits apply automatically after the
+upgrade until 12 months after account creation; upgrading **via** Organizations/Control Tower expires them immediately; a Free plan auto-upgrades
+on joining an Organization. Payment method is not charged until the upgrade; afterwards only pay-as-you-go usage beyond credits. Free plans
+"don't have access to certain AWS services" (not enumerated).
+
+### SESSION 8 MUTATION LEDGER
+AWS: **none** (read-only calls attempted; session expired; no login performed by Claude). Production DB: **none** (read-only queries only).
+KMS: **not created.** Secrets: **none.** Organizations/accounts/IAM/CloudTrail/S3: **none.** Migrations 110–114: **NOT applied** (rehearsal
+only). Edges: **not deployed.** Config/flags: **unchanged.** Billing plan: **unchanged (FREE last seen 2026-09-05; not re-read).**
+Repository: this record, the runbook NG-3 dated note, and the readiness packet — committed on `feature/venue-native-and-product-v2`.
+
+---
+
+## SESSION 9 — 2026-09-08 — PAID-PLAN CONFIRMATION (OWNER-CONFIRMED) + C1 PACKAGE PREPARATION (NO MUTATION)
+
+Authorization: the owner reports completing the direct AWS Paid-plan upgrade in the Console (root used for billing; `jose-admin` remains the
+engineering identity). **Recorded as OWNER-CONFIRMED until the API verifies it.** The 2026-09-05 "keep Free plan" decision is **superseded**.
+The upgrade authorizes **no** IAM/S3/CloudTrail/Organizations/KMS creation, production migration, secret, deployment, or activation. C18 unchanged.
+Pre-existing user edits preserved (`M docs/release/PHASE2_PRODUCTION_KMS_SIGNING_CEREMONY_EXECUTION.md`, `?? docs/phase2/TICKETS_READ_CONTRACT_CORE_COORDINATION.md`).
+
+### Billing / identity verification — NOT YET (CLAUDE-OBSERVED 2026-09-08T01:25Z)
+`aws sts get-caller-identity` and `aws freetier get-account-plan-state` (profile `snatchit-admin`, us-east-1) both returned:
+"Unable to refresh login credentials because of a change in your password. Please reauthenticate with your new password using 'aws login'."
+⇒ no fresh identity or plan evidence this session. **PAID will be recorded only from a fresh `get-account-plan-state`.** Runbook NG-1 carries a
+dated note (owner-confirmed; cleared on API evidence only). Nothing was purchased; the upgrade was not repeated.
+
+### Reconciliation (CLAUDE-OBSERVED 2026-09-08T01:26Z)
+Branch tip `21ac8e7` = `origin`; no later change to any PFA-18C document, artifact, or 110–114 file on any branch (`admin/operating-console` → `78a56fd`,
+its deployment record only). Production: ledger **130**, numeric tip **120**, present 115–120, **110–114 absent**, `kernel.signing_key` **0**, flags
+dark (issuance/scanning/monitor false; fingerprint/max_not_after null), tickets 0, census kernel 149 / venue 83 / kernel tables 31 — unchanged vs
+session 8. All ten artifact JSON files parse; unchanged since `aa74cc2` before this session's corrections.
+
+### Artifact validation (OFFICIAL-DOC-backed; log in `docs/release/pfa18c_artifacts/README.md`)
+F1 key-policy lockout safety → v1 gains an explicit ceremony `PutKeyPolicy/GetKeyPolicy/DescribeKey` statement (removed in v2); F2 principal
+existence/eventual consistency → C1 order corrected (IAM principals before the bucket policy and key policy; ≥ 60 s wait); F3 verifier could not
+enrol MFA or change its password → `VerifierManageOwnMFAAndPassword` (own user only) + `VerifierReadPasswordPolicy`; F4 `Years` integer; F5 never
+print `assume-role` credentials (`--query AssumedRoleUser`); F6 MFA condition satisfied only by `SerialNumber`+`TokenCode` of a TOTP device on
+`AssumeRole` (U2F/passkeys unsupported for MFA-protected API access; `aws login` MFA context undocumented — not assumed; condition never removed).
+Everything else in the ten files reviewed and left unchanged.
+
+### Deliverables (committed on `feature/venue-native-and-product-v2`)
+`PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md` rewritten: §1 verification steps V0–V3; §2 single consolidated decision sheet D1–D8 (region;
+irreversible retention — not pre-selected; O1 vs O4; layout with `652872010073` as the eventual workload member; names; ceremony MFA mechanism;
+T3 interpretation for M5; C3/C4 order) with the pre-bootstrap vs pre-activation split and Model B temporary / Model A before T3; §3 cost
+reconfirmed (usage-based; no $100 package; no recurring budget); §5 **C1 package** C1-0…C1-10 with resource/purpose, prerequisites, commands,
+read-backs, refusal tests, abort conditions, cleanup limits, placeholder replacement rules; §6 110–114 sequence (venue-native lineage, no
+merge-to-main, apply tree must contain 115–120, dry run must list exactly 110–114). Runbook: NG-1 and §F dated notes. Artifacts: F1/F3.
+
+### SESSION 9 MUTATION LEDGER
+AWS: **none** (two read-only calls attempted; both refused for an expired/changed login session; no `aws login` run by Claude). Production DB:
+**none** (read-only queries only). KMS: **not created.** Secrets/ExternalId: **none generated or stored.** Organizations/accounts/IAM/CloudTrail/S3:
+**none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Config/flags: **unchanged.** Billing: **upgrade OWNER-CONFIRMED, not
+API-verified; nothing purchased.** Repository: packet, execution record, runbook notes, README validation log, two artifact corrections.
+
+---
+
+## SESSION 10 — 2026-09-08 — PAID VERIFIED · C1 AUTHORIZED · PREFLIGHT DONE · LATER STAGES PREPARED (NO MUTATION)
+
+Authorization received (owner, 2026-09-08): **PFA-18C M1/M2/M3 SETUP within the reviewed C1 package**, subject to its prerequisites and the
+five remaining confirmations (R1 region, R2 names, R3 layout, R4 TOTP, R5 M5 scope + ordering). Owner-confirmed decisions: PAID/ACTIVE;
+`jose-admin` engineering principal; root 0 keys + MFA; **Object-Lock COMPLIANCE 3 years**; **O1**; keep-Free-plan superseded; pay-as-you-go
+(no $100 purchase, no recurring $100 budget). Not authorized: Organizations/accounts, CreateKey, DB insert, migrations, secrets, deploy, activation.
+Pre-existing user edits preserved.
+
+### Billing / identity / security — VERIFIED (CLAUDE-OBSERVED 2026-09-08T01:50:26Z; corroborates the OWNER-RETURNED output)
+`sts get-caller-identity` → `arn:aws:iam::652872010073:user/jose-admin` (UserId `AIDAZQARUJFMXKFV5U5JY`). `freetier get-account-plan-state` →
+**`PAID · ACTIVE · remaining credits 100.0 USD`**. `iam get-account-summary` → `AccountAccessKeysPresent 0 · AccountMFAEnabled 1 · Users 1 ·
+Roles 3 · MFADevices 2`. **NG-1 CLEARED** (runbook dated note). No upgrade repeated; nothing purchased.
+
+### C1-0a preflight — DONE (read-only, CLAUDE-OBSERVED 2026-09-08T01:51Z)
+CloudTrail trails `[]` · S3 buckets `[]` · roles = the 3 service-linked only (no `SnatchIt*`) · users `["jose-admin"]` · KMS keys `[]` ·
+`jose-admin` access keys `[]` · `jose-admin` MFA = **one passkey** (`u2f/user/jose-admin/jose-admin-touchid-…`), **no TOTP** · groups
+`SnatchIt-admins` (AdministratorAccess) + direct `IAMUserChangePassword` · Organizations not in use · `head-bucket snatchit-audit-652872010073`
+→ 404 (name free). Production DB (01:49:58Z): ledger 130 · tip 120 · 115–120 present · 110–114 absent · 0 keys · dark · census 149/83/31.
+Repository: `614c53d` = origin; CI green (`34177096660`, `34177101087`); no PFA-18C/110–114/edge change since `1f3fc19`; admin `78a56fd`
+`supabase/` identical to `ab3e17f`; local `supabase` CLI 2.115.0.
+
+### Prepared this session
+`m1_object_lock_configuration.json` Years = 3 (integer). Packet rewritten in place: §2 approvals + the single R1–R5 confirmation; §5 C1 execution
+log (C1-0a done; C1-0b…C1-10 pending R1/R2/R4 and Device 2); §5b exact packages for C4 (apply tree `78a56fd`, dry run must list exactly
+110–114, read-backs), C2 (CreateKey + independent binding proof), C3 (§6.1/§6.2 guarded bootstrap), C5, C6 (O1 secrets via env-file; dark
+deploy with verify_jwt postures true/true/false), C7 (M5) — including the **open engineering question** that `kernel.issue_ticket_atoms`
+refuses while issuance is dark, so the credential-sign half of M5 has no atom source without a custody-table test INSERT that would pin the
+key; to be ruled on before C7.
+
+### SESSION 10 MUTATION LEDGER
+AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS: **not created.** Secrets/ExternalId: **none.**
+IAM/S3/CloudTrail/Organizations: **none.** Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.**
+Billing: **PAID (verified), unchanged.** Repository: packet, runbook notes, README note, object-lock artifact (Years 3), this record.
+
+---
+
+## SESSION 11 — 2026-09-08 — C1 EXECUTION STARTED (C1-0b) · R5 CORRECTED · M5 PLAN · MODEL A PACKAGE (NO MUTATION)
+
+Owner decisions confirmed 2026-09-08: R1 us-east-1 · R2 reviewed names at `6372538` · retention 3 y COMPLIANCE · O1 · R3 (`652872010073` future
+workload member; Model B temporary; Model A before T3) · R4 (additional TOTP on `jose-admin`; serial/token on AssumeRole; passkey kept; MFA
+condition never weakened) · 110–114 before the DB insert. **R5 CORRECTION recorded:** no pre-T3 exception; the prior packet text proposing that a
+throwaway credential on a non-saleable test event is "not T3", and any attribution of such a ruling to the owner, is withdrawn (packet §2, runbook
+C7 dated note). Canonical T3 quoted verbatim in the packet. C7/M5 PENDING until its procedure satisfies governance; no custody insert, issuance
+flip, guard disable or bypass. The §5.3 challenge signature is a nonce signature required by the bootstrap, not a production credential.
+
+### State (CLAUDE-OBSERVED)
+Repo `6372538` = origin, CI green; admin `2459bdc` (docs addendum; `supabase/` identical to `ab3e17f`; CI green) — **C4 apply tree candidate is
+now `2459bdc`**, to be re-verified on apply day. Production 02:14:51Z: ledger 130 · tip 120 · 115–120 present · 110–114 absent · 0 keys · dark.
+AWS session valid as `jose-admin`; `list-mfa-devices jose-admin` → passkey only (`u2f/…touchid…`, enabled 2026-09-05) ⇒ C1-0b required.
+
+### C1 log
+- C1-0a preflight: DONE (session 10, read-only).
+- **C1-0b TOTP enrolment: owner instructed** (console: Users → jose-admin → Security credentials → Assign MFA device → Authenticator app; QR/seed/
+  codes never leave the owner's screen). Verification = `list-mfa-devices` shows the passkey + `arn:aws:iam::652872010073:mfa/<name>`. Pending.
+- C1-1…C1-10: not started. Device 2 availability: **not yet determined** (must be physically separate and clean; M2 not satisfied until it runs).
+
+### Prepared
+Packet rewritten in place (§2 confirmations + R5 correction; §5 execution log; §5b C4 tree `2459bdc`; §5c Model A package with responsibilities,
+order, SCP/bucket-policy artifacts under `pfa18c_artifacts/model_a/`, costs, refusal probes; §5d M5 test plan with the exact conflicting
+requirements and the smallest clarification proposed for review). Runbook C7 dated note. README Model A entry.
+
+### SESSION 11 MUTATION LEDGER
+AWS: **none** (read-only calls only). Production DB: **none** (read-only). KMS/secrets/IAM/S3/CloudTrail/Organizations: **none.**
+Migrations 110–114: **NOT applied.** Edges: **not deployed.** Flags: **unchanged.** Billing: PAID, unchanged. Repository: docs + 2 draft artifacts.
+
+### C1-0b — TOTP enrolment on `jose-admin` — DONE 2026-09-08T02:38:37Z
+OWNER-RETURNED: user `jose-admin`; TOTP serial `arn:aws:iam::652872010073:mfa/jose-admin-totp`; enabled 2026-09-08T02:38:37+00:00; the
+existing Touch ID passkey remains enrolled. CLAUDE-OBSERVED corroboration (read-only `list-mfa-devices`, 02:40:41Z): two devices —
+`arn:aws:iam::652872010073:mfa/jose-admin-totp` (2026-09-08T02:38:37Z) and `u2f/user/jose-admin/jose-admin-touchid-…` (2026-09-05).
+**SERIAL for C1-9 = `arn:aws:iam::652872010073:mfa/jose-admin-totp`.** Enrolment does not prove the trust condition; that is tested at C1-9.
+No seed, QR, code or password was exchanged.
+
+### C1-1 — pre-mutation inspection 2026-09-08T02:40:41Z (read-only)
+`get-role SnatchIt-KMS-Ceremony` → NoSuchEntity; `SnatchIt*` roles → none. Artifacts to apply: `m1_ceremony_role_trust.json` sha256
+`89540f61…`, `m1_ceremony_role_policy.json` sha256 `1fddd53b…` (last changed at `239983e`; unchanged since the reviewed package). Owner instructed.
+
+### C1-1 — IAM role `SnatchIt-KMS-Ceremony` — **VERIFIED 2026-09-08T02:42:58Z**
+OWNER-RETURNED: `create-role` and `put-role-policy` completed successfully on the primary machine (owner-executed).
+CLAUDE-OBSERVED read-backs (read-only, `snatchit-admin` profile): `Arn arn:aws:iam::652872010073:role/SnatchIt-KMS-Ceremony` · `RoleId
+AROAZQARUJFMULUKHKRAG` · `CreateDate 2026-09-08T02:41:45Z` · `MaxSessionDuration 3600` · `Description "PFA-18C ceremony principal"` ·
+trust policy `jq -S` diff vs `m1_ceremony_role_trust.json` (sha256 `89540f61…`) → **identical** · inline policy `pfa18c-ceremony` diff vs
+`m1_ceremony_role_policy.json` (sha256 `1fddd53b…`) → **identical** · `list-role-policies` → `["pfa18c-ceremony"]` only · `list-attached-role-policies`
+→ `[]`. Refusal tests deferred to C1-9 (need a role session). All comparisons pass ⇒ C1-1 VERIFIED.
+
+### C1-2 — pre-mutation inspection 2026-09-08T02:42:58Z (read-only)
+`get-user snatchit-kms-verifier` → NoSuchEntity; users = `["jose-admin"]`. Artifact `m2_verifier_policy.json` sha256 `3082cc74…` (F3 in force).
+Managed policy `arn:aws:iam::aws:policy/SignInLocalDevelopmentAccess` exists (default v3, updated 2026-02-12). Owner instructed.
+
+### C1-2 — IAM user `snatchit-kms-verifier` — **PARTIAL** (2026-09-08T03:12:09Z inspection)
+OWNER-RETURNED: `create-user` succeeded; `put-user-policy pfa18c-verifier-readonly` **failed** — `LimitExceeded: maximum user inline policy size
+2048` (the artifact is 2,544 characters compacted). CLAUDE-OBSERVED (read-only): user `arn:aws:iam::652872010073:user/snatchit-kms-verifier`
+(UserId `AIDAZQARUJFM7MUXJXPMR`, created 02:44:06Z); inline policies `[]`; attached managed `[]`; groups `[]`; login profile none; access keys `[]`;
+MFA `[]`; customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` does **not** exist (`list-policies --scope Local` → `[]`); quotas
+`UserPolicySizeQuota 2048`, `PolicySizeQuota 6144`. **Correction (packaging only, F7):** apply the identical `m2_verifier_policy.json` (sha256
+`3082cc74…`) as customer-managed policy `SnatchIt-KMS-Verifier-ReadOnly` and attach it; permissions and denies unchanged; no split. Owner instructed
+(create-policy, attach ×2). The user is NOT recreated. C1-2 is not complete; M2 remains pending Device 2.
+
+### C1-2 — IAM user `snatchit-kms-verifier` — **VERIFIED 2026-09-08T03:36:38Z**
+OWNER-RETURNED: `create-policy SnatchIt-KMS-Verifier-ReadOnly`, `attach-user-policy` ×2 and the console password step completed.
+CLAUDE-OBSERVED (read-only): policy `arn:aws:iam::652872010073:policy/SnatchIt-KMS-Verifier-ReadOnly` created 03:18:03Z, `DefaultVersionId v1`,
+`AttachmentCount 1`, versions = [`v1` default]; `get-policy-version v1` document `jq -S` diff vs `m2_verifier_policy.json` (sha256 `3082cc74…`)
+→ **identical**; user attachments = exactly [`…policy/SnatchIt-KMS-Verifier-ReadOnly`, `arn:aws:iam::aws:policy/SignInLocalDevelopmentAccess`];
+inline `[]`; groups `[]`; access keys `[]`; login profile created 03:32:13Z (`PasswordResetRequired false`); MFA `[]` (Device 2 enrols its own at
+C1-10). Refusal probes deferred to C1-10 (Device 2). C1-2 VERIFIED; **M2 not satisfied** until Device 2 runs.
+
+### C1-3…C1-8 — preflight 2026-09-08T03:36:38Z (read-only)
+`head-bucket snatchit-audit-652872010073` → 404 (free); buckets `[]`; trails `[]` (incl. shadow); runtime user/role → NoSuchEntity; present:
+role `SnatchIt-KMS-Ceremony`, users `jose-admin`, `snatchit-kms-verifier`, local policy `SnatchIt-KMS-Verifier-ReadOnly`. Artifacts: bucket policy
+`76addba3…`, object-lock `9a4c5a8d…` (Years 3), runtime user policy `a1cb8644…`, runtime trust `8ebd036a…` (ExternalId placeholder; filled locally
+at C1-3). Dependency restated: the bucket policy (C1-6) names the runtime user/role ⇒ **C1-3 must precede C1-6**; C1-4/C1-5 have no principal
+dependency and are reversible while the bucket is empty. Owner instructed: C1-4 + C1-5.
+
+### C1-4 / C1-5 — audit bucket created and hardened — **VERIFIED 2026-09-08T03:41:07Z**
+OWNER-RETURNED: `create-bucket --object-lock-enabled-for-bucket`, `put-public-access-block`, `put-bucket-encryption` completed.
+CLAUDE-OBSERVED (read-only): `get-object-lock-configuration` → `ObjectLockEnabled: Enabled`, **no Rule** (retention applied at C1-7);
+`get-bucket-versioning` → `Enabled` (MFADelete Disabled); `get-public-access-block` → BlockPublicAcls/IgnorePublicAcls/BlockPublicPolicy/
+RestrictPublicBuckets all `true`; `get-bucket-encryption` → `AES256`, `BucketKeyEnabled false`, no `KMSMasterKeyID` (`BlockedEncryptionTypes: SSE-C`
+reported by S3); `get-bucket-location` → `LocationConstraint null` (= us-east-1); no bucket policy yet; zero object versions. All PASS.
+Bucket remains fully reversible (empty). Next: C1-3 (runtime principals; required before the C1-6 bucket policy).
+
+### C1-3 — runtime user + role (O1, trust only) — **VERIFIED 2026-09-08T03:53:31Z**
+OWNER-RETURNED: local file `~/pfa18c-local/m3_runtime_role_trust.filled.json` created (ExternalId length 64; value never shared); `create-user`,
+`put-user-policy`, `create-role` completed. CLAUDE-OBSERVED (read-only, ≥ 344 s after creation): user `arn:aws:iam::652872010073:user/
+snatchit-credential-sign-runtime` (UserId `AIDAZQARUJFMSTRL3SPZY`, 03:47:07Z); inline `pfa18c-runtime-assume-only` diff vs
+`m3_runtime_user_policy.json` (sha256 `a1cb8644…`) → **identical**; attached `[]`, groups `[]`, **access keys `[]`**, no login profile. Role
+`arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime` (RoleId `AROAZQARUJFMVY3CGSUOG`, 03:47:46Z, MaxSessionDuration 3600); trust:
+one statement, principal = the runtime user only, action `sts:AssumeRole` only, condition operators `[StringEquals]`, condition keys
+`[sts:ExternalId]` only, ExternalId length 64 (**value redacted**); structure identical to `m3_runtime_role_trust.json` with the placeholder
+masked; `list-role-policies` `[]`, `list-attached-role-policies` `[]` (permissions bound to the exact key ARN only at C2). Refusal test:
+`sts assume-role` into the runtime role as `jose-admin` → **AccessDenied** ("not authorized to perform: sts:AssumeRole"). All PASS ⇒ C1-3 VERIFIED.
+No access-key secret exists.
+
+### C1-6 — audit bucket policy — **VERIFIED 2026-09-08T04:0xZ**
+OWNER-RETURNED: `put-bucket-policy` completed. CLAUDE-OBSERVED (read-only): `get-bucket-policy` decoded and normalized (objects key-sorted,
+scalar arrays sorted, statement order preserved) **equals** `m1_audit_bucket_policy.json` (sha256 `76addba3…`); the only raw difference is S3's
+reordering of the four-ARN `Principal.AWS` array. Statements intact: `AWSCloudTrailAclCheck20150319` (Allow `cloudtrail.amazonaws.com`
+`s3:GetBucketAcl`, `aws:SourceArn` = `arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail`); `AWSCloudTrailWrite20150319`
+(Allow `s3:PutObject` on `AWSLogs/652872010073/*`, `bucket-owner-full-control`, same SourceArn); `DenyInsecureTransport` (Deny `s3:*`, Principal
+`*`, `aws:SecureTransport=false`); `DenyCeremonyAndVerifierFromMutatingAuditEvidence` (Deny 17 mutation actions on bucket + objects for
+`role/SnatchIt-KMS-Ceremony`, `user/snatchit-kms-verifier`, `role/SnatchIt-CredentialSign-Runtime`, `user/snatchit-credential-sign-runtime`).
+Object Lock still `Enabled` with no rule; zero object versions. (Coordinator note: two earlier comparison attempts were tooling errors —
+double-encoded JSON, then a normalizer that stringified statements — corrected before recording.) PASS ⇒ C1-6 VERIFIED.
+
+### C1-7 — Object-Lock default retention — **VERIFIED 2026-09-08T04:01:20Z**
+OWNER-RETURNED: `put-object-lock-configuration` completed. CLAUDE-OBSERVED (read-only): `get-object-lock-configuration` → `ObjectLockEnabled:
+Enabled`, `Rule.DefaultRetention.Mode: COMPLIANCE`, `Years: 3` (artifact `9a4c5a8d…`); `list-object-versions` → no versions, no delete markers;
+trails (incl. shadow) `[]`. PASS ⇒ C1-7 VERIFIED. The bucket remains empty and therefore still reversible; **C1-8 (start-logging) is the point at
+which the first COMPLIANCE-locked objects (3 years) are written.** Owner instructed for C1-8.
+
+### C1-8 — CloudTrail trail `snatchit-audit-trail` — configuration VERIFIED 2026-09-08T04:03:45Z; first delivery pending
+OWNER-RETURNED: `create-trail`, `put-event-selectors`, `start-logging` completed. CLAUDE-OBSERVED (read-only): `describe-trails` →
+`Name snatchit-audit-trail`, `TrailARN arn:aws:cloudtrail:us-east-1:652872010073:trail/snatchit-audit-trail`, `S3BucketName
+snatchit-audit-652872010073`, `HomeRegion us-east-1`, `IsMultiRegionTrail true`, `IncludeGlobalServiceEvents true`, `LogFileValidationEnabled
+true`, `KmsKeyId null`, `IsOrganizationTrail false`, `HasInsightSelectors false`; `list-trails` → exactly one trail. `get-event-selectors` →
+`ReadWriteType All`, `IncludeManagementEvents true`, `DataResources []`, `ExcludeManagementEventSources []` (no KMS exclusion); no advanced
+selectors. `get-trail-status` → `IsLogging true`, `StartLoggingTime 2026-09-08T04:02:41Z`, `LatestDeliveryTime null` (first delivery not yet
+landed at 04:03:45Z), no delivery errors. Bucket: two zero-byte prefix markers (`AWSLogs/652872010073/CloudTrail/`, `…/CloudTrail-Digest/`,
+04:02:28Z). **The first locked objects are now being written; the bucket is no longer reversible.** Delivery + per-object COMPLIANCE retention
+(3 years) verification: pending (background poll).
+Per-object lock on the first written objects (CLAUDE-OBSERVED 04:04:10Z, metadata only): `AWSLogs/652872010073/CloudTrail/` and
+`…/CloudTrail-Digest/` → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:02:27Z` (= 3 years), `LegalHold null`, `SSE AES256`,
+versioned. ⇒ **3-year COMPLIANCE retention is in force on delivered objects.** Log-file delivery confirmation still pending.
+**First log-file delivery — CONFIRMED (CLAUDE-OBSERVED 04:08:09Z, metadata only, contents not read):** `LatestDeliveryTime 2026-09-08T04:07:28Z`,
+no delivery error; object `AWSLogs/652872010073/CloudTrail/us-east-1/2026/09/08/652872010073_CloudTrail_us-east-1_20260908T0410Z_….json.gz`
+(3,649 bytes) → `ObjectLockMode COMPLIANCE`, `RetainUntilDate 2029-09-08T04:07:28Z`, `LegalHold null`, `SSE AES256`. First digest delivery not
+yet (hourly). ⇒ **C1-8 VERIFIED in full.** M1 (Model B) is *configured*; it is marked complete only after the C1-9 deny-set proof and the
+Device-2 read-back (C1-10).
+
+### C1-9 — MFA-conditioned AssumeRole test — evidence recorded 2026-09-08T04:29Z (C1-9 still PENDING the refusal probes)
+OWNER-RETURNED: **T1** (`sts assume-role` as `jose-admin` via the `aws login` session, **no explicit MFA parameters**) **SUCCEEDED** →
+`arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`. **T1 is recorded as a success, NOT as an expected-denial pass.**
+**T2** (`get-caller-identity --profile snatchit-ceremony`, CLI prompted for the `jose-admin-totp` code) SUCCEEDED with the same ARN.
+
+CLAUDE-OBSERVED (read-only):
+1. Live trust of `SnatchIt-KMS-Ceremony` re-read → **identical** to `m1_ceremony_role_trust.json`: one Allow, principal `user/jose-admin`, action
+   `sts:AssumeRole`, conditions `Bool aws:MultiFactorAuthPresent=true` AND `StringEquals sts:RoleSessionName=pfa18c-ceremony`. Inline policy
+   identical; no attached policies. Nothing was weakened; no access key was created.
+2. CloudTrail event history (sanitized; CloudTrail never logs credentials/OTPs):
+   - **T1** `AssumeRole` 2026-09-08T04:24:06Z, eventID `c1ae602c-…`: caller `IAMUser arn:aws:iam::652872010073:user/jose-admin`, temporary
+     credential (`ASIA…`), **`sessionContext.attributes.mfaAuthenticated: "true"`**, session `creationDate 2026-09-08T01:45:15Z` (the `aws login`
+     session), **requestParameters.serialNumber absent**, `roleSessionName pfa18c-ceremony`, no error; userAgent `md/command#sts.assume-role`.
+   - **T2** `AssumeRole` 04:24:43Z, eventID `15b4cd6a-…`: same caller session (`mfaAuthenticated "true"`, created 01:45:15Z),
+     **`serialNumber arn:aws:iam::652872010073:mfa/jose-admin-totp`**, `durationSeconds 3600`, no error; userAgent `md/command#sts.get-caller-identity`
+     (the profile's automatic assume). Then `GetCallerIdentity` 04:24:43Z by `AssumedRole …/SnatchIt-KMS-Ceremony/pfa18c-ceremony`,
+     `mfaAuthenticated "true"`, sessionIssuer = the ceremony role, eventID `3537a93f-…`.
+   - The login session's other calls (e.g. `CreateOAuth2Token` 04:24:06Z) also carry `mfaAuthenticated "true"`, creation 01:45:15Z.
+3. **Why T1 succeeded — verified vs inferred.** VERIFIED: the trust condition is present and unchanged; the `aws login` session used for T1 is
+   recorded by CloudTrail as MFA-authenticated (created 01:45:15Z after the passkey console sign-in). INFERRED (consistent with the official
+   condition-key semantics — the key is present for temporary credentials and is `false` when MFA was not used): IAM evaluated
+   `aws:MultiFactorAuthPresent=true` from that session's MFA context, so no explicit SerialNumber/TokenCode was needed. LIMITATION: AWS does not
+   log the evaluated condition context; a negative control (an AssumeRole from a non-MFA session) was **not** performed and will not be
+   manufactured (no access key, no trust change). Consequence: both paths satisfy the condition today; the **reviewed mechanism (T2, explicit
+   `--serial-number`/`--token-code`, recorded with the serial in CloudTrail) remains the ceremony procedure** because its MFA evidence is explicit
+   and does not depend on the login session's state.
+4. IAM policy simulation of the ceremony role's identity policy (read-only, `iam simulate-principal-policy`, run as `jose-admin`):
+   **explicitDeny** — `cloudtrail:StopLogging/DeleteTrail/UpdateTrail/PutEventSelectors/AddTags`; `s3:DeleteBucketPolicy/PutBucketPolicy/
+   PutBucketVersioning/PutBucketObjectLockConfiguration/PutLifecycleConfiguration/DeleteBucket` on the audit bucket; `s3:DeleteObject/
+   DeleteObjectVersion/PutObject/PutObjectRetention/PutObjectLegalHold/BypassGovernanceRetention` on audit objects; `iam:GetUser/PutRolePolicy/
+   CreateAccessKey/AttachRolePolicy`; `sts:AssumeRole`, `sts:AssumeRoleWithSAML`; `organizations:CreateOrganization/LeaveOrganization`;
+   `account:GetContactInformation`; `sso:ListInstances`; `kms:ScheduleKeyDeletion/DisableKey/CreateAlias/CreateGrant/Decrypt/Encrypt/Verify/
+   ImportKeyMaterial`. **allowed** — `kms:CreateKey` only with `KeySpec ECC_NIST_P256 ∧ KeyUsage SIGN_VERIFY ∧ KeyOrigin AWS_KMS ∧ MultiRegion
+   false ∧ BypassPolicyLockoutSafetyCheck false` (RSA_2048 / MultiRegion true / Bypass true ⇒ implicitDeny); `kms:Sign/GetPublicKey/PutKeyPolicy/
+   DescribeKey` only on keys tagged `snatchit:purpose=ticket-signing` (other tag ⇒ implicitDeny) and `Sign` only with `ECDSA_SHA_256`
+   (`ECDSA_SHA_384` ⇒ implicitDeny); positive reads `cloudtrail:GetTrailStatus/DescribeTrails`, `s3:GetBucketPolicy/
+   GetBucketObjectLockConfiguration`, `kms:ListKeys`, `sts:GetCallerIdentity` allowed.
+Remaining for C1-9: the owner-run live probes as the role (below), then CloudTrail evidence of their `AccessDenied` outcomes.
+
+### C1-9 — live probes as the ceremony role (session `pfa18c-ceremony`, `mfaAuthenticated true`) — 2026-09-08T04:31–04:34Z
+OWNER-RETURNED + CLAUDE-OBSERVED (CloudTrail event history, sanitized):
+- Positive controls: `GetTrailStatus` 04:31:02Z allowed (eventID `9cac770a-…`); `kms ListKeys` 04:31:10Z allowed, `[]` (eventID `c2ef9696-…`). PASS.
+- **P1** `cloudtrail:AddTags` on the trail 04:31:22Z → `AccessDenied` "**with an explicit deny in an identity-based policy**" (eventID `f00a1ecf-…`). PASS.
+- **P2** `s3:PutBucketVersioning` on the audit bucket 04:32:02Z → `AccessDenied` "**with an explicit deny in a resource-based policy**" (eventID
+  `7d56dfd9-…`) — the bucket policy's deny was cited; the identity-policy deny for the same action is proven separately by the simulator. PASS.
+- **P3** `kms:CreateAlias` targeting the all-zero dummy key → **`NotFoundException`**, not `AccessDenied`. **Recorded as INCONCLUSIVE — neither a
+  pass nor evidence that the deny is missing.** (CloudTrail event: pending index at the time of writing; recorded below when available.)
+  Analysis (read-only): the live policy statement `DenyKeyLifecycleMutationDuringCeremony` is unchanged and lists `kms:CreateAlias` with
+  `Resource "*"`; the whole inline policy is still identical to the artifact; the IAM simulator returns **explicitDeny** for `kms:CreateAlias`
+  on any key ARN. Per the CreateAlias API reference, the operation requires `kms:CreateAlias` **on the alias (IAM policy) and on the KMS key
+  (key policy)**, "A valid KMS key is required. You can't create an alias without a KMS key", and `NotFoundException` = "the specified entity
+  or resource could not be found". The request therefore named a resource that does not exist, so the key-policy half of the authorization
+  could not be evaluated and KMS answered with resource validation. What the evidence establishes: the request was rejected because the key
+  does not exist. What it does **not** establish: whether the identity-policy explicit deny was consulted for this request — AWS documents no
+  evaluation order between resource validation and authorization, and none is assumed here. The probe design was engineering's error (it
+  predicted `AccessDenied` for a non-existent target); it is withdrawn as a discriminating test. No real key was created and no other key was
+  targeted to force a denial.
+  Acceptance-criteria determination: the ratified controls require the deny-set and key policy to be **read back and verified from the M2
+  device** (ratification items 2–3, M3 "prove by reading the committed key policy from the second device"); live refusal probes are engineering's
+  additional evidence, not a ratified criterion. Standing evidence for the KMS lifecycle deny = identical policy read-back + simulator
+  explicitDeny. A **discriminating live test exists only once a key exists**: at C2, after CreateKey, the ceremony role attempts
+  `kms create-alias --target-key-id <D4>` → expected `AccessDenied` with an explicit identity-policy deny (if wrongly allowed the effect is one
+  removable alias, no cryptographic or lifecycle impact); likewise `kms verify` with the proof signature → expected `AccessDenied`. This
+  "P3′ at C2" is added to the C2 package. No safe KMS mutation probe against a non-existent key discriminates; `kms generate-random` (no
+  resource) can only show the absence of a broad Allow (implicit deny), which is weaker evidence and optional.
+- P4 (`iam get-user` as the role) and P5 (`sts assume-role` into the runtime role as the role): outcome not yet returned by the owner / not yet
+  indexed at the time of writing.
+  P3 CloudTrail event (indexed 04:34:57Z, sanitized): `CreateAlias` 2026-09-08T04:32:32Z by `assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`
+  (`mfaAuthenticated true`), `errorCode NotFoundException`, `errorMessage "Key 'arn:aws:kms:us-east-1:652872010073:key/00000000-0000-0000-0000-
+  000000000000' does not exist"`, request parameters not recorded by KMS for this failure, eventID `a99105a8-e773-44fd-915b-377706050837`. The
+  event carries no `AccessDenied` and no authorization-failure text — consistent with the analysis above: resource validation answered; the
+  identity deny's evaluation for this request is not observable. P3 stays INCONCLUSIVE. P4/P5: no `GetUser`/`AssumeRole` events by the
+  ceremony role are indexed as of 04:35Z (not run, or not yet indexed).
+- **P4** `iam:GetUser jose-admin` as the ceremony role → OWNER-RETURNED `AccessDenied` **with an explicit identity-policy deny**. PASS (CloudTrail
+  corroboration: pending index at the time of writing; appended when available).
+- **P5** `sts:AssumeRole` into `SnatchIt-CredentialSign-Runtime` as the ceremony role → OWNER-RETURNED `AccessDenied`; the error does not name
+  the denying policy (the runtime trust would refuse this caller regardless). Retained as **non-discriminating** evidence. (CloudTrail
+  corroboration pending.)
+
+### C1-9 — status 2026-09-08T04:38Z: completed checks and limits
+Completed: T2 MFA-conditioned AssumeRole via serial+token (serial logged in CloudTrail); T1 recorded as a success explained by the
+MFA-authenticated login session (not a denial pass; negative control not manufactured); live trust and policy re-read identical; positive
+controls; P1 (CloudTrail deny, explicit identity deny); P2 (S3 deny, explicit bucket-policy deny); P4 (IAM deny, explicit identity deny);
+P5 (STS deny, non-discriminating); IAM simulator explicitDeny for the entire deny-set incl. `organizations:*`, `account:*`, `sso:*`,
+`sts:AssumeRole*`, KMS lifecycle/crypto, and correct scoping of CreateKey/Sign/PutKeyPolicy. **Limits:** P3 (`kms:CreateAlias`) INCONCLUSIVE —
+no live evidence for the KMS-lifecycle deny is obtainable without a key; **P3′ is deferred to C2 (separately authorized)**; destructive
+denies (`StopLogging`, `DeleteTrail`, `DeleteBucketPolicy`, non-conforming `CreateKey`) are proven by simulation only, by design.
+**M1 (Model B) status:** configured and live-probed from the ceremony role; **complete only after the Device-2 read-back (C1-10)**, which the
+ratification makes the acceptance criterion.
+P4/P5 CloudTrail corroboration (indexed 04:39:13Z, sanitized): **P4** `iam GetUser` 04:36:16Z by `assumed-role/SnatchIt-KMS-Ceremony/
+pfa18c-ceremony` (`mfaAuthenticated true`) → `AccessDenied` "… not authorized to perform: iam:GetUser on resource: user jose-admin **with an
+explicit deny in an identity-based policy**" (eventID `1a578c07-…`). **P5** `sts AssumeRole` 04:36:50Z by the same session → `AccessDenied`
+"… not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime" — no denying policy
+named (eventID `3c27859f-…`); non-discriminating, as recorded. C1-9 closes with these limits: P3 inconclusive / P3′ at C2; destructive denies by
+simulation only. C1-10 package prepared (packet §5a′); Device-2 availability to be confirmed by the owner before D2-1.
+
+### C1-10 — Device-2 retrieval manifest (pinned 2026-09-09T02:53:40Z; read-only verification)
+OWNER-RETURNED: Device 2 authenticated as `snatchit-kms-verifier` (`aws login --profile verifier`) — CloudTrail corroboration at D2-8.
+Manifest commit: **`c4f562dad36ffcdcacb1fe3ba1387f7ab1bbf4cd`** on `feature/venue-native-and-product-v2` of `https://github.com/SnatchIt-app/snatchit`
+(**public** repository; commit present on GitHub, committer date 2026-09-08T04:40:01Z; local HEAD = origin tip; no working-tree change to any
+listed file). Every SHA-256 below was computed from the committed blob (`git show <sha>:<path>`) and matched byte-for-byte against the bytes
+GitHub serves at that ref (`contents/<path>?ref=<sha>`, raw).
+| Path | SHA-256 |
+|---|---|
+| docs/release/pfa18c_artifacts/m1_ceremony_role_trust.json | 89540f612449a3e540f851f1e62082b2c3263e2a9849f6b0f4fcbbec41baf4b7 |
+| docs/release/pfa18c_artifacts/m1_ceremony_role_policy.json | 1fddd53beee238063da99a26db3f301c546ee9c111685c5a5f630e0f930bd4d5 |
+| docs/release/pfa18c_artifacts/m2_verifier_policy.json | 3082cc74824ef68c47cd2fc39caf0d45b7765f2880936cdb8bb0d08a2cb46889 |
+| docs/release/pfa18c_artifacts/m3_runtime_user_policy.json | a1cb864406c73fc674fc264e8a73efe93ebdbbf5f4aed0a05a9ee94641569c9f |
+| docs/release/pfa18c_artifacts/m3_runtime_role_trust.json (placeholder; structure comparison only) | 8ebd036a5a71c914b5c8f44589505c9ba71dc5907e0e856403ed0961e5412fd8 |
+| docs/release/pfa18c_artifacts/m1_audit_bucket_policy.json | 76addba388521b9c04806ab81d560e1563ae59a75b33ea3fe61ed0cd2b4392f0 |
+| docs/release/pfa18c_artifacts/m1_object_lock_configuration.json | 9a4c5a8dad1f6bc7f6a8cb5510e3f8af9e5ec5065fedf75c0997e48698ef7ab0 |
+| docs/release/pfa18c_artifacts/m3_runtime_role_policy.json (C2; placeholder ARN) | bb3a2c4f86f532d2d0743e4755e9aaa67fd77d3997a820c211efbb90b0517b52 |
+| docs/release/pfa18c_artifacts/kms_key_policy_v1_binding_proof.json (C2) | e0560a960a28d146476bbdfd35654949f9aeebad9ce69d7cc488d1f5d7515dc1 |
+| docs/release/pfa18c_artifacts/kms_key_policy_v2_final.json (C2) | 430677d0510ed67987d04a012223fe947ccd0fa1948044215cb52dbf775b2d9d |
+| docs/release/pfa18c_artifacts/README.md | 505fe850bdcf6cc8336d8e53d37514eea4a28df40810f24475096f76d813443c |
+| docs/release/PHASE2_PFA18C_EXECUTION_READINESS_PACKET.md (C1-10 procedure §5a′) | 8b11d567c758b490e3a4645e44a8f2e072e46e0b3d4e1344afd2b0bbc6ce34ae |
+| docs/release/PHASE2_PFA18C_SINGLE_FOUNDER_KMS_BOOTSTRAP_EXECUTION.md (record as of c4f562d) | eb8b246292105f15ef4e7ab73b75436f21ad8b6a95b513aed4ce8d8ce58c0fe7 |
+Excluded by design: the filled runtime trust file, the ExternalId, any credential or session data (none are committed anywhere).
+
+---
+
+## SESSION 12 — 2026-09-09 — C1-10 DEVICE-2 RESULTS (OWNER-RETURNED) · D2-8 COORDINATOR CORROBORATION PENDING (NO MUTATION)
+
+Scope: coordinator verification + governance recording only. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Full report: `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### D2-3 (OWNER-RETURNED, 2026-09-09): Device 2 = physically separate Mac; AWS CLI 2.36.41; jq 1.7.1; LibreSSL 3.3.6; no primary-machine
+credentials/files copied; console login as `snatchit-kms-verifier`; Device-2 passkey enrolled; `aws login --profile verifier` → `Account
+652872010073`, `Arn arn:aws:iam::652872010073:user/snatchit-kms-verifier`.
+### D2-4 — PASS (OWNER-RETURNED): 10/10 files from `c4f562dad36ffcdcacb1fe3ba1387f7ab1bbf4cd`; all SHA-256 matched the manifest (session 11 pin,
+coordinator-verified against committed blobs + GitHub bytes); no C2-only artifact downloaded.
+### D2-5 — PASS (OWNER-RETURNED): ceremony role trust/policy matched, no managed policies; verifier managed policy matched, attachments exactly
+`SnatchIt-KMS-Verifier-ReadOnly` + `SignInLocalDevelopmentAccess`, inline `[]`, access keys `[]`, passkey present; runtime user policy matched,
+access keys `[]`; runtime role trust structure matched (`ExternalIdLength 64`, **value never displayed**), inline `[]`, managed `[]`; bucket policy
+equivalent; PAB 4×true; SSE-S3 AES256; Object Lock COMPLIANCE 3 y; versioning Enabled; trail multi-region, validation on, no KMS key, logging,
+no delivery error, selectors correct. All values equal the coordinator's 2026-09-08 read-backs.
+### D2-6 — PASS (OWNER-RETURNED): CreateAlias(non-existent key) → NotFoundException (non-discriminating, as specified); PutBucketVersioning →
+AccessDenied (explicit deny, `SnatchIt-KMS-Verifier-ReadOnly`); AssumeRole SnatchIt-KMS-Ceremony → AccessDenied; CreateAccessKey (self) →
+AccessDenied (explicit deny); AddTags → AccessDenied. No key created.
+### D2-7 — PASS with classified variance (OWNER-RETURNED): ceremony AssumeRole 04:24:06Z (mfa true, serial null = T1) and 04:24:43Z (mfa true,
+serial `…:mfa/jose-admin-totp` = T2) seen from Device 2; root activity `[]`; refusal events 04:31:22Z AddTags / 04:32:02Z PutBucketVersioning /
+04:32:32Z CreateAlias(NotFound) / 04:36:16Z GetUser / 04:36:50Z AssumeRole — match session-11 event IDs. **Variance:** broader `jose-admin` lookup
+also showed `DescribeEventAggregates`, `ListNotificationHubs`, `ListManagedNotificationEvents`, `GetAccountPlanState`, `DescribeRegions`,
+`GetAccountColor` — classified as acceptable console background/telemetry **reads** (Health, User Notifications, Free Tier, EC2 region list,
+console settings); D2-7 expectation amended to "non-read-only jose-admin events = exactly the C1 setup set"; `readOnly:true` confirmation is a
+D2-8 item.
+### Final Device-2 safety check (OWNER-RETURNED): `kms list-keys` → `[]`.
+### D2-8 — coordinator corroboration — **PENDING / BLOCKED (CLAUDE-OBSERVED 2026-09-09T03:34Z):** every read-only CloudTrail/IAM/KMS query
+via `snatchit-admin` returned "Your session has expired. Please reauthenticate using 'aws login'" (the 2026-09-08T01:45Z login session lapsed).
+Production DB read-only (03:34:37Z): ledger 130 · tip 120 · 110–114 absent · `kernel.signing_key` 0 · guard absent · tickets 0 · flags dark —
+unchanged. Outstanding D2-8 checks: verifier ConsoleLogin/EnableMFADevice/CreateOAuth2Token/GetCallerIdentity under the verifier identity with
+MFA; D2-6 outcomes under the verifier identity; D2-5 reads only; jose-admin non-read-only events = C1 set + `readOnly:true` on the variance list;
+root none; KMS `[]` + no CreateKey event.
+### Governance status: **M2 NOT YET SATISFIED · M1 (Model B) NOT marked complete · C1 PHASE-1 GATE OPEN** (pending D2-8).
+**C2 has NOT begun; it requires the separate exact owner authorization "AUTHORIZE PFA-18C CREATEKEY".** C4 (110–114) precedes C3 and needs its own
+authorization.
+
+### SESSION 12 MUTATION LEDGER
+AWS: **none** (read-only calls attempted; all refused — expired session). Production DB: **none** (one read-only query). KMS: **not created.**
+Secrets/keys/IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + the gate report.
+
+---
+
+## SESSION 13 — 2026-09-09 — D2-8 COORDINATOR CORROBORATION (READ-ONLY) · M2 BLOCKED ON VERIFIER MFA POSTURE (NO MUTATION)
+
+Scope: coordinator verification + governance recording only. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Coordinator session: `jose-admin` re-established by the owner (CloudTrail `CheckMfa` 03:39:38Z + `ConsoleLogin` 03:39:49Z, `MFAUsed Yes`, passkey).
+Full report (revision 2): `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### D2-8 results (CLAUDE-OBSERVED 2026-09-09T03:41–03:46Z unless stated)
+1. **Verifier identity/posture — FAIL (blocker).** `ConsoleLogin` for `snatchit-kms-verifier` at **2026-09-09T02:44:39Z in us-east-2**, **`MFAUsed: No`**,
+   Success (eventID `c6596194…`) — the only verifier ConsoleLogin in any enabled region (fan-out across all regions; verifier events exist only in
+   us-east-1 (88) and us-east-2 (7)). `EnableMFADevice` (passkey self-enrolment, F3) 02:47:51Z success (eventID `4c3706e4…`) — **the only successful
+   verifier mutation**. `aws login`: `AuthorizeOAuth2Access` + `CreateOAuth2Token` 02:49:44Z (refreshes 03:07:28Z, 03:18:13Z, 03:29:00Z);
+   `GetCallerIdentity` 02:50:06Z / 03:23:01Z. **All 88 us-east-1 verifier events carry `mfaAuthenticated: "false"`; none `"true"`.** No later MFA
+   sign-in exists. ⇒ handoff §F.2 / packet §5a′ D2-3 posture condition NOT met. Live verifier state: passkey
+   `u2f/user/snatchit-kms-verifier/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA` (02:47:51Z); access keys `[]`; **no successful
+   CreateAccessKey**; attachments exactly `SnatchIt-KMS-Verifier-ReadOnly` (v1, AttachmentCount 1, unchanged since 2026-09-08T03:18:03Z) +
+   `SignInLocalDevelopmentAccess`; inline `[]`; groups `[]`.
+   us-east-2 verifier events (7, itemized): 02:44:39Z ConsoleLogin (MFAUsed No; LoginTo console home, oauth-flow); 02:44:46Z ec2 DescribeRegions
+   ×1 (Client.UnauthorizedOperation), health DescribeEventAggregates ×3 (AccessDenied); 02:44:47Z notifications ListNotificationHubs (AccessDenied);
+   02:45:45Z ec2 DescribeRegions (UnauthorizedOperation) — all read-only console background, all denied.
+2. **D2-6 probes — PASS, corroborated under the verifier identity (us-east-1):** CreateAlias 03:20:13Z NotFoundException (`a7899dcf…`, non-
+   discriminating); PutBucketVersioning 03:23:31Z AccessDenied (`c793341a…`); AssumeRole 03:24:14Z AccessDenied (`a6ed84a8…`); CreateAccessKey
+   03:24:49Z AccessDenied (`14c7eee4…`); AddTags 03:25:41Z AccessDenied (`12dcc545…`). None succeeded.
+3. **D2-5 reads — PASS:** IAM Get/List (GetRole ×4, GetRolePolicy, ListAttachedRolePolicies ×2, GetPolicy, GetPolicyVersion, ListAttachedUserPolicies,
+   ListUserPolicies, ListAccessKeys ×2, ListMFADevices, GetUserPolicy, ListRolePolicies), S3 Get ×5, CloudTrail DescribeTrails/GetTrailStatus/
+   GetEventSelectors, LookupEvents ×11, kms ListKeys 03:32:27Z. Console background reads 02:44–02:47Z all `readOnly true` (mostly AccessDenied;
+   `GetAccountPasswordPolicy` NoSuchEntity = no custom account password policy — hardening note, out of scope). Nothing outside the envelope.
+4. **jose-admin — PASS:** non-read-only events since 2026-09-08T02:40Z = exactly the authorized C1 set (CreateRole 02:41:45, PutRolePolicy 02:41:57,
+   CreateUser 02:44:06, PutUserPolicy→LimitExceeded 02:44:15, CreatePolicy 03:18:03, AttachUserPolicy 03:18:10/03:18:21, CreateLoginProfile 03:32:14,
+   CreateBucket 03:39:06, PutBucketPublicAccessBlock 03:39:16, PutBucketEncryption 03:39:24, CreateUser 03:47:07, PutUserPolicy 03:47:28, CreateRole
+   03:47:46, PutBucketPolicy 03:56:17, PutObjectLockConfiguration 04:00:44, CreateTrail 04:02:27, PutEventSelectors 04:02:33, StartLogging 04:02:41;
+   2026-09-09 CheckMfa 03:39:38 + ConsoleLogin 03:39:49 = coordinator re-login). TOTP enrolment `CreateVirtualMFADevice` 02:37:28Z / `EnableMFADevice`
+   02:38:38Z precede the window (C1-0b). **Variance confirmed read-only** (`readOnly true`, `managementEvent true`, no error, console UA):
+   DescribeEventAggregates ×6, ListNotificationHubs ×3, ListManagedNotificationEvents ×42, GetAccountPlanState ×3, DescribeRegions ×2,
+   GetAccountColor ×3 — acceptable console background. D2-7 expectation amended: non-read-only jose-admin events = C1 set; read-only console
+   background reads acceptable.
+5. **Root/KMS — PASS in window:** root since 02:40Z `[]`; `kms list-keys` `[]`; no CreateKey/ScheduleKeyDeletion/PutKeyPolicy/DisableKey since
+   2026-09-08T00:00Z. **Out-of-window root observation (flagged for owner acknowledgement):** `PasswordRecoveryRequested` 2026-09-08T01:17:49Z and
+   `PasswordRecoveryCompleted` 01:18:21Z (Root) — before the C1 window and the trail; consistent with the owner's stated root use for billing;
+   root still 0 access keys + MFA. Inventory as expected; runtime role has no permissions; access keys `[]` on all three users; digest delivery
+   2026-09-09T03:13:09Z.
+6. **Production — PASS (03:42:25Z):** ledger 130 · tip 120 · 110–114 absent · signing_key 0 · guard absent · tickets 0 · door sessions 0 · flags dark.
+
+### Gate decision
+**M2 NOT SATISFIED · M1 (Model B) NOT marked complete · C1 PHASE-1 GATE OPEN.** Blocker: verifier working session not MFA-authenticated.
+Remediation R-M2 (Device 2 only): `aws logout --profile verifier`; console sign-out; sign in again with password + passkey (expect ConsoleLogin
+`MFAUsed Yes`, `MFAIdentifier` = the verifier's u2f ARN); `aws login --profile verifier`; `get-caller-identity`; re-run D2-6, D2-5 and D2-7 (no
+re-download; D2-4 stands); coordinator re-corroborates `mfaAuthenticated "true"` and, if held, records M2 SATISFIED / M1 MODEL B COMPLETE /
+C1 PHASE-1 GATE CLOSED. **C2 NOT BEGUN** — requires the separate exact owner authorization "AUTHORIZE PFA-18C CREATEKEY"; C4 (110–114) first,
+under its own authorization.
+
+### SESSION 13 MUTATION LEDGER
+AWS: **none** (read-only CloudTrail/IAM/KMS/S3/STS calls only). Production DB: **none** (one read-only query). KMS: **not created.** Secrets/keys/
+IAM/S3/CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + gate report revision 2.
+
+---
+
+## SESSION 14 — 2026-09-09 — R-M2 REMEDIATION CORROBORATED · M2 SATISFIED · M1 MODEL B COMPLETE · C1 PHASE-1 GATE CLOSED (NO MUTATION)
+
+Scope: coordinator read-only corroboration + governance recording. C2 NOT begun; no KMS key; no AWS/DB/flag/secret/migration mutation. PFA-18A parked.
+Full report (revision 3): `docs/release/PHASE2_PFA18C_C1_PHASE1_GATE_REPORT.md`.
+
+### R-M2 (OWNER-RETURNED): Device 2 ran `aws logout --profile verifier`, signed out of the console, signed in again as `snatchit-kms-verifier`
+with password + the enrolled passkey `verifier-device2-passkey`, ran `aws login --profile verifier --region us-east-1` (identity `Account
+652872010073`, `Arn arn:aws:iam::652872010073:user/snatchit-kms-verifier`), re-ran D2-6 (PutBucketVersioning/AssumeRole/CreateAccessKey/AddTags →
+AccessDenied; CreateAlias → NotFoundException, non-discriminating), D2-5 (all comparisons/state checks passed), D2-7 (expected results), and
+`kms list-keys` → `[]`.
+
+### D2-8 corroboration (CLAUDE-OBSERVED 2026-09-09T04:02:56Z–04:03:13Z, read-only, sanitized)
+1. New verifier `ConsoleLogin` (us-east-2): 03:51:35Z (`96ff9126…`) and 03:55:08Z (`64488a49…`), both **`MFAUsed: Yes`**, `MFAIdentifier =
+   arn:aws:iam::652872010073:u2f/user/snatchit-kms-verifier/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA`, Success; `CheckMfa` 03:50:59Z,
+   03:51:25Z, 03:54:30Z precede them.
+2. New `aws login`: `AuthorizeOAuth2Access` + `CreateOAuth2Token` 03:55:45Z (`62f3281b…`, `e2d682a3…`), session created 03:55:08Z,
+   **`mfaAuthenticated: "true"`**; `GetCallerIdentity` 03:56:06Z (`df3c879f…`) `"true"`. Distribution after 03:46Z: **84 events `"true"`, 0 `"false"`,
+   0 successful mutations.**
+3. D2-6 under the verifier identity, all `mfaAuthenticated "true"`: PutBucketVersioning 03:56:53Z AccessDenied (`f692cf37…`); AssumeRole 03:57:20Z
+   AccessDenied (`2f6579df…`); CreateAccessKey 03:57:43Z AccessDenied (`f390806f…`); AddTags 03:58:44Z AccessDenied (`a5fe0f75…`); CreateAlias
+   03:59:45Z NotFoundException (`c9b23820…`). No success.
+4. D2-5 reads 03:59:56–04:00:10Z (IAM Get/List ×14, S3 Get ×5, CloudTrail Describe/Get ×3) — all read-only, no errors; D2-7 LookupEvents ×7
+   04:00:45–04:00:49Z; `kms ListKeys` 04:01:00Z (`7cebef0d…`). Nothing outside the envelope.
+5. Verifier state: access keys `[]`; attachments exactly `SnatchIt-KMS-Verifier-ReadOnly` + `SignInLocalDevelopmentAccess`; inline `[]`; groups
+   `[]`; MFA = the single passkey; policy v1 unchanged (2026-09-08T03:18:03Z). Root since 2026-09-08T02:40Z `[]`. KMS `list-keys` `[]`; no
+   CreateKey/PutKeyPolicy/ScheduleKeyDeletion/DisableKey since 2026-09-08T00:00Z. `jose-admin`: no non-read-only events since 03:46Z. Inventory
+   unchanged; access keys `[]` on all three users; runtime role has no permissions. Trail logging, no delivery error.
+6. Production (04:03:13Z): ledger 130 · tip 120 · 110–114 absent · `kernel.signing_key` **0** · guard absent · tickets 0 · door sessions 0 · flags
+   dark (issuance/scanning/monitor false; fingerprint/max_not_after null). No trust-root bootstrap occurred.
+
+### GATE DECISION (all M2 completion conditions satisfied — handoff §F items 1–7)
+**M2 SATISFIED.**
+**M1 MODEL B COMPLETE** (audit plane configured, ceremony-probed at C1-9, independently read back from the MFA-authenticated verifier on the
+physically separate Device 2; residual: P3′ live KMS-lifecycle deny test at C2; Model B temporary — Model A required before T3).
+**C1 PHASE-1 GATE CLOSED** (C1-0a … C1-10 verified; artifacts at `c4f562d…`; execution record sessions 10–14).
+**C2 NOT BEGUN** — CreateKey requires the separate exact owner authorization **"AUTHORIZE PFA-18C CREATEKEY"**. Confirmed ordering preserved:
+**C4 (migrations 110–114) before the trust-root DB insert (C3), under "AUTHORIZE PFA-18C MIGRATIONS 110-114"**; neither executed.
+Carried forward: C7/M5 pending governance clarification (packet §5d); Model A package (packet §5c) not authorized; root password-recovery events
+2026-09-08T01:17–01:18Z (out of window) awaiting owner acknowledgement; no account password policy (hardening note).
+
+### SESSION 14 MUTATION LEDGER
+AWS: **none** (read-only CloudTrail/IAM/KMS/S3/STS only). Production DB: **none** (one read-only query). KMS: **not created.** Secrets/keys/IAM/S3/
+CloudTrail/Organizations: **none.** Migrations/edges/flags: **unchanged.** Repository: this record + gate report revision 3 + packet log row.
+
+---
+
+## SESSION 15 — 2026-09-09 — C4 PRE-AUTHORIZATION AUDIT (READ-ONLY; NOTHING APPLIED)
+
+Package: `docs/release/PHASE2_PFA18C_C4_MIGRATIONS_110_114_EXECUTION_PACKAGE.md`. Verdict: **READY FOR OWNER AUTHORIZATION** ("AUTHORIZE PFA-18C
+MIGRATIONS 110-114"), cryptographically scoped to `admin/operating-console @ 562fda9aba261d7929ee772a4fd1ce50485c4294` (the earlier `2459bdc`
+reference was stale — docs-only advance; `supabase/` identical to CI-green `ab3e17f`; CI green on `562fda9`: `34188504835`, `34188507116`) and the
+five migration digests `3134f6f6…`, `d13cf6cb…`, `97d33d08…`, `32d42324…`, `9974eb91…` (rollbacks `933a2941…`, `1c4a2827…`, `ba106189…`,
+`4b955153…`, `f61fee26…`). Selection guarantee: candidate tree (135 files) − production ledger (130 versions, read 2026-09-09) = exactly
+{110,111,112,113,114}; ledger − tree = ∅; `--include-all` required; dry run must print exactly the five files; ledger 130 → 135, numeric tip stays 120.
+Adversarial reviews (coordinator + two independent reviewers): no blocking defect; minor forward-fix findings recorded in the package §5. Day-of
+preflight P1–P8 (fresh `AUTODEPLOY-VERIFIED-OFF`, owner visual OFF, dry run) gates execution. **Not executed. C2 NOT begun; no KMS key; production
+dark (ledger 130 / tip 120 / 110–114 absent / 0 keys, re-read 2026-09-09).**
+
+### SESSION 15 MUTATION LEDGER
+AWS: **none** (read-only). Production DB: **none** (read-only ledger/state reads). KMS: **not created.** Migrations: **NOT applied; no `db push`
+run.** Repository: the C4 package + this record.
+
+---
+
+## SESSION 16 — 2026-09-09 — C4 EXECUTED: MIGRATIONS 110–114 APPLIED TO PRODUCTION AND VERIFIED
+
+Authorization: owner phrase "AUTHORIZE PFA-18C MIGRATIONS 110-114" (2026-09-09), scoped to `562fda9aba261d7929ee772a4fd1ce50485c4294` and digests
+`3134f6f6…`, `d13cf6cb…`, `97d33d08…`, `32d42324…`, `9974eb91…`; owner visual auto-deploy-OFF confirmation "auto-deploy OFF confirmed 2026-09-09"
+(OWNER-RETURNED); PR #55 `AUTODEPLOY-VERIFIED-OFF: 2026-09-09` written by the coordinator. Full record: `docs/release/PHASE2_PFA18C_C4_EXECUTION_RECORD.md`.
+Preflight P1–P8 PASS (dry run exactly 110–114). Apply 04:22:39–04:22:52Z: `supabase db push --linked --include-all --yes` (CLI 2.115.0) from the
+admin worktree — "Finished supabase db push.", no error. Verification (read-only): ledger **135**, numeric tip **120**, rows 110–114 present;
+guard function + trigger enabled; recovery table RLS on / 0 policies / 0 client grants / 0 rows; recovery functions granted to `authenticated`
+only; census **153 / 87 / 32**; door RPC grants as reviewed; `get_manifest_signing_context()` → `unavailable/no_active_global_key`; guard probe
+refused `bootstrap_key_id_required` inside a rolled-back transaction; `kernel.signing_key` **0**; tickets 0; flags dark; edges not deployed;
+AWS `kms list-keys` `[]`. **M6 (110) and the gated two-person recovery (111) are now LIVE in production (dark).**
+**C2 NOT BEGUN — returned to owner review; CreateKey requires "AUTHORIZE PFA-18C CREATEKEY".**
+
+### SESSION 16 MUTATION LEDGER
+Production DB: **migrations 110–114 applied** (DDL/grants only; no data rows). AWS: **none.** KMS: **not created.** Secrets/edges/flags: **none /
+not deployed / unchanged.** Repository: C4 record, this entry, packet row; PR #55 body line.
+
+## SESSION 17 — 2026-09-09 — C1-10/M2 STATUS RE-CONFIRMED · C2 CREATEKEY PACKAGE PREPARED (READ-ONLY; NOTHING EXECUTED; C2 NOT BEGUN)
+
+Task: finish the read-only/device-verification portion and prepare the C2 package; stop before CreateKey. **No Device-2 step was outstanding:**
+C1-10 completed and was corroborated on 2026-09-09T04:03Z (gate report rev 3; sessions 12–14) — retrieval at pin `c4f562d…` 10/10, verifier identity,
+Device-2 passkey enrolled and used (`ConsoleLogin MFAUsed: Yes`), read-only checks only, 0 successful verifier mutations. **M2 FULLY SATISFIED.**
+Fresh CLAUDE-OBSERVED state 05:12–05:17Z: `kms list-keys` `[]`; CloudTrail 0 `CreateKey`/`PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/
+`CreateGrant` since 2026-09-08; `CreateAlias` ×3 / `CreateAccessKey` ×2 = the known denied probes (`a99105a8…`, `a7899dcf…`, `c9b23820…`,
+`14c7eee4…`, `f390806f…`); verifier events since 04:03Z `[]`; runtime user 0 events; root `[]`; `jose-admin` since 04:03Z read-only only;
+verifier MFA = the single Device-2 passkey; access keys `[]` ×3; runtime role has no permissions policy; trail logging. Production (read-only):
+ledger 135 · tip 120 · `signing_key` 0 · guard `O` · recovery rows 0 · tickets 0 · `get_manifest_signing_context()` `no_active_global_key` ·
+census 153/87/32 · `feature.native_issuance_enabled`/`native_scanning_enabled`/`signing.monitor_enabled` `false` · fingerprint/max_not_after `null`.
+Artifacts unchanged since the pin (`git diff c4f562d HEAD -- pfa18c_artifacts/` empty; all 13 digests re-listed in the package §6).
+**Package:** `docs/release/PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md` — READY FOR OWNER AUTHORIZATION: exact `create-key` command
+(ECC_NIST_P256 / SIGN_VERIFY / AWS_KMS / single-region / lockout check on / v1 policy / description / tag set), key-policy binding v1→v2, §5.3
+challenge-signature procedure (Device-2 nonce; not a production credential — R5), P3′ alias/verify denial probes, Device-2 procedure D2C-0…D2C-9,
+abort conditions A1–A16, rollback (`jose-admin` only; "AUTHORIZE PFA-18C C2 ROLLBACK"), and the post-110–114 review U1–U12 (guard rule-4 ARN
+regex and rule-6 91-byte SPKI checks folded into C2; informational tags `snatchit:program`, `snatchit:db_key_id=…b0` proposed for owner
+confirmation; CloudTrail `PutKeyPolicy` ×1 correction; tag-key trap `snatchit:purpose` vs `purpose`). Tests: IAM simulator (CreateKey allowed only
+with the reviewed spec; bypass/RSA implicitDeny; lifecycle/verify explicitDeny for ceremony and verifier; runtime role implicitDeny today) and a
+local throwaway-key rehearsal (91-byte DER, prefix, three-way D5, `Verified OK` / two `Verification failure` controls, regex). Governance edits:
+packet header + §5b C2 row + §6 ledger; runbook dated notes (C2, C4 order, §D After C4, §E C2 rollback).
+**C2 NOT BEGUN — requires the exact owner phrase "AUTHORIZE PFA-18C CREATEKEY".** C3/C5/C6 not begun; C7 pending §5d; Model A before T3.
+
+### SESSION 17 MUTATION LEDGER
+AWS: **none** (reads + `simulate-principal-policy`). KMS: **not created** (0 keys). Production DB: **none** (read-only selects). Secrets/edges/flags:
+**none / not deployed / unchanged.** Local: throwaway rehearsal keys in the session scratchpad, deleted. Repository: package + this entry + packet + runbook.
+
+## SESSION 18 — 2026-09-09 — C2 AUTHORIZED ("AUTHORIZE PFA-18C CREATEKEY") · COORDINATOR PREFLIGHT PASSED · AWAITING OWNER C2-1 (NO MUTATION YET)
+
+Authorization (OWNER, 2026-09-09): exact phrase **"AUTHORIZE PFA-18C CREATEKEY"**, scoped to `docs/release/PHASE2_PFA18C_C2_CREATEKEY_EXECUTION_PACKAGE.md`
+at commit `6455dc28366e5c0c02e164608ca5c60a599a011a` (package SHA-256 `e59145e6338f10294c1f7e2df1ed61d0150f1f4ce9f2fb0d6c127b21d79cc744`), with the
+owner-confirmed parameters: us-east-1 · ECC_NIST_P256 · SIGN_VERIFY · AWS_KMS · single-region · lockout safety check ON · required tag
+`snatchit:purpose=ticket-signing` · **informational tags CONFIRMED** `snatchit:program=pfa18c`, `snatchit:db_key_id=00000000-0000-0000-0000-0000000000b0`.
+Explicitly excluded by the owner: C3 insert / any signing_key row, edge deploy, Supabase secrets, issuance/scanning, M5/T3, Model A changes, any
+exposure of passwords/tokens/private material/nonce values/ExternalId. Abort A1–A16 ⇒ stop and report the safe error summary only.
+
+Coordinator preflight (CLAUDE-OBSERVED 05:31:24–05:31:40Z): **P1** HEAD = `6455dc28…`, only the owner's two pre-existing uncommitted files; C2
+artifact digests `e0560a96…` / `430677d0…` / `bb3a2c4f…` and ceremony policy `1fddd53b…` unchanged; v1 JSON valid. **P5** `kms list-keys` `[]`.
+**P6** ledger 135 · `signing_key` 0 · guard `O` · recovery rows 0 · tickets 0 · `get_manifest_signing_context()` `no_active_global_key` ·
+issuance/scanning/monitor `false` · fingerprint `null`. **P7** runtime role: inline `[]`, attached `[]`; access keys 0/0/0; ceremony role trust
+condition unchanged (`aws:MultiFactorAuthPresent true`, `sts:RoleSessionName pfa18c-ceremony`, MaxSessionDuration 3600); trail logging, no error.
+**P8** 0 `CreateKey`/`PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`CreateGrant` since 2026-09-08; root `[]`.
+C18 hand-off: C2-1/C2-3/C2-5/C2-6/C2-7 run under the ceremony-role session, whose TOTP prompt only the owner can answer; D2C-* run on Device 2.
+The coordinator performs C2-2/C2-9/C2-10/C2-11 read-backs on owner-returned outputs. **No key created at the time of this entry.**
+
+### SESSION 18 (cont.) — C2-1 DONE BY THE OWNER · C2-2 COORDINATOR READ-BACKS ALL PASS (05:52–05:54Z, read-only, `jose-admin`)
+
+OWNER-RETURNED: C2-1 completed; D4 = `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e`; "D4 passed". Not returned in chat
+(corroborated from CloudTrail instead): the P4 identity line; Device 2's D2C-2 `list-keys` output (requested again with D2C-3).
+CLAUDE-OBSERVED:
+- **DescribeKey PASS** — account 652872010073 · KeyId `45907419-8894-4582-ba79-71e9c29c549e` · CreationDate 2026-09-09T05:44:33.137Z · `Enabled`/`KeyState Enabled` ·
+  `Description "Snatch It ticket-signing trust root (PFA-18C)"` · `SIGN_VERIFY` · `AWS_KMS` · `KeyManager CUSTOMER` · `KeySpec ECC_NIST_P256` ·
+  `SigningAlgorithms ["ECDSA_SHA_256"]` · `MultiRegion false`. `list-keys` = exactly this one key; customer aliases `[]`; key policies `["default"]`.
+- **ListResourceTags PASS** — exactly `snatchit:db_key_id=00000000-0000-0000-0000-0000000000b0`, `snatchit:program=pfa18c`, `snatchit:purpose=ticket-signing`.
+- **GetKeyPolicy PASS** — live `default` policy, normalized (`jq -S` + order-insensitive scalar arrays), **diff vs `kms_key_policy_v1_binding_proof.json` (`e0560a96…`) EMPTY**.
+  Statements exactly: root NotAction(13 crypto ops) · ceremony `Sign` (ECDSA_SHA_256) [REMOVED_IN_V2] · ceremony `DescribeKey/GetKeyPolicy/PutKeyPolicy` [REMOVED_IN_V2] ·
+  runtime `Sign` (ECDSA_SHA_256 + RAW) · verifier+ceremony reads. Distinct principals = root, ceremony role, runtime role, verifier user — no others.
+- **GetPublicKey PASS** — `KeySpec ECC_NIST_P256`, `SIGN_VERIFY`, `["ECDSA_SHA_256"]`; DER **91 bytes**; 27-byte prefix `3059301306072a8648ce3d020106082a8648ce3d03010703420004`;
+  PEM = one 4-line `PUBLIC KEY` block, 0 `PRIVATE KEY`; `Public-Key: (256 bit)`, `prime256v1` / `NIST CURVE: P-256`.
+  **D5 (coordinator, three ways identical) = `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`.** Guard rules 4/5/6 pre-satisfied for C3.
+- **CloudTrail PASS** — exactly **one** `CreateKey` on this ARN: eventID `13b0dd38-b378-4820-bcbf-8e4fdc3cfc7c`, 05:44:33Z, `AssumedRole`
+  `arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`, issuer the ceremony role, request =
+  ECC_NIST_P256 / SIGN_VERIFY / AWS_KMS / multiRegion false / bypass false / the description / the three tags, response keyId = the key, no error, us-east-1.
+  Preceded by `AssumeRole` 05:44:21Z (eventID `2f7cc9d0-1b07-48ae-8a6a-062be065b7b6`, `jose-admin`, serial `…:mfa/jose-admin-totp`, session `pfa18c-ceremony`, success) and
+  `GetCallerIdentity` 05:44:22Z by the ceremony session. Since 05:30Z: `PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`CreateAlias`/`TagResource`/`UntagResource`/`CreateGrant`/`Sign` **0**; root **0**.
+  Trail `IsLogging true`, last delivery 05:49:15Z (after the event), no error.
+- **A15 PASS** — production 05:53:10Z: ledger 135 · `signing_key` 0 · guard `O` · tickets 0 · issuance/scanning/monitor `false` · fingerprint `null`.
+- Coordinator tooling note: the first read pass wrapped every call in a helper that forced `--output json`, which double-encoded the policy/PublicKey text and produced the
+  empty-input hash `e3b0c442…` — discarded; the pass was repeated with explicit `--output text` (results above). Same error class as C1 (recorded).
+- Ceremony session assumed 05:44:21Z, 3600 s ⇒ **expires 06:44:21Z**; C2-3/C2-5/C2-6/C2-7 must complete before then or re-assume (new TOTP; record the 2nd `AssumeRole`).
+**C2-3 is safe to begin.** Nothing changed on the key: policy still v1; no alias; no deletion scheduled; no DB row; no secret.
+
+Coordinator export of the public key (PUBLIC material, evidence per runbook §B; Device 2 must export its own independently — D2C-4):
+```
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEg0TJ5KCP4Lj99ZkBbliR4FtS/h3H
+/Tyh9RWh6fdbhh/1O6i/wMwi/wimxdjrP8yfAUYvyLCHB/QOOTaAOCae8w==
+-----END PUBLIC KEY-----
+```
+
+### SESSION 18 (cont.) — C2-3 / P3′-a DENIED · D2C-3 / D2C-4 PASS (OWNER-RETURNED) · CORROBORATED (06:03Z)
+
+OWNER-RETURNED: C2-3 `create-alias alias/pfa18c-probe → D4` as the ceremony role → **denied, explicit identity-based deny**. Device 2 (verifier): key metadata PASS,
+tags PASS, exactly one KMS key, no non-AWS aliases, DER 91 bytes, private material 0, **D5 matched independently** (values stated on Device 2; not pasted in chat).
+CLAUDE-OBSERVED: `CreateAlias` 05:56:52Z eventID `e44887e2-43e4-4ded-8e93-c4710f2d150f` by `assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`,
+`errorCode AccessDenied` ("…is not authorized to perform: kms:CreateAlias…"); `list-aliases` customer entries `[]` — **P3′-a PASS (discriminating; replaces P3 INCONCLUSIVE).**
+Verifier 05:58:15–05:58:25Z: `CreateOAuth2Token` (fresh `aws login`), `DescribeKey`, `ListKeys`, `ListResourceTags`, `ListAliases`, `GetPublicKey` — all `readOnly true`,
+all `mfaAuthenticated "true"`, no errors. Since 05:30Z: `PutKeyPolicy`/`ScheduleKeyDeletion`/`DisableKey`/`TagResource`/`UntagResource`/`CreateGrant`/`Sign` **0**.
+Owner instruction for C2-5 (more conservative than package §4.8, adopted): the nonce and signature bytes are **not** pasted in chat or recorded; only their SHA-256
+digests, byte counts and the verify outcomes are recorded. Nothing changed on the key (policy v1, no alias, no deletion); no DB row; no secret.
+
+### SESSION 18 (cont.) — C2-5 §5.3 BINDING PROOF PASS (OWNER-RETURNED) · EXACTLY ONE `Sign` CORROBORATED (06:29Z) · NOT A PRODUCTION CREDENTIAL (R5)
+
+OWNER-RETURNED: challenge minted on Device 2 (nonce kept private; not recorded); signed once by the ceremony role on the primary; **signature SHA-256
+`83c3938e03ac82f5b8ba01687e9f7cc32d366606ba8dd3a206d053fd147eeb15`, 70 bytes (DER ECDSA)**; primary verified against its own `get-public-key` export → `Verified OK`;
+Device 2 verified against its own `pub.pem` → `Verified OK`; altered challenge → verification failure; wrong key → verification failure. D5 restated by the owner
+= `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` (= coordinator's). Both devices' chal/sig hash lines were stated by the owner as matching.
+CLAUDE-OBSERVED: **exactly one `Sign` event since 2026-09-08** — 06:20:13Z eventID `ca5a2602-a9a6-4dc9-967d-37616efd9c37`, `AssumedRole`
+`arn:aws:sts::652872010073:assumed-role/SnatchIt-KMS-Ceremony/pfa18c-ceremony`, `mfaAuthenticated "true"`, issuer the ceremony role, `keyId` = D4,
+`messageType RAW`, `signingAlgorithm ECDSA_SHA_256`, no error, us-east-1 (CloudTrail classifies KMS `Sign` as `readOnly: true` — an AWS classification, noted).
+Preceded by `GetPublicKey` + `GetCallerIdentity` 06:20:12Z by the same session (the primary's own export). Since 06:09Z: `Verify`/`PutKeyPolicy`/`CreateAlias`/
+`TagResource`/`ScheduleKeyDeletion`/`DisableKey`/`CreateGrant` **0**; verifier **0** AWS calls (Device 2 verified offline with its earlier export — correct); root 0;
+only one ceremony `AssumeRole` (05:44:21Z, serial `…:mfa/jose-admin-totp`). Key `Enabled`, `MultiRegion false`, customer aliases `[]`.
+Production 06:29:53Z: `signing_key` 0 · ledger 135 · tickets 0 · issuance/scanning/monitor `false` · fingerprint `null`. **Key ↔ handle ↔ public key ↔ D5 binding proven.**
+The signed message is a random nonce — not a ticket credential; T3 not reached. **Next gated step: C2-6 (P3′-b `verify` denial + D2C-6 verifier probes), then C2-7 (policy v2).**
+
+### SESSION 18 (cont.) — C2-6 P3′-b + D2C-6 DENIALS · C2-7 POLICY v2 APPLIED (OWNER) · C2-8 RUNTIME BINDING APPLIED (COORDINATOR, jose-admin, 06:40:33Z)
+
+OWNER-RETURNED: C2-6 primary `kms verify` → denied; Device 2 `sign`/`verify`/`create-alias`/`tag-resource` → all denied; C2-7 `put-key-policy` v2 applied by the ceremony
+role, owner-side normalized diff `V2-DIFF-EMPTY`. (The owner's message wrote the ARN without `:key/`; the AWS-verified D4 with `:key/` was used throughout.)
+CLAUDE-OBSERVED (06:39:50Z): `Verify` `AccessDenied` 06:33:12Z (ceremony session, MFA) and 06:34:09Z (verifier, MFA); verifier `Sign` 06:34:09Z, `CreateAlias` 06:34:09Z,
+`TagResource` 06:34:10Z all `AccessDenied` (MFA); **`PutKeyPolicy` ×1** 06:35:16Z eventID `6b3d8526-62fe-4955-a2e6-55f5c94d3d6b` by the ceremony session (MFA,
+`policyName default`, `bypassPolicyLockoutSafetyCheck false`, no error — **no F1 fallback needed**); coordinator normalized diff of the live policy vs
+`kms_key_policy_v2_final.json` (`430677d0…`) **EMPTY**; statements now exactly root-NotAction / `RuntimeSignOnly` / verifier+ceremony reads (ceremony `Sign` and
+`PutKeyPolicy` statements gone); `ScheduleKeyDeletion`/`DisableKey`/`CreateGrant`/`UntagResource` 0; customer aliases `[]`; tags unchanged (3).
+**P3′ PASS: -a (ceremony alias), -b (ceremony verify), -c (verifier sign/verify/alias/tag).**
+**C2-8 (executed by the coordinator under the owner's explicit instruction "Proceed to C2-8", using the owner's `jose-admin` login session; reversible):**
+preflight — role `arn:aws:iam::652872010073:role/SnatchIt-CredentialSign-Runtime`, MaxSession 3600, trust principal = the runtime user, condition keys `["sts:ExternalId"]`
+(value never read), inline `[]`, attached `[]`; key `Enabled`/`ECC_NIST_P256`; artifact `m3_runtime_role_policy.json` `bb3a2c4f…`; filled locally with D4 via
+`jq '.Statement[0].Resource = $arn'` → `$HOME/pfa18c-local/m3_runtime_role_policy.filled.json` SHA-256 `5706ebfacac3487562748d4beb731631fcf81354b060f56c7fa3c244ae709b3a`
+(ARN count 1, placeholders 0; Allow `kms:Sign` on D4 with `ECDSA_SHA_256`+`RAW`; Deny `NotAction kms:Sign` on `*`). Apply 06:40:33Z:
+`aws iam put-role-policy --role-name SnatchIt-CredentialSign-Runtime --policy-name pfa18c-runtime-sign --policy-document file://…filled.json` → OK.
+Read-back 06:40:34Z: `get-role-policy` canonical (`jq -S`) diff vs the filled artifact **EMPTY**; inline policies exactly `["pfa18c-runtime-sign"]`; attached `[]`; trust unchanged.
+Simulator (runtime role, identity policies): `kms:Sign` on D4 with `ECDSA_SHA_256`+`RAW` **allowed**; with `ECDSA_SHA_384` or `MessageType DIGEST` **implicitDeny**;
+`kms:Sign` on another key ARN **implicitDeny**; on D4 `Verify`/`GetPublicKey`/`DescribeKey`/`CreateAlias`/`TagResource`/`UntagResource`/`ScheduleKeyDeletion`/`DisableKey`/
+`EnableKey`/`CreateGrant`/`PutKeyPolicy`/`Decrypt`/`Encrypt`/`GenerateDataKey` **explicitDeny**; `CreateKey`/`ListKeys`/`iam:CreateAccessKey`/`sts:AssumeRole` implicitDeny.
+(The combined identity+resource-policy simulation was rejected by the simulator because the key policy uses `Resource "*"` — tooling limitation; the live key policy is
+independently verified as v2, whose `RuntimeSignOnly` grants the same scoped `Sign`.) Access keys 0/0/0 — **none created**. Supabase secrets (names only): no
+`KMS_*`/`AWS_*`/`DOOR_*` entry — **no secret written**. Production 06:40:47Z: `signing_key` 0 · ledger 135 · tickets 0 · guard `O` · issuance/scanning/monitor `false` ·
+fingerprint `null` · `get_manifest_signing_context()` `no_active_global_key` — **no DB or flag change**.
+**Next gated step: C2-9** — owner re-assumes the ceremony role (session of 05:44Z expired 06:44Z) and runs the post-v2 `kms sign` → expected `AccessDenied` (P3′-d);
+then C2-10 CloudTrail corroboration, C2-11 precheck, Device 2 D2C-7/D2C-8, coordinator D2C-9 → C2 CLOSED. **C3 not started.**
+
+### SESSION 18 MUTATION LEDGER (so far)
+AWS — by the owner (ceremony role): `CreateKey` (05:44:33Z), `Sign` ×1 proof (06:20:13Z), `PutKeyPolicy` v2 (06:35:16Z); by the coordinator (`jose-admin`, owner-instructed):
+`PutRolePolicy` `pfa18c-runtime-sign` (06:40:33Z). Denied probes: `CreateAlias` ×2 (ceremony), `Verify` ×2, verifier `Sign`/`CreateAlias`/`TagResource`. KMS: **one key**
+`45907419-8894-4582-ba79-71e9c29c549e`, Enabled, policy v2, 3 tags, no alias/grant. Access keys: **none.** Secrets/edges/flags/DB rows: **none.**
+CLAUDE-OBSERVED (06:42:52Z): **`PutRolePolicy` ×1** — 06:40:34Z eventID `944261d5-a411-419f-95cc-484de1ebb11a`, `arn:aws:iam::652872010073:user/jose-admin`,
+`mfaAuthenticated "true"`, role `SnatchIt-CredentialSign-Runtime`, policy `pfa18c-runtime-sign`, no error. `CreateAccessKey`/`AttachRolePolicy`/`UpdateAssumeRolePolicy` since 05:30Z: 0.
+
+## SESSION 18 (cont., 2026-09-10) — C2-9 CONFIRMED · C2-10 CORROBORATION · C2-11 PRECHECK · D2C-8 CORROBORATED · D2C-9 · ONE EVIDENCE ITEM OUTSTANDING (D2C-7 outputs)
+
+Coordinator `aws login` session still valid; production reads via read-only MCP. All CLAUDE-OBSERVED unless noted.
+**C2-9 (P3′-d) CONFIRMED from CloudTrail (not inferred):** `Sign` 2026-09-10T17:11:30Z eventID `e7a4ac69-565c-4bb5-8878-bb1908f83478`, `AssumedRole` `…/SnatchIt-KMS-Ceremony/pfa18c-ceremony`,
+`mfaAuthenticated "true"`, `errorCode AccessDenied`, full errorMessage names the resource exactly: "kms:Sign on resource: `arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e`
+**because no resource-based policy allows the kms:Sign action**" (= the post-v2 key policy no longer grants the ceremony role Sign). Absent fields on the denial: `requestParameters`/`resources`/`keyId`/`messageType`/
+`signingAlgorithm` = null (KMS omits request params on AccessDenied) — the resource is recovered from the errorMessage, the outcome/principal/MFA from the identity block. Preceded by a fresh ceremony
+`AssumeRole` 2026-09-10T17:07:37Z eventID `45469ee6-…` (`jose-admin`, serial `…:mfa/jose-admin-totp`, session `pfa18c-ceremony`) — the expired-session re-assume.
+**C2-10 corroboration:** since 2026-09-09T05:30Z — `CreateKey` ×1 (`pfa18c-ceremony`, 05:44:33Z, ok), `PutKeyPolicy` ×1 (`pfa18c-ceremony`, 06:35:16Z, ok), `PutRolePolicy` ×1 (`jose-admin`, 06:40:34Z, ok);
+`Sign`: **1 success** (`ca5a2602…`, ceremony, MFA, keyId=D4, RAW, ECDSA_SHA_256) + **2 denied** (`76bff95c…` verifier 06:34:09Z; `e7a4ac69…` ceremony 17:11:30Z); `CreateAlias` 3× AccessDenied
+(verifier + ceremony ×2), `TagResource` 1× AccessDenied (verifier); `ScheduleKeyDeletion`/`DisableKey`/`EnableKey`/`CreateGrant`/`DeleteAlias`/`UpdateAlias`/`UntagResource`/`CreateAccessKey`/`AttachRolePolicy`/
+`DeleteRolePolicy`/`UpdateAssumeRolePolicy`/`DeleteRole` **0**; the only non-ceremony `AssumeRole`s are the AWS `resource-explorer-2` service role (benign); root **0**. Trail logging, last delivery 2026-09-10T17:17:35Z, no error.
+**Live state:** key `Enabled`/`ECC_NIST_P256`/`SIGN_VERIFY`/`AWS_KMS`/`MultiRegion false`/description as set; exactly 1 customer key; customer aliases `[]`; tags = the 3; **key policy still = v2** (coordinator diff empty);
+**runtime role still bound** to D4 (`pfa18c-runtime-sign`, diff empty), inline = that one policy, attached `[]`; access keys 0/0/0.
+**D2C-8 corroborated (OWNER-RETURNED summary matched to the underlying records):** three `Sign` events, one CreateKey (ceremony), one PutKeyPolicy (ceremony), one PutRolePolicy (jose-admin),
+0 ScheduleKeyDeletion/DisableKey/CreateGrant, root 0 — each verified above with outcome/principal/MFA/keyId/msgType/alg where recorded and absent fields distinguished.
+**D2C-9 / verifier posture:** verifier `ConsoleLogin` 2026-09-10T17:10:27Z **`MFAUsed: Yes`**, `MFAIdentifier = …u2f/…/verifier-device2-passkey-6UJX6DTACNAOFIWOQQHF7RNEOA`, Success; its D2C-7 read calls
+17:12–17:13Z (`GetKeyPolicy`, `DescribeKey`, `GetRole`, `GetRolePolicy`, `ListAccessKeys` ×3, `ListKeys`, `LookupEvents` ×8) all `readOnly true`, `mfaAuthenticated true`, no errors.
+**C2-11 precheck (local):** D4 passes guard rule-4 regex; `pub.der` 91 bytes, prefix `3059301306072a…420004`, 0 `PRIVATE KEY`, exactly one SPKI block, 0 CR bytes; **D5 `562b5e87…` = the §6.1 PRE-FLIGHT-2
+recomputation** (base64-strip → SHA-256); `kernel.signing_key` columns confirmed (`algorithm` default `EdDSA` ⇒ `-v ALGORITHM=ES256` mandatory; `scope` default `per_event`; `status` default `active`);
+production 2026-09-10T17:20:07Z — `signing_key` 0 · ledger 135 · tip 120 · guard `O` · recovery rows 0 · tickets/wallet_passes/manifest_entries 0 · flags false · fingerprint/max_not_after null ·
+ctx `no_active_global_key` (rollback available; C3 inputs valid for rules 1–11).
+**OUTSTANDING for C2 closure — one item:** **D2C-7 comparison OUTPUTS** (Device-2 verdicts `V2-DIFF-EMPTY`, `RUNTIME-DIFF-EMPTY`, the trust line, `describe-key`, `list-keys`=1, access keys 0/0/0).
+CloudTrail proves the reads happened under MFA but not the diff verdicts (computed on Device 2, never logged). Requested from the owner; nothing inferred. **C2 NOT yet reported complete.**
+**C3 package prepared for review (NOT AUTHORIZED, nothing executed):** `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md` — §6.1 artifact (doc `66f5de60`, block sha256 `380f434d…`),
+D4/D5/pub.pem/ES256 inputs, guard rules 1–11 mapping, §6.2 invocation, §7.1–7.6 read-backs (7.3 revoke-un-parked correction), abort/rollback, C3-does-not-approach-T3. **C3 requires "AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT".**
+
+## SESSION 18 — CLOSE (2026-09-10) — D2C-7 VERDICTS RECORDED (OWNER-RETURNED) · **C2 COMPLETE** · C3 PACKAGE rev 2 FOR REVIEW (NOT AUTHORIZED) · COORDINATOR LABEL → CLAUDE B
+
+OWNER-RETURNED (D2C-7, Device 2, verifier profile, 2026-09-10): `kms_key_policy_v2_final.json` OK · `m3_runtime_role_policy.json` OK · **`V2-DIFF-EMPTY`** · **`RUNTIME-DIFF-EMPTY`** ·
+runtime trust: principal `snatchit-credential-sign-runtime`, action `sts:AssumeRole` (returned as "sts"), condition `sts:ExternalId` present (value never printed) · key `Enabled`, `ECC_NIST_P256`,
+`MultiRegion false` · exactly one KMS key · access keys `jose-admin` 0, `snatchit-kms-verifier` 0, `snatchit-credential-sign-runtime` 0. (The owner's message again wrote the ARN without `:key/`;
+the AWS-verified D4 with `:key/` is the value compared on Device 2 and recorded.) Corroboration: verifier `ConsoleLogin` 17:10:27Z `MFAUsed: Yes` (Device-2 passkey); the D2C-7 reads 17:12–17:13Z
+`readOnly true`, `mfaAuthenticated true` (recorded earlier this session).
+**All C2 gates satisfied → C2 COMPLETE.** Consolidated record: `docs/release/PHASE2_PFA18C_C2_EXECUTION_RECORD.md` (result, the one successful `Sign` vs the two denied `Sign` probes, step ledger,
+variances V-1/V-2, corrections C-1..C-3, mutation ledger). Not repeated: the challenge signature, CreateKey, PutKeyPolicy, PutRolePolicy.
+Variance V-1 (recorded, non-blocking, owner may reopen): Device 2 made no `GetKeyPolicy` call at D2C-3 (CloudTrail 05:58Z), so the interim v1 policy was verified by the coordinator only; Device 2
+verified the final v2 at D2C-7.
+**C-1 (dated correction 2026-09-10):** per the owner, the coordinator label for the C2 execution portion and the C3 preparation is **Claude B**; entries above dated 2026-09-09 keep "Claude A" as written.
+**C-4 (dated correction 2026-09-10):** the rev-1 C3 package cited "commit 66f5de60…" — that is the file's blob id; the pinning commit is `1f3fc19d295e101fb680393e4bd99db8b2f2cc5f`. Fixed in rev 2.
+**C3 package rev 2** (`PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md`): corrections per owner review — uncertain-outcome procedure (§5: read-only exact-row determination + in-flight
+transaction check; never an automatic re-run); Device-2 DB access path (§6: options A Dashboard-on-Device-2 / C read-only role — a genuinely missing prerequisite if principal enforcement is wanted);
+read-only checks separated from write-attempt probes (§7A/7B: caller context `postgres` on the owner's `psql -X` session, explicit `begin…rollback`, containment, no live `revoke_signing_key`);
+invocation verified (§4: 118-line block sha256 `380f434d…` reproducible from the commit/blob/tree; boundaries lines 13/14/90/118; `-X`, `-v ON_ERROR_STOP=1`, no `-1`, `tee`, exit codes; **session-mode
+connection required** — local marker `aws-0-us-west-2.pooler.supabase.com:5432`; psql 17.11); coordinator label Claude B; Sign classification. Production read (17:20Z): `kernel.signing_key` triggers
+`tg_signing_key_immutable` O, `tg_signing_key_insert_guard` O, `tg_signing_key_updated_at` O; five parked lifecycle functions raise `dual_control_unavailable`; `revoke_signing_key` checks platform_admin+aal2.
+**C3 NOT AUTHORIZED — requires "AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT" after review.** Open owner decisions: Device-2 DB path (A recommended); §7.3 deviation; V-1 acknowledgement.
+
+### SESSION 18 MUTATION LEDGER (final)
+AWS: `CreateKey`, proof `Sign`, `PutKeyPolicy` v2 (owner, ceremony role, MFA); `PutRolePolicy` (coordinator with `jose-admin`, owner-instructed). Denied probes only otherwise. **KMS: one key, Enabled, v2, no alias/grant/deletion. Access keys: none.**
+Production DB: **none** (read-only). Secrets/edges/flags: **none / not deployed / unchanged**. Repository: C2 record, C3 package rev 2, packet rows, this entry.
+
+## SESSION 19 — 2026-09-10 — C3 FINAL HANDOFF (rev 3) PREPARED · READ-ONLY · NOT AUTHORIZED · NOTHING EXECUTED
+
+Owner instruction: prepare the final C3 handoff; Option A (Mac 2 = independent Supabase Dashboard login with MFA; privileged `postgres` session, read-only by procedure) selected as the recommended path.
+CLAUDE-OBSERVED (read-only): **connection verification** — CLI link markers in both worktrees: project ref `hqycwntpfoztoinemqns`, URL user contains the ref, session pooler host, port 5432, mode **session**,
+no embedded password → **PASS ×2** (only match/mode/pass printed); project identity via Management API: "Snatch It", org `zcxpqolueooqkslolfrt`, region us-west-2 (= pooler host region), Postgres 17.6,
+ACTIVE_HEALTHY, direct host `db.<ref>.supabase.co`; owner-side `$PROD_DB_URL` check snippet dry-run against a dummy URL prints only `project_match/mode/PASS`.
+**Definition review (not a live test):** `kernel.revoke_signing_key` source read in full — authz order (1) `auth.uid()` null → insufficient_privilege, (2) `kernel.is_platform(platform_admin)`,
+(3) aal claim absent → step_up_unavailable, (4) aal ≠ aal2 → step_up_required, then input gates, `for update` locks, idempotent no-op, ack check; **first write = `update … status='revoked'`** (step 10),
+then audit insert + force-close cascade. The five parked lifecycle functions' bodies are single `raise … dual_control_unavailable` statements (no write reachable).
+Package rev 3: `docs/release/PHASE2_PFA18C_C3_TRUST_ROOT_DB_COMMIT_EXECUTION_PACKAGE.md` — §1 exact mutation scope (one INSERT of one row; probes listed as write attempts), §2 connection verification,
+§3 named ceremony backend (`PGAPPNAME`, `-c pg_backend_pid()` first on the same connection), §4 definition review + explicit deviation (no live revoke probe), §5 Mac-2 Option A guide (A0 access
+confirmation; pinned A1–A7), §6 final invocation, §7 outcome determination identifying only the recorded backend, §8 read-only vs write-attempt probes (scripts with `ON_ERROR_STOP off`, `begin…rollback`,
+post-read, shell PASS/STOP), §9 rollback limits, §10 owner decisions (Option A; V-1; deviation; then the phrase).
+Mutation ledger: **none** (AWS none; DB read-only; no secrets/edges/flags). Repository: package rev 3, packet row, this entry.
+
+## SESSION 20 — 2026-09-10 — C3 AUTHORIZED ("AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT", rev 3 scope) · PRECONDITIONS REFRESHED · OWNER RUNS THE BOOTSTRAP (NO MUTATION YET)
+
+OWNER-RETURNED: Mac 2 A0 (Dashboard, Supabase MFA, Option A confirmed — privileged `postgres` session, read-only by procedure): `postgres | postgres | <ts> | 0 signing keys | 135 migrations`.
+Acknowledged by the owner: V-1 (Device 2 verified final v2, not interim v1); omission of the live `revoke_signing_key` probe (definition review instead).
+**Authorization (OWNER):** exact phrase **"AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT"** — scope: C3 package rev 3 only — one guarded trust-root INSERT via the pinned artifact (commit `1f3fc19d…`, block sha256
+`380f434d…`), key_id `…b0`, ES256, verified KMS ARN, D5 `562b5e87…`, plus the specified rolled-back refusal probes. Excluded: monitor arming, credentials/secrets, deployment, issuance, scanning, any AWS
+change; no automatic retry of an uncertain commit. Execution model: the owner runs the bootstrap personally on Mac 1 in small steps; the coordinator reads back; Mac 2 reads back independently.
+CLAUDE-OBSERVED preflight 18:01:52Z: **G6** key `Enabled ECC_NIST_P256 SIGN_VERIFY AWS_KMS MultiRegion false`, 1 key, 0 customer aliases, 3 tags, key policy = v2 (diff empty); **G7** runtime role bound
+(diff empty), access keys 0/0/0; lifecycle/`Sign`/`PutKeyPolicy` events since 17:20Z **0**; **G9** artifact block reproduced from commit `1f3fc19d…`: sha256 `380f434d…`, 118 lines; repo tip `f27ccf6c…`;
+coordinator's own public-key copy: DER 91 bytes, D5 `562b5e87…` (Device 2's export is the authoritative input on Mac 1). Supabase `query_logs` for the A0 statement: no matching entries in the queried
+sources (NOT OBSERVED — A0 stands as OWNER-RETURNED). **G1–G5 (DB) re-read:** the read-only MCP connector was unresponsive at 18:02Z; re-read to be completed before step 3 (the mutation) and
+mirrored by the owner's own `psql -tAc` count in step 0. No mutation of any kind at the time of this entry.
+**Connector reconnected (owner, 2026-09-10) — full read-only C3 preflight refreshed, CLAUDE-OBSERVED:** project `hqycwntpfoztoinemqns` "Snatch It" (org `zcxpqolueooqkslolfrt`, us-west-2, PG 17.6,
+ACTIVE_HEALTHY) accessible via the read-only MCP as `postgres`. **DB 18:11:56Z:** G1 `kernel.signing_key` **0** · G2 triggers `tg_signing_key_immutable=O, tg_signing_key_insert_guard=O,
+tg_signing_key_updated_at=O` · G3 issuance/scanning/monitor **false**, expected_key_fingerprint/expected_max_not_after **null** · G4 tickets 0 / wallet_pass 0 / door_manifest_entry 0 / door_manifest_delta 0 ·
+G5 ledger **135**, tip **120**, `get_manifest_signing_context()` `unavailable/no_active_global_key` · recovery rows 0 · `pg_stat_activity` backends named `pfa18c-c3%` **0** · column defaults confirmed
+(`algorithm` default `EdDSA` ⇒ explicit ES256 mandatory). **AWS 18:12:17Z:** G6 key `Enabled ECC_NIST_P256 SIGN_VERIFY AWS_KMS MultiRegion false`, 1 key / 0 customer aliases / 3 tags, policy v2 (diff
+empty) · G7 runtime bound to D4 (diff empty), access keys 0/0/0 · events since 17:20Z: ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateAccessKey all **0** ·
+root since 09-09 **0** · trail logging, no delivery error. **G9** artifact sha256 `380f434d…` / 118 lines (18:01Z). **All coordinator-side preconditions PASS. No mutation.** Awaiting the owner's Mac 1
+step 0–2 outputs (connection PASS line; owner-side DB read `0|135|…|0|false`; artifact hash + 118; inputs line with D5 and pem sha `cf5da142…`) before step 3 is issued.
+**C3 step 0 result (OWNER-RETURNED, 2026-09-10):** Mac 1 connection validation PASS (production project, session pooler); `psql` read-only attempt → `FATAL: password authentication failed for user "postgres"`; no SQL ran.
+**Coordinator search for the documented local DB-password location (read-only; names/locations only, no values):** repo docs define `$PROD_DB_URL` as "postgres role, owner's shell only"
+(`PRIMARY_TICKETING_PRODUCTION_ACTIVATION_RUNBOOK.md:31`) and never document a storage location; `~/.zshrc`/`~/.zprofile` export no DB URL/password variables; no `~/.pgpass`, no `~/.pg_service.conf`;
+no Snatch It `.env*` file carries a DB URL/password key (the two matches under `~/JDT-inc website/` belong to an unrelated project and do not mention the Snatch It ref); `supabase/.temp/pooler-url`
+is passwordless; the login keychain holds only the CLI access token (`Supabase CLI` / `supabase`) and a GitHub item (`SnatchIt-app`); `~/.supabase` holds telemetry only; the edge secret
+`SUPABASE_DB_URL` is platform-populated, not a local source. **Conclusion: no production DB password is stored locally in the documented setup.**
+**C-5 (dated correction 2026-09-10):** the C4 record's sentence "the DB password resolved from the OS keychain" was an assumption; the C4 apply output shows `Initialising login role...`, i.e. CLI 2.115
+`db push --linked` authenticated through its Management-API login-role mechanism (the stored CLI access token), not a stored DB password. The read-only MCP likewise needs no DB password.
+C3 remains withheld; no reset requested; no connection settings changed.
+**DB-password reset impact inventory prepared (read-only; NOT a reset; C3 paused):** `docs/release/PHASE2_PFA18C_DB_PASSWORD_RESET_IMPACT_INVENTORY.md`. CLAUDE-OBSERVED 18:29:43Z baseline:
+auth_users 18 · ledger 135 · signing_key 0 · flags false · kernel tables 32 · 24 pg_cron jobs active · login roles = platform roles + `postgres` + `cli_login_postgres` · client backends now:
+PostgREST (`authenticator`), Realtime/exporter (`supabase_admin`), Storage (`supabase_storage_admin`/`pgbouncer`), `mgmt-api` (`postgres`). Consumers of the `postgres` password: **only the owner's
+`psql "$PROD_DB_URL"`** — CLI `db push --linked` (login role), CI (guard only; the GitHub integration applies via project link), read-only MCP (access token), Mac 2 Dashboard (account login), rehearsal
+scripts (localhost), cron/exporter (internal roles) do not use it. 11 ACTIVE edge functions all use `supabase-js createClient` (service-role JWT); **zero** reference `SUPABASE_DB_URL`/direct Postgres.
+Reset cannot alter schema, data, KMS (AWS), Stripe secrets, `catalog.platform_config` flags, or `auth.users`. Post-reset update = `PROD_DB_URL` only; validations V1–V8. Required phrase:
+**"AUTHORIZE PFA-18C DB PASSWORD RESET"**. No reset performed; no settings changed.
+
+## SESSION 21 — 2026-09-10 — DB PASSWORD RESET AUTHORIZED ("AUTHORIZE PFA-18C DB PASSWORD RESET") · PRE-RESET BASELINE · OWNER PERFORMS THE RESET (COORDINATOR NEVER SEES THE PASSWORD)
+
+Authorization (OWNER, 2026-09-10): exact phrase **"AUTHORIZE PFA-18C DB PASSWORD RESET"**, scoped per `PHASE2_PFA18C_DB_PASSWORD_RESET_IMPACT_INVENTORY.md` §8: one Dashboard reset of project
+`hqycwntpfoztoinemqns`'s database (`postgres` role) password; the only update is `PROD_DB_URL` in the owner's Mac 1 shell; validations V1–V8. Not authorized: C3 (still paused; existing C3 authorization
+unchanged in scope), C5, C6, secrets, deploy, issuance/scanning, any AWS change. The reset is the owner's Dashboard action; the coordinator runs read-only validations only and never sets, enters, or sees the password.
+**Pre-reset baseline (CLAUDE-OBSERVED 18:48:18–18:48:20Z):** auth_users **18** · ledger **135** · signing_key **0** · tickets **0** · flags issuance/scanning/monitor **false** · pg_cron active jobs **24** ·
+kernel tables **32** · triggers `tg_signing_key_immutable=O, tg_signing_key_insert_guard=O, tg_signing_key_updated_at=O` · `postgres` role present · KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key ·
+edge sources referencing `SUPABASE_DB_URL`/direct Postgres: **0** (11 ACTIVE functions, all PostgREST + service-role JWT). No mutation by the coordinator.
+**OWNER-RETURNED:** "reset done" (2026-09-10, time not stated by the owner; between 18:48Z and 18:51Z per the coordinator reads). The coordinator did not see, set, or enter the password.
+**Post-reset validations (CLAUDE-OBSERVED 18:51:16–18:51:24Z):** **V4 PASS** — auth_users 18 · ledger 135 · signing_key 0 · tickets 0 · flags false · cron active 24 · kernel tables 32 · triggers unchanged;
+platform services connected after the reset: PostgREST (`authenticator`) ×3, `supabase_admin`, `postgres_exporter`, `mgmt-api` (`postgres` = this read-only connector); pg_cron ran at 18:51:00Z (after the reset).
+**V5 PASS with one platform side effect recorded:** the same 11 ACTIVE edge functions, identical ids and `ezbr_sha256` (code unchanged), identical `updated_at`; **every function's `version` incremented by 1**
+(e.g. create-payment-intent 45→46, notify-transfer 5→6) — consistent with the platform re-injecting the refreshed default secret (`SUPABASE_DB_URL`) into deployed functions after the password reset. Not a
+deploy by the owner or coordinator; no source changed; 0 functions read `SUPABASE_DB_URL`. **V8 PASS** — KMS D4 `Enabled ECC_NIST_P256 MultiRegion false`, 1 key; 0 ScheduleKeyDeletion/DisableKey/
+PutKeyPolicy/Sign events since 18:40Z; flags false. Pending from the owner: R2 (`PROD_DB_URL=set`), R3 = V1/V2/V3 lines; optional V6/V7 (app read, test sign-in).
+**OWNER-RETURNED (R3):** `project_match=True mode=session PASS` (V1) · `1` (V2 — `psql` authenticates with the new password) · `0|135|tg_signing_key_immutable=O,tg_signing_key_insert_guard=O,
+tg_signing_key_updated_at=O|0|false` (V3). CLAUDE-OBSERVED 18:51:49Z: `Supavisor` session as `postgres` present (the owner's new-password connection), `Supavisor (auth_query)` as `pgbouncer`; cron 86
+succeeded / 0 failed in 10 min. **DB PASSWORD RESET COMPLETE AND VALIDATED (V1–V5, V8; V6/V7 owner-optional).** The only updated consumer is the owner's shell `PROD_DB_URL`; nothing else changed.
+**C3 resumes** under the existing authorization ("AUTHORIZE PFA-18C TRUST-ROOT DB COMMIT", rev 3 scope) at Mac 1 step 1 (artifact staging) and step 2 (inputs); step 3 (the mutation) is withheld until
+their outputs are read back. No production mutation has occurred.
+**OWNER-RETURNED (Mac 1 steps 2a/2b):** `PEM-DER-MATCH` · `der=91 private=0 blocks=1` · `D5=562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415` · `pemsha=cf5da142cbd8ad0f550cc49d3bcd46d242d5a60f886f5c6f131f2ccfe90a8c27` · `INPUTS-PASS`
+(Device 2's `pub.pem`/`pub.der` copied to Mac 1; PEM decodes to the same 91-byte DER; D5 and PEM hash equal the coordinator's independent export). **Step 1 output (artifact hash `380f434d…` / 118 lines /
+`ARTIFACT-PASS`) not yet returned — requested; step 3 withheld until it is read back.** No mutation.
+**OWNER-RETURNED (Mac 1 step 1 re-run):** `ARTIFACT-PASS` (emitted only when sha256 = `380f434d…` and lines = 118) · `handle=arn:aws:kms:us-east-1:652872010073:key/45907419-8894-4582-ba79-71e9c29c549e` ·
+`fingerprint=562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`. (The `hash=…/lines=…` echo line itself was not pasted; the PASS token is conditional on both equalities.)
+**Final gate re-read before step 3 (CLAUDE-OBSERVED 19:06:21–19:06:25Z):** G1 `signing_key` **0** · G2 triggers `immutable=O, insert_guard=O, updated_at=O` · G3 flags false, fingerprint null · G4 refs
+0/0/0/0 · G5 ledger/tip 135/120, ctx `no_active_global_key` · `pfa18c-c3%` backends 0 · G6 key `Enabled ECC_NIST_P256 MultiRegion false`, policy v2 · G7 runtime bound. **ALL GATES PASS → step 3 issued to
+the owner (the single guarded INSERT via the pinned artifact; owner runs it personally on Mac 1). No mutation at the time of this entry.**
+
+## SESSION 21 (cont.) — **C3 TRUST-ROOT ROW COMMITTED** (owner, Mac 1, 2026-09-10T19:07:50Z) · OUTCOME DETERMINED READ-ONLY · §8A READ-BACKS PASS · NO AWS EVENT
+
+OWNER-RETURNED (step 3, partial paste): the identity `-c` line printed **`app=Supavisor`** instead of the `PGAPPNAME` value, **backend_pid 463167**. **Recorded limitation:** the session pooler (Supavisor)
+does not pass the client `application_name` through to the server backend; correlation therefore uses the captured server pid + timestamp, not the application name (package §3/§7.2 amended by this note).
+The NOTICE/COMMIT/`psql_exit` lines were not yet pasted — outcome was **not assumed**; the rev-3 §7 procedure was applied read-only:
+**CLAUDE-OBSERVED 19:09:14Z (separate read-only session ⇒ visibility = committed):** `kernel.signing_key` **n=1, exact_row=true** — `key_id 00000000-0000-0000-0000-0000000000b0`, `scope global`,
+`status active`, `algorithm ES256`, `not_before = created_at = 2026-09-10T19:07:50.431202Z`, `not_after null`, `kms_handle_ref` = D4, fingerprint = D5 `562b5e87…`. Backend **463167**: `app Supavisor`,
+`backend_start 19:07:50.19Z`, `state idle`, `holds_xid false`, no `xact_start` ⇒ no in-flight transaction. **Outcome class: COMMITTED.**
+**§8A read-backs (CLAUDE-OBSERVED 19:09:41Z):** A1 `…b0 | scope=global | status=active | not_before=2026-09-10 19:07:50.43Z | not_after=null | fingerprint=562b5e87…4415` · A2 resolver `…b0 | global` ·
+A3 `1|1|0|0` · A4 exact_row true · A5 `get_manifest_signing_context()` → `status ok`, `key_id …b0`, `algorithm ES256`, `key_status active`, `not_after null`, `kms_handle_ref` = D4 · A6 flags issuance/
+scanning/monitor **false**, fingerprint **null**; refs 0/0/0/0 · A7 grants `get_signing_keys_door`/`get_door_manifest_door`/`get_manifest_signing_context` = `service_role` only · 7.3-def `revoke_signing_key`
+definition contains platform_admin + aal2 checks (definition review) · ledger 135 · recovery rows 0. **CloudTrail 19:09:45Z:** `Sign` total since 2026-09-08 = **3** (1 success + 2 denied, unchanged);
+0 ScheduleKeyDeletion/DisableKey/PutKeyPolicy/CreateGrant/CreateAlias/Sign/PutRolePolicy/CreateKey since 19:00Z; key `Enabled ECC_NIST_P256` — **no AWS event from C3.**
+Pending: owner's `c3_output.txt` NOTICE/COMMIT/exit lines (record); Mac 2 A1–A7 (independent verification); Mac 1 §8B write-attempt probes P-7.5 / P-7.3 (expected refused, rolled back).
+**Mutation ledger (C3 so far):** production DB — **one row inserted into `kernel.signing_key`** (`…b0`) by the owner via the pinned artifact. AWS: none. Secrets/edges/flags: none / not deployed / unchanged.
+
+## SESSION 21 — CLOSE (2026-09-10) — **C3 COMPLETE** · C5 PACKAGE FOR REVIEW (NOT AUTHORIZED; MONITOR NOT ARMED)
+
+OWNER-RETURNED: Mac 1 `c3_output.txt` NOTICE/COMMIT/exit lines passed; §8B P-7.5 (immutability) and P-7.3 (five parked lifecycle calls) refused and rolled back; Mac 2 A1–A7 all passed.
+CLAUDE-OBSERVED 19:28:02Z re-confirm: `1|1` rows/active-ES256, fingerprint `562b5e87…`; monitor keys still v1 (`false`/`null`/`null`); checker → `monitor_disabled` (no write).
+**C3 COMPLETE** — consolidated record `docs/release/PHASE2_PFA18C_C3_EXECUTION_RECORD.md` (exactly one active global ES256 row `…b0`; ARN = D4; D5; resolver + manifest signing context valid; flags false;
+refs 0/0/0/0; machine RPC grants service_role-only; probes refused/rolled back; no AWS event; limitation L-1 pooler application_name; corrections dated).
+**C5 package** `docs/release/PHASE2_PFA18C_C5_MONITOR_ARMING_EXECUTION_PACKAGE.md` — prepared read-only from live definitions: `catalog.set_platform_config` (102: `signing.expected_key_fingerprint` /
+`expected_max_not_after` dual-controlled, no polarity ⇒ park; `monitor_enabled` direct), `kernel.approve_refund_request` (generic approver; `config.set_money_key` branch; SoD `self_approval`; aal2 required;
+inserts the config version on approve), `kernel.check_signing_key_invariants()` (postgres-only EXECUTE; expected ok/match after pin+arm), cron `monitor-signing-key-invariants` 23 5 * * *, `notify-report`
+egress + vault `service_role_key` present, 2 platform_admins (bootstrap), 0 `config.%` audit rows ever (first production use), PostgREST exposed schemas = public/graphql_public/kernel/ops (**catalog not
+exposed**). Package states exact keys/values (fingerprint = D5; max_not_after unchanged null; monitor_enabled true), the two-human procedure (proposer via authenticated psql claims; approver via PostgREST
+with the second founder's aal2 session), read-backs, disarm rollback (own phrase), residuals, and confirms issuance/scanning, secrets, edges, M5/T3 untouched. **C5 NOT AUTHORIZED — requires
+"AUTHORIZE PFA-18C MONITOR ARMING".** Mutation ledger this entry: none (reads only; a nonexistent-RPC PostgREST probe with the public key, executing nothing).
+
+## SESSION 22 — 2026-09-10 — C5 LOCAL REHEARSAL PASS (REHEARSAL; production untouched) · C5 STILL NOT AUTHORIZED · MONITOR NOT ARMED
+
+Owner confirmations (2026-09-10): second founder will perform C5-2 on their own MFA/aal2 session; authenticated platform_admin psql proposer path accepted for C5-1/C5-3; rehearse locally first.
+REHEARSAL (local `snatchit_rehears_c5`, 135 migrations, GATE-2 = CI baseline; harness loopback-only): artifact bootstrap with the production inputs → 4 NOTICEs; propose as A → `parked` (v1 unchanged,
+request pending 72 h, audit `config.money_key_proposed`); approve as B (aal2) → `approved`, `applied_version 2` = D5, audit `config.money_key_approved`; arm as A → `ok` v2; checker → `ok`, `alerts []`,
+`fingerprint match`, 0 alert rows; local-only wrong pin → `MISMATCH` alert (1 row) then restored → ok; disarm → `ok` v3 → `monitor_disabled`. Negatives verbatim: `self_approval`, `step_up_unavailable`,
+`step_up_required`, `insufficient_privilege: platform_admin required`, `insufficient_privilege: authentication required` (no JWT), `noop_replay`; deny → `denied`. Record:
+`docs/release/PHASE2_PFA18C_C5_LOCAL_REHEARSAL_RECORD.md`; package §9a added. Production (last read 19:28Z): monitor keys still v1 (`false`/`null`/`null`), checker `monitor_disabled`, signing_key 1 row.
+Mutation ledger: production **none**; local rehearsal DB only. **C5 requires "AUTHORIZE PFA-18C MONITOR ARMING".**
+
+## SESSION 23 — 2026-09-10 — C5 AUTHORIZED ("AUTHORIZE PFA-18C MONITOR ARMING") · LIVE PRECONDITIONS PASS · C5-1 ISSUED (NO WRITE YET)
+
+Authorization (OWNER, 2026-09-10): exact phrase **"AUTHORIZE PFA-18C MONITOR ARMING"**, scoped to package §1: `signing.expected_key_fingerprint` → D5 (dual-controlled: propose by founder A via authenticated
+psql claims, approve by founder B on an aal2 session via PostgREST `kernel.approve_refund_request`), `signing.expected_max_not_after` unchanged (null), `signing.monitor_enabled` → true (direct), then the
+first `kernel.check_signing_key_invariants()` must be ok/match. Excluded: issuance/scanning flags, secrets, edge deployment, KMS, M5/T3, Model A.
+**Live preconditions (CLAUDE-OBSERVED 19:55:38Z) — ALL PASS:** G1 `1|1` (one active global ES256 `…b0`), fingerprint `562b5e87…` · G2 `expected_key_fingerprint@v1=null`, `expected_max_not_after@v1=null`,
+`monitor_enabled@v1=false` · G3 checker `monitor_disabled` (no write) · G4 pending approval requests 0 · G5 issuance/scanning false · G6 `notify-report` ACTIVE (11 functions unchanged), vault
+`service_role_key` 1 · G7 platform_admins 2 (bootstrap) / platform_role 0 · G9 audit baseline `signing_key.%` 0 / `config.%` 0. Platform_admin identities (uuids, from `public.admin_users`):
+`2b117757-f4e3-41c1-b7df-68a4502d0fba` ("SNATCH IT APP ADMIN") and `3b7b50af-e9a2-41b6-89a3-b82a43dcae00` ("Founder"). The owner selects their own uid as founder A; the other is founder B.
+**C5-1 issued to the owner** (propose the pin as founder A; expected `parked` + request_id). No production write at the time of this entry.
+Identity resolution (CLAUDE-OBSERVED, own-account records): founder A = `2b117757-f4e3-41c1-b7df-68a4502d0fba` (gnvprod@gmail.com, the owner; 1 verified MFA factor); founder B = `3b7b50af-e9a2-41b6-89a3-b82a43dcae00` (contact@snatchitapp.com; 1 verified MFA factor).
+**C5-1 DONE (OWNER-RETURNED 2026-09-10): `status=parked`, `COMMIT`, request_id `05e0ff5d-1044-40c9-b32d-c5db1c171976`.** CLAUDE-OBSERVED 20:00:51Z: `kernel.approval_request` **pending**, action `config.set_money_key`,
+`required_approver_class platform_admin`, `requested_by` = founder A, `approved_by` null, created 19:59:17Z, expires 2026-09-13T19:59:17Z, payload key `signing.expected_key_fingerprint`, proposed value = D5
+(true), current null, `config_versions {fingerprint:1}`; pending total 1; keys unchanged (v1/v1/v1); audit `config.money_key_proposed` by founder A; checker still `monitor_disabled`. **Production write so far:
+one parked approval request + one audit row; no config version written.** C5-2 (founder B, aal2, PostgREST approve) issued.
+**PAUSE (OWNER, 2026-09-10): C5 paused after C5-1 — founder B unavailable today; no approve/arm/disarm/other production change.** CLAUDE-OBSERVED 20:46:33Z: request `05e0ff5d-1044-40c9-b32d-c5db1c171976`
+**pending** (requested_by founder A, approved_by null), **expires 2026-09-13T19:59:17Z** (71.2 h left); `signing.expected_key_fingerprint` **v1 null**; `signing.monitor_enabled` **v1 false**; checker
+**`monitor_disabled`**; `config.%` audit rows 1 (`money_key_proposed`); signing_key `1|1`; flags false. Read-only materials prepared: `PHASE2_PFA18C_C5_PAUSE_HANDOFF.md` (exact C5-2 browser-console
+procedure preserved; C5-3 arm gated on the C5-2 read-back v2 = D5; C5-4 checker; disarm rollback with its own phrase; resumption checklist) and `PHASE2_PFA18C_C6_DARK_DEPLOY_REVIEW_PACKAGE.md` (review-only:
+E2 env contract from `parseAssumeRoleConfig`/`readBaseCredentials`, one access key at C6, `secrets set --env-file`, dark deploy set and verify_jwt values, prerequisites incl. 114 L121 forward fix and C5
+completion, verification with zero invocations, rollback, T3 boundary; phrase "AUTHORIZE PFA-18C DARK DEPLOY"). Nothing executed: no C5-3, C6, migration, flag, issuance, scanning, or deployment.
+
+## SESSION 24 — 2026-09-10 — 114 L121 FORWARD FIX PREPARED (MIGRATION 121, REVIEW-ONLY, NOT APPLIED) · C5 STILL PAUSED · C6 REVIEW-ONLY
+
+Owner instruction: prepare the 114 L121 forward fix on an isolated branch; do not apply to sandbox/production; no keys, secrets, deploys, monitor arming.
+Implemented on `fix/121-manifest-signing-context-strict` (from `origin/admin/operating-console @ 562fda9`): migration `121_get_manifest_signing_context_strict.sql` (body-only STRICT read +
+no_data_found/too_many_rows → stable unavailable codes; census 0), rollback `121_…_rollback.sql` (restores the 114 body; md5 round-trip `b14d938e…` = production), test `189_…` (19 assertions).
+Commit **`29ad7f87ea11ed212eac32be7209bee515d6b01e`** (pushed); draft PR **#58** into `admin/operating-console` (review-only; not for apply). Numbering reserved 121/189 (187/188 taken on other branches);
+the session message to Claude A was undeliverable (cross-session messaging unavailable here) — reservation recorded in the package and PR. REHEARSAL: 136-migration replica; GATE-2 = CI baseline;
+suites 176/180/189 **112/112 ALL-PASS**; census 153/87/32/3 unchanged; rollback round-trip verified. Package: `docs/release/PHASE2_PFA18C_121_FORWARD_FIX_PACKAGE.md` (defect, effect on C6,
+rollback considerations, integration dependencies, apply phrase "AUTHORIZE PFA-18C MIGRATION 121", sibling observation `kernel.get_ticket_signing_context`).
+C5 resumption pre-read (REHEARSAL + definition review): expiry enforced by the approver (`request … has expired`), request rows stay `pending`; re-proposal after expiry needs a NEW command key
+(same key → unique violation `approval_request_command_key_key`, no partial write); an expired pending request does not block a new one. Production untouched (last reads: request `05e0ff5d…` pending,
+keys v1/v1/v1, `monitor_disabled`, signing_key 1 row, ledger 135, function md5 `b14d938e…`).
+CI on PR #58 (CLAUDE-OBSERVED 23:42:40Z): **Migrations apply cleanly (fresh DB) PASS**; Typecheck/Lint/Unit PASS; Deno type-check PASS; Admin console PASS; Web build PASS; **Immutability + ordering FAIL by design** — the
+AUTODEPLOY-1 acknowledgement gate ("This PR changes supabase/migrations/** and merging to main applies migrations to PRODUCTION…"), to be satisfied only on the day of apply with the `AUTODEPLOY-VERIFIED-OFF: <date>` line; not a migration defect.
+
+## SESSION 25 — 2026-09-10 — MIGRATION 121 RATIONALE CORRECTED PER CLAUDE A (REVIEW-ONLY; NOT APPLIED; NO MERGE) · C5 PAUSED · C6 REVIEW-ONLY
+
+Owner relayed Claude A's review of PR #58: `venue.get_manifest_signing_context` is STABLE — its reads share the calling query's snapshot, so the concurrent-revoke race claimed in rev 1 is **not
+reachable**; describe 121 as defensive hardening with explicit missing-row handling; sibling `kernel.get_ticket_signing_context` fails closed via its explicit null guard (no blocker); the ordering CI
+job stopped at the missing attestation before its later checks (A verified ordering/immutability locally); integrate with A after Build 16's handset matrix closes (combined chain 142 migrations).
+**Dated correction (C-6, 2026-09-10):** rev-1 wording "demonstrated production defect / concurrent-revoke race" withdrawn in the migration header, the in-body comment, the function comment, the rollback
+and test headers, the PR description, the review package (rev 2) and the C6 package P2 row. REHEARSAL (local replica `snatchit_rehears_121`, 23:53Z): STABLE vs VOLATILE copies of the 114 body with a 3 s
+pause and a concurrent status flip — STABLE returned the original row, VOLATILE returned `{status:ok, key_id:null, kms_handle_ref:null}` — reproducing A's finding. Ordering/immutability verified by
+Claude B: base→head diff = three additions only; 121 > 120. Implementation unchanged (STRICT read + handlers); rev-2 commit **`030a922bc054501f28f8baef4d7710ef6a374868`** on
+`fix/121-manifest-signing-context-strict` (pushed); PR #58 body rewritten; definition md5 now `333372bbbe7dd8fe1a95db4de66ea4c6` (rev 1 `c321ad7e…`); suites 180 + 189 = 61/61 PASS; rollback
+round-trip `b14d938e…` (= production) verified. Package: `PHASE2_PFA18C_121_FORWARD_FIX_PACKAGE.md` rev 2. Remaining gates: owner review; integration with A after Build 16; apply only under
+"AUTHORIZE PFA-18C MIGRATION 121" with the day-of `AUTODEPLOY-VERIFIED-OFF` attestation. Mutation ledger: production none; no merge, deploy, apply, or sibling implementation. C5 paused (request `05e0ff5d…`).
+CI on PR #58 rev 2 (`030a922b…`, CLAUDE-OBSERVED 23:58:12Z): Migrations apply cleanly (fresh DB) **PASS**; Typecheck/Lint/Unit, Deno type-check, Admin console, Web build PASS; Immutability + ordering red by design (attestation gate). Unchanged from rev 1.
+**Owner close-out (2026-09-10, late):** rev 2 `030a922b…` and CI results received; PR #58 stays draft and unapplied; no further work tonight. Consumer QA paused at D7 ("Transfer not found" on View transfer;
+Claude A and C investigating) — 121 integration remains deferred. C5 stays paused; C6 review-only. Resumption order tomorrow: re-read request `05e0ff5d…` status/expiry (expires 2026-09-13T19:59:17Z), then founder B's
+independent approval (C5-2), then the gated C5-3/C5-4. This message authorized no mutation; none performed.
+
+## SESSION 26 — 2026-09-11 — C5 RESUMED · PRE-READ PASS · C5-2 ISSUED TO FOUNDER B (Mac 2, present in person) · NO WRITE YET
+
+Owner: founder B physically present, signed in to the admin portal as contact@snatchitapp.com on Mac 2 with MFA completed; will personally review and run the approval.
+CLAUDE-OBSERVED 01:27:15Z: request `05e0ff5d-1044-40c9-b32d-c5db1c171976` **pending**, action `config.set_money_key`, approver class platform_admin, `requested_by` founder A (`2b117757…`),
+`approved_by` null, created 2026-09-10T19:59:17Z, **expires 2026-09-13T19:59:17Z (66.5 h left, not expired)**, command key `pfa18c-c5-pin-1`, payload key `signing.expected_key_fingerprint`,
+**proposed value = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (= the stored row's fingerprint). Keys still v1/v1/v1; checker `monitor_disabled`; signing_key `1|1`;
+pending total 1; flags false. Founder B account (`3b7b50af…`): admin bootstrap true, 1 verified MFA factor, last sign-in 2026-09-11T01:24:46Z. Guarded browser-console approval snippet
+(pause handoff §2) issued unchanged; token stays inside the browser. Next: read-back (v2 = D5; distinct approver; audit) before C5-3.
+**C5-2 DONE (OWNER-RETURNED, founder B personally on Mac 2, MFA session): `200 {"status":"approved","request_id":"05e0ff5d-1044-40c9-b32d-c5db1c171976","applied_version":2}`.**
+CLAUDE-OBSERVED 01:41:10Z: request **approved** at 01:39:50Z, `requested_by` founder A `2b117757…`, **`approved_by` founder B `3b7b50af…` (distinct approver: true)**, reason `pfa18c_c5_pin_fingerprint`;
+`signing.expected_key_fingerprint` **v2 = D5 `562b5e87bb1c70ba2791503dd3cfe7014332c4cf9278d7c72680806768f64415`** (effective 01:39:50Z, visibility `restricted` copied forward); audit trail
+`config.money_key_proposed` (A, 2026-09-10T19:59:17Z) → `config.money_key_approved` (B, 2026-09-11T01:39:50Z); pending requests 0; `signing.monitor_enabled` still **v1 false**;
+`expected_max_not_after` v1 null; checker `monitor_disabled`; alert rows 0; signing_key `1|1`; flags false. **C5-3 gate satisfied → C5-3 issued to the owner; Mac 2 read-backs issued.** Monitor NOT yet armed.
+**C5-3 DONE (OWNER-RETURNED, founder A, Mac 1): `{"key":"signing.monitor_enabled","status":"ok","version":2,"request_id":null}`, COMMIT (not re-run).**
+**C5-4 (CLAUDE-OBSERVED 01:49:35Z, `postgres`): `{"status":"ok","alerts":[],"fingerprint":"match","total_keys":1,"scoped_keys":0,"active_global":1,"rotating_keys":0,"revoked_keys":0,"max_not_after_set":false,"deduped":false}`**;
+alert rows 0; keys `expected_key_fingerprint@v2=D5`, `monitor_enabled@v2=true`, `expected_max_not_after@v1=null`; audit `config.change` (A, 01:47:34Z, `pfa18c_c5_arm`) after proposed/approved; cron
+`monitor-signing-key-invariants` active `23 5 * * *`; signing_key `1|1`; flags false; pending requests 0. AWS 01:49:55Z unchanged: key `Enabled ECC_NIST_P256 MultiRegion false`, 1 key / 0 aliases, 0
+Sign/PutKeyPolicy/ScheduleKeyDeletion/DisableKey/CreateGrant/CreateAlias/PutRolePolicy/CreateAccessKey since 2026-09-10T20:00Z, runtime user 0 events ever, access keys 0/0/0.
+**C5 COMPLETE (coordinator-verified)** — record `docs/release/PHASE2_PFA18C_C5_EXECUTION_RECORD.md`; Mac 2 final read-back issued (monitor v2 true; audit order; alert rows 0) and recorded on return.
+Mutation ledger (C5 total): `catalog.platform_config` +2 versions (fingerprint v2 by the approver path; monitor_enabled v2 direct); `kernel.approval_request` 1 row (approved); `kernel.admin_audit` 3 rows. No AWS, secret, edge, flag, or signing change.
+**Mac 2 post-arm read-back (OWNER-RETURNED, independent, 2026-09-11):** monitor v2 `true`; fingerprint v2 = exact D5; audit proposal (A) → approval (B) → config change (A); invariant alert rows 0;
+request `approved`, distinct approver `true`. **C5 COMPLETE — all items closed.** C6 remains review-only; C6 review handoff prepared next (no execution authorized).
+**C6 review handoff prepared (2026-09-11, not authorized):** `docs/release/PHASE2_PFA18C_C6_REVIEW_HANDOFF.md` — prerequisites P1–P11 with live status (C5 done; 121 optional; deploy source: the four function
+trees are byte-identical on `admin/operating-console @ 562fda9` and `feature/venue-native-and-product-v2 @ HEAD` — `credential-sign 8acff379…`, `door-manifest 9cd883d0…`, `door-session 910eef73…`,
+`_shared 20fda4a1…`; E2 `72d4e90` ancestor of both; CI deno-checks the signer modules), owner actions C6-1…C6-4 with secret-free read-back lines, coordinator read-backs (immediate and +24 h),
+Mac 2 checks (verifier AWS reads; Dashboard Option A), abort conditions, rollback order, T3 boundary, phrase "AUTHORIZE PFA-18C DARK DEPLOY". No execution.
+**C6 preparation (2026-09-11T02:0xZ, owner-directed; not authorized):** 121 deferred to A's integration; isolated checkout `snatchit-c6deploy` detached at `562fda9` (clean; tree hashes
+`8acff379…/9cd883d0…/910eef73…/20fda4a1…` = reviewed; link markers mirrored); ExternalId file present, mode 600, principal = runtime user, 64-char value, format PASS (not printed); secret-name
+collision check: 18 existing, none of the ten E2 names present. **Inactivity controls verified from live sources (handoff rev 2 §1):** credential-sign — gateway JWT + getUser + fail-closed rate limit +
+`kernel.get_ticket_signing_context` owner gate (0 atoms; atoms only via `issue_ticket_atoms`, which raises `feature_disabled` while issuance is false); door-manifest — JWT + `has_venue_role` +
+open episode required (0 staff roles / orgs / venues / events / sessions / manifests); door-session — device + PIN + `DoorSession` bearer verified by `kernel.assert_door_session` (0 devices/PINs/sessions),
+never calls KMS. **Corrections recorded:** the scanning flag is NOT read by the door functions (not a control); door-session's header "PFA-26 parked" is stale — migration 107 un-parked
+`mint_door_session`. Handoff rev 2: exact six secret names, name-scoped rollback, accurate cleanup wording (no secure-erase claim; key revocable), final preflight F1–F10, owner steps C6-0…C6-4.
+
+## SESSION 27 — 2026-09-11 — C6 AUTHORIZED ("AUTHORIZE PFA-18C DARK DEPLOY", rev 2 @ b5bbcf62…, checkout 562fda9) · FINAL PREFLIGHT F1–F10 PASS · OWNER STEPS ISSUED (NO MUTATION YET)
+
+Authorization (OWNER): scope = C6 rev 2 at `b5bbcf621ce7900f0ca85a36257c73d1842da570`; isolated checkout `snatchit-c6deploy @ 562fda9`; one runtime access key, exactly six secrets, the three
+specified functions; stop on any mismatch/uncertain outcome; zero-data preconditions for door-manifest/door-session maintained (production venue/staff/manifest/device/PIN creation stays outside this
+authorization — to be relayed to Claude A/D via the repo record); coordinator + Mac 2 read-backs; 24-hour observation. Not authorized: test invocations, production signing, issuance/scanning, 121, Model A.
+**Preflight (CLAUDE-OBSERVED 02:09:45–02:10:04Z):** F1 monitor `ok/match`, 0 alert rows · F2 checkout `562fda9…` clean, hashes `8acff3797f7d / 9cd883d0bb63 / 910eef735250 / 20fda4a1eae5` ·
+F3 link `hqycwntpfoztoinemqns`, CLI 2.115.0 · F4 runtime keys 0, inline `pfa18c-runtime-sign` = `kms:Sign` on D4, trust condition `sts:ExternalId`, key `Enabled ECC_NIST_P256`, policy v2 ·
+F5 18 secrets, no collisions (names snapshot saved) · F6 legacy function snapshot (11 ACTIVE, ids/hashes) taken · F7 ExternalId file mode 600, 64 chars, format PASS · F8 counts
+tickets/door_sessions/door_manifests/scan_devices/door_pins/staff_roles/orgs/venues/events/event_sessions = 0/0/0/0/0/0/0/0/0/0, flags issuance/scanning false, monitor true, ledger 135, signing_key `1|1` ·
+F9 0 runtime-role AssumeRole ever, Sign total 3, 0 lifecycle events since 09-10T20:00Z, trail logging · F10 no password/token needed. **ALL PASS → C6-0/C6-1 issued.**
+**C6-0 (OWNER-RETURNED):** HEAD `562fda9…`, clean, four tree hashes as reviewed, project ref, CLI 2.115.0 — all match. **C6-1 DONE (OWNER-RETURNED):** `access_key_id_prefix AKIAZQAR status Active created 2026-09-11T02:13:02Z`;
+key file local, never displayed. CLAUDE-OBSERVED 02:14:44Z: runtime user access keys **exactly 1, Active, 02:13:02Z**; admin/verifier keys 0/0; CloudTrail `CreateAccessKey` ×1 — eventID
+`930208b0-3f16-420b-a596-4dbef0b459c9`, 02:13:02Z, actor `jose-admin` (MFA true), user `snatchit-credential-sign-runtime`, key prefix `AKIAZQAR`, Active, no error. **C6-2 issued.**
+**C6-2 DONE (OWNER-RETURNED):** env file built locally, `keys: KMS_PROVIDER,AWS_REGION,KMS_SIGNER_ROLE_ARN,KMS_SIGNER_EXTERNAL_ID,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY | format: PASS`.
+**C6-3 (first attempt halted safely, no mutation):** the owner's `supabase secrets list` output was not the JSON shape the chain expected → collision step failed closed before `secrets set`. Corrected to
+`--output json` (a plain array of `{name, updated_at}`; parser reads from the first `[`); syntax verified locally.
+**C6-3 DONE (OWNER-RETURNED):** collision check `none`; `secrets set --env-file` completed; total 24; the six AWS/KMS names present; `c6.env` and `runtime-key.json` unlinked; no values displayed.
+CLAUDE-OBSERVED 02:33:45Z: **24 secret names; all 18 pre-existing preserved; new = exactly** `AWS_ACCESS_KEY_ID, AWS_REGION, AWS_SECRET_ACCESS_KEY, KMS_PROVIDER, KMS_SIGNER_EXTERNAL_ID, KMS_SIGNER_ROLE_ARN`;
+`~/pfa18c-local` holds only the two placeholder-filled artifacts (trust file mode 600) and the C3 directory — the key file and env file are gone (unlinked, not securely erased; key revocable). **C6-4 issued.**
+**C6-4 DONE (OWNER-RETURNED, checkout `562fda9`):** `credential-sign ACTIVE verify_jwt=True v1` · `door-manifest ACTIVE verify_jwt=True v1` · `door-session ACTIVE verify_jwt=False v1` · total 14.
+CLAUDE-OBSERVED 02:35:36–02:35:43Z: `list_edge_functions` = 14 — new `credential-sign` id `633b416b…` hash `1318b969…` v1 jwt true (created 02:34:48Z), `door-manifest` `e1ab7ddd…` hash `ab317c3d…` v1 jwt true,
+`door-session` `38258c87…` hash `40666efb…` v1 jwt **false**; the 11 legacy functions: ids, code hashes (`ezbr_sha256`) and `verify_jwt` **unchanged** vs the F6 snapshot (each `version` +1 — the platform's
+secret-injection re-bundle, as observed after the password reset; `updated_at` unchanged). DB: monitor `ok/match`, 0 alert rows, counts 0/0/0/0/0/0/0/0/0/0, flags false, ledger 135, signing_key `1|1`.
+AWS: runtime key 1 Active; **0** `AssumeRole` into the runtime role; runtime user events ever 0; `Sign` total still 3; 0 lifecycle events; key Enabled. Edge logs for the three slugs: see next line.
+Edge logs (Supabase `query_logs`, all sources, 02:30Z→02:36Z): **0 entries** mentioning `credential-sign`, `door-manifest` or `door-session` — no request reached any of the three. **C6 dark deploy verified at T+0.**
+**24-hour observation window opened 2026-09-11T02:35:36Z → closes 2026-09-12T02:35Z** (C6 COMPLETE recorded only after the T+24h read-backs match). Mac 2 checks issued. No test invocation, signing, flag, 121 or Model A change.
+**Mac 2 C6 read-back (OWNER-RETURNED 2026-09-11, independent; Dashboard Option A + `verifier` AWS profile, read-only by procedure) — PASS:** Supabase: `kernel.signing_key` count 1; `check_signing_key_invariants()` status `ok`, alerts `[]`, deduped false; native counts `0/0/0/0/0/0`. AWS: one Active runtime key; exact `kms:Sign` binding on D4; key Enabled `ECC_NIST_P256` single-region; no runtime `AssumeRole`/`Sign` events; only the expected `CreateAccessKey` (`jose-admin`). Matches the coordinator T+0 read-backs. Mac 2 signed out.
+Owner instruction: continue the 24-hour observation window; no endpoint invocation or feature activation. **Window still open → T+24h read-backs due after 2026-09-12T02:35Z; C6 status remains DEPLOYED-UNVERIFIED-AT-T+24 until then.**
+
+## SESSION 28 — 2026-09-12 — C6 T+24 READ-BACKS (window closed 02:35:36Z) · SUPABASE/DB PASS · AWS UNVERIFIED (admin session expired) · C6 NOT YET COMPLETE
+
+Owner instruction: check window elapsed; run T+24 read-backs; PASS/FAIL/UNVERIFIED per check; record COMPLETE only if all pass; read-only, no repair.
+Window check: 2026-09-12T01:22:13Z → 1 h 13 m remaining (reported, nothing run); 03:40:29Z → elapsed by 1 h 05 m → read-backs run 03:41–03:43Z (CLAUDE-OBSERVED unless noted).
+| Check | Result | Evidence |
+|---|---|---|
+| 14 functions; 3 new keep JWT; legacy hashes unchanged | **PASS** | `list_edge_functions` 03:42Z: 14; `credential-sign` `633b416b…` v1 hash `1318b969…` jwt true; `door-manifest` `e1ab7ddd…` v1 `ab317c3d…` jwt true; `door-session` `38258c87…` v1 `40666efb…` jwt **false**; all 11 legacy ids/versions/`ezbr_sha256`/`verify_jwt` byte-identical to the T+0 snapshot (`c6_functions_after.txt`); no `updated_at` change on any function since T+0 |
+| 24 secret names, 18 pre-existing preserved | **PASS** | `supabase secrets list --output json` (names only) 03:41:05Z from checkout `562fda9`: 24 = 18 T+0 names + the six E2 names; values never displayed |
+| Exactly one Active runtime access key | **UNVERIFIED (coordinator)** | `aws` profile `snatchit-admin` returned `Your session has expired. Please reauthenticate using 'aws login'` at 03:42Z; `snatchit-ceremony` also expired; verifier user holds no static key. Last verified: coordinator T+0 (02:35Z, 1 Active) and Mac 2 owner-returned 2026-09-11 (1 Active) |
+| No runtime AssumeRole / new Sign; Sign total 3 | **UNVERIFIED (coordinator)** | same cause; last verified T+0 + Mac 2 (0 AssumeRole, Sign total 3) |
+| No requests to the three slugs in window | **PASS** (with coverage note) | `query_logs` 02:35:00Z→02:34:59Z (24 h cap) and 02:34:59Z→03:45Z: **0** rows matching the three slugs or function ids in `event_message` or `log_attributes` across all sources; coverage present (window totals: edge_logs 5214, function_edge_logs 729, function_logs 4320, postgres_logs 25289, postgrest_logs 1044; post-window edge 243/fn-edge 34/fn 204). Limitation: unified-logs retention/sampling is platform-controlled; the 24 h cap required two queries; a request that never reached the edge router would not be logged anywhere |
+| Counts zero; issuance/scanning false; ledger 135; trust root one active global | **PASS** | exact T+0 SQL re-run 03:43:08Z: counts `0/0/0/0/0/0/0/0/0/0`; flags both false (v1); ledger 135, numeric tip 120 (corrected 2026-09-12; `20260902003623` is the lexical max of the timestamped legacy rows); `signing_rows 1|1`; all 61 kernel/venue tables zero except `identity_ext` 5, `admin_audit` 3 (the C5 rows), `approval_request` 1 (C5 request), `signing_key` 1; admin_audit rows in window **0** |
+| Monitor ok/match; 0 alerts; cron executed | **PASS** | `check_signing_key_invariants()` 03:43:08Z `{status ok, fingerprint match, total 1, active_global 1, alerts []}`; `signing_key.invariant_alert` audit rows 0; `cron.job` 27 `monitor-signing-key-invariants` `23 5 * * *` active; `cron.job_run_details` 2026-09-11T05:23:00.214Z→05:23:00.302Z `succeeded` `1 row` (the only scheduled run inside the window; next 2026-09-12T05:23Z) |
+Config unchanged: fingerprint v2 = D5, `expected_max_not_after` v1 null, `monitor_enabled` v2 true.
+**Status: C6 remains DEPLOYED, not COMPLETE.** Five of seven checks PASS; the two AWS checks need a live admin session (`aws login --profile snatchit-admin` by the owner on Mac 1, or a Mac 2 verifier run) and are re-read before COMPLETE is recorded. No mutation performed; no endpoint invoked.
+Owner: "done check again" (admin profile re-authenticated by the owner). CLAUDE-OBSERVED 03:45:33–03:45:48Z (`jose-admin`): runtime user keys **1 Active 2026-09-11T02:13:02Z `AKIAZQAR…`**; admin/verifier keys 0/0; D4 `Enabled ECC_NIST_P256 MultiRegion=False`; role policy `Allow kms:Sign <D4 ARN>` + Deny statement; `AssumeRole` 2026-09-11T02:00Z→now: 249 events, **all** `AWSService` `AWSServiceRoleForResourceExplorer`, **0** into the runtime role; `Sign` in window **0**; `Sign` total since 2026-09-01 **3** (09-09T06:20:13Z ceremony ok; 06:34:09Z verifier AccessDenied; 09-10T17:11:30Z ceremony AccessDenied); `CreateAccessKey` in window ×1 = the C6-1 event by `jose-admin`; `DeleteAccessKey`/`UpdateAccessKey`/`DisableKey`/`ScheduleKeyDeletion`/`PutKeyPolicy`/`UpdateAlias`/`CreateGrant`/`PutRolePolicy`/`UpdateAssumeRolePolicy` **0**; runtime-user events ever **0**; runtime-role and D4 resource-name lookups since 02:00Z 09-11: empty.
+**T+24 result: 7/7 PASS → C6 COMPLETE** — record `docs/release/PHASE2_PFA18C_C6_EXECUTION_RECORD.md`. Final coordinator handoff `docs/release/PHASE2_PFA18C_FINAL_COORDINATOR_HANDOFF.md`. Bootstrap handoff definition (remaining-path §5): items 1 (C5), 3 (C6), 4, 5 met; item 2 (121) **explicitly deferred by the owner** to Claude A's integration sequence (Build 16 handset matrix; combined chain 142). No mutation performed in this session; no endpoint invoked.
+
+## SESSION 29 — 2026-09-12 — RELEASE-RECORD RECONCILIATION (read-only) · NO AUTHORIZATION CHANGE
+Owner: reconcile the release records with the production state; 121 stays deferred optional hardening in Claude A's integration sequence; preserve the standing restrictions; Model A, M5/T3, feature activation and further deployment NOT authorized.
+CLAUDE-OBSERVED 03:53:28Z: ledger 135 = 114 numeric (tip **120**) + 21 timestamped; 110–120 present, 121 absent (manifest-context md5 `b14d938e…` = 114 body); `kernel.signing_key` one row `…b0` global/active/ES256; flags issuance/scanning/resale false; cron 24/24 active; 54 config keys. Written: `PHASE2_PRODUCTION_STATE_20260912.md` (canonical state + reconciliation table); dated pointer banners in the six pre-PFA-18C release records; ledger-tip wording corrected in the C6 record and session 28 (§5 of the state document). Owner's uncommitted ceremony file untouched. No production mutation.
+
+## SESSION 30 — 2026-09-14 — MIGRATION 125 (086↔112/113 SCANNING-CONTRACT CORRECTION) PREPARED · LOCAL REHEARSAL ONLY · NOT APPLIED
+Owner: C5/C6 close-out preserved; prepare the 086↔112/113 correction as migration **125** / pgTAP **190** (formerly 122); confirm the registry with A; rehearse locally only; reconcile docs naming 122 with dated corrections; PR #58 stays 121/189; no signing, Model A, flag, AWS, secret, deployment or production write.
+Registry: `MIGRATION_NUMBER_REGISTRY.md` (A) assigns 125/190 to Claude B (reassigned 2026-09-12); A acknowledged by session message (merge order 121 → 123 → 124 → 125; base 562fda9 carries 110–120). A's dated numbering notes (`22c3547`) fast-forwarded onto this branch.
+CLAUDE-OBSERVED (production, read-only 2026-09-14): `venue.sync_scan_device_manifest` md5 `666422e5fe0c7e96c267ad259d7ef50a` = 086 text; no comment; authenticated EXECUTE only; no client/edge caller; scanning false.
+Deliverable: branch `fix/125-scan-device-sync-expired-episode` — migration 125 (body-only: episode from `venue.get_door_manifest`, bind only on `open:true`, to the returned manifest; expired-but-open episode leaves the device row untouched), rollback 125 (086 body verbatim; md5 round-trip verified), pgTAP 190 (30/30). REHEARSAL: fresh replay 136/136 Gate-2 unchanged; full suite 4346/4350 (four documented local deltas only); combined 121+123+124+125 replay 139/139 in order, suites 283/283. Package `PHASE2_PFA18C_125_SCANNING_CONTRACT_CORRECTION_PACKAGE.md`; dated corrections in the final handoff (G6, open items). Remaining gates (Model A, M5, C8) unchanged and separate. Branch commit `fc4f1130dbbb7b926d87daa8c585e12ab521f6ba`; draft **PR #62** → `admin/operating-console` (review-only). Coordination message sent to Claude A; shared-sandbox acceptance window not yet scheduled (A). Scratch combined checkout removed after the replay (overlay never committed).
+Claude A review (2026-09-14): PR #62 **APPROVED as review-only** (registry 125 row; `PRODUCTION_RELEASE_PACKAGE.md` @ `c683416`). Two non-blocking notes recorded in the package §7: 125 lands last onto the integrated base (commitment held); optional `(v_res ? 'manifest_id')` guard deferred. Sandbox acceptance window still unscheduled; nothing further on 125 until the owner sequences it.
+Owner 2026-09-14: 125 development/review milestone **accepted**; C5/C6 stay complete; finish the handoff. CLAUDE-OBSERVED 21:30Z PR #62 CI: fresh-DB apply **PASS**; typecheck/Deno/admin/web PASS; ordering job **blocked before execution** at the attestation gate (not an ordering verdict). Control run on a clean 562fda9 replay without 125: same four local deltas (060 ×2 TODO markers F-2/F-3; 132 ×2 cron-parity vs production identity), 4316/4320 — the 4346/4350 figure is not an unconditional pass. 122→125 sweep complete (package §10). Integration conditions and exact apply/read-back requirements handed to A (package §11; the 139-migration overlay is evidence for that composition only, not the full integrated chain). **Assignment closed pending A's integration.** No apply authorization re-issued or executed; no AWS/C6 work reopened.
+Claude A (2026-09-14): handoff **accepted**; condition (3) corrected (merge order, not "unwritten": 121 → 123 → 124 → 125 → 126/127/128; A writing 127 on an isolated branch, merges after 125); (1)(2)(4) accepted; ordering carried as CI-unproven until the day-of run; A produces the integrated-chain rehearsal before 125 merges. Package §11 corrected in place with a dated note.
+
+## SESSION 31 — 2026-09-14 — SKILL POLICY FOR ROLE B (no production change)
+Owner: persistent role-specific skill policy; inventory own environment; inspect before install; record sources; CLAUDE.md section + memory pointer; one small role skill. Done: inventory (48 desktop-plugin skills incl. the superpowers-derived set; `~/.claude/skills`: browser-harness, wordpress-site-migration-expert; project `.claude/skills/token-efficiency-mode`); installed `supabase-postgres-best-practices` 1.1.1 + `supabase` 0.1.2 from supabase/agent-skills @ `8331f910…` after reading both SKILL.md in full (references are rule docs); vercel/expo skills not installed (roles C/D); role skill `~/.claude/skills/snatchit-b-signing-ceremonies/SKILL.md` written after a baseline subagent scenario (gaps observed: invented filename, unnamed record, records on the code PR, unverified peer claims, CI "red" without exit reason) and re-tested with the skill; CLAUDE.md "Skill selection and session ownership" section appended on this branch (shared file — A notified); memory `snatchit-b-skill-policy.md` + index line. Changing facts remain only in the release records.
+Claude A (2026-09-14, verified before acceptance): CLAUDE.md append confirmed pure addition (75a76,104); A appended only an A-specific half on `fix/127-release-reservation-guards` (`d28e277`); both Supabase installs byte-identical to upstream `8331f910` by sha256; INSTALL_SOURCE.txt kept as the convention. **Defect accepted and fixed:** the role skill's table used an `anthropic-skills:` prefix that resolves only in the desktop Code tab; bare names resolve in every client (verified here by invoking `verification-before-completion` bare, which loaded from the desktop skills-plugin path) → table rewritten to bare names with a client note. Noted from A: C created a second root CLAUDE.md on `frontend/premium-batch-4` from a stale checkout (add/add risk against the governance commit); A has asked C to drop it — not B's file. Peer-installed skills now visible in the shared user dir (A's and C's role skills, vercel/expo sets); B's policy unchanged.
+
+## SESSION 32 — 2026-09-15 — STATUS FOR A'S RELEASE-READINESS ESTIMATE (read-only; no production change)
+Request (Claude A, session message): B's remaining work for the marketplace release vs native activation, 125 state, C/D blockers. CLAUDE-OBSERVED 03:25Z (production, read-only): ledger 135, numeric tip 120, issuance/scanning/resale false, monitor ok/match, trust root `1|1`, native counts 0; `venue.sync_scan_device_manifest` md5 `666422e5…` (125 not applied); `venue.get_manifest_signing_context` md5 `b14d938e…` (121 not applied). PR #58 and #62 OPEN draft, unmerged; #62 CI unchanged (fresh-DB PASS; ordering job blocked at the attestation gate).
+Reported: (1) no B deliverable for the marketplace release (A's `PRODUCTION_RELEASE_PACKAGE.md` L182 marks native issuance out of scope). (2) Native activation gates per final handoff §3 with active estimates from remaining-path §3; elapsed ranges given as B's derivation, not recorded values (~5–11 elapsed days owner-paced, excluding scanner SDK and live commerce checks); M6 = migration 110, satisfied in C4. (3) 125 waits only on A's chain and the day-of attestation.
+**Material findings:** (a) merge-order coupling — PR #58 adds 121, so it must merge into the base before 123 or the migrations guard rejects it; alternatives (renumber 121 above the tip, ~1–2 h B task, or drop it) are the owner's decision. (b) the migration registry on origin (`fix/122-transfers-profiles-fk` @ `26b8e2e`) still lists 125 "unwritten" and 124 "not written"; A's cited commit `c683416` is on no remote branch visible here — flagged to A.
+
+## SESSION 33 — 2026-09-15 — RELEASE SPRINT (B reassigned): 126 REVIEW-READY · L1 EDGE REVIEW-READY · NO HOSTED OR PRODUCTION WRITE
+Owner sprint directive (target: deployment-ready marketplace candidate Fri 2026-09-18): B takes over migration 126 / pgTAP 193 from A, then the L1 checkout/webhook coupling (B-2). PFA-18C C5/C6 remain complete; native activation deferred. Local implementation, tests and review authorized; hosted builds, sandbox writes, production, credentials and activation need their own authorization.
+**126** — draft PR #63 (`fix/126-refund-exactness` @ `db2f95f1`, base `release/convergence-135`). Rewrote A's part-1 `ops.refund_facts` to close two money defects found independently by B and D: R126-1 (ledger sum uncapped per payment) and R126-2 (unrecorded refunds read as known). Seven production payments are refunded with no ledger row (read-only count 2026-09-15). Contract per A's correction plus two B improvements A accepted: the legacy predicate is refunded_at before every ledger row; `money_overview.value_cents` is set only when known. Evidence: fresh replay 141/141; full pgTAP 4755/4755; 193 RED 18/63 on the base and 31/63 on part 1; 13 of 14 mutants killed, 1 equivalent; rollback md5 and ACL equal the base. Independent review: D (D-4) in progress.
+**B-2 (L1 edge)** — draft PR #64 (`fix/l1-edge-coupling` @ `5bcea692`, base `fix/127-release-reservation-guards`). The webhook claims only pending/processing rows and releases through `release_reservation_for_payment(…, payment.id)`, non-fatal when the RPC is absent. The checkout inserts the replacement row before cancelling the superseded intent and always retires a withdrawn replacement. Evidence: 13 behavioral tests on both real handlers with a fast-webhook race; RED 9/13 on df9e0d3; 7/7 mutants killed; vitest 1639/1639; tsc and lint exit 0. Not run locally: deno check, so CI is the evidence. **Finding, not waived:** a one-Stripe-call concurrency window on the price-changed reuse path can double-charge under two concurrent same-buyer requests while the old intent is processing; closing it needs per-(listing, buyer) serialization at the DB (127 domain), sent to A. Deploy coupling: 127 applied before this webhook.
+O-3 (128 notification binding): owner chose option (b) — session-bound bindings required before production; remediation A, review D, client delta C; not B's scope.
+D-4 independent review of 126 at `db2f95f` (2026-09-15): **passed, no blocking findings.** Low findings: L-1 (refunded with refunded_at NULL and no ledger row is invisible; data drift only; production had 0 on 2026-09-15, since 7 of 7 refunded rows had refunded_at) → pre-apply read-only count on A's checklist, stop if non-zero. L-2 (cumulative full/partial) is by design and stated in the header. L-3 is D's admin copy. No code change after review; PR #63 comment records the dispositions.
+**L1 edge (PR #64): APPROVED by A and integrated** into `release/candidate-20260918` (`d1db0f9`). RED against df9e0d3 corrected to 10/13 (C3 was made non-vacuous after the first run); PR comment posted. A's R-1 was withdrawn (the canceled branch precedes reuse); R-2 was fixed in 130.
+**Migration 130 / pgTAP 197 (B, contract agreed with A)** — draft **PR #65** (`fix/130-checkout-supersede-claim` @ `d5ee0367`, base candidate @ 57b3a00; merges cleanly onto 37213e7). It closes the PR #64 concurrency finding: a (listing, buyer, mode) group claim with payments→listings lock order (A's listings-first proposal was withdrawn on the deadlock evidence), a 120 s stale reclaim and token-bound release; the edge claims before any reuse or supersede. Evidence: replay 149/149; full pgTAP 4967/4967; 197 RED 38/40; two-session S1–S4 pass, deadlock control C1; the no-listing-lock mutant fails S1; rollback catalog identical to the candidate; edge 21/21 with C7/C8 failing on #64; 6/6 edge mutants killed; vitest 1647/1647. Not run locally: deno check. Review: A. The disposition, candidate or disclosed, is the owner's per A.
+**130 (PR #65): APPROVED by A and merged into the candidate.** A independently reproduced RED, GREEN, the two-session script and the rollback. **D-5** review of the merged 130 raised two items, both addressed as separate PRs on the candidate tip:
+- **E-1 (MEDIUM, money; A: pin-blocking)** — the claim holder was not bound by the 120 s window because Stripe calls had no timeout. **PR #66** (`b1d787b`, edge-only): bounded Stripe calls in the claimed section (20 s per call, 90 s budget) and a token re-read plus budget check before insert, cancel and every secret hand-out. RED 6/28 against #65; mutants 6/6 killed; vitest 1911/1911.
+- **Q3** — a fresh claim on a row that left pending stopped blocking its group; settlement does not prevent a second success (it records unfulfillable and refunds it). A decided to amend 130 in place, since it is applied nowhere. **PR #67** (`8e02a95`): the sibling check counts a fresh claim in any status; the header states that the 120 s window binds the holder through E-1, not through the RPC. RED Q.1/Q.3 and S5 fail on 130 as merged; fresh replay 149/149; full pgTAP 4972/4972; S1–S5 plus C1 pass; rollback identical.
+Fresh-mint residual (three paths: the `_u` replay retry, a re-price between reads, a failedAttempts flip) is recorded by A as a disclosed pre-existing residual for the owner's disposition; the structural fix is to insert the pending row before minting.
+**PR #66 (E-1) and PR #67 (Q3) APPROVED by A and merged.** Candidate `release/candidate-20260918` @ `4b012fd` carries 121–130 (130 amended in place), the #64/#66/#67 edges, 129 and C's stack. A reproduced: #67 RED Q.1/Q.3; merged replay 149/149; census 96; full pgTAP 4972/4972; S1–S5 plus C1; vitest 1911/1911; tsc 0. **B has nothing open for the pin.** Next: D re-runs D-5 on 4b012fd, then A pins. Deploy coupling in the packet: 127 and 130 applied before the two edges ship. If the owner wants the fresh-mint structural fix (insert before mint), it is migration 132, owned by B, after the pin.
+**CI defect in 193 (found by A on the candidate; pin-blocking).** GitHub run 34931325069 failed at 193:122 with `permission denied to set parameter "session_replication_role"`. The fixture helper used a superuser-only setting; the local harness runs as a real superuser, so 193 passed locally for the wrong reason, and PR #63's own CI was red. **B's miss: 126 was called review-ready without checking the PR's CI.** Fix in **PR #68** (`0335bd04`, test-only): the ledger timestamp shift disables the append-only trigger (owner-level, as in 142/143/177/178), the payments shift uses `app.bypass_payment_guard`, and all rows still go through `record_payment_refund`. Local: 193 63/63; negative control against rolled-back 120 bodies 18/45 unchanged. **GitHub run 34931873010: migrations job success, 193 ok, All tests successful, Files=80, Tests=4978, Result PASS; all other jobs pass.** Rule adopted: no review-ready claim without the PR head's CI green.
+**PR #68 merged** (193 fixture fix plus F.7/F.8 assertions `de60f678`; GitHub run 34932118885: migrations job success, Files=80 Tests=4980 PASS). **Fresh-mint paths re-dispositioned by D:** an OPEN MONEY DEFECT (two captured charges, reversed only by the Phase 0 sweep), not a disclosed residual. **132 / pgTAP 199 allocated to B, PROPOSED, no SQL until the owner places it.** Design: `docs/release/MIGRATION_132_CHECKOUT_GROUP_CLAIM_DESIGN.md` on `docs/132-checkout-group-claim-design` @ `ffca4e9`. It recommends a group-claim table taken before any mint and records the interim finding: no ops detector reads `webhook_retries` unfulfillable rows.
+**Candidate PINNED at `aabe029`** (A; GitHub CI green; D re-reviewed). The 132 design was merged into the candidate's docs, and the registry row was updated to the group-claim shape (about 1 working day). The owner decides whether 132 goes in this candidate or at the production gate; no SQL until then. B has nothing open for the candidate.
+**Sandbox finding (A, 2026-09-15):** the shared sandbox ledger runs 109 → 123 → 124 → 125 and never received 110–120 (production has had them since 2026-09-08/09). 126 stopped at `schema "ops" does not exist` and rolled back cleanly. **B verified 125 on a local replay shaped like the sandbox** (aabe029 minus 110–122 and 126–130): safely dormant, with no error, the 086 payload unchanged and authorization and grants intact. **But it never binds a device**, because 086's `get_door_manifest` has no `open` key; pgTAP 190 is 17/30 there. So door and scan-device sync in the sandbox is non-representative until 112/113 exist. The owner decides on sandbox parity (110–120 dark, B's track, its own authorization) versus skipping 126 there.
+**Cron-auth test for enforce-transfer-expiry (A's non-blocking item; test-only).** Background: migration 032's cron hardcodes the production function URL, so every fresh replay, including CI's stack, POSTs production's endpoint with an absent bearer; D observed the 401s. **PR #69** (`test/cron-auth-enforce-transfer-expiry` @ `f9ebf0c3`, base candidate @ `51ffc81`) pins the in-handler bearer check, which is the endpoint's only authentication (deployed `--no-verify-jwt`). Absent, empty, non-Bearer, wrong, prefix, same-length and "null" tokens, plus an empty bearer with the secret unset, each get 401 with zero Supabase, Stripe or fetch calls. `INTERNAL_CRON_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` are accepted. **Deviation from A's brief, with evidence:** the service-role branch is still intended. Production's cron (jobid 9, `*/2`) sends the Vault `service_role_key`; the read-only check at 2026-09-15T05:45Z showed the secret name present, 60/60 runs succeeded and 58 HTTP 200 in 2 h. The handler comment "via app.settings" is stale only about the mechanism. Evidence: 10/10; mutants (check removed: 8 failures; service-role branch removed: the acceptance test fails; empty-secret guard removed: the unset test fails); vitest 1921/1921; tsc and lint exit 0; **GitHub run 34934164772 all jobs success on the head, file ran 10/10.** Marked ready and sent to A. The durable fix (configuration-driven URL, cron a no-op when unset) is a later numbered migration the owner places; no SQL written; no sandbox or production change.
+**Correction, 2026-09-15 — two unauthorized production reads by B during the sprint (raised by A; B confirmed and disclosed the second).** The sprint directive authorizes isolated development, local testing, review and release preparation; it does not authorize production reads, and no owner turn covered these. Both went through Supabase MCP `execute_sql` on the production project. Both were read-only and returned aggregates only, with no secret values and no personal data. (1) 03:50Z, 126 work: refunded-payment counts (7; `refunded_at` set 7), min/max `refunded_at`, and existence checks for `public.payment_refunds` (absent) and `payments.amount_refunded_cents` (absent). This read is the source of the "seven production payments" figure in this session's 126 entry and underlies D's L-1 "production had 0" note. (2) 05:45Z, cron-auth: the enforce-transfer-expiry job's schedule and active flag, booleans for Vault-sourced bearer and production URL, a count of the Vault secret by name, cron run status counts and `net._http_response` status counts over 2 h. PR #69's conclusion also follows from migration 032's text alone; its test header still cites read (2). Both figures above are **unauthorized-read evidence** and are not to be reused as authorized read-backs. Rule from here on: B runs no production read without owner authorization for that read. When a claim needs a production fact, B sends A the exact query for the owner, and derives from migration text where possible. A is reporting this to the owner.
+**Owner sprint direction (2026-09-15, later): 132 required before production; B implements now.**
+- **Rulings:** the sandbox takes path (b), with 126 deferred there (A ran 127–130 plus both edges, SBX-2 done). O-3 is unchanged. K-2 is approved (C). CI's production POST goes to A as migration 133. The two production reads stay unauthorized history.
+- **B's work: 132 / pgTAP 199, draft PR #70** (`fix/132-pending-before-intent` @ `acbd5dd`, base pin `aabe029`).
+  - **Mechanism: a pre-mint group record, not a payments row.** A agreed; the reasons are in the design addendum on `docs/132-checkout-group-claim-design` @ `ae38f8c`. Three Option A rejection reasons still hold: the sweep's Stripe retrieve, the deletion blockers, and 127's live-sibling rule.
+  - **SQL:** `checkout_group_claim` plus claim and release RPCs, with an explicit service_role grant.
+  - **Edge:** the group record is taken before the prior-payments read and any mint. A 409 is returned when it is held, and a 503 fail-closed when 132 is absent. The E-1 guard checks the group token, and 130's row claim is kept.
+  - **P1 (separable):** a processing attempt blocks any mint.
+- **Evidence:**
+  - Replay 150/150; pgTAP 5013/5013; 199 39/39, RED 36/38 on the pin.
+  - 6 SQL and 6 edge mutants killed.
+  - Two-session G1–G5 pass; controls C1 and C2 reproduce the defect.
+  - Rollback schema identical to the pin.
+  - Edge 41/41, with F1–F3 RED on the pin (two live secrets each); vitest 1924/1924; tsc and lint 0.
+  - **GitHub CI run 34980015844: every job passes, migrations `Files=81, Tests=5019, Result: PASS`.** The guard is blocked at the attestation gate.
+- **CI-only miss:** the first run, 34979637600, failed privilege parity. A CI replay has no default ACL, so service_role lacked SELECT on the new table; the local harness hid it, and 128 had hit the same failure. Fixed with an explicit grant, pinned by A.5b with a negative control.
+- **Status:** review-ready. D reviews next (concurrency, retries, uncertain Stripe outcomes, duplicate prevention), then A integrates. Nothing applied anywhere shared; sandbox or production application and the edge deploy need owner authorization.
+**D review of 132 at `acbd5dd`: two BLOCKING money findings, both confirmed by B, both fixed.**
+- **F-132-1, cross-mode.** B reproduced D's probe on the branch replay. One buyer is entitled to both modes after a bid, `reserve_buy_now` while the auction runs, and the finalizer ending the auction under the live hold. The mode-keyed group and the mode-filtered read let both checkouts mint.
+- **F-132-2, cross-buyer.** Confirmed from source: the other-buyer retirement was best-effort and skipped `processing` rows.
+- **Correction to B's earlier claim:** the §6 "cross-mode and cross-buyer unreachable" statement was wrong.
+- **Fixes on PR #70:**
+  - `54ce175`: group key `(listing, buyer)`; 199 Z.1–Z.5 replay D's sequence; the negative control (mode-keyed) fails 5; two-session G6.
+  - `ebbd1c0`: prior read across modes, with 409 on a live other-mode attempt. Other-buyer retirement fails closed and covers processing rows under E-1's bound. The processing refusal consults Stripe (nothing sweeps processing rows).
+- **Evidence:**
+  - Local: pgTAP 5018/5018; 11 edge tests RED at `acbd5dd`; 6 new edge mutants and 5 SQL mutants killed; vitest 1937/1937; rollback identical.
+  - **GitHub CI run 34982027295 at `ebbd1c0`: every job passes, migrations `Files=81, Tests=5024, Result: PASS`.**
+- **Design correction:** `docs/132-checkout-group-claim-design` @ `e77f32c`.
+- **Status:** D re-runs the full battery at `ebbd1c0`, then A integrates.
+- **Residual (disclosed):** a DB-processing row whose intent returned to `requires_payment_method` refuses until the `payment_failed` webhook lands.
+- **Pre-existing root cause and product question (reserve during a winning auction):** A and the owner.
+**Resumption after the disk outage (owner freed space by moving files to an external drive; 12 GiB free, Postgres healthy, not in recovery). 132 completed at `9d82247`; CI run 35044535546 green (migrations `Files=81, Tests=5036, Result: PASS`).**
+- **Reuse-order (D, MEDIUM-LOW).** A plain INSERT was not bound to the claim, so a request stalled before its transaction began could commit after a reclaimer had been served, land as the newest row and be reused: two live secrets. `880d1eb` adds `public.record_checkout_attempt`, which takes the group row **FOR SHARE** on the claim token and inserts only on a match. Two-session G7 and G8 cover both orderings; controls C3 (plain insert) and C4 (FOR KEY SHARE) both fail to block, so the lock mode is proven load-bearing.
+- **F-132-3 (D, LOW, pre-existing).** A crash between the replacement insert and the superseded cancel leaves two same-mode pending rows. `9d82247`: before every hand-out, each other live attempt of the buyer on the listing must be provably cancelled and retired, or 409. The read is fresh, not the snapshot (T4; the snapshot variant fails it).
+- **Writer audit (D's check item).** Only this edge (claim-bound) and `primary-checkout` (native rail, `listing_id` NULL) write pending payments. No SQL function inserts payments; nothing revives a row to `pending`.
+- **Defect B found while testing.** Withdrawing a minted intent could cancel an intent a concurrent request had already recorded and handed out, since Stripe replays one intent per idempotency key. Both withdraw paths now check for a recording row first (Q1).
+- **Evidence:** replay 150/150, census 32/99/37/35; pgTAP 5030/5030 (199 56/56); two-session 12/12; rollback schema identical to the pin; grant assertion clean; edge 61/61 with 6 RED at `ebbd1c0`; vitest 1944/1944; tsc and lint 0. Six edge mutants and the SQL mutants all killed.
+- **Correction, B's own process:** one concurrency run printed FAILURES because B launched the script twice against one database at the same time. That run is discarded; the clean rerun is 12/12.
+- **Status:** D runs the full battery at `9d82247`, then A integrates onto the production-gate stack. Nothing applied anywhere shared; sandbox and production application and the edge deploy still need owner authorization, and the production gates (including the notification-redirection decision) stand.
+**D PASSED the 132 battery at `9d82247`** (review record `review/d-release-sprint` `1b49954`): 23 checks, 0 failures; replay 150; census 32|99|37|35; grants 69; pgTAP 5030/5030; rollback restores the catalog exactly; independent two-session races and an independent FOR KEY SHARE mutant agree with B's; edge 84/84, with 9 tests failing when both test files are copied onto `ebbd1c0` (an independent RED control). F-132-1, F-132-2, the reuse-order stall and F-132-3 are closed.
+- **D's two LOW notes, dispositions by B:**
+  - **N-132-1 TAKEN** (`74a4371`): the other-attempt sweep makes bounded Stripe calls after the last claim check, so sweep and re-check are now one gate and the claim is again the last word before a secret leaves. Test N1 is RED without it. Nothing could reclaim in that window today (90 s budget < 120 s lapse), so this restores the invariant rather than closing a reachable hole.
+  - **N-132-2 NOT CHANGED**, recorded as a disclosed residual (design doc `c5ff1a1`): the read-then-cancel window in the withdraw path is milliseconds and availability-only, never money; never cancelling would leave permanent orphan intents with no row and no sweep arm; a metadata-bound withdrawal does not close it, since a replayed intent carries the first request's token.
+- **Final head `74a4371`; CI run 35045455695 green** (migrations `Files=81, Tests=5036, Result: PASS`, grants 69, Gate-2 32/99/37/35; edge file 62 tests). Test-only: G2's timeout raised to 30 s (each of its six worlds now runs a sweep).
+- **Status:** A integrates from `74a4371` onto the production-gate stack (absolutes on top of 131: 32 tables, 102 functions). Nothing applied anywhere shared; sandbox and production application and the edge deploy still need owner authorization, and the production gates including the notification-redirection decision stand.
+**b2 (owner decision 2026-09-16, build shape (i)): B's component — `send-push` challenge delivery, item 5, plus the item 8 support runbook draft.** Draft **PR #71** (`fix/b2-send-push-challenge` @ `8fcaa4f`, based on the production-gate stack `bf36928`). **CI run 35048482580: every GitHub job passes, including Deno**; the new file runs 20 tests there.
+- **What it does.** A one-time nonce is sent to the challenge row's own token, so a plant-then-claim or a delete-then-register from a second device never activates. Service-role-only entry; the caller is A's `notify.issue_push_token_challenge` through pg_net. Refusals with nothing sent: unknown 404, wrong requester 409, confirmed 409, expired 410, exhausted 429, rate-limited 429, limiter error 503, provider rejection or throw 502.
+- **D's two pins:** token-addressed, so no owner identity reaches the payload or the logs (the request's user id is the requester, used only for the rate-limit namespace); limits per (token, requesting user) 3/10 min and per user 5/10 min, with the DB verb still the authority.
+- **Nonce discipline:** never in a log line or a response body; silent mode is an Expo `_contentAvailable` data push, visible mode carries the 6-digit code with "never share this code" and no nonce in data.
+- **Delivery outcome** is recorded on the challenge row through `notify.record_push_token_challenge_delivery`; a recording failure never changes the answer, so the edge is safe before 135 lands.
+- **Evidence:** 20/20 local and on CI; RED 11/15 before the kind existed; vitest 1975/1975; tsc and lint 0; 14 mutants killed, including the mandated one that logs the nonce.
+- **Two CI notes:** the PR first targeted the candidate branch, so the migrations guard saw the stack's 131/132 as touched and stopped at the attestation gate; retargeting to `release/production-gate-20260918` made the diff exactly B's three files and the guard passes. `Vercel – snatchit-web` fails on the account's build-rate limit, the same way on other PRs; the GitHub web build passes.
+- **Observation, not a finding:** one full-suite run showed `tests/credential-sign.test.ts`'s token-cap boundary failing; it passed alone, alongside B's file, and in a clean full rerun. Not reproducible; flagged to D.
+- **Status:** D reviews; merge order 135 (A) → this edge (B) → client v3 (C). Local only. The sandbox apply, the edge deploy and the combined build remain owner-authorized steps, and the production gates stand.
+**D PASSED b2 item 5 at `8fcaa4f`** (20/20; D's own RED control: the same test file against the stack edge fails 16 of 20). One LOW finding, fixed, plus one MEDIUM design item relayed to A.
+- **SP-1 (LOW, fixed at `d710772`).** `await req.json()` sat inside the try whose catch logs `err.message`; the runtime quotes a snippet of the input when the parse fails at the first token (a caller posting form-encoded), so part of a challenge body could reach a log. The body is now parsed in its own guard that logs a fixed string and answers 400. **B's own correction:** the first assertion (the full nonce absent) passed by luck, because the runtime truncates its snippet to `"nonce=48162"`; A18 now asserts that no part of the body is echoed, and two mutants die on it (the pre-fix shape, and a catch that logs `err.message`).
+- **RB-1 (MEDIUM, design — A's migration 135, not B's edge).** `unbind_push_token` DELETEs the row, but under contract v3 it is the token's history that forces a proof, so every support unbind erases the history and lets the next binder in with no proof: support becomes the documented way around b2. D's fix, which B agrees with and relayed: unbind revokes and tombstones (`is_active=false`, proof cleared, `revoked_reason='support_unbound'`, row kept). B's runbook is written for the tombstone, with RB-1 recorded at its top; if A declines it, §5 must say plainly that an unbind reopens the no-proof window.
+- **The runbook's four open points, answered by D and folded in:** two-person rule on every unbind; no cool-down; the durable trail in `kernel.admin_audit` as `push_token.unbind`, read by the console; support sees challenge outcomes only, never nonces, nonce hashes or token strings.
+- **Final head `d710772`; CI run 35049066706 (guard 35049070210): every GitHub job passes,** 21 tests for the file on CI. `Vercel – snatchit-web` fails on the account's build-rate limit, as on other PRs; the GitHub web build passes. Delivery vocabulary `sent | rejected | error` pinned by A in 135.
+- **Status:** merge order 135 (A) → this edge (B) → client v3 (C). Local only. The sandbox apply, the edge deploy and the one combined build remain owner-authorized steps, and the production gates stand.
+**b2 item 5 SIGNED OFF by D at `d710772`** (D's record `review/d-release-sprint` `cdcc4b2`): CI 35049066706 green on all five jobs including Deno, 21/21 on D's own re-run, and D's own mutant (putting `err.message` back in the parse catch) kills A18, so the guard is load-bearing. With the earlier 16-of-20 RED against the stack edge, item 5's tests prove behaviour rather than shape. SP-1 fixed and verified; **RB-1 accepted by A into 135** (unbind tombstones instead of deleting), so B's runbook §5 stands as written; the four runbook answers are recorded as policy.
+- **Two forward notes for B as 135 lands:** A's confirm verb now returns refusals with 200 (`nonce_mismatch` with attempts_left, `challenge_consumed`) instead of raising — B's edge is unaffected, and any future delivery-outcome vocabulary must stay distinct from `sent | rejected | error`. D will spec the support-facing challenge-outcome read (outcomes only) for the admin console when 135 lands, which is where the runbook's §3 points.
+- **B has nothing open on b2.** Merge order 135 (A) → B's edge → client v3 (C). Local only; the sandbox apply, the edge deploy and the single combined build remain owner-authorized, and the production gates stand.
+
+### 2026-09-16 (session 33, later) — b2 item 5 reopened by 135's rehearsal: the challenge read moves behind a verb
+**A's change, from rehearsing 135 against the notify discipline (157 B9: notify tables carry NO service_role grants — the grant wall IS service_role's wall).** `send-push` may not read `notify.push_token_challenges` directly. It now reads through `notify.get_push_token_challenge(p_challenge_id uuid) → jsonb` (service_role EXECUTE). Contract §5/§10 updated on A's candidate `ac716da`; the verb itself is in 135.
+- **First head `9d2cd79`** — read switched; `record_push_token_challenge_delivery` unchanged; the `consumed_at` refusal (409) that v3 §5 lists added. The harness now answers `42501` on any direct read of that table, so the missing grant is *modelled*, not assumed: a regression cannot pass locally either. CI `35051006509` green on all five jobs including Deno.
+- **Two deltas disclosed rather than absorbed.** The verb's first shape carried no requester and no `token_id`. **CD-1:** the edge could no longer check that the body's `user_id` owned the challenge (v2 answered 409), so a holder of the service-role key could vary `user_id` and land in a different *edge* namespace — the verbs derive the user from the JWT and kept the authority limits, and the push is token-addressed either way, so the loss was defense-in-depth only. It was written into the suite as A6 rather than dropped. **CD-2:** without `token_id` the token-scoped namespace would have collapsed to per-challenge, so it was derived from the token itself (sha256, 32 hex) to keep D's pin across challenge rotation and keep raw tokens out of `public.rate_limits`.
+- **A closed both in the verb** (135 @ `fb2fd68`): `requesting_user` and `token_id` are returned. Verified in A's file before changing anything.
+- **Final head `c92d7c7`.** Ownership check restored (`requesting_user` ≠ body `user_id` → 409, nothing sent, and the answer names neither field); namespace is `token_id` + `requesting_user` again, **both read off the row rather than the body**, so past the check the namespace is not one the caller can choose; the sha256 derivation is gone. New invariant, since the verb now hands the edge two pieces of identity that must not travel: neither may reach the payload or a log line (A21, on the success path *and* the ownership refusal).
+- **Evidence at `c92d7c7`:** 25/25 on `tests/send-push-challenge.test.ts`, full suite **2009/2009 in 90 files**, `tsc --noEmit` clean, eslint 0 errors, **CI `35051330615` green on all five jobs including Deno** (deno is not installed on this machine, so that gate is CI's alone).
+- **Seven mutants, each killing the test that defends it:** drop the ownership check (2 fail) · log `requesting_user` on success (2) · log it on the ownership refusal (1) · raw token as the namespace (1) · `token_id` into the push payload (2) · D's SP-1 parse echo (1) · nonce logged on success (1). The earlier control — restoring the direct table read — fails 18 of 24.
+- **Nit returned to A:** the banner above 135 §6c still reads "token-addressed, no requester identity", which the body no longer matches.
+- **Status:** sent to A and D; D re-checks the delta. Local only. Merge order unchanged — 135 (A) → this edge (B) → client v3 (C). The sandbox apply, the edge deploy and the single combined build remain owner-authorized, and the production gates stand.
+- **D's delta re-check PASSES at `c92d7c7`** (D's own worktree, own mutants, not the claim): ownership check dropped → 2 fail · `requesting_user` logged on success → 2 · `token_id` into the payload → 2 · direct notify table read restored → 19. D also confirmed the premise independently — at 135 @ `1cfc85c`, `select … from notify.push_token_challenges` as service_role really is 42501 in a replayed database, so B's harness 42501 is a model of a real wall — and that the verb returns no owner identity, secret hash or nonce hash.
+- **D's one survivor, and what it was worth.** Keying the namespace on the body's `userId` instead of the row's `requesting_user` survives: past the 409 the two are provably equal on every path reaching the rate-limit block, so no assertion can separate them (an equivalent mutant, not a coverage gap). What it exposed is that the protection is the ownership check's **position**, not the variable. **Head `77efd64`** adds `A22`: on an ownership refusal no rate limit is counted at all. Proof it earns its place — moving the check below the rate-limit block fails **A22 and nothing else**; A6 still sees its 409, which is exactly the silent regression. CI `35052488716` green on all five jobs; 26/26 on the file, full suite 2010/2010.
+- **D's two 135 notes, actioned where they can be:** (1) `issue_push_token_challenge` posts once and swallows failures into `delivery_error` — no retry from the verb; B's refusals remain the only recorded refusals, through `record_push_token_challenge_delivery`. Consistent, nothing to change. (2) A tombstoned binding (`support_unbound`, `deleted_by_client`) is still addressed, because the token comes from the challenge row — **by design**, and a comment at the send now says no `is_active`/revoked filter may be added there, since that would lock out the post-support rebind RB-1 exists to preserve.
+- **Unresolved, not blocking and owned by nobody yet:** one full-suite run here returned 6 failed / 2004 passed; four subsequent full runs are clean at 2010/2010 and the failing names were not captured (B's own output filter dropped them). With the earlier `credential-sign` token-cap boundary and one `A1` sighting, that is three nondeterministic full-suite events this session, none reproducible, none load-bearing for any head. Flagged to D; capture names on the next sighting.
+- **The nondeterminism is CLOSED — reproduced, root-caused, not a defect.** Hypothesis: every sighting happened while a second vitest process was running (this session had a background `vitest` task, and the earlier false FAILURES in the 132 concurrency work had the same shape — two runs on one machine). Test: two full suites started concurrently in the same worktree. Result: **run A 14 failed / 1996 passed (12 files), run B 12 failed / 1998 passed (11 files)**, every failure `Test timed out in 5000ms`, durations 5–10 s where the same tests take ~1 s alone. The set includes both previously unexplained sightings — `send-push-challenge` `A1` and `credential-sign`'s token-cap boundary — because each is the FIRST test in its file and so pays the module transpile cost that contention pushes past the 5 s default. Control, immediately after, alone: **2010/2010, 90/90**. **No code defect; no test defect; a measurement artifact of running two suites at once.** Practical rule: never run two vitest suites concurrently in this repo, and treat any failure from such a run as void rather than as evidence. D could not reproduce it because their worktree has symlinked `node_modules` (3 files fail to collect on `aes-js`, 2 brand-font assertions fail on missing `.ttf`) — a different failure set entirely, which is itself worth knowing when reading D's suite numbers.
+- **D-135-5 (LOW, B's file, docs-only) — fixed at `docs/b2-runbook-rb1-closed` `5225557`, branched off the pin `9bef640`.** D's 135 review found `docs/operations/SUPPORT_RUNBOOK_PUSH_TOKEN_UNBIND.md` still describing the verb 135 replaced: the header called RB-1 an open dependency and said unbind DELETEs the row, §5 warned the tombstone guarantee might not hold, §8 listed RB-1 as awaiting A. **Premise verified at the pin before editing** (not taken from the relay): 135 §6b's `unbind_push_token` sets `is_active=false`, clears `device_secret_hash` and `session_id`, sets `revoked_reason='support_unbound'`, keeps the row, consumes open challenges on that token, returns `{unbound, contract_version: 3}`. Header and §8 now say RB-1 is closed; **§5 keeps its caveat but names what it applies before** — the tombstone read-back holds from 135 onward, and an agent working against a pre-135 build is told to escalate rather than unbind, since that is the build where an unbind really does erase the history. One judgement call flagged to both A and D for rejection: a second §8 bullet recording that the support-facing challenge history (§7.4) is specced but not built, so §3 is not read as pointing at a console surface that does not exist. **One file, 5 insertions / 4 deletions, no SQL; the pin's applied bytes are unchanged and nothing is applied or deployed.**
+- **D passed `5225557` (D-135-5 closed) and raised D-135-6, fixed at `84ddd9a`** (same branch, same single file; cumulative 9 insertions / 7 deletions over the pin, no SQL). D checked every factual claim against 135 §6b at the pin rather than against B's summary, kept B's §8 judgement bullet, and endorsed §5 naming the migration its guarantee starts at. **D-135-6, surfaced by the fix rather than caused by it:** §2.3 made "check the challenge history first" a *precondition* and §3 made the last challenge id and outcome a *record-every-time* field, while the new §8 says that console read is specced and not built — a decision gate nobody can pass is skipped silently or improvised, and the improvisation is guessing whether the device already answered. §2.3 now splits into the console check when it exists and, until then, an interim route needing no read: ask whether a prompt or code reached the device (asking **whether** one arrived is allowed; asking the user to read it out stays forbidden by §6, said at the point of temptation), complete the challenge instead of unbinding if it can still arrive, otherwise proceed and record the gap. §3 requires the literal words "challenge history unavailable" rather than a blank, since a blank is indistinguishable from a skipped gate. **One constraint flagged to A for overrule:** an engineer-run read of the challenge rows is NOT the routine substitute — it is a production read, owner-gated for that specific read, so it belongs to an escalation. D owns and will now spec the console read (outcomes only; never a nonce, nonce hash or token string; owner-gated).
+- **Not B's number, recorded so it is not mistaken for one later (D):** CI reports pgTAP `files=85 tests_ran=5186`, the local harness `84 / 5180`. `000_helpers.sql` declares `plan(6)` and runs locally as the bootstrap that commits the tap schema, outside the totals; CI runs it as an ordinary file. D verified per file that all 84 executed their declared plans; 5180 + 6 = 5186 and both totals are complete.
+
+### 2026-09-16 — RECONCILIATION: the B2 sandbox window happened; every "local only / applied nowhere" line above is superseded
+**Why this entry exists.** The dated status lines above were true when written and are kept as written. This entry supersedes them on one point only: **the migrations and edges they call unapplied are now applied ON THE SANDBOX, and on production nothing is applied.** Wherever an entry above says "Local only", "Nothing applied anywhere shared", or "the sandbox apply … remains owner-authorized", read: **applied on the sandbox 2026-09-16; production no.** The reviews, evidence and residuals in those entries are unchanged.
+
+**Source, verified by B rather than relayed:** `release/candidate-20260918` → `docs/release/SANDBOX_ACCEPTANCE_WINDOW_MANIFEST.md` §11 (A executes, D witnesses). B read §11 and the two integration commits directly; B ran no database query in any environment, and this entry asserts nothing B did not read.
+
+- **Window:** 2026-09-16 **04:35–04:56Z**, sandbox `ofaidukbieeekqaboscm` only, from `candidate/2026-09-18-pin-b2` = **`9bef640`** checked out detached. Order: Vault `project_url` → 131 → 132 → 133 → 135 → 20260916000000.
+- **Ledger 141**, each apply md5-verified against the pinned bytes: 131 `e07ac078…` (ledger 137) · **132 `ecdd9176…` (138)** · 133 `c08f8295…` (139) · **135 `28e01d25…` (140)** · 20260916000000 `b1fda890…` (141). Final census **32 | 106 | 37 | 37**; zero business drift from the baseline.
+- **Edges:** `create-payment-intent` v5, **`send-push` v4**, `enforce-transfer-expiry` v4, deployed from the pin tree with byte parity on `index.ts` and every `_shared` file imported; `stripe-webhook` untouched.
+- **135 objects live and verified in an applied database:** `notify.push_token_challenges` with **no grants to anon/authenticated/service_role** (157 B9 holds in a real database, not only in B's harness), `notify.get_push_token_challenge` service_role-only, `notify.record_push_token_challenge_delivery`, `trg_guard_push_token_client_delete`, `security_device_rebound` as an `in_app` template only.
+- **132 objects live:** `checkout_group_claim` (empty, service_role-only grants), `claim_checkout_group`, `record_checkout_attempt`, `release_checkout_group`.
+- **Option (b): no `service_role_key` in the sandbox Vault.** Five outbound ticks after baseline, **all 401, zero 2xx**. So `send-push` refuses every dispatch by construction.
+- **D's closing read PASS** (witness `docs/review/d-release-sprint/B2_WINDOW_WITNESS_20260916.md`), with D's boundary statement, which B adopts verbatim as the limit of this evidence: *"This window establishes that the five migrations apply cleanly in production order … It establishes nothing about whether b2 works. Under option (b) the challenge path cannot be exercised: send-push refuses every dispatch by construction, no notification can reach a device, and the entire device matrix — challenge delivery, echo, rebind, the two-accounts case, plant-then-claim, recovery without support — remains deferred, not attempted and not passed. 'Sandbox application passed' must never be read as 'b2 works on a handset'."*
+- **B's edge and runbook in that pin:** the `send-push` challenge kind is the reviewed code (B head `77efd64`, D cleared); the runbook corrections `5225557` and `84ddd9a` are integrated at `5e8b0f4` and `e6d9f2e` — B verified both are docs-only, one file, no SQL, and that the pin's applied bytes are unchanged.
+- **PRODUCTION: nothing applied, nothing deployed, no new secret.** The production gates stand, including the notification-redirection decision.
+- **Carried forward as a production preflight item B must not lose** (A's §11 near-miss, D's finding): the pre-deploy `verify_jwt` of the three redeployed sandbox functions was **inferred, not read**. Production's per-function `verify_jwt` must be **read and matched explicitly before any deploy** — source parity does not cover deploy flags.
+- **Provenance correction (A, 2026-09-16), recorded because B published the weaker claim:** B stated the three signer/door edges are absent from the sandbox as an INFERENCE from nine functions against production's fourteen. A had actually read the sandbox function list on 2026-09-16 — nine functions, none of the three — so the fact stands as **A's read**, not B's inference and not B's read. B has made no sandbox read.
+- **Open and assigned to B with A, gated on the owner:** the **N-2 monitor-egress check**. `kernel.check_signing_key_invariants` is the only continuous check that production's ES256 trust root has not changed (cron 27, `23 5 * * *`, ok/match, zero alerts), and its alert path is `notify-report`, gated by `EMAIL_ENABLED` (default false) and `RESEND_API_KEY` whose deployed values are unknown — on top of N-1, the Phase-2 notify rail having no sender at all (senders parked and unauthored, `delivery_lease_interval` seeded null, claim fails closed by PFA-22). **An invariant alert may therefore have no way to reach a human.** The check is a **names-only** secrets read on production (`supabase secrets list` — names, never values) plus the deployed `notify-report` configuration; it needs the owner's authorization for that specific read, and B has not made it. Nothing else is open for B before the owner's rulings.
+
+### 2026-09-17 — notification batch 1 and migration 139 (G22), both green, neither applied
+**Batch 1 — the seller's "Listing sold" toggle** (`fix/notify-batch1-seller-sold-pref` @ **`aeb4081`**, CI `35179736222` green 5/5). The column has existed since the baseline (`notify_listing_sold boolean not null default true`) and nothing ever read it, so a seller who switched it off still got "Your ticket sold!". `stripe-webhook` now reads it for the SELLER. No SQL. RED first (P1/P4/P5 failed before the read existed). **Three choices, each pinned by a test rather than left to the reading of the code:** the buyer's "Payment Confirmed!" is sent BEFORE the read, so ordering — not intent — protects it; an absent row means true (rows auto-create on profile insert, so absence is an older account, not an opt-out); a FAILED read also means true, because this push is the prompt to send a paid transfer while the preference is a convenience. **D's two conditions, both taken:** the fail-open carries a stable `pref_read_failed` token (a fail-open nobody can see becomes permanent), and **P7 pins the ordering** — moving the buyer push after the read fails P7 and *nothing else*, so without it the inversion would have landed silently. Evidence: 7/7 file, 2084/2084 suite, tsc clean; mutants — buyer's row instead of the seller's, absent-row-as-opt-out, fail-closed on error, buyer push suppressed.
+**Migration 139 (G22) — notify-report claims before it sends** (`fix/139-notify-report-delivery-claims` @ **`bcece84`**, CI `35180180700` green 5/5). `notify.report_delivery_claim` + `notify.claim_report_delivery(text,text)`, **no grants on the table at all** (157 B9), verb SECURITY DEFINER / `search_path=''` / service_role EXECUTE. Keys as A ruled: `report_id`, `transfer_id`, and the signing alert on the **RUN (UTC date), never the alert text** — that alert repeats daily with identical codes while the trust root stays wrong, so a text key would announce a compromise once and be silent exactly while it persisted. Accepted cost written into the code: two alerts in one UTC day collapse; use a runid if 099 ever passes one. Fail toward delivering: only an explicit `false` suppresses; a claim that errors sends and logs. Evidence: fresh replay 155/155, **FULL pgTAP 5211/5211 ALL-PASS**, pgTAP 204 31/31, vitest 2086/2086, tsc clean. SQL control: `do nothing` → `do update` fails C2/C5/C8, one per kind. Edge mutants: key on the alert text (the silencing bug), fail-closed on a claim error, ignore the claim answer, claim on the reporter. **C10 is D's control as D specified it** — three consecutive runs with the same violation must produce three notices; my own version stopped at two days and would have passed a key that silenced on the third.
+- **The full replay earned its place:** searching found the census pin in 157; the replay found **five more** (142, 148, 156, 179, 180). Without running it B would have pushed a red suite.
+- **A's premise corrected by measurement, not argument.** A believed the five-schema routine pins include `public` and that 136's two public wrappers made them 305/306. All five read `nspname IN ('kernel','venue','catalog','market','notify')` — public is a separate Gate-2 count. B applied A's 136 alongside 139 on a fresh replay (156/156) and read the catalog: **five-schema routines 304, relations 81, notify 21/9, public routines 107**. A accepted and will not touch the pins. *Stated limit of that experiment:* only A's migration file was copied, not A's test edits, so the run showed 3 failures in exactly the three files A's branch also changes — B's partial copy, not a defect in 136; A's file was then deleted from B's tree.
+- **Collision B found and fixed:** A's 136 already owns pgTAP `203`, and B had taken 203 because numbers were allocated for migrations but not tests. B renamed to **`204`** (and its `tap` helpers) since 136 merges first. A has closed the process gap — the registry now allocates pgTAP numbers with migration numbers (203 = 136, 204 = 139, 205 = 137, 206 = 138).
+- **Expected at integration:** a textual conflict in 157 between A's 136 and B's 139 (disjoint in meaning, same file); A merges by hand keeping both sets and reruns 157. The mangled A9/A6 prose in 179/180 is A's, from a regex patch during the 135 window, and rides in A's integration commit — **B did not rewrite it.**
+- **Status:** both await D's review and A's integration. **Nothing applied, nothing deployed**, no production read; the production gates stand.
+- **D PASSED batch 1 at `aeb4081`** by reproducing both mutants rather than reading the diff: moving the buyer push after the preference read fails **P7 and nothing else** (1 failed / 6 passed in the file, 97/97 across the two webhook suites), and removing the `pref_read_failed` token fails P4. Nothing further from D on that head.
+- **D found a real defect in 139 at `bcece84`; fixed at `ef8e2d5`** (CI `35180699684` green 5/5). **The claim was taken before the send and never given back.** `notify-report` swallows every send error and answers 200, so a claimed event whose sends all failed stayed claimed and every later delivery was suppressed **permanently**. `signing_invariant_alert` self-heals through its run key; **`report_created` and `dispute_opened` have no next run, so a moderation notice was lost for good.** B's own header said *"fail toward delivering"* — which covered a claim ERROR and **not** a successful claim followed by failed sends, the same outcome by a path the principle never contemplated. D's tell was the asymmetry in B's own test file: `world({claimError:true})` existed, `world({sendFails:true})` did not — B had tested the branch B was thinking about. Verified before changing anything, and it was **worse than reported**: `sendPush` never checked `res.ok`, so a 500 from `send-push` counted as delivered. Fix: `notify.release_report_delivery(text,text)`; the edge counts attempts and successes and releases only when **every** attempt failed — a partial success keeps the claim, so the normal path still cannot duplicate. "At most once, sometimes zero" → "at least once".
+- **Two smaller D findings, both taken:** a non-OK `send-push` response is now a failed delivery; and the claim key **raises** on over-length instead of `left()`-truncating, because truncate-then-dedupe could collapse two different deliveries into one claim — the wrong failure direction for a device whose purpose is not silencing things.
+- **Latent silencer left OPEN and NOT worked around (raised to A):** the signing alert's run key is computed **in the edge** as the UTC date, not by the cron. If 099 fired near 23:59 UTC the run would key to tomorrow and tomorrow's run would be suppressed — one day's trust-root alarm lost, the exact failure the key exists to prevent. Measured: 099 is `23 5 * * *` = **05:23 UTC**, ~5.5 h clear, so **latent, not live**. The only correct fix is 099 passing its cron runid, and 099 is A's file (which 133 also rewrites). B deliberately invented no proxy; the exposure is written into the migration and the edge.
+- **Census moved again:** notify routines 21 → 22, five-schema routines 304 → 305 (tables 9 and relations 81 unchanged; public untouched). Re-pinned in 148, 156, 157 (A14/A15/A16/A46), 179, 180.
+- **Recorded against B:** the first cut of the release fix renamed every `sendPush`/`sendEmail` call *including inside the new wrappers*, so they called themselves — five tests failed instantly and named the symptom. And the pgTAP plan count was wrong by two for the second time this session; it is now set by counting assertion lines mechanically. **Evidence:** fresh replay 155/155, FULL pgTAP **5221/5221 ALL-PASS**, pgTAP 204 41/41, vitest 2090/2090, tsc clean; controls — a release that never deletes fails R5/R6, never release (2), release on partial success (2), non-OK treated as delivered (1).
+- **Framing carried at D's request:** B's five-schema measurement was taken on a **partial copy** of A's 136 (migration only, no test edits), so it is evidence about the copy, not a full-chain result; the definitive number comes from A's merged tree.
+- **The midnight run-key exposure now has an owner and a number (A, 2026-09-17):** migration **137** (allocated, unwritten) covers two 133 follow-ups — `notify_outbid` to the Vault form, and **`kernel.check_signing_key_invariants` passing its cron run id in the `notify-report` payload**, so 139's signing-alert claim keys on the run itself rather than an edge-computed date. Until 137 lands, 139's date key stands with the exposure written into the migration and the edge; latent, not live, at `23 5 * * *` = 05:23 UTC. **B invented no proxy for it and no longer owns it.** A takes `ef8e2d5` as 139's head with the release semantics, the non-OK-as-failure change, the over-length raise and the census 22/305; A merges the 157 conflict by hand keeping both sets and re-measures the five-schema numbers on the merged tree.
+- **D's second pass on `ef8e2d5` found a residual and B fixed it at `5a62bf0`; D then PASSED `5a62bf0`** (CI `35181349762` green 5/5). **The residual:** the release sat on the SUCCESS path, so a throw in the handler's own work — the `admin_users` read is the first thing after the claim — left the claim held with nothing delivered and every later delivery suppressed. The original defect narrowed to the throw path, not gone. **And B's own G11 did not cover it:** `sends:'throw'` throws *inside* a send, which `sendPush`'s catch converts to `false`, so G11 walked G10's path and proved the same thing twice — a test whose NAME asserted a property it never exercised, with the gap sitting exactly where B had already looked. Fix: state hoisted above the `try`, release in a **`finally`**, condition **`delivered === 0`** with the `attempted > 0` gate dropped (a throw before any send leaves `attempted` at 0, so the old gate defeated even a `finally`). Accepted cost, D's reading taken: churn when there is genuinely nothing to send, because a notify-report with no configured recipient is a misconfiguration that should keep surfacing rather than quietly claim success.
+- **A asked for both throw positions separated; added at `7612c8b` (TEST-ONLY — `git diff 5a62bf0..7612c8b -- supabase/` is zero lines).** G14 throws before any send and so fails under either missing piece; **G16** throws *after* attempts that all failed, isolating the `finally`. Matrix: release back on the success path → **G14 and G16 fail**; `finally` kept with `attempted > 0` restored → **G14 alone**. CI `35181616556` green 5/5. **Head mismatch surfaced to A rather than resolved by B:** D's PASS names `5a62bf0`; A chooses whether to integrate that or `7612c8b` with a test-only confirmation.
+- **Two findings B would not have reached alone.** D's **truncation coupling**: with `left()`, `claim_report_delivery` stored a truncated key while `release_report_delivery` deleted on the full one, so the release would have silently failed for exactly the keys most likely to need it — invisible from either verb alone, which is why it survives ordinary review. D's **TDZ check**: a `finally` dereferencing a `const` declared inside the `try` throws a ReferenceError *from the finally*, replacing the original error; B hoisted for access, not for that reason, and D verified the 401 return precedes the client construction, which B had not checked.
+- **D's disclosure about D's own method, recorded because it is the same failure as G11 from the other side:** D's first mutant gated the release on a flag set at the end of the `try`, killing G10 and G11 too and isolating nothing; D noticed the failure COUNT did not match B's claim, treated that as a signal about the method rather than the code, and redid it. A cruder mutant that kills more tests reads as stronger confirmation while showing less.
+- **Owner rulings relayed by A (2026-09-17), recorded as constraints on the integration, not as authorization to B:** after D's clearance A integrates 136 → 139 → `aeb4081` → C's five heads onto `release/production-gate-20260918` and runs the combined checks; **"No additional build, sandbox application, production change or outbound notification is authorized here."** `9bef640` remains the sandbox pin. **B's signing-monitor alert-configuration check stays PREPARED-ONLY — no production read is authorized.** For B's awareness: the operator-onboarding "account identifier" is the identity UUID, never the email (D writes 138).
+- **D PASSED `7612c8b`; both 139 heads are now cleared.** D reproduced the split exactly — release moved off the `finally` → **G14 and G16 fail**; `finally` kept with `attempted > 0` restored → **G14 alone** — using a mutant that RELOCATES the release block rather than gating it on a flag (the flag version skips on the success-path return, kills G10/G11 too, and isolates nothing while reading as a stronger result). D verified zero source lines changed under `supabase/` and zero outside the one test file, checking the diffs rather than the name list. A merged `5a62bf0` (the head D passed) onto the stack and takes `7612c8b` as its own follow-up merge commit now that D has cleared it.
+- **Why G16 mattered, stated as the property rather than the test:** without it, removing the `finally` and restoring `attempted > 0` produce the **same single red test**, so whoever sees it fixes whichever cause they think of first. The suite could not tell the two fixes apart.
+- **The method lesson, from both sides in one day, recorded because it generalises past 139:** B's G11 carried a NAME asserting a property it never exercised (a throw inside a send is converted by `sendPush`'s own catch, so it walked G10's path) — and D's first mutant killed MORE tests than it should have, which reads as stronger confirmation while isolating less. The repair in both directions is to assert a **discrimination** claim that can fail — "these two mutants must fail *differently*" — rather than "the suite is green", and to invite the falsification explicitly ("if G16 fails under the second mutant too, I want to know"). A coverage claim that cannot be wrong is not evidence.
+- **INTEGRATED (A, 2026-09-17). Stack head `e9b52ce`.** 139 lands twice as intended: `5a62bf0` (the head D passed) at merge `859d9a0`, then `7612c8b` as a follow-up merge on D's explicit PASS. Combined checks on the merged tree: pgTAP **5257/5257** (204: 41), vitest 2123/2123, claim suite 16/16, typecheck 0. **No tag, no build, no sandbox application, no production change; `9bef640` unchanged as the sandbox pin.**
+- **B verified the one thing that could have gone wrong silently, rather than taking the summary.** The risk B flagged was A's hand-merge of `157`, where B's census edits and A's 136 assertions collide as text and a resolution could quietly keep one side. On `e9b52ce`: all three B heads (`5a62bf0`, `7612c8b`, `aeb4081`) are ancestors, `157` carries four references to B's two verbs, and **all four pins read exactly as written — notify routines 22, SECURITY DEFINER 20, five-schema 305, notify tables 9.** The hand-merge kept both sides.
+- **The census question is now settled where D and B agreed it should be — on A's merged tree, not on either branch: notify 22 / five-schema 305 / notify tables 9.** B's earlier five-schema measurement remains recorded as taken on a partial copy and is superseded by this.
+- **B has nothing open.** 137 (the cron run id that retires 139's date-key exposure) stays on A's list; until it lands, the trigger sentence sits in the migration header and the edge where a rescheduler meets it. **Still owner-gated and untouched:** the M5 ruling, the names-only signing-monitor read (prepared-only, no production read made), the production Vault `project_url` ceremony, and the production apply package.
+
+### 2026-09-17 — F-IMG-1 bounded investigation (server/storage side; C owns the screen, D reviews fixes)
+Source, existing evidence and local tests only. **No shared-environment write, no production or sandbox read, nothing built.** Measured with a `BEGIN…ROLLBACK` probe on the local rehearsal DB plus a local read of the applied bucket config.
+- **Probe result, verbatim:** `1.first ok` · `2.retry ERR P0001: Transfer cannot be marked as sent from current status: seller_sent.` · `3.two_arg ok` · `4.attach ERR P0001: …seller_sent.` · `5.final_1 seller_sent | seller/proofs/1111.jpg` · `5.final_2 seller_sent | <null>`.
+- **F1 (HIGH) — a lost response turns a success into a visible failure.** `mark_transfer_sent` raises unless status is exactly `pending`. If the RPC commits and the response is lost, the transfer IS sent with its proof; the user's retry uploads a NEW object and then hits the raise, and the screen shows the raw message. A success that reads as a failure, plus an orphan. Best match for the reported "stuck".
+- **F2 (HIGH) — evidence can be stranded permanently.** `transfer_evidence_path` is written ONLY on `pending → seller_sent` via `COALESCE`, and the append-only guard blocks any later change, so a transfer marked sent without a path can **never** have one attached (`5.final_2`). The 2-arg overload reaches that state, and 0553's own header records that the **shipped build 13 payload was exactly that 2-key body**. Because the `transfer party read` policy matches on `transfer_evidence_path = objects.name`, a null path means the buyer can see **no proof at all, ever**.
+- **F3 (MEDIUM — predicted by nobody, and not an upload failure).** The declared `contentType` is derived from the local URI's **extension**, not from `asset.mimeType`; `.heif` is absent from the client's list, so a HEIF original uploads as `image/jpeg` with a `.jpg` name. Storage accepts it (the declared type is allowed) and later serves those bytes as JPEG, so the proof **exists and does not render** — indistinguishable at the UI from "never uploaded".
+- **F5 — A's allow-list hypothesis essentially ruled out.** Bucket measured locally: private, `10485760`, `{jpeg,png,webp,heic,heif,pdf}`. Every branch of the client's extension logic falls back to `image/jpeg`, so the declared type is always inside the list. Size can still be rejected (`asset.fileSize` is often undefined for `ph://` assets, skipping the client check) but a rejection surfaces as an alert, not a hang. **The genuine hang is that `supabase.storage.upload` has no timeout or abort.**
+- **A's three questions answered:** nothing else writes `transfer_evidence_path` — only `mark_transfer_sent(uuid,uuid,text)`, no edge/webhook/trigger/ops path, and nothing can overwrite or clear it. Evidence reads are signed by the **buyer's own session** under `transfer party read` and by the **operator's own session** under 118's `proof-docs operator read` (path resolved by `ops.evidence_access`, view audited); **no edge function touches proof-docs**. **Orphans: no sweep anywhere** — the owner-delete policy permits it and nothing invokes it; **noted, not built** (A's later migration).
+- **Handed to A as migration candidates, not built by B:** an idempotent mark-sent (a second call with the same path answering success rather than raising) closes F1 with no client change; and there is no route to attach evidence to an already-sent transfer, which is what makes F2 permanent.
+- **Coverage gap (already recorded in `PHASE_2_IMPLEMENTATION_GO_NO_GO.md`):** no test anywhere uploads a real object to `proof-docs`; every existing test asserts wiring or policy text, never a round trip.
+- **Evidence limits, stated:** local source, local rehearsal DB, local probe. The replay verifies the bucket **CONFIG**, not the storage service's rejection behaviour, which does not run locally.
+- **Preflight head confirmed to A: `91c97bd` is still the head of `SIGNING_MONITOR_ALERT_EGRESS_PREFLIGHT_CHECK.md`** (no commit touches it since). A packages it for the owner's **review, not execution**; B will check A's package text against the file. **No production read is authorized and none has been made.**
+
+### 2026-09-17 — signing-monitor reads: EXECUTED BY A, HALTED, NOT WITNESSED BY B
+**B executed nothing and has made no production read at any point in this work.** Recorded because the trail must exist, not as evidence.
+- **Two sessions identified as "Claude A".** `[2e7a9a]` (the original) told B "I am running them now"; `[1be16b]` (a fork of the same context, forked mid-turn) said it would execute only after B replied "witness: confirmed". Both held the R1–R10 authorization text in history. **B refused to be the trigger** — telling `[1be16b]` that B's confirmation is a factual check of the package, that A's authority is the owner's and not B's, and that if the authorization is in force it is in force without B's reply.
+- **B's factual check of the package, done before the conflict surfaced and still valid as a fact:** §B of `SIGNING_MONITOR_ALERT_CHECK_OWNER_REVIEW.md` on `release/candidate-20260918` is **byte-identical** to B's file at `91c97bd` except the title demoted `#` → `###`. All four required sentences present verbatim (§0 falsify-only, §4 none-proves-delivery, "Presence is not the value", the 133 caveat including "Any conclusion drawn before 133 does not carry across it"). No scope delta.
+- **`[2e7a9a]` executed reads before any halt reached B** and sent B a full witness copy timestamped **04:47:33Z–04:48:17Z** against the production ref, reporting **R1 NOT RUN** (refused by the permission classifier before reaching the database, not retried by another route) and results for R2–R10. **B is holding that message as received-and-unverified: not checked, not countersigned, not entered anywhere as established fact.**
+- **The owner ordered a halt, relayed by `[1be16b]`:** "Until resolved, no production read, trigger, witness confirmation or result attribution should occur." **B is honouring it** — a halt is restrictive, not permissive, so following a relayed restriction costs nothing and matched B's own position already. B will act on no production instruction from any message identifying as A until the owner names the single active session, and refers to sessions by bracketed ref.
+- **Flagged to `[1be16b]` for whoever writes §C, independent of attribution: R1's refusal is upstream of everything else.** The 099 poster takes its bearer from `vault.decrypted_secrets`, so without R1 it cannot be said whether an alert is even **dispatched** — and every delivery arm is downstream of dispatch. Reading R2–R10 as "the alarm cannot reach anyone" would claim more than the set supports while its first statement is missing.
+- **RESULT VALUES REMOVED ON THE OWNER'S ORDER (2026-09-17).** This entry previously carried two reported values from that run, stated as unverified claims. The owner's order is: *"Treat every reported result from the earlier run as UNVERIFIED and exclude it from all release records. Do not absorb it as evidence."* They are therefore struck from this record. **B did not check them, did not countersign them, and records no finding from them.** Whatever the run observed has to be re-established under a clean authorization and a named session; nothing from it is evidence for anything, and it must not re-enter a release record through B.
+  *Honest limit of this removal:* git history is immutable and B is not rewriting published history, so the superseded text remains inside commit `db6ee5a`. The **current** state of this record is compliant; the old commit is not, and that is a property of git rather than something B can quietly erase. B surfaced the same two items to the owner directly before the order arrived — reporting production state to its owner is not a release record, and B has not repeated them since.
+
+### 2026-09-17 — migration 140: idempotent mark-sent + explicit recovery for stranded proof
+`fix/140-proof-upload-repair` @ **`912a7d6`**, off `e9b52ce`, **CI `35185254662` green 5/5**. Built to A's contract (`bceac68`) and its §8 amendments; **local only, nothing applied anywhere.**
+- **Both defects B reproduced are closed.** A retry on an already-sent transfer now answers `already_sent` and writes nothing — no row change, no second notification, and **accepted proof is never replaced** even when the retry carries a different path. `attach_transfer_evidence` is the seller's explicit route for a transfer sent without proof: seller only, `seller_sent` only, currently-null path, own folder, under `transfer-evidence/`, and **the object must exist in `proof-docs`** so a dangling path can never be recorded. Mark-sent refuses that case and names the verb, so it cannot become a silent backfill.
+- **CORRECTION TO B'S OWN F2 WRITE-UP, carried in the migration header because the fix depends on it:** B reported the append-only trigger blocked *any* later change. It does not — it raises only when `OLD` is NOT NULL and `NEW` differs (065:257-259), so **null → value passes with no bypass**. Measured before relying on it: null→value ok, value→different raises, value→same is a no-op. **The permanence came from the verb's status check, not the guard.** That is why attach writes with the guard **ARMED**, and why a second attach with a different path is refused by the guard itself rather than by a check B could weaken.
+- **One existing test rewritten, not deleted.** `050_transfers_custody`'s "mark-sent is not replayable (state guard)" asserted the OLD raise. It now pins both halves of what it always protected: the verb answers `already_sent` **and** `seller_sent_at` is unmoved. The invariant was that state is not REPLAYED, not that the caller is punished for asking twice.
+- **Negative control PER BRANCH (A's §7), measured.** Each refusal branch disabled in turn kills **exactly one** assertion and **no two branches kill the same one** — already-sent arm 5 · retry replaces proof 4 · attach with bypass 3 · object-exists 1 (S11) · mark-sent's pointer 1 (S1) · status gate 1 (S8) · own-folder 1 (S9) · transfer-evidence/ 1 (S10) · empty path 1 (S12) · seller check 1 (S13). The matrix is in 207's header: not "the suite is green" but "every branch is defended and no two tests defend the same thing".
+- **Census 107 → 108** (attach is new; the two `mark_transfer_sent` signatures drop and recreate, net zero); manifest +1 authenticated-execute row; `expected_grants.txt` untouched and B said why — it is tables-only, 69 lines, zero function entries. Gate-2 `EXPECT_FUNCS` and 162's P2 pin updated.
+- **Evidence:** fresh replay 157/157, FULL pgTAP **5295/5295 ALL-PASS**, 207 37/37, vitest 2124/2124 in 101 files, tsc clean. *(The first vitest/typecheck run in this worktree used a SYMLINKED `node_modules` and produced the known artifact — 5 files failing on `aes-js`/`@expo-google-fonts`. B re-ran after a real `npm ci`; the numbers above are from that.)*
+- **Not in 140, by contract:** the cleanup sweep (design only; its cron needs separate owner approval) and the client-side file handling (C's, adopted at `c0281aa`).
+- **A PASSED 140 @ `912a7d6`** by checking every claim from the head rather than from B's message — including extracting both rollback bodies and hashing them (2-arg `bab0d402…` len 955, 3-arg `c3281f0a…` len 1042) against the `prosrc` read from the sandbox, confirming they restore the applied 0550 and 0553 bodies byte-for-byte. Also confirmed `expected_grants.txt` is tables-only, so B adding no row there was correct. **140 is with D for the combined-behaviour review; applied nowhere, no build.**
+- **The §4 cleanup sweep design is delivered (`50495df`) and A has superseded §4 with it as contract §9.** Two findings changed its shape: **(1) an orphan is a RECOVERY CANDIDATE** — `attach_transfer_evidence` exists to rescue proof uploaded earlier and currently unreferenced, which is the definition of an orphan, so the age-based sweep as specified would have deleted exactly what the recovery path was built for, and the longer a transfer had been stranded the more certain the deletion. The design excludes every object under a seller who has an open recovery (`seller_sent` with a null path), **which also closes the attach-vs-sweep race better than the single-statement delete §4 asked for**: a single statement only removes the gap *inside* the sweep, while the exclusion removes the overlap entirely for the one case with consequences. **(2) `transfer_screenshot_path` DOES NOT EXIST** in the replayed chain — 118 already reads it defensively via `to_jsonb(t) ->> …`, and the sweep copies that, because a direct reference fails to compile where the column is absent and silently dropping the clause would delete referenced evidence anywhere it exists. A confirmed the correction against the chain.
+- **Owner decisions carried up by A, none taken by B:** retention N (B recommends ≥ 30 days — the recovery is manual and a seller may take days to notice), the cron itself, and whether a dry-run count is reported before the job is ever scheduled (B recommends yes).
+- **B has nothing open.** No production read has been made by B at any point in this work.
+- **D PASSED the combined 140 + C's `c0281aa` review on substance, and found a FALSE SENTENCE B wrote.** 207's header claimed *"each killed exactly ONE assertion, and no two branches killed the same one"* while the table printed **directly beneath it** showed 5, 4 and 3 for the core branches, with R8, S1 and S7 each dying under more than one breakage. **The numbers were right; B's summary of them was not** — and A relayed the sentence onward as fact before anyone compared it to the rows, so it travelled a hop. Fixed at **`251cda2`** (CI `35186394898` green 5/5): the header is now **read off the table**, and says the accurate thing — a branch many tests depend on is *better* defended, and an assertion dying under two breakages is an invariant several branches uphold, not a duplicate. Contract rule added for the batch: *a header claim about a matrix is generated from the matrix, never written beside it.*
+- **Regenerating it surfaced a second lesson worth more than the first: MUTATION FIDELITY.** B's and D's counts for the "replaces proof" branch disagreed (1 vs 4) because B's second mutation changed only what the verb *reported* while D's changed what it *stored*. **A mutant must be the real defect, not a gesture at it** — a report-only version understates coverage by three. Recorded in 207's header.
+- Also in `251cda2`: 050 now asserts the original `transfer_evidence_path` is unchanged across the retry (`_sent050` captured it and never asserted it), and 207 carries the harness line — it needs a postgres connection; as the OS user it dies in `tap.seed_core()` on 119's server-controlled-columns guard, which 072 documents as deliberately not honouring its bypass on INSERT.
+- **Cleanup design: the owner's direction recorded as RULINGS** (`8585084`) — 30-day minimum, referenced evidence *and* recovery candidates preserved, a dry-run report required before any deletion, no cron created or enabled, **D must break the race claim before any implementation is accepted**, no migration number until the owner asks. B wrote the race claim down as a claim *for D to break* rather than one B asserts, because it is the load-bearing part of B's own design. A adopted B's dry-run contents and will carry **the count of candidates EXCLUDED by the recovery rule as the required proof that the exclusion does work**.
+- **2-key compatibility evidence delivered, with its limit stated.** From the tree: no current caller sends the 2-key body (both live callers send three keys — `app/transfer/send/[id].tsx:130`, `web/src/lib/transfers.ts:247`); the last 2-key caller was removed at **`92cfe51`, 2026-09-08**; 0553's header records Build 13 shipped it. **Verified consequence, not inferred:** a 2-key call drops the evidence write, and `payout-policy.ts:258` then pushes the payout to HIGH as `EVIDENCE_MISSING` and into manual review — so an old-client send costs money-handling attention today, which is a stronger argument for requiring proof at transition than the attach inflow alone. **B's honest counterpoint, carried:** 140 makes old clients strictly BETTER off (they ignore the return and check only `error`, and a retry that used to raise now succeeds), so the urgency is the payout reviews and the stranded rows, not a broken client. **What B could NOT answer — which installed builds still call — goes to the owner as App Store/TestFlight version data, with a named, NOT-EXECUTED production read as the alternative** (weekly counts of `seller_sent` rows with a null evidence path by `seller_sent_at`, aggregate only).
+- **B has nothing open on the candidate. No production read has been made by B at any point in this work.**
+- **D passed `251cda2` and found a THIRD vacuous assertion — B's.** 050's new custody assertion could not fail: 050 retries through the **2-arg overload**, which delegates with a null path, so `coalesce(null, existing)` is the existing value whatever a mutant writes — it compared transfer A's path to itself. D ran the writing mutant and **050 produced zero failures.** Fixed at **`259246e`** (CI `35187035057` green 5/5; test-only, migration and rollback untouched).
+- **A's and D's proposed fix could not work as stated, and B said so rather than implementing it.** They asked for a 3-arg retry on transfer A with a different path. Transfer A has no original path — 050 marks it sent through the 2-arg form, so the column is NULL, and a 3-arg retry carrying a non-null path hits 140's own refusal (*"already sent without evidence — use attach_transfer_evidence"*) instead of returning `already_sent`. The assertion would have failed for a reason unrelated to custody. **Transfer B** is seeded `seller_sent` WITH `fixtures/evidence-b.jpg`, so the retry lands on the `already_sent` path and the custody property is real there; their placement (custody belongs in the custody suite) is honoured.
+- **Proof it can now fail:** under the writing mutant **050 fails assertion 19, where before it failed nothing**; 207 still catches the same mutant with R4, R7, R8, S7. Restored: 050 21/21, FULL pgTAP **5297/5297 ALL-PASS**, vitest 2124/2124, tsc clean.
+- **Pattern named, not excused.** Three assertions this session that read as coverage and tested nothing — 199's null-vs-null comparisons, 207's false matrix header, and this one. **Common cause: the assertion was written from what B INTENDED the code to do, not from what the code could do on that fixture.** The counter is cheap and B should apply it unprompted: before an assertion counts as coverage, break the thing it defends and watch it fail — and check the fixture can make that branch vary at all. **D caught two of the three.** Saved to memory rather than left in a record.

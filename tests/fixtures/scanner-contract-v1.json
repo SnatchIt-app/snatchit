@@ -1,0 +1,448 @@
+{
+  "contract": "SCANNER-CONTRACT-v1",
+  "generated_by": "tests/scanner-contract.test.ts (SCANNER_FIXTURES_WRITE=1); private keys generated in-process and discarded",
+  "m1_wire": [
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000b0",
+      "scope": "global",
+      "event_id": null,
+      "venue_id": null,
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEANrtJNgFOS/1JGzgDaLnvPB/SIp2\nXTMaYbDEQwMB8Zq+dmYvA6Nf+ig8/P5gyGQAWCC4H1ULJ9/V+0AQ2cHcQg==\n-----END PUBLIC KEY-----\n",
+      "algorithm": "ES256",
+      "status": "active",
+      "not_before": "2027-01-14T08:00:00.000Z",
+      "not_after": null
+    },
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000b1",
+      "scope": "global",
+      "event_id": null,
+      "venue_id": null,
+      "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHzqcIeAGoGVi1sdUpvYq3TCpAzGwq1f5pfK7VZo86YkynZ5WQEPs7GnOwQrbvIuZ0Hu5gXlijk/NViFw3JYZVw==",
+      "algorithm": "ES256",
+      "status": "rotating",
+      "not_before": "2027-01-14T08:00:00.000Z",
+      "not_after": "2027-01-16T08:00:00.000Z"
+    },
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000b2",
+      "scope": "global",
+      "event_id": null,
+      "venue_id": null,
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl2yA46qcHqYqSYMIt9H+pQN1W0up\nJbbigpYm1BNuuTJZXc6Vr4H8XDlTcaqtl27e+HU0RL+X7ITGkpfsQIF+ZA==\n-----END PUBLIC KEY-----\n",
+      "algorithm": "ES256",
+      "status": "revoked",
+      "not_before": "2027-01-14T08:00:00.000Z",
+      "not_after": null
+    },
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000b3",
+      "scope": "global",
+      "event_id": null,
+      "venue_id": null,
+      "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAMLrdCAOibsQ+f4QLwLIxpPpl6beJV6bb5jkaYEg+hLA=\n-----END PUBLIC KEY-----\n",
+      "algorithm": "EdDSA",
+      "status": "active",
+      "not_before": "2027-01-14T08:00:00.000Z",
+      "not_after": null
+    }
+  ],
+  "m2_wire": {
+    "open": true,
+    "status": "ok",
+    "manifest_id": "aa00aa00-0000-4000-8000-000000000001",
+    "manifest_version": 1,
+    "session_id": "5e55e55e-0000-4000-8000-000000000001",
+    "opened_at": "2027-01-15T07:50:00.000Z",
+    "not_after": "2027-01-15T10:00:00.000Z",
+    "manifest_digest": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+    "max_delta_seq": 2,
+    "entries": [
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000001",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 1,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+        "ticket_state": "active",
+        "resale_state": "none"
+      },
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000002",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 1,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+        "ticket_state": "scanned",
+        "resale_state": "none"
+      },
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000003",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 1,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+        "ticket_state": "active",
+        "resale_state": "listed"
+      },
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000004",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 1,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+        "ticket_state": "active",
+        "resale_state": "refund_hold"
+      },
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000005",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 1,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+        "ticket_state": "active",
+        "resale_state": "none"
+      }
+    ],
+    "deltas": [
+      {
+        "seq": 1,
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000005",
+        "op": "revoke"
+      },
+      {
+        "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000006",
+        "serial_no": 1,
+        "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+        "credential_version": 0,
+        "signing_key_id": "00000000-0000-0000-0000-0000000000b1",
+        "ticket_state": "active",
+        "resale_state": "none",
+        "seq": 2,
+        "op": "add"
+      }
+    ]
+  },
+  "tokens": [
+    {
+      "name": "admit_es256_pem_key",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.tDTWtl4bdiFGX_UAu1NYizeau2sNLQdIqkwvq_cia-mWLCxQInWCWobIJPE_UvdEoOBm-of8Ucy2uYPpZ2xIzg",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": true,
+        "atomId": "a70a70a7-0000-4000-8000-000000000001"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "admit_es256_bare_key_rotating_added_atom",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMSIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA2IiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjB9.52eA_1ZfLHuNKUjdhJwWFlLATIa1HWphG1ec7gaCNLuq5uXQVP2i-lWmIg9wSLc-AaOUjwdOBz7eZqnTbtpPJg",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": true,
+        "atomId": "a70a70a7-0000-4000-8000-000000000006"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "admit_eddsa_existing_contract_wrong_signing_key",
+      "wire": "eyJhbGciOiJFZERTQSIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMyIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.Zbgq21_ATqXmqQKA5QSQiIiWvkZUjAQCwnbmnBeXuWZ1j0dvj2OAkZrCx6qj9q9GnWqO9UCbytevgk2OLLFyAQ",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "wrong_signing_key"
+      },
+      "door_reason": "version_stale"
+    },
+    {
+      "name": "stale_version_old_owner_screenshot",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjB9.Z_fh_TVvs9DG7DJuoNUYKNyeCfrqYLHk6eNY4GjNAhWpQmGZv15Dn-r07duwUF82UEAIIR1rfsWnMWxcQuJ0fA",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "stale_version"
+      },
+      "door_reason": "version_stale"
+    },
+    {
+      "name": "wrong_session",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ2ZXIiOjF9.7khoPUoSwIGpdPn3znluDZiZQuVIxfC76nfWWe3EF9Vi0kLbdt8e3_REii3AXGXMIkShN1Gl2ZSEIhNSS7T73Q",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "wrong_session"
+      },
+      "door_reason": "wrong_session"
+    },
+    {
+      "name": "expired_past_skew",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxNzk5OTk5OTM5LCJpYXQiOjE3OTk5OTI4MDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.qHES84Wcb81A67MBB3ZgvUss_HIZVnQ_hexCe9g7B3tL6wEYdeW8aEP9AvxZhnDqP_EtTN5xluK2DUqox4bHAA",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "expired"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "admit_within_skew",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxNzk5OTk5OTQxLCJpYXQiOjE3OTk5OTI4MDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.amkx9ARN_0MntR68p-u5bGW1IqJPMPbriK-6zBJh-YyT-gtDunLo4VgnPXIF5PeTUd40BkaCnZAq_bUQct2x0w",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": true,
+        "atomId": "a70a70a7-0000-4000-8000-000000000001"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "key_revoked",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMiIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.X-as-kQQHREfEvimWVFrFNveOhiPR6wOTtHGuCn7Z-e7xro1Fzmc8x0N5ggBX6jG8jSsWZJHxy9hvwa30H3sQg",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "key_revoked"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "key_window_rotating_key_after_not_after",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMSIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA2IiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjB9.4f4ZAvEGIx_hQOjp8B9yfzJSOur_wIIx7yU3gIYqW0vRFKlXry9AODCtBdLhPgpOqQXCAkiuxKrV9HacHld3Dg",
+      "now_seconds": 1800086401,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "key_window"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "alg_mismatch_header_claims_eddsa_under_es256_key",
+      "wire": "eyJhbGciOiJFZERTQSIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.Y5ffAOCXsIM0nCPwAEMRotN0tY5k2qOAnDe81xIsPzU68R9B19kL9R21GNCAwuxjM9kF-zWa7JsXi1L8kYvtmA",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "alg_mismatch"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "signature_invalid_signed_by_other_key",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.oFxffnWYHyom0_emJ1JL5SJQS0Wa72G-smiSg-UKRRPMfPx0W75tePrenJ_lYD2ws4QkQDAuROwIC2WPg3c8XQ",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "signature_invalid"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "atom_scanned_duplicate",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.IVKtF71xzFlCPQafVlUOc-xOx5BYI9Z14plu9Jwyct2DMdsIvGhV-ezwL3NIlvo9lBoE0MTNNxMWQX9yHxPH7g",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "not_active"
+      },
+      "door_reason": "duplicate"
+    },
+    {
+      "name": "atom_listed",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAzIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.oeFtWNSCL0m5qz4NnqoWGfFZdW0729T5FX8XoG0D4YrHGGaiooRfJ992ak7_U4kDnopBfxiU41MpYlex42Wgmw",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "listed_locked"
+      },
+      "door_reason": "listed_locked"
+    },
+    {
+      "name": "atom_refund_hold",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA0IiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.-uYjAxMelkUVj80u9d9u8uKCZYdjEdGNawDLPKbu_7A4egon5yuOegFtc9PBe8y1yBSE-Yk_bI2jGuywOT2dZA",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "listed_locked"
+      },
+      "door_reason": "refund_hold"
+    },
+    {
+      "name": "atom_revoked_by_delta",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA1IiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.zFKoh0m6PsjgXeewrIF_qyWtkPeUFxT682qGrNXhXNapv_nEJlDeh0YXIB4o22ABVAh3XVnleNevyRiUXPAS8g",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "atom_revoked"
+      },
+      "door_reason": "voided"
+    },
+    {
+      "name": "delta_not_yet_synced_added_atom_absent",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMSIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA2IiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjB9.fBaB3XrCWbrywUgzk33rSjk_64Clkez-dfelxTd30PJyCIO5ChribV3WD-2Cs7gb_WUB5gokeH02EaS-NQYVmQ",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 1,
+      "expected": {
+        "admit": false,
+        "reason": "atom_absent"
+      },
+      "door_reason": "wrong_session"
+    },
+    {
+      "name": "manifest_other_session",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDAzNjAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ2ZXIiOjF9.aQozF_nu2U_XAFpNZMgR2BynWcyNZvAXXzeAk0Dz0RtFK65wCZKfAjUier65EJUrMfMIc9kYOL3qP-itSwd4iA",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000002",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "manifest_other_session"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "manifest_expired",
+      "wire": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDBiMCIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.eyJhdG9tIjoiYTcwYTcwYTctMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiZXhwIjoxODAwMDEwMDAwLCJpYXQiOjE3OTk5OTk5NDAsInNlc3MiOiI1ZTU1ZTU1ZS0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ2ZXIiOjF9.CAch8bftZFMYvU1KZZ56EGMWTDsgCOYJ4lnztvdhWpMCwlkoiBQdW3mV7QeTLkkwdwzTHjOWYe8iBh0cChZ63Q",
+      "now_seconds": 1800007201,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "manifest_expired"
+      },
+      "door_reason": null
+    },
+    {
+      "name": "malformed_token",
+      "wire": "not.a.token",
+      "now_seconds": 1800000000,
+      "bound_session": "5e55e55e-0000-4000-8000-000000000001",
+      "last_synced_seq": 2,
+      "expected": {
+        "admit": false,
+        "reason": "malformed_token"
+      },
+      "door_reason": null
+    }
+  ],
+  "door_manifest": {
+    "artifact": {
+      "manifest": {
+        "manifest_id": "aa00aa00-0000-4000-8000-000000000001",
+        "manifest_version": 1,
+        "session_id": "5e55e55e-0000-4000-8000-000000000001",
+        "not_after": "2027-01-15T10:00:00.000Z",
+        "manifest_digest": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+        "opened_at": "2027-01-15T07:50:00.000Z",
+        "max_delta_seq": 2,
+        "entries": [
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000001",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 1,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+            "ticket_state": "active",
+            "resale_state": "none"
+          },
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000002",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 1,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+            "ticket_state": "scanned",
+            "resale_state": "none"
+          },
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000003",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 1,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+            "ticket_state": "active",
+            "resale_state": "listed"
+          },
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000004",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 1,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+            "ticket_state": "active",
+            "resale_state": "refund_hold"
+          },
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000005",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 1,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b0",
+            "ticket_state": "active",
+            "resale_state": "none"
+          }
+        ],
+        "deltas": [
+          {
+            "seq": 1,
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000005",
+            "op": "revoke"
+          },
+          {
+            "ticket_atom_id": "a70a70a7-0000-4000-8000-000000000006",
+            "serial_no": 1,
+            "ticket_type_id": "tt00tt00-0000-4000-8000-000000000001",
+            "credential_version": 0,
+            "signing_key_id": "00000000-0000-0000-0000-0000000000b1",
+            "ticket_state": "active",
+            "resale_state": "none",
+            "seq": 2,
+            "op": "add"
+          }
+        ]
+      },
+      "signature": {
+        "key_id": "00000000-0000-0000-0000-0000000000b0",
+        "algorithm": "ES256",
+        "encoding": "raw-r-s",
+        "value": "eSJkaFh7iyfck6ypa7wXzGcQU6u8bjItLq3Bp8Wibw0xDx0WDMlGGW+hBFfa1tQecQh7Pnzd/OVUP+Sp9fOT7g=="
+      }
+    },
+    "expected": {
+      "ok": true,
+      "keyId": "00000000-0000-0000-0000-0000000000b0"
+    },
+    "tampered_digest_expected": {
+      "ok": false,
+      "reason": "signature_invalid"
+    }
+  }
+}

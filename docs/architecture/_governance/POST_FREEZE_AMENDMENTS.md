@@ -2545,3 +2545,955 @@ NOTE:                        PFA-18A did not change the dispute architecture; th
 - **Standing verdicts:** dark DB apply (Option A+C) is the certified release model; production remains UNCHANGED and NOT AUTHORIZED; every rail's activation blockers stand exactly as the 092 final-state census classifies them, now with the owner packets bundled in `docs/release/PHASE2_RELEASE_READINESS_REPORT.md` §14.
 
 *(register maintained per PHASE_2_ARCHITECTURE_FREEZE.md §4)*
+
+## PFA-PT-4 — promoter commission funding: pro-rata basis over surviving FACE REVENUE replaces the atom-survival reading of PROMO §6.1/§5.2 (package 098)
+
+```
+ID:                          PFA-PT-4  (PFA-9/PFA-29 class — a normative basis-definition amendment,
+                             filed dark/unapplied ahead of the migration that implements it)
+FROZEN RULE:                 PROMO §6.1 — "basis_minor = Σ over the order's SURVIVING ITEMS of
+                             unit_price_minor × quantity"; PROMO §5.2 row 2 — "Partial refund ⇒ basis
+                             recomputed from the order's surviving, non-voided items ⇒ a smaller single
+                             line"; PROMO §5.2 "VERIFIED: D2 — a refunded ticket goes to voided (there is
+                             no `refunded` ticket terminal)"; PROMO §6.3 test 45 — "Partially refunded ⇒
+                             one line, amount = recomputed basis."
+CONFLICT:                    085:563-568 (`kernel.refund_primary_order`'s void scope is `v_delegated or
+                             v_full` — a DIRECT PARTIAL refund is money-only and voids NO atom; a FULL
+                             refund on a past/transfer-frozen session is parked `frozen:` and cannot void
+                             either) collides with the freeze's ATOM-survival basis: the "surviving,
+                             non-voided items" the frozen text reads from custody state is never reduced
+                             by the shipped refund mechanism on a direct partial refund. 093/10e's
+                             (093:857-887) response was a TOTAL EXCLUSION of `partially_refunded` /
+                             `refunded` orders from the commission-eligible set — the frozen basis
+                             mechanism (atom survival) and the shipped refund mechanism (money-only
+                             partial) do not meet, and 10e's own header (093:861-876) calls its exclusion
+                             "a deliberate, reversible over-correction" pending exactly this ruling.
+EVIDENCE:                    docs/phase2/_impl/KF_promoter_prorata.md §2.1 — the `atom_basis` table,
+                             executed on a rehearsal replay: `atom_basis` reads **10000 on all nine
+                             measured rows** (cases A/B/C/D/E1/E2/F/G/H), INCLUDING a fully-refunded order
+                             (C, via the 159 fixture shape standing in for a post-event full refund) and a
+                             direct partial refund (H) — the atom-survival quantity the frozen spec's basis
+                             rule reads is structurally incapable of falling below face under 085's shipped
+                             refund mechanics. Measured forfeiture under 10e as shipped: case B (4000 of
+                             10000 refunded) pays 0 instead of the pro-rata 600; case H (5000 of 10000)
+                             pays 0 instead of 500; case D (a refund that later FAILS — the buyer got
+                             NOTHING back) pays 0 FOREVER instead of the full 1000, because 10e's exclusion
+                             keys on `order.status` (written forward-only at refund CREATION, 085:601-604)
+                             rather than on `kernel.refund`'s terminal facts (KF P1-2). The audit trail is
+                             silent for every excluded case (no `settlement.commission` row is ever
+                             written, because the exclusion happens in the eligible-set predicate, BEFORE
+                             `pay_promoter_commission` — and therefore its audit insert — ever runs; KF
+                             P1-1).
+RESOLUTION:                  Basis becomes FACE MINUS SETTLED REFUND SHARE, capped, read from
+                             `kernel.refund`/`kernel.dispute_native` TERMINAL FACTS rather than from ticket
+                             custody state or `order.status`:
+                               refunded(a) := least(face, Σ kernel.refund.amount_minor WHERE
+                                              status='succeeded')
+                               disputed(a) := least(face − refunded(a), Σ kernel.dispute_native.
+                                              amount_minor WHERE status IN ('lost','charge_refunded'))
+                                              — KF §4.4: disputes count as reversed at the funding close,
+                                              capped at the headroom refunds left, so a chargeback the
+                                              venue was already debited for in the SAME close cannot also
+                                              fund a commission on it. Default = include (owner-visible
+                                              choice, item 2 below).
+                               surviving(a) := face − refunded(a) − disputed(a)
+                               payable(a)   := bps:  floor(surviving(a) × commission_bps_applied / 10000.0)
+                                               flat: floor(surviving(a) / unit_price_minor) per order item,
+                                               summed, capped at that item's own quantity, × commission_
+                                               flat_minor_applied — KF §4.5 OPTION (a): a money-only partial
+                                               refund voids no atom, so the surviving TICKET COUNT for the
+                                               flat kind is DERIVED from surviving face rather than read off
+                                               custody state (option (a) is the closest reading of the
+                                               frozen "surviving items" wording; (b) proportional and (c)
+                                               exclude-flat-promoters were considered and are less faithful
+                                               to §6.1 — recorded as the owner-visible choice, item 3 below).
+                             `payable ≤ 0` stays HELD `basis_zero`, NO line — as 090 already does; rounding
+                             stays FLOOR always (PROMO §6.2, unchanged); ONE line per attribution ever
+                             (unchanged index + NOT EXISTS); idempotent across re-close (unchanged); no
+                             double funding (unchanged: line = −payable, payout = +payable). G4 (unsigned:
+                             a funded commission stays HELD after a post-close reversal, never released,
+                             never reduced) and ruling A4 (nothing may release promoter money) are BOTH
+                             UNCHANGED — this amendment only changes the AMOUNT the pre-close seam computes
+                             under the SAME system hold (`held`/`unfunded_settlement`), never the hold
+                             itself, never the funding source (E-138 Option B stands), never the four locks
+                             (KF §7) that keep promoter payout dark (098 additionally HARDENS lock 4 —
+                             `kernel.mark_payout_transfer_state` now refuses `cause='promoter_commission'`
+                             outright, KF P2-1 — a body-only strengthening, not part of this basis
+                             amendment's normative content).
+OPTIONS (KF §6):             O0 leave 10e as shipped (permanent, unaudited forfeiture — dishonest if
+                             described as "conservative"); O1 fix the ELIGIBILITY KEY only (refund
+                             terminal facts, full-or-nothing amount — repairs P1-2 only, arguably corpus-
+                             determined without a PFA); **O2 (ADOPTED) — O1 + pro-rata basis by settled
+                             refund share, disputes per §4.4, flat kind per §4.5(a)** — the RESOLUTION
+                             above; O3 additionally book a post-close `settlement_shortfall` NET of a
+                             funded-and-held commission on the reversed order (deferred to the G4
+                             signature — KF P1-3/§4.5 item 4, NOT part of this amendment); O4 a
+                             retroactive relining verb for already-excluded prod attributions (moot — the
+                             promoter engine is DARK in prod, ledger 107 = through 092, no
+                             `promoter_commission` line exists in prod; unverified here per the train's no-
+                             prod-access boundary, stated as an assumption to confirm); O5 release-time-
+                             only pro-rata (rejected — the venue's distributable would be wrong by the
+                             difference until release, KF §4.3).
+CLASSIFICATION:               POST-FREEZE AMENDMENT of PROMO §6.1 and §5.2's "VERIFIED: D2" sentence → 098
+                             (`supabase/migrations/098_promoter_prorata_funding.sql`, body-only re-creates
+                             of `kernel.settlement_commission_lines` (093:889-925) and `kernel.
+                             pay_promoter_commission` (090:1401-1507), signatures/ACLs frozen). The
+                             OUTCOME (a reduced single line on a partial refund) is what the frozen text
+                             already asks for (§5.2 row 2, test 45); the BASIS DEFINITION that produces it
+                             (face-minus-settled-refund-share, a money fact) is a normative change from the
+                             frozen atom-survival reading (a custody fact) — KF §5: "implementing it
+                             without the PFA would be the 'silent edit around a conflict' §4 forbids."
+RETROACTIVE NOTE (KF §5 last paragraph): 093/10e's `partially_refunded`/`refunded` total exclusion
+                             (093:857-887, live in the repo since package 093) was ITSELF a deviation from
+                             PROMO §5.2 row 2 / test 45's stated result (a reduced line, not zero) — filed
+                             HERE, retroactively, because it was previously recorded only in a migration
+                             comment (093:861-876) and never in this register. No action is owed on 093
+                             (093 is immutable and 10e's behaviour was superseded by 098, not un-shipped);
+                             this note exists so the register — not just a comment — shows that the
+                             deviation existed and why.
+OWNER ITEMS OPENED (not resolved by this filing — see docs/phase2/_impl/KM3_098_implementation.md):
+                             (1) sign this PFA (adopt O2, or select a different option — without a
+                             signature only O1's key-fix would be a corpus-determined correction; O2's
+                             basis change is not); (2) disputes at the funding close (§4.4) — confirm
+                             "include, capped" as the default; (3) flat-kind surviving quantity (§4.5) —
+                             confirm option (a); (4) G4 (iii) / KC P1-3 — whether a post-close
+                             `settlement_shortfall` should be booked net of a funded-and-held commission on
+                             the reversed order (O3, explicitly DEFERRED here, not decided).
+PACKAGE IMPACT:              098 only (three body-only re-creates: `kernel.settlement_commission_lines`,
+                             `kernel.pay_promoter_commission`, `kernel.mark_payout_transfer_state`). No DDL,
+                             no new table, no new column, no new cause code, no config key, no cron row.
+                             098 is DARK/UNAPPLIED — the promoter engine ships inert in every package that
+                             has touched it (155 A32/A33: no cron, no config key). DAG IMPACT: none.
+SECURITY / MONEY IMPACT:     none loosened. The system hold (`held`/`unfunded_settlement`) is untouched;
+                             the release path (`kernel.release_payout`, Control-5) is untouched; A4 is
+                             HARDENED, not weakened (KF P2-1's fourth-lock gap is closed by the same
+                             migration). The only quantitative change is to an AMOUNT computed under a hold
+                             that already prevents any money from moving — the basis change can only ever
+                             move `payable(a)` between 0 and `credited_amount_minor` (KF §4.2: `payable ≤
+                             credited_amount_minor` always, `payable ≤ surviving revenue` always — proven
+                             against the KF fixture's nine rows).
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDING OWNER SIGNATURE — the
+                             migration is authored and tested (supabase/tests/164_promoter_prorata_funding.
+                             sql) but DARK/UNAPPLIED; the signature is a DEPLOY PRECONDITION (the same
+                             posture as 094's Gate-M row), not a precondition to authoring or rehearsing
+                             the SQL.
+```
+
+## PFA-PT-5 — ruling A5's chargeback/refund_void face cap is clarified to exclude a still-held funded promoter commission (package 100, SEAMS-ONLY); held-commission-payout convergence is SPECIFIED and DEFERRED to a future promoter-payout ruling
+
+```
+ID:                          PFA-PT-5  (PFA-9/PFA-29/PFA-PT-4 class — a normative clarification of
+                             ruling A5's face cap, filed alongside the migration that implements it;
+                             ALSO resolves PFA-PT-4's OWNER ITEM (4), left explicitly open there)
+
+2026-09-03 (RECON2 reconciliation): 100 was SIMPLIFIED by the orchestrator after this PFA's
+original drafting to a SEAMS-ONLY fix — items (1)/RESOLUTION-item-1 below are BUILT and unchanged
+in substance; the CONVERGENCE MECHANISM this PFA originally described as RESOLUTION item (2) —
+kernel.converge_held_commission, a re-created kernel.close_settlement calling it, kernel function
+census 146→147 — was REMOVED from 100's final design and is NOT part of the shipped migration.
+This entry is rewritten to match. The held commission payout is now NEVER touched by 100 at all:
+it stays at its originally-funded amount, pending/held, for the life of the order, through any
+number of subsequent reversals. Converging it to a pro-rata surviving amount remains a real,
+unresolved question but is explicitly OUT OF SCOPE for launch (G4: promoter payout is dark, no
+commission payout ever leaves pending/held; a separate owner ruling and architecture is required
+"before the FIRST future promoter commission payout" — this is that future ruling's subject, not
+100's). Re-verified on a fresh 000-101 rehearsal replay (supabase/tests/166_venue_obligation_
+excludes_held_commission.sql, rewritten this session, 39/39 assertions) — see docs/phase2/_impl/
+KM5_100_implementation.md and KRECON2.md for the full reconciliation.
+
+FROZEN RULE:                 Ruling A5 — "venue entitlement = face value"; 093/10b's settlement_
+                             primary_lines refund_void cap and 093/10h's (097-amended) settlement_
+                             royalty_lines chargeback cap both read venue entitlement as the ORDER'S
+                             FACE, full stop — neither cap term ever contemplated Option-B funded
+                             commission (venue.attribution / kernel.payout cause='promoter_commission')
+                             reducing what the venue actually received at funding time.
+CONFLICT:                    A5's face cap and Option B's commission-funding mechanism (090/098) were
+                             ratified independently and never reconciled against each other. On a
+                             POST-CLOSE reversal (chargeback or post-payout refund) of an order that
+                             carried a funded-but-held commission, the shipped cap (097's own text,
+                             093:435-560/1136-1216) charges the venue back the FULL face — money the
+                             venue never received, because the commission line already reduced its
+                             distributable at the funding close. Executed (KM5 canonical fixture): face
+                             10000, commission 1000 (bps 1000), venue actually paid 9000 by the funding
+                             close's own waterfall; a full reversal under 097's UNCHANGED cap obligates
+                             10000 — 1000 MORE than the venue ever held.
+EVIDENCE:                    docs/phase2/G4_PROMOTER_REVERSAL_RULING.md, docs/phase2/_impl/
+                             KF_promoter_prorata.md, KC_chargeback_accounting.md §2.i — executed against
+                             the canonical fixture on a fresh 000-101 rehearsal replay (supabase/tests/
+                             166_venue_obligation_excludes_held_commission.sql, sections A/B):
+                             chargeback line −9000 (not −10000), obligation 9000 (not 10000), the
+                             commission payout NEVER touched — same row, same amount_minor=1000, same
+                             status='pending'/hold_state='held'/hold_reason_code='unfunded_settlement',
+                             before AND after the reversal (100 has no verb that could change it), no
+                             promoter payout ever advanced toward paid, buyer net 0 (the dispute equals
+                             the order's full face), conservation closes with zero hand-derived quantity
+                             (every term read back from kernel.payout / kernel.dispute_native /
+                             kernel.organization_obligation). The SAME defect and fix apply
+                             symmetrically to a POST-PAYOUT refund_void (test 166 section B, −9000 not
+                             −10000); a PRE-payout (same-close) reversal is UNCHANGED by construction
+                             (test 166 section D) — nothing has been funded yet for the order when the
+                             debit arms read the held-commission term (settlement_primary_lines/
+                             settlement_royalty_lines are pure candidate generators that run before
+                             settlement_commission_lines, the only branch with side effects, in
+                             close_settlement's three-branch UNION ALL).
+RESOLUTION:                  ONE change, both seams body-only re-creates under the existing
+                             signatures/ACLs (`supabase/migrations/
+                             100_venue_obligation_excludes_held_commission.sql`):
+                               THE CAP CLARIFICATION (ONLY). kernel.settlement_royalty_lines' chargeback
+                                   cap and kernel.settlement_primary_lines' refund_void cap both gain a
+                                   fourth (chargeback) / second (refund_void) subtracted term:
+                                     held_commission(order) := Σ kernel.payout.amount_minor
+                                       WHERE cause='promoter_commission' AND status='pending' AND
+                                       hold_state='held' AND cause_ref IN (the order's attribution id)
+                                       [AND a defensive, currently-inert hold_reason_code<>
+                                       'commission_converged' filter — nothing in the shipped kernel
+                                       ever sets that sentinel; no convergence verb exists].
+                                   cap := greatest(0, face − refund_exposure − prior_cb − held_commission)
+                                   (chargeback); cap := greatest(0, face − held_commission) (refund_void).
+                                   A5 now reads: venue entitlement = face MINUS the commission that
+                                   reduced its distributable and never left the platform. held_commission
+                                   is a CONSTANT once funded — 100 never reduces the row it reads, so the
+                                   cap term does not shrink across subsequent reversals or closes.
+                             NOT DONE, DELIBERATELY (this is the RECON2 correction to this PFA's
+                             original text): the held commission PAYOUT is not converged, relabeled, or
+                             re-minted by 100. An earlier draft did this inside kernel.close_settlement
+                             via a new kernel.converge_held_commission verb; that draft is NOT what
+                             shipped. That earlier draft's own header (100's current file) records why:
+                             a second promoter_commission payout row per attribution broke the
+                             single-minter fence (155 B18), broke single-row cause_ref lookups (164),
+                             and made every "latest payout by created_at" reader — including the
+                             production promoter-status projection at 090:1325 — nondeterministic.
+OPTIONS CONSIDERED:          O0 leave A5's cap as shipped (the venue is charged back money it never held
+                             — dishonest, and the freed commission would become unaccounted-for platform
+                             revenue with no producing line, violating the "no offset_settlement source"
+                             rule 097 itself states); O1 net a NEW settlement_line cause against the
+                             venue's obligation (rejected — this train's boundary forbids a new cause
+                             without a filed PFA, and it would double-book the same fact the cap term
+                             already prevents from mis-charging); **O2 (ADOPTED) — the cap clarification
+                             ONLY, seams-only, no payout-side mechanism**; O2' (an earlier draft; NOT
+                             adopted in the final shipped form) — the cap clarification PLUS a
+                             hold-based payout convergence inside close_settlement (superseded, see
+                             RESOLUTION above and this PFA's 2026-09-03 note); O3 widen
+                             kernel.payout.status with a new non-paying terminal member (considered, NOT
+                             needed — the cap-only fix requires no payout-side CHECK change at all); O4
+                             net the freed commission directly into the venue's obligation via
+                             caller-supplied arithmetic (rejected — any future payout-convergence
+                             mechanism must be DB-derived, never caller-priced, per PFA-PT-4's own O2
+                             requirement for the funding side — this remains true for whatever mechanism
+                             a future ruling adopts).
+CLASSIFICATION:              POST-FREEZE AMENDMENT of ruling A5's face-cap wording, applied to the
+                             Option-B commission-funding case ratification did not contemplate → 100
+                             (`supabase/migrations/100_venue_obligation_excludes_held_commission.sql`,
+                             body-only re-creates of kernel.settlement_royalty_lines (093:1136-1216, 097
+                             Section 5) and kernel.settlement_primary_lines (093:435-560, 097 Section 4)
+                             ONLY — kernel.close_settlement is NOT re-created by 100). PARTIALLY resolves
+                             PFA-PT-4's OWNER ITEM (4) — the obligation itself is now net of the held
+                             commission (via the cap term, not a shortfall-side adjustment); whether the
+                             held commission PAYOUT should also converge is left to the future
+                             promoter-payout ruling (OWNER ITEMS below).
+RETROACTIVE NOTE:            None — this is the FIRST filing to reconcile A5 against Option-B funded
+                             commission; no prior migration comment claimed this reconciliation existed.
+OWNER ITEMS OPENED (not resolved by this filing — see docs/phase2/_impl/KM5_100_implementation.md):
+                             (1) sign this PFA (adopt O2, or select a different option); (2) HELD-
+                             COMMISSION-PAYOUT CONVERGENCE — SPECIFIED, DEFERRED, NOT BUILT. Converging
+                             a held commission payout down to a post-reversal pro-rata surviving amount
+                             is a real, unresolved question, explicitly out of scope for 100 (G4:
+                             promoter payout is dark; a separate owner ruling and architecture is
+                             required before the FIRST future promoter commission payout — this item IS
+                             that future ruling's subject, not a decision made here); (3) the PARTIAL-
+                             reversal cap arithmetic (test 166 section D) is a WINDOW CAP, not
+                             per-reversal-proportional — a single partial reversal well under the
+                             reduced cap lines at its OWN amount, unreduced by the held-commission term
+                             (the term only binds when CUMULATIVE reversals on the order approach the
+                             reduced cap, exactly as A5's original face-cap term already behaved for
+                             refund_exposure/prior_cb) — DERIVED AND EXECUTED, not assumed; a
+                             PROPORTIONAL (per-reversal) reduction was considered out of scope for this
+                             filing (it would change the ALREADY-RATIFIED cap-window mechanism 097 ships,
+                             not just add a term to it) and is recorded here as an owner-visible choice,
+                             not decided; (4) a PAID (not held) commission remains explicitly OUT OF
+                             SCOPE — the future promoter-payout ruling (item 2) covers whether/how a
+                             promoter-side receivable is pursued after a reversal on money that DID reach
+                             them; this filing never reaches that case (G4/A4 unchanged, commission stays
+                             dark).
+PACKAGE IMPACT:               100 only (TWO body-only re-creates, no new function, no client/machine
+                             grant changed). No new settlement_line cause, no new table, no new column,
+                             no CHECK widened, no new object of any kind. kernel functions: 146 → 146
+                             (UNCHANGED — confirmed by direct count against a fresh rehearsal replay).
+SECURITY / MONEY IMPACT:     none loosened. G4 ("commission stays HELD; no release, no payout") and
+                             ruling A4 ("nothing may accidentally release promoter money") are BOTH
+                             UNCHANGED: 100 does not touch kernel.payout at all for the promoter_
+                             commission cause (neither seam inserts into nor updates kernel.payout —
+                             verified statically by grepping both bodies, test 166 §F3/F4), so there is
+                             no new surface to loosen. The only quantitative change is a venue's
+                             chargeback/refund_void obligation, which can only ever DECREASE relative to
+                             097's shipped cap, never increase. The held commission payout's amount is
+                             untouched — neither decreased nor increased by 100.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: PENDING.    STATUS: PENDING OWNER SIGNATURE — the
+                             migration is authored and tested (supabase/tests/166_venue_obligation_
+                             excludes_held_commission.sql, 39/39 pgTAP assertions passing on a fresh
+                             000-101 rehearsal replay) but UNAPPLIED to production (ledger through 092;
+                             093-101 not applied); the signature is a DEPLOY PRECONDITION (094's Gate-M
+                             posture), not a precondition to authoring or rehearsing the SQL.
+```
+
+## PFA-PT-6 — `credential-sign`'s wire encoding: JWS-compact, canonical header/payload, `typ` domain separator, verifier-resolves-`kid`-against-trusted-keyring (package 102, DARK/undeployed)
+
+```
+ID:                          PFA-PT-6  (PFA-20/PFA-26/PFA-28 class — a normative wire-encoding
+                             amendment for a cryptographic mechanism the freeze left underspecified,
+                             filed alongside the DARK edge function that implements it; NOT a change to
+                             any signed claim, key hierarchy, or verification predicate already frozen)
+FROZEN RULE:                  EDGE_FUNCTION_SPEC §3.2 — "`token`: <compact signed token> ... `token` is
+                             the only signed artifact; it embeds `{ atom_id, session_id,
+                             credential_version, key_id, issued_at, exp }` as signed claims." §5.1 — "A
+                             compact signed object over `{ atom_id, session_id, credential_version,
+                             key_id, issued_at, exp }`, signed by the scope's active signer via
+                             `KMS.sign(kms_handle_ref, payload)`." Neither section, nor §5 anywhere else,
+                             fixes: the BYTE ENCODING of "compact signed token" (there is no wire format
+                             — JWS, a bespoke delimiter scheme, protobuf, anything); which of the six
+                             claims ride a header vs a payload, if the encoding has both; how JSON keys
+                             are ordered/whitespaced (a determinism question the moment more than one
+                             encoder exists); whether the six claims embed a DOMAIN/TYPE marker at all —
+                             §5.4.3's `OFFLINE-VERIFY-v1` reads `token.key_id`, `token.session_id`,
+                             `token.credential_version`, `token.exp` as already-resolved fields without
+                             saying how a verifier gets from bytes to those fields, or how a verifier
+                             resolves the public key that checks the signature (the frozen text never
+                             states "resolve `kid` against a trusted keyring, never trust a key inside
+                             the token" — that is a general JWS-family best practice this PFA makes
+                             EXPLICIT and BINDING here, because nothing upstream said it).
+CONTEXT:                      This is the PFA-20 class ("DO NOT INVENT CRYPTOGRAPHY") applied to the ONE
+                             piece of C33 the freeze left as prose rather than a contract: not the key
+                             hierarchy (§5.1-§5.3, fully specified), not the offline admission predicate
+                             (§5.4.3, `OFFLINE-VERIFY-v1`, single-sourced and CI-gated), not the six
+                             signed claims (fixed, unambiguous) — just the BYTES those claims are turned
+                             into and back out of. `credential-sign/credential.ts` (this package) is the
+                             first code that has to make that choice concrete, and DESIGN_102.md §2.2
+                             directs it be filed as a PFA rather than decided silently inside a comment
+                             (the PFA-PT-4/PFA-PT-5 precedent: "implementing it without the PFA would be
+                             the 'silent edit around a conflict' §4 forbids").
+RESOLUTION (the wire format, NORMATIVE once signed):
+                             1. COMPACT FORM — three base64url segments joined by `.`, JWS-compact shaped:
+                                  token = b64url(protected_header) || "." || b64url(payload) || "." || b64url(signature)
+                                base64url per RFC 4648 §5 (`-`/`_`, UNPADDED — no trailing `=`).
+                             2. PROTECTED HEADER — canonical JSON (object keys SORTED
+                                lexicographically, no inserted whitespace), exactly three keys:
+                                  {"alg":<"EdDSA"|"ES256">,"kid":<key_id, lowercase uuid>,"typ":"SNATCHIT-TICKET-CRED-V1"}
+                                `alg` mirrors the resolved signer's algorithm (Ed25519 → `EdDSA`;
+                                ECDSA-P256 → `ES256`, §5.1). `kid` is `kernel.signing_key.key_id` — the
+                                PUBLIC reference, never `kms_handle_ref` (§5.3's non-exposure rule; the
+                                handle never appears in the token, the log, or any response body).
+                             3. PAYLOAD — canonical JSON (same rule: sorted keys, no whitespace), exactly
+                                five keys, mapping the FIVE remaining frozen claims (the sixth, `key_id`,
+                                already rides the header as `kid` — §5.1's six claims split 1 header + 5
+                                payload, not 6 payload):
+                                  {"atom":<ticket_atom_id>,"exp":<unix seconds, int>,"iat":<unix seconds, int>,"sess":<event_session_id>,"ver":<credential_version, int>}
+                                All uuids LOWERCASE. All timestamps UNIX-SECOND INTEGERS — no floats, no
+                                RFC 3339 strings, no locale formatting. NO field beyond these five: in
+                                particular no mutable display data (a session title, a venue name) —
+                                embedding one would make two credentials for the identical
+                                `(atom_id, credential_version)` sign differently depending on catalog
+                                state at issue time, undermining the business-level idempotency argument
+                                (KCRYPTO_credential_sign.md §4) and adding an unnecessary informational
+                                leak to a bearer token.
+                             4. SIGNED BYTES — `ASCII(b64url(protected_header) || "." || b64url(payload))`
+                                — the JWS "signing input." `typ` sits INSIDE the protected header, so it
+                                is COVERED by the signature: this is the domain separator (§6 below).
+                             5. VERIFICATION — the verifier (door, offline or online; any future consumer)
+                                MUST: (a) split on `.` into exactly three segments — a token with any
+                                other segment count is malformed; (b) base64url-decode and JSON-parse the
+                                header and payload; (c) resolve the VERIFY key by `header.kid` AGAINST A
+                                TRUSTED KEYRING — M1, the `kernel.signing_key` public-key projection
+                                (§5.4.2) — and NEVER trust a key embedded in or alongside the token itself
+                                (a token cannot vouch for its own signer); (d) confirm `header.alg` matches
+                                the resolved key's actual algorithm; (e) verify the signature over the
+                                EXACT bytes from step 4, recomputed from the token's own header/payload
+                                segments (not trusted from any side-channel); (f) check `payload.exp`
+                                against the verifier's clock. This is authenticity ONLY (§5.4.3's own
+                                phrase: "Signature authenticity ≠ current admissibility") — `credential_
+                                version` currency (M2/live) and `session_id` binding are SEPARATE checks
+                                `OFFLINE-VERIFY-v1` already specifies and this PFA does not touch, extend,
+                                or narrow in any way.
+DOMAIN SEPARATION (§6, the load-bearing property this PFA makes explicit):
+                             `typ` is not decorative. Because it sits inside the SIGNED protected header,
+                             changing it changes the signed bytes, which the signature no longer covers —
+                             a signature minted over `{"typ":"SNATCHIT-TICKET-CRED-V1",...}` cannot be
+                             replayed against a header claiming any other `typ` (a wallet manifest, a door
+                             manifest, a refund receipt, or any future signed object this system mints).
+                             Every other signed-object family introduced under C33 or its neighbors MUST
+                             mint its OWN `typ` string and MUST NOT reuse `SNATCHIT-TICKET-CRED-V1` — that
+                             is the entirety of the domain-separation mechanism, and it requires no
+                             registry, no central authority, just distinct constants. Proven by
+                             construction in `tests/credential-sign.test.ts` ("domain separation — the typ
+                             claim"): a genuine ticket-credential signature, replayed unmodified against a
+                             header identical in every field except `typ`, fails verification
+                             (`reason: 'signature_invalid'`) — because the signed bytes are no longer the
+                             bytes the signature was computed over, not because of any special-cased `typ`
+                             check. There is no `if (typ === ...)` branch anywhere in the verifier; the
+                             separation is a structural consequence of where `typ` sits, which is exactly
+                             what makes it robust against a verifier that forgets to check it explicitly.
+EXAMPLE TOKEN (FAKE IDS, throwaway Ed25519 keypair generated solely to produce this example — NOT a real
+                             signing key, NOT retained anywhere):
+                               protected header: {"alg":"EdDSA","kid":"aaaaaaaa-0000-4000-8000-000000000001","typ":"SNATCHIT-TICKET-CRED-V1"}
+                               payload:          {"atom":"bbbbbbbb-0000-4000-8000-000000000002","exp":1893124800,"iat":1893110400,"sess":"cccccccc-0000-4000-8000-000000000003","ver":2}
+                               token:            eyJhbGciOiJFZERTQSIsImtpZCI6ImFhYWFhYWFhLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInR5cCI6IlNOQVRDSElULVRJQ0tFVC1DUkVELVYxIn0.
+                                                 eyJhdG9tIjoiYmJiYmJiYmItMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwiZXhwIjoxODkzMTI0ODAwLCJpYXQiOjE4OTMxMTA0MDAsInNlc3MiOiJjY2NjY2NjYy0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDMiLCJ2ZXIiOjJ9.
+                                                 _fWREQB-j1hMtgCjPOfhPznEN16_3ms7U6nYbHMjhlYxnXa1lFlqX6JbegHpsLTkqQOlP9TrsCyVaUplP9moBA
+                                                 (wrapped across three lines above for legibility only — the real token has NO
+                                                 embedded newline; the three JWS segments are joined by a single `.` each)
+                             Regeneratable byte-for-byte (modulo the random signature) from
+                             `buildCanonicalPayload` — see `tests/credential-sign.test.ts`'s determinism
+                             cases for the executed proof.
+OPTIONS CONSIDERED:            O0 leave "compact signed token" undefined until a consumer forces the
+                             question at deploy time (rejected — PFA-20's "DO NOT INVENT CRYPTOGRAPHY"
+                             principle cuts the other way here: an UNDOCUMENTED ad hoc choice made once
+                             and never written down is worse than a documented one pending signature; a
+                             wire format touched by every future consumer — door SDK, wallet pass builder,
+                             this edge — is exactly the kind of decision that must not live only in one
+                             file's source). O1 a bespoke non-JWS delimiter scheme (rejected — reinvents a
+                             solved problem for no benefit; JWS-compact is the industry-standard shape for
+                             "header + payload + detached-looking signature," widely implemented, and the
+                             three-segment split this PFA specifies is trivially portable to Swift (door/
+                             wallet) and Kotlin without a JOSE library dependency, since only base64url +
+                             JSON + raw Ed25519/ECDSA verify are required, not any other JWS/JWT feature
+                             — no `alg:"none"`, no key embedding, no JWK header, no nested signing). O2 put
+                             ALL SIX claims in the payload, none in the header (considered — rejected
+                             because `kid` must be readable BEFORE the payload is trusted, to select which
+                             public key even attempts verification; JWS convention puts key-selection
+                             metadata in the header for exactly this reason). O3 (ADOPTED) — the RESOLUTION
+                             above: JWS-compact, `kid`+`alg`+`typ` in the header, the other five claims in
+                             the payload, canonical (sorted-key, unwhitespaced) JSON on both segments,
+                             `typ` as the explicit domain separator, keyring-resolved `kid`.
+CLASSIFICATION:                POST-FREEZE AMENDMENT of EDGE_FUNCTION_SPEC §3.2 / §5.1's "compact signed
+                             token" phrase → 102 (`supabase/functions/credential-sign/` — NOT a migration;
+                             this package ships no SQL of its own. The concurrently-authored migration 102
+                             is DB-IMPL's `kernel.get_ticket_signing_context` + the A8a' SALEABLE gate +
+                             the `signing.%` dual-control amendment — a SEPARATE normative surface this
+                             PFA does not cover). Implementation: `supabase/functions/credential-sign/
+                             credential.ts` (pure builder/encoder/verifier) + `index.ts` (the edge shell —
+                             DARK, `https://` imports, NOT deployed, see its own header). Test: `tests/
+                             credential-sign.test.ts` (23 cases: determinism, domain separation, tamper
+                             detection ×3, K1/K2 rotation ×2, exp/iat/ttl ×5, base64url round-trip ×3, log
+                             shape ×2, canonical-JSON/header/payload shape ×3). Full implementation notes:
+                             `docs/phase2/_impl/KCRYPTO_credential_sign.md`.
+PACKAGE IMPACT:                credential-sign only. No migration, no DDL, no new table, no new column, no
+                             new config key, no cron row, no grant. The edge is authored DARK — its
+                             `KmsSigner` provider adapter throws `kms_provider_unconfigured`
+                             unconditionally (no AWS/GCP/CloudHSM selection made here or by this PFA — a
+                             ceremony-time decision, EDGE_FUNCTION_SPEC §5.3/§5.7); no KMS key exists; no
+                             credential has ever been signed by this code. Nothing about this PFA can be
+                             exercised in production until: (1) migration 102's `kernel.
+                             get_ticket_signing_context` is applied, (2) a real KMS provider adapter
+                             replaces `UnconfiguredKmsSigner`, (3) `credential-sign` is deployed. None of
+                             those three happened here (train boundary: no deploy, no KMS, no signing key,
+                             no secret).
+SECURITY / MONEY IMPACT:      None loosened — nothing is live to loosen. This PFA constrains, rather than
+                             expands, what a future implementer may do: it forecloses O0 (undocumented ad
+                             hoc encoding) and O1 (a non-standard scheme less auditable by outside
+                             tooling), and it makes explicit a rule (keyring-resolved `kid`, never a
+                             token-embedded key) that a careless implementation could otherwise get wrong
+                             in a way indistinguishable from "working" until an attacker embeds their own
+                             key. The six frozen claims, the key hierarchy, the offline admission
+                             predicate (`OFFLINE-VERIFY-v1`), and the non-exposure rule (§5.3) are ALL
+                             UNCHANGED — this PFA is encoding-only.
+OWNER ITEMS OPENED (not resolved by this filing):            (1) sign this PFA (adopt O3, or select a
+                             different wire encoding — without a signature, `credential-sign` has a
+                             tested, internally-consistent encoding but no ratified one); (2) confirm the
+                             header/payload claim split (`kid` in the header, the other five in the
+                             payload) matches what the door-SDK and wallet-pass implementers (not yet
+                             built) should target, since they will need to parse this exact shape; (3) the
+                             KMS provider adapter selection (AWS KMS / GCP KMS / CloudHSM) remains a
+                             SEPARATE ceremony-time decision this PFA does not make or presume.
+OWNER SIGNATURE REQUIRED:    YES.    OWNER SIGNATURE: APPROVED (2026-09-04).    STATUS: SATISFIED / RATIFIED (governance only) — the
+                             pure module and the edge shell are authored and tested (`tests/credential-
+                             sign.test.ts`, 23/23 passing; full suite 512/512, up from a 489 baseline) but
+                             the edge is DARK/UNDEPLOYED and calls no KMS; the signature is a DEPLOY
+                             PRECONDITION for `credential-sign` (the same posture as 094's Gate-M row and
+                             PFA-PT-4/PFA-PT-5's migrations), not a precondition to authoring or testing
+                             the TypeScript.
+```
+
+## PFA-PT-7 — TAX enforcement locus stays an OWNER/LEGAL decision; A8a′'s SALEABLE publish gate deliberately excludes a tax gate (package 102, DARK/undeployed)
+
+```
+ID:                          PFA-PT-7  (owner-decision-reserved class, sibling of ITEM (ii) in
+                             FINAL_ACTIVATION_BLOCKER_RULINGS.md — a decision the corpus MUST NOT make
+                             for the owner; this PFA records the boundary held, not a mechanism adopted)
+FROZEN RULE / RULING:         FINAL_ACTIVATION_BLOCKER_RULINGS.md ITEM (ii): tax is "an activation blocker
+                             of an OWNER/LEGAL kind, not an engineering one … no SQL predicate exists that
+                             could enforce 'tax is not applicable here' versus 'tax is required and we are
+                             not collecting it' … no rate or model is invented here or anywhere in this
+                             corpus, and none should be assumed." Ruling A5 fixes venue entitlement at
+                             face value "subject only to explicitly modeled adjustments," and nothing in
+                             the frozen corpus models tax. Train-3 owner constraint (verbatim): "Do NOT
+                             solve tax or silently define tax=zero (tax stays fail-closed)."
+CONTEXT:                      A8a′ (the ratified reading B of ITEM (i)) directs that `catalog.publish_event`'s
+                             on_sale transition enforce "the SAME Connect-readiness predicate
+                             venue.create_primary_checkout enforces" — i.e. org status / Connect / signing
+                             key / fee. An earlier draft of migration 102 ALSO added a sixth gate,
+                             `tax_policy_unresolved`, backed by a NEW config key `tax.policy_resolved`
+                             seeded false. That gate was REMOVED before this filing. Reason: wiring a
+                             publish-time tax gate would SILENTLY DECIDE the tax enforcement LOCUS
+                             (publish-time) that ITEM (ii) explicitly reserves to the owner/legal — the
+                             same unratified-locus move ITEM (i) itself warns against for the on_sale/
+                             SALEABLE question. "Tax stays fail-closed" is ALREADY the system's state
+                             without such a gate: the backend computes no tax and assumes none (face value
+                             + explicitly-modeled adjustments only), and the only tax representation
+                             anywhere is a client-side advisory that refuses to quote. Adding a backend
+                             gate does not make tax "more fail-closed"; it relocates an owner/legal
+                             decision into engineering without authority.
+RESOLUTION (the boundary held): Migration 102 introduces NO tax key, NO tax gate, NO tax model, NO tax rate.
+                             publish_event's A8a′ ladder is the four create_primary_checkout gates and
+                             nothing else. The status quo (tax computed nowhere; client refuses to quote)
+                             is preserved unchanged.
+OWNER ITEMS OPENED:          (1) DECIDE the tax enforcement LOCUS and mechanism, or affirm the current
+                             "compute none / client-advisory-refuse" posture as the intended one. If a
+                             backend gate is ever wanted, DECIDE where: publish-time (blocks going on
+                             sale), checkout-time (blocks the money move — the stronger fail-closed point,
+                             mirroring where the SALEABLE money gates already live), or both. (2) Any
+                             tax RATE or MODEL remains a question for the owner and counsel and is not
+                             invented here. Until (1) is decided, no tax gate is added by engineering.
+OWNER SIGNATURE REQUIRED:    NO for the boundary held (this PFA RECORDS a non-decision — engineering did
+                             not act). YES before any tax gate/model/rate is ever added.
+STATUS:                      BOUNDARY HELD — no tax mechanism authored. Owner decision OPEN.
+```
+
+## PFA-PT-8 — the door verifier MUST pin signing algorithm per `kid`; `kernel.signing_key.algorithm` added (package 102 recommendation → package 103 IMPLEMENTED, DARK/undeployed)
+
+```
+ID:                          PFA-PT-8  (PFA-20 "DO NOT INVENT CRYPTOGRAPHY" hardening class — a
+                             verification-side binding the freeze left implicit; NOT a change to the
+                             signer, the six claims, or the key hierarchy)
+FROZEN RULE:                  EDGE_FUNCTION_SPEC §5.1/§5.3: Ed25519 preferred, ECDSA-P256 acceptable.
+                             kernel.signing_key (083:49-69) stores public_key, status, not_before,
+                             not_after, kms_handle_ref, scope — and NO `algorithm` column. §5.4.3
+                             OFFLINE-VERIFY-v1 reads token fields as already-resolved and does not state
+                             how the verifier chooses the algorithm it verifies UNDER.
+CONTEXT:                      PFA-PT-6's wire format carries `alg` in the protected header (signed, so it
+                             cannot be altered without breaking the signature). `credential.ts`'s
+                             reference `verifyToken` resolves the public key by `kid` against a trusted
+                             keyring (correct — never a token-embedded key), but selects the verify
+                             primitive from the TOKEN-HEADER `alg`. Because kernel.signing_key has no
+                             algorithm column, the trusted keyring cannot itself pin the algorithm a
+                             given `kid` must be verified under. This is BOUNDED today: verifying an
+                             ES256 header against an Ed25519 SPKI (or vice-versa) fails on key-type
+                             mismatch inside the primitive, so a substituted-alg forgery does not verify.
+                             But relying on the primitive to reject a mismatch is weaker than pinning; a
+                             future verifier backed by a keyring that stores keys type-agnostically, or a
+                             primitive lenient about key/alg pairing, could regress silently.
+RESOLUTION (RECOMMENDED, for the DOOR/verifier side — not the signer):
+                             1. The door's M1 public-key manifest MUST bind (`kid` → `public_key`, `alg`)
+                             and verify each token UNDER the manifest's alg for that `kid`, treating a
+                             token-header `alg` that disagrees with the pinned alg as `signature_invalid`
+                             (a rejection, never a downgrade). 2. Consider adding an `algorithm` column to
+                             kernel.signing_key in a FUTURE migration (additive; would let
+                             get_ticket_signing_context return a non-null `algorithm` and let the M1
+                             manifest source it from the DB rather than a platform default). Not required
+                             for the DARK signer to be correct; required before the offline door verifier
+                             is built.
+OWNER / ARCH ITEMS OPENED:   (1) ratify the M1 alg-pinning rule as a door-SDK requirement; (2) decide
+                             whether kernel.signing_key gains an `algorithm` column (a future additive
+                             migration) or the platform default (Ed25519, §5.1) is pinned in the manifest
+                             builder. Neither blocks this package (no door verifier ships here).
+STATUS:                      HARDENING ITEM RECORDED — bounded-safe today; binding recommended before the
+                             offline door verifier (M1) is implemented.
+```
+
+### PFA-PT-8 — package-103 IMPLEMENTATION ADDENDUM (2026-09-03, DARK/unapplied)
+
+```
+STATUS UPDATE:               IMPLEMENTED (DARK). The recommendation above is now built. Ready for owner
+                             signature.
+WHAT SHIPPED (migration 103, supabase/migrations/103_signing_key_algorithm_pin.sql):
+  1. kernel.signing_key gains an ADDITIVE, IMMUTABLE, constrained `algorithm` column
+     (text not null default 'EdDSA' check in ('EdDSA','ES256')) — never an arbitrary
+     string, never RSA/symmetric/`none`; immutable after creation via the re-created
+     kernel.guard_signing_key_immutable; PUBLIC verification metadata, granted select to
+     authenticated (NOT kms_handle_ref), so the M1 manifest projection carries it.
+  2. kernel.get_ticket_signing_context re-created (body-only) to return the REAL
+     algorithm (102 returned literal null). The credential-sign edge stamps the token
+     header `alg` from this value.
+  3. The reference verifier (credential-sign/credential.ts) and the OFFLINE-VERIFY-v1
+     core (supabase/functions/_shared/offline-verify.ts) now PIN algorithm: the trusted
+     key metadata resolved by `kid` supplies the algorithm, and a token whose header alg
+     disagrees is REFUSED (`alg_mismatch`) BEFORE any signature check — no fallback, no
+     "try EdDSA then ES256", no `none`, no key-type/symmetric confusion.
+AUTHORITY MODEL:             token.header.alg is INFORMATIONAL/consistency only; the trusted key's
+                             own `algorithm` is the verification authority. trusted.algorithm ==
+                             token.header.alg or REFUSE.
+EXISTING ROWS / PRODUCTION:  production has ZERO signing keys, so the ALTER is a no-op there; the
+                             ceremony sets `algorithm` EXPLICITLY to match the key material it creates
+                             (ES256 on AWS KMS, which offers no Ed25519 — see PROVIDER decision).
+CENSUS:                      kernel function count unchanged (103 re-creates, adds none); one additive
+                             column on kernel.signing_key; Gate-2 public census unchanged.
+OWNER SIGNATURE REQUIRED:    YES. OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED (governance only). Migration 103 is a DEPLOY/APPLY precondition
+                             for the door verifier, not for authoring/testing (green locally).
+```
+
+## PFA-PT-9 — the door admit-gate "session is live" is implemented as "session not terminal" (cancelled/completed); no code path writes event_session.status='live' (package 104, DARK/undeployed)
+
+```
+ID:                          PFA-PT-9  (normative reconciliation — a frozen contract clause whose
+                             literal form is unimplementable against the shipped session lifecycle,
+                             filed alongside the migration that implements the honest reading)
+FROZEN RULE:                  PHASE_2_RPC_FUNCTION_CONTRACTS.md §7.5, admission-gate (1): "the session is
+                             `live` — venue.record_scan's own precondition, and the only thing that stops
+                             admission." Restated in the same file's §7.5 admit-conditions list (1223).
+THE DEFECT / AMBIGUITY:      Two facts collide. (a) venue.record_scan (086:1070-1109) implements NO
+                             session-status precondition at all — the contract clause was never coded
+                             (adversarial door finding P0-1: a cancelled event's comp/import atoms stay
+                             state='active' and are admissible forever; catalog.cancel_event 088:1607
+                             explicitly ASSUMES "the cancelled session already denies their scan", which
+                             is false). (b) The literal clause — require status='live' — is
+                             UNIMPLEMENTABLE: nothing in migrations 076-104 ever writes
+                             event_session.status='live' (093:781-784 states this outright: "the only
+                             writer of that column is 088:1793, which writes 'cancelled'"; no 'completed'
+                             writer exists either). A status='live' gate would refuse 100% of admissions —
+                             every session sits at its 'scheduled' default (078:186).
+RESOLUTION (migration 104):  venue.record_scan re-created (body-only) to refuse `session_not_admitting`
+                             when event_session.status is 'cancelled' or 'completed' (or unknown/null —
+                             fail closed), and to ADMIT 'scheduled' and 'live'. This is the honest reading
+                             of admit-gate (1): the load-bearing intent is "a TERMINAL session must not
+                             admit" (which makes cancel_event's own 088:1607 assertion true and closes the
+                             P0), not "only a session someone flipped to a state no code writes may
+                             admit." Proven by test 170 (the missing T-RPC-DOOR-04/T-RLS-DOOR-04
+                             regression): scheduled/live admit, cancelled/completed refuse, refusal does
+                             not consume the atom.
+SCOPE / RESIDUAL:            Closes ONLINE admission of a terminal session. Does NOT reach an OFFLINE
+                             device holding an M2 downloaded before the cancel — bounded by the manifest
+                             not_after (door.manifest_ttl_interval, "12 hours") and tied to the §5.6
+                             revocation-force-close obligation (kernel.revoke_signing_key parked, PFA-18A).
+                             Does NOT add credential_version to record_scan: the frozen contract (§7.5,
+                             1185/1223) places version-currency at C37/the verifier by design, so
+                             record_scan's signature is unchanged.
+OWNER ITEMS OPENED:          (1) ratify the terminal-status reading of admit-gate (1) (or introduce a real
+                             event_session → 'live' transition and keep the literal 'live' gate — a larger
+                             lifecycle change); (2) decide whether the offline terminal-session residual
+                             needs cancel_event to force-close open manifests (couples to the parked §5.6
+                             revocation work); (3) decide whether a DB-side credential_version backstop in
+                             record_scan is wanted as defence-in-depth beyond the C37/verifier check
+                             (adversarial P0-2 — currently by-design, trusted-scanner model).
+OWNER SIGNATURE REQUIRED:    YES. OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED (governance only). Migration 104 is DARK/unapplied.
+```
+
+## PFA-18B — RECOMMENDED OWNER RULING: un-park kernel.revoke_signing_key under SINGLE platform_admin control (emergency tightening), wiring the built §5.6 force-close; provision/rotate STAY parked (package 105, DARK)
+
+```
+ID:                          PFA-18B  (amends PFA-18A for the REVOKE leg only — an owner decision;
+                             NOT self-signed. Engineering has built and tested the force-close
+                             MECHANISM; this PFA asks the owner to choose the revoke AUTHORIZATION.)
+THE STANDING RULING:         PFA-18A (owner-signed) parks the credential lifecycle TRIO
+                             (provision/rotate/revoke) fail-closed with ZERO mutation until a
+                             "credential-compatible dual-control mechanism is separately ratified", and
+                             states "the unavailable approval mechanism does not authorize single-control
+                             fallback." §5.6/RPC §20.7.5 fully specify what an un-parked revoke MUST do
+                             (force-close open episodes in the key's scope, emit DoorManifestInvalidated,
+                             audit). The Wallet 12h session-bound profile (Door OQ-5 / DL-4) is BLOCKED
+                             until revoke can do this.
+WHAT ENGINEERING BUILT (105): kernel.force_close_key_manifests(uuid,text) — the exact §5.6 mechanism,
+                             zero-grant (internal), tested (test 171: scope-exact close, #44 emit,
+                             no_open_episode reconnect signal, T-RPC-KEY-05 out-of-scope isolation). It
+                             is a door-MANIFEST operation, NOT a key mutation, so building it does not
+                             violate PFA-18A. It is NOT wired into revoke (revoke stays parked).
+THE OWNER DECISION:          Dual-control on REVOCATION is the "a kill switch that needs a quorum is not a
+                             kill switch" anti-pattern (the exact polarity the owner already ratified for
+                             wallet.apple.enabled, WALLET §11.5b, and for signing.monitor_enabled,
+                             package 102 P3 — a tightening/emergency-off executes single-admin). PROVISION
+                             and ROTATE create/extend signing authority (arming) and legitimately need
+                             dual control; REVOKE removes authority in an incident and must be fast.
+RECOMMENDATION:              Un-park kernel.revoke_signing_key under SINGLE platform_admin (+aal2)
+                             control: authorize (is_platform([platform_admin]) + aal2), lock
+                             catalog.event_session FOR UPDATE (rank 1) then the key row, verify the
+                             forward-only lifecycle (active/rotating→revoked), set status='revoked',
+                             not_after:=now(), call kernel.force_close_key_manifests(key_id,'key_revoked'),
+                             audit. provision_signing_key / rotate_signing_key STAY parked (PFA-18A) — the
+                             ceremony inserts the bootstrap key directly (two-person), not via provision.
+                             The signature (p_key_id,p_reason_code,p_ack_live_credentials,p_command_key)
+                             is unchanged.
+ALTERNATIVE (if the owner insists on dual-control for revoke too): a credential-compatible dual-control
+                             mechanism must first be designed and ratified (PFA-18A's unassigned forward
+                             obligation — a new kernel credential-approval table, NOT the money-only
+                             kernel.approval_request). That is a larger build; engineering recommends
+                             AGAINST it for the emergency revoke leg on the kill-switch argument above.
+OWNER APPROVAL TEXT (adopt to authorize the recommendation):
+  "PFA-18B APPROVED. kernel.revoke_signing_key un-parks under single platform_admin + aal2 control
+   (revocation is an emergency tightening; the kill-switch polarity of WALLET §11.5b / package-102 P3
+   applies). It MUST, in one transaction, lock event_session FOR UPDATE then the key row, set
+   status='revoked' and not_after:=now(), call kernel.force_close_key_manifests for the key's scope, and
+   audit. provision_signing_key and rotate_signing_key REMAIN parked under PFA-18A; the bootstrap key is
+   a direct two-person ceremony insert. This lifts PFA-18A's no-single-control-fallback for the REVOKE
+   leg only."
+STATUS:                      SATISFIED / RATIFIED — OWNER SIGNATURE APPROVED (2026-09-04): revoke un-parks under single platform_admin + aal2; provision/rotate STAY parked (PFA-18A). Governance only — NOT a production authorization. See "OWNER SIGNATURES RECORDED — 2026-09-04".
+                             the Wallet 12h profile stays blocked. The mechanism is engineering-ready
+                             (force_close_key_manifests built+tested); only the authorization ruling and
+                             a small un-park migration remain.
+```
+
+## PFA-26 (un-park mechanism) — RECOMMENDED: in-DB pgcrypto bcrypt slow-KDF, keeping the frozen create_door_pin/mint_door_session signatures; edge rate-limiter is the attempt control (package 105, DARK)
+
+```
+ID:                          PFA-26-UNPARK  (brings PFA-26's forward obligation to a concrete, ratifiable
+                             mechanism. NOT self-signed — PFA-26 requires OWNER SIGNATURE to un-park.)
+THE GAP (PFA-26):            create_door_pin/mint_door_session parked because "no crypto extension
+                             (pgcrypto) is installed 076-086, so a real slow KDF is unbuildable in-DB";
+                             un-park needs "a ratified slow-KDF mechanism (edge-side hashing, or a
+                             sanctioned crypto extension)". PFA-26 fixes NEITHER the location, algorithm,
+                             params, salt, version, nor attempt policy. venue.door_pin has pin_hash only
+                             (no salt/version/attempt/lockout columns).
+RECOMMENDED MECHANISM (the smallest that keeps the FROZEN signatures):
+  * LOCATION: in-DB, via `create extension if not exists pgcrypto` (a Supabase-sanctioned extension).
+    This keeps create_door_pin(...,p_pin_plain,...) and mint_door_session(...,p_pin_plain,...) — the PIN
+    still arrives at the DB and is hashed there; NO signature change (PFA-26 froze the signatures).
+  * ALGORITHM: bcrypt via pgcrypto `crypt(p_pin_plain, gen_salt('bf', 12))` for storage and
+    `crypt(p_pin_plain, pin_hash) = pin_hash` for a constant-time verify. bcrypt is a real slow KDF; the
+    per-hash salt is embedded in the modular-crypt output stored in pin_hash (NO new salt column). The
+    algorithm/version tag lives in that output ('$2a$12$…'), so future rotation to a higher cost or a
+    different KDF needs no schema change. (Argon2id is cryptographically preferred but needs an
+    edge/WASM path and a signature change; bcrypt-in-pgcrypto is the minimal, deploy-safe, frozen-signature
+    choice. Owner may instead choose edge-side Argon2id — that is a larger change and is noted, not built.)
+  * WORK FACTOR: bf cost 12 (owner may set 10-14). This is the one genuinely tunable value.
+  * ATTEMPT/LOCKOUT: NOT new DB columns (none exist). The door-session edge (§3.9a) already specifies a
+    fail-closed rate limiter on /mint keyed venue||device (NS_DOOR_PIN, 5/60) — that IS the brute-force
+    control. A short numeric PIN's low entropy is covered by rate-limiting + bcrypt cost, not by an
+    in-DB lockout table the schema does not carry.
+  * ROTATION: revoke_door_pin (already live) + create_door_pin a new one; no in-place PIN change.
+OWNER APPROVAL TEXT:
+  "PFA-26-UNPARK APPROVED. Un-park venue.create_door_pin / venue.mint_door_session using pgcrypto
+   bcrypt (gen_salt('bf',12); crypt-based constant-time verify), frozen signatures unchanged; brute-force
+   control is the door-session edge's NS_DOOR_PIN rate limiter. door_session.token_hash md5 stays
+   (§3.10-compliant, 256-bit token)."
+STATUS:                      SATISFIED / RATIFIED — OWNER SIGNATURE APPROVED (2026-09-04): pgcrypto bcrypt cost 12 launch KDF. Governance only — NOT a production authorization. See "OWNER SIGNATURES RECORDED — 2026-09-04".
+                             un-park migration (it un-parks a parked security boundary, which needs the
+                             signature first); the door-session edge is authored DARK and surfaces the
+                             parked RPC cleanly. Owner signs the algorithm+cost, then a small migration
+                             (create extension pgcrypto + re-create the two RPCs) un-parks it.
+```
+
+## PFA-PT-9 — RESOLUTION (five items): terminal-session gate, terminal force-close, record_scan version backstop, offline residual, break-glass (packages 104/105)
+
+```
+ID:                          PFA-PT-9  (RESOLVED to a precise recommendation across five items. NOT
+                             self-signed where a ruling is required — owner approval text supplied.)
+ITEM 1 — Is migration 104's terminal-session record_scan gate ratified?
+   RECOMMENDATION: RATIFY. record_scan now refuses a cancelled/completed session (session_not_admitting).
+   This implements frozen contract §7.5 admit-gate (1) ("the session is live — record_scan's own
+   precondition"); the literal 'live' is unimplementable (no code writes event_session.status='live'),
+   so the honest reading is "refuse TERMINAL (cancelled/completed)". Proven by test 170.
+ITEM 2 — Must a terminal (cancelled/completed) session transition force-close open door manifests?
+   FINDING: cancel_event's own §7.2.1 obligation to force-close manifests is ALSO unimplemented in code
+   (088 cancel_event sets status='cancelled' but never calls close_door_manifest / emits
+   DoorManifestInvalidated). RECOMMENDATION: yes — wire cancel_event (and any completed-session sweep) to
+   kernel.force_close_key_manifests-style closure. The MECHANISM now exists (105
+   force_close_key_manifests, scoped by key; a session-scoped sibling is a one-liner). Deferred to a
+   dedicated door migration (re-creating the large 088 cancel_event money function is done under money
+   non-regression, not bundled with signing work). ONLINE terminal admission is already closed (104);
+   the OFFLINE terminal residual is bounded by manifest not_after until this lands.
+ITEM 3 — Should record_scan carry a DB-side credential_version backstop?
+   RECOMMENDATION: NO (keep frozen). §7.5/§1223 place version-currency at C37/the verifier by design;
+   record_scan takes no version and is the admission COMMIT after the scanner verifies (M1+M2/C37). A
+   rogue-STAFF scanner bypassing C37 is a trusted-insider threat (venue staff control the physical door
+   regardless) — not a credential defect. Adding a version param would DEVIATE from the frozen signature
+   and complicate reconciliation for no gain against the actual threat model. The old-owner-screenshot
+   defense is proven at the verifier (offline-verify stale_version; C37 live read).
+ITEM 4 — Accepted offline residual after a terminal session change:
+   An offline device holding an M2 downloaded BEFORE the cancel/complete keeps admitting until its
+   downloaded not_after (bounded by door.manifest_ttl_interval, seed "12 hours"). This is the SAME
+   physical residual as the §5.6 revocation case and is honestly bounded; no DB write can shorten a
+   value already on a disconnected device. ACCEPTED as bounded.
+ITEM 5 — Does break-glass (admin_action) ownership transfer force-close/refresh an episode?
+   FINDING: kernel.transfer_ticket_ownership does NOT append a manifest delta; the only path that moves
+   custody while an episode is frozen is the break-glass admin_action cause (spec-acknowledged §5.5
+   residual). RECOMMENDATION: document in the break-glass runbook that an admin transfer during an open
+   episode should be followed by a manifest force-close/refresh for the affected session (the
+   force_close_key_manifests-class mechanism supports it); do NOT silently redesign transfer.
+OWNER APPROVAL TEXT (items 1 & 3, the ones needing a ruling):
+  "PFA-PT-9 items 1 and 3 APPROVED: (1) migration 104's terminal-session record_scan gate is the
+   ratified reading of §7.5 admit-gate (1); (3) record_scan carries NO credential_version backstop —
+   currency stays at C37/the verifier. Items 2/4/5 are accepted as recommended: terminal/cancel offline
+   force-close is a follow-up door migration; the offline not_after residual is accepted as bounded; the
+   break-glass manifest refresh is a runbook step."
+STATUS:                      SATISFIED / RATIFIED (items 1 & 3) — OWNER SIGNATURE APPROVED (2026-09-04). Item 2 landed (109); items 4/5 accepted/runbook. Governance only. See "OWNER SIGNATURES RECORDED — 2026-09-04".
+                             engineering-tracked follow-ups / accepted residuals.
+```
+
+---
+
+## OWNER GATE RATIFICATION TRAIN — 2026-09-03 (owner directions RECEIVED; engineering LANDED DARK as migrations 106–109; NOT self-signed)
+
+```
+CONTEXT: The owner issued directions to close the four small door-plane un-parks the door-plane
+         readiness report reduced the remaining backend to. Directions are RECORDED here; the
+         literal owner-signature fields on the individual PFAs remain PENDING (this session does
+         NOT self-sign). Engineering has now IMPLEMENTED each direction as a DARK/unapplied
+         migration + pgTAP test, so on signature the code is already in place (no further build).
+
+── PFA-18B (revoke un-park) ────────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE single platform_admin + aal2 revoke (emergency tightening);
+    provision/rotate STAY parked (asymmetric, intentional). Required behavior: platform_admin only,
+    aal2, explicit reason_code, target key locked, forward-only status='revoked', all in-scope open
+    door episodes force-closed, DoorManifestInvalidated emitted durably, NO new manifest opens on
+    the revoked key, signer refuses the revoked key, no silent fallback for already-pinned atoms.
+  ENGINEERING LANDED: migration 106 (kernel.revoke_signing_key real body + venue.open_door_manifest
+    revoked-key refusal; serialized by locking all in-scope non-terminal sessions FOR UPDATE).
+    Test 172 (15 assertions: authz, aal2, ack, cascade, scope isolation, replay, open-refuse,
+    signer-refuse, unknown-key). NOTE: not_after is NOT rewritten on revoke — status='revoked' is
+    the authority (get_ticket_signing_context refuses on status<>'active'; the M1 keyring distributes
+    status); writing not_after=now() would violate signing_key_window_ck for a same-instant key.
+  SIGNATURE TEXT: the PFA-18B "OWNER APPROVAL TEXT" block above (amended: "status='revoked'" — the
+    not_after clause is subsumed by status, per the window-constraint finding).
+  STATUS: OWNER SIGNATURE: APPROVED (2026-09-04) — SATISFIED / RATIFIED. Engineering complete (DARK).
+
+── PFA-26-UNPARK (door PIN KDF) ────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE pgcrypto bcrypt cost 12, per-hash salt, frozen create/mint
+    signatures; no plaintext/reversible storage; verifier never returned; edge NS_DOOR_PIN limiter
+    is the brute-force control; rotate by revoke + recreate. Argon2id NOT required for launch.
+  ENGINEERING LANDED: migration 107 (create extension pgcrypto in `extensions`; venue.create_door_pin
+    bcrypt-hashes; venue.mint_door_session constant-time crypt verify + tokenized session; opaque
+    door_session_invalid for wrong pin/device/session/venue). Test 173 (13 assertions). PIN format
+    is NOT frozen — only a 1..64-byte safety envelope is enforced; digit/length policy stays an
+    owner/product decision (train §9: no unfrozen rule invented).
+  SIGNATURE TEXT: the PFA-26-UNPARK "OWNER APPROVAL TEXT" block above.
+  STATUS: OWNER SIGNATURE: APPROVED (2026-09-04) — SATISFIED / RATIFIED. Engineering complete (DARK).
+
+── PFA-PT-9 (five items) ───────────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: item 1 APPROVE 104 terminal-session gate; item 2 YES wire terminal
+    force-close; item 3 NO record_scan credential_version backstop (currency stays C37/verifier);
+    item 4 ACCEPT the bounded offline residual; item 5 break-glass admin transfer requires
+    force-close/refresh in the runbook.
+  ENGINEERING LANDED: item 2 is now IMPLEMENTED — migration 109 wires terminal force-close via a
+    TRIGGER on catalog.event_session.status (kernel.force_close_session_manifests +
+    catalog.tg_session_terminal_force_close), NOT a cancel_event rewrite, so ZERO money bytes change
+    (G4/G5 non-regressed by construction). Only 'cancelled' is currently reachable; 'completed' is
+    covered defensively (no writer exists — train §13). Test 175 (9 assertions incl. money
+    non-regression + duplicate-cancel no-re-emit). Items 1/3 were satisfied by 104 (test 170);
+    item 4 accepted; item 5 -> activation runbook break-glass step.
+  SIGNATURE TEXT: the PFA-PT-9 "OWNER APPROVAL TEXT" block above (items 1 & 3).
+  STATUS: OWNER SIGNATURE: APPROVED (2026-09-04) — SATISFIED / RATIFIED (items 1 & 3). Item 2 ENGINEERING COMPLETE
+    (DARK); items 4/5 accepted/runbook.
+
+── PFA-PT-6 (credential wire format) ───────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE the existing JWS-compact format (b64url(header).b64url(payload).
+    b64url(sig); header {alg,kid,typ}; payload {atom,sess,ver,iat,exp}; no PII, no embedded verify
+    key, no KMS handle; typ/domain enforcement mandatory). Do NOT redesign.
+  ENGINEERING: unchanged (package 102, adversarially confirmed prior train). READY FOR SIGNATURE.
+  STATUS: OWNER SIGNATURE: APPROVED (2026-09-04) — SATISFIED / RATIFIED. No new engineering.
+
+── PFA-PT-8 (algorithm pinning) ────────────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: APPROVE trusted-key algorithm pinning — token alg MUST equal the trusted
+    key's kernel.signing_key.algorithm (migration 103); no fallback, no alg=none, no attacker choice.
+  ENGINEERING: unchanged (migration 103). READY FOR SIGNATURE.
+  STATUS: OWNER SIGNATURE: APPROVED (2026-09-04) — SATISFIED / RATIFIED. No new engineering.
+
+── KMS D1 / D2 (provider + algorithm) ──────────────────────────────────────────────────────────
+  OWNER DIRECTION RECEIVED: D1 = AWS KMS (reference production provider); D2 = ES256 / ECDSA
+    P-256 SHA-256 (production ticket-credential signing algorithm). Rationale: AWS-shaped infra,
+    KMS_SIGNER_ROLE_ARN convention, AwsKmsSigner authored/tested, ES256 sanctioned by §5.1; no need
+    to add GCP solely for Ed25519. The bootstrap kernel.signing_key row's algorithm column (103) is
+    set to 'ES256' at the ceremony to match the key material. NO production key created; NO ceremony
+    run; NO real ARN/fingerprint written. The ceremony runbook is updated to remove D1/D2 ambiguity.
+  STATUS: OWNER DIRECTION RECEIVED. D1/D2 DECIDED. Ceremony remains a later PRODUCTION OPERATION.
+
+OVERALL: the four un-park/conformance migrations (106 revoke, 107 PIN, 108 machine door authority,
+109 terminal force-close) are engineering-complete, tested, DARK/unapplied, and byte-preserve
+093–105. On owner signature of PFA-18B / PFA-26-UNPARK / PFA-PT-9(1,3) / PFA-PT-6 / PFA-PT-8, and
+with D1/D2 decided, the backend is construction-complete for a controlled first sale + signed
+credential + controlled door scan (remaining gates are production migration, edge deploy, the KMS
+ceremony, config, org onboarding, tax/legal, and the observation closeout — none of them new code).
+```
+
+---
+
+## OWNER SIGNATURES RECORDED — 2026-09-04 (owner-executed governance ratifications; NO production authorization)
+
+```
+The owner, in-session on 2026-09-04, explicitly provided the following approvals and closeout
+acceptance. These RATIFY GOVERNANCE / ENGINEERING decisions ONLY. They DO NOT authorize applying any
+migration, creating an AWS KMS key, running the ceremony, inserting a signing_key, deploying an edge,
+exposing a schema, configuring production, flipping a flag, onboarding Connect, creating a PaymentIntent,
+moving money, issuing a ticket/credential, provisioning a Door PIN, scanning, or activating any rail.
+Production authorization remains a SEPARATE, later, explicit owner instruction.
+
+PFA-18B — OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED.
+  Emergency signing-key REVOKE authorized under single platform_admin + AAL2 (it reduces authority):
+  revoke the key, prevent future signing under it, force-close dependent open door episodes, emit the
+  required durable DoorManifestInvalidated facts, prevent a new manifest opening on revoked trust,
+  preserve historical public verification material. PROVISION and ROTATE REMAIN PARKED under PFA-18A —
+  this signature does NOT un-park them, and authorizes no production action.
+
+PFA-26-UNPARK — OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED.
+  Launch Door PIN KDF = pgcrypto bcrypt cost 12, per-hash random salt, verifier-only storage, no
+  plaintext/reversible PIN, crypt-based verification, no PIN/hash leakage, the approved edge rate limiter
+  as the launch brute-force control, rotation by revoke + recreate. Argon2id is OPTIONAL FUTURE
+  hardening, not a launch requirement. Authorizes no production Door PIN provisioning or deployment.
+
+PFA-PT-6 — OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED.
+  Ticket credential wire format remains JWS-compact b64url(header).b64url(payload).b64url(signature);
+  header {alg,kid,typ}; payload {atom,sess,ver,iat,exp}; no PII, no mutable display fields, no embedded
+  verification key, no KMS handle; typ/domain validation mandatory. Authorizes no production issuance.
+
+PFA-PT-8 — OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED.
+  Trusted-key metadata resolved by kid is authoritative for the algorithm; token alg MUST equal the
+  trusted key's pinned algorithm; no alg=none, no fallback, no try-multiple, no attacker-selected
+  algorithm, no symmetric/asymmetric confusion. Migration 103 is the approved implementation. Authorizes
+  no production signing key or ceremony.
+
+PFA-PT-9 — OWNER SIGNATURE: APPROVED (2026-09-04). STATUS: SATISFIED / RATIFIED (owner-decision items).
+  (1) migration 104's terminal-session record_scan gate RATIFIED (a cancelled/completed session refuses
+  an online scan commit); (2) terminal transition force-closes relevant open door episodes — migration
+  109 implements it; (3) NO credential_version parameter/backstop is added to record_scan — currency
+  stays at C37/the verifier; (4) the bounded offline residual (a fully-disconnected scanner may hold
+  stale state until manifest.not_after) is ACCEPTED; (5) a break-glass admin ownership transfer during
+  an open episode requires operational force-close/refresh when immediate invalidation is needed.
+  Authorizes no production scanning or deployment.
+
+KMS D1 / D2 — OWNER CONFIRMED (2026-09-04): D1 = AWS KMS; D2 = ES256 / ECDSA P-256 (SHA-256). Governance/
+  provider decision only. No key created, no ceremony run, no signing_key inserted, no production config.
+
+PHASE-2 076–092 OBSERVATION CLOSEOUT — OWNER ACCEPTANCE: APPROVED (2026-09-04). STATUS: ACCEPTED /
+  COMPLETE. Basis: the read-only technical evidence in docs/release/PHASE2_OBSERVATION_CLOSEOUT_20260904.md
+  (production through 092; ledger 107; 19/19 cron active; 0 cron failures and 15,956 successful executions
+  in the inspected window; no migration drift; 0 signing keys; native issuance/scanning DARK; 0 unexpected
+  native Phase-2 data; no production mutation). The owner acknowledges the recorded limitation that Sentry
+  was not directly queried and accepts the closeout on the available telemetry. Acceptance of the closeout
+  DOES NOT authorize migration 093–109.
+
+UNCHANGED BY THIS SESSION:
+  * PFA-18A — signing-key PROVISION / ROTATE remain PARKED fail-closed (dual_control_unavailable).
+  * PFA-PT-7 — TAX remains OPEN (LEGAL/TAX decision required; no rate/jurisdiction/nexus/zero-tax
+    invented). Blocks the first controlled SALE (quote/PaymentIntent), not the dark migration/ceremony/
+    edge-deploy/publish.
+  * deletion.post_event_hold_hours — remains owner-UNSET (gates account-erasure finalization only).
+  * KMS ceremony — NOT executed; production — UNTOUCHED (ledger 107, tip 092, 0 signing keys, no native
+    edges, flags DARK) as of the 2026-09-04 04:49Z read-only recheck.
+```
+
+---
+
+## PFA-18C — single-founder INITIAL KMS trust-root bootstrap exception (compensating-control model) — OWNER-RATIFIED (execution-gated)
+
+```
+ID:      PFA-18C  (amends the PFA-18A/18B signing-key lineage for the INITIAL BOOTSTRAP leg only)
+STATUS:  OWNER-RATIFIED 2026-09-04 — governance model APPROVED, CONDITIONED on execution preconditions
+         (bootstrap blockers M1/M2/M3 concretely met + second-device verified, M4-corrected artifact;
+         M5/M6/Model A before issuance). Owner signature recorded verbatim in
+         docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md. Design + adversarial review
+         (two rounds) in docs/architecture/_governance/PFA_SINGLE_FOUNDER_KMS_BOOTSTRAP.md; remediation +
+         final ratification package in docs/architecture/_governance/PFA_18C_REMEDIATION_AND_FINAL_RATIFICATION.md.
+SUMMARY: permits ONE technically-qualified founder to perform the INITIAL dark AWS KMS ES256 trust-root
+         bootstrap (one global kernel.signing_key row) under compensating TECHNICAL controls in lieu of
+         the two-person ceremony, with the honest guarantee DETECTABLE-NOT-PREVENTABLE. Requires (before
+         the dark bootstrap): M4 corrected §6.1 artifact (algorithm=ES256, FIXED + tested this session);
+         M1 out-of-band audit (Model B same-account with the concrete deny-set + Object-Lock compliance +
+         log-CMK control, read back from the second device; Model A separate account required before
+         commerce); M2 second clean device (own read-only IAM; independent GetPublicKey + §5.3 binding
+         proof + deny-set/key-policy read-back); M3 distinct runtime IAM role (key policy Sign-only-to-
+         runtime; ceremony principal drops Sign); C18 the founder runs every AWS/DB mutation, the AI is
+         read-back coordinator only. Requires (after bootstrap, before issuance): M6 BEFORE INSERT
+         scope/algorithm guard migration; M5 end-to-end credential-sign test; a gated two-person
+         post-revoke re-bootstrap artifact. PFA-18A provision/rotate STAY parked; PFA-18B revoke is the
+         abort path. Consumed once; future signing-key lifecycle returns to two-person control (fail
+         closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
+OWNER SIGNATURE REQUIRED: YES.  OWNER SIGNATURE: RECORDED 2026-09-04 — "PFA-18C APPROVED (2026-09-04)".
+         Verbatim signature + conformance check in docs/architecture/_governance/PFA_18C_OWNER_RATIFICATION.md.
+         Engineering did NOT self-ratify. Consumed once; future signing-key lifecycle returns to two-person
+         control (fail closed if no second qualified operator) on the maturity trigger (T1/T2/T3).
+```
