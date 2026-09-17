@@ -8,7 +8,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(20);
+SELECT plan(21);
 SELECT tap.seed_core();
 
 -- ── Read scoping ────────────────────────────────────────────────────────────
@@ -111,10 +111,21 @@ SELECT is(
   (SELECT t.seller_sent_at FROM public.transfers t WHERE t.id = tap.transfer_a()),
   (SELECT seller_sent_at FROM _sent050),
   'and the state is NOT replayed — seller_sent_at is untouched by the retry (the invariant this test has always protected)');
+-- CUSTODY OF ACCEPTED EVIDENCE (D). The first version of this assertion compared
+-- transfer A's path to itself and could not fail: A was marked sent through the
+-- 2-ARG overload, which delegates with a null path, so coalesce(null, existing)
+-- is the existing value no matter what a mutant does. Transfer B is seeded
+-- seller_sent WITH a path, so retrying the 3-ARG form on it with a DIFFERENT
+-- path is the real test — and it is a custody property, which is why it belongs
+-- in this suite rather than only in 207.
 SELECT is(
-  (SELECT t.transfer_evidence_path FROM public.transfers t WHERE t.id = tap.transfer_a()),
-  (SELECT transfer_evidence_path FROM _sent050),
-  'and accepted proof is NOT replaced by the retry either — the other half of "not replayed" (D)');
+  (SELECT public.mark_transfer_sent(tap.transfer_b(), tap.seller(), 'fixtures/evidence-b-REPLACEMENT.jpg'))->>'outcome',
+  'already_sent',
+  'a 3-arg retry carrying a DIFFERENT path still answers already_sent');
+SELECT is(
+  (SELECT t.transfer_evidence_path FROM public.transfers t WHERE t.id = tap.transfer_b()),
+  'fixtures/evidence-b.jpg',
+  'and accepted evidence is NOT replaced — custody of the original proof survives the retry');
 
 SELECT tap.logout();
 SELECT tap.login(tap.buyer());
