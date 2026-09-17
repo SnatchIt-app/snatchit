@@ -5,9 +5,20 @@
 -- The assertions carrying the fix are R2-R6: a retry on an already-sent transfer
 -- RETURNS instead of raising, writes nothing (xmin unchanged), fires no second
 -- notification, and never replaces accepted proof.
--- Mutants that kill them: remove the `v_status = 'seller_sent'` arm (every retry
--- raises again — the pre-140 defect); or write p over the stored path (R5/R6 see
--- the replacement). Removing the bypass-free UPDATE in attach kills S1/S11.
+-- NEGATIVE CONTROL PER BRANCH (A's §7). Each refusal branch of 140 was disabled in
+-- turn and the suite re-run; each killed exactly ONE assertion, and no two branches
+-- killed the same one — so every branch is defended, and each test defends something
+-- different. Measured, not asserted:
+--   remove the already-sent arm ......................... 5 fail (the pre-140 defect)
+--   let a retry replace accepted proof .................. 4 fail
+--   attach writes WITH the bypass GUC ................... 3 fail
+--   drop the storage.objects existence check ............ 1 fail  (S11)
+--   drop mark-sent's pointer to attach .................. 1 fail  (S1)
+--   drop attach's status gate ........................... 1 fail  (S8)
+--   drop attach's own-folder check ...................... 1 fail  (S9)
+--   drop attach's transfer-evidence/ check .............. 1 fail  (S10)
+--   drop attach's empty-path check ...................... 1 fail  (S12)
+--   drop attach's seller check .......................... 1 fail  (S13)
 BEGIN;
 SELECT plan(37);
 SELECT tap.seed_core();
