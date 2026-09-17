@@ -655,7 +655,7 @@ AMENDMENT:
      owner authorizes for that project.
 UNCHANGED:                   PFA-33 A1–A4 and its LIMIT; the tier guard, I-11, AUTHZ-C1B maturity; the invite verb;
                              acceptance for non-owners (the upsert's other effects are recorded as facts, not changed).
-IMPLEMENTED AT:              ops/138-operator-onboarding @ 5960b51 — migration 138 (unapplied, outside the marketplace
+IMPLEMENTED AT:              ops/138-operator-onboarding @ a9aa34e — migration 138 (unapplied, outside the marketplace
                              candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
 OWNER SIGNATURE REQUIRED:    YES.
 ```
@@ -766,4 +766,6 @@ text independently, and ran eight of its own mutants with predictions written fi
   the 171-assertion suite, before I134–I138 existed.
 - Rollback: unchanged from change log 4 (identical to an exact no-138 replay; re-apply identical), now with the RED
   direction above.
-CI: pending.
+CI: head `a9aa34e`, run 35257712408, all five jobs success. pgTAP Files=88, Tests=5441, Result: PASS; 206 ok.
+That is 5434 + 7 (206: 171 → 178). The migration and rollback are byte-identical to 5960b51; a9aa34e adds tests and
+the concurrency script only.
