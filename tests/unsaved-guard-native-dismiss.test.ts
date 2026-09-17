@@ -110,6 +110,10 @@ function tapBackButton(stack: StackHarness): void {
   const back = findElement(stack.host(EDIT)!.output, (el) => el.type === 'IconButton' && el.props.accessibilityLabel === 'Back');
   (back!.props.onPress as () => void)();
 }
+/** Let pending promises and microtasks run, so a late reload or reset of the form would show. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+}
 function answerPrompt(label: string): void {
   const prompt = h.alerts.shift();
   expect(prompt?.title).toBe('Discard changes?');
@@ -149,6 +153,7 @@ for (const { path, leave } of PATHS) {
       typeEventName(stack, TYPED);
       leave(stack);
       answerPrompt('Keep editing');
+      await settle();
 
       expect(stack.nativeRoutes()).toEqual([MY_LISTINGS, EDIT]);
       expect(stack.jsRoutes()).toEqual([MY_LISTINGS, EDIT]);
@@ -164,6 +169,7 @@ for (const { path, leave } of PATHS) {
       typeEventName(stack, TYPED);
       leave(stack);
       answerPrompt('Keep editing');
+      await settle();
       leave(stack);
 
       expect(h.alerts.map((a) => a.title)).toEqual(['Discard changes?']);
@@ -204,6 +210,53 @@ for (const { path, leave } of PATHS) {
       expect(h.alerts).toEqual([]);
       expect(stack.nativeRoutes()).toEqual([MY_LISTINGS]);
       expect(stack.jsRoutes()).toEqual([MY_LISTINGS]);
+    });
+  });
+}
+
+// Repeated attempts, in every order of the two ways out (D review of 2ba9e3a).
+const ORDERS: [string, (stack: StackHarness) => void, string, (stack: StackHarness) => void][] = [
+  ['swipe back', (stack) => stack.swipeBack(), 'swipe back', (stack) => stack.swipeBack()],
+  ['Back button', tapBackButton, 'Back button', tapBackButton],
+  ['swipe back', (stack) => stack.swipeBack(), 'Back button', tapBackButton],
+  ['Back button', tapBackButton, 'swipe back', (stack) => stack.swipeBack()],
+];
+
+for (const [first, leaveFirst, second, leaveSecond] of ORDERS) {
+  describe(`F-NAV-1 · repeat · ${first} then ${second}`, () => {
+    it('Keep editing twice keeps the screen and the typed text each time', async () => {
+      const stack = await openEditListing();
+      const host = stack.host(EDIT);
+      typeEventName(stack, TYPED);
+      leaveFirst(stack);
+      answerPrompt('Keep editing');
+      await settle();
+      leaveSecond(stack);
+      answerPrompt('Keep editing');
+      await settle();
+
+      expect(stack.nativeRoutes()).toEqual([MY_LISTINGS, EDIT]);
+      expect(stack.jsRoutes()).toEqual([MY_LISTINGS, EDIT]);
+      expect(stack.host(EDIT)).toBe(host);
+      expect(eventNameValue(stack)).toBe(TYPED);
+      expect(stack.removedNativelyButKept).toEqual([]);
+      expect(h.alerts).toEqual([]);
+    });
+
+    it('Keep editing, then Discard leaves without saving after exactly one more prompt', async () => {
+      const stack = await openEditListing();
+      typeEventName(stack, TYPED);
+      leaveFirst(stack);
+      answerPrompt('Keep editing');
+      await settle();
+      leaveSecond(stack);
+      answerPrompt('Discard');
+      await settle();
+
+      expect(stack.nativeRoutes()).toEqual([MY_LISTINGS]);
+      expect(stack.jsRoutes()).toEqual([MY_LISTINGS]);
+      expect(h.updates).toEqual([]);
+      expect(h.alerts).toEqual([]);
     });
   });
 }
@@ -261,6 +314,13 @@ describe('the modelled native layer still matches the installed library source',
     expect(routing).toMatch(/while \(\(action = events\.shift\(\)\)\) \{\s*if \(ref\.current\) \{\s*ref\.current\.dispatch\(action\);/);
     const edit = readFileSync(join(REPO_ROOT, 'app/listing/edit/[id].tsx'), 'utf8');
     expect(edit).toContain('<IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />');
+    // expo-router's Stack is its own fork of the navigator, but it renders upstream native-stack's view,
+    // so the NativeStackView pins above describe the running code (D review of 2ba9e3a).
+    expect(lib('expo-router/build/layouts/StackClient.js')).toContain('require("../fork/native-stack/createNativeStackNavigator")');
+    const fork = lib('expo-router/build/fork/native-stack/createNativeStackNavigator.js');
+    expect(fork).toContain('const native_stack_1 = require("@react-navigation/native-stack");');
+    expect(fork).toContain('(0, native_1.useNavigationBuilder)(native_1.StackRouter, {');
+    expect(fork).toMatch(/<NavigationContent>\s*<native_stack_1\.NativeStackView \{\.\.\.rest\}/);
     const layout = readFileSync(join(REPO_ROOT, 'app/_layout.tsx'), 'utf8');
     expect(layout).toContain("import { router, Stack } from 'expo-router';");
     expect(layout).not.toMatch(/presentation:\s*'(modal|formSheet|transparentModal|fullScreenModal)'/);
