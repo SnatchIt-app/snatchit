@@ -3,7 +3,7 @@
 -- audited action framework. Runs as postgres inside BEGIN … ROLLBACK like every
 -- suite here. Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md
 BEGIN;
-SELECT plan(44);
+SELECT plan(45);
 -- No tap.seed_core(): it builds listings, and 185's insert guard refuses the
 -- server-controlled columns it writes. This suite needs three identities and
 -- nothing else, so it makes them itself and stays independent of the fixture
@@ -41,6 +41,10 @@ INSERT INTO kernel.org_member (org_id, identity_id, role) VALUES (tap._org206(),
 INSERT INTO kernel.org_member (org_id, identity_id, role) VALUES (tap._org206(), tap.other_user(), 'org_member');
 INSERT INTO kernel.org_invite (invite_id, org_id, invitee_ref, role, status, invited_by, expires_at, command_idempotency_key)
 VALUES (tap._inv206(), tap._org206(), 'hopeful.person@example.com', 'org_member', 'pending', tap.admin_user(), now() + interval '7 days', 'k206-invite');
+-- an ACCEPTED invite whose identity has NO profiles row: the case where a coalesce on the
+-- display name would fall through to the masked address on a row the owner ruled shows the UUID.
+INSERT INTO kernel.org_invite (invite_id, org_id, invitee_ref, invitee_identity_id, role, status, invited_by, expires_at, command_idempotency_key)
+VALUES ('ffffffff-0000-0000-0000-000000000299', tap._org206(), 'accepted.person@example.com', tap.other_user(), 'org_member', 'accepted', tap.admin_user(), now() + interval '7 days', 'k206-accepted');
 INSERT INTO catalog.venue (venue_id, org_id, name, neighborhood, address, approval_status)
 VALUES (tap._venue206(), tap._org206(), 'The 206 Room', 'wynwood', '206 NW 2nd Ave', 'pending');
 INSERT INTO venue.staff_role (venue_id, identity_id, role) VALUES (tap._venue206(), tap.buyer(), 'venue_manager');
@@ -153,10 +157,13 @@ SELECT ok((SELECT bool_and(coalesce(display_name, '') NOT LIKE '%@%') FROM ops.l
   'G2: no address reaches ANY accepted member row, including one with no profile display name — ops.identity_display_name never falls back to a masked email');
 SELECT ok((SELECT bool_and(coalesce(display_name, '') NOT LIKE '%@%') FROM ops.list_venue_staff(tap._venue206())),
   'G3: ...nor a venue staff row');
-SELECT is((SELECT invitee_label FROM ops.list_org_invites(tap._org206())), 'h***@example.com',
+SELECT is((SELECT invitee_label FROM ops.list_org_invites(tap._org206()) WHERE status = 'pending'), 'h***@example.com',
   'G4: a PENDING invite shows the approved mask — it has no identity UUID yet, and invitee_ref IS the address');
-SELECT is((SELECT invite_id FROM ops.list_org_invites(tap._org206())), tap._inv206(),
+SELECT is((SELECT invite_id FROM ops.list_org_invites(tap._org206()) WHERE status = 'pending'), tap._inv206(),
   'G5: ...always beside the stable invite_id, so two identical masks stay distinguishable (owner ruling)');
+SELECT ok((SELECT bool_and(coalesce(invitee_label, '') NOT LIKE '%@%') FROM ops.list_org_invites(tap._org206())
+            WHERE invitee_identity_id IS NOT NULL),
+  'G5b (A review): an ACCEPTED invite never shows an address, even when its identity has no display name — the mask is conditioned on invitee_identity_id, not on the name being null');
 SELECT is((SELECT count(*)::int FROM information_schema.parameters
             WHERE specific_schema='ops' AND specific_name LIKE 'list_org_invites%'
               AND parameter_mode = 'IN' AND parameter_name <> 'p_org_id'), 0,

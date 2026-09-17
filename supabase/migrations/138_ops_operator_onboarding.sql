@@ -771,7 +771,13 @@ begin
            -- pending: the approved mask, ALWAYS with invite_id above so two identical
            -- masks stay distinguishable (owner, 2026-09-17). No filter parameter takes
            -- the mask: it is displayable, never searchable.
-           coalesce(ops.identity_display_name(i.invitee_identity_id), ops.mask_email(i.invitee_ref)),
+           -- Conditioned on invitee_identity_id, NOT on the display name being null (A, review
+           -- of 523333b). With a coalesce, an ACCEPTED invite whose identity has no profile
+           -- display name falls through to the masked address — the same leak removed from
+           -- list_org_members, reappearing here. Accepted rows show a name or nothing, never
+           -- an address; the mask is for pending invites, which have no identity yet.
+           case when i.invitee_identity_id is null then ops.mask_email(i.invitee_ref)
+                else ops.identity_display_name(i.invitee_identity_id) end,
            i.role, i.status, ops.identity_display_name(i.invited_by), i.expires_at, i.created_at
       from kernel.org_invite i
      where i.org_id = p_org_id
