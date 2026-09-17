@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Snatch It — hybrid directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#16171a;color:#fff;font-family:Inter,system-ui,sans-serif;padding:16px 16px 70px;display:flex;flex-direction:column;gap:14px;align-items:center}
+h1{font-family:Oswald;font-weight:600;font-size:23px;letter-spacing:-.3px}
+.sub{color:rgba(255,255,255,.55);font-size:13px;line-height:19px;max-width:920px;text-align:center}
+.bar{position:sticky;top:0;z-index:60;background:#0e0f11;border:1px solid #292b2f;padding:9px 11px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1220px}
+.grp{display:flex;gap:5px;align-items:center}.grp b{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.42);margin-right:3px}
+button{font:inherit;font-size:11.5px;padding:5px 9px;background:#1a1c20;color:rgba(255,255,255,.75);border:1px solid #2f3237;cursor:pointer}
+button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
+.stage{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;width:100%}
+.unit{display:flex;flex-direction:column;gap:7px;align-items:center}
+.ulabel{font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+.frame{width:375px;height:812px;overflow:hidden;position:relative;border:1px solid #292b2f;background:var(--canvas)}
+.scroll{position:absolute;inset:0;overflow-y:auto;display:flex;flex-direction:column}
+.note{max-width:1100px;font-size:12.5px;line-height:18px;color:rgba(255,255,255,.58);text-align:center}
+
+/* ---- type scale (normal / largest) ---- */
+.frame{--fsBar:20px;--lhBar:25px;--fsH1:22px;--lhH1:27px;--fsH2:17px;--lhH2:22px;--fsBody:15px;--lhBody:21px;--fsSm:13px;--lhSm:18px;--fsEb:11px;--lhEb:15px;--fsPriceBig:28px;--fsPrice:20px;--fsPriceSm:15px}
+.frame.lg{--fsBar:26px;--lhBar:32px;--fsH1:28px;--lhH1:34px;--fsH2:22px;--lhH2:28px;--fsBody:20px;--lhBody:27px;--fsSm:17px;--lhSm:23px;--fsEb:14px;--lhEb:19px;--fsPriceBig:34px;--fsPrice:26px;--fsPriceSm:19px}
+
+/* ---- shared tokens ---- */
+.frame{--ink:#fff;--ink2:rgba(255,255,255,.74);--ink3:rgba(255,255,255,.56);--ink4:rgba(255,255,255,.3);
+ --red:#FF1A1A;--live:#FF3B3B;--warn:#FFB020;--err:#FF4D4D;--ok:#3DDC84;--info:#7E9BFF;
+ --canvas:#000;--surf:#0B0B0C;--surf2:#121214;--line:rgba(255,255,255,.1);--lineStrong:rgba(255,255,255,.2);
+ --rad:0px;--radBtn:0px;--pad:16px;--gap:24px;--gapSec:32px;--rowV:11px;--panelPad:13px;
+ --fDisp:'Oswald';--wDisp:600;--fName:'Inter';--wName:600;--ttName:none;--lsName:-.2px;
+ --dockBg:rgba(10,10,11,.92);--barBg:rgba(10,10,11,.94)}
+/* H1 Gallery Index */
+.frame[data-d="gi"]{--gap:24px;--gapSec:34px;--rad:0px}
+/* H2 Editorial Market */
+.frame[data-d="em"]{--fName:'Oswald';--wName:500;--lsName:0;--gap:22px;--gapSec:36px;--surf:#0C0C0E;--rad:0px;--fsH1:26px;--lhH1:30px}
+.frame[data-d="em"].lg{--fsH1:32px;--lhH1:38px}
+/* H3 Premium Utility */
+.frame[data-d="pu"]{--gap:16px;--gapSec:22px;--rowV:9px;--panelPad:11px;--surf:#0A0A0B;--line:rgba(255,255,255,.12)}
+
+/* ---- chrome ---- */
+.sbadge{background:#7a3b00;color:#ffd9a0;font-size:11px;letter-spacing:1px;text-align:center;padding:3px 0;font-weight:700;flex:0 0 auto}
+.hdr{display:flex;align-items:center;gap:10px;padding:11px var(--pad);flex:0 0 auto;background:var(--barBg);position:sticky;top:0;z-index:6;border-bottom:1px solid transparent}
+.hdr.scrolled{border-bottom-color:var(--line)}
+.hdr .ttl{font-family:var(--fDisp);font-weight:var(--wDisp);font-size:var(--fsBar);line-height:var(--lhBar);letter-spacing:-.2px}
+.hdr .ic{color:var(--ink3);font-size:17px}
+.content{padding:0 var(--pad) var(--pad);display:flex;flex-direction:column;gap:var(--gapSec);flex:1}
+.sec{display:flex;flex-direction:column;gap:var(--gap)}
+.eb{font-size:var(--fsEb);line-height:var(--lhEb);color:var(--ink3);font-weight:500;letter-spacing:.4px}
+.dateHdr{font-size:var(--fsEb);line-height:var(--lhEb);color:var(--ink2);font-weight:600;letter-spacing:.6px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.name{font-family:var(--fName);font-weight:var(--wName);font-size:var(--fsH2);line-height:var(--lhH2);letter-spacing:var(--lsName);text-transform:var(--ttName)}
+.h1{font-family:var(--fName);font-weight:var(--wName);font-size:var(--fsH1);line-height:var(--lhH1);letter-spacing:var(--lsName)}
+.bd{font-size:var(--fsBody);line-height:var(--lhBody);color:var(--ink2)}
+.sm{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink3)}
+.p-big{font-weight:700;font-size:var(--fsPriceBig);font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.p{font-weight:700;font-size:var(--fsPrice);font-variant-numeric:tabular-nums}
+.p-sm{font-weight:600;font-size:var(--fsPriceSm);font-variant-numeric:tabular-nums}
+.art{background:#141416;position:relative;overflow:hidden;display:flex;align-items:flex-end;border-radius:var(--rad)}
+.art.scrim::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.72) 100%)}
+.art .over{position:relative;z-index:2;padding:12px;width:100%}
+.rows{display:flex;flex-direction:column}
+.rw{display:flex;justify-content:space-between;gap:10px;padding:var(--rowV) 0;border-bottom:1px solid var(--line)}
+.rw:last-child{border-bottom:none}
+.rw .k{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink3)}
+.rw .v{font-size:var(--fsSm);line-height:var(--lhSm);color:var(--ink);text-align:right}
+/* FTC junk-fees rule: the total must be the most prominent price on the screen, so a price
+   class inside a row must win over the row's own size. Without these two lines the total
+   rendered at the same 13px as its line items — caught by measuring, not by looking. */
+.rw .v.p-sm{font-size:var(--fsPriceSm);font-weight:600;line-height:1.3}
+.rw .v.p{font-size:var(--fsPrice);font-weight:700;line-height:1.25}
+.panel{background:var(--surf);border:1px solid var(--line);border-radius:var(--rad);padding:var(--panelPad)}
+.panel.plain{border:none;background:var(--surf2)}
+.notice{display:flex;gap:10px;padding:var(--panelPad);background:rgba(255,255,255,.045);border-left:2px solid var(--lineStrong);border-radius:var(--rad)}
+.notice.warn{border-left-color:var(--warn)}.notice.err{border-left-color:var(--err)}.notice.ok{border-left-color:var(--ok)}.notice.info{border-left-color:var(--info)}
+.cta{background:var(--red);color:#000;font-weight:700;font-size:var(--fsBody);text-align:center;padding:14px;min-height:52px;display:flex;flex-direction:column;justify-content:center;border-radius:var(--radBtn)}
+.cta .s2{font-weight:400;font-size:var(--fsSm);opacity:.66;margin-top:2px}
+.cta.dis{background:#1c1c1e;color:var(--ink4)}.cta.dis .s2{opacity:1;color:var(--ink4)}
+.cta.sec{background:transparent;border:1px solid var(--lineStrong);color:var(--ink);font-weight:500}
+.cta.ghost{background:transparent;color:var(--ink3);font-weight:500;min-height:44px;padding:10px}
+.bottom{margin-top:auto;position:sticky;bottom:0;background:var(--barBg);border-top:1px solid var(--line);padding:11px var(--pad);display:flex;flex-direction:column;gap:8px}
+.dock{display:flex;justify-content:space-around;align-items:flex-start;flex:0 0 auto;background:var(--dockBg);border-top:1px solid var(--line);padding:7px 0 12px}
+.dock i{font-style:normal;color:var(--ink4);font-size:18px;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px}
+.dock i.on{color:var(--ink)}
+.dock i s{text-decoration:none;font-size:10px;letter-spacing:.2px;font-weight:500}
+.dock .badge{position:absolute;transform:translate(12px,-4px);background:var(--red);color:#000;font-size:9px;font-weight:700;padding:1px 5px;border-radius:9999px}
+.chips{display:flex;gap:7px;overflow-x:auto}
+.chip{border:1px solid var(--line);padding:6px 11px;border-radius:9999px;font-size:var(--fsSm);color:var(--ink3);white-space:nowrap}
+.chip.on{background:rgba(255,255,255,.09);border-color:var(--lineStrong);color:var(--ink);font-weight:500}
+.tag{background:rgba(0,0,0,.55);color:rgba(255,255,255,.9);font-size:var(--fsEb);padding:3px 7px;border-radius:9999px;backdrop-filter:blur(8px)}
+.skel{background:linear-gradient(90deg,#141416,#1b1b1e,#141416);border-radius:var(--rad);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:.75}}
+.frame.reduce .skel{animation:none;opacity:.55}
+
+/* ---- live-bid treatments ---- */
+.live{display:inline-flex;align-items:center;gap:6px;font-size:var(--fsSm);color:var(--live);font-weight:600}
+.dot{width:7px;height:7px;border-radius:9999px;background:var(--live);animation:blip 2.4s ease-in-out infinite}
+@keyframes blip{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
+.frame.reduce .dot{animation:none;opacity:1}
+.prog{height:3px;background:rgba(255,255,255,.12);border-radius:9999px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--live);border-radius:9999px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.frame.reduce .prog i{transition:none}
+.soon{display:inline-flex;align-items:center;gap:6px;background:rgba(255,59,59,.12);border:1px solid rgba(255,59,59,.4);color:#FF6B6B;font-size:var(--fsEb);font-weight:700;padding:3px 8px;border-radius:9999px;letter-spacing:.3px}
+.ended{display:inline-flex;align-items:center;gap:6px;color:var(--ink3);font-size:var(--fsSm)}
+.mo{transition:opacity .18s cubic-bezier(.22,1,.36,1),transform .18s cubic-bezier(.22,1,.36,1)}
+.frame.reduce .mo{transition:none}
+.flash{animation:flash .35s cubic-bezier(.22,1,.36,1)}
+@keyframes flash{0%{opacity:.35}100%{opacity:1}}
+.frame.reduce .flash{animation:none}
+.gal{display:grid;grid-template-columns:1fr;gap:14px}
+.galrow{display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--surf);border:1px solid var(--line)}
+</style></head><body>
+<h1>Hybrid directions — second exploration</h1>
+<p class="sub">Local prototypes, synthetic data, browser at 375&times;812. Not screenshots of the app; no device check claimed.
+Switch direction, screen, state and text size. Every direction keeps the delivery blocker, expiry consequence, proof
+requirement, payment state and full price breakdown truthful and visible. Countdowns use a real end time; nothing here
+manufactures urgency.</p>
+<div class="bar" id="ctl"></div>
+<div class="stage" id="stage"></div>
+<p class="note" id="note"></p>
+<script>
+const DIRS=[{id:'gi',n:'A · Gallery Index',tone:'Flyer-led discovery, date-grouped, index-compact metadata.'},
+ {id:'em',n:'B · Editorial Market',tone:'Art-directed, condensed names, an explicit live-bid layer.'},
+ {id:'pu',n:'C · Premium Utility',tone:'Ledger-grade transactions in the same product voice.'}];
+const SCR=[{id:'home',n:'Home',st:['populated','loading','empty','offline','error']},
+ {id:'listing',n:'Listing',st:['populated','loading','ended','error']},
+ {id:'bids',n:'Bids',st:['populated','empty','loading','error']},
+ {id:'send',n:'Send',st:['blocked','ready','success','error']},
+ {id:'receive',n:'Receive',st:['awaiting','success','error']},
+ {id:'checkout',n:'Checkout',st:['hold','unreachable','success','error']},
+ {id:'livebid',n:'Live-bid gallery',st:['gallery']}];
+const EV=[{n:'Midnight Arcade',d:'Fri 24 Oct',t:'22:00',v:'Test Venue',p:120,bids:6,mins:134,pct:62},
+ {n:'Paper Cathedral',d:'Sat 25 Oct',t:'21:00',v:'Test Hall',p:64,bids:2,mins:1320,buy:80},
+ {n:'Neon Choir',d:'Sun 26 Oct',t:'19:30',v:'Test Room',p:38,bids:0,mins:4300},
+ {n:'Static Bloom',d:'Tue 28 Oct',t:'23:00',v:'Test Yard',p:95,bids:11,mins:11,pct:96},
+ {n:'Glass Parade',d:'Wed 29 Oct',t:'20:00',v:'Test Annex',p:52,bids:4,mins:0,won:52}];
+const money=v=>'$'+v.toFixed(2);
+const hm=m=>m>=1440?Math.floor(m/1440)+'d '+Math.floor((m%1440)/60)+'h':m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
+/* live-bid treatment chooser — the rule, not decoration */
+function live(e,{compact=false}={}){
+ if(e.mins===0) return `<span class="ended">Ended · won at ${money(e.won)}</span>`;
+ if(e.mins<15) return `<span class="soon">Ending in ${e.mins}m</span>`;
+ if(e.mins<=360) return compact
+   ? `<span class="live"><span class="dot"></span>${hm(e.mins)} left</span>`
+   : `<div style="display:flex;flex-direction:column;gap:5px"><span class="live"><span class="dot"></span>Live · ${hm(e.mins)} left</span><div class="prog"><i style="width:${e.pct||50}%"></i></div></div>`;
+ return `<span class="sm">Ends ${e.d.split(' ')[0]} ${e.t}</span>`;
+}
+const sand=`<div class="sbadge">Sandbox</div>`;
+const hdr=(t,right='')=>`<div class="hdr"><div class="ttl">${t}</div>${right?`<div style="margin-left:auto" class="ic">${right}</div>`:''}</div>`;
+const hdrBack=(t)=>`<div class="hdr"><div class="ic">‹</div><div class="ttl" style="font-size:var(--fsH2);line-height:var(--lhH2)">${t}</div></div>`;
+const dock=(a,badge)=>{const it=[['⌂','Home'],['⌕','Search'],['＋','Sell'],['◎','Bids'],['☺','You']];
+ return `<div class="dock">${it.map((x,i)=>`<i class="${i===a?'on':''}" style="position:relative">${x[0]}${i===3&&badge?`<span class="badge">${badge}</span>`:''}<s>${x[1]}</s></i>`).join('')}</div>`;};
+const bottom=h=>`<div class="bottom">${h}</div>`;
+const sk=(h,w='100%')=>`<div class="skel" style="height:${h}px;width:${w}"></div>`;
+const stateView=(kind,title,body,action)=>`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:40px 0;text-align:center;align-items:center">
+ <div style="width:52px;height:52px;border-radius:9999px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:20px">${kind}</div>
+ <div class="name">${title}</div><div class="bd" style="max-width:280px">${body}</div>${action?`<div class="cta sec" style="min-width:180px">${action}</div>`:''}</div>`;
+
+/* ================= HOME ================= */
+function home(d,st){
+ if(st==='loading') return `<div class="app">${sand}${hdr('Snatch It','⌕')}<div class="content"><div class="sec">
+   ${sk(18,'40%')}${d.id==='pu'?[1,2,3,4,5,6].map(()=>sk(56)).join(''):[1,2,3].map(()=>`<div style="display:flex;flex-direction:column;gap:8px">${sk(d.id==='em'?210:200)}${sk(16,'70%')}${sk(14,'45%')}</div>`).join('')}</div></div>${dock(0)}</div>`;
+ if(st==='empty') return `<div class="app">${sand}${hdr('Snatch It','⌕')}<div class="content">${stateView('◎','No events yet','Nothing is listed for sale right now. Pull down to refresh, or turn on alerts and we\'ll tell you when tickets appear.','Notify me')}</div>${dock(0)}</div>`;
+ if(st==='offline') return `<div class="app">${sand}${hdr('Snatch It','⌕')}<div class="content">${stateView('⚠','You\'re offline','We can\'t load events right now. This is your connection, not the marketplace — nothing has changed about your bids.','Try again')}</div>${dock(0)}</div>`;
+ if(st==='error') return `<div class="app">${sand}${hdr('Snatch It','⌕')}<div class="content">${stateView('!','Couldn\'t load events','Something went wrong at our end. Your bids and purchases are unaffected.','Try again')}</div>${dock(0)}</div>`;
+ let body='';
+ if(d.id==='gi'){
+  const grp=(date,items)=>`<div class="sec" style="gap:var(--gap)"><div class="dateHdr">${date}</div>
+   ${items.map(e=>`<div style="display:flex;flex-direction:column;gap:9px">
+     <div class="art scrim" style="aspect-ratio:3/2"><div class="over" style="display:flex;justify-content:flex-end"><span class="tag">${e.bids} bids</span></div></div>
+     <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><div class="name" style="flex:1">${e.n}</div><div class="p">${money(e.p)}</div></div>
+     <div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span class="sm">${e.t} · ${e.v}</span>${live(e,{compact:true})}</div>
+   </div>`).join('')}</div>`;
+  body=grp('Friday 24 October',[EV[0]])+grp('Saturday 25 October',[EV[1]])+grp('Tuesday 28 October',[EV[3]]);
+ } else if(d.id==='em'){
+  const e=EV[0],f=EV[3];
+  body=`<div class="sec" style="gap:14px">
+    <div class="art scrim" style="aspect-ratio:4/5"><div class="over">
+      <div style="display:flex;gap:8px;margin-bottom:8px">${live(e,{compact:true})}</div>
+      <div class="h1">${e.n}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px"><span class="sm" style="color:var(--ink2)">${e.d} · ${e.v}</span><span class="p">${money(e.p)}</span></div></div></div>
+    <div class="prog"><i style="width:${e.pct}%"></i></div></div>
+   <div class="sec" style="gap:12px"><div class="eb">Ending soon</div>
+    <div style="display:flex;gap:12px;overflow-x:auto">${[EV[3],EV[1]].map(x=>`<div style="min-width:150px;display:flex;flex-direction:column;gap:7px">
+      <div class="art" style="aspect-ratio:1"></div><div class="name" style="font-size:var(--fsBody);line-height:var(--lhBody)">${x.n}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="p-sm">${money(x.p)}</span>${x.mins<15?`<span class="soon">${x.mins}m</span>`:`<span class="sm">${hm(x.mins)}</span>`}</div></div>`).join('')}</div></div>
+   <div class="sec" style="gap:14px"><div class="eb">This week</div>
+    ${[EV[2],EV[4]].map(x=>`<div style="display:flex;gap:12px;align-items:center">
+      <div class="art" style="width:76px;height:95px;flex:0 0 76px"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:4px"><div class="name" style="font-size:var(--fsBody);line-height:var(--lhBody)">${x.n}</div>
+      <div class="sm">${x.d} · ${x.v}</div>${live(x,{compact:true})}</div>
+      <div class="p-sm">${money(x.p)}</div></div>`).join('')}</div>`;
+ } else {
+  body=`<div class="sec" style="gap:10px"><div class="chips"><span class="chip on">All</span><span class="chip">Live now</span><span class="chip">Under $50</span><span class="chip">Tonight</span></div>
+   <div class="rows">${EV.map(e=>`<div class="rw" style="align-items:center;gap:12px">
+     <div class="art" style="width:52px;height:52px;flex:0 0 52px"></div>
+     <div style="flex:1;display:flex;flex-direction:column;gap:3px"><div class="name" style="font-size:var(--fsBody);line-height:var(--lhBody)">${e.n}</div>
+      <div class="sm">${e.d} ${e.t} · ${e.v} · ${e.bids} bids</div></div>
+     <div style="text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end"><span class="p-sm">${money(e.p)}</span>${live(e,{compact:true})}</div></div>`).join('')}</div></div>`;
+ }
+ return `<div class="app">${sand}${hdr('Snatch It','⌕')}<div class="content">${body}</div>${dock(0,'2')}</div>`;
+}
+
+/* ================= LISTING ================= */
+function listing(d,st){
+ const e=EV[0];
+ if(st==='loading') return `<div class="app">${sand}${hdrBack('Listing')}<div class="content"><div class="sec">${sk(300)}${sk(22,'75%')}${sk(16,'50%')}${sk(70)}</div></div></div>`;
+ if(st==='error') return `<div class="app">${sand}${hdrBack('Listing')}<div class="content">${stateView('!','Couldn\'t load this listing','Something went wrong at our end. Nothing about your bids has changed.','Try again')}</div></div>`;
+ const ended=st==='ended';
+ return `<div class="app">${sand}${hdrBack('Listing')}
+ <div class="content">
+  <div class="sec" style="gap:14px">
+   <div class="art${d.id==='pu'?'':' scrim'}" style="aspect-ratio:${d.id==='em'?'4/5':d.id==='pu'?'16/9':'3/2'}">${d.id==='pu'?'':`<div class="over" style="display:flex;justify-content:space-between;align-items:flex-end"><span class="tag">${e.v}</span>${ended?'':`<span class="tag">${e.bids} bids</span>`}</div>`}</div>
+   <div style="display:flex;flex-direction:column;gap:6px"><div class="sm">${e.d} · ${e.t} · ${e.v}</div><div class="h1">${e.n}</div></div>
+   <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+     <div><div class="eb">${ended?'Winning bid':'Current bid'}</div><div class="p-big" style="margin-top:3px">${money(ended?e.won||e.p:e.p)}</div>
+      <div class="sm" style="margin-top:2px">${ended?'Auction ended':`${e.bids} bids · minimum next ${money(e.p+5)}`}</div></div>
+     <div style="text-align:right">${ended?`<span class="ended">Ended</span>`:live(e)}</div></div>
+   </div>
+   ${ended?`<div class="notice"><div><div class="bd" style="color:var(--ink)">This auction has ended</div><div class="sm" style="margin-top:2px">The seller is arranging transfer with the winner. Nothing is charged to you.</div></div></div>`:''}
+   <div class="rows">
+    <div class="rw"><span class="k">Seller</span><span class="v">the seller · 14 sales</span></div>
+    <div class="rw"><span class="k">Delivery</span><span class="v">Mobile transfer · DICE</span></div>
+    <div class="rw"><span class="k">Restrictions</span><span class="v">Name change not allowed</span></div>
+    <div class="rw"><span class="k">Price shown</span><span class="v">All-in, fees included</span></div>
+   </div>
+   <div class="sm">A bid is a commitment. If you win, your card is charged automatically and the sale is final.</div>
+  </div>
+ </div>
+ ${ended?'':bottom(`<div class="cta">Place bid<span class="s2">Minimum ${money(e.p+5)} · charged only if you win</span></div><div class="cta sec">Buy now for ${money(150)}</div>`)}
+ </div>`;
+}
+
+/* ================= BIDS ================= */
+function bids(d,st){
+ if(st==='loading') return `<div class="app">${sand}${hdr('Your bids')}<div class="content"><div class="sec">${[1,2,3,4].map(()=>sk(64)).join('')}</div></div>${dock(3)}</div>`;
+ if(st==='empty') return `<div class="app">${sand}${hdr('Your bids')}<div class="content">${stateView('◎','No active bids','When you bid on a ticket it appears here with its status and the time left. Past bids stay for your records.','Browse events')}</div>${dock(3)}</div>`;
+ if(st==='error') return `<div class="app">${sand}${hdr('Your bids')}<div class="content">${stateView('!','Couldn\'t load your bids','This is a loading problem, not a change to your bids. Nothing has been cancelled.','Try again')}</div>${dock(3)}</div>`;
+ const row=(e,status,tone,note)=>`<div class="rw" style="align-items:center;gap:12px;padding:var(--panelPad) 0">
+  <div class="art" style="width:56px;height:56px;flex:0 0 56px"></div>
+  <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+   <div class="name" style="font-size:var(--fsBody);line-height:var(--lhBody)">${e.n}</div>
+   <div class="sm">${e.d} · ${e.v}</div>
+   <div style="display:flex;gap:8px;align-items:center"><span style="color:${tone};font-size:var(--fsSm);font-weight:600">${status}</span>${note?`<span class="sm">${note}</span>`:''}</div></div>
+  <div style="text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+   <span class="p-sm">${money(e.p)}</span>${live(e,{compact:true})}</div></div>`;
+ return `<div class="app">${sand}${hdr('Your bids')}
+ <div class="content"><div class="sec" style="gap:8px">
+  <div class="chips"><span class="chip on">Active</span><span class="chip">Past</span></div>
+  <div class="rows">
+   ${row(EV[0],'You\'re leading','var(--ok)','your bid '+money(EV[0].p))}
+   ${row(EV[3],'Outbid','var(--warn)','yours '+money(90)+' · leading '+money(95))}
+   ${row(EV[1],'You\'re leading','var(--ok)','your bid '+money(EV[1].p))}
+   ${row(EV[4],'You won','var(--ok)','payment complete')}
+  </div></div></div>${dock(3,'2')}</div>`;
+}
+
+/* ================= SEND ================= */
+function send(d,st){
+ const proof=`<div class="sec" style="gap:9px"><div class="eb">Transfer proof</div>
+  <div class="panel" style="display:flex;gap:12px;align-items:center">
+   <div style="width:52px;height:52px;flex:0 0 52px;background:#18181a;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px">${st==='success'?'✓':'add'}</div>
+   <div><div class="bd" style="color:var(--ink)">${st==='success'?'Screenshot attached':'Add a screenshot'}</div><div class="sm">${st==='success'?'Stored with this transfer · 14:32':'The confirmation screen from DICE'}</div></div></div></div>`;
+ const summary=`<div class="sec" style="gap:9px"><div class="eb">This transfer</div><div class="rows">
+   <div class="rw"><span class="k">Event</span><span class="v">${EV[0].n}</span></div>
+   <div class="rw"><span class="k">Buyer</span><span class="v">the buyer</span></div>
+   <div class="rw"><span class="k">Send to</span><span class="v">${st==='blocked'?'not provided yet':'buyer@example.test'}</span></div>
+   <div class="rw"><span class="k">Payout</span><span class="v">After the buyer confirms</span></div></div></div>`;
+ const instr=`<div class="rw" style="border-top:1px solid var(--line)"><div><div class="bd" style="color:var(--ink)">How to transfer on DICE</div><div class="sm">5 steps · about 3 minutes · 3 cautions</div></div><div class="ic" style="align-self:center;color:var(--ink3)">›</div></div>`;
+ let top='',cta='';
+ if(st==='blocked'){
+  top=`<div class="notice warn mo"><div><div class="name">Delivery details needed</div>
+   <div class="bd" style="margin-top:4px">The buyer hasn't added them yet. We'll tell you here as soon as they do.</div>
+   <div class="sm" style="margin-top:6px">The 24-hour window has passed. You can still send while this transfer is open; if it closes first, the sale is cancelled and refunded.</div></div></div>`;
+  cta=`<div class="cta dis">Mark as sent<span class="s2">Available once the buyer adds delivery details</span></div>`;
+ } else if(st==='ready'){
+  top=`<div class="notice info mo"><div><div class="bd" style="color:var(--ink)">Send by Thu 02:00 — 5h 12m left</div>
+   <div class="sm" style="margin-top:2px">If the window closes first, the sale is cancelled and the buyer is refunded.</div></div></div>`;
+  cta=`<div class="cta">Mark as sent<span class="s2">I transferred these tickets to the buyer</span></div>`;
+ } else if(st==='success'){
+  top=`<div class="notice ok mo"><div><div class="name">Marked as sent</div>
+   <div class="bd" style="margin-top:4px">The buyer has 72 hours to confirm. Your payout releases after that, or sooner if they confirm.</div>
+   <div class="sm" style="margin-top:6px">If the buyer reports a problem, the payout is held for review.</div></div></div>`;
+  cta=`<div class="cta sec">View payout status</div>`;
+ } else {
+  top=`<div class="notice err mo"><div><div class="name">Not confirmed yet</div>
+   <div class="bd" style="margin-top:4px">We couldn't reach the server, so we don't know whether this was recorded. Nothing is lost — check again before re-sending.</div>
+   <div class="cta sec" style="margin-top:10px;padding:10px;min-height:0">Check status</div></div></div>`;
+  cta=`<div class="cta">Try again<span class="s2">Same photo, same transfer</span></div>`;
+ }
+ return `<div class="app">${sand}${hdrBack('Send tickets')}<div class="content">${top}${proof}${instr}${summary}</div>${bottom(cta)}</div>`;
+}
+
+/* ================= RECEIVE ================= */
+function receive(d,st){
+ let top='',cta='';
+ if(st==='awaiting'){
+  top=`<div class="notice info mo"><div><div class="name">Tickets sent — check DICE</div>
+   <div class="bd" style="margin-top:4px">The seller marked these as sent 14 minutes ago and attached proof. Accept the transfer in DICE, then confirm below.</div></div></div>`;
+  cta=`<div class="cta">Confirm receipt<span class="s2">This releases payment to the seller</span></div><div class="cta sec">Something's wrong</div>`;
+ } else if(st==='success'){
+  top=`<div class="notice ok mo"><div><div class="name">Receipt confirmed</div>
+   <div class="bd" style="margin-top:4px">Payment has been released to the seller. The tickets are yours — enjoy the event.</div></div></div>`;
+  cta=`<div class="cta sec">View your tickets</div>`;
+ } else {
+  top=`<div class="notice err mo"><div><div class="name">Couldn't confirm receipt</div>
+   <div class="bd" style="margin-top:4px">We couldn't reach the server. **Nothing was released.** Your review window is unchanged — try again in a moment.</div>
+   <div class="cta sec" style="margin-top:10px;padding:10px;min-height:0">Try again</div></div></div>`;
+  cta=`<div class="cta dis">Confirm receipt<span class="s2">Waiting for a connection</span></div>`;
+ }
+ return `<div class="app">${sand}${hdrBack('Receive tickets')}
+ <div class="content">${top}
+  <div class="panel" style="display:flex;gap:12px;align-items:center">
+   <div style="width:52px;height:52px;flex:0 0 52px;background:#18181a;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink4);font-size:10px">proof</div>
+   <div><div class="bd" style="color:var(--ink)">Seller's transfer proof</div><div class="sm">Screenshot · added 14 min ago · tap to view</div></div></div>
+  <div class="rw" style="border-top:1px solid var(--line)"><div><div class="bd" style="color:var(--ink)">How to accept on DICE</div><div class="sm">4 steps · about 2 minutes · 3 cautions</div></div><div class="ic" style="align-self:center;color:var(--ink3)">›</div></div>
+  <div class="sec" style="gap:9px"><div class="eb">This transfer</div><div class="rows">
+   <div class="rw"><span class="k">Event</span><span class="v">${EV[0].n}</span></div>
+   <div class="rw"><span class="k">Seller</span><span class="v">the seller</span></div>
+   <div class="rw"><span class="k">Sent to</span><span class="v">buyer@example.test</span></div>
+   <div class="rw"><span class="k">Review window</span><span class="v">${st==='success'?'Closed':'71h 46m left'}</span></div></div></div>
+ </div>${bottom(cta)}</div>`;
+}
+
+/* ================= CHECKOUT ================= */
+function checkout(d,st){
+ const order=`<div class="sec" style="gap:9px"><div class="eb">Order</div><div class="rows">
+  <div class="rw"><span class="k">Ticket</span><span class="v p-sm">${money(120)}</span></div>
+  <div class="rw"><span class="k">Service fee</span><span class="v p-sm">${money(14)}</span></div>
+  <div class="rw" style="border-bottom:none"><span class="k" style="color:var(--ink)">Total</span><span class="v p">${money(134)}</span></div></div>
+  <div class="sm">All-in price. Nothing is added at the end.</div></div>`;
+ const item=`<div class="panel" style="display:flex;gap:12px;align-items:center">
+  <div class="art" style="width:48px;height:60px;flex:0 0 48px"></div>
+  <div><div class="bd" style="color:var(--ink)">${EV[0].n}</div><div class="sm">${EV[0].d} · ${EV[0].v}</div></div></div>`;
+ let extra='',cta='';
+ if(st==='hold'){
+  extra=`<div class="notice info mo"><div><div class="bd" style="color:var(--ink)">Your place is held for 7:42</div><div class="sm" style="margin-top:2px">Nothing has been charged yet.</div></div></div>`;
+  cta=`<div class="cta">Pay ${money(134)}</div><div class="sm" style="text-align:center">Payments secured by Stripe · the sale is final once paid</div>`;
+ } else if(st==='unreachable'){
+  extra=`<div class="notice warn mo"><div><div class="name">We couldn't confirm your payment yet</div>
+   <div class="bd" style="margin-top:4px">Your last attempt may or may not have gone through. Please don't pay again — we'll keep checking.</div>
+   <div class="cta sec" style="margin-top:10px;padding:10px;min-height:0">Check status</div></div></div>`;
+  cta=`<div class="cta dis">Pay ${money(134)}<span class="s2">Withdrawn until we can confirm</span></div>`;
+ } else if(st==='success'){
+  extra=`<div class="notice ok mo"><div><div class="name">You're in</div>
+   <div class="bd" style="margin-top:4px">Paid ${money(134)}. The seller has 24 hours to send the tickets; we'll tell you the moment they do.</div></div></div>`;
+  cta=`<div class="cta sec">View this order</div>`;
+ } else {
+  extra=`<div class="notice err mo"><div><div class="name">Payment declined</div>
+   <div class="bd" style="margin-top:4px">Your bank declined the charge. Nothing was taken and your hold is still yours for 6:08.</div></div></div>`;
+  cta=`<div class="cta">Try another card</div><div class="cta ghost">Cancel this order</div>`;
+ }
+ return `<div class="app">${sand}${hdrBack('Checkout')}<div class="content">${item}${order}${extra}</div>${bottom(cta)}</div>`;
+}
+
+/* ================= LIVE-BID GALLERY ================= */
+function livebid(d){
+ const card=(title,when,html,after,rm)=>`<div class="galrow">
+  <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+   <div class="name" style="font-size:var(--fsBody);line-height:var(--lhBody)">${title}</div>
+   <div style="padding:8px 0">${html}</div>
+   <div class="sm"><b style="color:var(--ink2)">Appears:</b> ${when}</div>
+   <div class="sm"><b style="color:var(--ink2)">After expiry:</b> ${after}</div>
+   <div class="sm"><b style="color:var(--ink2)">Reduce Motion:</b> ${rm}</div></div></div>`;
+ return `<div class="app">${sand}${hdrBack('Live-bid treatments')}
+ <div class="content"><div class="gal">
+  ${card('1 · Quiet time stamp','more than 6 hours before the real end time',`<span class="sm">Ends Fri 22:00</span>`,'replaced by “Ended · won at $52”','identical — no motion involved')}
+  ${card('2 · Live dot + time left','6 hours to 15 minutes before the end, only when the auction is actually open',`<span class="live"><span class="dot"></span>2h 14m left</span>`,'dot removed in the same render as the status change','dot is static at full opacity; the label is unchanged')}
+  ${card('3 · Time-progress','same window as 2, where there is room for a second line — the bar is elapsed share of the final 6 hours',`<div style="display:flex;flex-direction:column;gap:5px"><span class="live"><span class="dot"></span>Live · 2h 14m left</span><div class="prog"><i style="width:62%"></i></div></div>`,'bar reaches 100% and is replaced by the ended row, never left full','width is set without transition; no animation on tick')}
+  ${card('4 · Ending soon','under 15 minutes — the only red pill anywhere in discovery',`<span class="soon">Ending in 11m</span>`,'becomes “Ended”; the pill never persists','static; no pulse')}
+  ${card('5 · Ended','after the real end time, for everyone',`<span class="ended">Ended · won at $52</span>`,'this is the terminal state','identical')}
+  ${card('6 · Your bid status','on Bids and on a listing you have bid on',`<div style="display:flex;gap:10px;flex-wrap:wrap"><span style="color:var(--ok);font-weight:600;font-size:var(--fsSm)">You're leading</span><span style="color:var(--warn);font-weight:600;font-size:var(--fsSm)">Outbid</span><span style="color:var(--ok);font-weight:600;font-size:var(--fsSm)">You won</span></div>`,'“Outbid” becomes “Ended — not won”; “leading” becomes “You won”','no motion; the value pulse on change is skipped')}
+ </div>
+ <div class="notice"><div><div class="bd" style="color:var(--ink)">The rule behind the gallery</div>
+  <div class="sm" style="margin-top:4px">Every treatment is derived from the auction's real <code>ends_at</code> and the real bid count. There is no
+  “hot”, no “almost gone”, no invented scarcity, and no countdown on an auction that is not open. A treatment escalates only
+  as the true remaining time shortens, and every one of them disappears at expiry rather than lingering.</div></div></div>
+ </div></div>`;
+}
+const B={home,listing,bids,send,receive,checkout,livebid};
+
+/* ================= switcher ================= */
+let S={d:'gi',s:'home',st:'populated',cmp:false,rm:false};
+function ctl(){
+ const sc=SCR.find(x=>x.id===S.s);
+ if(!sc.st.includes(S.st)) S.st=sc.st[0];
+ document.getElementById('ctl').innerHTML=
+  `<div class="grp"><b>Direction</b>${DIRS.map(d=>`<button data-d="${d.id}" class="${S.d===d.id&&!S.cmp?'on':''}">${d.n}</button>`).join('')}<button data-c="1" class="${S.cmp?'on':''}">Compare this screen</button></div>
+   <div class="grp"><b>Screen</b>${SCR.map(x=>`<button data-s="${x.id}" class="${S.s===x.id?'on':''}">${x.n}</button>`).join('')}</div>
+   <div class="grp"><b>State</b>${sc.st.map(t=>`<button data-t="${t}" class="${S.st===t?'on':''}">${t}</button>`).join('')}</div>
+   <div class="grp"><b>Motion</b><button data-r="1" class="${S.rm?'on':''}">Reduce Motion ${S.rm?'ON':'off'}</button></div>`;
+ document.querySelectorAll('#ctl button').forEach(b=>b.onclick=()=>{
+  if(b.dataset.d){S.d=b.dataset.d;S.cmp=false}
+  if(b.dataset.s){S.s=b.dataset.s}
+  if(b.dataset.t){S.st=b.dataset.t}
+  if(b.dataset.c){S.cmp=!S.cmp}
+  if(b.dataset.r){S.rm=!S.rm}
+  render();});
+}
+function frame(dirId,lg){
+ const d=DIRS.find(x=>x.id===dirId);
+ return `<div class="unit"><div class="ulabel">${d.n.replace(/^[A-C] · /,'')} — ${lg?'largest text':'normal'} — ${S.st}</div>
+  <div class="frame ${lg?'lg':''} ${S.rm?'reduce':''}" data-d="${dirId}"><div class="scroll">${B[S.s](d,S.st)}</div></div></div>`;
+}
+function render(){
+ ctl();
+ document.getElementById('stage').innerHTML=S.cmp?DIRS.map(d=>frame(d.id,false)).join(''):frame(S.d,false)+frame(S.d,true);
+ const d=DIRS.find(x=>x.id===S.d);
+ document.getElementById('note').innerHTML=S.cmp
+  ?`<b>${SCR.find(x=>x.id===S.s).n}</b> across all three hybrids, state <b>${S.st}</b>, normal text.`
+  :`<b>${d.n}</b> — ${d.tone} · state <b>${S.st}</b> · Reduce Motion ${S.rm?'<b>ON</b>: pulses, progress transitions and skeleton shimmer are removed':'off'}.`;
+}
+render();
+</script></body></html>
