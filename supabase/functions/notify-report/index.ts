@@ -111,6 +111,42 @@ serve(async (req: Request) => {
     const payload = await req.json();
     const event: string = payload?.event ?? 'unknown';
 
+    // ── G22: claim the delivery BEFORE sending anything ───────────────────────
+    // This function is driven by DB triggers through pg_net and answers 200 even
+    // on failure so callers never retry-storm; nothing recorded that an event had
+    // already been announced, so a duplicate fire re-sent every push and email.
+    //
+    // The keys (A, 2026-09-17). report_created and dispute_opened are one-shot
+    // and key on their row id. The signing alert does NOT: it fires on a daily
+    // cron and repeats with the SAME codes while the trust root stays wrong, so
+    // keying it on the alert text would announce a compromise once and silence
+    // every later warning. It keys on the RUN — the UTC date, because the edge
+    // cannot see the cron runid. Cost, accepted deliberately: two alerts in one
+    // UTC day collapse into one. If 099 ever passes a runid, use that instead.
+    //
+    // FAIL TOWARD DELIVERING: only an explicit `false` (someone already
+    // announced this) suppresses. A claim that errors sends anyway and logs — a
+    // duplicate is a nuisance, a missing under-review notice or a missing
+    // trust-root alarm is not.
+    const claimKey: string | null =
+      event === 'report_created'          ? (payload?.report_id   != null ? String(payload.report_id)   : null)
+      : event === 'dispute_opened'        ? (payload?.transfer_id != null ? String(payload.transfer_id) : null)
+      : event === 'signing_invariant_alert' ? new Date().toISOString().slice(0, 10)
+      : null;
+
+    if (claimKey !== null) {
+      const notify = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { db: { schema: 'notify' } });
+      const { data: claimed, error: claimErr } = await notify.rpc('claim_report_delivery', { p_kind: event, p_key: claimKey });
+      if (claimErr) {
+        console.warn('notify-report: delivery claim failed, sending anyway', { event, code: claimErr.code ?? null });
+      } else if (claimed === false) {
+        console.log('notify-report: already announced, skipping', { event });
+        return new Response(JSON.stringify({ ok: true, event, duplicate: true }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Admin recipients (allowlist; currently SNATCH IT APP ADMIN)
     const { data: admins } = await supabase.from('admin_users').select('user_id');
     const adminIds: string[] = (admins ?? []).map((a: { user_id: string }) => a.user_id);
