@@ -1965,3 +1965,9 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   D.** Option A (server-side fixture) not recommended by either: eight rows incl. a fake
   global ES256 signing key, permanent under the append-only ownership ledger, and it
   would spend the sandbox's ability to rehearse trust-root monitoring honestly.
+- **Session 2 (owner, 2026-09-17): Build 18 installed; SANDBOX badge visible; signed in
+  as the sandbox buyer; Home loaded normally without a force-quit or reopen**
+  (owner-reported; this is the first sign-in on the device after row 17's global
+  invalidation, so A's read-back should show a fresh `registered` with a new proof).
+  Next single step: open Profile (S2-1 continues: then sign out → sign in same account →
+  Home → Profile, then the seller).
