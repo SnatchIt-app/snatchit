@@ -26,15 +26,19 @@ const row = (over: Partial<SecurityNotice> = {}): SecurityNotice => ({
 });
 
 describe('which notice is shown', () => {
-  it('the newest unread device-rebound notice; read ones and other types are not actionable', () => {
+  it('the newest unread notice of ANY type the server returns; read ones are not actionable', () => {
     expect(REBOUND_TYPE_KEY).toBe('security_device_rebound');
     const rows = [
       row({ id: 'old', created_at: '2026-09-16T00:00:00Z' }),
       row({ id: 'read', read_at: '2026-09-17T01:00:00Z' }),
-      row({ id: 'other', type_key: 'security_password_changed' }),
+      row({ id: 'other', type_key: 'security_password_changed' }),          // 03:00 — newest unread, not a rebound
       row({ id: 'new', created_at: '2026-09-17T02:00:00Z' }),
     ];
-    expect(selectActionableNotice(rows)?.id).toBe('new');
+    // 136 rev2 derives the mandatory account-security set from the registry; the client
+    // never narrows it (A, 2026-09-18) — an unknown type renders, with Dismiss only.
+    expect(selectActionableNotice(rows)?.id).toBe('other');
+    expect(selectActionableNotice([row({ id: 'future', type_key: 'security_some_future_type' })])?.id).toBe('future');
+    expect(actionsFor('security_some_future_type')).toEqual(['dismiss']);
     expect(selectActionableNotice([row({ read_at: '2026-09-17T01:00:00Z' })])).toBeNull();
     expect(selectActionableNotice([])).toBeNull();
   });
@@ -65,10 +69,22 @@ describe('the surface (source contract)', () => {
     expect(comp).not.toMatch(/registered to|receiving your notifications|another account|sign out of all devices and/i);
     expect(comp).toContain('accessibilityRole="alert"');
     expect(comp).toContain('NOTICE_ACTION_LABEL');
+    // Topmost element above <Tabs>: pays the top inset (status bar + SANDBOX badge) itself, like every tab screen.
+    expect(comp).toContain('const top = useTopInset();');
+    expect(comp).toContain('paddingTop: top + v2.space.md');
   });
   it('the actions are wired: Sign out of all devices → signOutAllDevices (K-2, failure copy on the screen); Dismiss → mark read', () => {
     expect(hook).toContain("supabase.rpc(SECURITY_NOTICES_RPC)");
     expect(hook).toContain("supabase.rpc(MARK_NOTICES_READ_RPC, { p_ids: ids })");
+    // A failed Dismiss is not a dead button: the notice stays and the failure is on the screen; each action clears the last error first.
+    const d = hook.indexOf('const dismiss = useCallback(');
+    expect(d).toBeGreaterThan(-1);
+    const dEnd = hook.indexOf('const signOutAll = useCallback(', d);
+    const dismissBody = hook.slice(d, dEnd);
+    expect(dismissBody).toContain('setError(null);');
+    expect(dismissBody).toContain('setError(DISMISS_FAILED_COPY);');
+    expect(dismissBody.indexOf('setError(null);')).toBeLessThan(dismissBody.indexOf('supabase.rpc(MARK_NOTICES_READ_RPC'));
+    expect(dismissBody.indexOf('setError(DISMISS_FAILED_COPY);')).toBeLessThan(dismissBody.indexOf('setNotice(null);'));
     expect(hook).toContain('signOutAllDevices()');
     expect(hook).toContain('SIGN_OUT_FAILED_COPY');
     expect(hook).not.toContain('supabase.auth.signOut(');

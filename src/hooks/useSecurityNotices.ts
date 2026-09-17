@@ -9,9 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices } from '@/src/lib/auth/signOut';
-import {
-  isMissingRpc, MARK_NOTICES_READ_RPC, parseSecurityNotices, SECURITY_NOTICES_RPC, selectActionableNotice, type SecurityNotice,
-} from '@/src/lib/security/notices';
+import { DISMISS_FAILED_COPY, isMissingRpc, MARK_NOTICES_READ_RPC, parseSecurityNotices, SECURITY_NOTICES_RPC, selectActionableNotice, type SecurityNotice } from '@/src/lib/security/notices';
 import { supabase } from '@/src/lib/supabase';
 
 export interface SecurityNoticesState {
@@ -57,10 +55,15 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
   const dismiss = useCallback(async () => {
     if (!notice || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const ids = [notice.id];
       const { error: err } = await supabase.rpc(MARK_NOTICES_READ_RPC, { p_ids: ids });
-      if (err) { console.warn('[securityNotices] mark read failed:', err.code ?? err.message); return; }
+      if (err) {
+        console.warn('[securityNotices] mark read failed:', err.code ?? err.message);
+        setError(DISMISS_FAILED_COPY);   // the notice stays up; the tap is not silent
+        return;
+      }
       setNotice(null);
     } finally {
       setBusy(false);

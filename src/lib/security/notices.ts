@@ -35,6 +35,9 @@ export interface SecurityNotice {
 export type NoticeAction = 'sign_out_all' | 'dismiss';
 
 /** The only client copy on this surface. */
+/** A failed mark-read keeps the notice up and says so; a silent tap looked like a dead button (D, 2026-09-18). */
+export const DISMISS_FAILED_COPY = "Couldn't dismiss this notice — check your connection and try again.";
+
 export const NOTICE_ACTION_LABEL: Record<NoticeAction, string> = {
   sign_out_all: 'Sign out of all devices',
   dismiss: 'Dismiss',
@@ -55,7 +58,11 @@ export function parseSecurityNotices(data: unknown): SecurityNotice[] {
 
 /** The newest unread device-rebound notice, or null. Read notices and other types are not shown here. */
 export function selectActionableNotice(rows: SecurityNotice[]): SecurityNotice | null {
-  const unread = rows.filter((r) => r.type_key === REBOUND_TYPE_KEY && r.read_at === null);
+  // Any type the server returns is shown: 136 rev2 derives the set from the registry
+  // (target_kind = account_security, delivery_class = mandatory), and title/body are
+  // server-rendered, so the client never needs to know a type to display it. Only the
+  // actions are keyed on the type (actionsFor), with Dismiss as the safe default (D/A, 2026-09-18).
+  const unread = rows.filter((r) => r.read_at === null);
   if (unread.length === 0) return null;
   return [...unread].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))[0];
 }

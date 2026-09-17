@@ -12,12 +12,19 @@ import { Button } from '@/src/components/ui/Button';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSecurityNotices } from '@/src/hooks/useSecurityNotices';
 import { actionsFor, NOTICE_ACTION_LABEL } from '@/src/lib/security/notices';
+import { useTopInset } from '@/src/lib/nav/navInsets';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
 export function SecurityNoticeBanner() {
   const { user } = useAuth();
   const { notice, busy, error, dismiss, signOutAll } = useSecurityNotices(user?.id);
+  // Mounted above <Tabs>, so it is the topmost element and pays the top inset itself
+  // (status bar + the SANDBOX badge on sandbox builds) like every tab screen does —
+  // otherwise the title sits under the badge (F-SELL-1 again; D, 2026-09-18). Interim:
+  // the screen below still pays its own inset while the banner shows (a double gap);
+  // an overlay like SandboxBadge is the tidier follow-up.
+  const top = useTopInset();
 
   useEffect(() => {
     if (notice) AccessibilityInfo.announceForAccessibility(`${notice.title}. ${notice.body}`);
@@ -27,7 +34,7 @@ export function SecurityNoticeBanner() {
   const actions = actionsFor(notice.type_key);
 
   return (
-    <View style={s.wrap} accessibilityRole="alert">
+    <View style={[s.wrap, { paddingTop: top + v2.space.md }]} accessibilityRole="alert">
       <Text style={[textStyle('title'), s.title]} accessibilityRole="header">{notice.title}</Text>
       <Text style={[textStyle('bodySm'), s.body]}>{notice.body}</Text>
       {error ? <Text style={[textStyle('bodySm'), s.error]}>{error}</Text> : null}
