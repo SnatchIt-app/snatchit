@@ -2457,6 +2457,11 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   again; Discard leaves without saving after one prompt; clean and undone edits leave without asking. RED on
   db16e1a's hook: 3 swipe tests fail (native shows only My Listings); swipe-Discard and all Back-button tests
   pass there. 6 mutants killed as predicted (harness: clean baseline, anchor once, digest restore); no
-  dedicated mutant for the typed-text assertion. CFT-208 pin updated. Full vitest 2221/105, tsc 0, lint
+  dedicated mutant for the typed-text assertion at first; **M7 added at A's request (no test change):** the screen
+  resets its fields on a leave attempt while staying mounted → 4 killed as predicted before the run: both
+  Keep editing tests at the Event name text assertion (route, native screen, same mounted instance all held),
+  both "asks again" tests at the prompt count (the edits are gone, so the guard stands down — downstream of
+  the lost text). Harness limit: routes added after start are not mounted, so a re-key mutant would read as
+  "no screen", not a fresh mount; no test adds routes. CFT-208 pin updated. Full vitest 2221/105, tsc 0, lint
   0/29. Not modelled: Android back, animation, keyboard. **D reviewing; A integrates after D.** Device rows
   DV-NAV-1/2 (checklist) on the next build.
