@@ -175,9 +175,11 @@ describe('Forms ask before a back gesture discards work (CFT-208)', () => {
   });
   it('the guard replays the original navigation action on "leave"', () => {
     const hook = read('src/hooks/useUnsavedChangesGuard.ts');
-    expect(hook).toContain("navigation.addListener('beforeRemove'");
-    expect(hook).toContain('e.preventDefault();');
-    expect(hook).toContain('navigation.dispatch(e.data.action)');
+    // usePreventRemove, not a bare beforeRemove listener: only it stops an iOS swipe natively
+    // (F-NAV-1; behaviour in tests/unsaved-guard-native-dismiss.test.ts)
+    expect(hook).toContain('usePreventRemove(opts.when, ({ data }) => {');
+    expect(hook).not.toContain("addListener('beforeRemove'");
+    expect(hook).toContain('navigation.dispatch(data.action)');
   });
 });
 
