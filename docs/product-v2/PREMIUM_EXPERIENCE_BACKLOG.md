@@ -3217,3 +3217,10 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   ONE picker with nothing stuck; synthetic "blue 01" previewed, Replace swapped it to "orange 02", Remove cleared it;
   Proof of ownership previewed synthetic "purple 03". The owner left without publishing and never tapped List ticket,
   so no listing was created. A's read-back and D's post-step read requested; D's must match its 20:22:33Z read.
+- **D's step 0a read (20:30:02Z, md5 77841c46…): NOTHING WAS WRITTEN** — every non-timestamp line identical to D's
+  20:22:33Z read: five transfers by row md5, dedupe 0/1/1/0/0, inbox 41, seven bodies and seven triggers, evidence
+  folder 0 and rt 0 with no referenced paths (so the picker work created no object), executors false, net queue 0,
+  2xx 0, vault project_url only, and no listing row. D's notes, recorded: step 0a's missing time stays "not captured"
+  and is bounded by the read (before 20:30:02Z, database identical to 20:22:33Z); and D's read proves only the
+  database state, not what the owner saw on screen — the picker behaviour is the owner's and C's evidence.
+  Step 0b waits for A's read-back.
