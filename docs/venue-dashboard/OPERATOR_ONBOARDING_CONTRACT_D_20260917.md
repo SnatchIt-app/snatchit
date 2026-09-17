@@ -642,9 +642,13 @@ AMENDMENT:
   R1 Recovery — a SUSPENDED organisation with no current org_owner may receive the PFA-33 A2 owner invite through the
      same two-person action, identity checks and audit. It is refused whenever an org_owner exists, at request and at
      execution. The domain audit records the organisation's status at issue. No invite replaces an existing owner.
-  A6 kernel.accept_org_invite — refuses an invite whose role is not org_owner when the accepter is currently an
-     org_owner of that organisation. An owner's role changes only through kernel.change_org_role, which enforces the
-     last-owner and owner-tier rules. [D's reading of ruling 1; the owner confirms or strikes.]
+  A6 kernel.accept_org_invite — APPROVED by the owner, 2026-09-17: "accepting an invite must never overwrite or
+     demote an existing organization owner." It refuses an invite whose role is not org_owner when the accepter is
+     currently an org_owner of that organisation, checked under the organisation row lock. An owner's role changes
+     only through kernel.change_org_role, which enforces the last-owner and owner-tier rules. The owner also ruled:
+     "Keep the existing maturity-clock and audit behavior unless a separate change is approved" — so an owner
+     accepting an org_owner invite still rewrites granted_by, still resets granted_at, and is still audited as
+     org.invite.accept. That is pinned by 206 I134-I136, so a later change to it cannot pass silently.
   D1 ops.list_platform_identity_memberships() — a detector, not a control: platform identities holding organisation
      membership. platform_admin at aal2; read-only (STABLE; writes nothing, including no audit row); returns names
      only (authority, identity name, organisation name, role). Running it against any hosted project is a read the
@@ -704,3 +708,62 @@ OWNER SIGNATURE REQUIRED:    YES.
    - The production apply.
    - The follow-on amendment's signature, including the A6 decision.
    - The server-log settings read stays deferred (ruling 5).
+
+## Change log 5 — A6 approved; A's review of 5960b51 (D, 2026-09-17)
+
+### A's independent review of 5960b51: PASS, with two findings
+A verified CI 35255707849, a local replay (157 migrations, Gate-2 32|107|37|38, 5428/5428, 206 171/171, 141 213/213),
+re-parsed every file with TAP::Parser (87 files, 5428, no parse errors; plus 000_helpers' plan(6) = CI's 5434),
+diffed the two kernel bodies against 077 as extracted text, recomputed all seven pre-apply md5s from the migration
+text independently, and ran eight of its own mutants with predictions written first.
+- **F-A6-TEST (test gap, fixed below).** Nothing pinned A6's `v_inv.role <> 'org_owner'` clause: an A6 that refused
+  EVERY acceptance by an owner killed no test in 206 or 141.
+- **F-ACL-REPLAY (apply package, adopted).** The pre-apply ACL strings come from a local replay running as superuser
+  with parity grants, and a hosted project's ACLs can legitimately differ. Adopted: a prosrc md5 mismatch stays a hard
+  stop; an ACL mismatch is report-and-decide, with the expectation taken from a real Supabase stack (a local
+  `supabase start` at CLI 2.115.0 avoids any hosted read).
+- A also recorded a lead that is not a 138 defect: CI's 141 prints
+  `notify.emit_event(unknown, unknown, uuid, text, jsonb) does not exist` from request_account_deletion's best-effort
+  emit. It appears on 0cfa8ba and on the candidate 6561d1f too, so it predates this work. It may bear on F-NOTICE-1.
+
+### The owner's ruling (verbatim, 2026-09-17)
+> Approve A6 for the follow-on amendment: accepting an invite must never overwrite or demote an existing organization
+> owner. Keep the existing maturity-clock and audit behavior unless a separate change is approved. Add tests for a sole
+> owner, multiple owners, lower-role invites and concurrent acceptance, with rollback evidence.
+
+### What was added
+- **206, plan 171 → 178.**
+  - I134a, I134: a non-member accepts an org_owner invite and becomes an owner; that owner then accepts a SECOND
+    org_owner invite and it succeeds. This is the positive case F-A6-TEST asked for.
+  - I135: still org_owner, and the row was overwritten as before (granted_by is the second inviter).
+  - I135b: the maturity clock still resets. `now()` is frozen inside the suite's transaction, so the row is backdated
+    ten days first, the way 141 K12 does it; without that the reset is invisible.
+  - I136: the audit is unchanged — one org.invite.accept row, and still no org.role.change.
+  - I137, I138: an org_admin invite and an org_finance invite cannot demote an owner either, in two other
+    organisations, so the refusal is not one role label's accident.
+- **`scripts/rehearsal_138_a6_concurrency.sh`** — two real sessions, loopback only, OUTSIDE pg_prove (pgTAP runs in one
+  transaction and cannot show a lock wait or a committed breach). Its evidence is its own output:
+  - S1 forward: with an org_owner acceptance open and uncommitted, an owner's lower-role acceptance BLOCKS on the
+    organisation row — shown by `pg_blocking_pids`, not by timing — and is refused (owner_role_change) after the
+    holder commits. Owners 3.
+  - S2 reverse: with the organisation row held by another session, a legitimate org_owner acceptance blocks and then
+    SUCCEEDS. A6 serialises; it does not refuse legitimate acceptance.
+  - S3 race: two owners accept lower-role invites simultaneously; both refused; both still owners.
+  - C1 control: the same race against 077's acceptance body — both COMMIT and the organisation is left with ZERO
+    owners. That is the breach A6 closes, committed, on the same fixture.
+  - C2 control, the rollback RED direction: on the same fixture, 138 refuses the sole owner's lower-role acceptance
+    (owners 1); after `supabase/rollbacks/138_ops_operator_onboarding_rollback.sql` the identical call succeeds and
+    owners drop to 0.
+  - Run at 2026-09-17 on a scratch replay database: ALL PASS (S1, S2, S3, C1, C2).
+
+### Evidence
+- Local pgTAP: 87 files, 5435/5435, ALL-PASS; TAP::Parser on every file: 87 files, tests_run 5435, no failures, no
+  parse errors.
+- `mut206_d.py`: 16/16 on written predictions, including the two new ones the gap called for —
+  MA6-over-broad-any-acceptance kills I134, I135, I135b, I136; MA6-org_member-only kills I137, I138.
+- Three earlier predictions were corrected, each with its reason recorded in the harness: MA6-removed,
+  MA6-last-owner-only and MR-suspended-refused now also name the new tests they cascade into. They were written for
+  the 171-assertion suite, before I134–I138 existed.
+- Rollback: unchanged from change log 4 (identical to an exact no-138 replay; re-apply identical), now with the RED
+  direction above.
+CI: pending.
