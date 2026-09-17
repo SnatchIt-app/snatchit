@@ -3181,3 +3181,14 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   **F-SELL-2 device status:** PASS on My listings, Settings, Settings › Notifications, listing top controls and the
   sign-in screen. UNTESTED: transfer send/receive (covered incidentally during Line 3 if the headers are observed),
   Place bid, Checkout, the outbid toast.
+- **D's post-window re-check MATCHES (read-only, 18:5xZ; output md5 0c26b6d3…), identical to D's pre-check and to the
+  approved post-W-C3 baseline** across the five transfers, dedupe 0/1/1/0/0, buyer inbox 41, the seven function
+  bodies, the seven triggers, the empty evidence folder, executors false, net queue 0 / 2xx 0 and vault names. D's
+  "owner away" note crossed with C's message: the owner confirmed presence at 16:20 EDT. **D asks to repeat this read
+  immediately before the first PERMANENT row rather than relying on this one**, which C will request at that moment.
+  D's DV-ST2b record: docs/venue-dashboard/DV_ST2B_WITNESS_RECORD_D_20260917.md, noting the buyer has no bids at all,
+  so the list survived because purchases populate it.
+- **Line 3 step 0 begins with DV-IMG-7 (Sell form parity), which needs no transfer and no mapping**, while A's
+  listing-name mapping for 3118bd30 / 92ee5156 / bce07eef / 8f59d37e (and the listing behind 83b83858 to avoid) is
+  outstanding. Build 19 Sell form: Photos section with "Cover image" and "Proof of ownership" pickers; a selected
+  image shows Replace and Remove. Nothing is uploaded until the listing is published, and the owner will not publish.
