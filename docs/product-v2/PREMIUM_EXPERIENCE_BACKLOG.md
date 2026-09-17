@@ -2832,3 +2832,19 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   so it cannot confirm). That is expected and does not block the Keep editing rows.
 - **Build 19 step 2 (owner, 12:12 EDT):** signed out of the buyer, signed in as the seller; Home loaded; Profile shows
   the seller. Separate sign-out and Home-load times not captured. No notice reported. Next: DV-NAV-1, swipe path.
+- **Sandbox approval relayed by A (2026-09-17):** the owner approved the four actions in A's
+  `docs/release/SANDBOX_APPROVAL_REQUEST_C3_20260917.md` (converge; sandbox only, in order):
+  1. Line 1 storage round trip (API only);
+  2. W-C3 (136 → 139 → 140 + stripe-webhook and notify-report from f412d10);
+  3. staged security notice (DV-N-1..3, C guides);
+  4. Line 3 permanent transfer-test writes (DV-IMG-4/-5/-9+3b/-10, C guides).
+
+  **Not yet confirmed to C directly**; C asked the owner. The handset restrictions A asked for are followed now,
+  because they only narrow what the handset does:
+  - no proof upload and no Transfer send screen until A closes Step 1;
+  - the owner is paused at a safe point before W-C3's S1, with no handset test during W-C3;
+  - no transfer or notice screen until A announces W-C3 closed;
+  - no DV-ST2b during any of it.
+
+  Keep editing and header rows continue (Step 0). Steps 3–4 guidance starts only after the owner's direct
+  confirmation and A's go.
