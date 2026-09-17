@@ -3364,3 +3364,21 @@ Most of the app is already tested; close the remaining gaps efficiently.
   `rememberSelection`/`recallSelection`/`selectionToRecall`) and are explicit items on the owner's own acceptance list.
   **Dropped:** the limited-access row (no changed code behind it) and **DV-IMG-3a's no-image gate** — that early
   return pre-dates the repair and is unchanged, so it stays **UNTESTED** with that reason, not called a pass.
+- **B's frontend design audit delivered (read-only): `design/frontend-audit-20260917 @ 79a7b6b`,
+  `docs/design-audit/FRONTEND_DESIGN_AUDIT_20260917.md` + two HTML prototypes.** It reads 6561d1f (which INCLUDES
+  F-BIDS-1), while the handset runs f412d10 (which does not) — B labels each Bids finding with its tree. C's two
+  device findings appear in §5b attributed to C and the owner, and B derived the expiry finding independently from
+  source. B's §10 protects C's F-SELL-2 insets, the 20 pt badge, MAX_DISPLAY_FONT_SCALE, the line-height floor,
+  loadState copy, F-BIDS-1's states, the haptics and AdaptiveDock; B proposes nothing visual for My Listings while
+  ML-1 is open.
+  **Six release-critical items B hands to C's lane, no patches proposed:** (1) PlaceBidScreen builds its form on a
+  `?? 0` floor after a failed read, and a thrown read leaves the spinner up; (2) CheckoutNative has no offline state,
+  so a dead connection reads as a decline at payment time; (3) Send Transfer layout, the action far below the fold and
+  the blocker stated three times; (4) Unblock, delete listing and cancel listing have no busy state and re-fire on
+  repeat taps; (5) Home's lazy filter fetches show EmptyState while in flight and log errors to console, so a failed
+  filter reads as an empty marketplace; (6) the avatar spinner clears before the profile write completes. Smaller:
+  synthetic-bold layering on the notice banner, ProofImageViewer's raw Modal/ActivityIndicator with no Reduce Motion
+  path, and no shared display-name resolver.
+  **C's handling, per the owner's direction:** the handset pass first; then C verifies each finding in source before
+  it reaches the owner; then ONE consolidated recommendation with severity, what each fix touches and what device
+  evidence it needs. Nothing is written without the owner's scope decision.
