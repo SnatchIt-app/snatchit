@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { STATE_COPY } from '@/src/lib/ui/loadState';
 import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+import { BLANK, buttonByLabel, screenText, textsOf, type Blank } from './helpers/screen-view';
 
 type Reply = { data: unknown; error: { message: string } | null };
 
@@ -78,26 +79,23 @@ const FAILED_READ: Reply = { data: null, error: { message: 'upstream timeout' } 
 
 type View =
   | 'loading'
+  | Blank                       // nothing rendered — never an expected verdict
   | { state: unknown }
   | { form: true; texts: string[] };
 
-/** What the bidder sees: the spinner, a classified full-screen state, or the bid form. */
+/**
+ * What the bidder sees. Every verdict needs something to positively identify it: the form is only reported
+ * when the "Place bid" action is actually on screen. The old helper returned `{ form: true }` for anything
+ * that was neither a state nor a spinner, so an empty tree read as "the form rendered" — the very outcome
+ * this fix exists to prevent (D's review).
+ */
 function view(host: HookHost): View {
   const tree = host.output;
   const screen = findElement(tree, (el) => el.type === 'ScreenState');
   if (screen) return { state: screen.props.state };
   if (findElement(tree, (el) => el.type === 'Spinner')) return 'loading';
-  const texts: string[] = [];
-  collectText(tree, texts);
-  return { form: true, texts };
-}
-
-function collectText(node: unknown, out: string[]): void {
-  if (Array.isArray(node)) { for (const c of node) collectText(c, out); return; }
-  const el = node as Element | null;
-  if (!el || typeof el !== 'object' || !('props' in el)) return;
-  if (el.type === 'Text' && typeof el.props.children === 'string') out.push(el.props.children);
-  collectText(el.props.children, out);
+  if (buttonByLabel(tree, 'Place bid')) return { form: true, texts: textsOf(tree) };
+  return BLANK;
 }
 
 async function mountScreen(): Promise<HookHost> {
@@ -133,12 +131,11 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     await flush();
     host.flush();
 
-    const shown = view(host);
     // The defect rendered the whole form: "$0" current bid and a "$5" minimum out of nowhere.
-    expect(shown).not.toHaveProperty('form');
-    if (typeof shown === 'object' && 'texts' in shown) {
-      expect(shown.texts.join(' ')).not.toContain('$0');
-    }
+    expect(view(host)).not.toHaveProperty('form');
+    // Unconditional on purpose: the old version guarded this behind `'texts' in shown`, which is false for
+    // every passing verdict, so the $0 pin never executed (D's review).
+    expect(screenText(host.output)).not.toContain('$0');
   });
 
   it('B3: a rejected read ends loading and shows the error state — the spinner never sticks', async () => {
@@ -169,15 +166,12 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     await flush();
     host.flush();
 
-    const shown = view(host);
-    expect(shown).toHaveProperty('form', true);
-    if (typeof shown === 'object' && 'texts' in shown) {
-      const joined = shown.texts.join(' ');
-      expect(joined).toContain('Sandbox L6');
-      expect(joined).toContain('$100');   // the current bid the server reported
-      expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
-      expect(joined).not.toContain('$0');
-    }
+    expect(view(host)).toHaveProperty('form', true);
+    const joined = screenText(host.output);
+    expect(joined).toContain('Sandbox L6');
+    expect(joined).toContain('$100');   // the current bid the server reported
+    expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
+    expect(joined).not.toContain('$0');
   });
 
   it('B6: Retry from the error state re-reads, and a good read renders the form', async () => {
@@ -197,7 +191,8 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     await flush();
     host.flush();
 
-    expect(view(host)).toHaveProperty('form', true);
+    expect(view(host)).toEqual({ form: true, texts: expect.any(Array) });
+    expect(screenText(host.output)).toContain('Sandbox L6');
   });
 
   it('B8: a read that returns no row and no error is still not a bid form', async () => {

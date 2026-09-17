@@ -164,6 +164,11 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
     const host = await mountSend();
 
     const shown = texts(host).join(' | ');
+    // Positive anchor first: a blank render would satisfy two `not.toContain`s and prove nothing (D's review).
+    // The screen's own heading is the anchor — an expired transfer renders no CTA and no countdown row, so
+    // asserting one of those would be asserting the absence twice over.
+    expect(shown).toContain('Send tickets to');
+    expect(findElement(host.output, (el) => el.type === 'ScrollView')).toBeDefined();
     expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.passed);
     expect(shown).not.toContain('Transfer window expired');
   });

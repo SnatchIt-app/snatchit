@@ -17,6 +17,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+import { busyState, byLabel } from './helpers/screen-view';
 
 const h = vi.hoisted(() => {
   const deferred = <T,>() => {
@@ -88,16 +89,19 @@ vi.mock('@/src/lib/supabase', () => {
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 
 function avatarButton(host: HookHost): Element {
-  return findElement(
-    host.output,
-    (el) => el.props.accessibilityLabel === 'Change profile photo',
-  ) as Element;
+  const el = byLabel(host.output, 'Change profile photo');
+  if (!el) throw new Error('avatar control is not on screen');
+  return el;
 }
 
-/** The ring shows the spinner overlay exactly while the screen considers itself busy. */
-function busy(host: HookHost): boolean {
-  const button = avatarButton(host);
-  return Boolean(findElement(button, (el) => el.type === 'Spinner')) && button.props.disabled === true;
+/**
+ * The ring shows the spinner overlay exactly while the screen considers itself busy — tri-state, because
+ * `findElement` returns undefined rather than throwing. The old boolean returned `false` both for "idle" and
+ * for "the control is not on screen", so four assertions expecting `false` would have passed a mutant that
+ * unmounted the avatar entirely (D's review).
+ */
+function busy(host: HookHost): 'absent' | boolean {
+  return busyState(byLabel(host.output, 'Change profile photo'));
 }
 
 async function mountProfile(): Promise<HookHost> {

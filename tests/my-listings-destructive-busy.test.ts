@@ -214,6 +214,29 @@ describe('F-DESTRUCT-1 — destructive listing actions are one-at-a-time', () =>
     expect(h.cancels.length).toBe(1);
   });
 
+  it('D8: the lock is per listing — a second row is still actionable while the first is in flight', async () => {
+    // Nothing in D1-D7 distinguished the id-keyed lock from a single global boolean, which would freeze the
+    // whole list during one delete (D's review).
+    h.rows = [listing('l-1'), listing('l-2')];
+    const host = await mountMyListings();
+
+    tapDestructive(host, 0);
+    confirmLast(host);
+    await flush();
+    host.flush();
+    expect(h.deletes.length).toBe(1);
+    expect(rowProps(host, 0).busy).toBe(true);
+
+    // Row two belongs to no in-flight request and must behave normally.
+    expect(rowProps(host, 1).busy).toBeFalsy();
+    tapDestructive(host, 1);
+    confirmLast(host);
+    await flush();
+    host.flush();
+
+    expect(h.deletes.length).toBe(2);
+  });
+
   it('D5: a successful delete still removes the row (regression guard)', async () => {
     const host = await mountMyListings();
     tapDestructive(host);
