@@ -2567,3 +2567,11 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   launch, so Try again was never offered. Forcing a failure on Build 18 is confounded: Build 18 re-attempts
   registration on foreground (296439c is not in it), and under full loss Profile shows its load state without
   the Settings link. Not claimed as a full row pass.
+- **S2-2 closed (owner):** Network Link Conditioner **Enable OFF at 11:14 EDT** (2026-09-17); profile selection left
+  as it was; Larger Text ON. A recorded S2-2 in manifest §13 at converge 65f4e75 (launch outcomes PASS 2/2, Try
+  again UNTESTED, push half DEFERRED).
+- **S2-5 (DV-ST1..ST4) started as the buyer.** Step 1 = DV-ST1: airplane mode on, force-quit and reopen, then
+  Home, Explore (Home's "Search events" icon, then type at least two letters — Explore only searches then),
+  Bids, Tickets, Profile, each reached fresh. Build 18 copy (`src/lib/ui/loadState.ts`): "You're offline" /
+  "Check your internet connection and try again." / Retry. Retry not tapped in this step. DV-ST2 stays gated:
+  the trigger goes to A only after D confirms the witness is live and the kit is idle.
