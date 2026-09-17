@@ -253,7 +253,7 @@ export const CHALLENGE_COPY = {
     register_instead: 'This device needs to be set up again. Tap Try again.',
     other_session: 'This confirmation was started from a different session. Sign in again and retry.',
     // F-2S-1 (owner ruling 2026-09-17): the user is still signed in when this shows on the
-    // challenge path, so it names the recovery place, not a sign-out that has not happened.
+    // challenge path, so it names the remedy (sign in again), not a sign-out that has not happened.
     session_stale: 'This device needs you to sign in again before it can confirm notifications for this account.',
     rate_limited: 'Too many confirmation attempts. Try again in about 10 minutes.',
     auth: 'Sign in again to confirm notifications on this device.',
