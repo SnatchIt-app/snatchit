@@ -2345,3 +2345,15 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   re-measure is not provable from source. Working hypothesis, untested: screens mounted before the
   setting changed kept their old size. Discriminating check given to the owner: force-quit, relaunch
   with the setting on, look at Home.
+- **S2-4 fresh launch (owner, Build 18, seller, largest text ON, 2026-09-18 01:27 EDT ≈ 05:27Z): PASS**
+  (owner-reported) — after force-quit and reopen, all screens the owner tested showed large text; their
+  headings clear the SANDBOX badge with no clipping or overlap; badge unchanged. The owner did not list
+  the tested screens individually; not expanded here.
+  **F-DT-1 stays open, recorded separately from that PASS:** screens already open when the text-size
+  setting changed did not visibly update until the app was relaunched (owner-observed). Underlying
+  cause NOT confirmed — the new-architecture re-measure hypothesis is untested. Severity to set with the
+  owner: users who change Dynamic Type while the app is running keep old sizes until relaunch.
+- **DV-S2 (F-SELL-1, edit) started (larger text still ON):** step 1 = Edit listing with the keyboard
+  on a seller listing that shows Edit (no bids); Save changes is never tapped; step 2 = swipe back with
+  an unsaved change → "Discard changes?" / "Your edits to this listing haven't been saved." with Keep
+  editing / Discard (source: `UNSAVED_COPY.listingEdit`). No write in either step.
