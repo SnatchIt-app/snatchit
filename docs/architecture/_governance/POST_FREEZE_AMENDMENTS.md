@@ -3527,3 +3527,70 @@ PROOF:   supabase/tests/125_deletion_sweep_live_rail.sql (28) + 141 unchanged (2
          held on BP-13 → refund → tombstoned.
 OWNER SIGNATURE REQUIRED: YES (amends a ratified closed-world set).  OWNER SIGNATURE: NOT YET RECORDED.
 ```
+
+## PFA-33 — operators never become members of customer organisations: platform-assisted bootstrap (A1–A3) and the acceptance refusal (A4) (migration 138, unapplied) — PROPOSED, NOT SIGNED
+
+**Placement (A, 2026-09-17):** the text below is placed VERBATIM from D's contract, `docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md` on `review/d-release-sprint @ dd86f77` (extracted block md5 ``). It names the implementation it amends by: `ops/138-operator-onboarding @ 0cfa8ba` (CI 35249486531 green on all five jobs; pgTAP Tests=5403, Result: PASS). **A's independent reviews:** 8ecc929 (no defect found; the membership paths (a)–(f) are verified in source, and (f) is added as a LIMIT) and the hardening delta 0cfa8ba (the fixed-text outcome map covers all 11 messages A2 raises; 206 140/140 on A's local replay). **The quoted rulings** match, word for word (apostrophe style aside), the owner's message of 2026-09-17 in the original A conversation; the owner states that D received them directly as well. **Signing method (owner, 2026-09-17, to A):** "use my explicit written approval in this conversation as the signing method. Prepare the final amendment with its exact revision and commit, then bring it to me for that approval. My earlier direction authorizes development; do not record an unseen final amendment as signed." **OWNER SIGNATURE: NOT YET RECORDED.** Open for the owner, outside this amendment: A5 (refuse `kernel.create_organization` for identities holding platform authority), the detector read for path (d), confirmation that a suspended organisation may receive a bootstrap owner invite, and migration 138's application, which this amendment does not authorize.
+
+
+```
+ID:                          PFA-33 (proposed)
+FROZEN RULES AFFECTED:       RPC §2.1–2.5 (organisation verbs are org-plane: create_organization makes the caller the
+                             first org_owner; roster verbs require has_org_role; accept_org_invite binds to the
+                             addressed invitee) and RPC §3.1 (create_venue requires has_org_role).
+WHY:                         the operator console must onboard a customer organisation without the operator becoming a
+                             member of it. kernel is API-exposed and authenticated may execute the roster verbs, so any
+                             operator holding an org role can bypass console two-person approval by direct RPC (proposal
+                             F3–F4).
+OWNER RULINGS (verbatim, 2026-09-17, in chat to D):
+  1. "Approve the proposed platform-assisted bootstrap flow and the A1–A4 contract amendments for implementation and
+     review. Creating an organization must not make the operator its owner. The customer gains ownership by accepting
+     the invitation."
+  2. "Remove the seven organization-management console actions identified in §3.1 and support's write permissions."
+  3. "Support retains authorized reads and the two audited contact reveals, with the stated purpose restrictions.
+     Organization membership must not be a workaround for support access."
+  4. "Customer roster management stays on the customer side. Preserve the existing role restrictions and maturity
+     rules; do not introduce single-person platform elevation."
+  5. "Use manual invite delivery through a verified channel initially. This approves the workflow design, not sending a
+     particular invitation or enabling outbound notifications."
+  6. "Implement cleanup of held invite addresses when an action becomes terminal. Document that untouched expired
+     requests remain retained under lazy expiry, and propose bounded cleanup for those separately. Do not enable a new
+     scheduled job under this instruction."
+  7. "Approve A4: refuse customer-organization invitation acceptance by identities holding platform authority,
+     including the bootstrap admin path. Test the email-change sequence A and D reproduced. Also identify other
+     membership-creation paths so the broader 'operators are never members' claim is not inferred from this acceptance
+     guard alone."
+  8. "Record server-log exposure as unverified. Prepare the exact logging-settings read scope separately; no
+     production read is authorized here."
+  Also: "Require explicit per-function privilege revokes and tests covering the identified catalog and service-role
+  gaps. Preserve PFA-4 and two-person approval."
+AMENDMENT:
+  A1 kernel.bootstrap_organization(legal_name, display_name, command_key) — platform_admin; organisation at 'applied'
+     with NO org_member row; admin_audit org.create reason 'platform_bootstrap'.
+  A2 kernel.invite_bootstrap_owner(org_id, invitee_ref, command_key) — platform_admin; runs as the APPROVER of the
+     two-person console action; refuses a closed organisation, an organisation with an org_owner, a pending org_owner
+     invite, the caller as invitee, and an invitee holding platform authority; writes a pending org_owner invite;
+     admin_audit reason 'platform_bootstrap_owner'. A 'suspended' organisation is NOT refused (only 'closed' is), so
+     an owner can be bootstrapped during recovery. Owner to confirm this is intended.
+  A3 catalog.bootstrap_venue(org_id, name, neighborhood, address, command_key) — platform_admin; draft venue for an
+     approved/active organisation; admin_audit venue.create reason 'platform_bootstrap'.
+     DEVIATION FROM THE APPROVED WORDING ("a platform_admin arm on catalog.create_venue"): a separate verb, because
+     create_venue carries authenticated EXECUTE by frozen contract and an arm inside it could not be console-only
+     (principle 4). create_venue's body and grants are unchanged and pinned (206 I86).
+  A4 kernel.accept_org_invite — 077's body plus one refusal: an identity for which
+     kernel.is_platform(platform_admin, platform_support, platform_risk) holds (including the public.admin_users
+     bootstrap) cannot accept. Grants unchanged (206 I87).
+  Console-only: A1–A3 revoked from public, anon, authenticated and service_role, asserted per function (206 I84). The
+  service_role gap is closed PER FUNCTION for these verbs, not schema-wide (service_role holds intended grants
+  elsewhere). The catalog gap: 206 I85 asserts zero PUBLIC/anon EXECUTE on any catalog function.
+UNCHANGED:                   the org-plane roster verbs, the tier guard, I-11, AUTHZ-C1B maturity, PFA-4 (platform-role
+                             grants fail-closed, 206 I63–I65), 118's approval machinery and approval_sod_ck.
+SECURITY IMPACT:             strictly narrowing for operators; no new single-person path to any organisation role.
+LIMIT:                       every guard here is per identity (auth.uid()). "Operators are never members" is enforced
+                             per ACCOUNT, not per PERSON. A person who holds platform authority on one account and
+                             joins a customer organisation with a second, ordinary account is governed by operator
+                             account policy, not by these guards. No in-database control or detector can see it.
+IMPLEMENTED AT:              ops/138-operator-onboarding @ 0cfa8ba — migration 138 (unapplied, outside the marketplace
+                             candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
+OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how the owner signs.
+```
