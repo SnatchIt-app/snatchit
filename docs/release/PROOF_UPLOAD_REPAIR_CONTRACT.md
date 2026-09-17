@@ -180,3 +180,23 @@ Also in the design: v1 scope = transfer evidence only; a bounded per-run limit; 
 run; pgTAP controls "a referenced object survives" and "a recovery-candidate object survives". **Owner decisions, not made
 here:** the retention N (B recommends ≥ 30 days), the cron itself (a new scheduled job), and whether a dry-run count is
 reported before the job is ever scheduled (B recommends yes). No migration number allocated; nothing implemented.
+
+## 10. D's combined review of 140 @ `912a7d6` + `c0281aa` (2026-09-17): PASS on substance, two items to close, one statement
+**Statement (owner outcome 2, "older-client compatibility defined first"):** the recovery path serves an **ongoing inflow, not a
+fixed backlog**. `mark_transfer_sent(uuid,uuid)` delegates with `null::text` and the pending branch writes
+`transfer_evidence_path = coalesce(p, existing)`, so any client that transitions without a path — the pre-Build-18 2-key body,
+and any 3-arg call whose path is null — still creates a `seller_sent` row with no proof, exactly the state `attach_transfer_evidence`
+recovers. That is deliberate (refusing would strand older clients entirely) and it means eligibility and volume for §2 are
+"every such transition until those clients are retired", not "the rows that exist today"; the §6 production count sizes the
+current backlog only. **Owner decision added to §6:** whether, once no supported client sends the 2-key body, the pending
+branch should require a non-empty path (a later migration; not in 140).
+**Items to close before the candidate is tagged (B):** (1) 050's rewrite captures `transfer_evidence_path` in `_sent050` and
+never asserts it — add the one-line `is(...)` so the "no replaced proof" half is pinned in 050 as well as 207 R4/R7;
+(2) 207's header sentence ("each branch killed exactly ONE assertion, and no two branches killed the same one") is false while
+B's table beneath it is right (5, 4, 3 for the first three branches; R8 dies under two) — rewrite the header from the matrix;
+add the harness line that 207 needs a `postgres` connection locally (119's server-controlled-columns guard kills `tap.seed_core()`
+as the OS user). **Batch rule adopted:** a header claim about a matrix is generated from the matrix, never written beside it —
+the third summary-contradicts-data case today (179/180 prose, G11's name, 207's header), each time with the data right.
+**Evidence line held by D:** outcomes 1 and 2 met by 140 + c0281aa; outcome 3 NOT passed (MIME display failure not reproduced;
+HEIC conversion device-unverified until DV-IMG-9); outcome 4's device half is DV-IMG-1..8. A's disclosure: A relayed B's header
+sentence to D as fact without checking it against the table — the same failure, one hop on.
