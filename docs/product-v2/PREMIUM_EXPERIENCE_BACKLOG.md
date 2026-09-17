@@ -3789,3 +3789,23 @@ Needs-action priority rather than its styling, and the directions are explorator
   Provable locally; no handset time required to build, and the device rows can be claimed on the next candidate.
 - **Batch 2 (after the ownership decision):** the primitives, the notice ranks, the Send Transfer re-order, the legacy
   retirement. Nothing here blocks a release.
+
+- **F-HOME-1 stickiness — OWNER'S CORRECTION (2026-09-17), superseding the "uncaptured" record above.** The owner
+  reported the interaction sequence they had not captured at the time: **they pulled down to refresh while Recently sold
+  was selected, and the sold listings appeared after that manual refresh. The screen did NOT recover by itself from
+  reconnecting.** Recorded exactly as the owner framed it:
+  - **Passive automatic recovery: NOT OBSERVED / did not occur during the watch** (watch duration approximate, not
+    captured).
+  - **Pull-to-refresh recovery: OBSERVED** — content returned after the manual refresh.
+  - **The 6:47 PM screenshot is evidence of the POST-REFRESH populated state, not of automatic recovery.** The earlier
+    entry recording the transition as uncaptured is superseded by this; A's record and the bar on quoting that
+    screenshot were updated to match.
+  - Timing stays approximate throughout: the moment of reconnection and the moment of the pull were not captured.
+  - **C's committed prediction (7dcdf22, refined e9dd55f) is now CONFIRMED on both halves it can claim:** no
+    self-recovery while the filter stays applied, and recovery on a pull-to-refresh. The **re-selection** path
+    (`onChipTap` / `onFiltersApply` re-firing because the once-flag stayed false) remains **UNTESTED** — the owner
+    recovered via the pull and never needed the filter switch. Behavioural tests will cover it off-device.
+  - **Severity, now settled rather than inferred:** the false empty is sticky against time and against reconnection, and
+    clears only when the user acts. Combined with the property that a failed pull is silent, the full shape is: offline,
+    a pull ends its spinner on the same "NOTHING SOLD YET"; online, the same gesture fixes it. The user cannot tell those
+    two apart from the screen.
