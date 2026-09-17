@@ -3838,8 +3838,9 @@ integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users
 - **Nothing here is device-verified.** No build, no sandbox, no handset time; device rows are owed on whatever
   candidate carries this.
 
-- **F-XFER-1 is NOT fully closed by Batch 1 — the buyer's screen still makes the claim the seller's no longer
-  makes.** Found by A reviewing the batch; **C verified it at the batch head and found the gate is looser than
+- **F-XFER-2 (A's id, 20ef84a; C aligned to it) — the buyer's screen still makes the claim the seller's no
+  longer makes.** Filed separately from F-XFER-1 on purpose, so the owner sees two separable decisions rather
+  than one bundled ask: the client copy fix (this) and server-side enforcement (F-XFER-1's open half). Found by A reviewing the batch; **C verified it at the batch head and found the gate is looser than
   A reported.** `app/transfer/receive/[id].tsx`:
   - `:341` renders the literal `'Transfer window expired'` from the same device-clock `formatCountdown`.
   - `:338` the render condition is `transfer.status !== 'buyer_confirmed'` — wider than the send screen's
