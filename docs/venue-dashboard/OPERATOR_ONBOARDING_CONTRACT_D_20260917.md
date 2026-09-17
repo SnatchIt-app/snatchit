@@ -430,6 +430,8 @@ LIMIT:                       every guard here is per identity (auth.uid()). "Ope
                              per ACCOUNT, not per PERSON. A person who holds platform authority on one account and
                              joins a customer organisation with a second, ordinary account is governed by operator
                              account policy, not by these guards. No in-database control or detector can see it.
+IMPLEMENTED AT:              ops/138-operator-onboarding @ 0cfa8ba — migration 138 (unapplied, outside the marketplace
+                             candidate), rollback supabase/rollbacks/138_ops_operator_onboarding_rollback.sql, pgTAP 206.
 OWNER SIGNATURE REQUIRED:    YES (amends frozen RPC §2 and §3). A records how the owner signs.
 ```
 
@@ -487,3 +489,32 @@ Answers to D's four points:
 - (c) No current leak. Hardening is not required for the verdict, but A recommends it before 138 is applied anywhere.
 - (d) Agreed.
 Observation for the owner: A2 does not refuse a suspended organisation (recorded in A2's text above).
+
+### Hardening at 0cfa8ba — a failing bootstrap invite records fixed text (A's point c)
+What: in the bootstrap-invite dispatch arm, the recorded outcome message is no longer `replace(sqlerrm, ref, label)`.
+Each of the 11 messages kernel.invite_bootstrap_owner raises maps to its fixed leading text (checked: 11 raises, 11
+prefixes). Anything else becomes `invite verb failed; message withheld (sqlstate …)`. The header says so.
+Why: the outcome lands in ops.action and ops.audit, which every operator reads. At 8ecc929, a verb message quoting the
+reference lower-cased or trimmed passed the exact-string mask. No current message did, so this was not a live leak.
+Tests: 206 I99–I102 (plan 136 → 140). A padded, mixed-case reference is requested, the approver comes to hold it
+lower-cased, and the verb refuses. The outcome is fixed text, and no ops.action or ops.audit row holds any spelling.
+Evidence (local):
+- RED, written first, on 8ecc929's code: only I101 failed, because it recorded the verb's full message.
+- MC0 (the verb quotes lower(trim(ref))) on 8ecc929 failed I101 and I102: the address reached 2 rows.
+- Fresh replay Gate-2 32|107|37|38.
+- Local pgTAP: 87 files (the local runner covers 87 of the 88), 5397/5397, ALL-PASS; 206 140/140.
+- Green mutants (scratchpad mut206_c.py), 6/6 on written predictions:
+  - MC1, the verb quotes the lower-cased ref: survives. That is the hardening working.
+  - MC2, back to replace(): fails I101.
+  - MC3, MC2 plus the quoting verb: fails I101 and I102.
+  - MC4, an unknown verb message quoting the ref: fails I101 only; it is withheld.
+  - MC6, the self_invite mapping dropped: fails I101.
+  - MC5, the fallback passes sqlerrm plus an unknown message: fails I101, I102, I77, I79 and I80.
+- One prediction was wrong: MC5 was written as I101 and I102. It removes all masking from the self_invite refusal, which
+  I42's flow reaches with later.b@example.com, so I77/I79/I80 also caught it. Corrected in the harness with that reason.
+- Rollback at 0cfa8ba: identical to an exact no-138 replay (functions 352, tables 50, triggers 51, ops.action
+  constraints 9); accept_org_invite back to 077 (a7bd0984…); re-apply identical (367 functions).
+- The 28 mutants in mut206_v3.py were run at 8ecc929 and not re-run here. This delta changes only that exception
+  handler's message, and none of those mutants touches it.
+CI: run 35249486531 at 0cfa8ba succeeded on all five jobs. pgTAP footer: Files=88, Tests=5403, Result: PASS; 206 ok
+(5399 + the 4 new assertions, as predicted).
