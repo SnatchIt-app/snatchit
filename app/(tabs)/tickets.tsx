@@ -127,9 +127,13 @@ export default function TicketsScreen() {
         ) : null}
       </View>
 
+      {/* Keyed on devFixtures ONLY — not on __DEV__ — so the label follows the
+          fixture rows wherever they go; gating it under __DEV__ would let a future
+          path that sets devFixtures elsewhere render fixtures without the caveat
+          (D's review, 2026-09-17). Body-size text so a screenshot cannot miss it. */}
       {devFixtures ? (
         <View style={s.sampleLabel} accessibilityRole="alert">
-          <Text style={[textStyle('micro'), s.sampleLabelText]}>{SAMPLE_TICKETS_LABEL}</Text>
+          <Text style={[textStyle('bodySm'), s.sampleLabelText]}>{SAMPLE_TICKETS_LABEL}</Text>
         </View>
       ) : null}
 
