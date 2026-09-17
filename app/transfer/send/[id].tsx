@@ -17,6 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
+import { useSingleFlight } from '@/src/hooks/useSingleFlight';
+import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/media/uploadFlow';
+import { MARK_SENT_COPY, runMarkSent } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -57,6 +60,9 @@ export default function TransferSendScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // F-IMG-1d: one Mark as sent at a time; F-IMG-1: after a failed or unconfirmed attempt the CTA says Try again.
+  const flight = useSingleFlight();
+  const [lastFailed, setLastFailed] = useState(false);
 
   const [expiryCountdown, setExpiryCountdown] = useState<string | null>(null);
   const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
@@ -69,11 +75,12 @@ export default function TransferSendScreen() {
     aspect: null,
     quality: 0.85,
     bucket: 'proof-docs', // PRIVATE — buyer/seller/admin only (migration 034)
+    reuseKey: id,          // reuse and keep the selection only for THIS transfer
   });
 
-  const fetchTransfer = useCallback(async () => {
+  const fetchTransfer = useCallback(async (quiet = false) => {
     if (!userId || !id) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
@@ -92,7 +99,7 @@ export default function TransferSendScreen() {
       setError('');
       setTransfer(data as unknown as TransferData);
     }
-    setLoading(false);
+    if (!quiet) setLoading(false);
   }, [id, userId]);
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
@@ -119,32 +126,55 @@ export default function TransferSendScreen() {
       Alert.alert('Evidence required', 'Please upload a screenshot of the transfer confirmation before marking as sent.');
       return;
     }
-    setSubmitting(true);
-    try {
-      const evidencePath = await evidenceUpload.uploadImage();
-      if (!evidencePath) {
-        Alert.alert('Upload failed', evidenceUpload.error ?? 'Unknown upload error.');
+    await flight.run(async () => {
+      setSubmitting(true);
+      try {
+        // mark_transfer_sent is not idempotent and returns nothing (A, 2026-09-18): the transfer's
+        // status is read before and after, and only a read-back of "sent" is shown as success.
+        const outcome = await runMarkSent({
+          readStatus: async () => {
+            const { data, error: readErr } = await withUploadTimeout(
+              supabase.from('transfers').select('status').eq('id', id).eq('seller_id', userId).maybeSingle(),
+              REQUEST_TIMEOUT_MS,
+            );
+            return readErr || !data ? null : (data as { status: string }).status;
+          },
+          upload: () => evidenceUpload.uploadImage(),
+          call: async (path) => {
+            const { error: rpcErr } = await withUploadTimeout(
+              supabase.rpc('mark_transfer_sent', { p_transfer_id: id, p_user_id: userId, p_transfer_evidence_path: path }),
+              REQUEST_TIMEOUT_MS,
+            );
+            return { error: rpcErr ? { message: rpcErr.message } : null };
+          },
+        });
+        if (outcome.kind === 'sent') {
+          setLastFailed(false);
+          evidenceUpload.reset();
+          await fetchTransfer(true);
+          Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.");
+          return;
+        }
+        setLastFailed(true);
+        if (outcome.kind === 'upload_failed') {
+          Alert.alert("Couldn't upload the transfer proof", evidenceUpload.readError() ?? UPLOAD_COPY.uploadFailed);
+        } else if (outcome.kind === 'not_pending') {
+          await fetchTransfer(true);
+          Alert.alert('Transfer updated', MARK_SENT_COPY.notPending);
+        } else if (outcome.kind === 'failed') {
+          Alert.alert("Couldn't mark as sent", outcome.message);
+        } else {
+          Alert.alert('Not confirmed yet', MARK_SENT_COPY.unconfirmed);
+        }
+      } finally {
         setSubmitting(false);
-        return;
       }
-      const { error: rpcErr } = await supabase.rpc('mark_transfer_sent', {
-        p_transfer_id: id,
-        p_user_id: userId,
-        p_transfer_evidence_path: evidencePath,
-      });
-      setSubmitting(false);
-      if (rpcErr) { Alert.alert('Error', rpcErr.message); return; }
-      setTransfer((prev) => (prev ? { ...prev, status: 'seller_sent', transfer_evidence_path: evidencePath } : prev));
-      Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.");
-    } catch {
-      setSubmitting(false);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    }
+    });
   }
 
   const platform: TicketPlatform = transfer?.listing?.ticket_platform ?? 'other';
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
-  const busy = submitting || evidenceUpload.status === 'uploading';
+  const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
 
   function Header() {
@@ -166,7 +196,7 @@ export default function TransferSendScreen() {
       <View style={s.root}>
         <Header />
         {error === '__offline__' ? (
-          <ScreenState state="offline" onRetry={fetchTransfer} />
+          <ScreenState state="offline" onRetry={() => fetchTransfer()} />
         ) : (
           <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>{error || 'Transfer not found'}</Text></View>
         )}
@@ -240,7 +270,7 @@ export default function TransferSendScreen() {
             {buyerDeliveryMissing ? (
               <Text style={[textStyle('bodySm'), s.blockedText]}>Buyer must provide delivery info before you can send tickets.</Text>
             ) : null}
-            <Button label="Mark as sent" onPress={handleMarkSent} loading={busy} disabled={busy || buyerDeliveryMissing} block style={s.cta} />
+            <Button label={lastFailed ? 'Try again' : 'Mark as sent'} onPress={handleMarkSent} loading={busy} disabled={busy || buyerDeliveryMissing} block style={s.cta} />
           </View>
         ) : null}
 
