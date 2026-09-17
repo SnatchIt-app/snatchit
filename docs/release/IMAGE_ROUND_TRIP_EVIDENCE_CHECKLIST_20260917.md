@@ -368,3 +368,32 @@ is now `6561d1f`, and the statement should name it.
   Line 3's inbox-delta reads. The safe positions are before the sequence or after it closes.
 - Option A (retire the notice inside `kernel.withdraw_account_deletion`) is a kernel-verb change: it needs a migration number,
   and PC3-style body hashes for the changed verb, in whichever package carries it. Not this one.
+
+### 10b. Review of A's F-NOTICE-1 fix branch (B, 2026-09-17, read-only)
+`fix/f-notice-1-withdraw-retires-notice @ c70a9a6` — migration 141, rollback, pgTAP 208. Unapplied. Checked from source:
+
+**Sound, and verified rather than taken on trust:**
+- The retire lives in `notify.retire_account_deletion_pending(uuid)`, called from `kernel.withdraw_account_deletion`, so the
+  157 A48 seam (no kernel routine touches notify's tables) holds. Revoked from public, anon, authenticated **and** service_role.
+- Census pins move together: notify 22 → 23 (157 A14), the A15 signature list, definer count 20 → 21 (A16), five-schema
+  305 → 306 (148 A20, 156, 157 A46, 204).
+- The rollback restores 077's body **byte-identical** (both 1153 chars, diffed) and drops the notify function *after* the
+  restore, so no dependency is left dangling.
+- No timestamped migration redefines `kernel.withdraw_account_deletion` (only 077 and 141), so the LC_ALL=C
+  overwrite trap does not apply.
+- 208's fixture calls match the real signatures (`notify.enqueue(uuid,text,text,uuid,jsonb,text)`; `purchase_confirmed` is a
+  registered type), and plan(19) equals the 19 assertions.
+
+**Two findings sent to A:**
+1. **208's header claim is not generated from its matrix.** It says "Every assertion here fails on 077's body". On 077's body
+   only **B3, C3 and D4** fail; A1–A7, B1, B2, C1, C2, D1–D3, E1 and E2 all pass, by design — they are fixtures and
+   unchanged-behaviour controls. The widening controls are C1 (by type), C2 (by user) and D3 (the coalesce). Same class as
+   207's header sentence I got wrong, and the same rule applies: a header claim about a matrix is generated from it.
+2. **141's revoke is unpinned.** No assertion checks that the new notify function is unreachable by anon, authenticated or
+   service_role. `204:45-48` is the shape to copy (three `has_function_privilege` checks; plan 19 → 22), and without them a
+   later grant would break the discipline with every test still green.
+
+**Two observations, not defects:** the retire sits after the `noop_replay` early return, so the fix is forward-only — an
+account already ACTIVE with a stale notice is never healed by it (the buyer's row stays for the owner's scoped plan); and
+208 C3's "exactly ONE row in the database is retired" holds on a fresh database, which CI and the rehearsal harness give,
+but would fail spuriously on a database carrying unrelated retired notices.
