@@ -50,7 +50,7 @@ SELECT ok(has_function_privilege('service_role', 'notify.record_push_token_chall
       AND NOT has_function_privilege('authenticated', 'notify.record_push_token_challenge_delivery(uuid, text, text, text)', 'execute'), 'A5: delivery recording — service_role only');
 SELECT has_trigger('public', 'push_tokens', 'trg_guard_push_token_client_delete', 'A6: the client-DELETE tombstone trigger exists');
 SELECT is((SELECT count(*)::int FROM notify.notification_type WHERE type_key = 'security_device_rebound' AND allowed_channels = '{}'::text[]), 1, 'A7: the previous-owner notice type exists with NO push/email channel (in-app only, never push)');
-SELECT is((SELECT count(*)::int FROM notify.template WHERE template_key = 'security_device_rebound' AND channel = 'in_app' AND locale = 'en-US'), 1, 'A7b: ...and an en-US in_app template (the centre can always render it)');
+SELECT ok((SELECT count(*)::int FROM notify.template WHERE template_key = 'security_device_rebound' AND channel = 'in_app' AND locale = 'en-US') >= 1, 'A7b: ...and at least one en-US in_app template (the centre can always render it; 136 adds v2 with the D-verified copy, get_inbox renders the highest version)');
 
 -- ── B. unchanged paths stamp contract_version 2 (D, V3-1) ───────────────────
 SELECT tap._s202('SB', tap._sess202(tap.buyer())::text);

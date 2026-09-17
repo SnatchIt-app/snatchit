@@ -449,6 +449,8 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('register_push_token(text, text, text, text)',                    'authenticated-execute'),
   ('request_push_token_challenge(text, text, text)',                 'authenticated-execute'),   -- 135
   ('confirm_push_token_challenge(uuid, text)',                       'authenticated-execute'),   -- 135
+  ('get_my_security_notices()',                                      'authenticated-execute'),   -- 136
+  ('mark_security_notices_read(uuid[])',                             'authenticated-execute'),   -- 136
   ('can_create_listing(uuid)',                                       'authenticated-execute'),
   ('cancel_listing(uuid, uuid)',                                     'authenticated-execute'),
   ('complete_auction_payment(uuid, uuid)',                           'authenticated-execute'),
