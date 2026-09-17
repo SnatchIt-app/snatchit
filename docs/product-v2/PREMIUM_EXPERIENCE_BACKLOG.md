@@ -2986,3 +2986,14 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     - Outbid toast: needs a real outbid event.
 
     These stay UNTESTED with those reasons.
+- **Build 19 check 1a, F-SELL-2 header spacing at the largest text (owner-reported, DV buyer, 2026-09-17; time not
+  captured, after 16:58Z): PASS on four screens.**
+  - My listings (Build 18 failed here): heading clears the SANDBOX badge; no clipping, no unusual gap.
+  - Settings: the same.
+  - Settings › Notifications (shared settings header): the same.
+  - Listing detail top controls: the back arrow and More actions clear the badge; no clipping, no unusual gap.
+
+  Still UNTESTED for F-SELL-2: transfer send/receive (restricted until Line 3), Place bid and Checkout (risk of a bid
+  or reservation), the outbid toast (needs an event), and the sign-in screen (at the next account switch).
+- **F-NOTICE-1 (recorded separately from the header test, per the owner):** the "Account deletion requested" banner is
+  still present on the buyer's tab screens during check 1a; not interacted with.
