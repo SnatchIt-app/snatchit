@@ -2760,3 +2760,19 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
     rule).
   - **Pending:** build completion, the build record's commit = f412d10, build number, installation link → owner
     and A. Build 18 and the sandbox pins untouched.
+- **F-BIDS-1 fix — `frontend/bids-load-states` @ 1ad216f** (from f412d10; for the NEXT candidate; c3 unchanged;
+  client only; gated surface, supabase/, scripts/, .github/: 0 lines). **Automated results only.**
+  - **Behaviour:** a load is both reads, and loading lasts until both answer. Either read failing fails the load
+    and replaces nothing: with no rows the full error state; with rows they stay under an inline notice ("Couldn't
+    refresh your bids and purchases. Showing what loaded earlier." / offline wording) with Retry. Success clears
+    it. A genuinely empty account still shows the empty copy.
+  - **Third path reproduced by the tests:** a refresh whose purchases read failed wiped the 21 rows on f412d10.
+  - **Evidence:** 13 behavioural tests render the real Bids screen with both reads controlled; RED 9/13 on
+    f412d10; mutants M1–M8 each fail exactly the predicted set; full 2242/106, tsc 0, lint 0/29.
+  - **D reviewing; A integrates into a later candidate after D.**
+  - **Behaviour change to note:** on a failed refresh with rows, a notice now shows where Build 18 and c3 are
+    silent. A future ST2b on a build with this fix expects the notice; on c3 it does not.
+  - **Test results preserved:** Bids FAILS DV-ST3's loading clause on Build 18 (and on c3, which carries the same
+    code).
+- **c3 build 8ebf4d81 status (C, `eas build:view`):** IN_PROGRESS, build number **19**, commit
+  f412d10a11310167fc0227fe58ea189822bec625 (= the tag), profile preview.
