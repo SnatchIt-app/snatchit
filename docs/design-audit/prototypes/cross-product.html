@@ -1,21 +1,28 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Snatch It — cross-product: manager dashboards</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- D found this file renders in a fallback face when a CSP blocks the stylesheet, silently. The stacks below
+     approximate the intended faces, and the banner in #fontwarn says plainly when the webfont did not load,
+     so nobody reviews typography that is not the typography proposed. -->
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#16171a;color:#fff;font-family:Inter,system-ui,sans-serif;padding:16px 16px 70px;display:flex;flex-direction:column;gap:14px;align-items:center}
-h1{font-family:Oswald;font-weight:600;font-size:23px;letter-spacing:-.3px}
-.sub{color:rgba(255,255,255,.55);font-size:13px;line-height:19px;max-width:960px;text-align:center}
+/* The review chrome is sized in rem, not px, so a reviewer at a 200% browser text setting can still
+   read the control that turns on 200%. D caught this: the labels were 9.5px and the buttons 11.5px. */
+html{font-size:100%}
+body{background:#16171a;color:#fff;font-family:Inter,-apple-system,"Helvetica Neue",Arial,sans-serif;padding:1rem 1rem 4.5rem;display:flex;flex-direction:column;gap:.9rem;align-items:center}
+h1{font-family:Oswald,"Helvetica Neue Condensed","Arial Narrow",Impact,sans-serif;font-weight:600;font-size:1.6rem;letter-spacing:-.01em}
+#fontwarn{display:none;width:100%;max-width:1240px;background:#3a2a00;border:1px solid #6b5000;color:#ffd9a0;padding:.6rem .8rem;font-size:.875rem;line-height:1.5}
+.sub{color:rgba(255,255,255,.6);font-size:.875rem;line-height:1.5;max-width:960px;text-align:center}
 .bar{position:sticky;top:0;z-index:60;background:#0e0f11;border:1px solid #292b2f;padding:9px 11px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:center;width:100%;max-width:1240px}
-.grp{display:flex;gap:5px;align-items:center}.grp b{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:rgba(255,255,255,.42);margin-right:3px}
-button{font:inherit;font-size:11.5px;padding:5px 9px;background:#1a1c20;color:rgba(255,255,255,.75);border:1px solid #2f3237;cursor:pointer}
+.grp{display:flex;gap:.3rem;align-items:center;flex-wrap:wrap}.grp b{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-right:.2rem}
+button{font:inherit;font-size:.875rem;padding:.4rem .6rem;min-height:2.1rem;background:#1a1c20;color:rgba(255,255,255,.75);border:1px solid #2f3237;cursor:pointer}
 button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
 .stage{display:flex;flex-direction:column;gap:22px;align-items:center;width:100%}
 .unit{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
-.ulabel{font-size:10.5px;letter-spacing:1.1px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600}
+.ulabel{font-size:.8125rem;letter-spacing:.07em;text-transform:uppercase;color:rgba(255,255,255,.6);font-weight:600}
 .win{width:1000px;height:700px;overflow:hidden;position:relative;border:1px solid #292b2f;background:var(--canvas)}
 .scroll{position:absolute;inset:0;overflow-y:auto}
-.note{max-width:1000px;font-size:12.5px;line-height:18px;color:rgba(255,255,255,.58)}
+.note{max-width:1000px;font-size:.875rem;line-height:1.5;color:rgba(255,255,255,.62)}
 /* ---- shared tokens: same system as the consumer app ---- */
 .win{--ink:#fff;--ink2:rgba(255,255,255,.74);--ink3:rgba(255,255,255,.56);--ink4:rgba(255,255,255,.3);
  --red:#FF1A1A;--warn:#FFB020;--err:#FF4D4D;--ok:#3DDC84;--info:#7E9BFF;
@@ -23,6 +30,10 @@ button.on{background:#fff;color:#000;border-color:#fff;font-weight:600}
  --fsH1:22px;--fsH2:17px;--fsBody:14px;--fsSm:12.5px;--fsEb:11px;--fsNum:26px;--pad:24px;--gap:24px;--rowV:11px}
 .win.lg{--fsH1:28px;--fsH2:22px;--fsBody:18px;--fsSm:16px;--fsEb:14px;--fsNum:32px;--rowV:14px}
 .win{display:flex;flex-direction:column}
+/* Landmarks and one h1 per screen: the console's own audit asserts exactly 1 <main> and 1 <h1> per page
+   (pagesWithoutSingleMain: 0, pagesWithoutSingleH1: 0 across 56 views). A build from this file must inherit
+   that, not regress it — so the structure is part of the proposal. D caught this file having 1 heading and
+   no landmarks at all. */
 .topnav{display:flex;align-items:center;gap:18px;padding:12px var(--pad);border-bottom:1px solid var(--line);background:var(--surf);flex:0 0 auto}
 .brand{font-family:Oswald;font-weight:600;font-size:16px;letter-spacing:.2px}
 .topnav a{color:var(--ink3);font-size:var(--fsSm);text-decoration:none}
@@ -85,6 +96,9 @@ tr.sel{background:rgba(255,255,255,.03)}
 .center .ic{width:52px;height:52px;border-radius:9999px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:20px}
 </style></head><body>
 <h1>Cross-product — manager dashboards in the consumer app's language</h1>
+<div id="fontwarn" role="status">The web fonts did not load — probably a content-security policy on the server rendering this
+file. <b>The typography you are seeing is a fallback, not the proposal.</b> Everything else (layout, spacing, hierarchy,
+states) is unaffected.</div>
 <p class="sub">Local prototypes, synthetic data, rendered at 1000&times;700. Not screenshots of the console; no device or
 browser check claimed. Grounded in the console's real page inventory and its real role model
 (<code>platform_admin</code> / <code>platform_risk</code> / <code>platform_support</code>, with payout release and refund
@@ -99,52 +113,52 @@ const SCREENS=[{id:'onboard',n:'1 · First-run onboarding',st:['step1','step2','
  {id:'event',n:'3 · Event management',st:['populated','loading','empty','limited']},
  {id:'ops',n:'4 · Transfer / dispute review',st:['populated','limited','success','error']},
  {id:'perm',n:'5 · Settings & permissions',st:['populated','limited','success']}];
-const nav=(active)=>`<div class="topnav"><div class="brand">Snatch It · Operations</div>
- ${['Today','Cases','Events','Money','People','Settings'].map((x,i)=>`<a href="#" class="${i===active?'on':''}">${x}</a>`).join('')}
- <div class="envchip"><span class="pill sandbox">Sandbox</span><span class="pill role">Venue manager</span><span class="pill">A. Okafor</span></div></div>`;
-const center=(ic,t,b,a)=>`<div class="center"><div class="ic">${ic}</div><div class="h2">${t}</div><div class="bd" style="max-width:460px">${b}</div>${a?`<div class="btn sec">${a}</div>`:''}</div>`;
+const nav=(active)=>`<header class="topnav" role="banner"><div class="brand">Snatch It · Operations</div>
+ <nav aria-label="Console sections">${['Today','Cases','Events','Money','People','Settings'].map((x,i)=>`<a href="#" class="${i===active?'on':''}"${i===active?' aria-current="page"':''}>${x}</a>`).join('')}</nav>
+ <div class="envchip"><span class="pill sandbox">Sandbox</span><span class="pill role">Venue manager</span><span class="pill">A. Okafor</span></div></header>`;
+const center=(ic,t,b,a)=>`<div class="center"><div class="ic">${ic}</div><div class="h2" role="heading" aria-level="2">${t}</div><div class="bd" style="max-width:460px">${b}</div>${a?`<div class="btn sec">${a}</div>`:''}</div>`;
 
 /* ---------- 1. ONBOARDING: teach by doing, skippable, permissions explained ---------- */
 function onboard(st){
  const dots=n=>`<div class="steps">${[1,2,3].map(i=>`<div class="stepdot ${i<n?'done':i===n?'on':''}">${i<n?'✓':i}</div>`).join('')}
   <span class="sm" style="margin-left:6px">Step ${Math.min(n,3)} of 3 · about 4 minutes</span>
   <span class="sm" style="margin-left:auto">Skip for now — this stays in Settings › Getting started</span></div>`;
- if(st==='step1') return `<div class="win-inner">${nav(0)}<div class="body">
+ if(st==='step1') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   ${dots(1)}
-  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">What you can do here</div>
+  <div><div class="eb">Getting started</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">What you can do here</div>
    <div class="bd" style="margin-top:8px;max-width:640px">You're a <b>venue manager</b>. That means you can see everything about your own events and act on the things below. Two actions are deliberately not yours — we say which, and who to ask.</div></div>
   <div class="grid2">
-   <div class="card"><div class="h2">You can</div>
+   <div class="card"><div class="h2" role="heading" aria-level="2">You can</div>
     <ul style="margin-top:10px;padding-left:18px;display:flex;flex-direction:column;gap:7px">
      <li class="bd">See sales, payouts and attendance for your events</li>
      <li class="bd">Pause or relist a ticket that's gone wrong</li>
      <li class="bd">Open a case when a buyer or seller reports a problem</li>
      <li class="bd">Restrict a user who is abusing the marketplace</li></ul></div>
-   <div class="card" style="border-left:2px solid var(--warn)"><div class="h2">You can't — and that's on purpose</div>
+   <div class="card" style="border-left:2px solid var(--warn)"><div class="h2" role="heading" aria-level="2">You can't — and that's on purpose</div>
     <ul style="margin-top:10px;padding-left:18px;display:flex;flex-direction:column;gap:7px">
      <li class="bd"><b>Release a payout early</b> — needs a platform admin, plus a second person's approval</li>
      <li class="bd"><b>Issue a refund</b> — same: admin, plus a second approval</li></ul>
     <div class="sm" style="margin-top:10px">Both move real money, so they take two people. Ask in #ops and the request is logged with your name on it.</div></div></div>
-  <div class="notice info"><div><div class="h2">Nothing you do here is silent</div><div class="bd" style="margin-top:4px">Every action you take is written to an audit log with your name, the reason you typed, and what changed. That protects you as much as it protects the marketplace.</div></div></div>
+  <div class="notice info"><div><div class="h2" role="heading" aria-level="2">Nothing you do here is silent</div><div class="bd" style="margin-top:4px">Every action you take is written to an audit log with your name, the reason you typed, and what changed. That protects you as much as it protects the marketplace.</div></div></div>
   <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — see today's work</div><div class="btn sec">Skip</div></div>
  </div></div>`;
- if(st==='step2') return `<div class="win-inner">${nav(0)}<div class="body">
+ if(st==='step2') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   ${dots(2)}
-  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">Let's clear one real item together</div>
+  <div><div class="eb">Getting started</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">Let's clear one real item together</div>
    <div class="bd" style="margin-top:8px;max-width:640px">This is a live item from your venue. We'll walk it once, then you're done — you learn this faster by doing it than by reading about it.</div></div>
   <div class="card">
    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
     <div><div class="st warn">Needs you today</div>
-     <div class="h2" style="margin-top:8px">A seller hasn't sent tickets yet — 5h 12m left</div>
+     <div class="h2" role="heading" aria-level="2" style="margin-top:8px">A seller hasn't sent tickets yet — 5h 12m left</div>
      <div class="bd" style="margin-top:6px;max-width:560px">Midnight Arcade · sold 2 days ago · buyer paid $134.00. If the seller misses the window, the sale cancels itself and the buyer is refunded automatically — you don't have to do that part.</div>
      <div class="sm" style="margin-top:8px">Your job here is one message: remind the seller. Everything else is automatic.</div></div>
     <div style="display:flex;flex-direction:column;gap:8px;min-width:200px"><div class="btn pri">Remind the seller</div><div class="btn sec">Open the transfer</div></div></div></div>
   <div class="notice"><div><div class="bd" style="color:var(--ink)">Why this one first?</div><div class="sm" style="margin-top:3px">It has a deadline, a person waiting, and exactly one sensible next step. Most of your work here looks like this.</div></div></div>
   <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Next — how to read the numbers</div><div class="btn sec">Skip</div></div>
  </div></div>`;
- if(st==='step3') return `<div class="win-inner">${nav(0)}<div class="body">
+ if(st==='step3') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   ${dots(3)}
-  <div><div class="eb">Getting started</div><div class="h1" style="margin-top:4px">How to read the numbers</div>
+  <div><div class="eb">Getting started</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">How to read the numbers</div>
    <div class="bd" style="margin-top:8px;max-width:660px">Every number on your dashboard says what it counts, what period it covers, and what to do about it. If a number can't tell you those three things, tell us — that's our bug, not your misunderstanding.</div></div>
   <div class="grid2">
    <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
@@ -158,21 +172,21 @@ function onboard(st){
   <div class="notice ok"><div><div class="bd" style="color:var(--ink)">Two rules worth remembering</div><div class="bd" style="margin-top:4px">A number that needs you has an amber edge; a number that's just information sits quietly. If nothing is amber, there's nothing to do today — that's the dashboard working, not the dashboard being empty.</div><div class="bd" style="margin-top:6px"><b>And:</b> counts of open work are <b>as of right now</b>. Only the money measures cover a period and can be compared with the period before. A count has no "last week" to compare with, so we don't invent one.</div></div></div>
   <div style="display:flex;gap:10px;margin-top:auto"><div class="btn pri">Finish — take me to Today</div></div>
  </div></div>`;
- return `<div class="win-inner">${nav(0)}<div class="body">
-  <div class="notice ok"><div><div class="h2">You're set up</div><div class="bd" style="margin-top:4px">Getting started stays in <b>Settings › Getting started</b> if you want it again. We won't show it on every sign-in.</div></div></div>
+ return `<div class="win-inner">${nav(0)}<div class="body" role="main">
+  <div class="notice ok"><div><div class="h2" role="heading" aria-level="2">You're set up</div><div class="bd" style="margin-top:4px">Getting started stays in <b>Settings › Getting started</b> if you want it again. We won't show it on every sign-in.</div></div></div>
   ${center('✓','Nothing needs you right now','Two sellers have deadlines later today and we\'re watching them. If anything slips, this page changes and you\'ll get one notification — not five.','Look around anyway')}
  </div></div>`;
 }
 
 /* ---------- 2. DASHBOARD HOME: plain labels, definitions, comparison, next action ---------- */
 function home(st){
- if(st==='loading') return `<div class="win-inner">${nav(0)}<div class="body">
+ if(st==='loading') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   <div class="skel" style="height:20px;width:180px"></div>
   <div class="grid3">${[1,2,3,4,5,6].map(()=>`<div class="card" style="display:flex;flex-direction:column;gap:9px"><div class="skel" style="height:30px;width:60px"></div><div class="skel" style="height:14px;width:70%"></div><div class="skel" style="height:12px;width:90%"></div><div class="skel" style="height:12px;width:50%"></div></div>`).join('')}</div></div></div>`;
- if(st==='empty') return `<div class="win-inner">${nav(0)}<div class="body">${center('✓','Nothing needs you right now','Three sellers have deadlines later today and we\'re watching them. You\'ll get one notification if anything slips.','See what we\'re watching')}</div></div>`;
- if(st==='error') return `<div class="win-inner">${nav(0)}<div class="body">${center('!','Couldn\'t load today\'s numbers','This is a loading problem on our side. Nothing about your events, payouts or cases has changed — and no action you took has been lost.','Try again')}</div></div>`;
- if(st==='limited') return `<div class="win-inner">${nav(0)}<div class="body">
-  <div><div class="eb">Today · Test Venue</div><div class="h1" style="margin-top:4px">Two things need you</div></div>
+ if(st==='empty') return `<div class="win-inner">${nav(0)}<div class="body" role="main">${center('✓','Nothing needs you right now','Three sellers have deadlines later today and we\'re watching them. You\'ll get one notification if anything slips.','See what we\'re watching')}</div></div>`;
+ if(st==='error') return `<div class="win-inner">${nav(0)}<div class="body" role="main">${center('!','Couldn\'t load today\'s numbers','This is a loading problem on our side. Nothing about your events, payouts or cases has changed — and no action you took has been lost.','Try again')}</div></div>`;
+ if(st==='limited') return `<div class="win-inner">${nav(0)}<div class="body" role="main">
+  <div><div class="eb">Today · Test Venue</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">Two things need you</div></div>
   <div class="notice info"><div><div class="bd" style="color:var(--ink)">Some numbers aren't shown for your role</div>
    <div class="bd" style="margin-top:4px">You're signed in as <b>venue manager</b>, so platform-wide money and system health aren't shown. That's a permission, not an outage.</div>
    <div class="bd" style="margin-top:6px"><b>Who can:</b> a platform admin — J. Tascón. <span class="sm">Ask them →</span></div></div></div>
@@ -181,12 +195,12 @@ function home(st){
    <div class="tile needs"><div class="num">1</div><div class="lab">Buyer reported a problem</div><div class="def">A buyer opened a case on one of your events. Counted now.</div><div class="cmp">Open for 4h</div><div class="next"><span>Read the case</span><span>→</span></div></div>
    <div class="tile quiet" style="opacity:.55"><div class="num">—</div><div class="lab">Platform money</div><div class="def">Not shown for your role.</div><div class="cmp">A platform admin can see this</div><div class="next"><span>Request access</span><span>→</span></div></div></div>
  </div></div>`;
- return `<div class="win-inner">${nav(0)}<div class="body">
+ return `<div class="win-inner">${nav(0)}<div class="body" role="main">
   <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px">
-   <div><div class="eb">Today · Test Venue · Thu 17 Sep</div><div class="h1" style="margin-top:4px">Three things need you</div>
+   <div><div class="eb">Today · Test Venue · Thu 17 Sep</div><div class="h1" role="heading" aria-level="1" style="margin-top:4px">Three things need you</div>
     <div class="sm" style="margin-top:6px">Everything else is running. Numbers below say what they count and over what period.</div></div>
    <div style="display:flex;gap:8px"><div class="btn sec">Last 7 days ▾</div><div class="btn sec">Export</div></div></div>
-  <div><div class="eb" style="margin-bottom:10px">Needs you now</div>
+  <div><div class="eb" role="heading" aria-level="2" style="margin-bottom:10px;font-weight:600">Needs you now</div>
   <div class="grid3">
    <div class="tile needs"><div class="num">3</div><div class="lab">Transfers overdue</div>
     <div class="def">Sold and paid for; the seller has not marked them sent. Counted right now — this is not a total over a period.</div><div class="cmp">Oldest has waited 3h 40m</div>
@@ -221,7 +235,7 @@ function home(st){
    <div class="tile quiet"><div class="num">$412</div><div class="lab">Seller funds pending release</div>
     <div class="def">Money held, not yet released to sellers. <b>Counted right now</b> — it ignores the date range, so it is deliberately never compared or charted.</div><div class="cmp">No comparison: there is no date to compare on</div>
     <div class="next"><span>See what's held</span><span>→</span></div></div></div></div>
-  <div><div class="eb" style="margin-bottom:10px">Healthy — no action</div>
+  <div><div class="eb" role="heading" aria-level="2" style="margin-bottom:10px;font-weight:600">Healthy — no action</div>
   <div class="grid3">
    <div class="tile ok"><div class="num">0</div><div class="lab">Paid orders without a transfer</div><div class="def">Buyer paid, past the grace window, and no seller-side transfer record exists yet. Money at rest — not a failed payment.</div><div class="cmp">Counted now</div><div class="next"><span>What this means</span><span>→</span></div></div>
    <div class="tile ok"><div class="num">0</div><div class="lab">Stripe webhooks stuck</div><div class="def">Events received from Stripe and not processed past the staleness threshold. Not lost events, and not a Stripe outage.</div><div class="cmp">Counted now</div><div class="next"><span>What this affects</span><span>→</span></div></div>
@@ -231,16 +245,16 @@ function home(st){
 
 /* ---------- 3. EVENT MANAGEMENT ---------- */
 function event(st){
- if(st==='loading') return `<div class="win-inner">${nav(2)}<div class="body"><div class="skel" style="height:22px;width:240px"></div>
+ if(st==='loading') return `<div class="win-inner">${nav(2)}<div class="body" role="main"><div class="skel" style="height:22px;width:240px"></div>
   <div class="card">${[1,2,3,4,5].map(()=>`<div class="skel" style="height:34px;margin-bottom:8px"></div>`).join('')}</div></div></div>`;
- if(st==='empty') return `<div class="win-inner">${nav(2)}<div class="body">
-  <div class="crumb">Events › Midnight Arcade</div><div class="h1">Midnight Arcade</div>
+ if(st==='empty') return `<div class="win-inner">${nav(2)}<div class="body" role="main">
+  <div class="crumb">Events › Midnight Arcade</div><div class="h1" role="heading" aria-level="1">Midnight Arcade</div>
   ${center('◎','No tickets listed yet','When a seller lists a ticket for this event it appears here with its price, status and buyer. Nothing is wrong — the event just hasn\'t been listed on yet.','Invite sellers')}</div></div>`;
  const limited=st==='limited';
- return `<div class="win-inner">${nav(2)}<div class="body">
+ return `<div class="win-inner">${nav(2)}<div class="body" role="main">
   <div><div class="crumb">Events › Midnight Arcade</div>
    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
-    <div><div class="h1">Midnight Arcade</div><div class="sm" style="margin-top:5px">Fri 24 Oct · 22:00 · Test Venue · 120 capacity</div></div>
+    <div><div class="h1" role="heading" aria-level="1">Midnight Arcade</div><div class="sm" style="margin-top:5px">Fri 24 Oct · 22:00 · Test Venue · 120 capacity</div></div>
     <div style="display:flex;gap:8px"><div class="btn sec">Event settings</div><div class="btn ${limited?'dis':'pri'}">${limited?'Pause selling — admin only':'Pause selling'}</div></div></div></div>
   <div class="grid3">
    <div class="tile quiet"><div class="num">41</div><div class="lab">Sold</div><div class="def">Completed sales for this event.</div><div class="cmp">Capacity 120 · 34% sold</div></div>
@@ -265,14 +279,14 @@ function event(st){
 /* ---------- 4. TRANSFER / DISPUTE REVIEW — the destructive-action class ---------- */
 function ops(st){
  const success=st==='success', err=st==='error', limited=st==='limited';
- return `<div class="win-inner">${nav(1)}<div class="body">
+ return `<div class="win-inner">${nav(1)}<div class="body" role="main">
   <div><div class="crumb">Cases › #C-2291</div>
    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:6px">
-    <div><div class="h1">Buyer says the tickets never arrived</div>
+    <div><div class="h1" role="heading" aria-level="1">Buyer says the tickets never arrived</div>
      <div class="sm" style="margin-top:5px">Case #C-2291 · opened 4h ago · Midnight Arcade · ticket #4188</div></div>
     <div style="display:flex;gap:8px"><div class="btn sec">Message buyer</div><div class="btn sec">Message seller</div></div></div></div>
-  ${success?`<div class="notice ok"><div><div class="h2">Case resolved in the buyer's favour</div><div class="bd" style="margin-top:4px">The refund request is queued and needs a second admin's approval before money moves. The seller has been told, and your name and reason are on the record.</div></div></div>`:''}
-  ${err?`<div class="notice err"><div><div class="h2">We couldn't record your decision</div><div class="bd" style="margin-top:4px">The server didn't answer, so <b>nothing was changed and no money moved</b>. Your reason is still in the box below — try again in a moment.</div></div></div>`:''}
+  ${success?`<div class="notice ok"><div><div class="h2" role="heading" aria-level="2">Case resolved in the buyer's favour</div><div class="bd" style="margin-top:4px">The refund request is queued and needs a second admin's approval before money moves. The seller has been told, and your name and reason are on the record.</div></div></div>`:''}
+  ${err?`<div class="notice err"><div><div class="h2" role="heading" aria-level="2">We couldn't record your decision</div><div class="bd" style="margin-top:4px">The server didn't answer, so <b>nothing was changed and no money moved</b>. Your reason is still in the box below — try again in a moment.</div></div></div>`:''}
   <div class="grid2" style="align-items:start">
    <div class="card"><div class="eb">What we know</div>
     <div class="kv" style="margin-top:12px">
@@ -291,7 +305,7 @@ function ops(st){
      <div class="tlrow"><span class="sm">17 Sep 10:30</span><span class="bd">You opened this case</span></div></div></div></div>
   <div class="card" style="border-left:2px solid var(--err)">
    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
-    <div style="flex:1"><div class="h2">Decide this case</div>
+    <div style="flex:1"><div class="h2" role="heading" aria-level="2">Decide this case</div>
      <div class="bd" style="margin-top:6px;max-width:520px">Both outcomes move real money and <b>cannot be undone from here</b>. Whichever you choose, the other party is told, and the decision is logged with your name and your reason.</div>
      <div style="margin-top:12px"><div class="eb">Your reason — the buyer and seller both see this</div>
       <div style="margin-top:6px;border:1px solid var(--lineStrong);padding:10px;font-size:var(--fsSm);color:var(--ink3)">Proof shows a transfer to a different email than the buyer's…</div></div></div>
@@ -306,10 +320,10 @@ function ops(st){
 /* ---------- 5. SETTINGS & PERMISSIONS ---------- */
 function perm(st){
  const limited=st==='limited', success=st==='success';
- return `<div class="win-inner">${nav(5)}<div class="body">
-  <div><div class="crumb">Settings › People and permissions</div><div class="h1" style="margin-top:6px">Who can do what</div>
+ return `<div class="win-inner">${nav(5)}<div class="body" role="main">
+  <div><div class="crumb">Settings › People and permissions</div><div class="h1" role="heading" aria-level="1" style="margin-top:6px">Who can do what</div>
    <div class="sm" style="margin-top:6px">Three roles, fixed. A role decides which actions someone can even request — and two actions always need a second person, whatever their role.</div></div>
-  ${success?`<div class="notice ok"><div><div class="h2">Role changed</div><div class="bd" style="margin-top:4px">A. Okafor is now a venue manager. They keep read access to their own events and lose platform-wide money pages. They'll see what changed the next time they sign in, and this change is in the audit log.</div></div></div>`:''}
+  ${success?`<div class="notice ok"><div><div class="h2" role="heading" aria-level="2">Role changed</div><div class="bd" style="margin-top:4px">A. Okafor is now a venue manager. They keep read access to their own events and lose platform-wide money pages. They'll see what changed the next time they sign in, and this change is in the audit log.</div></div></div>`:''}
   <div class="card" style="padding:0">
    <table><thead><tr><th>Action</th><th>Venue manager</th><th>Risk</th><th>Support</th><th>Platform admin</th><th>Second approval</th></tr></thead>
    <tbody>

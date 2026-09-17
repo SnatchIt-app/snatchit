@@ -63,12 +63,24 @@ filter is always stated in words above the table ("Sorted by: needs attention fi
 **Statuses.** Bordered chips: green confirmed/healthy, amber waiting-on-someone, red failed/disputed, grey terminal. Never
 colour alone — every chip carries a word (Apple's Differentiate Without Color, and eBay's messaging patterns).
 **Alerts.** The three notice ranks. A blocking notice on a dashboard always names who *can* act if the reader cannot.
-**Empty states.** Four parts (§1). The console's most important empty state is "nothing needs you" — it must read as
-success, not as absence, or managers will assume it is broken.
+**Empty states — and the distinction the consumer app already makes.** Four parts (§1), and **"no data" and "no match"
+must never render the same**. The consumer app has this as a first-class distinction: `StateView` takes
+`kind: 'offline' | 'error' | 'empty' | 'noMatch'`, and Explore renders `noMatch` with its own copy. The dashboards do not,
+and it has already produced a defect **D found only by rendering**: in venue, `?state=nodata` and `?state=empty` render
+identically as "No events yet." with a Create button, because `lib/data.ts:27` returns the empty set for both and
+`EventsTable.tsx:64` tests the count before the filter — so **a manager who filtered to nothing is invited to create a
+duplicate event**, and the app's own note says these must stay apart for exactly that reason. The other three venue
+surfaces dodge it by passing `"live"` for nodata; the events list does not. **[measured, D]** The shared rule: *nothing
+exists yet* offers creation; *your filter matched nothing* offers clearing the filter and never offers creation.
+The console's most important empty state remains "nothing needs you", which must read as success rather than absence.
 **Loading.** Skeletons that mirror the real layout, never a spinner over a whole page; a table keeps its header while its
 rows load so the columns do not jump.
-**Permissions.** Hidden is wrong; disabled with a reason is right. Every gated control says *who* can do it. (Posh renders a
-disabled transfer greyed out with the reason rather than hiding it — the same principle.)
+**Permissions.** Hidden is wrong; a named reason plus a route to the person is right. **The exemplar already exists in our
+own product, and it is better than the pattern I invented:** venue's attendees page renders the roster *and* the sentence
+"Your role sees money and counts, never contact detail or check-in." **[measured, D]** That teaches the boundary at the
+moment it is hit, instead of explaining an absence — and it is the pattern to copy, not the console's info alert (which
+names the role but offers no route) and not a hidden form (which teaches nothing). The consumer-side analogue is a disabled
+action carrying its own reason; Posh does the same by greying a disabled transfer rather than hiding it.
 **Destructive actions.** A distinct class: separated block with a red left edge, a required typed reason, the consequence
 in the button's own sub-line, and — where the model demands it — "you are requesting, not executing; a second admin
 approves before money moves." Never adjacent to a routine action, never the default focus.
@@ -176,7 +188,7 @@ remaining problems are comprehension and scaling problems, and one of them is an
 
 | # | Improvement | Why now | Owner |
 |---|---|---|---|
-| **X0** | **One font-size rule in two files.** Replace `body { font-size: 14px }` and the px literals with a scaling scale, so browser text-size settings work | 78 of 212 elements on one page do not grow at a 200% setting, and the page overflows 195 px. This is an accessibility defect, not a preference, and it is the cheapest fix per user affected in either product | **D** (B supplies the scale, mirroring `textStyle()`) |
+| **X0** | **One font-size rule in two files, and it is the root cause, not the literals.** `body { font-size: 14px }` (`admin/src/app/globals.css:86`, `venue/src/app/globals.css:79`) **overrides the user's own default size before any utility class applies** — so the 260 `text-[Npx]` literals are the symptom and this line is the disease. Replace with the rem scale in §11 | 78 of 212 elements on one page do not grow at a 200% browser text setting, and the page overflows horizontally by 195 px at 1024 px. An accessibility defect, not a preference — and the cheapest fix per affected user in either product | **D** (scale supplied in §11, as asked) |
 | **X1** | Definitions **inline**, never in a `title` attribute, on every tile | Hover-only definitions are unreachable on touch and by keyboard — so the metric's meaning is inaccessible to exactly the operators most likely to misread it | **D** |
 | **X2** | Basis on every tile: *counted right now* or *last N days* | Nine of fourteen are point-in-time and none says so; a manager cannot tell an open-work count from a trend | **D** (definitions), B (wording) |
 | **X3** | A next step in words on every tile | Turns a dashboard into a work queue | **D** |
@@ -228,3 +240,70 @@ the one thing in this brief that two sessions agreeing cannot settle.
 **Two things I got wrong in the first draft, both corrected in place:** comparison periods on point-in-time counts (§6),
 and a permission-limited pattern written against a hidden form that does not exist (§7). Both were caught by D checking
 rather than accepting, which is the third time today that has saved a document from shipping a confident error.
+
+## 11. The type scale for X0, as D asked for it
+Mirrors what the consumer app solved with `textStyle()` and `MAX_DISPLAY_FONT_SCALE`, in web terms. **The whole point is the
+first line.**
+
+```css
+/* 1. Never set a font size on html or body in px. This is the defect. */
+html { font-size: 100%; }              /* inherit the user's own default */
+body { /* no font-size at all */ }
+
+/* 2. One scale, in rem, so every size multiplies the user's default. */
+:root {
+  --t-eyebrow: 0.75rem;    /* 12 at a 16px default — the floor, used only for labels */
+  --t-sm:      0.875rem;   /* 14 — secondary text, table cells */
+  --t-body:    1rem;       /* 16 — default body */
+  --t-title:   1.0625rem;  /* 17 — card and section titles */
+  --t-h2:      1.375rem;   /* 22 */
+  --t-h1:      1.625rem;   /* 26 */
+  --t-num:     1.625rem;   /* 26 — metric figures, tabular */
+  --lh-tight:  1.25;       /* unitless, so it scales with the size */
+  --lh-body:   1.45;
+}
+```
+**Rules that go with it, because a scale alone does not fix the 195 px overflow:**
+1. **No `font-size` in px anywhere outside this block** — that includes the 260 `text-[Npx]` literals and the shared
+   utilities (`.eyebrow`, `.btn`, `.btn-sm`, `.data-table th`, `kbd`).
+2. **Line heights unitless.** A px line height clips as soon as the size grows.
+3. **`min-height`, never `height`, on anything containing text**, and `min-height: 2.75rem` (44 at default) on every
+   control — which also addresses the 99 under-24×24 targets.
+4. **`min-width: 0` on every flex child that contains text**, or a long label refuses to wrap and pushes the row wide.
+5. **Tables either wrap or scroll in a labelled container** — a data table at a 200% text setting cannot keep six columns
+   in 1024 px, and a horizontal scroll with a visible affordance is honest where silent overflow is not.
+6. **Page containers in rem** (`max-width: 80rem`), not px, so the measure grows with the text.
+
+**Acceptance criterion, phrased as D's measurement so it can be re-run:** at a 200% browser text-size setting on the venue
+Door page, **every** text element grows (the current figure is 78 of 212 that do not), and **no page overflows horizontally
+at 1024 CSS px** (currently 195 px). Page zoom is not a substitute test — it scales everything and hides the defect.
+
+## 12. D's render of B's prototype — and the two defects it found
+**B's prototypes had never been rendered by B** (the preview pane was unavailable). D served the file over HTTP and drove
+it, which is how the following came back. **This is D's evidence, not mine.**
+
+**It renders cleanly:** no horizontal overflow at 1024 px, the switchers work, and the corrected metric wording is visibly
+in place — "counted right now — this is not a total over a period", "partial refunds are not here", "gross, before refunds
+— this is not net revenue", and pending release carrying "it ignores the date range, so it is deliberately never compared
+or charted". Largest-text mode scales the proposed UI (12.5 → 16, 26 → 32, 14 → 18).
+
+**Two defects, both now fixed:**
+1. **One heading element and no landmarks.** The file had a single heading for five screens and no `<main>`, `<nav>` or
+   `<header>` — so every section title was styled text with no role, and a screen-reader user had no way to move between
+   sections. **This matters because a prototype is a specification:** the console today asserts exactly one `main` and one
+   `h1` per page (`pagesWithoutSingleMain: 0`, `pagesWithoutSingleH1: 0` across 56 views), so a build from my file would
+   have regressed a check the console currently passes. **Fixed:** a `banner` header with a labelled `nav` carrying
+   `aria-current`, a `main` landmark per screen, and `role="heading"` with explicit levels on every section title —
+   verified mechanically, one main and one banner per screen across all twenty states, no screen with two level-1 headings.
+2. **A silent webfont dependency.** The file pulled Google Fonts at render time; under a CSP that restricts `style-src` it
+   is blocked without warning, which is what happened on D's server — so the typography D reviewed was not the typography
+   proposed. **Fixed:** approximating fallback stacks, and a banner that says plainly when the webfont did not load, so
+   nobody reviews type that isn't the proposal.
+3. **My own review chrome did not scale** — 9.5 px labels and 11.5 px buttons, so a reviewer at 200% could not read the
+   control that turns on 200%. **Fixed:** the chrome is in rem with `min-height` targets. An instructive miss: I wrote a
+   brief whose top item is that dashboards hard-code px sizes, in a file that hard-coded px sizes.
+
+**D's own audit** is `design/d-dashboard-usability-20260917 @ 940f944` (`docs/venue-dashboard/DASHBOARD_USABILITY_AUDIT_D_20260917.md`
+plus three prototypes), held locally and unpushed because a push runs CI and the owner's standing instruction for this
+stretch is no builds. **Whether it is pushed for review is the owner's call, not mine** — I have not asked for it, and D's
+findings are cited here from their message rather than from that branch.
