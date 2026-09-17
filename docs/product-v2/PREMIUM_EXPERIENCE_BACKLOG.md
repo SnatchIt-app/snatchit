@@ -3037,3 +3037,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     - Stop, with no write, on any pre-read difference.
     - Left untouched: D7, its seller, the buyer's account and inbox (including F-NOTICE-1), and the pg_net cron rows.
   - The Preferences check is held until the cleanup is decided, so its preference write cannot confound the scans.
+- **Owner AUTHORIZED the report cleanup (direct to C, 2026-09-17):** "I authorize A to delete sandbox report 265b0041 per
+  the scoped cleanup plan, with A and D pre- and post-reads. Delete only that exact pending report for Device D7,
+  reason 'Other,' notes 'Test note abc.' Stop if the pre-check does not find exactly one matching report, any other
+  report created since 1:30 PM, or any change to D7. Confirm afterward that no reports remain and D7, the buyer
+  account, notices and background jobs are unchanged." Relayed to A (cc D) for execution. The handset is held.
