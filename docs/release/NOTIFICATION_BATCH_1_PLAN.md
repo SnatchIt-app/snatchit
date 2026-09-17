@@ -3,7 +3,25 @@
 **Owner's frame (2026-09-17):** "prepare the next development batch around honouring the existing preferences and surfacing
 the device-rebound notice on mobile without a new outbound channel. Name the exact preference-to-event mapping, mandatory
 security exceptions, scope and owners before implementation. Keep the dispatcher activation and new outbound notifications
-pending separate approval." Nothing below is implemented; nothing sends anything new.
+pending separate approval."
+
+**Owner's choices (2026-09-17):** (1) honour the existing "Listing sold" preference; **hide** the other five inactive switches
+until their paths are implemented; **preserve stored preferences**. (2) implement the authenticated, owner-scoped
+security-notice read and acknowledgement path. (3) the rebound copy's meaning, corrected before implementation: **the event
+means a device previously receiving THIS account's notifications was registered to ANOTHER account; it does not mean another
+device was linked to this account** — D verifies the message and the recovery actions against the actual contract. (4)
+include the neutral wording fix for F-2S-1 without changing authentication behaviour. The staged-notice device test is
+prepared in §3b and **not executed**. Dispatcher activation, new outbound notifications and another hosted build remain
+separate decisions. Status: implementation and local verification in progress across A/B/C, D reviewing.
+
+**Copy source, settled:** the server template already carries the corrected meaning — 135's `notify.template` en-US in_app
+v1 for `security_device_rebound`: subject "A device was re-registered to another account"; body "A device that was receiving
+your notifications ({{device_name}}) was just registered to another account. If that was you switching accounts on your own
+phone, nothing to do. If not, sign in on that phone to take it back, then change your password." The 136 wrapper returns it
+rendered through `notify.get_inbox`, so the mobile notice and the web notification centre say the same thing from one source;
+the client renders `{title, body}` and owns only its two action labels. A's first client draft ("another device was linked")
+was wrong in exactly the way the owner corrected and is withdrawn. Any change to the wording is a new template version in
+136, reviewed by D, never a client string.
 
 ## 1. The six preferences, exactly, and what each governs today (source at the build tag)
 
@@ -59,10 +77,13 @@ any of these; the batch adds no new toggle.
   owned ignored); grant-decision manifest +2 rows; Gate-2 census +2 functions; `expected_grants.txt`; contract note in
   `PUSH_TOKEN_CONTRACT_V3.md` §"previous owner". **Effort 1 d A + 0.5 d D review.** No new channel: it reads rows 135 already writes.
 - **Client (C):** on sign-in and on foreground, call `get_my_security_notices()`; if an unread `security_device_rebound` exists,
-  show a full-width notice on the first screen — "Another device was linked to your account on <date>. If this wasn't you,
-  sign out of all devices and change your password." — with the K-2 "Sign out of all devices" action and a dismiss that calls
-  `mark_security_notices_read`; never on the shared login screen (K-2 rule); tests RED-first for: shown when unread, not
-  shown when read, action routes to K-2. **Effort 1.5 d C.**
+  show a full-width notice on the first signed-in screen rendering the **server's** `{title, body}` exactly as returned (the
+  corrected meaning lives in the template, see "Copy source, settled"); the client owns only two action labels — "Sign out
+  of all devices" (K-2) and "Dismiss" (→ `mark_security_notices_read`); never on the shared login screen (K-2 rule); tests
+  RED-first for: shown when unread, not shown when read, action routes to K-2, never rendered on the login screen. D
+  verifies the recovery actions against the contract (the template's own remedy is "sign in on that phone to take it back,
+  then change your password"; whether "Sign out of all devices" is also right for the previous owner is D's call).
+  **Effort 1.5 d C.**
 - **Evidence limits:** the rebound event itself needs push delivery (challenge → echo → rebind), deferred with the sandbox key,
   so the notice is exercised on a handset only by **staging one `security_device_rebound` row for the DV buyer** via
   `notify.enqueue` in an authorized sandbox window (a write; cleanable: `dismiss` marks it, and the row can be deleted by id),
