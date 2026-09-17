@@ -3382,3 +3382,16 @@ Most of the app is already tested; close the remaining gaps efficiently.
   **C's handling, per the owner's direction:** the handset pass first; then C verifies each finding in source before
   it reaches the owner; then ONE consolidated recommendation with severity, what each fix touches and what device
   evidence it needs. Nothing is written without the owner's scope decision.
+- **B's negative-control notes for its release-weight items (kept for if/when the owner authorizes the work):**
+  - **Place bid is two defects with two controls.** Resolved-with-error: mock `{data: null, error}` and assert the
+    screen renders NO bid amount at all; asserting "the minimum is not 0" passes vacuously as soon as MIN_INCREMENT is
+    added to zero. The control must fail by showing a figure DERIVED from zero, not by showing 0. Rejected promise:
+    mock a throw and assert loading resolves, with an explicit assertion rather than leaning on the runner's timeout,
+    since the current code's failure mode is a spinner that never clears.
+  - **Checkout offline:** the discriminating fixture is a network failure that is NOT a Stripe decline; a generic
+    failure passes either way. Assert the copy DIFFERS by cause, and confirm that assertion fails on the current tree,
+    where both land on SAFE_PAYMENT_ERROR.
+  - **Repeat-fire actions:** assert the second tap produces NO SECOND REQUEST, not merely that the button is disabled;
+    disabled-in-render and guarded-in-handler fail differently under a fast double tap.
+  These match C's mutation discipline and will be used if the owner authorizes any of it. B will not touch a screen
+  the handset pass is on, and asks to be given the item and constraints rather than guessing scope.
