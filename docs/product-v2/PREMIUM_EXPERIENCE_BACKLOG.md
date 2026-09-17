@@ -2476,3 +2476,24 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   Settings › Developer exists. Throttling from step 2: Network Link Conditioner if that menu exists; otherwise
   weak Wi-Fi, recorded as unmeasured. This Mac has only Command Line Tools (no Xcode), so Developer Mode cannot
   be enabled from here. A was notified for the expected registration outcome and the baseline read-back.
+- **S2-2 step 1 (owner, Build 18, normal network, Larger Text ON):** Settings › Developer IS present on the
+  iPhone. Seller signed out (Profile › Sign out) at 10:55 handset time; buyer signed in (Use email instead);
+  Home loaded at 10:55. Network unchanged. A's expectation (135 `register_push_token`, looked up by token):
+  `refreshed` (buyer-owned row); `challenge_required` would block, not fail (push delivery deferred). Limits:
+  fewer than 20 register calls per 10 min; no DV-131-1 epoch bump during S2-2. A reads the baseline before the
+  throttled launches. *Date check:* the Mac read 2026-09-17 10:56 EDT at this report, while earlier records
+  date the 01:40 EDT observations 2026-09-18. A anchors the date from server time; the wrong record gets
+  corrected then.
+- **F-NAV-1: D PASS on the product change (2ba9e3a)**, with two test-only additions required and applied at
+  **76b8622**. (1) Typed text is read after pending work settles: D's M8 (form reset one microtask later)
+  survived 2ba9e3a's tests (0/17, confirmed by C). (2) Repeated attempts in all four orders (swipe/Back ×
+  swipe/Back): Keep editing twice, and Keep editing → Discard. Plus a pin that expo-router's Stack fork renders
+  upstream NativeStackView. 25 tests; db16e1a's hook fails 7; mutants M1–M8 and M11 each fail exactly the
+  predicted set; full 2229/105, tsc 0, lint 0/29; delta test-only. D re-checks the head, then A integrates.
+  D's residual, recorded: on a device `preventNativeDismiss` reaches native one commit after the keystroke,
+  and the harness applies it in the same step. A swipe begun inside that frame would behave like Build 18.
+  Negligible; only a device can show it.
+- **Triage row (NEW, source-only, pre-existing on db16e1a, severity unset; D's observation, not run):** while a
+  listing save is in flight the unsaved-changes guard is off by design (`submitting`). A swipe during the
+  save leaves Edit listing, and the "Saved" alert's OK then calls `router.back()` from My Listings, which
+  could pop one screen further. Not in F-NAV-1's scope; C to triage.
