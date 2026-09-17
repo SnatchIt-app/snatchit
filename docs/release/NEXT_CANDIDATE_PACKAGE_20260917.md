@@ -9,12 +9,13 @@ survive are carried verbatim in §9.
 ## 0. Status — the only place status is stated
 | Item | State (2026-09-17, after the 14:35Z sandbox read) |
 |---|---|
-| **Build** | **HELD.** The owner's hold came first through C and then directly to A: no build until C's Keep editing fix (**F-NAV-1**) has passed D's review and been integrated. **C's head `2ba9e3a` was sent on 2026-09-17 and is with D for review;** A's static checks are in §1 |
+| **Build** | **HELD.** The owner's hold came first through C and then directly to A: no build until C's Keep editing fix (**F-NAV-1**) has passed D's review and been integrated. **C's head `2ba9e3a`: D PASS on the product change (source and tests; no phone evidence), with two test-only additions required before integration** (M8: settle before the text reads, since a reset one microtask later survives 38/38; GAP 2: eight repeated-attempt tests over swipe/Back orders, 8/8 on 2ba9e3a and 4/8 failing on the db16e1a hook). D's gate on C's next head: a delta of 0 lines outside `tests/`, then a rerun plus R0/M7/M8. A integrates only after that |
 | Reviewed, CI-green tree | `db16e1a` on `release/production-gate-20260918`, tree `aa93c03b`. CI 35188006272 succeeded on all five jobs; D's merge gate PASSED; D's closing statement: no open review item. **Every constituent review is closed (§1). No review is pending on this tree.** |
 | Tag line | will name **`db16e1a` + `frontend/unsaved-guard-native-dismiss @ 2ba9e3a`** once D passes it and A integrates. `candidate/2026-09-18-build-c3` does not exist |
 | What a tag will mean | a reviewed, CI-green tree, **not a working image flow on a handset** |
 | Checks F-NAV-1 reruns (only what it can affect) | vitest, tsc and lint on the merged tree; CI on the new head (all five jobs); D's merge gate. **The DB evidence and the §3 pins carry over only if** `git diff --quiet db16e1a <new head> -- supabase/ scripts/ .github/` holds. If that diff is non-empty, A regenerates the pins and reruns replay, Gate-2, pgTAP and census before issuing line 1 |
-| Sandbox | unchanged since the B2 window; read 14:35:00–14:35:40Z (§2) |
+| Sandbox | unchanged since the B2 window; read 14:35:00–14:35:40Z and 14:51:11Z (§2) |
+| **Test design** | **settled by the owner (2026-09-17):** B's evidence checklist adopted (§7) with five rulings: U2 as the unrelated reader, no N5 and no destructive test, synthetic images with downloads limited to those uploads, the corrected notification expectation, and every affected transfer recorded with its deadline and disposition (§5a). The message started no window and authorized no production access |
 | Production | ledger 135; nothing applied since 2026-09-12. Nothing in this package reads or touches production |
 
 **Evidence limits (the owner's words, unsoftened):** "database outcomes 1 and 2 passed; image conversion and buyer display remain
@@ -34,9 +35,9 @@ nowhere, so no recovery behaviour has run against a real database other than CI'
 | Proof-image client | `frontend/proof-image-flow @ c0281aa` → `4331ea4` | D PASS | byte-sniffed type, HEIC via the picker's compatible mode, 120 s bounded upload + 30 s exists-check, status read before and after, recall guard |
 | F-SELL-2 | `frontend/sandbox-header-inset @ 9d01bad` → `e9413d8` | D PASS | `useTopInset()` on eleven surfaces + the outbid toast; production spacing identical; sandbox builds only |
 | 140 client adaptation | `frontend/proof-outcome-attach @ 5e14a68` → `db16e1a` | D PASS (after D's finding on 5e9c80b) | Mark as sent reads `transitioned`/`already_sent` with a sent read-back; an outcome without a sent status = unconfirmed; Add proof section for seller_sent + null path; refresh and the actions single-flight |
-| **F-NAV-1** | `frontend/unsaved-guard-native-dismiss @ 2ba9e3a` (C; one commit on `db16e1a`; 4 files: `src/hooks/useUnsavedChangesGuard.ts`, `tests/helpers/nav-stack-harness.ts` (new), `tests/unsaved-guard-native-dismiss.test.ts` (new), `tests/premium-reversible-and-forms.test.ts` (pin)) | **with D**; A static checks done (below) | the guard moves from a bare `beforeRemove` listener to `usePreventRemove(opts.when, …)`, so native-stack sets `preventNativeDismiss` and an iOS swipe is cancelled natively; the same dialog decides; Discard replays the action once. It also covers the other two screens that use the hook (the report form and Settings → Preferences) |
+| **F-NAV-1** | `frontend/unsaved-guard-native-dismiss @ 2ba9e3a` (C; one commit on `db16e1a`; 4 files: `src/hooks/useUnsavedChangesGuard.ts`, `tests/helpers/nav-stack-harness.ts` (new), `tests/unsaved-guard-native-dismiss.test.ts` (new), `tests/premium-reversible-and-forms.test.ts` (pin)) | **D PASS on the product change; test-only M8 settle + GAP 2 repeated attempts required on C's next head** (D gate: 0 lines outside `tests/`, rerun, R0/M7/M8); A's static checks done (below) | the guard moves from a bare `beforeRemove` listener to `usePreventRemove(opts.when, …)`, so native-stack sets `preventNativeDismiss` and an iOS swipe is cancelled natively; the same dialog decides; Discard replays the action once. It also covers the other two screens that use the hook (the report form and Settings → Preferences) |
 
-**F-NAV-1 — C's evidence, and A's static checks (2026-09-17):** *Root cause (C):* the guard held the pop in navigation state only. On iOS, native-stack 7.14.4 prevents a swipe natively only for routes registered through `usePreventRemove`, so UIKit completed the swipe, `onDismissed` dispatched a pop the guard refused, and the dialog appeared over My Listings. Discard replayed the pop, so state caught up with the screen and it *looked* right; Keep editing did nothing, which left the edit route in state but off screen. The in-screen Back arrow (`router.back` → GO_BACK) starts in JavaScript, is refused before anything moves, and **by source already held on Build 18. No device has checked that.** *A verified from installed source:* versions native-stack 7.14.4, core 7.16.1, native 7.1.33, react-native-screens 4.16.0; `NativeStackView.native.tsx:278/410` sets `preventNativeDismiss` from `preventedRoutes[route.key]?.preventRemove` only; `usePreventRemove` calls the latest callback (`useLatestCallback`); a replayed action carries `VISITED_ROUTE_KEYS` (`useOnPreventRemove.tsx`), so Discard is not asked twice; one guard per screen (`app/listing/edit/[id].tsx:64`, `app/report/[type]/[id].tsx:53`, `app/settings/preferences.tsx:79`); `git diff db16e1a 2ba9e3a -- supabase/ scripts/ .github/` plus the gated client surface: **0 lines**, so the §3 pins and the DB evidence carry over. *Tests (C):* 17, rendering the real Edit listing screen and hook with real React Navigation core + StackRouter. **The native-stack/RNS iOS layer is a model** pinned to the installed source and versions, so the tests prove behaviour against that model and only the device row proves UIKit. RED on the `db16e1a` hook: 3/17, all swipe rows, with the owner's symptom (`['my-listings']` instead of `['my-listings','listing/edit/[id]']`). **Deviation accepted:** the Back-arrow rows cannot be RED because that path has no defect in source; they are regression guards proven able to fail by M2. Mutants 6/6 killed as predicted (M1 swipe = the db16e1a hook → 3; M2 Back arrow skips the prompt → 4; M3 Keep editing dispatches → 4; M4 Discard no-op → 2; M5 `usePreventRemove(true)` → the 4 clean/undone rows; M6 dirty ignores Event name → 8), with a clean baseline, an anchor matched once, and a digest-verified restore. **Gap (C's own):** no mutant targets the typed-text assertion alone, so its ability to fail is not yet shown; A asked for one (a Keep editing that keeps the route but resets the form). *Counts (C, on 2ba9e3a):* tsc 0; lint 0 errors / 29 warnings; vitest 2221 in 105 files, not run concurrently. A reruns these on the integrated head.
+**F-NAV-1 — C's evidence, and A's static checks (2026-09-17):** *Root cause (C):* the guard held the pop in navigation state only. On iOS, native-stack 7.14.4 prevents a swipe natively only for routes registered through `usePreventRemove`, so UIKit completed the swipe, `onDismissed` dispatched a pop the guard refused, and the dialog appeared over My Listings. Discard replayed the pop, so state caught up with the screen and it *looked* right; Keep editing did nothing, which left the edit route in state but off screen. The in-screen Back arrow (`router.back` → GO_BACK) starts in JavaScript, is refused before anything moves, and **by source already held on Build 18. No device has checked that.** *A verified from installed source:* versions native-stack 7.14.4, core 7.16.1, native 7.1.33, react-native-screens 4.16.0; `NativeStackView.native.tsx:278/410` sets `preventNativeDismiss` from `preventedRoutes[route.key]?.preventRemove` only; `usePreventRemove` calls the latest callback (`useLatestCallback`); a replayed action carries `VISITED_ROUTE_KEYS` (`useOnPreventRemove.tsx`), so Discard is not asked twice; one guard per screen (`app/listing/edit/[id].tsx:64`, `app/report/[type]/[id].tsx:53`, `app/settings/preferences.tsx:79`); `git diff db16e1a 2ba9e3a -- supabase/ scripts/ .github/` plus the gated client surface: **0 lines**, so the §3 pins and the DB evidence carry over. *Tests (C):* 17, rendering the real Edit listing screen and hook with real React Navigation core + StackRouter. **The native-stack/RNS iOS layer is a model** pinned to the installed source and versions, so the tests prove behaviour against that model and only the device row proves UIKit. RED on the `db16e1a` hook: 3/17, all swipe rows, with the owner's symptom (`['my-listings']` instead of `['my-listings','listing/edit/[id]']`). **Deviation accepted:** the Back-arrow rows cannot be RED because that path has no defect in source; they are regression guards proven able to fail by M2. Mutants 6/6 killed as predicted (M1 swipe = the db16e1a hook → 3; M2 Back arrow skips the prompt → 4; M3 Keep editing dispatches → 4; M4 Discard no-op → 2; M5 `usePreventRemove(true)` → the 4 clean/undone rows; M6 dirty ignores Event name → 8), with a clean baseline, an anchor matched once, and a digest-verified restore. **Gap (C's own):** no mutant targets the typed-text assertion alone, so its ability to fail is not yet shown; A asked for one (a Keep editing that keeps the route but resets the form). *M7 (typed-text mutant; C and D each ran one):* an in-place reset of the form that keeps the route and the mounted instance kills exactly 4/17 = {swipe, Back arrow} × {Keep editing (the first failure is the text assertion), asks again (downstream: with the edits gone the guard correctly stands down)}; every screen-still-open assertion survives. *Harness limit (C):* routes added after start (push/replace) are not mounted, so a re-key mutant would read as "no screen"; no current test adds routes. *D's review (2026-09-17):* the native-layer model holds against RNS 4.16.0's iOS source (a prevented interactive pop is cancelled in `interactionControllerForAnimationController`, then `notifyDismissCancelled`; the cancel is gated on `fromView.reactSuperview`, so a JS-started pop is never cancelled); the app's `Stack` is expo-router 6.0.24's fork, which renders upstream `NativeStackView`, so the upstream pins describe the running code; D reproduced tsc 0, lint 0 errors / 29 warnings, vitest 2221/105 run alone, and 0 files under the gated surface, `supabase/`, `scripts/` and `.github/`. **Required test-only additions:** M8 and GAP 2 above. **D's out-of-scope source observation (pre-existing):** a swipe during an in-flight save (the guard is off while submitting), after which the "Saved" OK calls `router.back()` from My Listings. It is recorded, not in F-NAV-1's scope. *Counts (C, on 2ba9e3a):* tsc 0; lint 0 errors / 29 warnings; vitest 2221 in 105 files, not run concurrently. A reruns these on the integrated head.
 
 **Combined checks on record:** rehearsal `c3461a0` (tree = `4331ea4`), 05:40–05:41Z: replay clean; Gate-2 32/108/37/38; pgTAP
 5296/5296 (050 20, 207 37); census notify 22 / five-schema 305; vitest 2157; tsc 0; lint 0 errors. Then 050 21/21 on the candidate
@@ -74,9 +75,10 @@ At 14:35:29Z A ran only those five unexecuted statements, with the cast fixed. N
 | `bce07eef-ed72-4d85-96db-8ef340838b89` | pending | 2026-09-10T20:58:47Z | — | — | null | DV-IMG-5 (P) |
 | `8f59d37e-52fd-4733-b311-532445ff441c` | seller_sent | 2026-09-08T01:20:22Z | 2026-09-08T01:20:24Z | 2026-09-11T01:20:24Z (past) | null | DV-IMG-10 Add proof (P); then RT6 |
 | `83b83858-7c96-4887-bf6c-447858aec22a` | seller_sent | 2026-09-08T00:52:17Z | 2026-09-08T00:54:49Z | 2026-09-11T00:54:49Z (past) | null | **untouched**: the only remaining sent-without-proof transfer |
-The mapping is A's proposal; C confirms it against the rows. There is no pending spare: if a named transfer is not in its §2 state at
-the pre-read, A stops and reports. There is no silent switch and no new fixture. (Option for C: run DV-IMG-5's double tap as
-DV-IMG-4's second attempt, which frees `bce07eef…` as a spare at the cost of attributing a failure to one of two causes.)
+**Mapping confirmed by C (2026-09-17)**; DV-IMG-4 and -5 stay separate rows (§6). There is no pending spare: if a named transfer is not in
+its §2 state at the pre-read, A stops and reports. There is no silent switch, and no new fixture without the owner's authorization.
+
+**Third-account read (A, read-only, sandbox, 2026-09-17 14:51:11Z; scratchpad `pkg_c4_u2_read.txt`, md5 `e14fc0f38cae9e4dcf11c7cf0cfeb643`):** U2 `f53b8466-9571-4f41-88c3-1c33847dd8ee` (credentials by NAME `U2_EMAIL`/`U2_PASSWORD` in the sandbox env; last used by the payments matrix, where S9.4 withdrew its deletion back to ACTIVE): the auth row exists, not banned, `deleted_at` unset; `kernel.identity_ext.deletion_state` = ACTIVE; buyer on 6 transfers and seller on 0, **none of them the five named here**; `public.profiles` has no admin/role/operator/staff column. The `proof-docs` policies on `storage.objects` are exactly five (owner delete unreferenced, owner insert, owner read, owner update, transfer party read), none mentioning a role, admin or operator (qual md5s recorded in the scratchpad file; PC5 compares them with the chain).
 
 ## 3. Pins (at `db16e1a`; re-verified byte-for-byte at the tag commit as pre-flight PF1)
 | Migration | File | sha256 | Ledger md5 (script method: file bytes minus trailing newlines) |
@@ -131,7 +133,7 @@ recorded either way.
 | S3 | 140 | ledger 144, md5 `f6296870…`; both `mark_transfer_sent` overloads return jsonb; `attach_transfer_evidence` executable by authenticated only (not anon, not service_role); census = D's prediction | same, or census ≠ prediction |
 | S4a | deploy stripe-webhook from the exec tree, `--project-ref ofaidukbieeekqaboscm --no-verify-jwt` | v5, `verify_jwt=false`; downloaded bundle byte-equal on all three closure files | parity fails or `verify_jwt` reads true |
 | S4b | deploy notify-report, same flags | v4, `verify_jwt=false`; bundle byte-equal on both files; resolved supabase-js version recorded | same |
-| Close | A and D closing reads | zero drift on business counts; queue 0; no 2xx in `net._http_response`; Vault `project_url` only; executors false | any drift, any 2xx, any production ref or `*.supabase.co` literal introduced |
+| Close | A and D closing reads | zero drift on business counts; queue 0; Vault names `project_url` only; executors false; the live bodies of the migrated functions equal a local replay at the pin | any drift; a Vault name change; any production ref or `*.supabase.co` literal introduced; **a 2xx in `net._http_response` is attributed before anything proceeds** (it is not used as proof of silence, since that table carries no URL) |
 A step never proceeds while one of D's reads is unexplained.
 
 **Rollback (only on the owner's order; never automatic):** edges first: notify-report is redeployed from the PF6 capture, and
@@ -140,41 +142,67 @@ stripe-webhook from `9bef640` (tag `candidate/2026-09-18-pin-b2`). Then migratio
 rollback restores code, not data:** a sent status, an attached path and a referenced object written by the P rows stay, and the void
 bodies still read them. S5's notice row is deleted at its own cleanup, before any 136 rollback.
 
-## 5. Shared-environment effects by class — temporary versus permanent
+## 5. Shared-environment effects by class, and every affected transfer's disposition
 | Class | Tests | Records touched | Removal |
 |---|---|---|---|
-| **T1 temporary** | image round trip RT1–RT5, RT7 (Line 1) | three `storage.objects` rows under `…/transfer-evidence/rt-20260917-*` | deleted at RT7; folder count back to 0; nothing retained |
+| **T1 temporary** | image round trip RT1–RT5, RT7 (Line 1) | three `storage.objects` rows `…/transfer-evidence/rt-20260917-*` | deleted at RT7; the **`rt-%` count** returns to 0 (not the folder count, which P objects change); nothing retained |
 | **T2 temporary** | staged security notice (S5, batch plan §3b) → DV-N-1..3 | one `notify.notification` row for the DV buyer (`read_at` set by DV-N-2); 0 delivery rows | deleted by id after DV-N-3; buyer pre-count restored; `notify.delivery` total unchanged |
 | **T3 temporary** | DV-ST2a (standing authorization, C's trigger) | `public.bids` relacl | restored and verified immediately |
-| **N no write** | F-NAV-1, F-SELL-2, Event name, F-DT-1, DV-IMG-1, -2, -3, -6, -7 (picker only: Transfer send and the Sell form are **never submitted**), copy rows, the DV-611C-2 counting half; Line no-write probe NP | none | — |
-| **P permanent** (Line 3) | DV-IMG-4, -5, -9 Mark as sent with proof; DV-IMG-10 Add proof; RT6 reads the attached object | `public.transfers` status, `seller_sent_at`, `auto_release_at` (+72 h), `transfer_evidence_path`; the referenced `proof-docs` object; buyer inbox rows from `trg_notify_transfer_sent` / `trg_notify_transfer_state_inbox` | **none possible or proposed.** The state guard and the append-only guard make these one-way, referenced objects are evidence and stay, and orphans left by refused or failed attempts are retained under the owner's 30-day direction |
+| **N no write** | F-NAV-1 (edit listing, report form), F-SELL-2, Event name, F-DT-1, DV-IMG-1, -2, -3a, -6, -7 (picker only; Transfer send and the Sell form are **never submitted**), copy rows, the DV-611C-2 counting half; API probes N1–N4; read probes RT6, U1, RT5-P | none | — |
+| **P permanent** (Line 3) | DV-IMG-4, -5, -9 (+3b) Mark as sent with proof; DV-IMG-10 Add proof | `public.transfers` status, `seller_sent_at`, `auto_release_at` (+72 h), `transfer_evidence_path`; the referenced `proof-docs` object; **`public.notifications` +1 per Mark as sent** (buyer `919d511e…`, type `buyer_confirmation_needed`, dedupe `buyer_confirmation_needed:<transfer id>`); **+0 per Add proof** (the buyer is not told proof was added: a source fact, not a defect claim) | **none possible or proposed.** The state guard and the append-only guard make these one-way; referenced objects are evidence and stay; objects from refused, failed or unconfirmed attempts are retained under the owner's 30-day direction |
 | **P permanent** (Line 2) | cached-bids fixture | `public.bids` +1, D8's counters, seller inbox +1 | not removable; seller cancel (R) or let it end (R′) |
 | authorized write | DV-131-1 epoch bump | as already authorized for session 2 | — |
-**What outlives the P rows:** after Mark as sent, `auto_release_at` = now + 72 h. `8f59d37e…`'s deadline has already passed, and Add
-proof removes its `EVIDENCE_MISSING` reason. **No release or payout can follow on the sandbox while both of these hold:**
-`payout.executor_enabled` = false, and the Vault has no `service_role_key` (so `enforce-transfer-expiry`'s cron post is refused).
-This is recorded so that a later change to either makes these four transfers expected release candidates, not a surprise. **During
-these tests, the buyer never taps Confirm received or Report a problem on a P transfer** (`confirm-and-release` v3 is deployed and
-is outside this scope).
-**DV-IMG-3 wording to confirm with C:** "no stale image sent" must be observable without a send. If it needs one, the row moves to
-P and needs a named transfer, which does not exist without giving up a spare.
+| reversible own write | F-NAV-1 Preferences row | the owner's own preference toggle | restored in the same row, with A's read-back |
+
+**Notification expectation (owner ruling 4, from B's source trace):** Mark as sent creates the buyer's in-app notification.
+`public.notify_transfer_event` (as 133 defines it) posts only `IF v_key IS NOT NULL AND v_url IS NOT NULL` (133:145). With no
+`service_role_key` in the Vault it makes **no outbound call: no 401 is expected from this path**, and unrelated `net._http_response`
+rows (the `enforce-transfer-expiry` cron, 135's challenge post) are **not** used as proof of silence, because that table carries no
+URL. The evidence is the **live code and the secret names, read before and after**: PC3 (live bodies = local replay at the pin) and
+PC2 (Vault names). **Any call that could come from this path is investigated before anything proceeds:** a queued request naming
+`notify-transfer`, a `notify-transfer` invocation in the edge logs, or an unattributable 2xx.
+
+### 5a. Every affected transfer and its auto-release deadline (owner ruling 5)
+All: seller `2f5844b4-5144-4cd6-936d-4b59d8d5c6a0`, buyer `919d511e-c4e6-4422-a71d-e2bc0139de65`; states read 2026-09-17 14:35:00Z.
+| Transfer | Used by | State before | auto_release_at | After the tests |
+|---|---|---|---|---|
+| `92ee5156-7e82-40d8-ab54-73b489997797` | DV-IMG-4; N1, N2 | pending, no proof | none | seller_sent with proof; **deadline = the recorded `seller_sent_at` + 72 h** (written into the manifest at the row) |
+| `bce07eef-ed72-4d85-96db-8ef340838b89` | DV-IMG-5 | pending, no proof | none | same: `seller_sent_at` + 72 h, recorded |
+| `3118bd30-276f-4183-8579-cfea852421cb` | picker-only N rows, then DV-IMG-9 + 3b | pending, no proof | none | same: `seller_sent_at` + 72 h, recorded |
+| `8f59d37e-52fd-4733-b311-532445ff441c` | N3, DV-IMG-10, N4, RT6, U1, RT5-P | seller_sent, no proof | **2026-09-11T01:20:24Z (already past)** | seller_sent **with** proof, deadline unchanged (attach does not move it); payout policy's `EVIDENCE_MISSING` reason gone |
+| `83b83858-7c96-4887-bf6c-447858aec22a` | **none** (untouched) | seller_sent, no proof | **2026-09-11T00:54:49Z (already past)** | unchanged |
+**Disposition:** every transfer stays exactly as the tests leave it. This package adds no key, flips no executor and changes no payment
+state. They are not processed today because `payout.executor_enabled` = false and the Vault holds no `service_role_key` (read at
+14:35:00Z, and re-read as PC2 at Line 3's start and end). **Standing precondition (manifest §13):** before any future sandbox
+activation of a `service_role_key`, `payout.executor_enabled` or `refund.executor_enabled`, the activation package must re-read every
+transfer in this table, plus every other sandbox transfer that `enforce-transfer-expiry` or `payout-execute` would select, and carry an
+owner-approved disposition for each one. No activation proceeds while a test transfer is eligible. The disposition itself is chosen
+then, not now.
 
 ## 6. Targeted device tests on the next build (C guides; owner's handset; A reads back; D witnesses; all UNTESTED until run)
+**Images (owner ruling 3):** every handset upload is a **synthetic ticket image made by the owner**, with no real ticket codes and no
+personal information. DV-IMG-9's HEIC camera photo is a photo of such an image. A downloads **only** the exact objects these rows create,
+as the seller and as the buyer. A touches no other photo or file: the folder listing reads names and metadata only, and a baseline
+object in the folder that these tests did not create stops the read.
 | Row | Class | Exactly |
 |---|---|---|
-| **F-NAV-1 re-check** | N | Edit listing on a bid-free listing (Phone P1 `c343406e-be85-49c1-9951-ac08bb1daab2`; Save changes is never tapped): change Event name → swipe back → **Keep editing** → still on Edit listing **with the change visible**; leave again → asked again; repeat with the **in-screen Back arrow** (there is no native header); then Discard → My Listings after one prompt; with no edit, or with an edit typed and undone → leaves at once. The Back-arrow half is also Build 18's first device observation of that path |
-| F-NAV-1 same hook: report form | N | type in a report → swipe back → **Keep writing** → still on the form with the text; the report is **never submitted** |
-| F-NAV-1 same hook: Settings → Preferences | reversible own-preference write | toggle a preference and swipe back while it is saving → "Still saving" → **Wait** → stays; then restore the toggle (A reads back the value before and after). Observable only while the save is in flight; if it completes too fast to catch, the row is UNTESTED, not passed |
-| F-SELL-2 re-check | N | the badge clears every header at normal and largest text; no doubled spacing. My Listings, one SettingsHeader screen and the security banner are checked at the largest text in one look |
+| **F-NAV-1 re-check** | N | Edit listing on a bid-free listing (Phone P1 `c343406e-be85-49c1-9951-ac08bb1daab2`; Save changes is never tapped): change Event name → swipe back → **Keep editing** → still on Edit listing **with the change visible**; leave again → asked again; repeat with the **in-screen Back arrow** (there is no native header); then Discard → My Listings after one prompt; no edit, or an edit typed and undone → leaves at once. The Back-arrow half is also the first device observation of that path |
+| F-NAV-1 same hook: report form | N | type in a report → swipe back → **Keep writing** → still on the form with the text; **never submitted** |
+| F-NAV-1 same hook: Settings → Preferences | reversible own write | toggle a preference and swipe back while it saves → "Still saving" → **Wait** → stays; restore the toggle (A reads back before and after). Observable only while the save is in flight; if it finishes too fast to catch, the row is UNTESTED, not passed |
+| F-SELL-2 re-check | N | the badge clears every header at normal and largest text; no doubled spacing; My Listings, one SettingsHeader screen and the security banner at the largest text in one look |
 | Event name "mostly visible" | N | UNRESOLVED until directly confirmed |
 | F-DT-1 | N | does a text-size change apply without a relaunch |
-| DV-IMG-1, -2, -3, -6, -7 | N | picker behaviour, never submitted |
-| DV-IMG-4 | P | `92ee5156…`: airplane mode on after picking → Mark as sent (offline wording, Retry, no success) → off → Mark as sent; A reads back one object, one transition, success only after the verb answers |
-| no-write probe NP | N | after DV-IMG-4, A as the DV seller via the API: 3-arg `mark_transfer_sent` on `92ee5156…` with the same path, then a different path → `already_sent`, row unchanged (md5 of the row), no new inbox row; 3-arg with a path on `8f59d37e…` **before** DV-IMG-10 → `precondition_failed`, row unchanged. This is the only lost-response retry evidence on a real applied database; a handset cannot force a lost response |
-| DV-IMG-5 | P | `bce07eef…`: two quick taps → one upload, one verb call, one success |
-| DV-IMG-9 | P | `3118bd30…`: a HEIC **camera photo** (not a screenshot). A reads back the stored object: magic bytes (`FF D8 FF` JPEG versus `ftyp` HEIC), name extension, Content-Type, sha256. The render is observed by the owner on the iPhone. **The operator console is bound to production and is not a render surface for a sandbox object;** the web receive page counts only if C shows it points to the sandbox, otherwise that half stays UNTESTED. If the bytes are HEIC, the label must say HEIC and the row FAILS outcome 3 |
-| DV-IMG-10 | P | `8f59d37e…`: the Add proof section shows only here → Add proof → `attached` (A reads back the path) → same photo again → `already_attached`, no second object → a different photo → "can't be replaced" (guard refusal; its uploaded object stays as a retained orphan) |
-| RT6 | read | after DV-IMG-10: the buyer signs and downloads the attached object → 200, sha256 = the seller's upload; an unrelated account and anon → denied |
+| DV-IMG-1, -2, -3a, -6, -7 | N | on `3118bd30…` (the pending transfer consumed last), before any P row; the upload happens only inside Mark as sent (`uploadImage` is called from `runMarkSent`). **3a:** Pick → Replace → Remove → pick again, watching the preview; after Remove, Mark as sent → "Evidence required" before any network call (`send/[id].tsx` checks `localUri` first); A reads back no new object |
+| DV-IMG-4 | P | `92ee5156…`: airplane mode on after picking → Mark as sent (offline wording, Retry, no success) → off → Mark as sent. A: one object (name, metadata mimetype/size/eTag, seller download sha256 + first 16 bytes; extension ↔ mimetype ↔ magic bytes agree), one transition, buyer inbox +1 (`buyer_confirmation_needed:92ee5156…`) |
+| N1, N2 | N | after DV-IMG-4, A as the seller (JWT, not service_role, not psql): `mark_transfer_sent(92ee5156…, seller, <DV-IMG-4 path>)` then with a **different** path string → `already_sent`, `evidence_replaced=false`, returned path = DV-IMG-4's; row unchanged; inbox +0. The only lost-response retry evidence on the applied database, since a handset cannot force a lost response |
+| DV-IMG-5 | P | `bce07eef…`: two quick taps → one object, one transition, one success, inbox +1. **Never merged with DV-IMG-4** (each row's evidence is "one object, one mark") |
+| DV-IMG-9 + 3b | P | `3118bd30…`: pick a synthetic **screenshot**, **Replace** it with a HEIC camera photo of a synthetic image, Mark as sent. **Expected: `.jpg`, `ffd8ff`, `image/jpeg`** (Compatible mode). PNG bytes → the stale image was sent, **3b FAILS**. `.heic` with `ftyp` bytes → a finding for C: outcome 3 FAILS, not a storage failure. The owner observes the render on the iPhone. **Not render surfaces:** the operator console (bound to production), and the web receive page, which is UNTESTED because its Supabase host is fixed at build time and `web/next.config.ts` defaults to production |
+| N3 | N | **before** DV-IMG-10: `mark_transfer_sent(8f59d37e…, seller, <any path>)` → exactly `precondition_failed: transfer already sent without evidence — use attach_transfer_evidence`; row unchanged; inbox +0 |
+| DV-IMG-10 | P | `8f59d37e…`: the Add proof section shows (only while seller_sent with no path, `send/[id].tsx:372`) → Add proof → **`attached`** → the screen re-reads and the section disappears (`:209-211`). **On the handset this row can only produce `attached`.** A: path null → the uploaded name, nothing else changes, inbox +0 |
+| N4 | N | after DV-IMG-10: `attach_transfer_evidence(8f59d37e…, <DV-IMG-10 path>)` → `already_attached`; row unchanged |
+| RT6 | read | the buyer (JWT) signs and downloads each P object (DV-IMG-4, -5, -9, -10) → 200, sha256 = the seller's download |
+| **U1** | read | **U2 `f53b8466-9571-4f41-88c3-1c33847dd8ee`**, an existing sandbox test account whose credentials are in the sandbox env by NAME (`U2_EMAIL`/`U2_PASSWORD`). Read at 14:51:11Z: active, not banned, `deletion_state` ACTIVE, party to **none** of the five transfers above (buyer on 6 others), and no `proof-docs` policy mentions a role, admin or operator. U2 signs and makes an authenticated download of DV-IMG-10's referenced object → denied at both. **This counts only when paired with the seller's successful read of the same name in the same minute**, and never through a URL the seller signed. Until U1 runs: "unrelated authenticated user UNTESTED" |
+| RT5-P | read | anon → the same referenced object → denied, with the same positive control |
 | DV-IMG-8 Android | — | UNTESTED: no device |
 | DV-N-1..3 | T2 | banner shows the server title/body; Dismiss → `read_at` (A); relaunch → not shown; unknown type → Dismiss only |
 | DV-611C-2 | N | register-call counting half; push half DEFERRED |
@@ -182,24 +210,61 @@ P and needs a named transfer, which does not exist without giving up a spare.
 | Settings truth (cf94311) · F-2S-1 wording (df5127c) · Tickets label ABSENT in the preview build (ac70643) | N | copy and visibility |
 | DV-ST2a / ST2b | T3 / Line 2 | as authorized / after the fixture |
 | Carried at true status | — | two-session K-2 UNTESTED · row 18 DEFERRED · A11Y-1 UNTESTED · every push-delivery row DEFERRED · HEIC conversion UNVERIFIED until DV-IMG-9 · F-AUTH-2 open (LOW, not blocking) |
-**Order:** N rows first. DV-IMG-4 before probe NP; probe NP before DV-IMG-10; DV-IMG-10 before RT6. No P row, bid fixture or
-round trip ever overlaps a DV-ST2 revoke window. The bid fixture comes only after C confirms DV-S2 complete.
+**Not run, by owner ruling 2:** N5 (attach with a different path) and any handset different-photo attempt; any delete or overwrite of
+attached proof. The evidence instead is PC3 (the live bodies of both `mark_transfer_sent` overloads, `attach_transfer_evidence` and
+`guard_transfer_state_columns` equal a local replay at the pin), the preserved local evidence (207's R-series, mutant-verified, and
+050's custody assertion), and PC5 (the `proof-docs` policy quals equal the chain's).
+**Order (C and B):** PC1–PC8 → picker-only N rows on `3118bd30…` → DV-IMG-4 → N1, N2 → DV-IMG-5 → DV-IMG-9 + 3b → N3 → DV-IMG-10 → N4 →
+RT6 → U1 → RT5-P → close: PC2 and PC3 again, then the closing equation: folder total = PC8 baseline + 4 referenced P objects + listed
+orphans; `rt-%` = 0; an object that fits none of those stops the close. A submitting row that ends uncertain is recorded as it stands;
+any replacement fixture is a new write for the owner, and nothing is re-run on `83b83858…`. No P row, bid fixture or round trip overlaps
+a DV-ST2 revoke window. The bid fixture follows only after C confirms DV-S2 complete.
 
-## 7. Image round-trip verification and evidence checklist (B with A)
-B was sent the anchors (the T/N/P split, the transfer ids, the pre-counts, and the trigger-path question) on 2026-09-17. B's
-checklist lands here under B's name when handed off; until then Line 1's scope in `SANDBOX_AUTHORIZATION_LINES_20260917.md` is the
-exact scope.
+## 7. Image round-trip evidence checklist (B with A) — ADOPTED
+B's checklist is copied byte-identical to `docs/release/IMAGE_ROUND_TRIP_EVIDENCE_CHECKLIST_20260917.md` (from
+`feature/venue-native-and-product-v2 @ fb25c9e`; sha256 `d718ec47465396408d0c1517996f00d3bfe9c11fc888e38966574bb8ae5669a3`). B made
+no sandbox or production read; its source pins are 259246e (migrations) and 5e14a68 (client). **Its pre-conditions PC1–PC8 are Line 3's
+pre-conditions, and PC2/PC3 are read again at the close.** Where the owner's rulings of 2026-09-17 settle B's named decisions, the
+rulings govern:
+- **U1 = U2** (ruling 1);
+- **N5 not run: option (b)**, with no destructive overwrite or delete test (ruling 2; B's recommendation);
+- downloads only of the exact test uploads, as the seller and the buyer (ruling 3);
+- no 401 expected from the notifier path, and no response logs used as proof of silence (ruling 4);
+- the transfer register and disposition in §5a (ruling 5).
 
-## 8. Final approval request (each line separate; none is granted by this document)
+B's corrections are applied as follows:
+- C1/C2 → §5 notification expectation;
+- C3 → DV-IMG-10 produces `attached` only, and N4 is an API probe;
+- C4 → N5 not run;
+- C5 → U1;
+- the denial-pairing rule → U1, RT5-P, and Line 1's RT4/RT5;
+- C7 → the `rt-%` count in Line 1 and §5;
+- C8 → no live delete or overwrite of P objects;
+- C10 → §5a;
+- DV-IMG-9's expected `.jpg`/`ffd8ff`/`image/jpeg` → §6;
+- sips brand → record the actual file's brand in Line 1.
+
+**PC3 method note (A):** `md5(pg_get_functiondef(oid))` on the sandbox is compared with the same query on A's certified harness DB,
+replayed at the tag commit. Before the window, A confirms on the harness that the value is stable between two fresh replays. If the
+sandbox value differs only through something outside the body, A compares `md5(prosrc)` and states which one matched. A never
+reports a match that was not observed.
+
+## 8. Final approval request (each line separate; none is granted by this document; the owner's 2026-09-17 message settled the test design but started nothing)
 1. **Tag + build — HELD:** "Create `candidate/2026-09-18-build-c3` at `<db16e1a + F-NAV-1>` and have C submit one sandbox preview
    build." Issued with the head filled in only after D's review of F-NAV-1, integration, the §0 reruns and green CI.
 2. **Sandbox window W-C3:** "Apply 136 → 139 → 140 to the sandbox and deploy stripe-webhook and notify-report from the tag commit, A
    executing, D witnessing, per §4, with its pre-flight, stopping conditions and rollback."
 3. **Staged notice (temporary):** "Execute the §3b staged-notice write for the DV buyer and delete it after DV-N-3."
-4. **Image round trip (temporary; does not need the build or 140):** Line 1 of `SANDBOX_AUTHORIZATION_LINES_20260917.md`.
-5. **Permanent transfer writes by the device tests:** Line 3 of the same document (with the no-write probe NP).
+4. **Image round trip (temporary; needs neither the build nor 140):** Line 1 of `SANDBOX_AUTHORIZATION_LINES_20260917.md`.
+5. **Permanent device-test transfer writes and their reads:** Line 3 of the same document. It covers:
+   - DV-IMG-4, -5, -9 (+3b) and -10 on the four named transfers, with synthetic ticket images;
+   - probes N1–N4;
+   - downloads of exactly those uploads as the seller and the buyer;
+   - U2's and anon's denied reads;
+   - PC1–PC8 and the close;
+   - no N5, and no delete or overwrite of attached proof.
 6. **Bid fixture:** Line 2 of the same document.
-**Dependencies:** 1 before any device row · 2 before 3, 5 and RT6 · 4 can run before the build · 6 after C confirms DV-S2 complete.
+**Dependencies:** 1 before any device row · 2 before 3 and 5 · 4 can run before the build · 6 after C confirms DV-S2 complete.
 Off this candidate's critical path by the owner's ruling: cleanup scheduling, native issuance/scanning, the broader onboarding build
 (138), the My Listings redesign (separate visual approval), 137, the venue window.
 
