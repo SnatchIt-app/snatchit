@@ -3422,3 +3422,19 @@ Most of the app is already tested; close the remaining gaps efficiently.
     state. (c) is the dangerous one: the charge may have succeeded.
   - **Preserve:** existing accessibility scaling and completed test evidence. **No global text-size caps, no broad
     redesign, no repeated full handset flows.** Verification focuses on changed behaviour.
+- **D's post-fixture read landed and PASSES (md5 5cbd7dbc…):** diffed against D's pre-fixture read, **exactly three
+  lines differ — the three pending rows**; 8f59d37e and 83b83858 byte-identical; inbox 41; folder 0/0; executors false;
+  queue 0; 2xx 0; the seven bodies and seven triggers unchanged. D independently confirmed the blast radius, that the
+  state-column guard doesn't name the delivery fields, and that the Vault has no service key. **C gave the owner GO.**
+- **F-CHK-1 (B's checkout finding) — A's correction, to be verified by C before it reaches the owner.** A reports the
+  file is identical in both trees and that CheckoutNative already implements the three-way distinction: a sheet error
+  is not proof of failure (`reconcileAfterSheetError()` at :513, A-04); the helper returns **verified** → settle,
+  **not_verified** → failure line, **unreachable** → `setPaymentReady(false)` so Pay is WITHDRAWN, with the copy "We
+  couldn't confirm your payment yet — Your last attempt may or may not have gone through. Please don't pay again.
+  We'll keep checking; you can also check now." plus a Check status button (:851-858). `revalidateAgainstServer()` is
+  settled-first; the copy layer separates transport from decline; `payments.ts` routes network/timeout to the pending
+  path rather than a failure claim. **A reclassifies F-CHK-1 as not release-critical rather than leaving a false
+  blocker in front of the owner.** What may remain, narrower and C's to confirm: whether anything guards the
+  PRE-REQUEST case (starting checkout with no connectivity) and whether the initial screen fetches show content-free
+  states while in flight. Any test here must drive a network failure that is NOT a Stripe decline; a generic-failure
+  test passes on the current tree and proves nothing.
