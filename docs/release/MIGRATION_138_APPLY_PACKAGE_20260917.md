@@ -66,7 +66,9 @@
 - **But the sandbox prerequisite is not neutral.** Applying 115–120 to the sandbox would:
   - start `ops-detect-tick` every 5 minutes and `ops-daily-summary` daily (migration 117), which open ops cases from existing sandbox data while the handset sprint is running;
   - add 119's listing-block guard, changing the sandbox's known census deltas that W-C3 and the Line 3 baseline are reconciled against.
-- **A's recommendation:** treat CI plus A's independent replay, mutants and two-session proof as the rehearsal, and do **not** apply 115–120 to the sandbox during the marketplace sprint. If the owner wants a hosted rehearsal, do it after the sprint closes, as its own window.
+  - break D's witness identity check. D's scripts use `to_regnamespace('ops') is null` as the sandbox-versus-production discriminator, and a 115–120 apply flips it, so every earlier witness read's identity line stops being comparable and D would need a new discriminator before the next witness — including **DV-ST2b and Line 3, both still pending** (D, 2026-09-17).
+- **D checked A's first two claims in source rather than relaying them** (117:1123-1126 for the two cron jobs; 119:46,103 for one public function and one public trigger, which would move the sandbox census from `32|109|37|37` to `32|110|37|38` mid-sprint), raised the third itself, and reaches the same conclusion: if a hosted rehearsal is wanted it is its own window after the sprint, with the census baselines re-taken first.
+- **A's recommendation, and D's:** treat CI plus A's independent replay, mutants and the two-session proof as the rehearsal, and do **not** apply 115–120 to the sandbox during the marketplace sprint. If the owner wants a hosted rehearsal, do it after the sprint closes, as its own window, with the census baselines re-taken first and a new witness discriminator agreed.
 
 ## 8. Owner approval points (each separate; none is given)
 
