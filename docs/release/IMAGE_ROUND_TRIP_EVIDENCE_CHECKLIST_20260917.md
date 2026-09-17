@@ -13,6 +13,20 @@ Fixture ids, sandbox Vault contents and edge versions are **A's reads at 14:35:0
 Classes (A's): **T** temporary synthetic objects, removed at RT7 · **P** permanent device rows (mark sent / attach),
 never removed · **N** no-write API probes.
 
+## 0. Adopted, and what the owner settled (2026-09-17)
+This checklist was adopted byte-identical (sha256 `d718ec47…69a3`, from `fb25c9e`) into A's approval package and folded into
+its Line 3 and package §5-§8 (converge `4516d14`). **The package governs execution.** This file keeps the source trace, and
+from §7 down the matrix, the deadline tracking and the cross-checks the owner asked for on 2026-09-17. Its open items are closed:
+
+| Was open here | Settled |
+|---|---|
+| C4 options for N5 (attach with a different path) | **Option (b): N5 is not run.** No delete or overwrite of attached proof. Evidence instead: PC3 body equality, the preserved local 207 R-series (mutant-verified) and 050, PC5 policy-qual equality |
+| C5 third identity | **U2 `f53b8466-9571-4f41-88c3-1c33847dd8ee`**, an existing sandbox account; A's read 14:51:11Z: active, party to none of the five transfers. Until that read runs, unrelated-user denial stays **UNTESTED** |
+| PC3 method | **`md5(prosrc)` + `length(prosrc)`** (PF3's method), not `pg_get_functiondef`, which the server regenerates and can differ without a code change. Values in §7b; A's harness matched all seven independently |
+| §1b item 3, `notify-transfer` edge logs | **Dropped as vacuous:** `notify-transfer` is not among the sandbox's nine deployed functions (A, 14:35:40Z), so zero invocations would prove nothing |
+| Activation gates for the P rows | `service_role_key`, `payout.executor_enabled`, `refund.executor_enabled`, **and** a manual `enforce-transfer-expiry` call with `INTERNAL_CRON_SECRET` (`index.ts:165-170`). The re-read is a plain SELECT on 039's predicate, never `get_auto_release_candidates()`, which PERFORMs `refresh_seller_risk_score` |
+| Metadata on DV-IMG-9 (added by B) | The photo is taken with **Camera location off**, or Photos › Info shows no location before picking: expo-image-picker 17.0.10 returns `.heic` as raw data carrying the original's GPS (`ios/ImageUtils.swift`), and `exif: false` only limits what JavaScript receives. A records GPS-block present yes/no, never values |
+
 ---
 ## 1. Which trigger path runs on the P rows, and whether anything leaves the database (A's gap)
 
@@ -49,8 +63,8 @@ causes a push by itself. **A's expectation of "inbox rows only" holds.**
   1. the **live body of `public.notify_transfer_event` matches 133's source** (`md5(pg_get_functiondef(...))` against
      the same computed on a local replay at the pin);
   2. a **name-only Vault read** at the window's start and end shows no `service_role_key`;
-  3. optionally, **zero `notify-transfer` invocations** in the sandbox edge logs over the window, read at least 10 min
-     after it closes (ingestion lag).
+  3. ~~optionally, zero `notify-transfer` invocations in the sandbox edge logs~~ — **dropped as vacuous (§0):** that
+     function is not deployed on the sandbox, so its logs are silent either way.
 
   **Any 2xx whose origin cannot be attributed is a stop.**
 
@@ -211,3 +225,146 @@ rt-local-3.heic  552B  000000186674797068656963  brand=heic
 On this machine, `sips` writes major brand `heic`, which the client's table maps to `image/heic`, and all three files
 are under 10 KiB. A's files may come from another Mac, so **record the brand of the actual file** instead of relying
 on this line.
+
+---
+## 7. Actor matrix and the class of every check (owner's request, 2026-09-17)
+
+**Classes:** **T** temporary (removed in the same run) · **P** permanent (cannot be removed) · **N** no write (a verb that
+answers without writing) · **R** read-only · **D-NR** destructive, deliberately **not run** · **U** must remain untested.
+
+| # | Actor | Check | Class | Expected | If it goes the other way |
+|---|---|---|---|---|---|
+| RT1 | seller | upload three synthetic files, `upsert:false` | T | 200 ×3; metadata mimetype = declared, size = local length | stop |
+| RT2 | seller | re-upload the same name | T | 409; the object id unchanged | stop |
+| RT3 | seller | sign + download each | R | 200; sha256 and first 16 bytes equal to local; `Content-Type` = declared | stop |
+| RT4 | buyer | sign + authenticated download of each T object (unreferenced) | R | denied at both, paired with the seller's 200 on the same name in the same minute | stop |
+| RT5 | anon | the same | R | denied, same pairing | stop |
+| RT7 | seller | delete the three T objects | T | 200 ×3; `rt-%` count 3 → 0 | report surviving names, stop |
+| DV-IMG-4 | handset (seller) | offline then online Mark as sent | **P** | one object, one transition, buyer inbox +1 | record as it stands |
+| DV-IMG-5 | handset (seller) | two quick taps | **P** | one upload, one verb call, one success | record |
+| DV-IMG-9 + 3b | handset (seller) | synthetic screenshot, Replace with a HEIC camera photo, Mark as sent | **P** | `.jpg` / `ffd8ff` / `image/jpeg`; no GPS block | PNG bytes → 3b FAILS; `.heic` + `ftyp` → outcome 3 FAILS (a finding for C, not a storage failure) |
+| DV-IMG-10 | handset (seller) | Add proof | **P** | `attached`; path null → name; **+0 notifications** | record |
+| N1 | A, seller JWT | `mark_transfer_sent(92ee5156…, seller, <same name>)` | N | `already_sent`, `evidence_replaced=false` | any write is a stop |
+| N2 | A, seller JWT | the same with a different path string | N | `already_sent`; returned path still DV-IMG-4's | stop |
+| N3 | A, seller JWT | `mark_transfer_sent(8f59d37e…, seller, <any path>)` **before** DV-IMG-10 | N | exactly `precondition_failed: transfer already sent without evidence — use attach_transfer_evidence` | stop |
+| N4 | A, seller JWT | `attach_transfer_evidence(8f59d37e…, <same name>)` after DV-IMG-10 | N | `already_attached`; row identical | stop |
+| N5 | — | attach with a different existing path (append-only refusal) | **D-NR** | **not run** (owner ruling 2) | — |
+| — | — | delete or overwrite a referenced object | **D-NR** | **not run**: a failing control would destroy retained evidence | — |
+| RT6 | buyer | sign + download each of the four P objects | R | 200; sha256 = the seller's download | stop |
+| RT6-neg | buyer | an unreferenced object in the same folder (covered by RT4) | R | denied | stop |
+| U1 | **U2 account** | sign + authenticated download of DV-IMG-10's object | R | denied at both, with the pairing | stop |
+| RT5-P | anon | the same object | R | denied, with the pairing | stop |
+| — | — | device **upload** integrity (sha256 of the bytes the handset sent) | **U** | not observable off-device | — |
+| — | — | per-transfer scoping (buyer of X reading Y's proof) | **U** | all five transfers share one buyer | — |
+| — | — | render on the web receive page | **U** | its Supabase host is fixed at build time | — |
+| — | — | Android (DV-IMG-8), push delivery, payout behaviour, older installed clients | **U** | out of scope | — |
+
+**Reading discipline for every denial:** measured at signing **and** at authenticated download, never through a
+seller-signed URL (a signed URL is a bearer capability by design), and only counted with the seller's positive control
+alongside it, because storage reports an RLS denial as not-found.
+
+### 7b. PC3 expected values (B's local replay at `259246e`, PG 17.11; matched independently by A's harness)
+`259246e..6561d1f` changes **0 lines** under `supabase/migrations`, so these hold at the current gate head `6561d1f`.
+
+| Function | md5(prosrc) | length |
+|---|---|---|
+| `notify_transfer_event()` | `49146f9f3ba9a96aaaf09c3f21492c40` | 1361 |
+| `notify_transfer_state_inbox()` | `203f7c7d88c6545a9c083e037a6aa5db` | 3442 |
+| `enqueue_notification(uuid,text,text,text,text,text,jsonb)` | `1e11b92d7258ea66feebbac05cf9298b` | 518 |
+| `guard_transfer_state_columns()` | `c423ef62372e43e5c4c91e5e83976782` | 1951 |
+| `mark_transfer_sent(uuid,uuid,text)` | `17453329765e9e0787732fd61846a399` | 2560 |
+| `mark_transfer_sent(uuid,uuid)` | `d816c53e9e1e77e7de8d432d7ecf9680` | 86 |
+| `attach_transfer_evidence(uuid,text)` | `67615b89040a9f60dd6082d1cf54cbcd` | 2690 |
+
+Triggers on `public.transfers`, exactly seven, all enabled: `trg_guard_transfer_state_columns`,
+`trg_reset_transfer_guard_bypass`, `trg_notify_transfer_created`, `trg_notify_transfer_created_inbox`,
+`trg_notify_transfer_sent`, `trg_notify_transfer_state_inbox`, `trg_notify_dispute_opened` (which runs
+`notify_moderation_event`, whose WHEN is false for these rows). `proof-docs` policies: **five** on the sandbox — 118's
+`proof-docs operator read` belongs to the ledger the sandbox does not carry.
+
+---
+## 8. The five transfers: deadlines and the safeguards that keep them unprocessed
+
+No payment state is changed by anything in this file. Deadlines for the three pending rows exist only once the handset
+marks them sent; B fills them from A's read-back records, not from any read of its own.
+
+| Transfer | Row | State before (A, 14:35:00Z) | auto_release_at | After |
+|---|---|---|---|---|
+| `92ee5156-7e82-40d8-ab54-73b489997797` | DV-IMG-4, N1, N2 | pending, no proof | none | `seller_sent_at` + 72 h — **to record** |
+| `bce07eef-ed72-4d85-96db-8ef340838b89` | DV-IMG-5 | pending, no proof | none | `seller_sent_at` + 72 h — **to record** |
+| `3118bd30-276f-4183-8579-cfea852421cb` | DV-IMG-9 + 3b | pending, no proof | none | `seller_sent_at` + 72 h — **to record** |
+| `8f59d37e-52fd-4733-b311-532445ff441c` | N3, DV-IMG-10, N4, RT6, U1, RT5-P | seller_sent, no proof | **2026-09-11T01:20:24Z (past)** | proof attached; deadline unchanged (attach does not move it) |
+| `83b83858-7c96-4887-bf6c-447858aec22a` | none | seller_sent, no proof | **2026-09-11T00:54:49Z (past)** | untouched; its exposure pre-dates this test |
+
+**Why nothing is processed today** (each a read, never a change): `payout.executor_enabled` false · `refund.executor_enabled`
+false · no `service_role_key` in the sandbox Vault, so the every-2-minute `enforce-transfer-expiry` post carries a null
+bearer and is refused · no manual call with `INTERNAL_CRON_SECRET`.
+
+**Safeguard that must hold** (package §5a, manifest standing precondition): any future activation of one of those four
+re-reads all five transfers, plus every other transfer the sweep or the payout executor would select, with a plain SELECT on
+039's predicate — `status='seller_sent' and auto_release_at is not null and auto_release_at < now() and payout_released_at
+is null and (payout_hold_until is null or payout_hold_until < now()) and payout_review_status is distinct from
+'manual_review'` — and carries an owner-approved disposition for each. Choosing a disposition (hold, resolve, refund, or
+allow a test payout) is a payment-state decision for the owner at that time. **Not now, and not by B.**
+
+**One consequence worth stating plainly:** attaching proof to `8f59d37e…` removes the payout policy's `EVIDENCE_MISSING`
+reason (`payout-policy.ts:70-71` reads `has_evidence`) on a transfer whose deadline has already passed. It stays unprocessed
+only because of the four gates above — not because of anything about the row itself.
+
+---
+## 9. The contract's expected outcomes, checked against the applied source
+
+`PROOF_UPLOAD_REPAIR_CONTRACT.md` §1–§5 as amended by §8. Checked against migration 140 at `259246e`, the guard chain
+(0550/0562/0563), the client at `6561d1f`, and the storage policies (033/034/049/053).
+
+| Area | Contract | Source | Verdict |
+|---|---|---|---|
+| Mark as sent, `pending` | transition; `outcome=transitioned` | 140:91-102 sets status, `seller_sent_at`, `auto_release_at`=now+72 h, path via coalesce, under the bypass GUC | **matches** |
+| Already sent | no UPDATE; `already_sent`; `evidence_replaced` always false; null, same **and** different path; no second notification | 140:76-85 returns before any UPDATE; 207 R4 asserts `xmin` unchanged | **matches** |
+| Already sent with a null stored path and a non-null argument | raise `precondition_failed … use attach_transfer_evidence` | 140:76-79, that exact text | **matches** |
+| Other statuses | raise as before | 140:88 | **matches** |
+| Attach proof | seller; `seller_sent`; path null; non-empty; own folder; `%/transfer-evidence/%`; object exists; no bypass; `already_attached` on the same path; guard refuses a different one | 140:130-190 in that order; the existence check precedes the same-path check | **matches** |
+| Attach, buyer notification | v1 sends nothing | +0 rows; the state-inbox trigger runs and writes nothing | **matches** |
+| Duplicate upload | pick-time name + `upsert:false`; after any error `storage.exists` decides; a 409 is not trusted alone | useImageUpload.ts:180-205; upload 120 s, exists 30 s | **matches §8 item 3** |
+| Byte/type integrity | type and extension from the bytes; unrecognised refused; a reported non-allowed type refused at pick | uploadFlow.ts:82-96, 135-137; `sniffImageType` decides; `mif1/msf1/heif` → `image/heif`, the six HEIC brands → `image/heic` | **matches §8 item 2** |
+| Access denial | owner read; transfer-party read; no anon policy; operator read production-only | 033/034 + PC5; buyer reads any object referenced by a transfer where they are a party | **matches**, with §3 item 4 of this file: a non-party authenticated reader is the only check that discriminates |
+
+**Four places where the contract's text no longer matches what shipped or what the owner ruled.** None changes 140's
+behaviour; each is a sentence that would mislead a reader of the contract alone:
+1. **§2 "the row's `updated_at` moves and nothing else" — there is no such column.** `public.transfers` (002:35-68, plus every
+   later `add column`) has `created_at` and `seller_sent_at`, and no `updated_at`; no trigger on the table sets one. So an
+   attach leaves **no timestamp of its own**: `seller_sent_at` keeps the original mark time, and the only record of when proof
+   arrived is the storage object's `created_at`. Worth stating in the contract, since this is dispute evidence.
+2. **§5 RT4's "Proves: unrelated-user denial"** — a buyer denied on an *unreferenced* object does not establish that. Line 1
+   in the package has been corrected; the contract's own table has not.
+3. **§5 RT7's "count for the folder back to the pre-count"** — must be the `rt-%` count once Line 3's objects exist (C7).
+4. **§1's "the second upload is an orphan the client may delete under the owner-delete policy"** — the client never deletes,
+   and the owner's 30-day direction forbids deletion without a dry-run and an explicit word.
+
+---
+## 10. F-NOTICE-1 and F-BIDS-1 against the package
+
+**F-BIDS-1** (Bids empty state while purchases load): C's fix is integrated for the next candidate at
+`release/production-gate-20260918 @ 6561d1f`, CI 35245103799. Consistency checks: `f412d10..6561d1f` touches **nothing** under
+`supabase/` and `259246e..6561d1f` **nothing** under `supabase/migrations`, so the apply package's file hashes and this file's
+PC3 values still hold at `6561d1f`. One wording item for A: the package certifies PC3 against `259246e..f412d10`; the gate head
+is now `6561d1f`, and the statement should name it.
+
+**F-NOTICE-1** (stale "Account deletion requested" on an ACTIVE account) — one real collision with the staged-notice step:
+
+- `account_deletion_pending` is registered `delivery_class='mandatory'`, `target_kind='account_security'` (092:276), which is
+  exactly the set `public.get_my_security_notices()` derives (136:96-99). The buyer's stale row `f3abe550…` (2026-09-14, unread,
+  undismissed) is therefore **returned by that RPC**.
+- The client shows **one** notice: `selectActionableNotice` takes the newest unread row of any returned type
+  (`src/lib/security/notices.ts`).
+- So: **DV-N-1** is unaffected (the staged notice is newer and wins). **DV-N-2** dismisses it. **DV-N-3's "relaunch → not
+  shown" will show a banner titled "Account deletion requested"** (092:346, the in-app v1 template) — the pre-existing
+  F-NOTICE-1 row taking the surface. Recorded as written, DV-N-3 reads as a FAIL that is not one.
+- **Fix for the package, A's call:** state DV-N-3's expectation as "the *staged* notice is gone; a pre-existing
+  `account_deletion_pending` banner may replace it", and have the observer record the notice **by title or id**, not by
+  presence.
+- **Ordering, if F-NOTICE-1 §4 is ever authorized:** that write marks the buyer's notice read and dismissed, which moves the
+  buyer's notification totals. It must not land between the staged-notice step's pre-count and its restore read, nor between
+  Line 3's inbox-delta reads. The safe positions are before the sequence or after it closes.
+- Option A (retire the notice inside `kernel.withdraw_account_deletion`) is a kernel-verb change: it needs a migration number,
+  and PC3-style body hashes for the changed verb, in whichever package carries it. Not this one.
