@@ -1,0 +1,87 @@
+# Notification batch 1 — honour the existing preferences; surface the device-rebound notice on mobile (A, 2026-09-17; plan for the owner, before implementation)
+
+**Owner's frame (2026-09-17):** "prepare the next development batch around honouring the existing preferences and surfacing
+the device-rebound notice on mobile without a new outbound channel. Name the exact preference-to-event mapping, mandatory
+security exceptions, scope and owners before implementation. Keep the dispatcher activation and new outbound notifications
+pending separate approval." Nothing below is implemented; nothing sends anything new.
+
+## 1. The six preferences, exactly, and what each governs today (source at the build tag)
+
+`public.notification_preferences` (`000_baseline_schema.sql`), client-writable from `app/settings/notifications.tsx`, **read by no
+server path today** (C's inventory G25; the only server references are the table's own DDL in 000 and 040).
+
+| Toggle | Default | Event it is meant to govern | What actually sends today | Batch 1 action |
+|---|---|---|---|---|
+| `notify_listing_sold` | true | seller: "Your ticket sold!" | **A9 push from `stripe-webhook` on `payment_intent.succeeded`** (seller side) — the **only** toggle whose event reaches devices today | **honour it**: the webhook reads the seller's row before the A9 seller push; buyer-side "Payment Confirmed!" is not governed (it is the buyer's own money event — mandatory) |
+| `notify_outbid` | true | previous top bidder: outbid | server push **inert** (`notify_outbid` returns early when the legacy GUCs are null — B's N-6; 133 did not migrate it); web inbox row B2 only | **no honouring possible without re-enabling a dead producer**, which is a new outbound (pending separate approval; critical path 1.9 is the 133 follow-up migration) — batch 1 only makes the screen truthful (see §3) |
+| `notify_auction_ending` | true | bidders: ending soon | nothing server-side (client timer on screen) | screen truth only |
+| `notify_auction_won` | true | winner | web inbox row B3 only | screen truth only |
+| `notify_auction_lost` | false | losing bidders | nothing | screen truth only |
+| `notify_reservation_exp` | true | buyer with a hold | nothing server-side (in-screen countdown) | screen truth only |
+
+**Finding to state plainly:** five of the six toggles govern events that no server path sends; the screen implies they do.
+Honouring them means, for five toggles, nothing can be honoured until their producers exist — and each producer is a **new
+outbound notification** (backlog P2, pending the owner's separate approval). Batch 1 therefore (a) honours the one toggle with
+a live event and (b) makes the screen tell the truth about the other five, with no new channel.
+
+## 2. Mandatory — never governed by a toggle (security and money-flow), unchanged by this batch
+
+Buyer "Payment Confirmed!" (A9 buyer side) · transfer created / tickets marked sent / confirm reminders (A3–A6) · transfer
+expiry refund (A7) · payout released / order complete (A8) · reports and disputes to admins and parties (A10/A11) · signing
+invariant alert to admins (A12) · account deletion (C10/C11, Plane C, parked) · session expiry / signed-out-elsewhere
+(client notice, K-2) · **device-possession challenge (D1/D2, 135)** · **device rebound (D3, `security_device_rebound`,
+mandatory type, in-app only by the owner's ruling)** · password changed (B12, web inbox). A preference toggle never suppresses
+any of these; the batch adds no new toggle.
+
+## 3. Scope of batch 1 (two items, both without a new outbound channel)
+
+### Item 1 — honour `notify_listing_sold`; make the Settings screen truthful
+- **Server (B, edge):** `stripe-webhook` reads `public.notification_preferences.notify_listing_sold` for the seller before the
+  A9 seller push; absent row ⇒ default true; edge test RED without the read (a seller with the toggle off still receives the
+  push) then GREEN. No SQL change. **Effort 0.5 d B + 0.25 d D review.**
+- **Client (C):** the five toggles with no sending event get an inline truth label on the Settings screen — e.g. "Not sent yet —
+  this setting will apply when these notifications launch" — so a saved toggle is not read as a working control; the toggles
+  stay (they will govern the P2 producers when approved). Copy test. **Effort 0.5 d C.** (Alternative the owner may prefer:
+  hide the five until their producers exist — same effort, less honest about the roadmap.)
+- **Not in scope:** re-enabling the outbid producer (N-6 / critical path 1.9) — a new outbound in effect; the Plane-C
+  `notify.preference` matrix (pending the dispatcher decision P3-2).
+
+### Item 2 — surface the device-rebound notice on mobile, from rows that already exist
+- **Why server work is needed at all:** `security_device_rebound` rows are enqueued by 135 into `notify.notification` for the
+  previous owner (in-app, no delivery rows), and `notify.get_inbox / get_unread_count / mark_read / mark_all_read / dismiss`
+  exist with `authenticated` EXECUTE (092) — but **the `notify` schema is not PostgREST-exposed** (`public, graphql_public,
+  kernel`), so the mobile client cannot call them. The 129 pattern applies: a `public` wrapper that delegates.
+- **Server (A):** migration **136** (`public_security_notices_read`): `public.get_my_security_notices()` — `security definer`,
+  `search_path=''`, `authenticated` EXECUTE only, delegates to `notify.get_inbox` for `auth.uid()` and returns only rows whose
+  type is in the mandatory security set (`security_device_rebound` now; `security_password_changed` when produced) with
+  `id, type_key, title, body, created_at, read_at`; `public.mark_security_notices_read(uuid[])` delegating to `notify.mark_read`
+  scoped to the caller's own ids. Rollback; pgTAP (owner-scoped: another user's rows never returned; anon 42501; ids not
+  owned ignored); grant-decision manifest +2 rows; Gate-2 census +2 functions; `expected_grants.txt`; contract note in
+  `PUSH_TOKEN_CONTRACT_V3.md` §"previous owner". **Effort 1 d A + 0.5 d D review.** No new channel: it reads rows 135 already writes.
+- **Client (C):** on sign-in and on foreground, call `get_my_security_notices()`; if an unread `security_device_rebound` exists,
+  show a full-width notice on the first screen — "Another device was linked to your account on <date>. If this wasn't you,
+  sign out of all devices and change your password." — with the K-2 "Sign out of all devices" action and a dismiss that calls
+  `mark_security_notices_read`; never on the shared login screen (K-2 rule); tests RED-first for: shown when unread, not
+  shown when read, action routes to K-2. **Effort 1.5 d C.**
+- **Evidence limits:** the rebound event itself needs push delivery (challenge → echo → rebind), deferred with the sandbox key,
+  so the notice is exercised on a handset only by **staging one `security_device_rebound` row for the DV buyer** via
+  `notify.enqueue` in an authorized sandbox window (a write; cleanable: `dismiss` marks it, and the row can be deleted by id),
+  or by pgTAP alone. That staging is its own authorization line, not assumed.
+
+## 4. Owners, sequence, and what it does not include
+
+| Step | Owner | Effort | Depends on |
+|---|---|---|---|
+| Owner approves batch 1 scope as written (items 1–2), the Settings copy choice (label vs hide), and whether a staged notice row on the sandbox is authorized for the device check | Owner | — | — |
+| 136 + pgTAP + manifests + rollback + contract note | A | 1 d | approval |
+| Webhook preference read + edge test | B | 0.5 d | approval |
+| Settings truth label + copy test; security notice screen + tests | C | 2 d | 136's contract (can start on the contract text) |
+| Reviews (RED evidence, negative controls, grants) | D | 1 d | the three heads |
+| Integration onto the stack → **new pin** (server + client) → CI → D gate | A | 0.5 d | reviews |
+| Device checks on the next build: notice shown/dismissed (staged row, if authorized); Settings truth label; `notify_listing_sold` honoured is **test-only** until push delivery is testable (deferred) | C guide, Owner handset, A read-backs, D witness | 1 h owner | the build ruling |
+
+**Explicitly not in batch 1, pending separate approval:** dispatcher activation (`notify.delivery_lease_interval`, PFA-22;
+`notify-dispatch` / `notify-receipts`), any new outbound notification (the five no-producer toggles' producers, password-changed
+push, payment-failed push, auction pushes), the outbid producer repair as an outbound (1.9 is filed as a 133 correctness
+follow-up; enabling its push is a separate approval), email for the rebound notice (declined 2026-09-16), and a mobile
+notification centre (backlog row 18).

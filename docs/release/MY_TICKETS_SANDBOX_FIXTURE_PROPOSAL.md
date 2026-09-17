@@ -1,4 +1,4 @@
-# My Tickets — sandbox fixture-and-cleanup proposal (A, 2026-09-17; for the owner's approval; nothing executed)
+# My Tickets — sandbox fixture-and-cleanup proposal (A, 2026-09-17) — **DECIDED 2026-09-17: option D** (client-side fixture preview with the visible label "Sample tickets — no server data"; no fake signing key, no permanent fixture, no audit-protection override; real issuance a separate later step; C implements and verifies locally; no hosted build). Options A–C below are the record of what was rejected and why; nothing here is planned.
 
 **Purpose:** put one real ticket in the DV buyer's My Tickets tab on the sandbox so CFT-801 can run on a handset, without
 enabling native issuance. **Environment:** `ofaidukbieeekqaboscm` only. **Status:** proposal; every statement below is a
