@@ -3015,3 +3015,25 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   Line 3, but Line 3 remains a separate irreversible authorization and must not start until I explicitly say 'ready
   for Line 3.'" D is ready to witness DV-ST2b (tag st2b) on C's trigger. **DV-ST2b still needs the owner's "ready" +
   window approval directly to C**, and it does not overlap the open report-submission trace or any cleanup.
+- **Accidental report, A's read-only findings (2026-09-17):**
+  - **NO outbound email or push left the system; nothing was changed.**
+  - **The row:** public.reports 265b0041-88a0-4294-b0b1-699811bfe6d1 (the only report on the sandbox): reporter = DV
+    buyer; target_type listing, target **"Device D7"** (b1c3c478…; seller 2f5844b4; listing active; NOT D8); reason
+    other; notes "Test note abc" (the keyboard capitalized the T); status pending; created 17:31:05.486Z.
+  - **No other writes:** no moderation or queue rows (no ops schema on the sandbox), and the scan since 17:30Z finds
+    only this row.
+  - **Why nothing was sent:** `public.notify_moderation_event` posts only when both the Vault service_role_key and
+    project_url exist, and the sandbox holds project_url only. So no HTTP request was made to any URL, notify-report
+    was never invoked, report_delivery_claim=0, and there are no notify rows. The function has no RESEND_API_KEY or
+    EMAIL_ENABLED, so email would have been skipped anyway. A did not read the edge logs.
+  - **Standing D7 rule:** the report does not retry or modify Device D7's payment state, and the cleanup would not
+    touch D7.
+  - **Cleanup plan (A; NOT executed; needs the owner's explicit go):**
+    - Pre-reads by A and D must match: reports total 1 / pending 1, fields as above; claim 0; queue 0; D7 active; the
+      since-17:30Z scan shows only that row.
+    - One transaction deletes exactly that id with all its field predicates and raises unless exactly 1 row.
+    - Nothing cascades: there are no FKs to reports, and its only trigger is AFTER INSERT.
+    - Post-reads: reports 0; claim 0; queue 0; D7 unchanged; the scan empty.
+    - Stop, with no write, on any pre-read difference.
+    - Left untouched: D7, its seller, the buyer's account and inbox (including F-NOTICE-1), and the pg_net cron rows.
+  - The Preferences check is held until the cleanup is decided, so its preference write cannot confound the scans.
