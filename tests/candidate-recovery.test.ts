@@ -94,7 +94,13 @@ describe('CFT-604 — loading, failed, empty and filtered are distinct on every 
   it('Home: nothing empty during load; failure is a ScreenState; filters get "No matches"', () => {
     const home = stripComments(read('app/(tabs)/home.tsx'));
     expect(home).toContain('data={loading ? [] : filteredListings}');
-    expect(home).toMatch(/ListEmptyComponent=\{\s*loading \? null : loadError \? \(\s*<ScreenState/);
+    // F-HOME-1 widened this contract: the two lazy filter datasets carry their own load state, so the
+    // empty slot now answers to them BEFORE the main feed's loadError. Same rule, one more reader.
+    expect(home).toMatch(/ListEmptyComponent=\{\s*loading \|\| datasetBusy \? null :/);
+    expect(home).toMatch(/datasetFailure === 'screen' && datasetState\?\.error \? \(\s*<ScreenState/);
+    expect(home).toMatch(/\) : loadError \? \(\s*<ScreenState/);
+    // And the settled empty copy is unreachable until that dataset has actually returned something.
+    expect(home).toContain('datasetState && !mayShowEmptyCopy(datasetState) ? null : (');
     expect(home).toContain("activeCount > 0                ? { title: 'No matches', body: 'Try fewer filters.' }");
   });
   it('Bids: skeleton while loading; failure only replaces an EMPTY list; empty copy per segment', () => {
