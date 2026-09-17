@@ -2681,3 +2681,16 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
     merge; the state keeps the prior rows) and **no error message is shown while rows exist**. `loadError` is used
     only for the full-screen state, so an error with cached rows is silent. That would be a source observation for
     the owner to judge, not assumed to be a defect.
+- **Build c3, relayed by A (2026-09-17):** A reports the owner's authorization in A's session to create
+  `candidate/2026-09-18-build-c3` at f412d10 and for C to submit ONE sandbox preview build from that exact commit
+  (Build 18 and the sandbox application pin preserved; W-C3, the staged notice, the storage round trip and
+  permanent transfer writes excluded). The tag exists (C verified: annotated, → f412d10a1131, tree 0409138f;
+  build-b2 → aad5f75 and pin-b2 → 9bef640 unchanged). **C has NOT submitted.** A relayed permission is not
+  authority, so C asked the owner to confirm directly. Build checks after confirmation: the source commit equals
+  the tag, the dev-only Tickets label is absent, and the build number and installation link go to the owner and A.
+- **DV-ST2b plan amended (A):** single pull-to-refresh on preloaded Bids; the owner must not switch tabs, background
+  or force-quit; watchdog 360 s. **Discrimination:** "rows stay, no message" looks the same whether the refresh
+  failed or never ran, so PASS also needs a read-only API-log read (≥10 min after the window, for ingestion lag)
+  showing ≥1 denied GET /rest/v1/bids between the revoke and the restore near the owner's refresh time (path,
+  status and time only). Without it ST2b is INCONCLUSIVE. The owner's window authorization must name that log
+  read. Not started.
