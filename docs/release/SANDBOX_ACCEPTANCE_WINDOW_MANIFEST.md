@@ -715,3 +715,4 @@ Exec tree: detached worktree at `f412d10a11310167fc0227fe58ea189822bec625`, 0 di
   - One transaction re-checks inside itself before deleting: no other report since 17:30Z, D7 md5 equal to the pre-read, report row md5 equal to the pre-read.
   - The delete is keyed; it raises unless exactly 1 row is deleted.
   - Post-reads by A and D use the same state lines.
+- **D's witness scope (D, 17:5xZ):** the cleanup belongs to no approved step or window, and D does not read on a relay. D reads only when the owner names the cleanup to D. A sent D the exact state read (17 lines, md5 `e78ab5a6a3bcf49bcf1999c1335122de`) with the expected values, so D writes the read before looking.
