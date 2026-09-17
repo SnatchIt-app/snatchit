@@ -2625,3 +2625,9 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   15:26:11Z → 15:27:32Z (81 s), inside the watchdog window; the watchdog will log idle at ≈15:32:12Z without
   acting. **Window still open until D's after-read equals D's 15:25:09Z before-read.** The ST2a classification is
   held until the owner answers (force-quit/reopen first? Retry tapped?). ST2b UNTESTED (the buyer has 0 bids).
+- **DV-ST2a: PASS (owner-reported + owner screenshot, Build 18, buyer, online, 2026-09-17 handset 11:26).** The owner
+  confirmed they force-quit and reopened Snatch It before tapping Bids (no preload) and did NOT tap Retry. With
+  the bids SELECT revoked, Bids showed the server-error state ("COULDN'T LOAD THIS" / "Something went wrong on our
+  side. Try again in a moment." + RETRY), never the offline copy. Heading clear of the SANDBOX badge
+  (screenshot). **DV-ST2b (cached rows stay): UNTESTED**, the buyer has 0 bid rows. Retry behaviour under the error
+  not exercised. The window closes on D's after-read matching the before-read (pending at this entry).
