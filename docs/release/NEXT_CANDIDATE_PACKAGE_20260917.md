@@ -165,7 +165,7 @@ bodies still read them. S5's notice row is deleted at its own cleanup, before an
 | **T3 temporary** | DV-ST2a (standing authorization, C's trigger) | `public.bids` relacl | restored and verified immediately |
 | **N no write** | F-NAV-1 (edit listing, report form), F-SELL-2, Event name, F-DT-1, DV-IMG-1, -2, -3a, -6, -7 (picker only; Transfer send and the Sell form are **never submitted**), copy rows, the DV-611C-2 counting half; API probes N1–N4; read probes RT6, U1, RT5-P | none | — |
 | **P permanent** (Line 3) | DV-IMG-4, -5, -9 (+3b) Mark as sent with proof; DV-IMG-10 Add proof | `public.transfers` status, `seller_sent_at`, `auto_release_at` (+72 h), `transfer_evidence_path`; the referenced `proof-docs` object; **`public.notifications` +1 per Mark as sent** (buyer `919d511e…`, type `buyer_confirmation_needed`, dedupe `buyer_confirmation_needed:<transfer id>`); **+0 per Add proof** (the buyer is not told proof was added: a source fact, not a defect claim) | **none possible or proposed.** The state guard and the append-only guard make these one-way; referenced objects are evidence and stay; objects from refused, failed or unconfirmed attempts are retained under the owner's 30-day direction |
-| **P permanent** (Line 2) | cached-bids fixture | `public.bids` +1, D8's counters, seller inbox +1 | not removable; seller cancel (R) or let it end (R′) |
+| ~~P permanent (Line 2)~~ | cached-bids fixture: **WITHDRAWN, not requested** (its premise was wrong; see §8 item 6) | none | — |
 | authorized write | DV-131-1 epoch bump | as already authorized for session 2 | — |
 | reversible own write | F-NAV-1 Preferences row | the owner's own preference toggle | restored in the same row, with A's read-back |
 
@@ -237,8 +237,8 @@ attached proof. The evidence instead is PC3 (the live bodies of both `mark_trans
 **Order (C and B):** PC1–PC8 → picker-only N rows on `3118bd30…` → DV-IMG-4 → N1, N2 → DV-IMG-5 → DV-IMG-9 + 3b → N3 → DV-IMG-10 → N4 →
 RT6 → U1 → RT5-P → close: PC2 and PC3 again, then the closing equation: folder total = PC8 baseline + 4 referenced P objects + listed
 orphans; `rt-%` = 0; an object that fits none of those stops the close. A submitting row that ends uncertain is recorded as it stands;
-any replacement fixture is a new write for the owner, and nothing is re-run on `83b83858…`. No P row, bid fixture or round trip overlaps
-a DV-ST2 revoke window. The bid fixture follows only after C confirms DV-S2 complete.
+any replacement fixture is a new write for the owner, and nothing is re-run on `83b83858…`. No P row or round trip overlaps
+a DV-ST2 revoke window (any ST2b re-run is a new window on the owner's word).
 
 ## 7. Image round-trip evidence checklist (B with A) — ADOPTED
 B's checklist is copied byte-identical to `docs/release/IMAGE_ROUND_TRIP_EVIDENCE_CHECKLIST_20260917.md` (from
