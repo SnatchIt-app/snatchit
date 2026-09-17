@@ -3063,3 +3063,16 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   still unread and undismissed; 9 / 18 / 104); jobs unchanged (claim 0, queue 0, 22 cron, same list md5, pg_net on
   cadence). No HTTP request before or after. D's post-read closes the incident in A's manifest §14. **Handset work may
   resume.** Line 3 unstarted (needs "ready for Line 3"); DV-ST2b may run first on the owner's word.
+- **Build 19 check 3, DV-NAV-2b Settings › Your scene "Still saving" (owner-reported, DV buyer, 2026-09-17): PASS.**
+  Very Bad Network on 14:23 EDT, off 14:24 EDT. The owner changed the Miami Beach preference once, swiped back
+  immediately, **the "Still saving" prompt appeared**, tapped **Wait**, stayed on Your scene, and the save completed.
+  The preference was restored to its original position (the owner's own reversible write, as scoped in Step 0).
+  **Evidence limitation:** the exact prompt title, message and button labels were not captured.
+  **Step 0 status on Build 19:** DV-NAV-1 swipe PASS, Back arrow + repeat PASS; DV-NAV-2a report form Keep writing
+  PASS (with the disclosed accidental submission, since deleted); DV-NAV-2b PASS; F-SELL-2 header spacing PASS on
+  four screens; DV-N-1..3 PASS; DV-611C-2 launch outcomes PASS 2/2 with Try again UNTESTED; DV-ST1 and DV-ST3 per
+  check; DV-ST2a PASS.
+  **Still open:** DV-ST2b (needs the owner's ready + window approval); Line 3 (needs "ready for Line 3", and its own
+  order starts with the picker-only rows on the Transfer send screen); F-SELL-2 on the sign-in screen (next account
+  switch), Place bid and Checkout (bid/reservation risk) and the outbid toast (needs an event); DV-IMG-7 Sell-form
+  picker parity (seller, picker only, no upload); F-DT-1 device row; DV-ST4's VoiceOver half (owner's skip).
