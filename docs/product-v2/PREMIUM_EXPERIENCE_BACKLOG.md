@@ -2965,3 +2965,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
 
   Step 3 closes on D's cleanup read (pending at this entry). Line 3 (Step 4) does not start without the owner's
   separate readiness through C, and it begins with A's PC1–PC8.
+- **Step 3 (staged notice) CLOSED (D's cleanup read 2026-09-17T16:58:13Z agrees with A):** the buyer is back to only
+  the deletion notice (unchanged); notification total 9, delivery 18, queue 0, 2xx 0; every non-timestamp line
+  identical to D's pre-read; there was never a delivery row or queued request for the staged notice. **Summary:**
+  DV-N-1..3 PASS on Build 19; sandbox restored to its pre-write state; F-NOTICE-1 open for the owner's scope
+  decision. Next: the owner chooses Line 3 (needs their separate readiness) or Step 0 rows.
