@@ -251,6 +251,32 @@ describe('F-BIDS-1 · a refresh fails: purchases already shown stay, with a clea
     expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.offline });
   });
 
+  it('offline during the refresh, the purchases read fails (the likely one under a bad network): offline wording', async () => {
+    const host = await loadedWithPurchases();
+    h.network.isOffline = true;
+    await pullToRefresh(host);
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    h.transfers[1]!.resolve({ data: null, error: { message: 'Network request failed' } });
+    await flush();
+    expect(view(host)).toEqual({ rows: 21, notice: BIDS_REFRESH_FAILED_COPY.offline });
+  });
+
+  it('a genuinely empty account whose refresh fails shows the error state, not the empty message', async () => {
+    const host = await mountBids();
+    h.bids[0]!.resolve(OK([]));
+    await flush();
+    h.transfers[0]!.resolve(OK([]));
+    await flush();
+    expect(view(host)).toBe('empty');
+    await pullToRefresh(host);
+    h.bids[1]!.resolve(OK([]));
+    await flush();
+    h.transfers[1]!.resolve(FAIL);
+    await flush();
+    expect(view(host)).toEqual({ state: 'error' });
+  });
+
   it("the notice's Retry refreshes; success clears the notice and shows the new rows", async () => {
     const host = await loadedWithPurchases();
     await pullToRefresh(host);
