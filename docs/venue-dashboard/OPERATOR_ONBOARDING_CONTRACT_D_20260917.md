@@ -373,6 +373,13 @@ Still applied nowhere; outside the marketplace candidate. What changed from `215
 
 ### Amendment text for the owner's signature — PFA-33 (proposed id; A places it in `_governance/POST_FREEZE_AMENDMENTS.md`)
 
+> **SIGNED by the owner, 2026-09-17, in D's conversation:** "I approve and sign PFA-33 at governance commit bf7fd66,
+> amendment checksum 2da381a1… . Record the signed block exactly as defined in the corrected placement note."
+> The signed block is the fenced block below, byte-unchanged. Under A's placement-note rule (fences excluded, no
+> trailing newline, UTF-8) it is md5 2da381a1667b0c9e873b709ff3f1d7ce, 5731 bytes, 59 lines, identical at
+> `release/candidate-20260918 @ bf7fd66`. The governance record is A's to update.
+> Signing PFA-33 does not authorize applying migration 138 (owner ruling 4, same message).
+
 ```
 ID:                          PFA-33 (proposed)
 FROZEN RULES AFFECTED:       RPC §2.1–2.5 (organisation verbs are org-plane: create_organization makes the caller the
