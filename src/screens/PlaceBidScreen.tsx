@@ -21,11 +21,12 @@
  */
 
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
+import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { APP_CONFIG } from '@/src/config/app';
 import {
@@ -40,7 +41,9 @@ import {
 } from '@/src/lib/bid/bidEntry';
 import { hapticConfirm } from '@/src/lib/feedback/haptics';
 import { formatDollars } from '@/src/lib/money';
+import ScreenState from '@/src/components/ScreenState';
 import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/components/ui';
+import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
@@ -61,29 +64,48 @@ export default function PlaceBidScreen({ id }: Props) {
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
+  const [loadError,  setLoadError]  = useState<LoadFailureKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // One submission at a time (CFT-205): a second tap that lands before the
   // re-render disables the button is dropped here, not by React state.
   const flight = useSingleFlight();
 
-  // Fetch current_bid so the floor is always fresh
-  useEffect(() => {
-    supabase
-      .from('listings')
-      .select('current_bid, starting_bid, event_name, venue, ends_at')
-      .eq('id', id)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          setListing(data as Listing);
-          setSelectedBid(data.current_bid + MIN_INCREMENT);
-        }
-        setLoading(false);
-      });
-  }, [id]);
+  const { isOffline } = useNetworkStatus();
+  const offlineRef = useRef(isOffline);
+  offlineRef.current = isOffline;
 
   const minimumBid = minNextBid(listing?.current_bid ?? 0, MIN_INCREMENT);
   const [selectedBid, setSelectedBid] = useState(minimumBid);
+
+  // Fetch current_bid so the floor is always fresh.
+  // F-BID-1: a read that fails — resolved-with-error, thrown, or a row that is not there — must never fall
+  // through to the form. Without a listing the floor comes from `?? 0`, so the screen would state a minimum
+  // it invented and a "Current bid" of $0 on the screen where a bid is committed. A thrown read used to skip
+  // the handler entirely and leave the spinner up for good.
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('listings')
+        .select('current_bid, starting_bid, event_name, venue, ends_at')
+        .eq('id', id)
+        .single();
+      if (error || !data) {
+        setLoadError(classifyLoadFailure(error, offlineRef.current));
+        setLoading(false);
+        return;
+      }
+      setListing(data as Listing);
+      setSelectedBid(data.current_bid + MIN_INCREMENT);
+      setLoadError(null);
+      setLoading(false);
+    } catch (err) {
+      setLoadError(classifyLoadFailure(err, offlineRef.current));
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => { void load(); }, [load]);
 
   // Keep selectedBid in sync if listing loads after state initialises
   useEffect(() => {
@@ -181,6 +203,15 @@ export default function PlaceBidScreen({ id }: Props) {
     return (
       <View style={[s.root, s.centered]}>
         <Spinner color={v2.brand.red} />
+      </View>
+    );
+  }
+
+  // F-BID-1: no listing means no floor, so there is no form to show — the shared state owns the wording.
+  if (loadError || !listing) {
+    return (
+      <View style={s.root}>
+        <ScreenState state={loadError ?? 'error'} onRetry={load} />
       </View>
     );
   }
