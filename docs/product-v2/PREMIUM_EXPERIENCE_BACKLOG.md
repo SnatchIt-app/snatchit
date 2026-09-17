@@ -2551,3 +2551,19 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   counter 2 in the 15:06:09Z window; otherwise silence = FAIL). The slow Home load is recorded with the result
   as an observation, not a pass criterion; whether it is only Very Bad Network or a finding is open until the
   read.
+- **S2-2 launch 2 → registered (A's separate read, server now 2026-09-17T15:11:01Z).** 140fcb44 last_used
+  **15:09:06.746Z** (11:09:06 EDT; 2 min 57 s after launch 1's); active, no revoke, no provider error; one row.
+  Counter **2** in the same 15:06:09Z window, so exactly one more call reached the verb. Same single live buyer
+  session; 0 challenges. No auth refresh gated either launch (refreshed_at null; the only rotation is the
+  14:55:16Z sign-in). **Launch 2: PASS** (registered, server-confirmed; no banner). **Recorded with it:** Home
+  finished loading ≈1 min after reopen (11:08 → 11:09, not measured), and the verb ran at 11:09:06, close to when
+  Home finished. *Source (C, Build 18 aad5f75):* registration starts from the app shell
+  (`useNativeEffects` → `usePushToken(userId)`) once the signed-in user is known. It does not wait for Home's data.
+  It needs the Expo token fetch (bounded at 20 s) and then the RPC, over the same throttled link. The timing is
+  consistent with network delay, but the server records only when the verb ran (A), so the cause is not proven.
+  The ≈1 min Home load is an observation under Very Bad Network, not a finding unless it recurs on a normal network.
+- **DV-611C-2 on Build 18: launch outcomes PASS 2/2** (both throttled cold launches registered and were
+  confirmed server-side; no silence). **"Try again registers": UNTESTED.** No failure banner appeared on either
+  launch, so Try again was never offered. Forcing a failure on Build 18 is confounded: Build 18 re-attempts
+  registration on foreground (296439c is not in it), and under full loss Profile shows its load state without
+  the Settings link. Not claimed as a full row pass.
