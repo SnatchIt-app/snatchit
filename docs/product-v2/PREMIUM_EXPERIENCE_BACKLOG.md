@@ -3708,3 +3708,17 @@ authorization, and C will bring ONE consolidated recommendation once A and D rep
     claim of emptiness. Note the honest limit: that feed is the last successful read, not a fresh one.
   - **Not yet observed. Nothing here is a result**; the owner's report supersedes it either way, and a mismatch means
     the source reading is wrong, not the device.
+- **F-HOME-1 prediction REFINED before observation — a second recovery path, found by A and verified by C at f412d10.**
+  `app/(tabs)/home.tsx:365-371` — `onRefresh()` calls `fetchSoldListings()` / `fetchEndedListings()` for the active
+  chip **unconditionally**, with no once-flag gate. So pull-to-refresh clears the false empty as well as re-selection.
+  - **Revised prediction:** the false empty is sticky against *time* and against leaving and returning to Home, and
+    clears on **either** user action — a pull-to-refresh or a re-selection of the filter.
+  - **Test-design consequence, which is why this mattered before the run, not after:** C's original sequence
+    ("flip to All and back") exercises only one of the two paths. A pull-to-refresh during the passive-watch step would
+    have looked like self-recovery when it is not. The owner's sequence was corrected to watch without pulling, then
+    pull deliberately as its own step.
+  - **Failure is still silent on that path:** `onRefresh` sets `refreshing` true/false around the call, so the gesture
+    shows a spinner, but a failed read still returns early and leaves the settled empty copy with no error. A user who
+    pulls while offline sees a spinner and then the same false "nothing sold yet".
+  - **Severity language agreed with A, replacing "sees real state":** the main feed *never claims emptiness, may be
+    stale, and says so when it cannot read* (`:191-197` classifies its own failures).
