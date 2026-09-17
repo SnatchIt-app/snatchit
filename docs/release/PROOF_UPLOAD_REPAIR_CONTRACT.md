@@ -44,7 +44,8 @@ Redefine both overloads of `public.mark_transfer_sent` from 0553's bodies (rollb
   - `pending` → transition exactly as today (`outcome = transitioned`).
   - `seller_sent` → **no UPDATE at all**, return the recorded result (`outcome = already_sent`, the existing path). This covers
     the lost-response retry with a null path, the same path, **and a different path**: the accepted proof is never replaced
-    (`evidence_replaced` is always false), the second upload is an orphan the client may delete under the owner-delete policy,
+    (`evidence_replaced` is always false), the second upload is an orphan that is RETAINED — the client never deletes, and the
+    owner's direction of 2026-09-17 forbids deleting an unreferenced object without a dry-run and the owner's word (§9/§11),
     and — because nothing is updated — **no notification trigger fires a second time** (pgTAP 207 asserts `public.notifications`
     and `notify.*` counts unchanged across the retry).
   - `seller_sent` with `transfer_evidence_path IS NULL` and a non-null `p` → **not written here**; raise
@@ -66,7 +67,11 @@ DEFINER, `search_path = ''`, `authenticated` only (no `service_role` fallback in
   the guard fires and allows it because `OLD` is null. The append-only rule is untouched; a second attach with a different path
   is refused by the guard itself (`transfer_evidence_path is append-only.`), a second attach with the same path returns
   `already_attached` without writing. **No backfill, no batch:** each attach is one seller's explicit action on one row.
-- **History:** the row's `updated_at` moves and nothing else; no proof is replaced. Whether to enqueue an in-app inbox row for
+- **History (corrected 2026-09-17, B):** `public.transfers` has **no `updated_at` column** — 002:35-68 and every later
+  add-column, and no trigger on the table sets one. An attach therefore writes the path and nothing else, and leaves **no
+  timestamp of its own**: `seller_sent_at` keeps the original mark time, so the storage object's `created_at` is the only
+  record of when proof arrived. Since this is dispute evidence, the sandbox rows record that `created_at` (Line 3). No proof
+  is replaced. Whether to enqueue an in-app inbox row for
   the buyer ("Seller attached proof of transfer", `dedupe transfer_evidence_attached:<id>`) is an owner decision (§7); v1 sends
   nothing, and the buyer's receive screen shows the proof on its next load.
 - **Older clients:** never call it; unaffected. C adds the entry point on the sent/"needs action" screen when the path is null.
@@ -111,10 +116,10 @@ bytes; nothing touches `public.*` tables.
 | RT1 | seller uploads each file to `<seller uid>/transfer-evidence/rt-…` with the byte-derived `contentType`, `upsert:false` | 200 ×3 | owner insert policy; allow-list accepts the true types |
 | RT2 | seller re-uploads the same name | 409 | the duplicate-prevention contract (§4) holds server-side |
 | RT3 | seller signs and downloads each object | 200; bytes sha256 equal; `Content-Type` equals the declared type | owner read; the label survives the round trip |
-| RT4 | buyer attempts a signed URL / download of each object (no transfer references them) | denied (400/403/404 as the API reports) | unrelated-user denial: transfer-party read needs a referencing transfer |
+| RT4 | buyer attempts a signed URL / download of each object (no transfer references them) | denied (400/403/404 as the API reports), and counted only with the seller's successful read of the same name in the same minute, since storage reports an RLS denial as not-found | that the transfer-party read needs a referencing transfer. **NOT unrelated-user denial** (corrected 2026-09-17, B): a policy that had lost its buyer/seller predicate would answer identically here. That check is U1, an authenticated non-party (U2) on a REFERENCED object |
 | RT5 | anonymous client attempts the same | denied | anon has no policy on `proof-docs` |
 | RT6 | buyer access to a **referenced** object | **deferred** — needs a transfer that references the object, i.e. migration 140 applied on the sandbox and one attach; not part of this scope | — |
-| RT7 | seller deletes the three objects (owner delete unreferenced) | 200; `storage.objects` count for the folder back to the pre-count | cleanup cannot touch referenced evidence (none of these are referenced) and leaves no residue |
+| RT7 | seller deletes the three objects (owner delete unreferenced) | 200; the **`rt-%` count** back to 0 (corrected 2026-09-17, B: not the folder total, which Line 3's permanent objects change) | cleanup cannot touch referenced evidence (none of these are referenced) and leaves no residue |
 
 Read-backs by A before and after: `select count(*) from storage.objects where bucket_id='proof-docs' and name like '<seller uid>/transfer-evidence/rt-%'` = 0 → 3 → 0. Abort if the pre-count is not 0, if any status differs from the expectation, or if any object survives RT7. D witnesses the before/after counts. **Authorization line:** "Run RT1–RT5 and RT7 on the sandbox as scoped, A executing, D witnessing."
 
