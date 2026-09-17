@@ -783,3 +783,25 @@ Exec tree: detached worktree at `f412d10a11310167fc0227fe58ea189822bec625`, 0 di
 2. **A matching read is consistent with the correct tap but does not prove it.** If 8f59d37e changes exactly as DV-IMG-10 intends, that is consistent with the right screen having been used and is not proof of it. D's reads establish what changed in the database; the screen evidence is C's and the owner's; this record attributes each half to its source and does not blend them.
 
 **Agreed sequence.** Step 0 (picker-only on "Device D1", plus DV-IMG-7 on the Sell form with **nothing submitted** — creating a listing would be a write outside the approved scope) writes nothing, so D witnesses nothing during it; A reads back to prove zero writes and D takes its own, so the claim has two independent sources. **Before DV-IMG-4, the first permanent row, D takes a fresh read rather than relying on the 20:17/20:22Z pair**, and the owner taps only after it lands. Thereafter D witnesses each row and A releases the next only once that read arrives. Stops unchanged: a queued request naming `notify-transfer`, any 2xx, an executor flipping, the push key appearing, a function body md5 moving, a transfer not in its read state, or 83b83858 changing.
+
+### Line 3 — step 0a (picker-only, Sell form): EXECUTED, ZERO WRITES; and the one row that moved
+
+**Step 0a (C guided, owner's handset, DV seller, Build 19; time and exit-prompt wording not captured):** Cover image opened once and cancelled; three quick taps opened exactly ONE picker; pick "blue 01" → Replace "orange 02" → Remove cleared it; Proof of ownership picked "purple 03". **The owner left without publishing and did not tap List ticket.**
+
+**A's read-back 20:30:22.970Z** (`line3/step0a_readback.log`) and **D's independent read 20:30:02Z** (md5 `77841c4647141f2d4538bdf35d529d14`, identical to its 20:22:33Z read) — **zero writes from step 0a**:
+- `public.listings` 49, all the DV seller's, newest created 2026-09-11T02:01:44Z; **0 created since 18:00Z** — nothing was published from the Sell form.
+- **No object created in ANY storage bucket since 18:00Z**; `proof-docs` holds 0. The picker writes nothing: `uploadImage` runs only inside `runMarkSent`.
+- The five tracked transfers unchanged individually by row md5 (A: 3118bd30 `67fa088f…`, 92ee5156 `b7f90c61…`, bce07eef `9d81f936…`, 8f59d37e `c74e9fd0…`, 83b83858 `d1b36045…`; all 33 transfers `b2547604e893ef73bef936e57e0f7fdd`; D's aggregate of the five `4e955273fabea2ff87732a4e5628b7bf`).
+- Executors false; vault `project_url` only; net queue 0; **2xx 0**; notify.notification 9; notify.delivery 18; buyer inbox 41.
+
+**The moved count: `public.notifications` 104 → 105.** Row `9c2ea626`, recipient **the seller**, type `transfer_viewed` ("Buyer viewed your transfer"), dedupe `transfer_viewed:9869cb08…`, created **18:32:31.953918Z**. `9869cb08…` is a **disputed** transfer on listing "Sandbox L6" created 2026-09-08 and is **not one of the five tracked ids** (membership test FALSE, run by A and again by D). Exactly one `public.notifications` row exists since 18:00Z, so the three `transfer_viewed` rows on tracked transfers all predate today's work and are baseline.
+
+**Attribution, with D's distinction preserved.** A and C attribute it to the owner's buyer-side Bids preload at ~18:32Z, four minutes before the ST2b revoke. **D's stated limit:** D's read cannot distinguish that route from any other that marks a purchase viewed; D records it as "attributed to buyer-side viewing on C/A's account of the session; database evidence: seller-directed, non-tracked, pre-window". This record keeps both halves and does not blend them.
+
+**Two accounting changes, agreed by A and D before the first permanent row:**
+1. **The closing equation keys on the tracked dedupe keys** (`buyer_confirmation_needed:<transfer id>`), **never on gross notification totals** — the seller's inbox moves from ordinary viewing that has nothing to do with Line 3.
+2. **`public.notifications` total is informational at step boundaries**, so a benign row cannot fire as an automatic stop mid-row. **D's condition, adopted: an unexplained increment is ATTRIBUTED, not dismissed** — named dedupe key, recipient, and a membership test against the five tracked ids — and an increment that cannot be attributed that way **is a stop at that boundary**. Informational must not decay into unread.
+
+**Coverage division, stated so neither of us assumes the other covers it:** D's `d_img_witness.sh line3` does **not** read `public.notifications` at all (it reads the buyer inbox and the notify tables); A's read-back is what surfaces this class, and D checks it with a targeted query. D is deliberately not editing its script mid-window, because changing it would break comparability with the reads already taken — the value of the md5 chain.
+
+**Next:** step 0b on 3118bd30 / "Device D1" — DV-IMG-1, -2, -3a (including the no-image Mark as sent, which must stop at "Evidence required" before any network call) and -6 — then A's read-back, D's read, and D's fresh read immediately before DV-IMG-4.
