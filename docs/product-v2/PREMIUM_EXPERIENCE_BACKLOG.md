@@ -2848,3 +2848,9 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
 
   Keep editing and header rows continue (Step 0). Steps 3–4 guidance starts only after the owner's direct
   confirmation and A's go.
+- **Build 19 DV-NAV-1 swipe path (owner, seller, Larger Text + Reduce Motion ON, 2026-09-17 12:14 EDT): Keep editing
+  PASS and Discard PASS (owner-reported, the owner's handset test).** Details not captured: the exact prompt wording
+  and the swipe animation. **NOT covered by this report:** the in-screen Back arrow path, repeated attempts (Keep
+  editing twice, or Keep editing then Discard on a second attempt), the report form and Preferences rows
+  (DV-NAV-2), and D's one-frame residual. The unsaved edit was discarded, so nothing is held. Build 18's F-NAV-1
+  failure is not re-described; this is the Build 19 result.
