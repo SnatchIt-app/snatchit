@@ -3010,3 +3010,8 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
     the system, that breaches "no outbound notification" and the owner is told at once.
   - **Cleanup:** not covered by the four approved actions. A prepares an exact scoped plan without executing; the
     owner gives an explicit go. Line 3 unstarted.
+- **Sequencing, relayed by D (a restriction, not an authorization; not yet confirmed to C directly):** the owner told D
+  "Continue the Build 19 handset checks and the already-approved sandbox work independently. DV-ST2b may run before
+  Line 3, but Line 3 remains a separate irreversible authorization and must not start until I explicitly say 'ready
+  for Line 3.'" D is ready to witness DV-ST2b (tag st2b) on C's trigger. **DV-ST2b still needs the owner's "ready" +
+  window approval directly to C**, and it does not overlap the open report-submission trace or any cleanup.
