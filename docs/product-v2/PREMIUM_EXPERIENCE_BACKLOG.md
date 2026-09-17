@@ -3330,3 +3330,21 @@ Most of the app is already tested; close the remaining gaps efficiently.
 - **Sent to B for the frontend audit (owner's instruction):** the expired-window warning that gates nothing
   (display-only at send/[id].tsx:309 beside a button disabled for a different reason) and the inconsistent "Unknown"
   buyer label (the Send screen's embed fallback versus Profile's email fallback at profile.tsx:229).
+- **N3 PASS (A, 2026-09-17T20:50:53Z), seller JWT over the API:** `mark_transfer_sent(8f59d37e, <seller>, <a path that
+  does not exist>)` → **HTTP 400, P0001, exactly `precondition_failed: transfer already sent without evidence — use
+  attach_transfer_evidence`**. Row identical before and after (md5 c74e9fd0…, still seller_sent, no path,
+  seller_sent_at unchanged); notifications 105 → 105. **A's disclosure:** a first attempt used the wrong parameter
+  names and PostgREST answered 404 PGRST202, so nothing ran; A read the live signature and re-ran. Both attempts are
+  logged — useful for anyone scripting these verbs.
+- **HEIC decision rule, fixed BEFORE the row (A):** stored `ftypheic/heix/mif1` + .heic + image/heic → a stored HEIC,
+  conversion half **UNTESTED** (but the bucket accepting HEIC is worth having); `ffd8ff` + .jpg + image/jpeg **with
+  Camera › Formats = High Efficiency** → **HEIC→JPEG conversion PROVED**; `ffd8ff` with **Most Compatible** → a JPEG
+  that was never HEIC, conversion half **UNTESTED**; **no Formats setting reported → UNTESTED, never inferred**. The
+  setting must be captured before the row; it is unrecoverable from the bytes afterwards.
+- **What A can and cannot prove after the pass:** CAN prove exactly one pending → seller_sent transition per transfer
+  (`seller_sent_at` set once, append-only guard), exactly one object per transfer, the path set once and never
+  replaced, and `buyer_confirmation_needed:<id>` at 1. **CANNOT prove how many client calls were made** — the verb is
+  idempotent, so a retry answers `already_sent` and writes nothing; counting calls needs an API-log read, which
+  **Line 3's approved scope excludes**. So "no transfer took two calls" is recorded as **NOT ESTABLISHED** unless the
+  owner authorizes that read, which is not being asked for now. If the double-success stop condition fires on the
+  phone, it becomes a real question and goes to the owner once, with everything else.
