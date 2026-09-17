@@ -1982,7 +1982,12 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   server's global path clears the ROW's proof so that only a device holding the secret can
   re-plant it, and the 131 session binding (session_id + epoch) is what changes per
   session. Rotation on a server-side proof clear is not a contract requirement C knows of;
-  D asked to confirm from the 128/131 design before it is called expected. Challenges 0.
+  **D confirmed: CONFORMANT** — `PUSH_TOKEN_CONTRACT_V2.md:41` "Generate the device secret
+  once per install", `:62` "rotation does not exist"; V3 silent so V2's rule stands; under
+  v3 the secret is no longer a takeover credential (cross-account register is
+  challenge_required regardless of hash) and forcing rotation would break an in-flight
+  challenge's captured secret_hash. D asked A to carry "rotation does not exist" into V3.
+  Challenges 0.
 - **Populated Tickets, labelled fixture preview delivered (owner ruling via A):**
   `frontend/tickets-sample-label @ 068843f` (from the build tag; +60/−1; no gated file,
   no `supabase/`): `SAMPLE_TICKETS_LABEL = 'Sample tickets — no server data'` and a
@@ -1993,5 +1998,8 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   errors. **Which client shows it:** a development build only (Expo Go / dev client /
   simulator); the recorded local-simulator blocker stands, so verification here is
   source-pinned tests; native rendering needs a dev client. Recorded as **layout
-  evidence, fixture mode, no server data** — never beside CFT-801's server rows. To D
-  for review; head to A; changes no pin.
+  evidence, fixture mode, no server data** — never beside CFT-801's server rows.
+  **D: PASS at 068843f** (rows and label cannot appear apart; one caller of the toggle,
+  inside `__DEV__`; banner keyed on `devFixtures` only — the stronger arrangement, kept
+  and commented); D's non-blocking point taken: label text raised from `micro` to
+  `bodySm` so a screenshot cannot miss it — head now **`ac70643`**; changes no pin.
