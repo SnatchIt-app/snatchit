@@ -2937,3 +2937,7 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   you signing in to another account, there's nothing to do. If not, sign out of all devices."; buttons "SIGN OUT OF
   ALL DEVICES" and "DISMISS" (uppercase button styling). **No device name** (v2, not v1). The owner tapped nothing and
   did not mistake the deletion notice for it. D's read at 16:43:21Z agreed with A's write. Next: DV-N-2.
+- **DV-N-2 (owner-reported, 2026-09-17 12:46 EDT):** tapped Dismiss once on the staged banner. It disappeared with no
+  error shown; nothing else was tapped (not "Sign out of all devices"). Per source, the banner hides until the next
+  load, so the deletion notice is not expected back until a refocus or relaunch. **Result pending A's read-back:**
+  read_at on fb23b20a only, f3abe550 unchanged. DV-N-3 waits for it.
