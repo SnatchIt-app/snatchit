@@ -3239,3 +3239,20 @@ Larger Text at the largest size ON; Reduce Motion ON (since 11:37); Network Link
   open any purchase, each first view writes another `transfer_viewed` row to the seller; C tells A at once if it
   happens mid-sequence.
   Step 0b is clear: DV-IMG-1, -2, -3a, -6 on 3118bd30 / "Device D1"; nothing on "Sandbox L7".
+- **Line 3 step 0b BLOCKED on 3118bd30 / "Device D1" (owner-reported + owner screenshot, Build 19, 2026-09-17 16:34
+  EDT).** The Send tickets screen shows "Transfer window expired"; Buyer "Unknown"; "Buyer must provide delivery info
+  before you can send tickets."; **Mark as sent disabled**; the synthetic "orange 02" selected with its preview
+  visible. The owner stopped and asked that nothing be bypassed.
+  - **Source (Build 19):** the disable is `busy || refreshing || buyerDeliveryMissing`, and `sellerDeliveryMissing` is
+    `!delivery_email && !delivery_phone`, so the blocker is the missing delivery info. The expiry line is display
+    only and disables nothing. "Buyer: Unknown" comes from `transfer.buyer?.display_name || 'Unknown'` via the embed
+    `buyer:profiles!buyer_id(display_name)`; the buyer's own Profile showed "sandbox-buyer", so either that
+    display_name is null or the seller's embed is filtered by RLS — A to read which. (The "no separate queries for
+    profile embeds" ruling stands; this is only a finding if the embed is filtered.)
+  - **NOT recorded as passed:** DV-IMG-3a's no-image "Evidence required" check never ran. The picker observations are
+    recorded separately.
+  - **A asked (read-only) for all four transfers:** delivery_email/phone, expires_at and whether passed,
+    transfer_method, and the buyer display_name as the seller's embed sees it; then to separate missing TEST DATA from
+    app defects. **Any corrective write — the buyer supplying delivery info in the app, a DB write of delivery
+    fields, or extending expires_at — is outside the approved Line 3 scope; A sends options, executes nothing, and the
+    owner decides.**
