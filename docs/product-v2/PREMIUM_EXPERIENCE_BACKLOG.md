@@ -2640,3 +2640,27 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
   - no-match: "Nothing matches" / "Try the venue name, or a shorter word.";
   - Bids: "No active bids" (Active) and "Nothing here yet" (Past);
   - Tickets: "No tickets yet", only if truly empty.
+- **DV-ST3 (owner, Build 18, buyer, online, Larger Text ON, ≈11:31 EDT 2026-09-17; the owner reports taking
+  screenshots, which were not attached in C's session, so this is owner-reported):**
+  - Explore "zqxv": "NOTHING MATCHES" / "Try the venue name, or a shorter word." with a magnifying-glass icon and no
+    Retry: matches the no-match spec.
+  - Bids › Past: "NOTHING HERE YET" / "Ended auctions and completed purchases show up here.", no icon, no Retry.
+  - Tickets: "NO TICKETS YET" / "Tickets you own will show up here.", no icon, no Retry.
+  - Both empty states match "title + sentence, no glyph, no Retry" (and the Build 18 source copy).
+  - Bids › Active is populated, so its empty state was not observed: the chip reads "ACTIVE 21" (per source the
+    chip's number is the needs-action count, not the total); disputed "Sandbox L6" entries show "Paid $110 all
+    in" and "VIEW DISPUTE".
+  - Visible headings clear the SANDBOX badge.
+  - **"Neither shows while a load is in flight": NOT established** (the owner).
+- **Reconciliation, the buyer's "0 bids" vs a populated Bids tab (owner's request; source, Build 18
+  `app/(tabs)/bids.tsx`):** the Bids tab is "Bids and purchases". It reads `public.bids` for the user (A's read: 0
+  rows, correct), then MERGES the buyer's `transfers` (pending / seller_sent / disputed / buyer_confirmed /
+  auto_released). **The 21 visible Active rows are disputed purchases (transfers), not bid records.**
+  Consequences for DV-ST2:
+  - **ST2a mechanism:** the bids query runs first; on its error the load returns BEFORE the transfers merge, so on
+    a fresh launch nothing was on screen and the full error state showed. The disputed purchases were hidden while
+    the bids read failed. That is correct for the row, and recorded as a source observation (a bids-only failure
+    hides purchases), severity unset, not a defect claim.
+  - **ST2b's recorded reason is corrected:** "0 bid rows" did not mean an empty tab. With the tab preloaded (21
+    purchase rows), `loadError && bids.length === 0` keeps the rows on an error, so ST2b WAS testable with this
+    buyer. It stays **UNTESTED** because this window ran no-preload (ST2a) only.
