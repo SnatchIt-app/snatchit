@@ -2736,3 +2736,27 @@ DV-131-2 (challenge path; needs push delivery → deferred with the key).
     code, no regression; c3 verifies F-NAV-1 and F-IMG-1). SHOULD be fixed before production release. Severity
     MEDIUM (misleading state on a purchase with an open dispute). No fix without the owner's scope decision; the
     fix shape is the two probes plus tests for R1, R2 and the refresh path.
+- **Owner decisions (direct, C's session, 2026-09-17):**
+  1. **"I confirm authorization to submit ONE sandbox preview build from candidate/2026-09-18-build-c3 at f412d10…
+     same single build, not authorization for a duplicate."**
+  2. **Implement F-BIDS-1 now on a separate branch for the next candidate:** both premature empty states and
+     purchase-load failures; loading accounts for both requests; failed requests never look like genuine
+     emptiness; previously loaded purchases stay visible on a failed refresh, with a clear failure indication;
+     behavioural tests; D review; reviewed head to A; **c3 unchanged; no other build or deployment.**
+  3. **Test results preserved:** Bids FAILS DV-ST3's no-empty-message-during-loading check; Reduce Motion stays
+     recorded per observation; VoiceOver stays skipped. DV-ST2b is not started (the owner sends "ready" and the
+     window approval separately).
+- **Build c3 submitted by C (2026-09-17 ≈15:5xZ): EAS build `8ebf4d81-2938-41d9-9bfd-6d20e8645325`**
+  (https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/8ebf4d81-2938-41d9-9bfd-6d20e8645325), message
+  "candidate 2026-09-18 build-c3 f412d10".
+  - **Duplicate check before submitting (two independent reads):** C `eas build:list` (all platforms and iOS) and
+    A's own list at ≈15:50Z showed no build for f412d10 or newer than Build 18 in any state; A: A, B and D have
+    never run eas. C re-checked immediately before submitting (latest = 18 / aad5f75).
+  - **Worktree:** clean worktree `/Users/josetascon/snatchit-c3` detached at tag c3 (HEAD f412d10a1131…, 0
+    dirty files after `npm ci`).
+  - **Config:** eas.json, app.json, envGuard, package.json and package-lock identical to Build 18 (aad5f75).
+  - **Dev-only Tickets label:** the only `setDevFixtures` call is inside the `__DEV__` branch
+    (`app/(tabs)/tickets.tsx:118–121`), so a release build cannot turn fixtures or their label on (ac70643
+    rule).
+  - **Pending:** build completion, the build record's commit = f412d10, build number, installation link → owner
+    and A. Build 18 and the sandbox pins untouched.
