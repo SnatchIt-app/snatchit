@@ -241,3 +241,48 @@ deliberately.
 
 No part of this is authorization to apply anything. Onboarding actions remain subject to a named execution
 window, and the assisted first venue is the owner's to open.
+
+---
+
+## Appendix — baselines and constraints, verified mechanically (D, 2026-09-18)
+
+Added after A's rulings of 2026-09-17: ① take (a) with the precheck guard in both directions;
+③ accepted as framed; ② with the owner. 138 carries pgTAP **206**. These are the two things most likely
+to go wrong when 138 is written, so they are established now rather than during the write.
+
+### A.1 The two baselines are confirmed, not assumed
+
+Every migration in the chain was searched for a definition of each of the five objects:
+
+| Object | Defined in | Redefined in | 138 redefines from |
+|---|---|---|---|
+| `ops.action_dispatch` | 115 | **118** | 118's applied body |
+| `ops.action_precheck` | 115 | **118** | 118's applied body |
+| `ops.action_allowed_roles` | 115 | — | 115's body |
+| `ops.action_requires_approval` | 115 | — | 115's body |
+| `ops.audit_write` | 115 | — | 115's body |
+
+No other migration touches any of them, so the rollback restores each object from exactly one place.
+118 also adds `claimed_until` and `attempt` columns to `ops.action`; it does **not** touch either CHECK.
+
+Every onboarding verb likewise has exactly one definition and no later redefinition:
+`create_organization`, `invite_org_member`, `change_org_role`, `set_org_status`, `grant_platform_role`
+in **077**; `create_venue`, `approve_venue` in **078**; `grant_staff_role`, `revoke_staff_role` in **080**.
+
+### A.2 The CHECK constraints are 115's inline, auto-named ones
+
+`action_type` and `subject_kind` are declared inline in 115's `create table`, so PostgreSQL named them
+(`action_action_type_check`, `action_subject_kind_check` by convention). Nothing alters them afterwards.
+
+**Drop them by name WITHOUT `if exists`.** A `drop constraint if exists` that matches nothing does not fail —
+it leaves the old constraint in place, and 138 then applies "successfully" while the first onboarding action
+of a new type is rejected at insert. A bare `drop constraint` fails loudly at migration time, which is the
+correct moment to learn the name is different. Re-add under the same explicit names.
+
+### A.3 The migration proves its own constraint change
+
+Inside 138's `do $chk$` block, before `commit`: insert a row bearing one new `action_type` and one new
+`subject_kind` and assert it succeeds; insert one bearing a bogus `action_type` and assert it is rejected;
+roll both back. A widened constraint that silently admits everything, or still admits nothing new, is the
+failure this catches — and it catches it in the migration rather than in pgTAP 206, where a fixture could
+mask it.
