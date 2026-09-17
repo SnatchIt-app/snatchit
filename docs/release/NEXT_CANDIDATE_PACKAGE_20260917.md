@@ -146,7 +146,7 @@ bodies still read them. S5's notice row is deleted at its own cleanup, before an
 | **T1 temporary** | image round trip RT1–RT5, RT7 (Line 1) | three `storage.objects` rows under `…/transfer-evidence/rt-20260917-*` | deleted at RT7; folder count back to 0; nothing retained |
 | **T2 temporary** | staged security notice (S5, batch plan §3b) → DV-N-1..3 | one `notify.notification` row for the DV buyer (`read_at` set by DV-N-2); 0 delivery rows | deleted by id after DV-N-3; buyer pre-count restored; `notify.delivery` total unchanged |
 | **T3 temporary** | DV-ST2a (standing authorization, C's trigger) | `public.bids` relacl | restored and verified immediately |
-| **N no write** | F-NAV-1, F-SELL-2, Event name, F-DT-1, DV-IMG-1, -2, -3, -6, -7 (picker only: Transfer send and the Sell form are **never submitted**), copy rows, the DV-611C-2 counting half; Line 3b no-write probe | none | — |
+| **N no write** | F-NAV-1, F-SELL-2, Event name, F-DT-1, DV-IMG-1, -2, -3, -6, -7 (picker only: Transfer send and the Sell form are **never submitted**), copy rows, the DV-611C-2 counting half; Line no-write probe NP | none | — |
 | **P permanent** (Line 3) | DV-IMG-4, -5, -9 Mark as sent with proof; DV-IMG-10 Add proof; RT6 reads the attached object | `public.transfers` status, `seller_sent_at`, `auto_release_at` (+72 h), `transfer_evidence_path`; the referenced `proof-docs` object; buyer inbox rows from `trg_notify_transfer_sent` / `trg_notify_transfer_state_inbox` | **none possible or proposed.** The state guard and the append-only guard make these one-way, referenced objects are evidence and stay, and orphans left by refused or failed attempts are retained under the owner's 30-day direction |
 | **P permanent** (Line 2) | cached-bids fixture | `public.bids` +1, D8's counters, seller inbox +1 | not removable; seller cancel (R) or let it end (R′) |
 | authorized write | DV-131-1 epoch bump | as already authorized for session 2 | — |
@@ -170,7 +170,7 @@ P and needs a named transfer, which does not exist without giving up a spare.
 | F-DT-1 | N | does a text-size change apply without a relaunch |
 | DV-IMG-1, -2, -3, -6, -7 | N | picker behaviour, never submitted |
 | DV-IMG-4 | P | `92ee5156…`: airplane mode on after picking → Mark as sent (offline wording, Retry, no success) → off → Mark as sent; A reads back one object, one transition, success only after the verb answers |
-| Line 3b probe | N | after DV-IMG-4, A as the DV seller via the API: 3-arg `mark_transfer_sent` on `92ee5156…` with the same path, then a different path → `already_sent`, row unchanged (md5 of the row), no new inbox row; 3-arg with a path on `8f59d37e…` **before** DV-IMG-10 → `precondition_failed`, row unchanged. This is the only lost-response retry evidence on a real applied database; a handset cannot force a lost response |
+| no-write probe NP | N | after DV-IMG-4, A as the DV seller via the API: 3-arg `mark_transfer_sent` on `92ee5156…` with the same path, then a different path → `already_sent`, row unchanged (md5 of the row), no new inbox row; 3-arg with a path on `8f59d37e…` **before** DV-IMG-10 → `precondition_failed`, row unchanged. This is the only lost-response retry evidence on a real applied database; a handset cannot force a lost response |
 | DV-IMG-5 | P | `bce07eef…`: two quick taps → one upload, one verb call, one success |
 | DV-IMG-9 | P | `3118bd30…`: a HEIC **camera photo** (not a screenshot). A reads back the stored object: magic bytes (`FF D8 FF` JPEG versus `ftyp` HEIC), name extension, Content-Type, sha256. The render is observed by the owner on the iPhone. **The operator console is bound to production and is not a render surface for a sandbox object;** the web receive page counts only if C shows it points to the sandbox, otherwise that half stays UNTESTED. If the bytes are HEIC, the label must say HEIC and the row FAILS outcome 3 |
 | DV-IMG-10 | P | `8f59d37e…`: the Add proof section shows only here → Add proof → `attached` (A reads back the path) → same photo again → `already_attached`, no second object → a different photo → "can't be replaced" (guard refusal; its uploaded object stays as a retained orphan) |
@@ -182,7 +182,7 @@ P and needs a named transfer, which does not exist without giving up a spare.
 | Settings truth (cf94311) · F-2S-1 wording (df5127c) · Tickets label ABSENT in the preview build (ac70643) | N | copy and visibility |
 | DV-ST2a / ST2b | T3 / Line 2 | as authorized / after the fixture |
 | Carried at true status | — | two-session K-2 UNTESTED · row 18 DEFERRED · A11Y-1 UNTESTED · every push-delivery row DEFERRED · HEIC conversion UNVERIFIED until DV-IMG-9 · F-AUTH-2 open (LOW, not blocking) |
-**Order:** N rows first. DV-IMG-4 before the 3b probe; the 3b probe before DV-IMG-10; DV-IMG-10 before RT6. No P row, bid fixture or
+**Order:** N rows first. DV-IMG-4 before probe NP; probe NP before DV-IMG-10; DV-IMG-10 before RT6. No P row, bid fixture or
 round trip ever overlaps a DV-ST2 revoke window. The bid fixture comes only after C confirms DV-S2 complete.
 
 ## 7. Image round-trip verification and evidence checklist (B with A)
@@ -197,7 +197,7 @@ exact scope.
    executing, D witnessing, per §4, with its pre-flight, stopping conditions and rollback."
 3. **Staged notice (temporary):** "Execute the §3b staged-notice write for the DV buyer and delete it after DV-N-3."
 4. **Image round trip (temporary; does not need the build or 140):** Line 1 of `SANDBOX_AUTHORIZATION_LINES_20260917.md`.
-5. **Permanent transfer writes by the device tests:** Line 3 of the same document (with 3b, the no-write probe).
+5. **Permanent transfer writes by the device tests:** Line 3 of the same document (with the no-write probe NP).
 6. **Bid fixture:** Line 2 of the same document.
 **Dependencies:** 1 before any device row · 2 before 3, 5 and RT6 · 4 can run before the build · 6 after C confirms DV-S2 complete.
 Off this candidate's critical path by the owner's ruling: cleanup scheduling, native issuance/scanning, the broader onboarding build

@@ -1,6 +1,6 @@
 # Sandbox authorization lines for the owner (A, 2026-09-17; Line 3 added the same day) — nothing below is executed until the owner speaks it
 
-**Classes (package §5):** Line 1 is TEMPORARY (every object it creates is deleted in the same run). Line 2 and Line 3 are PERMANENT: their rows cannot be removed, only superseded or left to end. Line 3b writes nothing by design but invokes a transfer verb, so it is named separately.
+**Classes (package §5):** Line 1 is TEMPORARY (every object it creates is deleted in the same run). Line 2 and Line 3 are PERMANENT: their rows cannot be removed, only superseded or left to end. probe NP writes nothing by design but invokes a transfer verb, so it is named separately.
 
 Both are **sandbox `ofaidukbieeekqaboscm` only**, both are A-executed with D witnessing, and neither touches production, a
 build, a flag, a secret or an outbound notification. Each is one line to say, plus the constraints it carries.
@@ -45,11 +45,11 @@ screen on the owner's handset, A reading back before and after; retain the row f
 | What it enables | DV-ST2b (cached rows stay on pull-to-refresh under a server error) as a real observation instead of UNTESTED; nothing else |
 
 ---
-## Line 3 — Permanent transfer writes by the next build's device tests (DV-IMG-4, -5, -9, -10), the 3b no-write probe, and RT6
+## Line 3 — Permanent transfer writes by the next build's device tests (DV-IMG-4, -5, -9, -10), the no-write probe NP, and RT6
 
 **Authorization line:** "On the next build, with 140 applied on the sandbox, the owner's handset may mark sandbox transfers
 `92ee5156…`, `3118bd30…` and `bce07eef…` sent with proof and add proof to `8f59d37e…`, as DV-IMG-4, -9, -5 and -10; A reads back and
-runs the 3b no-write probe and RT6; D witnesses. These writes are permanent."
+runs the no-write probe NP and RT6; D witnesses. These writes are permanent."
 
 | Aspect | Exactly |
 |---|---|
@@ -58,10 +58,10 @@ runs the 3b no-write probe and RT6; D witnesses. These writes are permanent."
 | Affected records | per Mark as sent: `public.transfers` status pending→seller_sent, `seller_sent_at`, `auto_release_at` = now + 72 h, `transfer_evidence_path` null→path; one referenced `proof-docs` object under the seller's `transfer-evidence/`; buyer inbox rows from `trg_notify_transfer_sent` / `trg_notify_transfer_state_inbox`. Per Add proof: `transfer_evidence_path` null→path (written with the guard armed); one referenced object; a refused different-photo attempt leaves one unreferenced object |
 | Permanence | **nothing is removed.** The state guard forbids reverting a status, the append-only guard forbids replacing a path, referenced objects are evidence, and unreferenced objects from refused or failed attempts are retained under the owner's 30-day direction (no deletion without a dry-run and the owner's word) |
 | Side effects | inbox rows only. Any outbound attempt must be refused: Vault holds `project_url` only (no `service_role_key`), and `app.settings.*` is unset. **Consequences that outlive the test:** these four transfers become release candidates if either `payout.executor_enabled` (false, read 14:35:00Z) or a Vault `service_role_key` is ever enabled on the sandbox; Add proof removes `8f59d37e…`'s `EVIDENCE_MISSING` reason while its deadline has already passed |
-| 3b no-write probe (A, after DV-IMG-4, before DV-IMG-10) | as the DV seller via the API: `mark_transfer_sent(92ee5156…, <seller>, <same path>)` then `(…, <different path>)` → `already_sent`; the row's md5 and the buyer's inbox count unchanged. `mark_transfer_sent(8f59d37e…, <seller>, <a path>)` → `precondition_failed …use attach_transfer_evidence`; row unchanged. Any write is a stopping condition |
+| no-write probe NP (A, after DV-IMG-4, before DV-IMG-10) | as the DV seller via the API: `mark_transfer_sent(92ee5156…, <seller>, <same path>)` then `(…, <different path>)` → `already_sent`; the row's md5 and the buyer's inbox count unchanged. `mark_transfer_sent(8f59d37e…, <seller>, <a path>)` → `precondition_failed …use attach_transfer_evidence`; row unchanged. Any write is a stopping condition |
 | RT6 (A, after DV-IMG-10) | the buyer signs and downloads `8f59d37e…`'s attached object → 200, sha256 = the seller's upload, magic bytes and Content-Type recorded; an unrelated account and anon → denied |
 | Read-backs (A) | before each row: the transfer's status/path/timestamps; after: one object, one transition (or one attach), the object's sha256 + magic bytes + Content-Type, inbox delta; `net._http_response` no 2xx; executors still false |
-| Stopping conditions | 140 not applied or its S3 read-back not recorded · a named transfer not in its 14:35:00Z state (no silent switch to another transfer; A reports) · any 2xx outbound response · either executor true or a `service_role_key` present in the Vault · the buyer taps Confirm received or Report a problem on a Line 3 transfer · a DV-ST2 revoke window open · CS-1 fails · the 3b probe writes anything · a HEIC-byte object labelled JPEG (record and FAIL DV-IMG-9; continue the other rows only on C's word) |
+| Stopping conditions | 140 not applied or its S3 read-back not recorded · a named transfer not in its 14:35:00Z state (no silent switch to another transfer; A reports) · any 2xx outbound response · either executor true or a `service_role_key` present in the Vault · the buyer taps Confirm received or Report a problem on a Line 3 transfer · a DV-ST2 revoke window open · CS-1 fails · probe NP writes anything · a HEIC-byte object labelled JPEG (record and FAIL DV-IMG-9; continue the other rows only on C's word) |
 | Witness | D: before/after reads of each named transfer with UTC times |
 | What it proves / does not | proves on a real applied database that the client's Mark as sent and Add proof reach 140's verbs, write once, answer retries without writing, and that the stored bytes are what the label says; with the owner's observation, whether a HEIC camera photo arrives as JPEG and renders (outcome 3). It does **not** prove Android (DV-IMG-8), push delivery, payout behaviour, or anything about installed older clients |
 
