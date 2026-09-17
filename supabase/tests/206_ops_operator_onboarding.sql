@@ -3,7 +3,7 @@
 -- audited action framework. Runs as postgres inside BEGIN … ROLLBACK like every
 -- suite here. Contract: docs/venue-dashboard/OPERATOR_ONBOARDING_CONTRACT_D_20260917.md
 BEGIN;
-SELECT plan(171);
+SELECT plan(178);
 -- No tap.seed_core(): it builds listings, and 185's insert guard refuses the
 -- server-controlled columns it writes. This suite needs three identities and
 -- nothing else, so it makes them itself and stays independent of the fixture
@@ -682,6 +682,44 @@ SELECT matches(tap._acckey206('k206-a6-demote', 'k206-a6-demote-acc'), 'owner_ro
 SELECT tap.logout();
 SELECT is(tap._members(tap._org('A5 Customer')), (SELECT string_agg(x, ',' ORDER BY x) FROM unnest(array[tap._CUST1()::text || '=org_owner', tap._CUST2()::text || '=org_owner']) x),
   'I122: both owners are still owners');
+-- A6 stops DEMOTION and OVERWRITE-BY-INVITE of an owner; it does not stop an owner accepting an org_owner invite,
+-- and the maturity clock and audit behaviour of that acceptance are unchanged (owner, 2026-09-17). Without this
+-- positive case an A6 that refused EVERY acceptance by an owner would pass the suite (A, review of 5960b51).
+-- CUST5 is invited at org_owner twice: the first acceptance makes them an owner (no A6 case), the second is the
+-- positive A6 case — an EXISTING owner accepting an org_owner invite.
+CREATE FUNCTION tap._CUST5() RETURNS uuid LANGUAGE sql IMMUTABLE AS $f$ SELECT 'c5c5c5c5-c5c5-c5c5-c5c5-c5c5c5c5c5c5'::uuid $f$;
+INSERT INTO auth.users (id, email, aud, role, created_at)
+VALUES (tap._CUST5(), 'cust.five@example.com', 'authenticated', 'authenticated', now()) ON CONFLICT (id) DO NOTHING;
+SELECT tap.login(tap._CUST2());
+SELECT 'setup: ' || tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.five@example.com', 'org_owner', 'k206-a6-own1') $$);
+SELECT tap.logout(); SELECT tap.login(tap._CUST5());
+SELECT is(tap._acckey206('k206-a6-own1', 'k206-a6-own1-acc'), 'ok', 'I134a: a non-member accepts an org_owner invite and becomes an owner');
+SELECT tap.logout();
+-- now() is frozen inside this transaction, so a reset would be invisible: backdate the row first, as 141 K12 does
+UPDATE kernel.org_member SET granted_at = now() - interval '10 days' WHERE org_id = tap._org('A5 Customer') AND identity_id = tap._CUST5();
+SELECT tap.login(tap._CUST1());
+SELECT 'setup: ' || tap._try206($$ SELECT kernel.invite_org_member(tap._org('A5 Customer'), 'cust.five@example.com', 'org_owner', 'k206-a6-own2') $$);
+SELECT tap.logout(); SELECT tap.login(tap._CUST5());
+SELECT is(tap._acckey206('k206-a6-own2', 'k206-a6-own2-acc'), 'ok',
+  'I134: an EXISTING owner CAN accept an org_owner invite — A6 refuses demotion, not ownership itself');
+SELECT tap.logout();
+SELECT is((SELECT role || '/' || (granted_by = tap._CUST1())::text FROM kernel.org_member WHERE org_id = tap._org('A5 Customer') AND identity_id = tap._CUST5()),
+  'org_owner/true', 'I135: still org_owner, and the row was overwritten as before (granted_by is the second inviter) — unchanged behaviour, kept deliberately');
+SELECT is((SELECT granted_at = now() FROM kernel.org_member WHERE org_id = tap._org('A5 Customer') AND identity_id = tap._CUST5()), true,
+  'I135b: ...and the maturity clock still resets on that acceptance (backdated 10 days, back to now) — the owner kept this behaviour deliberately');
+SELECT is((SELECT count(*)::int FROM kernel.admin_audit WHERE action = 'org.invite.accept' AND subject_id = tap._invkey206('k206-a6-own2'))
+        + (SELECT count(*)::int FROM kernel.admin_audit WHERE action = 'org.role.change' AND subject_id = tap._CUST5()), 1,
+  'I136: the audit is unchanged too — one org.invite.accept row, and acceptance still writes no org.role.change');
+-- the refusal is not about one role label: the same happens at the other lower tiers, in other organisations
+SELECT tap.login(tap._CUST3());
+SELECT 'setup: ' || tap._try206($$ SELECT kernel.invite_org_member(tap._org('Recover One'), 'recover.owner@example.com', 'org_admin', 'k206-a6-adm') $$);
+SELECT matches(tap._acckey206('k206-a6-adm', 'k206-a6-adm-acc'), 'owner_role_change',
+  'I137: an org_admin invite cannot demote the sole owner of the recovered organisation either');
+SELECT tap.logout(); SELECT tap.login(tap._CUST4());
+SELECT 'setup: ' || tap._try206($$ SELECT kernel.invite_org_member(tap._org('Recover Two'), 'rec2.second@example.com', 'org_finance', 'k206-a6-fin') $$);
+SELECT matches(tap._acckey206('k206-a6-fin', 'k206-a6-fin-acc'), 'owner_role_change',
+  'I138: ...nor an org_finance invite, the money tier');
+SELECT tap.logout();
 INSERT INTO kernel.org_invite (org_id, invitee_ref, role, status, invited_by, expires_at, command_idempotency_key)
 VALUES (tap._org206(), 'cust.two@example.com', 'org_marketing', 'pending', tap.seller(), now() + interval '7 days', 'k206-a6-nonowner');
 SELECT tap.login(tap._CUST2());
