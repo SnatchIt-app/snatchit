@@ -99,6 +99,14 @@ describe('the surface (source contract)', () => {
     expect(soBody).toContain('await runExclusive(');
     expect(exclusiveBody).toContain('actionInFlight.current = true;');
     expect(exclusiveBody).toContain('actionInFlight.current = false;');
+    // F-SEC-1-A (A's review): "released exactly once" is the property the evidence asks for, and existence
+    // assertions cannot express it — a later edit adding a second release on a success path would pass them all.
+    // Counted here, so the structural argument has a test: one acquire, one release, one busy-clear in the file.
+    const occurrences = (hay: string, needle: string) => hay.split(needle).length - 1;
+    expect(occurrences(hook, 'actionInFlight.current = true;')).toBe(1);
+    expect(occurrences(hook, 'actionInFlight.current = false;')).toBe(1);
+    expect(occurrences(hook, 'setBusy(false);')).toBe(1);
+    expect(occurrences(hook, 'setBusy(true);')).toBe(1);
     expect(hook).toContain('signOutAllDevices()');
     expect(hook).toContain('SIGN_OUT_FAILED_COPY');
     expect(hook).not.toContain('supabase.auth.signOut(');
