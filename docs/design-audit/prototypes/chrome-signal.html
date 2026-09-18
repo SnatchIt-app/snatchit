@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snatch It — Chrome Signal</title>
+<style>
+/* ===========================================================================
+   Snatch It — Chrome Signal
+   High-fidelity interactive prototype. Local only: no network, no framework,
+   no product code. All artwork is generated in SVG from a seeded PRNG, so the
+   file carries no images and nothing is fetched.
+   =========================================================================== */
+:root{
+  --pageBg:#08090B; --pageInk:#E9EBEF; --pageInk2:rgba(233,235,239,.62); --pageInk3:rgba(233,235,239,.4);
+  --pageLine:rgba(255,255,255,.1); --pagePanel:#0E1013;
+  --dev:1;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{background:
+   radial-gradient(1100px 620px at 50% -180px,#171A20 0%,rgba(10,11,13,0) 70%),
+   radial-gradient(800px 500px at 100% 100%,#121418 0%,rgba(10,11,13,0) 60%),
+   var(--pageBg);
+  color:var(--pageInk);font-family:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
+  min-height:100vh;padding-bottom:4rem}
+
+/* ---------------------------- page chrome ---------------------------- */
+.topbar{position:sticky;top:0;z-index:100;background:rgba(10,11,13,.82);
+  backdrop-filter:saturate(170%) blur(18px);-webkit-backdrop-filter:saturate(170%) blur(18px);
+  border-bottom:1px solid var(--pageLine)}
+.topbar .in{max-width:1380px;margin:0 auto;padding:.6rem 1.1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.wordmark{font-weight:700;font-size:.95rem;letter-spacing:.06em;
+  background:linear-gradient(100deg,#FFFFFF,#AEB6C2 34%,#767E8B 50%,#F2F5F9 68%,#8C94A1);
+  -webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
+.wordmark small{display:block;font-size:.625rem;letter-spacing:.14em;font-weight:600;color:var(--pageInk3);
+  background:none;-webkit-text-fill-color:currentColor}
+.seg{display:inline-flex;border:1px solid rgba(255,255,255,.14);border-radius:999px;overflow:hidden;
+  background:rgba(255,255,255,.03)}
+.seg button{font:inherit;font-size:.75rem;padding:.34rem .74rem;background:transparent;color:var(--pageInk2);
+  border:0;cursor:pointer;white-space:nowrap}
+.seg button+button{border-left:1px solid rgba(255,255,255,.1)}
+.seg button[aria-pressed="true"]{background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.06));
+  color:#fff;font-weight:600}
+.seg button:hover{color:#fff}
+.lbl{font-size:.625rem;letter-spacing:.13em;text-transform:uppercase;color:var(--pageInk3);font-weight:700}
+.tlink{font:inherit;font-size:.75rem;color:var(--pageInk2);background:none;border:0;cursor:pointer;padding:.3rem .1rem}
+.tlink:hover{color:#fff}
+button:focus-visible,a:focus-visible{outline:2px solid #7FA6FF;outline-offset:2px}
+
+main{max-width:1380px;margin:0 auto;padding:1.5rem 1.1rem 0}
+.stagewrap{display:grid;grid-template-columns:minmax(0,auto) minmax(18rem,26rem);gap:2.4rem;align-items:start}
+@media (max-width:1080px){.stagewrap{grid-template-columns:1fr;justify-items:center}:root{--dev:.92}}
+@media (max-width:720px){:root{--dev:.74}}
+@media (max-width:460px){:root{--dev:.58}}
+
+/* ---------------------------- device ---------------------------- */
+.devbox{width:calc(412px * var(--dev));height:calc(866px * var(--dev));flex:0 0 auto}
+.device{width:412px;height:866px;transform:scale(var(--dev));transform-origin:top left;
+  padding:11px;border-radius:54px;position:relative;
+  background:linear-gradient(152deg,#8A919C 0%,#33373E 14%,#0D0E11 42%,#191C21 62%,#6E757F 84%,#2A2D33 100%);
+  box-shadow:0 46px 90px -26px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.07) inset,
+             0 1px 2px rgba(255,255,255,.18) inset}
+.device::after{content:'';position:absolute;inset:11px;border-radius:43px;pointer-events:none;
+  box-shadow:0 0 0 1px rgba(0,0,0,.9), 0 0 0 2px rgba(255,255,255,.05)}
+.btn-side{position:absolute;width:3px;border-radius:2px;background:linear-gradient(180deg,#6d737d,#2b2e34)}
+.btn-side.v1{left:-3px;top:170px;height:58px}
+.btn-side.v2{left:-3px;top:242px;height:58px}
+.btn-side.pw{right:-3px;top:206px;height:92px}
+
+.screen{width:390px;height:844px;border-radius:43px;overflow:hidden;position:relative;
+  background:var(--canvas);display:flex;flex-direction:column;isolation:isolate}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:106px;height:30px;border-radius:999px;
+  background:#000;z-index:60;box-shadow:0 0 0 1px rgba(255,255,255,.05)}
+
+/* ---------------------------- phone design system ---------------------------- */
+.screen{
+  --canvas:#08090A; --surf:#0F1114; --surf2:#15181C; --surfUp:#1B1F24;
+  --ink:#F4F6F8; --ink2:rgba(244,246,248,.7); --ink3:rgba(244,246,248,.48); --ink4:rgba(244,246,248,.3);
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+  --red:#FF1A1A; --redDeep:#D90B0B; --amber:#F5A524; --green:#39D98A; --blue:#7FA6FF;
+  --safeTop:46px; --safeBot:20px;
+  --s1:4px; --s2:6px; --s3:9px; --s4:12px; --s5:16px; --s6:22px; --pad:15px;
+  --tHero:21px; --tTitle:16px; --tName:14.5px; --tBody:13px; --tSm:11.5px; --tMicro:10px;
+  --tPrice:16px; --tPriceBig:22px;
+  --rowPad:10px; --fName:ui-sans-serif,-apple-system,"SF Pro Display",Inter,system-ui,sans-serif;
+  --wName:600; --lsName:-.01em;
+  font-family:ui-sans-serif,-apple-system,"SF Pro Text",Inter,system-ui,sans-serif;
+  color:var(--ink);-webkit-font-smoothing:antialiased}
+
+/* variant tokens */
+.screen[data-v="editorial"]{--s3:10px;--s4:14px;--s5:19px;--s6:26px;--rowPad:13px;
+  --fName:"SF Pro Display",ui-sans-serif,system-ui;--wName:600;--lsName:-.02em}
+.screen[data-v="utility"]{--s3:7px;--s4:10px;--s5:13px;--s6:17px;--rowPad:8px;--tName:13.5px}
+
+/* --- status bar, sandbox ribbon, dock --- */
+.statusbar{position:absolute;top:0;left:0;right:0;height:var(--safeTop);z-index:50;pointer-events:none;
+  display:flex;align-items:center;justify-content:space-between;padding:14px 26px 0;font-size:12.5px;font-weight:600;
+  letter-spacing:.01em;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.statusbar .right{display:flex;gap:5px;align-items:center}
+.sbars{display:flex;gap:1.5px;align-items:flex-end;height:9px}
+.sbars i{width:2.5px;background:#fff;border-radius:1px}
+.sbars i:nth-child(1){height:4px}.sbars i:nth-child(2){height:6px}.sbars i:nth-child(3){height:8px}.sbars i:nth-child(4){height:9px}
+.batt{width:21px;height:10px;border:1px solid rgba(255,255,255,.75);border-radius:3px;position:relative;padding:1.4px}
+.batt::after{content:'';position:absolute;right:-3px;top:3px;width:1.6px;height:4px;background:rgba(255,255,255,.55);border-radius:0 1px 1px 0}
+.batt b{display:block;height:100%;width:74%;background:#fff;border-radius:1.2px}
+
+.ribbon{position:absolute;top:var(--safeTop);left:0;right:0;z-index:45;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:3px 0;font-size:9.5px;font-weight:700;letter-spacing:.16em;
+  color:#FFCF8A;background:linear-gradient(180deg,rgba(122,59,0,.96),rgba(78,38,0,.96));
+  border-bottom:1px solid rgba(255,207,138,.22)}
+.ribbon i{width:4px;height:4px;border-radius:999px;background:#FFCF8A;display:block}
+
+.dock{flex:0 0 auto;position:relative;z-index:30;padding:7px 8px calc(var(--safeBot) - 4px);
+  background:rgba(12,13,15,.72);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);
+  display:flex;justify-content:space-around;align-items:stretch}
+.dock::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.26) 22%,rgba(255,255,255,.1) 55%,transparent)}
+.dock button{flex:1;background:none;border:0;cursor:pointer;color:rgba(244,246,248,.5);display:flex;flex-direction:column;
+  align-items:center;gap:3px;padding:5px 0 3px;font:inherit;position:relative;border-radius:10px}
+.dock button s{text-decoration:none;font-size:9.5px;letter-spacing:.01em;font-weight:500}
+.dock button svg{width:21px;height:21px;display:block}
+.dock button:hover{color:var(--ink2)}
+.dock button[aria-current="page"]{color:var(--ink)}
+.dock button[aria-current="page"]::after{content:'';position:absolute;top:0;width:16px;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(255,255,255,.1),#EDF1F6,rgba(255,255,255,.1))}
+.dock .badge{position:absolute;top:2px;left:calc(50% + 7px);min-width:15px;height:15px;padding:0 4px;border-radius:999px;
+  background:linear-gradient(180deg,#F4F7FA,#B9C0CA);color:#0B0C0E;font-size:9px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:128px;height:4.5px;border-radius:999px;
+  background:rgba(255,255,255,.28);z-index:45}
+
+/* --- layout --- */
+.view{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column}
+.scroller{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.scroller::-webkit-scrollbar{display:none}
+.pad{padding:0 var(--pad)}
+.stack{display:flex;flex-direction:column}
+.hdr{flex:0 0 auto;z-index:35;padding:calc(var(--safeTop) + 25px) var(--pad) 10px;display:flex;align-items:center;gap:10px;
+  background:rgba(12,13,15,.76);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  position:relative}
+.hdr.plain{padding-top:calc(var(--safeTop) + 25px)}
+.hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent)}
+.hdr h1{font-family:var(--fName);font-weight:var(--wName);font-size:var(--tTitle);line-height:1.25;letter-spacing:var(--lsName)}
+.iconbtn{width:30px;height:30px;flex:0 0 30px;border-radius:999px;border:1px solid var(--line2);
+  background:rgba(255,255,255,.06);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  padding:0;position:relative}
+.iconbtn::after{content:'';position:absolute;inset:-7px}  /* 44px hit area behind a 30px ring */
+.iconbtn:hover{background:rgba(255,255,255,.12)}
+.iconbtn:active{transform:translateY(.5px)}
+.iconbtn svg{width:15px;height:15px}
+.spacer{margin-left:auto}
+
+/* --- type --- */
+.hero-title{font-family:var(--fName);font-weight:var(--wName);font-size:var(--tHero);line-height:1.15;letter-spacing:-.02em}
+.name{font-family:var(--fName);font-weight:var(--wName);font-size:var(--tName);line-height:1.3;letter-spacing:var(--lsName)}
+.body{font-size:var(--tBody);line-height:1.42;color:var(--ink2)}
+.body.ink{color:var(--ink)}
+.sm{font-size:var(--tSm);line-height:1.4;color:var(--ink3)}
+.micro{font-size:var(--tMicro);line-height:1.3;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+.num{font-variant-numeric:tabular-nums}
+.price{font-size:var(--tPrice);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.price-lg{font-size:var(--tPriceBig);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.025em;line-height:1.05}
+.price-sm{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* --- artwork --- */
+.art{position:relative;overflow:hidden;background:#101114;flex:0 0 auto;display:block}
+.art svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.art .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 26%,rgba(0,0,0,0) 40%,rgba(0,0,0,.88) 100%)}
+.art .sheen{position:absolute;inset:0;background:linear-gradient(118deg,rgba(255,255,255,.1) 0%,rgba(255,255,255,0) 28%,rgba(255,255,255,0) 72%,rgba(255,255,255,.05) 100%);mix-blend-mode:screen}
+.art .over{position:absolute;left:0;right:0;bottom:0;padding:var(--pad)}
+.art.sq{border-radius:0}
+
+/* --- chrome details (used selectively) --- */
+.edge{position:relative}
+.edge::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3) 25%,rgba(255,255,255,.08) 62%,transparent)}
+.rule{height:1px;background:linear-gradient(90deg,rgba(255,255,255,.02),rgba(255,255,255,.18),rgba(255,255,255,.02))}
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+  border:1px solid var(--line);padding:var(--s4)}
+.panel.deep{background:var(--surf);border-color:var(--line)}
+.glass{background:rgba(22,24,28,.7);backdrop-filter:saturate(170%) blur(20px);-webkit-backdrop-filter:saturate(170%) blur(20px)}
+
+/* money screens and the console run a denser rhythm than discovery */
+.txn{--rowPad:8px;--s5:13px;--s6:18px}
+/* --- rows --- */
+.rows{display:flex;flex-direction:column}
+.kv{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:var(--rowPad) 0;
+  border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv .k{font-size:var(--tSm);color:var(--ink3);white-space:nowrap}
+.kv .v{font-size:var(--tSm);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.kv .v.price{font-size:var(--tPrice)}
+.kv .v.price-sm{font-size:13px}
+.listrow{display:flex;gap:11px;align-items:center;padding:var(--rowPad) 0;border-bottom:1px solid var(--line);
+  background:none;border-left:0;border-right:0;border-top:0;width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}
+.listrow:last-of-type{border-bottom:0}
+.listrow:hover{background:rgba(255,255,255,.028)}
+.listrow:active{background:rgba(255,255,255,.055)}
+.listrow .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.listrow .right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:0 0 auto}
+.chev{color:rgba(244,246,248,.4);font-size:15px;line-height:1}
+.trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* --- chips / pills / states --- */
+.chiprow{display:flex;gap:7px;overflow-x:auto;padding:0 var(--pad);scrollbar-width:none}
+.chiprow::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--ink2);
+  font-size:var(--tSm);padding:5px 11px;border-radius:999px;cursor:pointer;font:inherit;font-size:var(--tSm);white-space:nowrap}
+.chip:hover{background:rgba(255,255,255,.09);color:var(--ink)}
+.chip[aria-pressed="true"]{background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.07));
+  border-color:rgba(255,255,255,.3);color:#fff;font-weight:600}
+.chip.icon{display:inline-flex;align-items:center;gap:5px}
+.chip.icon svg{width:12px;height:12px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:var(--tMicro);font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--ink2);
+  background:rgba(255,255,255,.05);white-space:nowrap}
+.pill.ok{color:#8CF0BE;border-color:rgba(57,217,138,.32);background:rgba(57,217,138,.1)}
+.pill.warn{color:#FFD08A;border-color:rgba(245,165,36,.34);background:rgba(245,165,36,.1)}
+.pill.info{color:#B9CCFF;border-color:rgba(127,166,255,.32);background:rgba(127,166,255,.1)}
+.pill.glassy{background:rgba(8,9,11,.62);border-color:rgba(255,255,255,.24);color:#fff}
+
+.livedot{width:6px;height:6px;border-radius:999px;background:#EEF2F7;box-shadow:0 0 0 3px rgba(238,242,247,.14);flex:0 0 auto}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:var(--tSm);color:var(--ink);font-weight:600;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.soon{display:inline-flex;align-items:center;gap:5px;font-size:var(--tMicro);font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:#1A1204;background:linear-gradient(180deg,#FFC658,#F5A524);padding:3px 8px;border-radius:999px;
+  white-space:nowrap}
+.endedtag{font-size:var(--tSm);color:var(--ink3);white-space:nowrap}
+.meter{height:2px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden}
+.meter i{display:block;height:100%;background:linear-gradient(90deg,rgba(238,242,247,.35),#EEF2F7)}
+
+/* --- notices --- */
+.notice{display:flex;gap:10px;padding:var(--s4);background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.018));
+  border:1px solid var(--line);border-left-width:2px;border-left-color:var(--line2)}
+.notice.info{border-left-color:var(--blue)}
+.notice.warn{border-left-color:var(--amber)}
+.notice.ok{border-left-color:var(--green)}
+.notice h4{font-size:var(--tBody);font-weight:650;line-height:1.35}
+.notice .body{margin-top:2px}
+
+/* --- actions --- */
+.sticky{flex:0 0 auto;position:relative;z-index:32;padding:10px var(--pad) 12px;
+  background:rgba(12,13,15,.76);backdrop-filter:saturate(180%) blur(22px);-webkit-backdrop-filter:saturate(180%) blur(22px);
+  display:flex;flex-direction:column;gap:7px}
+.sticky::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent)}
+.act{width:100%;border:0;cursor:pointer;font:inherit;font-size:var(--tBody);font-weight:700;color:#000;
+  background:linear-gradient(180deg,#FF3B3B,#E00E0E);padding:11px 14px;min-height:46px;border-radius:2px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  box-shadow:0 1px 0 rgba(255,255,255,.32) inset,0 -1px 0 rgba(0,0,0,.25) inset,0 10px 24px -12px rgba(255,26,26,.75)}
+.act:hover{filter:brightness(1.06)}
+.act:active{transform:translateY(1px);filter:brightness(.97)}
+.act .s2{font-weight:500;font-size:var(--tSm);opacity:.82}
+.act[disabled]{background:linear-gradient(180deg,#232529,#1A1C20);color:var(--ink4);box-shadow:none;cursor:not-allowed}
+.act[disabled] .s2{opacity:1;color:var(--ink4)}
+.act.sec{background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,.04));color:var(--ink);font-weight:600;
+  border:1px solid var(--line2);box-shadow:0 1px 0 rgba(255,255,255,.14) inset}
+.act.ghost{background:none;border:0;box-shadow:none;color:var(--ink3);font-weight:500;min-height:36px}
+.act.ghost:hover{color:var(--ink)}
+.act.danger{background:none;border:1px solid rgba(255,77,77,.42);color:#FF6B6B;box-shadow:none;font-weight:650}
+.act.danger:hover{background:rgba(255,77,77,.1)}
+.act.busy{background:linear-gradient(180deg,#2A2D32,#1E2126);color:var(--ink2);box-shadow:none;cursor:default}
+.spin{width:13px;height:13px;border-radius:999px;border:2px solid rgba(255,255,255,.22);border-top-color:#fff;display:inline-block}
+.motion .spin{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* --- timeline --- */
+.steps{display:flex;flex-direction:column}
+.step{display:flex;gap:11px;align-items:flex-start}
+.step .mk{width:13px;flex:0 0 13px;display:flex;flex-direction:column;align-items:center;align-self:stretch}
+.step .mk b{width:8px;height:8px;border-radius:999px;background:#2A2E34;margin-top:4px;flex:0 0 auto;
+  box-shadow:0 0 0 1px rgba(255,255,255,.1)}
+.step .mk i{flex:1;width:1px;background:var(--line);min-height:12px}
+.step:last-child .mk i{display:none}
+.step.done .mk b{background:linear-gradient(180deg,#5FE8A6,#2FBF77);box-shadow:0 0 0 1px rgba(57,217,138,.35)}
+.step.now .mk b{background:linear-gradient(180deg,#EDF1F6,#AAB2BE);box-shadow:0 0 0 3px rgba(238,242,247,.16)}
+.step .tx{padding-bottom:var(--s3);display:flex;flex-direction:column;gap:1px;min-width:0}
+.step.now .tx .body{color:var(--ink)}
+
+/* --- status rail: four nodes, real timestamps, no second telling of the same fact --- */
+.rail{display:grid;grid-template-columns:repeat(4,1fr);padding:3px 0 1px}
+.railcol{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;position:relative;min-width:0;padding:0 2px}
+.railcol .d{width:9px;height:9px;border-radius:999px;background:#2A2E34;box-shadow:0 0 0 1px rgba(255,255,255,.1);
+  z-index:2;flex:0 0 auto}
+.railcol.done .d{background:linear-gradient(180deg,#5FE8A6,#2FBF77);box-shadow:0 0 0 1px rgba(57,217,138,.35)}
+.railcol.now .d{background:linear-gradient(180deg,#EDF1F6,#AAB2BE);box-shadow:0 0 0 3px rgba(238,242,247,.18)}
+.railcol::before,.railcol::after{content:'';position:absolute;top:4px;height:1px;background:var(--line)}
+.railcol::before{left:0;right:50%}
+.railcol::after{left:50%;right:0}
+.railcol:first-child::before,.railcol:last-child::after{display:none}
+.railcol.done::before,.railcol.done::after{background:rgba(57,217,138,.4)}
+.railcol.now::before{background:rgba(57,217,138,.4)}
+.railL{font-size:10px;line-height:1.2;font-weight:650;color:var(--ink3);letter-spacing:.01em}
+.railcol.done .railL,.railcol.now .railL{color:var(--ink)}
+.railD{font-size:9.5px;line-height:1.2;color:var(--ink3);font-variant-numeric:tabular-nums}
+
+/* --- switch --- */
+.sw{width:38px;height:22px;border-radius:999px;border:1px solid var(--line2);background:rgba(255,255,255,.07);
+  position:relative;cursor:pointer;flex:0 0 auto;padding:0}
+.sw b{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;
+  background:linear-gradient(180deg,#F6F8FA,#C3C9D2);box-shadow:0 1px 2px rgba(0,0,0,.5)}
+.sw[aria-pressed="true"]{background:linear-gradient(180deg,#4B5159,#2C3037);border-color:rgba(255,255,255,.3)}
+.sw[aria-pressed="true"] b{left:18px}
+.motion .sw b{transition:left .16s cubic-bezier(.22,1,.36,1)}
+.sw[disabled]{opacity:.5;cursor:not-allowed}
+
+/* --- segmented --- */
+.segbar{display:flex;padding:2px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line);gap:2px}
+.segbar button{flex:1;font:inherit;font-size:var(--tSm);font-weight:600;padding:6px 0;border:0;border-radius:999px;
+  background:none;color:var(--ink3);cursor:pointer}
+.segbar button[aria-pressed="true"]{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.09));
+  color:#fff;box-shadow:0 1px 0 rgba(255,255,255,.18) inset}
+
+/* --- ticket pass --- */
+.pass{position:relative;background:linear-gradient(180deg,#191C21,#101216);border:1px solid var(--line);overflow:hidden}
+.pass .top{height:96px;position:relative;overflow:hidden}
+.pass .perf{position:relative;height:1px;background:repeating-linear-gradient(90deg,var(--line2) 0 6px,transparent 6px 12px)}
+.pass .perf::before,.pass .perf::after{content:'';position:absolute;top:-7px;width:14px;height:14px;border-radius:999px;
+  background:var(--canvas);box-shadow:0 0 0 1px var(--line) inset}
+.pass .perf::before{left:-7px}.pass .perf::after{right:-7px}
+.pass .bd{padding:var(--s4);display:flex;gap:var(--s4);align-items:center}
+.qr{width:62px;height:62px;flex:0 0 62px;background:#F4F6F8;padding:5px;border-radius:2px}
+.qr svg{width:100%;height:100%;display:block}
+
+/* --- sheets / overlays --- */
+.overlay{position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;justify-content:flex-end}
+.scrim2{position:absolute;inset:0;background:rgba(4,4,6,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  border:0;padding:0;cursor:pointer}
+.sheet{position:relative;background:rgba(20,22,26,.86);backdrop-filter:saturate(180%) blur(28px);
+  -webkit-backdrop-filter:saturate(180%) blur(28px);border-top:1px solid rgba(255,255,255,.16);
+  border-radius:20px 20px 0 0;padding:10px var(--pad) calc(var(--safeBot) + 6px);max-height:86%;overflow-y:auto}
+.sheet::before{content:'';display:block;width:36px;height:4px;border-radius:999px;background:rgba(255,255,255,.22);
+  margin:0 auto 12px}
+.motion .sheet{animation:sheetin .26s cubic-bezier(.22,1,.36,1)}
+@keyframes sheetin{from{transform:translateY(14px);opacity:.6}to{transform:none;opacity:1}}
+.motion .scrim2{animation:fade .2s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet h3{font-family:var(--fName);font-size:var(--tTitle);font-weight:var(--wName);letter-spacing:var(--lsName)}
+
+/* --- screen transition (motion only) --- */
+.motion .viewfx{animation:rise .2s cubic-bezier(.22,1,.36,1)}
+@keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.motion .flash{animation:flash .42s cubic-bezier(.22,1,.36,1)}
+@keyframes flash{0%{opacity:.35}100%{opacity:1}}
+.motion .artfx{animation:fade .22s ease}
+
+/* ---------------------------- page sections ---------------------------- */
+.side{position:sticky;top:5.2rem;display:flex;flex-direction:column;gap:1rem;padding-top:.25rem}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+  border:1px solid var(--pageLine);padding:1rem 1.1rem;border-radius:3px;position:relative}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.26) 25%,rgba(255,255,255,.06) 70%,transparent)}
+.card h2{font-size:.95rem;font-weight:650;letter-spacing:-.01em;margin-bottom:.35rem}
+.card h3{font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--pageInk3);margin:.9rem 0 .3rem}
+.card p{font-size:.8125rem;line-height:1.56;color:var(--pageInk2)}
+.card p+p{margin-top:.5rem}
+.card ul{margin:.4rem 0 0 1rem;font-size:.8125rem;line-height:1.55;color:var(--pageInk2)}
+.card li{margin-bottom:.28rem}
+.card b{color:var(--pageInk);font-weight:650}
+.kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.75rem;background:rgba(255,255,255,.07);
+  padding:.06rem .3rem;border-radius:2px;color:var(--pageInk)}
+section.block{max-width:1380px;margin:3.2rem auto 0;padding:0 1.1rem;scroll-margin-top:5rem}
+section.block>h2{font-size:1.25rem;font-weight:650;letter-spacing:-.015em;margin-bottom:.3rem}
+section.block>p.intro{font-size:.875rem;line-height:1.6;color:var(--pageInk2);max-width:52rem;margin-bottom:1.2rem}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:1rem}
+.cmp{display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start}
+.cmpunit{display:flex;flex-direction:column;gap:.55rem;width:calc(390px * .56)}
+.cmpframe{width:calc(390px * .56);height:calc(844px * .56);overflow:hidden;border:1px solid var(--pageLine);
+  border-radius:14px;position:relative;box-shadow:0 18px 40px -22px #000}
+.cmpframe .screen{transform:scale(.56);transform-origin:top left;border-radius:0}
+.cmplabel{font-size:.75rem;font-weight:650}
+.cmplabel s{display:block;text-decoration:none;font-weight:400;color:var(--pageInk3);font-size:.6875rem;margin-top:.1rem}
+table.t{width:100%;border-collapse:collapse;font-size:.8125rem;margin-top:.6rem}
+table.t th,table.t td{text-align:left;padding:.45rem .55rem;border-bottom:1px solid var(--pageLine);vertical-align:top;
+  color:var(--pageInk2)}
+table.t th{font-size:.6875rem;letter-spacing:.09em;text-transform:uppercase;color:var(--pageInk3);font-weight:700}
+table.t td b{color:var(--pageInk)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style></head>
+<body>
+<!-- shared SVG filters for the generated artwork -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/>
+    <feColorMatrix type="saturate" values="0"/></filter>
+  <filter id="soft"><feGaussianBlur stdDeviation="26"/></filter>
+  <filter id="soft2"><feGaussianBlur stdDeviation="9"/></filter>
+</defs></svg>
+
+<header class="topbar">
+ <div class="in">
+  <div class="wordmark">SNATCH IT<small>Chrome Signal · prototype</small></div>
+  <span class="lbl">Direction</span>
+  <div class="seg" id="variantSeg" role="group" aria-label="Design direction"></div>
+  <span class="lbl">Motion</span>
+  <div class="seg" id="motionSeg" role="group" aria-label="Motion preference"></div>
+  <div class="spacer"></div>
+  <button class="tlink" data-jump="rationale">Rationale</button>
+  <button class="tlink" data-jump="compare">Comparison</button>
+  <button class="tlink" data-jump="recommendation">Recommendation</button>
+ </div>
+</header>
+
+<main>
+ <h1 class="sr">Snatch It — Chrome Signal interactive prototype</h1>
+ <div class="stagewrap">
+  <div class="devbox">
+   <div class="device">
+    <span class="btn-side v1"></span><span class="btn-side v2"></span><span class="btn-side pw"></span>
+    <div class="screen" id="screen" data-v="signal"></div>
+    <div class="island"></div>
+   </div>
+  </div>
+  <aside class="side">
+   <div class="card" id="noteCard"></div>
+   <div class="card">
+    <h2>Try it</h2>
+    <ul>
+     <li>Tap the hero or any event row to open a listing, then <b>Place bid</b> — the sheet runs a real confirm → working → success sequence.</li>
+     <li><b>Filters</b> on Home and a <b>bid status</b> row on Bids open the two glass overlays.</li>
+     <li>Run a transfer end to end: <b>Send</b> → Mark as sent, then <b>Receive</b> → Confirm receipt, then <b>Checkout</b> → Pay.</li>
+     <li>Switch <b>Motion</b> to <span class="kbd">Full</span> to preview the transitions. Reduce Motion is the default, exactly as it would ship.</li>
+    </ul>
+   </div>
+  </aside>
+ </div>
+</main>
+
+<section class="block" id="rationale">
+ <h2>Design rationale</h2>
+ <p class="intro">Every surface, accent and motion decision below exists for a stated reason. Where a choice reverses
+  something from an earlier exploration, the reversal is named rather than quietly applied.</p>
+ <div class="grid3">
+  <div class="card"><h2>Foundation</h2>
+   <p>Deep black <b>#08090A</b> for the canvas and charcoal <b>#0F1114 / #15181C</b> for raised surfaces. Panels are
+    lifted with a 4% white wash rather than a border, so a screen reads as layers of light instead of a stack of boxes.
+    Radius stays at 0 for content and pill for chips — the approved identity, untouched.</p>
+   <h3>Why not more borders</h3>
+   <p>A border around every container is what made the earlier work read flat: everything sat on the same plane with
+    outlines doing the separating. Here separation comes from a hairline, a wash, or nothing at all.</p></div>
+  <div class="card"><h2>Chrome, used selectively</h2>
+   <p>The metallic language appears in exactly four places: the wordmark, the 1&nbsp;px top edge on the navigation bar,
+    the sticky action bar and the dock, the selected-tab indicator, and the inner highlight on the primary button. That
+    is the whole budget.</p>
+   <h3>Why so little</h3>
+   <p>Chrome reads as precision only while it is rare. On every element it becomes texture, and the artwork — which is
+    the actual product — has to fight it.</p></div>
+  <div class="card"><h2>Glass, where it earns depth</h2>
+   <p>Blur is on navigation and overlay surfaces only: the top bar, the dock, the sticky action bar, the floating
+    back and photo controls, and the two sheets. Nothing in the content layer is blurred — the label over the hero is a
+    plain translucent plate, not glass.</p>
+   <h3>Why</h3>
+   <p>Apple's own guidance keeps Liquid Glass in the navigation layer and out of the content layer. Chrome over artwork
+    is also a contrast lottery; a scrim is a promise you can keep, and the app already renders one.</p></div>
+  <div class="card"><h2>Red — and what changed</h2>
+   <p>Red appears in <b>two</b> roles only: the single filled primary action on a screen, and destructive states,
+    which are outlined rather than filled. Text on red is pure black at 5.4:1 — measured, because the near-black I
+    started with came out at 4.08:1 and failed AA at this weight. The dock's bid count used to be red and is now
+    chrome: it is neither an action nor a danger, so it had no claim on the colour.</p>
+   <h3>The reversal</h3>
+   <p>Earlier explorations let the under-fifteen-minute auction pill be red. It is gone. Urgency now escalates
+    white → amber, so nothing in discovery can be mistaken for something you can press. Red means <i>you are about to
+    do something</i>, everywhere in the product.</p></div>
+  <div class="card"><h2>Live bid, truthfully</h2>
+   <p>Four states, all derived from the auction's real end time: a quiet timestamp beyond six hours; a soft white dot
+    and the remaining time inside six hours; an amber <b>Ending in 11m</b> pill under fifteen minutes; and a grey
+    <b>Ended</b> line after it, which is terminal.</p>
+   <h3>The rule</h3>
+   <p>Escalation is a function of remaining time only. No "hot", no "almost gone", no countdown on an auction that is
+    not open, and every treatment disappears at expiry rather than lingering.</p></div>
+  <div class="card"><h2>Motion</h2>
+   <p>Reduce Motion is the prototype's default, because it is the setting that must look finished. With motion on:
+    screens rise 4&nbsp;px over 200&nbsp;ms; sheets translate 14&nbsp;px over 260&nbsp;ms; a replaced image crossfades;
+    a changed bid value dips and returns once.</p>
+   <h3>Two prohibitions</h3>
+   <p>Nothing animates on a warning, and nothing animates on a per-second tick. A countdown that pulses every second is
+    decoration pretending to be information.</p></div>
+  <div class="card"><h2>Composition and rhythm</h2>
+   <p>A 4&nbsp;pt base with six steps (4/6/9/12/16/22). Discovery breathes at 16–22; transaction screens compress to
+    9–12 so the whole commitment fits above the action. Label left, value right, every figure tabular, so numbers form
+    a column your eye can run down.</p>
+   <h3>Image treatment</h3>
+   <p>Artwork is cropped, never letterboxed: 4:5 in the hero, 4:5 thumbnails in the feed, 16:9 on a pass. One scrim
+    ramp, one diagonal sheen at 10%, and a grain pass — enough to look printed rather than rendered.</p></div>
+  <div class="card"><h2>Transaction screens</h2>
+   <p>Recipient, delivery method, proof, transfer status, payment state and the full price breakdown stay visible on
+    every transaction screen in every variant. The total is set larger than its line items — the FTC's junk-fee rule
+    requires the total to be the most prominent price, and that is checked by measuring, not by looking.</p>
+   <h3>One action</h3>
+   <p>Exactly one filled action per screen, with its consequence on its own sub-line: <i>this releases payment to the
+    seller</i>. A disabled action states why it is disabled in the same place.</p></div>
+  <div class="card"><h2>One family, two products</h2>
+   <p>The venue console uses the same canvas, the same hairlines, the same tabular figures and the same action ranks at
+    a denser rhythm. It inverts one rule: on the consumer side red is the thing you want to press; on the console the
+    destructive action is the rare one, so red is reserved for it and routine actions are chrome.</p>
+   <h3>Honest metrics</h3>
+   <p>A point-in-time count is labelled as one and carries no comparison period, because the data layer cannot produce
+    one. Only period aggregates say "last 7 days".</p></div>
+ </div>
+</section>
+
+<section class="block" id="compare">
+ <h2>The same two screens, three directions</h2>
+ <p class="intro">Home and Send Transfer across Chrome Editorial, Chrome Utility and the Chrome Signal hybrid. Same
+  content, same data, same components — only the rhythm and the surface treatment change.</p>
+ <div id="cmpHome" class="cmp"></div>
+ <h3 style="margin:1.8rem 0 .6rem;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--pageInk3)">Send Transfer</h3>
+ <div id="cmpSend" class="cmp"></div>
+</section>
+
+<section class="block" id="recommendation">
+ <h2>Recommendation — Chrome Signal</h2>
+ <p class="intro">Editorial for discovery, Utility for money, Liquid Chrome for navigation and overlays only.</p>
+ <div class="grid3">
+  <div class="card"><h2>Why the hybrid, not either pole</h2>
+   <p><b>Chrome Editorial alone</b> is the most beautiful Home and the worst Send Transfer: at editorial spacing the
+    commitment no longer fits above the action, and a money screen that scrolls before you can read the total is a
+    worse screen, however handsome.</p>
+   <p><b>Chrome Utility alone</b> is the best Send Transfer and a marketplace nobody browses: without artwork an event
+    is a string, and the reason to want a ticket disappears.</p>
+   <p><b>Chrome Signal</b> keeps the flyer doing the selling and the ledger doing the reassuring, with one type scale,
+    one set of notice ranks and one action system across both.</p></div>
+  <div class="card"><h2>What it costs</h2>
+   <table class="t">
+    <tr><th>Item</th><th>Cost</th></tr>
+    <tr><td><b>New dependency</b></td><td>None. No blur library, no glass module, no new font file.</td></tr>
+    <tr><td><b>Glass</b></td><td>Navigation and sheets only, where a translucent material already exists on the platform.</td></tr>
+    <tr><td><b>Token change</b></td><td>One added surface ramp and one advisory accent. Radius, red and the type scale are unchanged.</td></tr>
+    <tr><td><b>Risk</b></td><td>Two densities to keep in step. Mitigated by shared primitives rather than per-screen styling.</td></tr>
+   </table></div>
+  <div class="card"><h2>Still the owner's call</h2>
+   <ul>
+    <li><b>Red for destructive.</b> This prototype outlines destructive actions and never fills them, and it removes red
+     from discovery entirely. That reverses the direction approved on the 14th.</li>
+    <li><b>Which density wins on Tickets.</b> Drawn here as Editorial; Utility is defensible.</li>
+    <li><b>Whether the console follows.</b> The dashboard view here is a proposal, not D's design.</li>
+   </ul></div>
+ </div>
+</section>
+
+<script>
+/* ===========================================================================
+   Synthetic data. No real ticket codes, people or prices.
+   =========================================================================== */
+const EV=[
+ {id:0,n:'Midnight Arcade', d:'Fri 24 Oct', dow:'Friday 24 October',  t:'22:00', v:'The Foundry',  p:120, bids:6,  mins:134,  pct:62},
+ {id:1,n:'Paper Cathedral', d:'Sat 25 Oct', dow:'Saturday 25 October',t:'21:00', v:'Halcyon Hall', p:64,  bids:2,  mins:1320, buy:80},
+ {id:2,n:'Neon Choir',      d:'Sun 26 Oct', dow:'Sunday 26 October',  t:'19:30', v:'Lantern Room', p:38,  bids:0,  mins:4300},
+ {id:3,n:'Static Bloom',    d:'Tue 28 Oct', dow:'Tuesday 28 October', t:'23:00', v:'The Yard',     p:95,  bids:11, mins:11,   pct:96},
+ {id:4,n:'Glass Parade',    d:'Wed 29 Oct', dow:'Wednesday 29 October',t:'20:00',v:'Annex 12',     p:52,  bids:4,  mins:0,    won:52},
+ {id:5,n:'Harbour Session', d:'Thu 30 Oct', dow:'Thursday 30 October',t:'21:30', v:'Pier Seven',   p:44,  bids:3,  mins:720}
+];
+const money=v=>'$'+v.toFixed(2);
+const hm=m=>m>=1440?Math.floor(m/1440)+'d '+Math.floor((m%1440)/60)+'h':m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
+
+/* ---------------------------------------------------------------------------
+   Generated artwork. A seeded PRNG drives six poster families, so every event
+   has its own art and nothing is fetched.
+   --------------------------------------------------------------------------- */
+const PAL=[
+ ['#2E1065','#C4508F','#120A2B','#FF9ECF'],
+ ['#04323C','#2FD6BE','#031519','#9BFFE8'],
+ ['#4A1A08','#FF8A3D','#190802','#FFD2A1'],
+ ['#0E1F4A','#6FA8FF','#050C1E','#BBD4FF'],
+ ['#24262B','#C3CAD4','#0B0C0E','#F2F5F9'],
+ ['#3A0826','#FF5C93','#14040D','#FFC2D8']
+];
+function rng(seed){let s=seed*9301+49297;return()=>{s=(s*9301+49297)%233280;return s/233280;}}
+function poster(seed){
+ const p=PAL[seed%PAL.length], r=rng(seed+3), fam=seed%6;
+ let g=`<defs><linearGradient id="bg${seed}" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="${p[0]}"/><stop offset="1" stop-color="${p[2]}"/></linearGradient>
+   <radialGradient id="gl${seed}" cx="50%" cy="42%" r="58%">
+   <stop offset="0" stop-color="${p[1]}" stop-opacity=".95"/><stop offset="1" stop-color="${p[1]}" stop-opacity="0"/></radialGradient></defs>`;
+ let body=`<rect width="400" height="500" fill="url(#bg${seed})"/>`;
+ if(fam===0){ /* bloom + arcs */
+  body+=`<ellipse cx="200" cy="215" rx="150" ry="150" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let i=0;i<6;i++)body+=`<circle cx="200" cy="215" r="${52+i*26}" fill="none" stroke="${p[3]}" stroke-opacity="${.22-i*.03}" stroke-width="${1.6-i*.15}"/>`;
+  body+=`<rect y="352" width="400" height="1" fill="${p[3]}" fill-opacity=".3"/>`;
+ } else if(fam===1){ /* columns */
+  body+=`<ellipse cx="210" cy="330" rx="230" ry="130" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let i=0;i<16;i++){const h=90+r()*300, w=6+r()*13, x=i*25+4;
+   body+=`<rect x="${x}" y="${500-h}" width="${w}" height="${h}" fill="${p[3]}" fill-opacity="${.08+r()*.3}"/>`;}
+ } else if(fam===2){ /* ribbons */
+  body+=`<ellipse cx="180" cy="240" rx="190" ry="150" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let i=0;i<3;i++){const y=150+i*90;
+   body+=`<path d="M-40 ${y} C 110 ${y-80-r()*40}, 250 ${y+90}, 440 ${y-30}" fill="none" stroke="${p[3]}"
+    stroke-opacity="${.5-i*.13}" stroke-width="${16-i*4}" filter="url(#soft2)"/>`;}
+ } else if(fam===3){ /* prism */
+  body+=`<ellipse cx="200" cy="250" rx="180" ry="180" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let i=0;i<5;i++){const a=r()*70-35,x=40+r()*200,y=80+r()*260,w=90+r()*150,h=70+r()*190;
+   body+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${p[3]}" fill-opacity="${.07+r()*.13}"
+    transform="rotate(${a} ${x+w/2} ${y+h/2})"/>`;}
+ } else if(fam===4){ /* halftone */
+  body+=`<ellipse cx="200" cy="200" rx="170" ry="170" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let y=0;y<17;y++)for(let x=0;x<13;x++){const cx=x*32+16,cy=y*30+14;
+   const dd=Math.hypot(cx-200,cy-210)/260, rad=Math.max(0,7.5*(1-dd)+r()*1.2);
+   if(rad>.4)body+=`<circle cx="${cx}" cy="${cy}" r="${rad.toFixed(2)}" fill="${p[3]}" fill-opacity="${(.5-dd*.42).toFixed(2)}"/>`;}
+ } else { /* rings */
+  body+=`<ellipse cx="200" cy="260" rx="175" ry="175" fill="url(#gl${seed})" filter="url(#soft)"/>`;
+  for(let i=0;i<7;i++){const cx=120+r()*170, cy=140+r()*230, rx=40+r()*110;
+   body+=`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${rx*(.4+r()*.5)}" fill="none" stroke="${p[3]}"
+    stroke-opacity="${.1+r()*.22}" stroke-width="1.4"/>`;}
+ }
+ body+=`<rect width="400" height="500" filter="url(#grain)" opacity=".16" style="mix-blend-mode:overlay"/>`;
+ return `<svg viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${g}${body}</svg>`;
+}
+function art(seed,cls,style,inner){
+ return `<div class="art ${cls||''}" style="${style||''}">${poster(seed)}<span class="sheen"></span>${inner||''}</div>`;
+}
+function qr(seed){
+ const r=rng(seed*17+5);let c='';
+ for(let y=0;y<13;y++)for(let x=0;x<13;x++){
+  const corner=(x<4&&y<4)||(x>8&&y<4)||(x<4&&y>8);
+  if(corner?((x%3===0||y%3===0)):r()>.48)c+=`<rect x="${x*8}" y="${y*8}" width="8" height="8"/>`;}
+ return `<svg viewBox="0 0 104 104" aria-hidden="true"><g fill="#0A0B0D">${c}</g></svg>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Live-bid rule — one function, four states, derived from remaining time only.
+   --------------------------------------------------------------------------- */
+function live(e,mode){
+ if(e.mins===0) return `<span class="endedtag">Ended · won at ${money(e.won)}</span>`;
+ if(e.mins<15) return `<span class="soon">Ending in ${e.mins}m</span>`;
+ if(e.mins<=360) return mode==='full'
+  ? `<span class="live"><i class="livedot"></i>Live · ${hm(e.mins)} left</span>`
+  : `<span class="live"><i class="livedot"></i>${hm(e.mins)} left</span>`;
+ return `<span class="sm num">Ends ${e.d.split(' ')[0]} ${e.t}</span>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Icons
+   --------------------------------------------------------------------------- */
+const I={
+ home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/></svg>',
+ search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 5 5"/></svg>',
+ sell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>',
+ bids:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 18h16"/><path d="m6 14 4-7 4 4 4-6"/></svg>',
+ you:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.5 20c1.4-3.6 4-5.4 7.5-5.4s6.1 1.8 7.5 5.4"/></svg>',
+ tickets:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 9.5V6h18v3.5a2.5 2.5 0 0 0 0 5V18H3v-3.5a2.5 2.5 0 0 0 0-5Z"/><path d="M14 6v12" stroke-dasharray="2 2.5"/></svg>',
+ back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.5 5-7 7 7 7"/></svg>',
+ filter:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M7 12h10M10 17h4"/></svg>',
+ gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>',
+ chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9.5 5 7 7-7 7"/></svg>',
+ shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3.2 19 6v6c0 4.2-2.8 7.3-7 8.8C7.8 19.3 5 16.2 5 12V6Z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>',
+ photo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="14"/><path d="m5 16 4.5-4.5 3.5 3.5 2.5-2.5L19 16"/><circle cx="15" cy="9" r="1.3"/></svg>'
+};
+
+/* ---------------------------------------------------------------------------
+   Prototype state
+   --------------------------------------------------------------------------- */
+const ST={v:'signal',motion:false,screen:'home',listing:0,artStep:0,sheet:null,
+ filters:{when:'all',price:'any'}, tab:'active',
+ flow:{bid:'idle',sent:false,received:false,paid:false}};
+
+const VARIANTS=[
+ {id:'editorial',n:'Chrome Editorial',note:'Artwork leads everywhere. A tall flyer hero, poster thumbnails in the feed, and the same generosity carried into the transfer screens.'},
+ {id:'utility',n:'Chrome Utility',note:'Density leads everywhere. A compact banner instead of a hero, tabular rows, and the tightest possible path from fact to action.'},
+ {id:'signal',n:'Chrome Signal',note:'The hybrid: Editorial for Home, Listing and Tickets; Utility for Bids, transfers, checkout and the console; glass reserved for navigation and overlays.'}
+];
+/* per-variant layout decisions, not just colour */
+const V={
+ editorial:{heroH:372,thumbW:66,thumbH:82,feedDates:true,txnArt:true,hero:true,denseFacts:false},
+ utility:  {heroH:150,thumbW:44,thumbH:44,feedDates:false,txnArt:false,hero:false,denseFacts:true},
+ signal:   {heroH:344,thumbW:58,thumbH:72,feedDates:true,txnArt:false,hero:true,denseFacts:true}
+};
+const cfg=v=>V[v||ST.v];
+
+/* ---------------------------------------------------------------------------
+   Chrome pieces
+   --------------------------------------------------------------------------- */
+const statusbar=()=>`<div class="statusbar"><span class="num">9:41</span>
+ <span class="right"><span class="sbars"><i></i><i></i><i></i><i></i></span>
+ <svg width="15" height="11" viewBox="0 0 16 12" fill="none" stroke="#fff" stroke-width="1.4" aria-hidden="true">
+  <path d="M1 4.2a10 10 0 0 1 14 0M3.6 6.8a6.4 6.4 0 0 1 8.8 0M6.2 9.4a2.7 2.7 0 0 1 3.6 0"/></svg>
+ <span class="batt"><b></b></span></span></div>`;
+const ribbon=()=>`<div class="ribbon"><i></i>SANDBOX<i></i></div>`;
+const DOCK=[['home','Home',I.home],['search','Search',I.search],['sell','Sell',I.sell],['bids','Bids',I.bids],['you','You',I.you]];
+function dock(active,ctx){
+ const map={home:'home',listing:'home',search:'search',sell:'sell',bids:'bids',tickets:'you',send:'you',receive:'you',
+  checkout:'home',profile:'you',settings:'you',console:'you'};
+ const cur=map[active]||'home';
+ return `<nav class="dock" aria-label="Main">${DOCK.map(x=>`
+  <button data-nav="${x[0]}" ${cur===x[0]?'aria-current="page"':''} ${ctx?'disabled':''}>
+   ${x[2]}<s>${x[1]}</s>${x[0]==='bids'?'<span class="badge">2</span>':''}</button>`).join('')}
+  <span class="homebar"></span></nav>`;
+}
+const backHdr=(title,right)=>`<header class="hdr">
+ <button class="iconbtn" data-nav="back" aria-label="Back">${I.back}</button>
+ <h1>${title}</h1>${right?`<span class="spacer"></span>${right}`:''}</header>`;
+const kv=list=>`<div class="rows">${list.map(r=>`<div class="kv"><span class="k">${r[0]}</span><span class="v ${r[2]||''}">${r[1]}</span></div>`).join('')}</div>`;
+const notice=(rank,title,body,sub)=>`<div class="notice ${rank}"><div>${title?`<h4>${title}</h4>`:''}
+ <div class="body${title?'':' ink'}">${body}</div>${sub?`<div class="sm" style="margin-top:4px">${sub}</div>`:''}</div></div>`;
+const rail=steps=>`<div class="rail">${steps.map(x=>`<span class="railcol ${x[0]}">
+ <span class="d"></span><span class="railL">${x[1]}</span><span class="railD">${x[2]}</span></span>`).join('')}</div>`;
+const sec=(label,inner,gap)=>`<section class="stack" style="gap:${gap||'var(--s3)'}">
+ ${label?`<div class="micro">${label}</div>`:''}${inner}</section>`;
+
+/* ===========================================================================
+   SCREENS
+   =========================================================================== */
+const SC={};
+
+/* ----------------------------- HOME ----------------------------- */
+SC.home=(c)=>{
+ const C=cfg(c.v), hero=EV[0];
+ const heroBlock=C.hero?`
+  <button class="art" data-open="0" style="height:${C.heroH}px;width:100%;border:0;padding:0;cursor:pointer;display:block">
+   ${poster(hero.id)}<span class="sheen"></span><span class="scrim"></span>
+   <span class="over" style="text-align:left">
+    <span style="display:flex;gap:7px;align-items:center;margin-bottom:7px">
+     <span class="pill glassy">Featured tonight</span>${live(hero,'full')}</span>
+    <span class="hero-title" style="display:block">${hero.n}</span>
+    <span style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-top:8px">
+     <span class="sm" style="color:rgba(255,255,255,.8)">${hero.d} · ${hero.t} · ${hero.v}</span>
+     <span style="text-align:right">
+      <span class="micro" style="display:block;color:rgba(255,255,255,.65)">Current bid</span>
+      <span class="price" style="display:block;margin-top:1px">${money(hero.p)}</span></span></span>
+   </span></button>`
+ :`<div class="art" style="height:${C.heroH}px;width:100%">${poster(hero.id)}<span class="sheen"></span><span class="scrim"></span>
+   <span class="over"><span style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px">
+    <span><span class="name" style="display:block">${hero.n}</span>
+     <span class="sm" style="display:block;margin-top:2px">${hero.d} · ${hero.t} · ${hero.v}</span></span>
+    <span style="text-align:right"><span class="price" style="display:block">${money(hero.p)}</span>
+     <span style="display:block;margin-top:3px">${live(hero)}</span></span></span></span></div>`;
+
+ const row=e=>`<button class="listrow" data-open="${e.id}">
+   ${art(e.id,'',`width:${C.thumbW}px;height:${C.thumbH}px;flex:0 0 ${C.thumbW}px`)}
+   <span class="grow">
+    <span class="name trunc">${e.n}</span>
+    <span class="sm trunc">${e.t} · ${e.v}</span>
+    <span>${live(e)}</span></span>
+   <span class="right"><span class="price-sm">${money(e.p)}</span>
+    <span class="sm num">${e.bids} bids</span></span></button>`;
+
+ const group=(label,items)=>C.feedDates
+  ? `<section class="stack" style="gap:2px">
+      <div style="display:flex;align-items:center;gap:10px;padding:var(--s4) 0 var(--s2)">
+       <span class="micro">${label}</span><span class="rule" style="flex:1"></span></div>
+      ${items.map(row).join('')}</section>`
+  : items.map(row).join('');
+
+ const feed=C.feedDates
+  ? group('Friday 24 October',[EV[0]])+group('Saturday 25 October',[EV[1],EV[2]])+group('Tuesday 28 October',[EV[3]])+group('Wednesday 29 October',[EV[4]])
+  : `<section class="stack" style="gap:0;padding-top:var(--s4)">${EV.map(row).join('')}</section>`;
+
+ return {overlayHdr:`<header class="hdr" style="position:absolute;top:0;left:0;right:0;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0));backdrop-filter:none;-webkit-backdrop-filter:none">
+   <span class="wordmark" style="font-size:15px;letter-spacing:.09em">SNATCH IT</span><span class="spacer"></span>
+   <button class="iconbtn" data-nav="search" aria-label="Search">${I.search}</button>
+   <button class="iconbtn" data-sheet="filters" aria-label="Filters">${I.filter}</button></header>`,
+  body:`${heroBlock}
+   <div class="chiprow" style="padding-top:var(--s4);padding-bottom:var(--s2)">
+    <button class="chip" aria-pressed="${ST.filters.when==='all'}" data-filter="all">All events</button>
+    <button class="chip" aria-pressed="${ST.filters.when==='tonight'}" data-filter="tonight">Tonight</button>
+    <button class="chip" aria-pressed="${ST.filters.when==='soon'}" data-filter="soon">Ending soon</button>
+    <button class="chip icon" data-sheet="filters">${I.filter}Filters</button></div>
+   <div class="pad" style="padding-bottom:var(--s6)">${feed}</div>`};
+};
+
+/* ----------------------------- LISTING ----------------------------- */
+SC.listing=(c)=>{
+ const C=cfg(c.v), e=EV[ST.listing], seed=e.id+ST.artStep*6;
+ const bidPlaced=ST.flow.bid==='done'&&ST.listing===0;
+ const cur=bidPlaced?e.p+5:e.p;
+ return {body:`
+  <div class="art${ST.motion?' artfx':''}" style="height:${C.hero?300:210}px;width:100%" id="listArt">
+   ${poster(seed)}<span class="sheen"></span><span class="scrim"></span>
+   <span class="over" style="display:flex;justify-content:space-between;align-items:flex-end">
+    <span class="pill glassy">${e.v}</span>
+    <button class="iconbtn" data-act="cycleArt" aria-label="Next photo" style="background:rgba(10,10,12,.5);backdrop-filter:blur(10px)">${I.photo}</button></span>
+   <span style="position:absolute;top:calc(var(--safeTop) + 23px);left:var(--pad);z-index:3">
+    <button class="iconbtn" data-nav="back" aria-label="Back" style="background:rgba(10,10,12,.5);backdrop-filter:blur(10px)">${I.back}</button></span>
+  </div>
+  <div class="pad stack" style="gap:var(--s5);padding-top:var(--s5);padding-bottom:var(--s6)">
+   <div class="stack" style="gap:var(--s1)">
+    <div class="sm">${e.dow} · ${e.t}</div>
+    <div class="hero-title">${e.n}</div></div>
+
+   <div class="panel edge" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+    <div><div class="micro">Current bid</div>
+     <div class="price-lg${bidPlaced&&ST.motion?' flash':''}" style="margin-top:3px">${money(cur)}</div>
+     <div class="sm" style="margin-top:3px">${e.bids+(bidPlaced?1:0)} bids · minimum next ${money(cur+5)}</div></div>
+    <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+     ${live(e,'full')}
+     ${e.mins<=360&&e.mins>0?`<div class="meter" style="width:82px"><i style="width:${e.pct||50}%"></i></div>
+      <div class="sm">${e.pct||50}% of the final six hours</div>`:''}</div></div>
+
+   ${bidPlaced?notice('ok','You’re the leading bidder','Your bid of '+money(cur)+' is in. If you’re still leading when the auction ends, your card is charged automatically.'):''}
+
+   ${sec('The details',kv([['Seller','the seller · 14 sales'],['Delivery','Mobile transfer · DICE'],
+     ['Restrictions','Name change not allowed'],['Price shown','All-in, fees included']]))}
+
+   <div class="sm" style="display:flex;gap:8px;align-items:flex-start">
+    <span style="color:var(--ink3);flex:0 0 14px;margin-top:1px">${I.shield}</span>
+    <span>A bid is a commitment. If you win, your card is charged automatically and the sale is final.</span></div>
+  </div>`,
+  sticky:`<button class="act" data-sheet="bid">${bidPlaced?'Raise your bid':'Place bid'}
+    <span class="s2">Minimum ${money(cur+5)} · charged only if you win</span></button>
+   <button class="act sec" data-nav="checkout">Buy now for ${money(150)}</button>`,
+  hdrless:true};
+};
+
+/* ----------------------------- BIDS ----------------------------- */
+SC.bids=(c)=>{
+ const rowB=(e,status,tone,note)=>`<button class="listrow" data-sheet="bid-detail-${e.id}">
+   ${art(e.id,'',`width:44px;height:52px;flex:0 0 44px`)}
+   <span class="grow"><span class="name trunc">${e.n}</span>
+    <span class="sm trunc">${e.d} · ${e.v}</span>
+    <span style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+     <span style="color:${tone};font-size:var(--tSm);font-weight:650">${status}</span>
+     <span class="sm">${note}</span></span></span>
+   <span class="right"><span class="price-sm">${money(e.p)}</span>${live(e)}</span></button>`;
+ return {hdr:`<header class="hdr plain" ><h1>Your bids</h1>
+   <span class="spacer"></span><button class="iconbtn" data-sheet="filters" aria-label="Filters">${I.filter}</button></header>`,
+  body:`<div class="pad" style="padding-top:var(--s4)">
+   <div class="segbar" role="group" aria-label="Bid status">
+    <button aria-pressed="${ST.tab==='active'}" data-tab="active">Active · 3</button>
+    <button aria-pressed="${ST.tab==='past'}" data-tab="past">Past · 1</button></div></div>
+  <div class="pad" style="padding-top:var(--s4);padding-bottom:var(--s6)">
+   ${ST.tab==='active'?`
+    ${rowB(EV[0],'You’re leading','#8CF0BE','your bid '+money(EV[0].p))}
+    ${rowB(EV[3],'Outbid','#FFD08A','yours '+money(90)+' · leading '+money(95))}
+    ${rowB(EV[1],'You’re leading','#8CF0BE','your bid '+money(EV[1].p))}`
+   :`${rowB(EV[4],'You won','#8CF0BE','payment complete')}`}
+  </div>`};
+};
+
+/* ----------------------------- TICKETS ----------------------------- */
+SC.tickets=(c)=>{
+ const C=cfg(c.v), e=EV[4];
+ const pass=`<div class="pass">
+   <div class="top">${poster(e.id)}<span class="sheen"></span>
+    <span class="scrim" style="background:linear-gradient(180deg,rgba(0,0,0,.2),rgba(0,0,0,.75))"></span>
+    <span style="position:absolute;left:var(--s4);right:var(--s4);bottom:9px;display:flex;justify-content:space-between;align-items:flex-end">
+     <span><span class="name" style="display:block">${e.n}</span>
+      <span class="sm" style="display:block;color:rgba(255,255,255,.76)">${e.d} · ${e.t} · ${e.v}</span></span>
+     <span class="pill ok">Confirmed</span></span></div>
+   <div class="perf"></div>
+   <div class="bd"><div class="qr">${qr(e.id)}</div>
+    <div class="stack" style="gap:5px;flex:1;min-width:0">
+     ${kv([['Entry','General admission'],['Tickets','2'],['Delivered','Mobile transfer · DICE'],['Payment','Released to seller']])}
+    </div></div>
+   <div class="sm" style="padding:0 var(--s4) var(--s4);color:var(--ink4)">Sandbox pass — this code is generated and scans nowhere.</div></div>`;
+ const row=(e2,pill,cls,line)=>`<button class="listrow" data-nav="${cls==='warn'?'receive':'send'}">
+   ${art(e2.id,'',`width:${C.thumbW}px;height:${C.thumbH}px;flex:0 0 ${C.thumbW}px`)}
+   <span class="grow"><span class="name trunc">${e2.n}</span><span class="sm trunc">${e2.d} · ${e2.t} · ${e2.v}</span>
+    <span><span class="pill ${cls}">${pill}</span></span><span class="sm">${line}</span></span>
+   <span class="chev">${I.chev}</span></button>`;
+ return {hdr:`<header class="hdr plain" ><h1>Your tickets</h1></header>`,
+  body:`<div class="pad stack" style="gap:var(--s6);padding-top:var(--s5);padding-bottom:var(--s6)">
+   ${sec('Ready to go',pass)}
+   ${sec('Waiting on a transfer',row(EV[0],ST.received?'Confirmed':'Tickets sent — confirm by Sun 09:12','warn',
+      ST.received?'Payment released · tickets are yours':'The seller sent these 14 minutes ago with proof attached'))}
+   ${sec('Sold by you',row(EV[1],ST.sent?'Sent — awaiting confirmation':'Send by Thu 02:00','info',
+      ST.sent?'Payout of $120.00 releases when the buyer confirms':'1 ticket · the buyer has added delivery details'))}
+  </div>`};
+};
+
+/* ----------------------------- SEND TRANSFER ----------------------------- */
+SC.send=(c)=>{
+ const C=cfg(c.v), e=EV[1], done=ST.flow.sent;
+ const timeline=rail([
+  ['done','Buyer paid','Tue 19:04'],
+  [done?'done':'now','You send',done?'14:32':'by Thu 02:00'],
+  [done?'now':'','Buyer confirms',done?'72h window open':'72h once sent'],
+  ['','Payout',money(120)]]);
+ return {hdr:backHdr('Send tickets'),
+  body:`<div class="pad stack txn" style="gap:var(--s5);padding-top:var(--s4);padding-bottom:var(--s6)">
+   ${C.txnArt?art(e.id,'',`height:132px;width:100%`,`<span class="scrim"></span><span class="over"><span class="name">${e.n}</span>
+      <span class="sm" style="display:block;color:rgba(255,255,255,.76)">${e.d} · ${e.t} · ${e.v}</span></span>`):''}
+   ${done
+    ? notice('ok','Marked as sent','The buyer has 72 hours to confirm. Your payout releases after that, or sooner if they confirm.','If the buyer reports a problem, the payout is held for review.')
+    : notice('info','','Send by Thu 02:00 — 5h 12m left','If the window closes first, the sale is cancelled and the buyer is refunded.')}
+   ${timeline}
+   ${sec('Transfer proof',`<div class="panel" style="display:flex;gap:11px;align-items:center">
+     <span class="art" style="width:46px;height:46px;flex:0 0 46px">${poster(e.id+11)}</span>
+     <span class="stack" style="gap:2px;flex:1;min-width:0">
+      <span class="body ink" style="font-weight:600">Screenshot attached</span>
+      <span class="sm">Stored with this transfer · 14:32</span></span>
+     <span class="pill ok">Verified</span></div>`)}
+   <button class="listrow" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+    <span class="grow"><span class="body ink" style="font-weight:600">How to transfer on DICE</span>
+     <span class="sm">5 steps · about 3 minutes · 3 cautions</span></span><span class="chev">${I.chev}</span></button>
+   ${sec('This transfer',kv([['Event',e.n],['Buyer','the buyer'],['Send to','buyer@example.test'],
+     ['Delivery','Mobile transfer · DICE']]))}
+   ${sec('Payment',kv([['Buyer paid',money(134),'price-sm'],['Your payout',money(120),'price']])
+     +`<div class="sm" style="margin-top:5px">Released when the buyer confirms, or automatically on Sun 26 Oct 02:00.</div>`)}
+  </div>`,
+  sticky: done
+   ? `<button class="act sec" data-nav="tickets">View payout status</button>`
+   : `<button class="act" data-sheet="confirm-send">Mark as sent<span class="s2">I transferred these tickets to the buyer</span></button>`};
+};
+
+/* ----------------------------- RECEIVE TRANSFER ----------------------------- */
+SC.receive=(c)=>{
+ const C=cfg(c.v), e=EV[0], done=ST.flow.received;
+ const timeline=rail([
+  ['done','You paid','Tue 19:04'],
+  ['done','Seller sent','14:32'],
+  [done?'done':'now','You confirm',done?'14:46':'71h 46m left'],
+  [done?'done':'','Released',money(120)]]);
+ return {hdr:backHdr('Receive tickets'),
+  body:`<div class="pad stack txn" style="gap:var(--s5);padding-top:var(--s4);padding-bottom:var(--s6)">
+   ${done
+    ? notice('ok','Receipt confirmed','Payment has been released to the seller. The tickets are yours — enjoy the event.')
+    : notice('info','Tickets sent — check DICE','Accept the transfer in DICE, then confirm below. Confirming releases payment to the seller.')}
+   ${timeline}
+   ${sec('Seller’s proof',`<button class="listrow" style="border-bottom:0;padding:0">
+     <span class="panel" style="display:flex;gap:11px;align-items:center;width:100%">
+      <span class="art" style="width:46px;height:46px;flex:0 0 46px">${poster(e.id+21)}</span>
+      <span class="stack" style="gap:2px;flex:1;min-width:0">
+       <span class="body ink" style="font-weight:600">Transfer screenshot</span>
+       <span class="sm">Added 14 min ago · tap to view</span></span><span class="chev">${I.chev}</span></span></button>`)}
+   ${sec('This transfer',kv([['Event',e.n],['Seller','the seller'],['Sent to','buyer@example.test'],
+     ['Delivery','Mobile transfer · DICE'],['Review window',done?'Closed':'71h 46m left']]))}
+   ${sec('Payment',kv([['Ticket',money(120),'price-sm'],['Service fee',money(14),'price-sm'],['Total paid',money(134),'price']])
+     +`<div class="sm" style="margin-top:5px">${done?'Released to the seller on your confirmation.':'Held until you confirm.'}</div>`)}
+  </div>`,
+  sticky: done
+   ? `<button class="act sec" data-nav="tickets">View your tickets</button>`
+   : `<button class="act" data-sheet="confirm-receive">Confirm receipt<span class="s2">This releases payment to the seller</span></button>
+      <button class="act ghost" data-sheet="wrong">Something’s wrong</button>`};
+};
+
+/* ----------------------------- CHECKOUT ----------------------------- */
+SC.checkout=(c)=>{
+ const C=cfg(c.v), e=EV[0], paid=ST.flow.paid;
+ return {hdr:backHdr('Checkout'),
+  body:`<div class="pad stack txn" style="gap:var(--s5);padding-top:var(--s4);padding-bottom:var(--s6)">
+   <div class="panel" style="display:flex;gap:11px;align-items:center">
+    <span class="art" style="width:46px;height:58px;flex:0 0 46px">${poster(e.id)}</span>
+    <span class="stack" style="gap:2px;flex:1;min-width:0">
+     <span class="name trunc">${e.n}</span><span class="sm trunc">${e.d} · ${e.t} · ${e.v}</span>
+     <span class="sm">1 ticket · general admission</span></span></div>
+   ${paid?notice('ok','You’re in','Paid '+money(134)+'. The seller has 24 hours to send the tickets; we’ll tell you the moment they do.'):''}
+   ${sec('Order',kv([['Ticket',money(120),'price-sm'],['Service fee',money(14),'price-sm'],['Total',money(134),'price']])
+    +`<div class="sm" style="margin-top:5px">All-in price. Nothing is added at the end.</div>`)}
+   ${paid?'':notice('info','','Your place is held for 7:42','Nothing has been charged yet.')}
+   ${sec('Delivery',kv([['Method','Mobile transfer · DICE'],['To','buyer@example.test'],
+     ['Seller sends by','Thu 02:00 — 24h after payment'],['If they don’t','Cancelled and refunded in full']]))}
+   ${paid?'':sec('Paying with',`<div class="panel" style="display:flex;gap:11px;align-items:center">
+     <span style="width:34px;height:22px;flex:0 0 34px;border-radius:3px;background:linear-gradient(135deg,#2B3340,#151A22);
+      border:1px solid var(--line2)"></span>
+     <span class="stack" style="gap:1px;flex:1"><span class="body ink">Visa •••• 1881</span><span class="sm">Expires 04/29</span></span>
+     <span class="chev">${I.chev}</span></div>`)}
+  </div>`,
+  sticky: paid
+   ? `<button class="act sec" data-nav="tickets">View this order</button>`
+   : `<button class="act" data-act="pay">Pay ${money(134)}</button>
+      <div class="sm" style="text-align:center">Payments secured by Stripe · the sale is final once paid</div>`};
+};
+
+/* ----------------------------- PROFILE ----------------------------- */
+SC.profile=(c)=>({hdr:`<header class="hdr plain" ><h1>You</h1>
+  <span class="spacer"></span><button class="iconbtn" data-nav="settings" aria-label="Settings">${I.gear}</button></header>`,
+ body:`<div class="pad stack" style="gap:var(--s6);padding-top:var(--s5);padding-bottom:var(--s6)">
+  <div style="display:flex;gap:13px;align-items:center">
+   <span style="width:58px;height:58px;flex:0 0 58px;border-radius:999px;padding:2px;
+    background:linear-gradient(145deg,#E8ECF2,#6B7380 45%,#20232A 70%,#C9D2DC);display:block">
+    <span class="art" style="width:100%;height:100%;border-radius:999px;display:block">${poster(2)}</span></span>
+   <span class="stack" style="gap:3px;flex:1;min-width:0">
+    <span class="hero-title" style="font-size:18px">the seller</span>
+    <span class="sm">Member since March 2026 · 14 sales · 4.9 ★</span>
+    <span><span class="pill ok">Phone and ID verified</span></span></span></div>
+
+  ${sec('Money',kv([['Next payout','$120.00 · Sun 26 Oct','price-sm'],['Payout method','Bank •••• 4242'],
+    ['Paid out · last 30 days','$482.00','price-sm'],['In review','$0.00','price-sm']])
+   +`<div class="sm" style="margin-top:5px">A payout releases when the buyer confirms, or automatically 72 hours after you send.</div>`)}
+
+  ${sec('Your activity',`<div class="rows">
+    <button class="listrow"><span class="grow"><span class="body ink">Your listings</span></span>
+     <span class="right"><span class="sm num">3 active</span></span><span class="chev">${I.chev}</span></button>
+    <button class="listrow" data-nav="tickets"><span class="grow"><span class="body ink">Tickets and transfers</span></span>
+     <span class="right"><span class="sm num">1 to send</span></span><span class="chev">${I.chev}</span></button>
+    <button class="listrow" data-nav="console"><span class="grow"><span class="body ink">Venue console</span>
+      <span class="sm">The Foundry · manager access</span></span><span class="chev">${I.chev}</span></button>
+   </div>`)}
+ </div>`});
+
+/* ----------------------------- SETTINGS ----------------------------- */
+SC.settings=(c)=>{
+ const sw=(label,on,note,locked)=>`<div class="kv" style="align-items:center">
+   <span class="stack" style="gap:1px"><span class="body ink">${label}</span>${note?`<span class="sm">${note}</span>`:''}</span>
+   <button class="sw" aria-pressed="${on}" ${locked?'disabled aria-disabled="true"':''} aria-label="${label}"><b></b></button></div>`;
+ return {hdr:backHdr('Settings'),
+  body:`<div class="pad stack txn" style="gap:var(--s6);padding-top:var(--s4);padding-bottom:var(--s6)">
+   ${sec('Account',kv([['Email','you@example.test'],['Phone','+1 ••• ••• 4417 · verified']]))}
+   ${sec('Payments',kv([['Payout method','Bank •••• 4242'],['Payment method','Visa •••• 1881']]))}
+   ${sec('Notifications',`<div class="rows">
+     ${sw('Outbid alerts',true)}
+     ${sw('Transfer updates',true,'Always on — these tell you when a payment or a deadline changes',true)}
+     ${sw('Price drops',false)}</div>`)}
+   ${sec('Legal',`<div class="rows">
+     <button class="listrow"><span class="grow"><span class="body ink">Terms of sale</span></span><span class="chev">${I.chev}</span></button>
+     <button class="listrow"><span class="grow"><span class="body ink">Privacy policy</span></span><span class="chev">${I.chev}</span></button>
+     <button class="listrow"><span class="grow"><span class="body ink">Marketplace rules</span></span><span class="chev">${I.chev}</span></button></div>`)}
+   ${sec('Account actions',`<div class="stack" style="gap:var(--s3)">
+     <button class="act sec">Sign out</button>
+     <button class="act danger" data-sheet="delete">Delete account</button>
+     <div class="sm">Open transfers and payouts must finish before an account can be deleted.</div></div>`)}
+  </div>`};
+};
+
+/* ----------------------------- VENUE CONSOLE ----------------------------- */
+SC.console=(c)=>{
+ const bars=[38,52,44,61,73,58,86];
+ return {hdr:`<header class="hdr">
+   <button class="iconbtn" data-nav="back" aria-label="Back">${I.back}</button>
+   <span class="stack" style="gap:1px"><h1>The Foundry</h1><span class="sm">Venue console · manager</span></span>
+   <span class="spacer"></span><span class="pill">Live</span></header>`,
+  body:`<div class="pad stack txn" style="gap:var(--s5);padding-top:var(--s4);padding-bottom:var(--s6)">
+   ${notice('info','Tonight · doors 22:00','Midnight Arcade. Scanning opens 45 minutes before doors.')}
+   ${sec('Right now',`<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)">
+     ${[['Tickets scanned','412','of 640 sold'],['Transfers pending','3','awaiting buyer'],
+        ['Disputes open','0','nothing to review'],['Entry rate','96%','scans accepted']]
+      .map(m=>`<div class="panel" style="padding:var(--s3) var(--s4)">
+        <div class="micro">${m[0]}</div><div class="price-lg" style="margin-top:2px;font-size:19px">${m[1]}</div>
+        <div class="sm" style="margin-top:1px">${m[2]}</div></div>`).join('')}</div>
+     <div class="sm" style="margin-top:6px">These are counts as of now. They have no comparison period because the data layer does not produce one.</div>`)}
+   ${sec('Money · last 7 days',`<div class="panel edge">
+     <div style="display:flex;justify-content:space-between;align-items:flex-end">
+      <div><div class="price-lg">$8,240</div><div class="sm" style="margin-top:2px">Gross sales, 18–24 October</div></div>
+      <div style="display:flex;gap:4px;align-items:flex-end;height:46px">
+       ${bars.map(h=>`<span style="width:9px;height:${h}%;background:linear-gradient(180deg,rgba(238,242,247,.85),rgba(238,242,247,.25));display:block"></span>`).join('')}</div></div>
+     <div class="rule" style="margin:var(--s4) 0"></div>
+     ${kv([['Payouts released',money(6180),'price-sm'],['Held for review',money(0),'price-sm'],['Refunded',money(268),'price-sm']])}</div>`)}
+   ${sec('Needs a person',`<div class="rows">
+     <button class="listrow"><span class="grow"><span class="body ink">Transfer 4821 · Paper Cathedral</span>
+       <span class="sm">Seller sent 14:32 · buyer has 71h 46m to confirm</span>
+       <span><span class="pill info">Awaiting buyer</span></span></span><span class="chev">${I.chev}</span></button>
+     <button class="listrow"><span class="grow"><span class="body ink">Payout 2290 · the seller</span>
+       <span class="sm">$120.00 · release needs a second approver</span>
+       <span><span class="pill warn">Second approval</span></span></span><span class="chev">${I.chev}</span></button></div>
+     <div class="sm" style="margin-top:6px">You can request a release; a second approver has to agree before money moves.</div>`)}
+  </div>`,
+  sticky:`<button class="act sec">Request payout release</button>`};
+};
+
+/* ===========================================================================
+   Sheets
+   =========================================================================== */
+function sheet(id){
+ if(id==='filters'){
+  const opt=(group,val,label)=>`<button class="chip" aria-pressed="${ST.filters[group]===val}" data-setfilter="${group}:${val}">${label}</button>`;
+  return `<h3>Filters</h3>
+   <div class="stack" style="gap:var(--s5);margin-top:var(--s4)">
+    ${sec('When',`<div style="display:flex;gap:7px;flex-wrap:wrap">
+      ${opt('when','all','Any time')}${opt('when','tonight','Tonight')}${opt('when','week','This week')}${opt('when','soon','Ending soon')}</div>`)}
+    ${sec('All-in price',`<div style="display:flex;gap:7px;flex-wrap:wrap">
+      ${opt('price','any','Any price')}${opt('price','50','Under $50')}${opt('price','100','Under $100')}${opt('price','150','Under $150')}</div>`)}
+    ${sec('Delivery',`<div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button class="chip" aria-pressed="true">Mobile transfer</button><button class="chip" aria-pressed="false">Any method</button></div>`)}
+    <div class="sm">Prices are all-in. Filtering never hides fees, because there are none to hide.</div>
+    <div class="stack" style="gap:var(--s3)">
+     <button class="act" data-act="closeSheet">Show 6 events</button>
+     <button class="act ghost" data-act="resetFilters">Reset</button></div></div>`;
+ }
+ if(id&&id.startsWith('bid-detail')){
+  const e=EV[parseInt(id.split('-')[2],10)]||EV[0];
+  const lead=e.mins===0;
+  return `<h3>${e.n}</h3>
+   <div class="sm" style="margin-top:2px">${e.dow} · ${e.t} · ${e.v}</div>
+   <div class="panel edge" style="margin-top:var(--s4);display:flex;justify-content:space-between;align-items:flex-start">
+    <div><div class="micro">${lead?'Winning bid':'Current bid'}</div><div class="price-lg" style="margin-top:3px">${money(e.p)}</div>
+     <div class="sm" style="margin-top:2px">${e.bids} bids${lead?'':' · minimum next '+money(e.p+5)}</div></div>
+    <div style="text-align:right">${live(e,'full')}</div></div>
+   <div style="margin-top:var(--s4)">${kv([['Your bid',money(e.p),'price-sm'],['Status',lead?'You won':'You’re leading'],
+     ['Placed','Tue 19:04'],['If you win','Charged automatically · sale is final']])}</div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    <button class="act" data-act="closeSheet">${lead?'View your ticket':'Raise your bid'}</button>
+    <button class="act ghost" data-act="closeSheet">Close</button></div>`;
+ }
+ if(id==='bid'){
+  const e=EV[ST.listing], min=e.p+5, b=ST.flow.bid;
+  if(b==='working') return `<h3>Placing your bid…</h3>
+   <div class="body" style="margin-top:6px">Confirming with the auction. Don’t close the app.</div>
+   <div class="panel" style="margin-top:var(--s4);display:flex;gap:10px;align-items:center">
+    <span class="spin"></span><span class="body ink">Bid of ${money(min)} · ${e.n}</span></div>`;
+  if(b==='done') return `<h3>You’re the leading bidder</h3>
+   <div class="body" style="margin-top:6px">Your bid of ${money(min)} is in. We’ll tell you the moment someone outbids you.</div>
+   <div style="margin-top:var(--s4)">${kv([['Your bid',money(min),'price'],['Auction ends',e.d+' · '+e.t],
+     ['If you win','Charged automatically'],['Delivery','Mobile transfer · DICE']])}</div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    <button class="act sec" data-act="closeSheet">Done</button></div>`;
+  return `<h3>Place a bid</h3>
+   <div class="body" style="margin-top:6px">${e.n} · minimum next bid ${money(min)}</div>
+   <div class="panel edge" style="margin-top:var(--s4);display:flex;align-items:center;justify-content:space-between">
+    <button class="iconbtn" aria-label="Lower">−</button>
+    <div style="text-align:center"><div class="micro">Your bid</div><div class="price-lg" style="margin-top:2px">${money(min)}</div></div>
+    <button class="iconbtn" aria-label="Higher">+</button></div>
+   <div style="margin-top:var(--s4)">${kv([['All-in total if you win',money(min+14),'price-sm'],
+     ['Card','Visa •••• 1881'],['Delivery','Mobile transfer · DICE']])}</div>
+   <div class="notice warn" style="margin-top:var(--s4)"><div><div class="body ink">A bid is a commitment</div>
+    <div class="sm" style="margin-top:3px">If you win, your card is charged automatically and the sale is final.</div></div></div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    <button class="act" data-act="placeBid">Place bid of ${money(min)}</button>
+    <button class="act ghost" data-act="closeSheet">Cancel</button></div>`;
+ }
+ if(id==='confirm-send'||id==='confirm-send-working'){
+  const working=id.endsWith('working');
+  return `<h3>Mark as sent?</h3>
+   <div class="body" style="margin-top:6px">Confirm only after the transfer has gone through in DICE. This starts the
+    buyer’s 72-hour confirmation window.</div>
+   <div style="margin-top:var(--s4)">${kv([['Buyer','buyer@example.test'],['Proof','Screenshot attached · 14:32'],
+     ['Your payout',money(120),'price-sm'],['Released','When the buyer confirms']])}</div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    ${working?`<button class="act busy" disabled><span style="display:flex;gap:8px;align-items:center"><span class="spin"></span>Recording…</span></button>`
+     :`<button class="act" data-act="doSend">Yes, mark as sent</button>
+       <button class="act ghost" data-act="closeSheet">Not yet</button>`}</div>`;
+ }
+ if(id==='confirm-receive'||id==='confirm-receive-working'){
+  const working=id.endsWith('working');
+  return `<h3>Confirm you received them?</h3>
+   <div class="body" style="margin-top:6px">This releases ${money(120)} to the seller and closes your review window.
+    It cannot be undone.</div>
+   <div style="margin-top:var(--s4)">${kv([['Seller','the seller'],['Tickets','2 · Mobile transfer · DICE'],
+     ['You paid',money(134),'price-sm'],['Releases to seller',money(120),'price']])}</div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    ${working?`<button class="act busy" disabled><span style="display:flex;gap:8px;align-items:center"><span class="spin"></span>Releasing…</span></button>`
+     :`<button class="act" data-act="doReceive">Yes, confirm receipt</button>
+       <button class="act ghost" data-act="closeSheet">Not yet</button>`}</div>`;
+ }
+ if(id==='wrong'){
+  return `<h3>What’s wrong?</h3>
+   <div class="body" style="margin-top:6px">Nothing is released while this is open. Your review window keeps running,
+    so tell us before it closes.</div>
+   <div class="stack" style="gap:var(--s2);margin-top:var(--s4)">
+    ${['The tickets never arrived','The tickets are for the wrong event or date','Fewer tickets than I paid for','Something else']
+     .map(x=>`<button class="listrow"><span class="grow"><span class="body ink">${x}</span></span><span class="chev">${I.chev}</span></button>`).join('')}</div>
+   <button class="act ghost" style="margin-top:var(--s4)" data-act="closeSheet">Cancel</button>`;
+ }
+ if(id==='delete'){
+  return `<h3>Delete this account?</h3>
+   <div class="body" style="margin-top:6px">This removes your listings and history. It cannot be undone.</div>
+   <div class="notice warn" style="margin-top:var(--s4)"><div><div class="body ink">One transfer is still open</div>
+    <div class="sm" style="margin-top:3px">Paper Cathedral — send by Thu 02:00, or the sale is cancelled and the buyer is refunded.
+     Open transfers and payouts have to finish first.</div></div></div>
+   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
+    <button class="act danger" disabled>Delete account<span class="s2">Unavailable while a transfer is open</span></button>
+    <button class="act ghost" data-act="closeSheet">Keep my account</button></div>`;
+ }
+ if(id==='pay-working'){
+  return `<h3>Confirming your payment</h3>
+   <div class="body" style="margin-top:6px">Don’t close the app. If anything interrupts this we’ll tell you exactly what
+    happened before you try again.</div>
+   <div class="panel" style="margin-top:var(--s4);display:flex;gap:10px;align-items:center">
+    <span class="spin"></span><span class="body ink">${money(134)} · Visa •••• 1881</span></div>`;
+ }
+ return '';
+}
+
+/* ===========================================================================
+   Render
+   =========================================================================== */
+function renderScreen(id,variant,forCompare){
+ const c={v:variant||ST.v};
+ const s=SC[id]({v:c.v});
+ const showDock=!['send','receive','checkout','settings','console'].includes(id);
+ return `${statusbar()}${ribbon()}
+  <div class="view${ST.motion&&!forCompare?' viewfx':''}">
+   ${s.hdr||''}
+   <div class="scroller">${s.overlayHdr?'':''}${s.body}</div>
+   ${s.overlayHdr||''}
+   ${s.sticky?`<div class="sticky">${s.sticky}</div>`:''}
+  </div>
+  ${showDock?dock(id,forCompare):''}
+  ${!forCompare&&ST.sheet?`<div class="overlay"><button class="scrim2" data-act="closeSheet" aria-label="Close"></button>
+    <div class="sheet" role="dialog" aria-modal="true">${sheet(ST.sheet)}</div></div>`:''}`;
+}
+
+function render(){
+ const el=document.getElementById('screen');
+ el.dataset.v=ST.v;
+ el.innerHTML=renderScreen(ST.screen,ST.v,false);
+ document.body.classList.toggle('motion',ST.motion);
+ // chrome
+ document.getElementById('variantSeg').innerHTML=VARIANTS.map(v=>
+  `<button data-variant="${v.id}" aria-pressed="${ST.v===v.id}">${v.n}</button>`).join('');
+ document.getElementById('motionSeg').innerHTML=
+  `<button data-motion="reduce" aria-pressed="${!ST.motion}">Reduce Motion</button>
+   <button data-motion="full" aria-pressed="${ST.motion}">Full motion</button>`;
+ const v=VARIANTS.find(x=>x.id===ST.v);
+ const NOTE={
+  home:'<b>Home — Chrome Editorial.</b> One flyer carries the screen, then the feed turns into an index: date rule, 4:5 thumbnail, name, time and venue, live state, price and bid count in a right column. The top bar sits on the artwork with a scrim rather than a bar, which is what makes it read as an app and not a page.',
+  listing:'<b>Listing — Chrome Editorial.</b> The commitment panel is the only lifted surface: current bid at 22 px, bid count and minimum next bid under it, live state and the six-hour meter on the right. Facts are a label/value table, and the sticky bar carries one filled action with its consequence.',
+  bids:'<b>Bids — Chrome Utility.</b> Marketplace activity, so density and alignment win: a segmented control, 44 px thumbnails, the status word carrying the colour instead of a filled block, and your bid in a tabular right column. Tapping a row opens the glass bid-status sheet.',
+  tickets:'<b>Tickets — Chrome Editorial.</b> The pass is the one place artwork and object meet: a cropped 16:9 strip, a real perforation, and the entry facts as a table. Payment state sits on the ticket, because "do I actually own this" is the question the screen answers.',
+  send:'<b>Send Transfer — Chrome Utility.</b> Deadline first, progress second, proof third, facts last, one action. The timeline states status as a shape so the fact rows do not have to say it twice. Everything essential stays: recipient, delivery method, proof, status, payout and release timing.',
+  receive:'<b>Receive Transfer — Chrome Utility.</b> The most consequential screen in the app: confirming releases money. The action says so on its own sub-line, the full price breakdown sits directly above it, and "Something’s wrong" is a quiet secondary rather than a competing button.',
+  checkout:'<b>Checkout — Chrome Utility.</b> The total is set larger than its line items, which the FTC junk-fee rule requires and which is checked by measurement. The hold is stated with "nothing has been charged yet", and Pay runs a real working → success sequence.',
+  profile:'<b>Profile — Chrome Utility.</b> Money first, because this is where a seller checks what they are owed. The chrome ring on the avatar is the one decorative metal in the whole app.',
+  settings:'<b>Settings — Chrome Utility.</b> Destructive is outlined, never filled, and disabled with its reason stated when an open transfer blocks it. A toggle that cannot be turned off says why in place.',
+  console:'<b>Venue console.</b> The same canvas, hairlines and tabular figures at a denser rhythm. Counts are labelled point-in-time with no comparison period; only the seven-day money block is a period aggregate. Red is reserved for the rare destructive action, so routine actions are chrome.'
+ };
+ document.getElementById('noteCard').innerHTML=
+  `<h2>${v.n}</h2><p>${v.note}</p><h3>This screen</h3><p>${NOTE[ST.screen]||''}</p>`;
+}
+
+/* interaction */
+document.addEventListener('click',e=>{
+ const t=e.target.closest('[data-nav],[data-open],[data-sheet],[data-act],[data-variant],[data-motion],[data-filter],[data-setfilter],[data-tab],[data-jump]');
+ if(!t)return;
+ const d=t.dataset;
+ if(d.jump){document.getElementById(d.jump).scrollIntoView({behavior:ST.motion?'smooth':'auto',block:'start'});return;}
+ if(d.variant){ST.v=d.variant;render();return;}
+ if(d.motion){ST.motion=d.motion==='full';render();buildCompare();return;}
+ if(d.nav){
+  if(d.nav==='back'){ST.screen=ST.screen==='listing'?'home':(['send','receive'].includes(ST.screen)?'tickets':
+    ST.screen==='console'?'profile':ST.screen==='settings'?'profile':'home');}
+  else if(d.nav==='search'){ST.screen='home';}
+  else if(d.nav==='sell'){ST.screen='home';}
+  else if(d.nav==='you'){ST.screen='profile';}
+  else ST.screen=d.nav;
+  ST.sheet=null;render();return;}
+ if(d.open!==undefined){ST.listing=parseInt(d.open,10);ST.artStep=0;ST.screen='listing';ST.sheet=null;render();return;}
+ if(d.sheet){ST.sheet=d.sheet;render();return;}
+ if(d.filter){ST.filters.when=d.filter;render();return;}
+ if(d.setfilter){const[g,v2]=d.setfilter.split(':');ST.filters[g]=v2;render();return;}
+ if(d.tab){ST.tab=d.tab;render();return;}
+ if(d.act==='closeSheet'){ST.sheet=null;if(ST.flow.bid==='done')ST.flow.bid='done';render();return;}
+ if(d.act==='resetFilters'){ST.filters={when:'all',price:'any'};render();return;}
+ if(d.act==='cycleArt'){ST.artStep=(ST.artStep+1)%3;render();return;}
+ if(d.act==='placeBid'){ST.flow.bid='working';render();
+  setTimeout(()=>{ST.flow.bid='done';render();},900);return;}
+ if(d.act==='doSend'){ST.sheet='confirm-send-working';render();
+  setTimeout(()=>{ST.flow.sent=true;ST.sheet=null;render();},900);return;}
+ if(d.act==='doReceive'){ST.sheet='confirm-receive-working';render();
+  setTimeout(()=>{ST.flow.received=true;ST.sheet=null;render();},900);return;}
+ if(d.act==='pay'){ST.sheet='pay-working';render();
+  setTimeout(()=>{ST.flow.paid=true;ST.sheet=null;render();},1000);return;}
+ // switches are illustrative state
+ if(t.classList.contains('sw')&&!t.disabled){t.setAttribute('aria-pressed',t.getAttribute('aria-pressed')!=='true');return;}
+});
+
+/* comparison strip */
+function buildCompare(){
+ const mk=(screen,host)=>{document.getElementById(host).innerHTML=VARIANTS.map(v=>`
+  <div class="cmpunit">
+   <div class="cmpframe"><div class="screen" data-v="${v.id}">${renderScreen(screen,v.id,true)}</div></div>
+   <div class="cmplabel">${v.n}<s>${screen==='home'
+     ? (v.id==='editorial'?'372 px hero, 66×82 thumbnails, date rules':v.id==='utility'?'150 px banner, 44 px thumbnails, one continuous list':'344 px hero, 58×72 thumbnails, date rules')
+     : (v.id==='editorial'?'artwork header, 13 px row rhythm':v.id==='utility'?'no artwork, 8 px row rhythm':'no artwork, 10 px rhythm, glass action bar')}</s></div>
+  </div>`).join('');};
+ mk('home','cmpHome');mk('send','cmpSend');
+}
+
+render();buildCompare();
+</script>
+</body></html>
