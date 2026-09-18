@@ -1,4 +1,4 @@
-# Web preview isolation — plan (A, 2026-09-18). NOTHING APPLIED
+# Web preview isolation — plan and APPLIED interim (A, 2026-09-18). Two owner-approved setting changes applied; see §6
 
 **Owner's decision (2026-09-18):** *"website previews should not connect to the production database."*
 
@@ -13,7 +13,7 @@ Every fact below comes from **read-only** reads made on 2026-09-18:
 - the Supabase connector and CLI;
 - the repo at `release/production-gate-20260918`.
 
-No setting was changed.
+§§1–5 describe the state **before** the changes. §6 records the two owner-approved changes applied afterwards, and their verification.
 
 ## 1. Affected Vercel projects (team `gnvprod-5449s-projects`, 8 projects)
 
@@ -70,12 +70,15 @@ No setting was changed.
 | `NEXT_PUBLIC_SITE_URL` | `g1sX…` → `[production]`, same value | a preview host, so auth and return links stop pointing at `snatchti.com` |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | preview only: **owner confirms in the dashboard that it is `pk_test_`** | — |
 
-- `snatchit-admin`: the same split for Preview only. Development and production stay as they are.
+- ~~`snatchit-admin`: the same split for Preview only.~~ **Replaced by D's correction (admin lane), approved and APPLIED 2026-09-18 (§6): FAIL CLOSED, with no admin Preview entries at all.**
+  - The console reads **four** keys, not two: URL, anon key, `NEXT_PUBLIC_SITE_URL` (required at boot in any production-mode build, previews included) and `NEXT_PUBLIC_ENV_LABEL`, the operator's red "production" badge.
+  - `admin/src/lib/env.ts` at `ab3e17f` checks that badge **only** when `NEXT_PUBLIC_VERCEL_ENV === "production"`, so previews were unguarded.
+  - No isolated database has the `ops` schema, the roles or MFA-enrolled operators, so an admin preview against one would be an empty shell.
 - New previews only; existing deployments are unchanged (§1).
 
 ## 3. Interim: stop automatic previews now (the owner's fallback, because phase 2 needs setup)
 
-**Safety property, from source:** `web/src/lib/env.ts` throws at module load in any `NODE_ENV=production` build that lacks the Supabase URL, anon key or site URL. A preview can fail to build, but it can never silently serve without a database.
+~~**Safety property, from source:** `web/src/lib/env.ts` throws … A preview can fail to build, but it can never silently serve without a database.~~ **CORRECTED (owner, 2026-09-18): that is no fallback for `snatchit-web`.** Its Preview-scoped Supabase URL, anon key and site URL are still **present**. So a build that bypasses the ignore setting **succeeds and connects to production**. `env.ts` protects only when the variables are *missing*, which is true today for `snatchit-admin` (§6) but not for the website.
 
 | Option | Mechanism | Effect | Assessment |
 |---|---|---|---|
@@ -87,7 +90,7 @@ No setting was changed.
 
 **Precisely what I2 changes:** `commandForIgnoringBuildStep` is a project-level field, currently **null**. It is evaluated for every build, including production's, where it evaluates to "build". **No environment variable, domain, production branch or protection setting changes.**
 
-## 4. Exact proposed change: interim I2, `snatchit-web` only. Awaiting approval; NOT applied
+## 4. Exact change: interim I2, `snatchit-web` only. **APPROVED AND APPLIED 2026-09-18T22:26:43Z (§6)**
 
 ```
 PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97l4H4jl9d
@@ -114,3 +117,105 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
 - `Vercel – snatchit-web` failed with *"Deployment rate limited — retry in 24 hours"*. **No build was attempted.**
 - Under the owner's decision a retry would create another production-connected preview, so **it will not be retried.** The check stays red until previews are isolated, or disabled by I2.
 - The release branch has **no branch protection or rulesets**, so this check does not block a merge mechanically.
+
+## 6. APPLIED 2026-09-18 — consolidated verification (A; D to review)
+
+**Authority, owner directly to A:**
+- *"Approve the interim change: stop all new snatchit-web preview builds, across all branches, while preserving production builds and settings."*
+- *"remove Preview scope from the admin console's four relevant settings … while preserving Production and Development values and scopes exactly. Preserve the existing preview-build suppression."*
+
+### 6.1 Checked before applying
+- **Vercel docs, current:**
+  - *Project settings → Ignored Build Step*, last updated 2026-09-16: exit **0 → build aborted, deployment `CANCELED`**; exit **1 → build continues**. The command "can access all System Environment Variables".
+  - The KB guide says `VERCEL_ENV` is available when "Automatically Expose System Environment Variables" is on, and gives essentially this command as its own example.
+  - *vercel.json → `ignoreCommand`*: it **"overrides the Ignored Build Step in Project Settings"** for a given deployment.
+  - *Ignore Build Step on redeploy*: a manual Redeploy can **untick** "Use project's Ignore Build Step".
+  - **Canceled builds still count toward deployment quotas.**
+- **The project:** `autoExposeSystemEnvs = true`.
+- **Local test of the command, in `sh` and `bash`:**
+  - `VERCEL_ENV=production` → exit 1, BUILD.
+  - `preview` → exit 0, SKIP.
+  - `development` → exit 0, SKIP.
+  - **unset → exit 0, SKIP.** So production depends on `VERCEL_ENV` being exposed (see 6.4).
+
+### 6.2 `snatchit-web`: one setting changed
+- **Snapshot before:** 46 project fields, with no env values stored. Saved at `scratchpad/preview_iso/web_project_before.json` (mode 0600).
+- **Change:** `commandForIgnoringBuildStep` went from `null` to `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`.
+- **Read back:**
+  - Of all 46 fields, **only `commandForIgnoringBuildStep` and `updatedAt` differ.**
+  - Production branch is still `feature/web-accounts-foundation`.
+  - `gitProviderOptions`, `autoExposeSystemEnvs`, `ssoProtection`, framework, root directory and build, install and output settings are unchanged.
+  - All 20 env entries are unchanged in id, target and type.
+  - **0 deployments were created** since the change.
+- **Rollback:** set the field back to `null`.
+
+### 6.3 `snatchit-admin`: Preview scope removed from the four settings, fail closed
+- **Capture before:** all 6 env entries, including values of the four public-class keys, saved at `scratchpad/preview_iso/admin_env_capture_before.json`. The file is 0600 in a 0700 directory, is not in the repo, and no value was printed.
+
+| Entry | Before | After | Value |
+|---|---|---|---|
+| `cvjeZn6set15JAIE` `NEXT_PUBLIC_SUPABASE_URL` | development, preview, production | **development, production** | fingerprint unchanged |
+| `J8FLFxAVGXWTwqm1` `NEXT_PUBLIC_SUPABASE_ANON_KEY` | development, preview, production | **development, production** | fingerprint unchanged |
+| `GAFjr9xVsarpSWxC` `NEXT_PUBLIC_SITE_URL` | preview **only** | **removed** (the only way to remove its Preview scope) | captured for restore |
+| `7Xkqe7M7QqoOlpUQ` `NEXT_PUBLIC_ENV_LABEL` | preview **only** (`staging`) | **removed** | captured for restore |
+| `jx7ckWGTwRwZFif2` `NEXT_PUBLIC_SITE_URL` | production | production | untouched, fingerprint unchanged |
+| `cafaHvuWsWvV3U72` `NEXT_PUBLIC_ENV_LABEL` | production | production | untouched, fingerprint unchanged |
+
+- **Method:**
+  - The two shared entries were changed with `PATCH` on `target` only.
+  - The two Preview-only entries were removed with `vercel env rm <key> preview --yes`, run against the admin project. The generic `vercel api` DELETE asked for an override flag, which A did not use.
+- **Verified:**
+  - No entry targets Preview.
+  - Every kept entry has the same value fingerprint, the same type, and its targets minus Preview.
+  - The admin ignored-build step (`test "$VERCEL_GIT_COMMIT_SHA" != "ab3e17f…"`) and production branch `admin/operating-console` are unchanged.
+  - **No deployment was triggered.** The newest admin deployment is still 2026-09-08.
+
+### 6.4 What these settings do NOT cover. Neither safeguard is absolute
+1. **A branch can override the suppression.** A `vercel.json`, `vercel.toml` or `vercel.ts` with `ignoreCommand` in a project's root directory (`web/`, `admin/`) overrides the project setting for that branch's deployments. D found none on any remote branch today.
+2. **A manual Redeploy** with "Use project's Ignore Build Step" unticked builds anyway.
+3. **CLI (`vercel deploy`), API-created deployments and deploy hooks:** the docs do not say whether the ignore step applies. **UNVERIFIED, so treat them as not covered.** No deploy hooks are configured today.
+4. **For `snatchit-web`, any build that gets past suppression connects to PRODUCTION.** Its Preview variables still point there (the corrected claim in §3). Phase 2, or D's fail-closed layer for the website (removing Preview scope from its three shared entries, awaiting approval), would change that.
+5. **For `snatchit-admin`,** a build that gets past suppression should **fail** at `env.ts`, with no URL, anon key or site URL. That holds only for code that validates as `ab3e17f` does. It stops holding if a Preview variable is added later, or if a deployment injects build env through CLI flags.
+6. **Failed-check noise is still possible.**
+   - Canceled (ignored) builds count toward the Hobby deployment quota, so **"Deployment rate limited" failures can still appear on commits.**
+   - A build that gets past suppression and fails at `env.ts` would also show as a failed check.
+   - How GitHub displays an ignored (canceled) build was not verified.
+7. **If `autoExposeSystemEnvs` were turned off,** `VERCEL_ENV` would be unset and the web command would skip **production** builds too. That fails in the safe direction for data, but it would block web releases.
+8. **Existing deployments are unaffected** (6.6).
+
+### 6.5 The two existing admin previews (read-only: deployment metadata and uploaded source listing; no page loaded, no operator action, no data read)
+
+| Deployment | Built | Source | vs approved console `ab3e17f` |
+|---|---|---|---|
+| `dpl_6Ax3FuXf2wuGeq3SXbrdMAftRXnH` | 2026-04-08T03:30Z via **CLI** | git meta sha `1cae7cba…` "Initial commit from Create Next App", ref `main`, **dirty working tree**. **That commit is not in this repository** | **0** of its 46 source files byte-identical. It predates `ab3e17f` (2026-09-07) by five months |
+| `dpl_V9Hhhvis8Dmpnsg6JFqVx8opVHut` | 2026-04-09T01:50Z via **CLI** | the same sha, ref and dirty tree | **0** of 55 byte-identical |
+
+- **Unreviewed code, not the approved console.**
+- **Badge:** neither has `src/lib/env.ts`, the file that implements the badge. Both environment-label entries were created 2026-09-08, after these builds. So they carry **no environment badge from the current mechanism**. **Whether they show any environment indication at all is UNVERIFIED**, because no page was rendered.
+- **Database:** the admin Supabase URL variable (created 2026-03-20, Preview-scoped until today) existed before both builds. So they were **most likely built against production**. **UNVERIFIED**: the bundles were not inspected.
+- The uploaded source also includes `supabase/.temp/*` CLI metadata files, which were not opened.
+- **Reachability:** behind Vercel Authentication. The alias `snatchit-admin-gnvprod-5449-gnvprod-5449s-projects.vercel.app` points at one of them.
+
+### 6.6 Existing previews: a reversible restriction before any deletion
+- **Access today, verified:**
+  - Both projects have Vercel Authentication on every deployment except custom domains.
+  - The Vercel team is **Hobby with exactly 1 member (OWNER)**.
+  - There are **0 protection-bypass tokens** on either project.
+  - So only the owner's Vercel login can open any of the 100+ web previews or the 2 admin previews.
+- **Recommended, reversible:**
+  - **(a)** Keep that state, and create no share links or bypass tokens.
+  - **(b)** Remove the stable aliases that point at old previews, starting with the admin alias above (`vercel alias rm`, restored with `vercel alias set`). The unique URLs stay behind the login.
+- **Deletion**, or a retention policy that deletes, is irreversible and stays the owner's separate decision.
+
+### 6.7 Stripe preview key: NOT determined; nothing was exposed
+- The Preview entry `VyqS0isRNtsJkZZT`, last set 2026-08-04, is **Sensitive**, so its value is write-only.
+- Git-built previews' output is not available through the files API ("File tree not found", 404).
+- Loading a preview page would run code against production, so A did not.
+- **Where the owner can check, without the value leaving the dashboard:** Vercel → `snatchit-web` → **Deployments** → any Preview built after 2026-08-04 (e.g. `dpl_41nEd3FG…`, 2026-09-18) → **Source** → **Output** → search the built JavaScript for `pk_test_` or `pk_live_`. The prefix alone answers it.
+- *A has not verified that the Output view lists files for Git-built deployments.* If it does not, the definitive route is phase 2's re-setting of the Preview key to a known test key, which needs approval.
+
+### 6.8 PR #76
+- The **historical** `Vercel – snatchit-web` status on `f3cff27` is **"failure — Deployment rate limited — retry in 24 hours"** (04:20:22Z). It stays recorded as that.
+- It is **not a code result**, and it was **not retried.** A retry would be a production-connected preview, and I2 would now cancel it anyway.
+- All code checks pass (§5).
+- PRs #72–#76 remain **unmerged**.

@@ -1033,3 +1033,34 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 - **Phase 2 proposal:** a new isolated project with synthetic data (**$10/month** in the Pro org), then a Preview-only split of the three entries, with production values unchanged.
 - **Interim, proposed and awaiting approval:** I2, a `snatchit-web` ignored-build step that skips every non-production build. The exact PATCH and its rollback are in §4.
 - **#76 checks, separated (§5):** all code checks pass. The one failure is Vercel's deployment **rate limit**. It is not a code result and will not be retried.
+
+### Preview isolation, interim APPLIED: website previews suppressed; admin Preview scope removed (fail closed). Merges still on hold (A, 2026-09-18)
+
+**Two owner-approved setting changes, verified by read-back.** Full detail: `WEB_PREVIEW_ISOLATION_PLAN_20260918.md` §6.
+
+**`snatchit-web`:**
+- Changed: `commandForIgnoringBuildStep`, from `null` to skipping every non-production build.
+- The Vercel docs were checked first. The command was tested locally (production → build; preview, development or unset → skip). `autoExposeSystemEnvs` is true.
+- Only that field and `updatedAt` changed. The 20 env entries are unchanged, and no deployment was triggered.
+
+**`snatchit-admin`:**
+- Preview scope was removed from the URL, anon key, site URL and environment-label settings.
+- The shared entries became development + production, with unchanged value fingerprints. The two Preview-only entries were removed; their values were captured to a 0600 file outside the repo.
+- Production and Development values and scopes are unchanged. The ignored-build step is preserved, and no deployment was triggered.
+
+**Corrected:** the web fallback claim was wrong. The website's Preview database settings are still present, so a build that bypasses suppression connects to production.
+
+**Recorded, not absolute:** the routes suppression does not cover are listed in §6.4:
+- branch `vercel.json`/`vercel.toml`/`vercel.ts` `ignoreCommand` override;
+- a Redeploy with the box unticked;
+- CLI, API and deploy-hook deployments (unverified);
+- rate-limit noise from canceled builds;
+- existing deployments.
+
+**Admin previews (§6.5):** both are CLI deployments from April, built from an unrelated commit with a dirty tree. **0 files match `ab3e17f`.** Their badge and database target are unverified.
+
+**Existing previews (§6.6):** only the owner's account can open them (Hobby, 1 member, 0 bypass tokens). A reversible restriction is recommended before any deletion.
+
+**Stripe preview key (§6.7):** not determined. The value was never exposed; the dashboard location is given.
+
+**PR #76's historical rate-limit failure** stays recorded and was not retried. **PRs #72–#76 remain unmerged**, pending D's review and the owner.
