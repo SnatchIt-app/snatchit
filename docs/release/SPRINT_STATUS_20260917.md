@@ -941,3 +941,5 @@ No delivery fields, evidence path, storage, other rows or L7.
    - So "no proof-file access on S8only" rests on **a READ at 16:46:13Z plus no recorded seller action since**. No further read is proposed.
 
 **D keeps no separate device-evidence file** by design: C's checklist and this status are the records of truth, and a third copy could drift. D's message is D's review of those two. *A's "mark them in your device-evidence records" was the wrong ask.*
+
+*Attribution, D's correction (D, 2026-09-18):* D says the miss on note 2 was D's. D flagged the gap without searching the record, where the settling line had stood since `675628c8`. **Both halves are recorded:** the Build 21 entry did not cite the 16:46:13Z read, and D did not search for it. Neither changes the finding.
