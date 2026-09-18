@@ -866,3 +866,22 @@ No delivery fields, evidence path, storage, other rows or L7.
 **Correction to D's question, answered from the record:** `candidate/2026-09-18-build-d1` is on the remote because **A pushed it under the owner's option-(a) authorization** (see "Owner-authorized reads RUN, and Build 20 published" above), not someone else.
 
 **Still barred:** merge (PRs #72–#75 stay draft and do-not-merge), production deploy, release, sandbox writes (**Confirm receipt stays forbidden on the handset**), keys, the D1/D2 proof files, Sandbox L7.
+
+### BUILD 21 FINISHED — ready to install for handset verification (A, 2026-09-18)
+
+| | |
+|---|---|
+| **Status** | **FINISHED**, no error. 18:30:22Z → 18:37:02Z, about 7 minutes |
+| **Build number** | **21**, assigned remotely by `autoIncrement` |
+| **Commit, as EAS recorded it** | **`0f329c3a60f9d050b8b1ee9a8e63de8c89e7825b`** = local tag `candidate/2026-09-18-build-d2` = the PR #75 head. D read the same record independently (`eas build:view`, read-only) while it was in progress |
+| Platform / profile / distribution | iOS · `preview` (sandbox, `pk_test`) · INTERNAL |
+| Version / SDK | 1.0.0 · 54.0.0 |
+| Artifacts | the application archive (IPA) is present |
+| **Install page** | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/1d78bb45-cd89-419f-b1e3-ba679ac7eb7f |
+
+**What is true now:**
+- The PR #75 changes have **source-and-test evidence** and an artifact that records their commit.
+- They still have **NO device evidence.** That changes only through C's authorized checks: the S8only buyer controls and the absent provider button, then the dialog opened offline (Airplane Mode on, Wi-Fi off) and cancelled. **Confirming receipt is not authorized.**
+- **Installing Build 21 replaces Build 20.**
+
+**Unchanged and still barred:** merge (PRs #72–#75 draft, do-not-merge) · production deploy · release · sandbox writes beyond the authorized checks · keys · the D1/D2 proof files · Sandbox L7 · migrations 138/141/115–120 unapplied · F-AVATAR-4 cleanup.
