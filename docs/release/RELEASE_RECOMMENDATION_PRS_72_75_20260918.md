@@ -8,7 +8,7 @@
 
 **Two separate steps.**
 
-**Step 1 — integrate into the release branch (recommended now).** Merge the four PRs, plus one PR for F-SEC-2 that has not been opened yet, into **`release/production-gate-20260918`**, in the order in §2.
+**Step 1 — integrate into the release branch (recommended now).** Merge the four PRs plus #76 (F-SEC-2, opened 2026-09-18) into **`release/production-gate-20260918`**, in the order in §2.
 - Use merge commits, not squash and not rebase, so every reviewed commit id survives.
 - ~~This touches no production system. The release branch is not `main`, and nothing deploys from it (§3, B2).~~ **Struck by A after D's review: A had not checked that "nothing deploys from it".** What is established:
   - The release branch is not `main`.
@@ -16,6 +16,7 @@
   - D found that GitHub's deployments API holds no records for either branch, which cannot settle it.
   - **UNVERIFIED:** the production-branch setting of each connected hosted project (the Vercel projects, including `snatchit-web`, which builds previews on these PRs, and the Supabase integration's current `git_branch`).
   - **What settles it:** the owner reads those settings in the dashboards, or authorizes a read. Until then, step 1's "no production effect" is expected, not verified.
+  - **SETTLED 2026-09-18** by the owner-authorized read of those settings (§6). **No production deployment and no hosted-database action.** The merge does trigger CI, one Vercel **preview** of `web/`, and a skipped admin build.
 - The result is the Build 21 tree, byte for byte, plus one test-title rename (§2).
 
 **Step 2 — production release (not recommended yet).** A production client from this branch is blocked **server-side**:
@@ -32,7 +33,7 @@ Target: `release/production-gate-20260918`, currently **`6561d1f`**. Keep ruling
 | 1 | **#72** | `0ca71ff` | F-BID-1, F-HOME-1, F-AVATAR-1, F-DESTRUCT-1, F-XFER-1 (client half), F-XFER-2 (+2-A), F-AVATAR-2 | 19 files, +2222/−73 |
 | 2 | **#73**, retargeted from `frontend/batch1b-twin-screens` to the branch after step 1 | `649248a` | F-AVATAR-3 | 2 files, +280/−1 |
 | 3 | **#74** | `016d8e2` | F-SEC-1 | 3 files, +281/−17 |
-| 4 | **F-SEC-2 — NO PR EXISTS.** Branch `frontend/batch1e-security-notice-throws` @ `f3cff27` is on the remote, stacked on #74. Opening a draft PR for it **needs the owner's authorization.** | `f3cff27` | F-SEC-2, F-SEC-2-A | 2 files, +265/−5 |
+| 4 | **#76 (F-SEC-2)**, retargeted from `frontend/batch1d-security-notice-lock` to the branch after step 3 | `f3cff27` | F-SEC-2, F-SEC-2-A | 2 files, +265/−5 |
 | 5 | **#75**, retargeted from `integration/device-verify-20260918` to the branch after step 4 | `0f329c3a` | F-XFER-3, owner decisions 1 and 2 | 8 files, +923/−20 |
 
 **Evidence for this order.** A ran it on a throwaway local copy of the branch. Local branches only; nothing was pushed, and the copy has been deleted.
@@ -58,11 +59,11 @@ Target: `release/production-gate-20260918`, currently **`6561d1f`**. Keep ruling
 |---|---|---|---|
 | **B1** | **The production server chain is behind the release branch.** Production is ledger 135, numeric tip **120** (`PHASE2_PRODUCTION_STATE_20260912.md`, per the registry). The branch's app calls functions from later migrations. Verified examples: security notices use `get_my_security_notices` / `mark_security_notices_read`, defined only in **136** (`src/lib/security/notices.ts:22-23`) — the hook F-SEC-1/2 changes. Mark as sent's recovery uses `attach_transfer_evidence`, defined only in **140** (`app/transfer/send/[id].tsx`). **All device evidence ran against the sandbox, which has these (ledger 144).** | any production client build | The owner-gated production apply of the branch's server chain and edge functions, in the `DEPLOYMENT_PATHS.md` order: migrations, then functions. **It is a separate ceremony and outside this recommendation.** |
 | **B2** | **AUTODEPLOY-1.** The branch is **818 commits and 68 migration files ahead of `main`**. The integration was disconnected on 2026-08-27 (`git_branch` cleared), but it is **still installed and still reports on PRs against the production project**, one reconnect away. A merge into `main` carrying those 68 files is exactly the path that applied `071` to production in August. | any merge of the branch into `main` | The owner's visual dashboard confirmation that auto-deploy is off (`AUTODEPLOY-VERIFIED-OFF`), and the B1 ceremony. **Step 1 does not touch `main`.** |
-| **B3** | **F-SEC-2 has no PR.** | step 4 | The owner authorizes a draft PR for `f3cff27`. |
+| ~~**B3**~~ | ~~F-SEC-2 has no PR.~~ **CLEARED 2026-09-18:** [PR #76](https://github.com/SnatchIt-app/snatchit/pull/76) opened as draft/do-not-merge, base `frontend/batch1d-security-notice-lock` (`016d8e2`, #74's head), head `f3cff27`; 3 commits, 2 files, +265/−5. | — | — |
 | **B4** | **No production build of this tree exists.** The `production` profile (`pk_live`, production project) has never built it. **App Store release status remains unverified**; the owner's restriction stands. | release | B1, then an owner-authorized production build and store steps. |
-| **B5** | **Step 1's "no production effect" is unverified** (added after D's review). Nobody has read the production-branch settings of the connected hosted projects: the Vercel projects and the Supabase integration's current `git_branch`. | step 1, as a precondition | The owner confirms in the dashboards that neither the Vercel projects nor the Supabase integration uses `release/production-gate-20260918` as a production branch, or authorizes a read of those settings. |
+| ~~**B5**~~ | ~~Step 1's "no production effect" is unverified.~~ **SETTLED 2026-09-18 by an owner-authorized read of the settings (no setting changed): merging into the release branch triggers no production deployment and no hosted-database action.** See §6. | — | — |
 
-**Decisions now due.** The owner deferred these "until after device verification", and that verification is now closed. **A's recommendation: none blocks step 1. Decide the third before any production build, because its copy ships in that build.**
+**Still DEFERRED (owner, 2026-09-18: "Keep F-SEC-3, F-SEC-1-B and the unknown-outcome wording deferred and documented"):** **A's recommendation: none blocks step 1. Decide the third before any production build, because its copy ships in that build.**
 - **F-SEC-3** (LOW, pre-existing): the read path swallows a thrown error.
 - **F-SEC-1-B:** uniqueness assertions for 1b/1c. Test-only.
 - **The unknown-outcome copy** for security actions.
@@ -101,3 +102,21 @@ Each of these is its own owner decision:
 - the F-SEC-2 PR;
 - the B1 ceremony;
 - any build.
+
+## 6. Deployment settings, read 2026-09-18 (owner-authorized, read-only, nothing changed)
+
+**What a merge into `release/production-gate-20260918` triggers:**
+
+| System | Configured branch(es) | Effect of a merge into the release branch |
+|---|---|---|
+| **Supabase GitHub integration**, production `hqycwntpfoztoinemqns` | One branch, `main` (default), **`git_branch: ""`**, unchanged since 2026-08-27T15:49:25Z. Read twice, via the Supabase connector and the CLI, with identical results. No preview branches | **None.** No git branch is bound, so no migration is applied and no function is deployed. The Supabase app still posts a check on pushes, and it **skipped** at the branch's last push (`6561d1f`) |
+| Supabase, sandbox `ofaidukbieeekqaboscm` | `supabase branches list` returns `[]`. No branching | **None** |
+| **Vercel `snatchit-web`** (linked to this repo, root `web/`) | **Production branch `feature/web-accounts-foundation`**. Git deployments enabled, no ignored-build step, comments on commits and PRs | **A PREVIEW deployment of `web/`, not production.** The merge changes 0 files under `web/`. Previews are SSO-protected, and their public env points at the **production** Supabase project with the anon key, the same as every previous push and PR. At the last push the preview was **rate-limited** ("retry in 24 hours"). **Not checked:** whether `next build` pre-renders any page that reads data. There are no explicit static-generation markers in `web/` |
+| **Vercel `snatchit-admin`** (linked, root `admin/`) | **Production branch `admin/operating-console`**. The ignored-build step builds only `ab3e17f` | **Skipped** by the ignored-build step |
+| Vercel, the other 6 projects | 4 are linked to other repos; 2 are not linked | **None** |
+| **GitHub Actions** (the branch's `.github/workflows/`) | `ci.yml` runs on push to any branch except `main`. `migrations-guard.yml` and `security.yml` run on PRs only | **CI only**: 5 jobs, with no secrets referenced and migrations applied to a throwaway database inside the runner |
+| Other | No repository webhooks. No Expo/EAS app reacted to the branch's last push | **None** |
+
+**Side facts, recorded, not acted on:**
+- `snatchit-web`'s production branch is `feature/web-accounts-foundation`, not `main`.
+- Its preview deployments use the production Supabase project, with the public anon key only.
