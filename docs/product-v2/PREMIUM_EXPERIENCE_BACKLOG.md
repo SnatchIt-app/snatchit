@@ -4116,3 +4116,43 @@ and opens it**; C declined to open a second one, since release integration is A'
   tests the harness. **"You caught it because it felt too easy; that instinct is the control that has no test."**
 - **1c at `649248a`:** A's diff vs `2567401` is the one test file (11/5), no behaviour change; A's gates 114 / 2317,
   typecheck 0, lint 0 / 29. **PR #73 re-pointed, head `649248a`, all nine checks pass.**
+
+## F-SEC-1 — security-notice action lock (C, 2026-09-17). `frontend/batch1d-security-notice-lock @ 39bc41c`
+Owner authorised it as a security-focused follow-up with five evidence items named. **Cut onto the gate
+`6561d1f`, NOT onto the 1c head** — A's correction, D's argument: a security fix should be takeable without the
+three UI batches, in either order or ahead of them. Verified: `6561d1f` is an ancestor, `2fe7abd` is not.
+
+**The defect in one line: the hook locked its read and left its writes open.** `load()` already guarded with a
+`useRef` (`inFlight`, released in a `finally`); `dismiss` and `signOutAll` guarded with `if (busy) return;` over
+React state, so two presses in one event loop both read false. A verified it in **`f412d10`, the installed build**.
+
+**Fix:** one `actionInFlight` ref for BOTH actions, distinct from `inFlight`, with a **single acquire and single
+release** — both actions run through one `runExclusive` helper, so there is one acquire site and one release site
+for the pair, not one per handler. That is what makes "released exactly once" structural.
+**ONE ref, not two — D's mechanism ruling, adopted over C's weaker preservation argument:** `busy` is a single
+state driving both controls, so separate refs would let whichever action finished first clear it **while the other
+was still running** — F-AVATAR-1 reintroduced inside the fix for its own descendant. Two refs would require
+splitting `busy`, which is a UI change nobody authorised. **SM3 mutates to two refs and kills S8**, so the
+decision has a control rather than only prose.
+
+**Evidence, the owner's five:** S1/S4 capture one handler reference and call it twice with **no re-read between
+calls** · S1 counts `signOutAllDevices` **invocations, not navigations** (A's point: the defect was two calls with
+ONE navigation, so a navigation assertion passes on the bug) · S3 a failed sign-out releases the guard, reports it,
+does not navigate, and a later press works · S5/S6 a completed and a failed dismiss both leave the control usable ·
+**SM1 removes the lock and kills S1, S2, S4 and S8** — one more than C predicted, since without it dismiss can also
+start during a sign-out. SM2 (never release) kills S3 and S6.
+
+**Exact diff vs `6561d1f`: three files, +273/-17** — `src/hooks/useSecurityNotices.ts` (+43/-17), the new
+behavioural suite (the hook had none; `tests/security-notice.test.ts` greps source), and that contract test, whose
+`setError(null)` pin C **followed to its new single site inside `runExclusive`** rather than dropping, adding
+assertions the old shape could not express (both actions go through `runExclusive`; the lock is `actionInFlight`).
+**Zero lines on `src/lib/auth/signOut.ts`, payments, checkout, `supabase/`, `scripts/`, `.github/`.**
+**Gates:** vitest **2258 passed / 107 files** (the gate base, not the batch base); tsc clean; lint 0 errors / 29
+warnings. No production read, no deployment, no build; server behaviour, session policy, Build 19 and Line 3
+untouched.
+
+**REMAINING UNCERTAINTY, reported because the owner asked for it by name and because a fix must not imply an
+answer it did not produce:** whether a second `signOutAllDevices()` would surface **"sign out failed" over a
+successful sign-out** is **UNRESOLVED**. The probe that found the defect used a mock that forced the second call
+to fail; that outcome was never observed against a real session. After this fix there is no second call, so the
+question is moot in practice — **but it was never settled, and this fix does not settle it.**
