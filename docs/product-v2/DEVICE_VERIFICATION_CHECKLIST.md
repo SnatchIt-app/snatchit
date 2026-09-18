@@ -146,3 +146,40 @@ DV-IMG fixtures and ordering (A, sandbox read 2026-09-17 05:55:58Z; full ids in 
   until decided.
 - Native Tickets (CFT-801): issuance disabled; the populated state stays
   UNTESTED.
+
+## Build 20 — `candidate/2026-09-18-build-d1` → `8da50c0` (EAS 2c423058-fd38-4680-bbf4-26360b188567)
+Preview profile, `EXPO_PUBLIC_APP_ENV=sandbox`, test Stripe key. Submitted by A from a clean worktree at the tag.
+**C verified independently, not relayed:** all five heads are ancestors of `8da50c0` (`2fe7abd`, `0ca71ff`,
+`2567401`, `016d8e2`, `f3cff27`) **and each fix is present in the built tree** by source check — ancestry alone
+would not have caught a later revert. *(C's first content check reported three misses; that was C's own shell
+escaping of the `[id].tsx` paths, not the build. Re-checked correctly: present.)*
+**Known gap, the owner's to close:** the tag is local to A's machine — A's pushes are permission-gated — so the
+build's source cannot be resolved from the remote yet. Does not affect the build or the pass.
+
+**Every row below is UNTESTED. Each has source-and-test evidence and none has device evidence.** A green suite
+says the code does what we wrote; it cannot say the screen does what a person sees.
+
+| # | Row | What must be true on the handset | Status |
+|---|---|---|---|
+| DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | UNTESTED |
+| DV-20-2 | Home "Ended" offline | same | UNTESTED |
+| DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | UNTESTED |
+| DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | UNTESTED |
+| DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
+| DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
+| DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
+| DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | UNTESTED |
+| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | UNTESTED |
+| DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
+| DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
+| DV-20-12 | Avatar, same-tick double press | one picker, one upload | UNTESTED, **weak-pass** (see below) |
+| DV-20-13 | Security notice actions | one sign-out per press; a thrown failure shows a message | UNTESTED, **needs a staged notice** |
+
+**DV-20-12 is a weak-pass row by construction, and C is saying so before it is run.** The old state guard already
+blocked a *slower* second tap; only a press landing inside the same event loop (~16 ms) got through. So a **FAIL
+is conclusive** (two pickers = the lock is not holding) while a **PASS is ambiguous** — it is equally consistent
+with "the fix works" and "the two taps did not land in the same frame". It must be recorded as PASS (weak) or
+UNTESTED, never as proof the race is closed.
+**DV-20-13 needs a staged security notice** — the buyer's existing "Account deletion requested" notice is a
+different type and must stay untouched; a thrown-failure row additionally needs a network condition, so it may
+end UNTESTED rather than be forced.
