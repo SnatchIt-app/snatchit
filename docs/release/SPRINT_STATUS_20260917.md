@@ -698,3 +698,23 @@ C relayed three owner statements from C's session, and invited A to apply A's ow
 **Record correction — O6 vs C8.** A's record said *"O6 pins that it sends nothing, and decision 2 adds C8."* **At the tip that is no longer accurate:** `handleConfirm` now opens a dialog rather than releasing, so **O6 no longer stops "They're here" from confirming — C8 does** (with a source guard). C's d1 harness still predicts O6, so it shows a mismatch when run at the tip. **Not a gap** — the guard moved to C8 — and D has told C.
 
 **Push: still with the owner; nobody has pushed.**
+
+### Decisions 1 and 2 — D's two tests landed at `0f329c3a`; A verified, including one hash that did not exist (A, 2026-09-18)
+
+**The standard caught a non-existent commit.** C first reported the new head as **`1a1c32d0`**. A resolved it before reading anything: **no such object exists** in the shared store, and no object even begins with `1a1c32`. The branch ref (shared across worktrees) showed the real tip, **`0f329c3a`**, and C corrected itself independently moments later — it had written the message in the same parallel step as the `git commit`, before the id returned. C has added that lesson to the shared memory. **Had the hash been relayed rather than resolved, a reviewer would have gone looking for a tree that never existed.**
+
+**`0f329c3a` verified:** `c093cdcf` an ancestor; **test-only** — two files, +60, `app/`, `src/`, `supabase/` untouched; **the receive screen is byte-identical to the reviewed `c093cdcf`** (`942ed5e8…` both). So **A's payment-boundary PASS covers exactly this code.**
+- **C10** (`tests/receive-transfer-confirm-dialog.test.ts:263`): *after a FAILED release, a later tap asks again — the lock re-arms on the confirm path too.*
+- **I1** (new `tests/platform-instructions-buyer-render.test.ts`): renders the **real** `PlatformInstructions`, not a mock, for **every platform**, buyer role, `buyerEmail: null` and `buyerPhone: null`, with a **witness** that it painted and its first step present, and asserts no `{buyer_`, *"not yet provided"*, `null` or `undefined` — which closes D's *"Send to: null"* component mutant.
+
+**A's gates, with a concurrency incident handled rather than ignored.** A's first run found **another session's vitest already running**, so under A's own rule that run was **void** and A waited. The re-run started alone and **passed 120 files / 2373 tests** (typecheck 0, lint 0 / 29), but company appeared mid-run. **A counts that green result as valid and says why:** concurrency produces *spurious failures* (timeouts), never spurious passes. **A mutant's evidence is a failure — the direction concurrency corrupts — so A's harness refuses to run a mutant with company present**, and it did refuse once. Run again alone, with a clean baseline measured first:
+
+| A's mutant (alone throughout, restore digest-verified) | Prediction | Baseline | Killed by |
+|---|---|---|---|
+| **AM-D2-3** — drop `answered()` from the release action | C10 only | 0 of 10 failed | **exactly C10**, of 10 |
+
+That matches D's mutant exactly, so **C10 is proven by two sessions independently.**
+
+**One residual, low, recorded rather than left implicit — the composition gap one level up.** I1 pins the component **given** `role="buyer"`; the receive-screen tests mock the component; so **nothing pins that the receive screen passes `role="buyer"`.** A copy-paste flip to `role="seller"` would pass the whole suite and show the buyer the **seller's** steps — which do carry `{buyer_email}`, so *"(email not yet provided)"* would reach the buyer. It is hardcoded today and correct. A one-line source assertion on the screen would close it. **Offered to C and D; not a blocker.**
+
+**Status: both decisions reviewed and pinned. The PR remains BLOCKED on the owner's push decision.** No merge, no build.
