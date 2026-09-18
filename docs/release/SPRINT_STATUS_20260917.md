@@ -378,3 +378,49 @@ That is the same truthfulness rule this sprint has enforced everywhere else (F-X
 **Why A got it wrong, recorded rather than smoothed:** A reasoned from *"Build 20 supersedes nothing"* — true about the release stack, since Build 19 remains the owner's reference build and no ruling about it changed — and let that slide into a claim about the **device**, which is a different system with different rules. A release-planning fact was extended to a physical one without checking the bundle identifier that decides it. **This is the third time tonight A attached a true statement to a stronger claim than it supported** (the AUTODEPLOY-1 inference, the F-SEC-1-A spec attribution, and now this), and all three were caught by a peer rather than by A.
 
 **C also verified something ancestry alone cannot establish:** that **each of the eleven fixes is present in the built tree**, not merely that the five heads are ancestors of `8da50c0` — since a revert on top would preserve ancestry while removing the change. That check is C's and it closes a gap in A's provenance argument.
+
+### Build 20 handset pass — first three rows, F-BID-3, and the DV-20-9 fixture decision (A, 2026-09-18)
+
+**Results as C recorded them, owner-reported, on Build 20** (C's record commits `239a594`, `7564790`, `00d385f` — **A resolved all three against a ref**: they are on `frontend/premium-experience-backlog`):
+
+| Row | Result | What it does and does NOT establish |
+|---|---|---|
+| **DV-20-1** | **PASSED** (11:34 ET) | as recorded by C |
+| **DV-20-2** | **PASSED** (11:39 ET) | as recorded by C |
+| **DV-20-4** | **PASSED on the final state** (11:43:47 ET) | **Carries a hard limit, held here exactly as the owner directed.** The earlier screenshot shows Airplane Mode on, current bid $100, proposed $105, and an alert *"Bid failed" / "TypeError: Network request failed."*; the later one shows the offline state. **No `$0` appears in either**, so **the F-BID-1 property — a form built on a FAILED read — is NOT shown by either screenshot.** The sequence between them was not captured, and **the owner has directed that nobody infer when the form loaded or which buttons were pressed.** A holds to that. The one statement made is from **source, not sequence**: that alert is emitted by `submitBid` after the `bids` insert returns an error. **Whether a bid row was written is UNVERIFIED.** |
+
+**So DV-20-4 is a PASS on what the final screen shows, and F-BID-1 itself remains WITHOUT device evidence.** Recording it any other way would convert a missing observation into a passing one.
+
+**F-BID-3 — NEW, OPEN, pre-existing, untouched by F-BID-1. A verified it in source at `8da50c0`:** `src/screens/PlaceBidScreen.tsx` does `Alert.alert('Bid failed', error.message)` when the `bids` insert returns an error — so **a person is shown the raw `TypeError` string**, and **offline is not classified** the way the screen's read path now classifies it. Same truthfulness class as F-HOME-1 and F-BID-1, on the submit path rather than the read. Nothing started.
+
+### DV-20-9 (Receive screen on a `seller_sent` transfer) — **opening the screen IS a sandbox write, so it needs the owner's authorization, not just a read**
+
+**Fixtures ruled out, C's reasoning, A agrees:** D1 and D2 are out entirely — opening either mints a signed URL for a **retained proof object**, which ruling 2 bars. L7 is out. **S8only (`8f59d37e…`)** is the candidate, because its evidence path was null last night.
+
+**A verified C's claim about what opening the screen does, and it holds — with one correction to where the write comes from:**
+- `app/transfer/receive/[id].tsx:160` calls `supabase.rpc('mark_transfer_viewed', …)` on open.
+- `mark_transfer_viewed` (**`0550_transfer_state_guard.sql:243`**) does exactly one thing: `UPDATE public.transfers SET buyer_viewed_at = COALESCE(buyer_viewed_at, now()) WHERE id = … AND buyer_id = auth.uid()`. **The function itself writes no notification.**
+- **The notification comes from a trigger**: `058_notification_producers.sql` `trg_notify_transfer_state_inbox` (AFTER UPDATE on `public.transfers`) inserts **one `transfer_viewed` inbox row for the seller when `buyer_viewed_at` goes from NULL to NOT NULL**, dedupe key `transfer_viewed:<transfer_id>`.
+- A checked every UPDATE trigger on `public.transfers`: only the 0550 BEFORE UPDATE guard and that 058 AFTER UPDATE producer. **No `updated_at` trigger.**
+
+**Therefore the pre-read decides the class of action:**
+- **`buyer_viewed_at IS NULL` → opening the screen CHANGES SANDBOX DATA:** it sets `buyer_viewed_at` and writes **one inbox notification to the seller**. The build authorization said *"do not … change sandbox data"*, so **this branch needs the owner's explicit authorization for that write**, not merely for the read. (No outbound push is possible — the sandbox push key remains deferred, option b.)
+- **`buyer_viewed_at IS NOT NULL` → opening the screen changes no data values:** `COALESCE` keeps the stored time and the trigger's NULL→NOT NULL condition is false, so no notification. (A new row version is still written at the storage level; no column value changes.)
+
+**The read, PREPARED BY A AND NOT RUN.** It is a sandbox read and **the owner has not authorized it**; C asked for it to be ready, not run.
+
+```sql
+-- sandbox ofaidukbieeekqaboscm ONLY; read-only; run from an unlinked worktree with an explicit project ref
+begin read only;
+select 'rows='||count(*) from public.transfers where id::text like '8f59d37e%';          -- must be exactly 1, else STOP
+select t.id, t.status, (t.transfer_evidence_path is null) as evidence_path_null,
+       t.buyer_viewed_at, t.buyer_id, t.seller_id, l.event_name
+  from public.transfers t join public.listings l on l.id = t.listing_id
+ where t.id::text like '8f59d37e%';
+-- ONLY IF the owner also authorizes the bid-row check (scope as C stated it):
+-- select count(*), max(created_at) from public.bids
+--  where listing_id = '<DV-20-4 listing id, from C>' and created_at >= '2026-09-18T15:40:00Z';  -- 11:40 ET = 15:40Z
+rollback;
+```
+
+**Stop conditions:** more or fewer than one transfer row; `status` other than `seller_sent`; `transfer_evidence_path` NOT null (then opening the screen would mint a signed URL for a stored object, which is the D1/D2 case and is barred).
