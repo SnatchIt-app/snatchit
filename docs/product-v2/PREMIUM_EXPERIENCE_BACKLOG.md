@@ -4069,3 +4069,27 @@ and opens it**; C declined to open a second one, since release integration is A'
   - **Outside every current authorisation, and it touches auth** — `src/lib/auth/signOut.ts` is on the gated
     surface, so any fix goes to A before merge. Recorded for the owner; nothing started. **Fifth instance of the
     same shape today**, and the first one C found by taking a hand-over rather than being handed the defect.
+
+- **F-SEC-1 — D's independent confirmation, labelled as what it is.** D read the mechanism and **did not re-run
+  C's probe**, saying so: `signOutAll` is `useCallback(…, [busy])` with `if (busy) return` over `useState`, so a
+  captured reference carries `busy === false` and the second call walks through. `dismiss` (`:55-71`) has the
+  identical shape with `[notice, busy]` — same defect, lower stakes. D is not treating it as a new hypothesis
+  because the same mechanism was confirmed empirically twice today on the avatar screens. **There is no
+  behavioural harness for this hook** — `tests/security-notice.test.ts` greps the source — so an independent
+  empirical run means building one, which is the owner's call, not speculative work.
+  - **D's framing of the claim, adopted: "a security action runs twice" is the headline and is enough to justify
+    a fix.** The failure-copy consequence (whether the second call then shows "sign out failed" over a successful
+    sign-out) stays a HYPOTHESIS — it would need a real double invocation against a real session, and C's mock
+    forced that outcome rather than observing it. It must not become the headline when this reaches the owner.
+- **Why C's invalid probe looked legitimate — D's diagnosis, and the reason the rule is now durable.** Re-reading
+  `api.signOutAll` between the two calls does not hand back a stale reference; because the handler is memoized on
+  `[busy]`, it hands back a genuinely DIFFERENT function whose closure already has `busy === true`. That is exactly
+  what a real double tap cannot reach, since React does not re-render between two presses in one event loop. **A
+  guard memoized on the state it guards is where the next person writes the same broken probe and believes it.**
+  **Rule: capture the handler once and call that same reference twice.** Written into the durable memory
+  `busy-window-is-not-a-lock` (which already covered the trap; C merged the handler inventory in rather than
+  creating a second entry) and recorded here with C's case as the example.
+  **C caught it because the pass felt too easy — there was no mechanism that would have caught it. The suspicion
+  was the mechanism.** Kept in the record as-is, at D's suggestion.
+- **1c stays PASS at the reviewed head.** `649248a` changes two test names and a commit message, not behaviour, so
+  D's verdict carries — **but A pins whichever head actually goes into the PR.**
