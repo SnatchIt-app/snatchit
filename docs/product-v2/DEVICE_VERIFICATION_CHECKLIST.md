@@ -168,7 +168,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
-| DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | UNTESTED |
+| DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | **PASSED** 13:35 (below) — device evidence for F-XFER-2's pending branch |
 | DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
@@ -373,3 +373,14 @@ FILTERS 1 active, SOLD cards with "SOLD FOR $110 all in", the notice above the g
 sequence is the owner's report; nothing further is inferred.
 - **Layout, recorded without expanding the pass → F-LAYOUT-2:** the notice text sits flush against the screen's
   left edge and RETRY against the right, while the cards below are inset.
+
+### DV-20-8 — PASSED, Build 20, 2026-09-18 13:35 (owner-reported, screenshot)
+Device D6's Receive Transfer: badge **PENDING**; exact line **"Send window has passed — the seller may still send"**
+(`TRANSFER_EXPIRY_COPY.buyer`); below it "The seller has not marked the tickets as sent yet." No "Transfer window
+expired", no instruction to send. Screenshot also shows the generic "How to receive your tickets / Varies"
+instructions, no "Open …" button, Event "Device D6", Seller "Unknown", Delivery email `sandbox-buyer@snatchit.test`.
+- **This is device evidence for the fix, not just a pass:** the line renders only when the device-clock countdown is
+  "Expired", so `expires_at` was non-null and past; on the pre-fix code that same state rendered the literal
+  "Transfer window expired" (`2fe7abd:341`).
+- **Write: UNKNOWN, not read.** If this was the buyer's first view of D6, it stamped `buyer_viewed_at` and wrote one
+  `transfer_viewed` notification to the seller (the owner was told before opening and proceeded). Not verified.
