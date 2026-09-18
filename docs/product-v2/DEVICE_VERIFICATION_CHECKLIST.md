@@ -451,10 +451,15 @@ bar truncates the price), F-LAYOUT-2 (Home notice has no horizontal inset). F-XF
 Needs a build that contains PR #75 (`0f329c3a`). All steps as the sandbox buyer; **no new fixtures**.
 - **N1 — F-XFER-3 + decision 1, S8only (`8f59d37e`):** Receive Transfer shows "I got my tickets", "I haven't received
   them", the delivery form, and the buyer's instructions; no empty contact field; "Open <provider>" only if S8only's
-  listing has a known provider (its platform is not in C's records — record what shows). **Re-opening S8only writes
+  listing has a known provider (its platform is not in C's records — record what shows; a one-column sandbox read of
+  its listing's platform would settle it in advance, **needs the owner's authorisation**, not requested). **Re-opening S8only writes
   no new data:** its `buyer_viewed_at` is already set (D and A reads), and the notification fires only on the first view.
-- **N2 — decision 2, same screen:** tap "I got my tickets" → the dialog shows the exact copy → tap **Cancel** →
-  nothing changes. **Do not tap "Confirm and release payment"** (it would release sandbox payment).
+- **N2 — decision 2, same screen, OFFLINE (A's safeguard, adopted):** load S8only online, then turn **Airplane Mode
+  on**, then tap "I got my tickets" → the dialog shows the exact copy → tap **Cancel** → nothing changes. The dialog
+  needs no network, so the check loses nothing; a stray tap on "Confirm and release payment" would then fail on the
+  device ("Error / Something went wrong…") instead of reaching `confirm-and-release` (functions-js turns the failed
+  fetch into a FunctionsFetchError and does not retry; the screen refetches only after a provider hand-off). **Derived
+  from code by A, not tested on a phone.** Still: do not tap Confirm.
 - **N3 — F-BID-1, read-only, optional (already in Build 20; only needs the sequence captured):** online, open Device
   D7's listing → Airplane Mode on → tap Place bid → expect the offline state with Retry and **no bid form**. Do not
   submit anything.

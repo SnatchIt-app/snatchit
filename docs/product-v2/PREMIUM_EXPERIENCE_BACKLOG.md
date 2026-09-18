@@ -4511,3 +4511,8 @@ merge or new build yet."
   while the grid below is inset. Source at `8da50c0`: `app/(tabs)/home.tsx:591-597`, `s.notice` sets `paddingBottom`
   only, no horizontal padding. Presentation only; the copy and behaviour passed (DV-20-3). Belongs with F-LAYOUT-1 and
   the shared-primitives decision. Nothing started.
+
+- **Observation (A, 2026-09-18; PRE-EXISTING, not filed, owner's call):** a replaced avatar is never deleted — each save
+  uploads a new object (`avatarImage.ts:124`) and no client code deletes from `avatars` — and the bucket is public, so
+  an old photo stays reachable by anyone holding its path. The Build 20 pass left two such objects on the sandbox buyer.
+  Not caused by F-AVATAR-1/2/3; nothing started.
