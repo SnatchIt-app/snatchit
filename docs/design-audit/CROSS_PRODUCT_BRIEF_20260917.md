@@ -41,13 +41,21 @@ One product, two audiences. Shared, without exception:
 | **Density** | one decision per screen | many rows per screen, one action per row |
 | **Navigation** | five-tab dock, bottom, thumb-reachable | six-section top nav with a breadcrumb — a manager arrives from a link or a notification, so *where am I* matters more than *where can I go* |
 | **Imagery** | load-bearing | 52 pt recognition thumbnails at most |
-| **Colour** | red = the one action | red = **danger only**. On a dashboard the primary action is white-on-black, because the operator's dangerous actions must own red exclusively |
+| **Colour** | red = the one action | **destructive actions get their own danger treatment; red remains available for primary consumer actions** (owner's ruling, 2026-09-17 — see the note below) |
 | **Numbers** | one price, dominant | aligned columns, tabular, with definitions attached |
 | **Success** | a state block and a haptic | a sentence naming what changed, who it told, and what is now logged |
 | **Irreversibility** | disclosed on the button | disclosed on the button **and** gated by role **and** queued for a second approval |
 
-That colour inversion is the single most important difference. In the app, red invites. In the console, red warns — so the
-console's ordinary primary action is monochrome, and red is spent only on actions that move money or restrict a person.
+> **Owner's ruling, 2026-09-17 — colour.** *"Destructive actions get their own danger treatment; red remains available
+> for primary consumer actions."* The inversion this brief originally proposed for the console — red as danger only,
+> with the ordinary primary action monochrome — was **not adopted**. The approved direction of 2026-09-14 stands: red
+> keeps its meaning for the primary action, the active nav item and the brand dot, and destructive actions get a
+> distinct treatment *inside* it. X5 in §8 records the reasoning that produced the decision and remains accurate as
+> history; this note records its outcome.
+>
+> *Editorial correction made by D under the owner's direct instruction, documentation only, while B's session was not
+> running. Two lines changed — this paragraph and the Colour row above. No product code, tokens, prototypes or other
+> sections were touched.*
 
 ## 3. The shared system, layer by layer
 **Navigation.** Consumer: labelled dock (five). Console: top nav (six) + breadcrumb + page title; no nested sidebar. A
