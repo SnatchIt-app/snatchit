@@ -59,3 +59,20 @@ The owner reopened scope after the close for two client-only fixes. **The close-
 **A's own role, stated so the division is unambiguous:** A relayed the authorization rather than implementing it, because the owner assigned A the review of the transfer wording and a reviewer cannot independently review their own text. A will re-run the gates rather than accept C's numbers.
 
 **Unchanged and still open:** whether the transfer window should be enforced server-side at all (F-XFER-1's product half). Batch 1b does not touch it, and the client copy must not imply an answer.
+
+## Batch 1 — D's test review: PASS, with four gaps found and closed (recorded by A, 2026-09-17)
+
+**Head correction:** the branch is **`2fe7abd`**, not `812ec45`. A's review of the transfer wording was read against `812ec45`; the gated-surface check has been re-run at `2fe7abd` and is still **zero lines** across `src/lib/payments.ts`, `src/lib/checkout/`, `src/lib/auth/signOut.ts`, `supabase/`, `scripts/` and `.github/`.
+
+**D found four test gaps that A did not.** A had relayed C's own account of batch 1 — three mutants surviving "by design", recorded as defense in depth — **without independently testing that reasoning. D tested it and the reasoning was wrong**, which is why this is recorded rather than dropped:
+
+- **C's "three independent layers" claim for F-BID-1 was false, and the wrong reason concealed the real gap.** The refusal lives in exactly one place, the render guard. M1/M4 survived because they targeted behaviourally redundant lines, and **no mutant removed the load-bearing line at all** — its only control was a full revert.
+- Two of the four gaps were the same helper conflation C had found and fixed once in the Home helper and left standing elsewhere: place-bid's `view()` reported "the bid form is on screen" for any tree that was not a spinner or an error — **including an empty one, the exact outcome the fix exists to prevent** — and profile's `busy()` returned `false` for "control absent" and "control idle" alike, because `findElement` yields undefined rather than throwing. Plus a dead assertion in B2 and a vacuous X5.
+- C closed all four with **one shared reader**, `tests/helpers/screen-view.ts`, whose rule is that a verdict is reported only when something positively identifies it and "nothing matched" is `'blank'`, which no assertion expects. A read the helper: its header documents the conflation and names each site, so the fix is general rather than a fourth hand-rolled special case.
+- **D then ran three new targeted controls itself**, in a detached worktree: **M7** (delete the render guard alone) → 7 of 8 killed, B5 the sole survivor; **DM7** (a global lock instead of the per-listing Set) → kills D8 alone; **AM3** (avatar control missing) → kills all six, where the old boolean helper would have passed four. D's own gates at the pushed head: vitest 2289/111, tsc exit 0, gated surface zero.
+
+**D's verdict: batch 1 PASS.** **The standard D carries into 1b, which A adopts:** a surviving mutant is acceptable only when the behaviour is genuinely indistinguishable, and **the line actually doing the work needs its own targeted control — not just a full revert**.
+
+**The lesson A takes, recorded against A:** a peer's disclosure of surviving mutants is evidence of honesty, not evidence the reasoning is sound. A treated C's "defense in depth" account as settled because it was volunteered; D treated it as a claim and falsified it. Volunteered self-criticism still needs checking.
+
+**Held for 1b (D's detail, after D got it wrong first and C corrected D):** F-AVATAR-2 is **two** controls, not one — `edit-profile.tsx:141` (the avatar ring) and `:149` (the "Change photo" text) both call `handleAvatarPress` and both gate on the same `avatarUploading`, so the racing second press can come from either. A test exercising only the ring misses half the defect.
