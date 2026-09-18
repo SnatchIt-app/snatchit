@@ -4423,7 +4423,9 @@ behaviour.
   being absent). D also added XM10 (report button not disabled while busy) → killed by X5 (X6 incidentally).
   **Head now `2dbcb02` (X10 on top of `a739a40`); harness 10/10 as predicted — after C corrected XM2's prediction ({X7} → {X7, X10}), which C
   had left stale when adding X10: C's error, recorded.** Gates: tsc 0; vitest 117 / 2344; lint 0 / 29.
-- **Review: A — PASS (confirm path, 8a9934a); D — verdict "final once X10 is in", X10 now in.** Not pushed, no PR, no build. A's server reading, verified
+- **Review: COMPLETE at `2dbcb02`.** A — PASS (confirm path, 8a9934a), carried to `2dbcb02` by A after verifying the
+  delta is test-only (+13/−1; app/, src/, supabase/ untouched; vitest 117 / 2344). D — "final once X10 is in", X10 in.
+  PR, build and integration remain separate owner decisions. Not pushed, no PR, no build. A's server reading, verified
   by C: `confirm_transfer_received` (`0550:191`) and `buyer_dispute_transfer` (`0550:207`) — the last definitions — and
   the `confirm-and-release` edge function reference no delivery field (0550's delivery lines are all
   `set_transfer_delivery_info`, `:227-264`, plus a comment; the edge function has 0). **So the server always accepted
