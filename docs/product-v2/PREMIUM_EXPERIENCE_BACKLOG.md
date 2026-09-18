@@ -4520,3 +4520,10 @@ merge or new build yet."
   `frontend/batch1e-security-notice-throws @ f3cff27`, base `frontend/batch1d-security-notice-lock` (stacked on #74),
   +265/−5. Checks green except Vercel preview (rate limit, per A). F-SEC-3, F-SEC-1-B and the unknown-outcome copy stay
   deferred (owner). No merge, deploy or phone work.
+
+### Merged to the release gate (owner-authorised; merged by A, 2026-09-18) — C verified
+`release/production-gate-20260918` head **`8f45e9bb`**: PRs #72 (22:52:59Z), #73 (22:56:48Z), #74 (22:59:44Z), #76
+(23:02:49Z), #75 (23:06:01Z), merge commits. **C's check:** `git diff --stat 0f329c3a origin/release/production-gate-20260918`
+→ one file, `tests/profile-avatar-same-tick.test.ts` (+11/−5, 649248a's test-title rename) — **the app code equals
+Build 21's**. Per A: CI green on every merge; nothing deployed or migrated; nothing to `main`; no build. D is
+independently checking the comparison. PR branches kept.
