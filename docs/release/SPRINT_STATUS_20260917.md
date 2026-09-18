@@ -1114,3 +1114,11 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 - No production deployment, migration or build.
 - The preview test database, the old preview addresses, and F-SEC-3, F-SEC-1-B and the unknown-outcome wording are left for later.
 - PR branches were kept (`delete_branch_on_merge: false`).
+
+**D's independent check of the consolidation: CONFIRMED on all four points** (D, 2026-09-18; git and gh reads only, after a fetch).
+- Gate `8f45e9bb` / `main` `eadd456a`: confirmed.
+- **Final vs Build 21:** only the `2567401..649248a` rename, byte-identical. D adds that the gate's tree `c2d11139…` is **identical to the final tree of D's earlier independent simulation**.
+- **Chain:** 5 merges, each second parent the reviewed head, each first-parent patch byte-identical to its PR. **Nothing unreviewed came in:** 25 non-merge commits are reachable from `6561d1f`, and 0 fall outside the five PR ranges. The only other merges reachable are Build 20's own (`4c26332c`, `8da50c06`).
+- **Scope:** 30 files, +3966/−111, with 0 under `supabase/`, the gated client files, build config, or `web/`, `admin/`, `venue/`.
+- **GitHub:** all five PRs MERGED, the five CI push runs succeeded, and the Vercel web statuses read "Canceled by Ignored Build Step", with no admin status.
+- **Not re-read by D:** the Supabase `git_branch`, the Vercel deployment lists and #75's 12-file display. Those rest on A's reads.
