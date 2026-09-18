@@ -149,7 +149,7 @@ export default function TransferReceiveScreen() {
       if (!d.refetch) return;
       setHandoff(d.next);
       const fresh = await fetchTransfer({ quiet: true });
-      setArrivalPrompt(!!fresh && returnPrompt(fresh.status, buyerNeedsDelivery(fresh)));
+      setArrivalPrompt(!!fresh && returnPrompt(fresh.status));
     });
     return () => sub.remove();
   }, [fetchTransfer]);
@@ -323,7 +323,10 @@ export default function TransferReceiveScreen() {
           </>
         ) : null}
 
-        {(transfer.status === 'pending' || transfer.status === 'seller_sent') && !needsDeliveryInfo ? (
+        {/* How to receive, and the way to go and check. Pending waits for delivery details as before; a transfer
+            already marked sent shows them regardless (owner's decision 1). The steps carry no contact placeholder
+            for the buyer, so an absent email/phone is never printed; no destination means no button. */}
+        {transfer.status === 'seller_sent' || (transfer.status === 'pending' && !needsDeliveryInfo) ? (
           <>
             <PlatformInstructions platform={platform} role="buyer" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
             {link ? (

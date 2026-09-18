@@ -47,11 +47,12 @@ describe('handoff: the return is a re-read, and the question comes from fresh st
     const left = leaveForProvider(1_000);
     expect(onForeground(left, 1_000 + MIN_AWAY_MS)).toEqual({ next: HANDOFF_IDLE, refetch: true });
   });
-  it('the question is asked only while the seller\'s claim is the latest state and the buyer can act', () => {
-    expect(returnPrompt('seller_sent', false)).toBe(true);
-    expect(returnPrompt('seller_sent', true)).toBe(false);
+  it('the question is asked only while the seller\'s claim is the latest state', () => {
+    // Owner's decision 1 (2026-09-18): missing delivery details no longer suppress it — the buyer can confirm or
+    // report on a sent transfer regardless (F-XFER-3). Previously pinned `returnPrompt('seller_sent', true) === false`.
+    expect(returnPrompt('seller_sent')).toBe(true);
     for (const st of ['pending', 'buyer_confirmed', 'auto_released', 'disputed', 'expired', 'reversed']) {
-      expect(returnPrompt(st, false), st).toBe(false);
+      expect(returnPrompt(st), st).toBe(false);
     }
   });
   it('the copy is a question that names what confirming does, and never asserts receipt', () => {
@@ -76,7 +77,7 @@ describe('receive screen — shipped-source guards', () => {
 
   it('on return it re-reads quietly and decides the question from the FRESH status', () => {
     expect(code).toMatch(/AppState\.addEventListener\('change', async \(st\) => \{\s*if \(st !== 'active'\) return;\s*const d = onForeground\(handoffRef\.current, Date\.now\(\)\);\s*if \(!d\.refetch\) return;/);
-    expect(code).toMatch(/const fresh = await fetchTransfer\(\{ quiet: true \}\);\s*setArrivalPrompt\(!!fresh && returnPrompt\(fresh\.status, buyerNeedsDelivery\(fresh\)\)\);/);
+    expect(code).toMatch(/const fresh = await fetchTransfer\(\{ quiet: true \}\);\s*setArrivalPrompt\(!!fresh && returnPrompt\(fresh\.status\)\);/);
     // a quiet re-read never replaces the order with a spinner or an error
     expect(code).toMatch(/if \(!opts\?\.quiet\) setLoading\(true\);/);
     expect(code).toMatch(/if \(!opts\?\.quiet\) setError\(/);
