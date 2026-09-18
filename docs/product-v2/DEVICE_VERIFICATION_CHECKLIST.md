@@ -169,7 +169,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | UNTESTED |
-| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence conditional on `expires_at IS NOT NULL` (unre-read) |
+| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
 | DV-20-12 | Avatar, same-tick double press | one picker, one upload | UNTESTED, **weak-pass** (see below) |
@@ -333,3 +333,27 @@ Recorded for one thing only, at the owner's direction and **without expanding th
 truncates the price label and amount to **"CURREN…"** and **"$…"** ("total" visible), beside PLACE BID and
 BUY NOW · $110. → **F-LAYOUT-1** (backlog). Which listing this is, and how the owner reached it, were not reported and
 are not inferred.
+
+### Sandbox reads for DV-20-9 and DV-20-4 — run by D (2026-09-18), reported to C
+D states the owner authorised D directly. All statements `begin read only` against `ofaidukbieeekqaboscm`; no
+storage, no L7, no logs, no trigger read. D's output files: `d_owner_answer_a1.txt` (md5 `aa816aec…`), `…_a2.txt`
+(md5 `35e8e3aa…`). Read time not reported.
+- **S8only `8f59d37e`:** `seller_sent`; delivery email and phone both absent; evidence path absent;
+  `seller_sent_at` 2026-09-08 01:20:24Z; **`expires_at` 2026-09-09 01:20:22Z (non-null)**; `auto_release_at`
+  2026-09-11 01:20:24Z (passed, not auto-released — one of the transfers stranded by the auto-release hazard);
+  **`buyer_viewed_at` 2026-09-18 15:58:05.544Z** = 11:58:05 ET, the owner's time — **the first view ever**.
+- **So the 11:58 open WROTE to the sandbox:** it stamped `buyer_viewed_at` and produced **exactly one**
+  `public.notifications` row (`1f50cfaa…`, `transfer_viewed`, to the **seller**, 15:58:05.544Z — same millisecond, same
+  transaction; consistent with `058`'s `trg_notify_transfer_state_inbox` per C's fixture note, which D did not read).
+  Nothing to the buyer on the 18th; no `notify.notification` row for this transfer ever; whether the legacy row caused a
+  push was **not examined**. A sweep of every notification to either party on the 18th found only that row.
+- **DV-20-9's fix evidence:** the condition was `expires_at IS NOT NULL`; D's read (after the open) shows it non-null,
+  and nothing records a change to that guarded column. **DV-20-9 therefore stands as device evidence for F-XFER-2's
+  `seller_sent` branch**, on that read.
+- **Device D7 `b1c3c478` (DV-20-4):** `active`, `current_bid` **100**, `bid_count` 0, no highest bidder. **Bids on D7
+  ever: 0. Bids of 105 on the 18th, anywhere: 0. Bids by anyone on the 18th: 0. Bids by buyer `919d511e` ever: 0.**
+  **No bid was written.** Why the submit never reached the database (failed on device, refused, or not completed) is
+  not established; the sandbox API log around 15:43Z would settle it and was not read (not authorised).
+- **What this adds to DV-20-4, without inference about the sequence:** the earlier screenshot's "$100 current bid /
+  $105 proposed" matches D7's real `current_bid` 100 and its +$5 minimum — i.e. that form was built from a read that
+  **succeeded**, not the $0 defect. F-BID-1 itself still has no device evidence (unchanged).
