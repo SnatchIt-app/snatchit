@@ -4093,3 +4093,26 @@ and opens it**; C declined to open a second one, since release integration is A'
   was the mechanism.** Kept in the record as-is, at D's suggestion.
 - **1c stays PASS at the reviewed head.** `649248a` changes two test names and a commit message, not behaviour, so
   D's verdict carries — **but A pins whichever head actually goes into the PR.**
+
+- **F-SEC-1 verified by A at `f412d10` — the INSTALLED build — not relayed from C.** `dismiss` (`:55`) and
+  `signOutAll` (`:71`), both `busy` state, `signOutAll` closing over `[busy]`; two presses in one tick both read
+  false and `signOutAllDevices()` runs twice. So the defect is on the owner's phone today, not only on a branch.
+  A recorded C's boundary as not established and did not upgrade it. **A's statement of the stakes, worth putting
+  to the owner as a potential and not a claim:** if the second call does render "sign out failed" after a
+  successful sign-out, that is the worst truthfulness defect of the sprint — telling someone their
+  sign-out-everywhere failed when it succeeded, on the screen whose whole job is to tell them their account
+  security changed. **Unverified. Nothing authorised, nothing started.** Fix site is likely the hook, but
+  `src/lib/auth/signOut.ts` is on the gated surface, so anything near it routes through A.
+- **Count reconciliation (A says four, C said five — both right about different things).** The **state-guard
+  shape** has **four** instances: F-DESTRUCT-1 (my-listings, fixed Batch 1), F-AVATAR-2 (edit-profile, 1b),
+  F-AVATAR-3 (profile tab, 1c), F-SEC-1 (security notices, unfixed). The broader *"fixed here, still live in its
+  twin"* pattern has **six**: F-BIDS-1 → F-HOME-1 · the Home `view()` conflation → three more helpers · F-AVATAR-1
+  → F-AVATAR-2 · F-XFER-1 → F-XFER-2 · F-AVATAR-2 → F-AVATAR-3 · F-AVATAR-3 → F-SEC-1. Quoting one number for the
+  other is how a tally stops meaning anything.
+- **A's tally of harnesses flattering the code, all four in the SAFE-LOOKING direction:** Home's `view()` naming a
+  state for an empty tree · place-bid's `view()` reporting the form for an empty tree · the press helpers honouring
+  `disabled` and never reaching the guard · a re-render handing C's probe a fresh closure. **A's rule, matching
+  C's and D's:** a same-tick probe calls the handler directly, twice, with no re-read between the calls, or it
+  tests the harness. **"You caught it because it felt too easy; that instinct is the control that has no test."**
+- **1c at `649248a`:** A's diff vs `2567401` is the one test file (11/5), no behaviour change; A's gates 114 / 2317,
+  typecheck 0, lint 0 / 29. **PR #73 re-pointed, head `649248a`, all nine checks pass.**
