@@ -4492,6 +4492,11 @@ merge or new build yet."
   corrected to `0f329c3a` within minutes.** Gates: tsc 0; vitest 120 / 2373; lint 0 / 29.
   **D's lesson, adopted:** an ANCHOR proves the screen rendered; only a WITNESS — the same query finding the same
   string where it should appear — proves an absence assertion can fail (X6's title check had an anchor, no witness).
+- **REVIEW COMPLETE at `0f329c3a`.** **D — final PASS** (2373/120; PM1 → I1 alone and CM13 → C10 alone, each across
+  the full suite; A's own mutant on the same line killed exactly C10). **A — PASS** carried (screen byte-identical to
+  `c093cdcf`; A withdrew a "role=buyer unpinned" residual after running the mutant itself — O1 kills it). D did not
+  re-run C's relabelled d1/d2 tallies in full; the two load-bearing kills were reproduced independently. Awaiting only
+  the owner's decision on who pushes; then A opens one draft PR against `integration/device-verify-20260918`.
 - **A's observation (not a finding), verified by C:** `react-native-web`'s `Alert.alert` is `static alert() {}`, so on
   an Expo web target the dialog never appears and confirm becomes unreachable (Report issue already was). The repo has
   `app.json` `web` config and a dev script `"web": "expo start --web"`, but no web export in scripts or CI; the
