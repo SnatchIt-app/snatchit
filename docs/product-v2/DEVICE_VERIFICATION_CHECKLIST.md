@@ -409,7 +409,9 @@ cover it in tests). A one-second save is short enough that a handset may not be 
 ### DV-20-7 — PASSED, Build 20, 2026-09-18 14:15 (owner-reported; sandbox SELLER account)
 Device D6's Send Transfer: **PENDING**; exact line **"Send window has passed — send now if you still can"**
 (`TRANSFER_EXPIRY_COPY.seller`); **Mark as sent appeared bright red and enabled**. Nothing was pressed. The owner
-referenced a screenshot; **C did not receive the image** — this record rests on the owner's written report.
+referenced a screenshot; it reached C just after the first version of this record (which said it had not — corrected).
+The screenshot shows SEND TRANSFER, PENDING, Event "Device D6", Buyer "Unknown", Method "mobile transfer", the exact
+line above, a TRANSFER EVIDENCE "Transfer proof — ADD" row, and MARK AS SENT in bright red at the bottom edge.
 - **Enabled is appearance only** (owner's words): whether submitting works was not tested, deliberately — pressing it
   would have marked D6 sent and started its auto-release clock.
 - **Device evidence for the fix:** the line renders only when the countdown is "Expired"; before F-XFER-1
