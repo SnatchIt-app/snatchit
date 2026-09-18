@@ -955,3 +955,37 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - No edge function is deployed; no build is requested. Build 19 = `f412d10` is unchanged and remains the installed build.
 - **Line 3 stays CLOSED as quarantined.** Permanently held unless the owner reopens them: RT6, U1, RT5-P, N1, N2, N4, DV-IMG-4's retry half, DV-IMG-10, and the HEIC conversion half.
 - **The 72-hour auto-release tail is carried, not cleared.** Clearing `auto_release_at` on the affected transfers would be another sandbox write and is not authorized; A and D jointly recommended carrying it, and the close-out leaves it carried. It is a sandbox-only exposure and nothing acts on it while no service key is in the Vault.
+
+## 18. BUILD 20 HANDSET PASS — sandbox writes, 2026-09-18 (pass closed by the owner the same day)
+
+**Why this section exists.** §17 closed the sandbox for the sprint. The owner then authorized the Build 20 device-verification build on 2026-09-18, with *"C owns the handset verification and must test the changed flows on-device."* The owner also authorized the S8only open and the two reads directly. Using the app as the sandbox buyer and seller wrote to the sandbox. **This section records those writes. It does not reopen the sandbox for anything else.** The owner closed the pass the same day: no new fixtures, no further handset runs.
+
+**Strength labels.** **READ** = confirmed by an owner-authorized read. **C-REPORTED** = from C's record `2ded6a8f` (on `frontend/premium-experience-backlog`), not read. **SOURCE** = derived from the Build 20 client at `8da50c0`. Times are ET unless marked Z. A's read ran at **16:46:13Z (12:46 ET)**, so **nothing after 12:46 ET has been read.**
+
+| Write | Strength | Detail |
+|---|---|---|
+| **S8only `8f59d37e`**, first buyer view (11:58) | **READ** (A, and D independently) | `buyer_viewed_at` = `2026-09-18T15:58:05.544Z`. **One** `transfer_viewed` notification to the seller, created at the same millisecond. Status still `seller_sent`, `transfer_evidence_path` NULL. This is the one write made before the pre-check. |
+| **D6 `92ee5156`** (pending), buyer view (13:35, DV-20-8) | **C-REPORTED, conditional** | Same pair (`buyer_viewed_at` and one `transfer_viewed`) **only if** this was the buyer's first view of D6. **Not read.** |
+| **`avatars` bucket**: two new objects under the buyer's folder; **`profiles.avatar_path`** updated twice (14:09, 14:12; DV-20-10/11/12) | **C-REPORTED; not read back** | SOURCE agrees with C's count: each save uploads a new timestamped object (`avatarImage.ts:124`), and no client code deletes from `avatars`. **Both objects, and any earlier avatars, persist.** The bucket is public (`avatarImage.ts:6`). |
+| DV-20-7 seller view (14:15) | **no write** (SOURCE + C) | The send screen writes only on press (`mark_transfer_sent`, `attach_transfer_evidence`). C records "Mark as sent" was never pressed. |
+
+**Confirmed absent:**
+- **Bids.**
+  - **READ** for Device D7 `b1c3c478`: the owner's buyer has never bid on it, zero bids by anyone 15:30–16:00Z (A), zero over the whole day (D), and `current_bid` is still 100.
+  - Every other listing is **C-REPORTED**.
+- **Transfer status changes.**
+  - **READ** for S8only, as of 16:46:13Z.
+  - Otherwise **C-REPORTED**.
+- **Untouched** (C-REPORTED; the retained objects are also covered by §17's ruling, which bars even a confirming read): the two retained Line 3 proof objects (D1/D2), their storage, and **Sandbox L7**.
+
+**What is NOT done, and why.**
+- There is no read-back of D6, the avatar objects or `profiles.avatar_path`.
+- The pass is closed and no read is authorized, so these rows stay at the strength shown.
+- **Clean-up of the two avatar objects is neither authorized nor proposed.** Deleting them would be a further sandbox write.
+
+**Standing state, unchanged from §17:**
+- Production has not been touched.
+- 138, 141 and 115–120 are unapplied.
+- No key is enabled.
+- No function has been deployed.
+- The 72-hour auto-release tail is still carried. S8only's `auto_release_at` (09-11) has passed without release, as D noted: it is one of the stranded transfers already on record.

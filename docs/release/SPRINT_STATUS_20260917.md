@@ -738,3 +738,58 @@ That matches D's mutant exactly, so **C10 is proven by two sessions independentl
 **Still barred:** merge, deployment, new build. PRs #72–#74 remain draft and do-not-merge.
 
 **Wording correction (D's precise count, A applied everywhere):** A had written *"all nine checks pass"* for PRs #72–#75. **Each had 8 passing and 1 skipped** (`Supabase Preview`, which skips when a diff carries no migrations). A skipped check did not pass — it did not run — so the records now say **"8 of 9 pass, 1 skipped"**. Nothing about the underlying results changes; the claim is now the size of the evidence.
+
+### BUILD 20 HANDSET PASS CLOSED (owner, 2026-09-18) — C's records resolved; A's checks on the next-build list (A, 2026-09-18)
+
+**Owner's rule, as C records it:** *"Skip DV-20-6 and close the Build 20 handset pass. Keep the skipped, blocked and unobserved checks clearly labelled; don't count automated coverage as device evidence."* No new fixtures and no further handset runs for now.
+
+**C's records, resolved by A (not taken from the message):** `2ded6a8f` (pass CLOSED) and `bf71ffb7` (next-build list) both exist and both sit on `frontend/premium-experience-backlog`, in `docs/product-v2/DEVICE_VERIFICATION_CHECKLIST.md`. **C's checklist is the row-level record; this entry is the release view of it.**
+
+| Label | Rows (times ET) |
+|---|---|
+| **PASSED — device evidence** | DV-20-1 (11:34), DV-20-2 (11:39), DV-20-3 (13:33), DV-20-7 (14:15; seller view, "Mark as sent" enabled in appearance only, **never pressed**), DV-20-8 (13:35), DV-20-9 (11:58) |
+| **PASSED on the final state only** | DV-20-4 (11:43:47). **F-BID-1 has NO device evidence.** No bid was written (A's and D's reads, above). |
+| **PASS (weak), by construction** | DV-20-12 (14:09), one picker. A pass cannot show the taps landed in the same frame. |
+| **UNOBSERVED** | DV-20-10 (14:09), DV-20-11 (14:12). The saves completed; the property itself was not seen. |
+| **SKIPPED (owner)** | DV-20-6 |
+| **BLOCKED** | DV-20-5 (no handset method), DV-20-13 (needs a staged security notice, which is a sandbox write, not authorized) |
+
+**Device evidence by fix:**
+- F-HOME-1: DV-20-1/2/3.
+- F-XFER-1: DV-20-7.
+- F-XFER-2: DV-20-8 (pending) and DV-20-9 (sent).
+- **None:** F-BID-1, F-AVATAR-1/2/3, F-DESTRUCT-1, F-SEC-1, F-SEC-2. Those fixes rest on source and test review alone, and **automated coverage does not change that label.**
+
+**Sandbox writes during the pass** are recorded in `SANDBOX_ACCEPTANCE_WINDOW_MANIFEST.md` §18, each marked read-confirmed or C-reported.
+
+**Awaiting the next build:** [PR #75](https://github.com/SnatchIt-app/snatchit/pull/75) only (draft, head `0f329c3a`, base `8da50c0`): F-XFER-3 plus the owner's decisions 1 and 2. C reports nothing else reviewed and ready. **What goes into the next build, and when, is the owner's decision.**
+
+**F-LAYOUT-2 — NEW, recorded only.** The Home notice has no horizontal inset. Raised by C during the pass; not started. It sits with F-BID-3 and F-LAYOUT-1, also raised and not started.
+
+**A's checks on C's next-build list (N1–N3), payment boundary. Derived from source, nothing run:**
+
+1. **N1: C's claim "re-opening S8only writes no new data" HOLDS in source.**
+   - `mark_transfer_viewed` (`0550:243`, the only definition after `039`) sets `buyer_viewed_at = COALESCE(buyer_viewed_at, now())`.
+   - `058`'s `notify_transfer_state_inbox` sends `transfer_viewed` only when the value goes from NULL to NOT NULL. Every other branch needs a status or payout transition.
+   - `transfers` has no `updated_at` trigger.
+   - **Precisely stated:** the UPDATE still executes, writing a row version with identical values, so **no value changes and no notification.**
+   - This is derived from the repo source that the sandbox chain carries. It is not a read.
+2. **N2: a mis-tap costs more than "sandbox payment".**
+   - The dialog's confirm action invokes the **`confirm-and-release` edge function** (`receive/[id].tsx`, `confirmReceipt`), not only an RPC. One stray tap records receipt and attempts the release in the sandbox, and the app cannot undo it.
+   - **A's proposal, for C to evaluate:** load the screen online, **then turn Airplane Mode on before tapping "I got my tickets"**.
+   - The dialog is local (`Alert.alert`, no network), so the check loses nothing. A mis-tap then fails on the device, for three reasons:
+     - `functions-js` turns a fetch rejection into `FunctionsFetchError` with no retry.
+     - React Native's iOS networking uses `defaultSessionConfiguration`, with no custom provider in `expo*`, so nothing waits for connectivity.
+     - The screen's `AppState` listener refetches only after a provider handoff, and the receive screen does not subscribe to network status.
+   - **Expected mis-tap result:** "Error / Something went wrong. Please try again." and no request reaches the server. **Derived, not device-tested.**
+   - A's AM-D2-2 ("Cancel releases") was killed by C3: automated, **not device evidence.**
+3. **N3 needs nothing added.** It is read-only unless something is submitted, and C already says not to submit. It is still a handset run, so it waits on the owner with N1 and N2.
+4. **N1's provider question.** S8only's platform is in neither A's records nor C's. A **one-column sandbox read** (`listings.platform` for `92f8effe…`) would settle whether N1 can test "Open <provider>" and the decision-1 return question. **It is not requested and not run; it needs the owner's authorization.** Without it, the return question stays UNTESTED on device, as C records.
+
+**Observation, not filed (owner's call):** a replaced avatar is never deleted.
+- Each save uploads a new timestamped object (`avatarImage.ts:124`, `<uid>/avatar_<ms>.<ext>`), and no client code removes from `avatars`.
+- The bucket is public (`avatarImage.ts:6`, `getPublicUrl`).
+- So a photo the user replaced stays in storage and stays reachable by its path. This is pre-existing, not introduced by F-AVATAR-2/3.
+- A did not check the bucket's hosted policy. The claim is from source.
+
+**Still barred:** merge, deployment, new build, handset runs, sandbox reads beyond those already authorized. PRs #72–#75 remain draft and do-not-merge.
