@@ -133,3 +133,17 @@ C's reported numbers reproduce exactly. Client-only holds: no server file, no mi
 **D's own account of the cause, recorded because D volunteered it:** on F-BID-1, D asked which line actually does the work and found only the render guard did; on F-AVATAR-1, D never asked the same question of its guard — its own standard applied in one place and not the other. **A's counterpart:** A reviewed the batch-1 transfer wording and the gated surface and never asked whether the avatar guard worked either, because the avatar half sat outside the item A had been assigned. Neither reviewer's scope was wrong; the gap is that a widened busy *window* and a working *lock* look identical from outside, and only a same-tick probe distinguishes them.
 
 **Sequencing consequence, A's lane:** if F-AVATAR-3 is authorised it touches `app/(tabs)/profile.tsx`, a file already carrying C's F-AVATAR-1 fix on the Batch 1 head, so it belongs in A's ordering rather than arriving beside it. **Nothing is integrated and Build 19 is untouched.** Batch 1b is ready for sequencing whenever the owner wants it; the standing server-side expiry decision is still untouched.
+
+### Review PR #72 — Batch 1 + 1b, CI only (A, 2026-09-17)
+
+**Owner's authorization:** *"You may open a review PR for Batch 1/1b/1c so CI can run, but do not merge, deploy, request a build or change the server-side transfer-expiry behavior."*
+
+**[PR #72](https://github.com/SnatchIt-app/snatchit/pull/72) — DRAFT, review-only, DO NOT MERGE** (stated in the title and the first line of the body, not only in session messages — D's point, and the right one: nobody arriving later should read a green CI as permission).
+
+**Base is `release/production-gate-20260918` (`6561d1f`), NOT `main`.** A checked both before choosing: against the gate the diff is **19 files**, the batch content; against `main` it is **1052 files / 307k lines**, the entire release stack. A PR to `main` would have been unreviewable and would have pointed a merge button at production's deployment path.
+
+**CI at `0ca71ff`:** Typecheck / Lint / Unit tests **pass** (1m18s) · Migrations apply cleanly (fresh DB) **pass** (2m0s) · Deno type-check **pass** · Admin console **pass** · Vercel web **pass** · Immutability + ordering **pending at the time of writing**.
+
+**One observation worth the record, because it is live evidence for AUTODEPLOY-1.** The PR's check list includes **`Supabase Preview` → `skipping`, linked to the PRODUCTION project `hqycwntpfoztoinemqns`**. The Supabase GitHub integration is therefore still wired to production and still evaluating pull requests; it skipped here only because this diff contains no `supabase/migrations/**`. That is exactly the configuration `docs/operations/DEPLOYMENT_PATHS.md` describes, observed rather than inferred: **the danger is the merge, not the PR**, and a client-only diff with a zero-line gated surface does not put the migration path in play. It also means the rule stands unchanged for any future migration-bearing PR — no merge to `main` until an owner has visually confirmed that integration is off.
+
+**Batch 1c is NOT in this PR.** It is authorized, C is cutting it from `0ca71ff`, and it will arrive on its own branch.
