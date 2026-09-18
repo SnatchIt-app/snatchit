@@ -4455,3 +4455,31 @@ behaviour.
   form, details, then the controls.
 - **Device evidence: none.** Needs the next authorised build; S8only (seller_sent, delivery NULL as last recorded) is
   the natural fixture.
+
+### F-XFER-3 follow-ups — owner's decisions 1 and 2 (C, 2026-09-18), on top of the reviewed baseline `cf9b75b`
+**Owner (verbatim):** "1. Show 'Open [provider]' on a sent transfer even without delivery details, provided there is a
+valid provider destination. Show useful general instructions, but omit empty contact fields. 2. Add confirmation
+before 'I got my tickets': clearly explain that confirming receipt releases payment, with Cancel and an explicit
+confirmation action. Preserve existing payment and server rules. Keep cf9b75b as the reviewed baseline and make these
+additions separately reviewable. You implement, A reviews the payment boundary, D reviews behaviour. Run focused checks
+and final gates; no additional handset testing until these changes are in a build. Coordinate with A on one PR. No
+merge or new build yet."
+- **`ceb4e61b` — decision 1.** Instructions + "Open <provider>" render on `seller_sent` regardless of delivery details
+  (pending still waits; finished states unchanged; no destination → no button). `returnPrompt(status)` no longer
+  suppresses "Did the tickets arrive?" for missing delivery details (C's reading of "the handoff" — flagged to D to
+  challenge). No buyer-role instruction carries a contact placeholder (pinned over every platform); no delivery
+  row renders when absent. Tests O1–O10 (15); RED O1/O2/O4/O5/O6; **9/9 mutants**.
+- **`c093cdcf` — decision 2.** Tap opens `CONFIRM_RECEIPT_DIALOG` ("Confirm you received the tickets?" / "Confirming
+  receipt releases payment to the seller. Only confirm if you can see the tickets in your ticket account." / Cancel /
+  "Confirm and release payment", `cancelable: false`); only the explicit action runs the unchanged
+  `flight.run(confirmReceipt)`; one dialog at a time. X5/X6 rewritten on purpose (they pinned one-tap release). Tests
+  C1–C9 + X5/X6; RED C1–C7, C9, X5, X6; **12/12 mutants** (CM12's X5 kill added to the prediction after the run — C's
+  miss).
+- **Found and fixed:** X6's "not shown as confirmed" assertion (since `cf9b75b`) checked the buyer_confirmed TITLE,
+  which is a `StateBlock` prop and never in the flattened text — **vacuous**; now the body copy, proven live by CM12.
+- **Gates at `c093cdcf`:** tsc 0; vitest 119 / 2371; lint 0 / 29; gated surface + `supabase/ scripts/ .github/` since
+  `cf9b75b`: 0 lines. **Review: A (payment boundary) and D (behaviour) requested.**
+- **Push/PR: not done.** The owner authorised D to push; D's push was refused by D's permission gate and is with the
+  owner. C did not push: doing so would route around that gate. A will open the one PR against
+  `integration/device-verify-20260918` (on the remote at `8da50c0`) once one session is cleared to push; its body must
+  mark `cf9b75b` as the reviewed baseline, later commits as awaiting review, and say draft / do not merge.
