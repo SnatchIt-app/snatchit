@@ -146,9 +146,13 @@ describe('F-AVATAR-3 — one press, one upload, one save', () => {
     expect(h.writes[0].path).toBe('u-1/photo-1.png');
   });
 
-  it('P2: out-of-order completion cannot happen — a second save never overlaps the first', async () => {
-    // The reversion this prevents: two writes in flight, the second landing first, leaving the stored path
-    // pointing at the earlier object. With one operation at a time there is never a second write to race.
+  it('P2: a second operation never starts while one is in flight', async () => {
+    // The name is the premise, not the conclusion (D's review). Out-of-order completion follows from this
+    // deductively: with one operation at a time there is never a second write to land first, so the reversion
+    // — second update wins, stored path points at the earlier object — has nothing to arise from. A permanent
+    // test that removed the lock to demonstrate that reversion would be pinning the behaviour of code that does
+    // not exist; that is what PM1 does, transiently. The live reversion is recorded in the backlog, evidenced
+    // twice: C's run and D's independent probe on this file.
     const host = await mountProfile();
     const raw = handler(host);
 
@@ -201,7 +205,7 @@ describe('F-AVATAR-3 — one press, one upload, one save', () => {
     expect(h.writes[1].path).toBe('u-1/photo-2.png');
   });
 
-  it('P4: the control stays available after completion, and the busy state cleared exactly once', async () => {
+  it('P4: the control comes back after a completed cycle', async () => {
     const host = await mountProfile();
 
     press(host);
@@ -221,7 +225,9 @@ describe('F-AVATAR-3 — one press, one upload, one save', () => {
     expect(busy(host)).toBe(false);           // cleared
     expect(byLabel(host.output, 'Change profile photo')).toBeDefined();
     expect(control(host).props.disabled).toBeFalsy();
-    // Cleared exactly once: a second clear would have to come from a second operation, and there is none.
+    // "Cleared exactly once" is guaranteed structurally, not by this assertion (D counted it): the release is a
+    // single site inside a `finally` that runs once per invocation, so a double clear is impossible by
+    // construction. What this test observes is the consequence — one upload, one save, control re-enabled.
     expect(h.uploads.length).toBe(1);
     expect(h.writes.length).toBe(1);
   });
