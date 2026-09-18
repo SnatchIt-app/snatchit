@@ -997,3 +997,5 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - **The receipt dialog was cancelled ONLINE; Confirm was not tapped.** So no `confirm-and-release` call and no release. **Owner-reported screen state plus SOURCE, not read.**
 - A read-only confirmation (S8only `status`, `payout_released_at`, `transfer_confirmed` count) is available if the owner authorizes it. It was not run.
 - D1/D2, their proof files, and L7 were not opened (C-REPORTED).
+
+*Precision (D's review, applied by A):* for re-opening S8only, read **"no data changed"** rather than "no new sandbox write". Each opening runs one UPDATE that writes the same value, derived from the repo migrations at `0f329c3a`; the sandbox's deployed bodies were not read. **No proof-file access on S8only** rests on A's 16:46:13Z read (`transfer_evidence_path` null), plus no seller-side attach recorded since.

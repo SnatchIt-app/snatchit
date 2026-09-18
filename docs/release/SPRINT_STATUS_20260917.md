@@ -924,3 +924,20 @@ No delivery fields, evidence path, storage, other rows or L7.
 - "Nothing confirmed or released" is **owner-reported and from source**, as above.
 
 **Still barred:** merge (PRs #72–#75 draft, do-not-merge) · production deploy · release · Confirm receipt · D1/D2 proof files · Sandbox L7 · F-AVATAR-4 cleanup. **What happens to PR #75 next is the owner's decision.**
+
+**D's review of the Build 21 records (D, 2026-09-18): both records state the evidence classes correctly. Two precision notes; neither changes a verdict. A applies both.**
+
+1. **"Re-opening sent no notification … derived from source": the source is now named, and the wording is tightened.**
+   - The source is the **repo migrations at `0f329c3a`**:
+     - `0550` `mark_transfer_viewed` (nothing later in `LC_ALL=C` order) does `COALESCE(buyer_viewed_at, now())`;
+     - `058`'s `transfer_viewed` producer fires only when `OLD.buyer_viewed_at IS NULL` and carries a dedupe key;
+     - the `033`/`034` triggers are `AFTER UPDATE OF status` and do not fire.
+   - **The sandbox's deployed function bodies were not read.**
+   - Each opening still runs one UPDATE, which writes a row version with the same value, and the AFTER UPDATE triggers still evaluate. So **"no data changed"** is the precise claim, and ~~"no new sandbox write"~~ is withdrawn wherever this entry and the manifest addendum used it for re-opening S8only.
+2. **Proof-file access on S8only: D's gap was already settled by an authorized read, and A should have cited it.**
+   - At `0f329c3a` (`receive/[id].tsx:101-109`), opening a `seller_sent` transfer mints a 1-hour signed URL **only if `transfer_evidence_path` is non-null**.
+   - A's owner-authorized read at **16:46:13Z** included that column as a boolean: **`evidence_path_is_null = true`** for S8only (recorded above: "No signed URL could have been minted for S8only"). §16 agrees: DV-IMG-10 selected an image on S8only and attached nothing.
+   - **Bound, stated rather than assumed:** the Build 21 openings came later (from 18:44Z), and the 18:27:31Z provider read deliberately did not include the path. The path could only have become non-null through a seller-side `attach_transfer_evidence` or `mark_transfer_sent` on S8only, and no such action is recorded. The only seller-side check since, DV-20-7, was on a pending transfer.
+   - So "no proof-file access on S8only" rests on **a READ at 16:46:13Z plus no recorded seller action since**. No further read is proposed.
+
+**D keeps no separate device-evidence file** by design: C's checklist and this status are the records of truth, and a third copy could drift. D's message is D's review of those two. *A's "mark them in your device-evidence records" was the wrong ask.*
