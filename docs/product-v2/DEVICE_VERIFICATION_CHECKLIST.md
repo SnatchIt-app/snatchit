@@ -256,6 +256,14 @@ and that an earlier bid-form screenshot "was not the correct final output".
   not emitted by the listing read. **Whether a bid row was written is NOT verified;** a request failing with
   "Network request failed" under Airplane Mode most likely never reached the server, but that is not evidence. A can
   check it read-only if the owner authorises that read.
+- **F-BID-1 ITSELF STILL HAS NO DEVICE EVIDENCE (A's framing, adopted — stricter than C's first reading, and
+  right).** The row PASSED on its final screen, as the owner ruled. But the fix's own signature is "a FAILED listing
+  read on the bid screen renders the offline state instead of a form", and with the sequence uncaptured nobody can
+  attribute the final offline screen to the bid screen's failed read rather than to some other screen or read. The
+  final state is *consistent with* the fix; it is not *evidence of* it. The row's pass and the fix's evidence are
+  recorded separately so the second is not quietly upgraded by the first.
+- **The DV-20-4 listing is not identified in the record.** The step said "any live auction", so C does not know which
+  listing was used and will not guess it. A bid-row check, if authorised, needs the owner to name it.
 - **C's own framing error, corrected:** C's step told the owner "if a bid form does appear, that's the failure we're
   looking for". That was imprecise. A form with real values from a read that succeeded is correct behaviour; the
   failure is a form built on a read that FAILED.
