@@ -4398,3 +4398,29 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   price itself is still on the page (the panel above shows "STARTING BID $110 total"), so this is presentation, not a
   wrong number. `PriceDisplay` is a shared primitive, so this belongs with the shared-primitives ownership decision.
   Nothing started; owner's call.
+
+## F-XFER-3 — sent transfers keep the buyer's controls (C, 2026-09-18). `frontend/xfer3-sent-controls-visible @ a739a40`
+**Owner's authorisation (verbatim):** "fix F-XFER-3 in a separate branch. On a transfer already marked sent, missing
+delivery details must not hide the buyer's confirm-received or report-a-problem controls. Preserve their existing
+safeguards and server rules. Cover this specific state with focused tests, then have A and D review it. No new build
+or deployment yet." Also: App Store release status remains unverified — nothing here describes observed production
+behaviour.
+- **Base `8da50c0` (Build 20).** Change: `app/transfer/receive/[id].tsx` +6/−3 — the `seller_sent` block's gate goes from
+  `status === 'seller_sent' && !needsDeliveryInfo` to `status === 'seller_sent'`; two comments. Confirm/dispute
+  handlers, single-flight lock, `busy`, the edge-function and RPC calls are byte-identical. **The delivery form stays
+  visible alongside the controls** (X3). Gated surface + `supabase/ scripts/ .github/`: 0 lines.
+- **Tests:** `tests/receive-transfer-sent-controls.test.ts`, X1–X9 (11 cases). RED before the fix = X1 X2 X4 X5 X6 as
+  predicted (after C fixed its own broken positive anchor — the Row text is not in the flattened output — which made
+  the first RED run fail for the wrong reason). **Mutants 8/8 as predicted:** revert, widen to pending, drop the form,
+  dispute without asking, confirm without single-flight, drop the release warning, error read as success, leak into
+  finished states.
+- **Gates:** tsc exit 0; vitest 117 files / 2343 tests; lint 0 errors / 29 warnings (baseline).
+- **Review:** A (confirm path = payment release) and D (tests, independent) — requested, pending. Not pushed, no PR,
+  no build.
+- **Left as they were, recorded for the owner (outside the ruling):** (a) the "Open <provider>" button and platform
+  instructions stay gated on delivery info, and the return prompt cannot fire in this state; (b) the delivery prompt
+  still says "so the seller knows where to send your tickets" on a sent transfer; (c) the proof view now renders in
+  this state — its signed URL was already minted regardless of the gate, so no new storage access; (d) order unchanged:
+  form, details, then the controls.
+- **Device evidence: none.** Needs the next authorised build; S8only (seller_sent, delivery NULL as last recorded) is
+  the natural fixture.
