@@ -171,7 +171,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | **PASSED** 13:35 (below) — device evidence for F-XFER-2's pending branch |
 | DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED on its property — the save completed (14:09), spinner timing and a single change not captured (below) |
-| DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
+| DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED on its property — save completed ~1 s (14:12), stand-down not observed (below) |
 | DV-20-12 | Avatar, same-tick double press | one picker, one upload | **PASS (weak)** 14:09 — one picker (below) |
 | DV-20-13 | Security notice actions | one sign-out per press; a thrown failure shows a message | UNTESTED, **needs a staged notice** |
 
@@ -396,3 +396,12 @@ On the sandbox buyer's Profile tab, a quick double-tap on the photo **opened onl
   UNTESTED on its property.
 - **This wrote to the sandbox (owner accepted before running):** one object in the public `avatars` bucket under the
   buyer's folder, and `profiles.avatar_path` for the buyer. Not read back.
+
+### DV-20-11 — property not observed, Build 20, 2026-09-18 14:12 (owner-reported, screenshot)
+Edit Profile → Change photo: the new photo **appeared after about one second**; the upload completed visibly. The owner
+**did not confirm** whether both controls (the photo ring and "Change photo") stayed unavailable for that second, or
+whether a second tap was blocked — so neither is recorded as observed. Row stays UNTESTED on its property (E1–E10
+cover it in tests). A one-second save is short enough that a handset may not be able to show this reliably.
+- **Wrote to the sandbox (owner accepted before running):** a second object in the public `avatars` bucket and
+  `profiles.avatar_path` updated immediately on pick (`app/settings/edit-profile.tsx:86`), not on Save changes. Not read
+  back.
