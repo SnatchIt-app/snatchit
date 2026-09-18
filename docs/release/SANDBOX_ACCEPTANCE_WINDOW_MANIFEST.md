@@ -991,3 +991,9 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - The 72-hour auto-release tail is still carried. S8only's `auto_release_at` (09-11) has passed without release, as D noted: it is one of the stranded transfers already on record.
 
 **Addendum, 2026-09-18: owner-authorized read (A, directly).** 18:27:31Z, one read-only transaction on the sandbox ref: S8only `8f59d37e` status = `seller_sent`, and its listing `92f8effe` has `ticket_platform` = `other`. Those two fields only. **No write.** A new sandbox preview build (Build 21, EAS `1d78bb45…`) was submitted afterwards. The owner has authorised its handset checks only as far as **Cancel** on S8only's receipt dialog. **Confirming receipt is not authorized**, so the next pass is expected to add no new transfer write: the S8only view is already stamped, so re-opening changes nothing (see the N1 check in the sprint status).
+
+**Addendum: Build 21 handset checks, 2026-09-18, complete (owner-reported; C `5007ce16`). No new sandbox write, at these strengths:**
+- **Re-opening S8only** re-ran `mark_transfer_viewed`, which rewrites the already-set `buyer_viewed_at` with the same value and sends no notification. **SOURCE, not read.**
+- **The receipt dialog was cancelled ONLINE; Confirm was not tapped.** So no `confirm-and-release` call and no release. **Owner-reported screen state plus SOURCE, not read.**
+- A read-only confirmation (S8only `status`, `payout_released_at`, `transfer_confirmed` count) is available if the owner authorizes it. It was not run.
+- D1/D2, their proof files, and L7 were not opened (C-REPORTED).

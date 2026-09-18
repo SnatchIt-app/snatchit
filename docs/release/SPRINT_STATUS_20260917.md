@@ -885,3 +885,42 @@ No delivery fields, evidence path, storage, other rows or L7.
 - **Installing Build 21 replaces Build 20.**
 
 **Unchanged and still barred:** merge (PRs #72–#75 draft, do-not-merge) · production deploy · release · sandbox writes beyond the authorized checks · keys · the D1/D2 proof files · Sandbox L7 · migrations 138/141/115–120 unapplied · F-AVATAR-4 cleanup.
+
+### BUILD 21 HANDSET CHECKS COMPLETE (owner-reported; C's record `5007ce16`, resolved by A) (A, 2026-09-18)
+
+**C's records resolved by A**, all on `frontend/premium-experience-backlog`, in `DEVICE_VERIFICATION_CHECKLIST.md`:
+- `874fce81` (14:38): Build 21 recorded.
+- `66b6b90b` (14:46): the dialog was observed ONLINE at 14:44.
+- `5007ce16` (14:51): checks complete.
+
+| Check | Label | What was seen (owner-reported, times ET) |
+|---|---|---|
+| **N1** (F-XFER-3 + decision 1), S8only | **PASSED — device evidence** | "I got my tickets" and "I haven't received them" are both visible. The delivery form is present, the generic "How to receive your tickets" instructions show, **there is no "Open …" button** (`ticket_platform = other`, per A's 18:27:31Z read), and there is no blank or "not provided" contact text. |
+| **N2** (decision 2), S8only | **PASSED — device evidence, run ONLINE** | 14:44: "I got my tickets" opened the dialog with the exact `CONFIRM_RECEIPT_DIALOG` copy and separate buttons. The owner **tapped Cancel**: the dialog closed and the screen stayed on Receive Transfer. **"Confirm and release payment" was NOT tapped.** |
+
+**N2 deviated from the authorized procedure, recorded plainly because it is on A's payment boundary.**
+- The owner authorized N2 as *"load the screen online, turn Airplane Mode on with Wi-Fi off, open the receipt-confirmation dialog and cancel"*.
+- **The dialog was opened and cancelled while ONLINE**, before the offline step. The owner then instructed that it be recorded as tested online.
+- Airplane Mode was only a safeguard against a stray Confirm; the property under test is the same online or offline, so the PASS stands.
+- **For that tap the safeguard was not in place.** A stray Confirm would have reached the server. None happened.
+- The online run is, if anything, the more realistic condition: a Cancel that wrongly released would have released for real, and the screen shows it did not.
+
+**How strong "nothing was released" is:** **owner-reported screen state plus source. No database read.**
+- At `0f329c3a`, Cancel's handler only clears the dialog lock (`onPress: answered`). A's mutant AM-D2-2 ("Cancel releases") is killed by C3.
+- A successful confirm would have set the screen to `buyer_confirmed` and shown "Receipt confirmed"; a failed one would have shown an Error alert. **Neither was seen.**
+- C's record says the same: *"Whether Cancel sent anything is not observable on the handset."*
+- **Optional, NOT requested and NOT run:** a read-only check of S8only's `status`, `payout_released_at` and its `transfer_confirmed` notification count would confirm it at the server. It needs the owner's authorization.
+
+**Device evidence by change (Build 21):**
+- **F-XFER-3:** controls visible on a sent transfer without delivery details. ✔
+- **Decision 1:** the no-destination branch (instructions shown, no button). ✔
+  - **The "Open <provider>" branch and the return question stay UNTESTED on device.** There is no in-scope fixture: S8only's provider is `other`, and D1/D2 are off-limits.
+- **Decision 2:** the dialog opens with the exact copy, and Cancel closes it without changing the screen. ✔
+  - **Not tested on device:** single-flight through the dialog, the lock re-arming after a failed release, and the release itself. These are automated tests only, which are not device evidence.
+- **Build 20's contents** carry over to Build 21 **by inference only**. No row was re-run on Build 21.
+
+**Sandbox writes: none new** (manifest §18 addendum).
+- Re-opening S8only rewrote an already-set `buyer_viewed_at` and sent no notification. That is **derived from source** (A's N1 check), not read.
+- "Nothing confirmed or released" is **owner-reported and from source**, as above.
+
+**Still barred:** merge (PRs #72–#75 draft, do-not-merge) · production deploy · release · Confirm receipt · D1/D2 proof files · Sandbox L7 · F-AVATAR-4 cleanup. **What happens to PR #75 next is the owner's decision.**
