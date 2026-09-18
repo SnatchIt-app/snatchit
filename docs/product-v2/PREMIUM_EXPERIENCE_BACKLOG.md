@@ -4516,3 +4516,7 @@ merge or new build yet."
   uploads a new object (`avatarImage.ts:124`) and no client code deletes from `avatars` — and the bucket is public, so
   an old photo stays reachable by anyone holding its path. The Build 20 pass left two such objects on the sandbox buyer.
   Not caused by F-AVATAR-1/2/3; nothing started.
+- **F-SEC-2 PR — #76, draft / do not merge (owner-authorised, opened by A; C verified with `gh pr view`):** head
+  `frontend/batch1e-security-notice-throws @ f3cff27`, base `frontend/batch1d-security-notice-lock` (stacked on #74),
+  +265/−5. Checks green except Vercel preview (rate limit, per A). F-SEC-3, F-SEC-1-B and the unknown-outcome copy stay
+  deferred (owner). No merge, deploy or phone work.
