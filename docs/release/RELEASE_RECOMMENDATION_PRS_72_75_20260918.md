@@ -127,3 +127,32 @@ Each of these is its own owner decision:
 - Its preview deployments use the production Supabase project, with the public anon key only.
 
 **Observation, not filed (D, 2026-09-18; the owner's call):** `snatchit-web` preview deployments use the **production** Supabase URL and anon key. Anyone who opens a preview URL (SSO-protected) runs unreleased `web/` code against the production database, within RLS, including sign-in. This is pre-existing and applies to every PR's preview. Whether previews should point at production is a separate decision. Neither A nor D is acting on it. D found no static-generation markers in `web/`, so there is no sign of production reads at build time; the build itself was not audited.
+
+## 7. Final merge runbook (A, 2026-09-18). Awaiting the owner's merge authorization; nothing merged
+
+**Re-verified immediately before issuing:**
+- The release branch is still `6561d1f`.
+- The heads are unchanged: #72 `0ca71ff`, #73 `649248a`, #74 `016d8e2`, #76 `f3cff27`, #75 `0f329c3a`. All five are draft, open and MERGEABLE.
+- Repo settings: merge commits are allowed, and **`delete_branch_on_merge` is false**.
+- The release branch has **no branch protection and no rulesets**.
+
+| Step | Action | Check before the next step |
+|---|---|---|
+| 1 | #72: mark ready, then **merge commit** into `release/production-gate-20260918` | branch-push CI green on the new head; first-parent diff = 19 files |
+| 2 | #73: **retarget the base to the release branch**, mark ready, then merge commit | CI green; first-parent diff = 2 files |
+| 3 | #74: mark ready, then merge commit | CI green; first-parent diff = 3 files |
+| 4 | #76: **retarget the base to the release branch**, mark ready, then merge commit | CI green; first-parent diff = 2 files |
+| 5 | #75: **retarget the base to the release branch**, mark ready, then merge commit. GitHub may show 12–26 files | CI green; first-parent diff = 8 files; `git diff 0f329c3a HEAD` = only `649248a`'s test rename |
+
+**Merge-specific points:**
+- **Retargeting is manual and mandatory.** With `delete_branch_on_merge: false`, GitHub will **not** move #73, #76 or #75 onto the release branch after their parents merge. Merged without retargeting, #73 would land on `frontend/batch1b-twin-screens` and #76 on `frontend/batch1d-security-notice-lock`, **not** on the release branch.
+- **All five are drafts.** Each must be marked ready as part of the authorized merge.
+- **#76 shows `UNSTABLE`** because of its historical Vercel rate-limit status. That is not a code result and not a required check. Nothing is required on this branch.
+- **Each merge is a push to the release branch.** It triggers:
+  - branch-push CI;
+  - a `snatchit-web` deployment, **canceled** by the ignore step. It still counts toward the Hobby quota, so a "rate limited" status can appear;
+  - a `snatchit-admin` build, skipped by its ignore step;
+  - a skipped Supabase check.
+- **No production deployment and no migration** (§6 table; plan §6).
+- **Merge method:** merge commits, never squash or rebase, to preserve the reviewed commit ids and Build 21's provenance.
+- **Not merge blockers, release blockers:** B1, B2 (never merge this branch into `main`), B4, and the deferred F-SEC-3, F-SEC-1-B and unknown-outcome wording.
