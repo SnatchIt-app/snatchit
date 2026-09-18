@@ -163,7 +163,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 |---|---|---|---|
 | DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | **PASSED** 11:34 (below) |
 | DV-20-2 | Home "Ended" offline | same | **PASSED** 11:39 (below) |
-| DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | UNTESTED |
+| DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | **PASSED** 13:33 (below) |
 | DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | **PASSED** on the final state, 11:43:47 — **one earlier screen unreported, see note** |
 | DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
@@ -364,3 +364,12 @@ storage, no L7, no logs, no trigger read. D's output files: `d_owner_answer_a1.t
   `mark_transfer_viewed` updates only where `buyer_id = auth.uid()` and it did update, **the owner was signed in as
   `919d511e` at 11:58.** D7: exactly one listing, `current_bid` 100; bids 15:30–16:00Z by any account: **0** — so
   "no bid was saved" holds **whichever account was signed in at 11:43.** Two sessions' reads agree on every field.
+
+### DV-20-3 — PASSED, Build 20, 2026-09-18 13:33 (owner-reported, screenshot)
+Owner: after the offline refresh the listings **remained visible** (Device D6, Device D1 among them); exact notice
+**"You're offline. Showing what loaded earlier."** with **RETRY** beside it. The screenshot shows Airplane Mode on,
+FILTERS 1 active, SOLD cards with "SOLD FOR $110 all in", the notice above the grid. Matches F-HOME-1's inline branch
+(`HOME_FILTER_REFRESH_FAILED_COPY.offline`; `failureSurface` → `inline` when rows are loaded). The pull-to-refresh
+sequence is the owner's report; nothing further is inferred.
+- **Layout, recorded without expanding the pass → F-LAYOUT-2:** the notice text sits flush against the screen's
+  left edge and RETRY against the right, while the cards below are inset.

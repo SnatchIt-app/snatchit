@@ -4505,3 +4505,9 @@ merge or new build yet."
   owner. C did not push: doing so would route around that gate. A will open the one PR against
   `integration/device-verify-20260918` (on the remote at `8da50c0`) once one session is cleared to push; its body must
   mark `cf9b75b` as the reviewed baseline, later commits as awaiting review, and say draft / do not merge.
+
+- **F-LAYOUT-2 (NEW, from the owner's DV-20-3 screenshot, Build 20; recorded only).** The Home refresh-failure notice
+  ("You're offline. Showing what loaded earlier." / RETRY) runs edge to edge — text flush left, RETRY flush right —
+  while the grid below is inset. Source at `8da50c0`: `app/(tabs)/home.tsx:591-597`, `s.notice` sets `paddingBottom`
+  only, no horizontal padding. Presentation only; the copy and behaviour passed (DV-20-3). Belongs with F-LAYOUT-1 and
+  the shared-primitives decision. Nothing started.
