@@ -4425,7 +4425,16 @@ behaviour.
   had left stale when adding X10: C's error, recorded.** Gates: tsc 0; vitest 117 / 2344; lint 0 / 29.
 - **Review: COMPLETE at `2dbcb02`.** A — PASS (confirm path, 8a9934a), carried to `2dbcb02` by A after verifying the
   delta is test-only (+13/−1; app/, src/, supabase/ untouched; vitest 117 / 2344). D — "final once X10 is in", X10 in.
-  PR, build and integration remain separate owner decisions. Not pushed, no PR, no build. A's server reading, verified
+  PR, build and integration remain separate owner decisions.
+- **D's second pass at `2dbcb02`: PASS, plus one title over-claim — now fixed at `cf9b75b` (test-only).** The describe
+  title claimed "with and without delivery" for all five statuses, but X9 ran the finished states only WITHOUT; D's
+  XM11 (`seller_sent || (status !== 'pending' && !!delivery_email)`) survived (C reproduced: 12/12 green). D rated it
+  small — `buyerNeedsDelivery` is false for every finished state — but it is a sentence promising more than the tests
+  pin. X9 now runs each finished status both ways (six cases). **Harness 11/11**, with X9's cases keyed individually so
+  XM8 (all six) and XM11 (the three WITH) fail differently — **after C fixed its own regex bug: `(?:with|without)`
+  matched "with" inside "without", keying every "without" failure as "with"; the resulting XM8 "mismatch" was the
+  harness, and it had also made XM11's first "as predicted" unable to tell the halves apart.** Gates: tsc 0; vitest
+  117 / 2347; lint 0 / 29. A's PASS covered `a739a40`'s screen, which is unchanged. Not pushed, no PR, no build. A's server reading, verified
   by C: `confirm_transfer_received` (`0550:191`) and `buyer_dispute_transfer` (`0550:207`) — the last definitions — and
   the `confirm-and-release` edge function reference no delivery field (0550's delivery lines are all
   `set_transfer_delivery_info`, `:227-264`, plus a comment; the edge function has 0). **So the server always accepted
