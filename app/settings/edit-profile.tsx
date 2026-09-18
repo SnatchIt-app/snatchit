@@ -64,21 +64,28 @@ export default function EditProfileScreen() {
 
   async function handleAvatarPress() {
     if (!user || avatarUploading) return;
+    // F-AVATAR-2: busy covers the WHOLE operation, upload and save. It used to clear the moment the upload
+    // returned, which left BOTH controls live again — the ring and "Change photo" share this flag — while the
+    // write was still in flight and the old photo was still showing. A second press then raced the first
+    // write, and if its update landed first the stored path pointed at the earlier object.
     setAvatarUploading(true);
-    const result = await pickAndUploadAvatar(user.id);
-    setAvatarUploading(false);
-    if (!result.ok) {
-      if (result.error !== 'Cancelled.') {
-        if (Platform.OS === 'web') window.alert(result.error); else Alert.alert('Upload failed', result.error);
+    try {
+      const result = await pickAndUploadAvatar(user.id);
+      if (!result.ok) {
+        if (result.error !== 'Cancelled.') {
+          if (Platform.OS === 'web') window.alert(result.error); else Alert.alert('Upload failed', result.error);
+        }
+        return;
       }
-      return;
+      const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
+      if (dbError) {
+        if (Platform.OS === 'web') window.alert(dbError.message); else Alert.alert('Save failed', dbError.message);
+        return;
+      }
+      setAvatarUrl(result.publicUrl);
+    } finally {
+      setAvatarUploading(false);
     }
-    const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
-    if (dbError) {
-      if (Platform.OS === 'web') window.alert(dbError.message); else Alert.alert('Save failed', dbError.message);
-      return;
-    }
-    setAvatarUrl(result.publicUrl);
   }
 
   const errors = useMemo(() => {
