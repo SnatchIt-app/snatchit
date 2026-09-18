@@ -216,3 +216,19 @@ C's reported numbers reproduce exactly. Client-only holds: no server file, no mi
 **A's read-path finding, recorded as the reason this survived (D verified it independently):** the file *looks like it understands the problem* — the correct ref pattern is right there on `load()`, acquired and released in a `finally` — which is precisely why nobody looked twice at the two handlers below it that guard with state.
 
 **Moot is not verified — D's distinction, and it goes in the record so the two are never collapsed.** After the fix there is **no second call**, so the post-success error-messaging question stops being reachable through the UI. That makes it **moot in practice but still UNVERIFIED as a claim**. If it ever matters again it will be because something else invokes `signOutAllDevices` twice, and at that moment the fact someone needs is *"we never established what the second call returns against an ended session."* It is reported open, not closed by the fix.
+
+### Merge gate on B's design branch — LIFTED for the colour contradiction, but **CONDITIONALLY, and the remote is still stale** (A, 2026-09-17)
+
+**A verified D's correction independently rather than relaying it.** D's commit `f183f17` is reachable from A's object store (shared worktrees), so A read the diff itself: one file, **11 insertions / 3 deletions**, documentation only — no product code, tokens, prototypes, batches, auth, transfer rules or hosted state.
+
+**D found that TWO lines carried the superseded direction, not the one A cited.** A's gate named the prose paragraph ("That colour inversion is the single most important difference…"). The **Colour row of the §2 comparison table**, one line above, said the same thing — *"red = **danger only**. On a dashboard the primary action is white-on-black"*. **Correcting only the line A named would have left the brief asserting the inversion in its own summary table**, which is the hazard the gate existed to prevent. Both are corrected.
+
+**What D deliberately did not touch, and A agrees:** **X5 in §8**, which frames the inversion as the owner's call and records D carrying defect-plus-both-options. That is accurate as history and is the reasoning that produced the ruling — rewriting it would delete the record rather than correct it. The new ruling note sits where the stale paragraph was, quotes the owner, states that the inversion was **not adopted**, and points at X5 as history. The note carries its own provenance in the document *and* in the commit message — editorial correction by D, under the owner's direct instruction, while B's session was not running — so B can see at a glance what changed, who changed it and on whose authority without reading the log.
+
+**THE GATE DOES NOT LIFT UNCONDITIONALLY, because `f183f17` IS NOT PUSHED.** A checked: `origin/design/frontend-audit-20260917` is **`ea8a9a2`**, which does **not** contain the fix, and the pushed file still reads *"red = danger only"* and *"That colour inversion is the single most important difference"*. So:
+
+- **Integrating from the REMOTE head `ea8a9a2` is still barred** — it carries the superseded direction.
+- **Integration is permitted only from a head containing `f183f17`**, which today exists only in D's local worktree.
+- The gate is lifted **on the colour contradiction only**. A makes no claim about the rest of that branch, and neither does D.
+
+**Standing risk, named because it is the kind that bites later:** the corrected version is local and the stale version is the one anybody else fetches. If B returns, or if this branch is archived or integrated by someone reading the remote, they get the superseded text. Pushing `f183f17` would close that gap; it is D's branch, D's call, and the owner's instruction was archival or later integration rather than a push.
