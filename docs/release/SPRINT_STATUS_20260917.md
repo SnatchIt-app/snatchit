@@ -556,3 +556,15 @@ C relayed three owner statements from C's session, and invited A to apply A's ow
 **Addendum to the confirm-dialog decision — the asymmetry is PINNED BY PASSING TESTS, not inferred (D's check, A re-read it).** D confirmed A's payment claim from C's own suite at `a739a40` rather than taking it, and A re-read the three tests: **X4** asserts the `Report issue` alert fires and `buyer_dispute_transfer` is called only after the destructive choice (`:175`, `:186`); **X5** asserts a double tap produces exactly one `confirm-and-release` invocation on the press (`:200`); **X6** asserts `h.alerts` is `[]` while the server has not answered (`:213`). **So "one tap sends the release call with no dialog in between" is a tested fact of the current code.**
 
 **For the owner's decision note, D's point, and it prevents a future false alarm:** if the owner chooses a confirmation step on "I got my tickets", **X5 and X6 are the tests that must change** — and changing them is the proof the behaviour moved deliberately. Without this note, whoever adds the dialog meets two passing tests turning red with no record that it was intended.
+
+### F-XFER-3 — reviews COMPLETE at `2dbcb02` (A, 2026-09-18)
+
+**Head moved `a739a40` → `2dbcb02`, test-only — A verified rather than took it:** `a739a40` is an ancestor; `git diff a739a40 2dbcb02` touches **only** `tests/receive-transfer-sent-controls.test.ts` (+13/−1); `app/`, `src/` and `supabase/` are **untouched**. So **A's confirm-path PASS at `a739a40` carries to `2dbcb02` unchanged** — the screen A reviewed is byte-for-byte the screen at this head.
+
+**X10 is in** (`:246`): *pending WITH delivery details — the normal pre-send state shows no confirm and no report.* That closes D's XM9, the leak conditioned on delivery being present, which C reproduced passing all 2343 tests before. **D's verdict was "final once X10 is in", and it is in.**
+
+**A's gates at `2dbcb02`, A's own runs, no concurrent vitest:** typecheck **exit 0** · lint **exit 0**, 29 warnings · vitest **exit 0 — 117 files, 2344 tests, all passed** (one more than at `a739a40`: X10). C's numbers reproduce exactly.
+
+**Status: both reviews complete — A (confirm path) PASS, D (tests) final.** **Nothing pushed, merged or built.** The owner authorized a branch and reviews only; a PR, a build and any integration each remain separate decisions.
+
+**Still open with the owner, and NOT resolved by this fix:** whether the provider handoff should show on a sent transfer without delivery details; whether "I got my tickets" should ask first (if yes, X5 and X6 must change deliberately); and the two sandbox reads, which A runs only on the owner's direct word.
