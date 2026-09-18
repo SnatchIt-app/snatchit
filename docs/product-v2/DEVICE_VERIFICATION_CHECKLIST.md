@@ -451,18 +451,28 @@ bar truncates the price), F-LAYOUT-2 (Home notice has no horizontal inset). F-XF
 Needs a build that contains PR #75 (`0f329c3a`). All steps as the sandbox buyer; **no new fixtures**.
 - **N1 — F-XFER-3 + decision 1, S8only (`8f59d37e`):** Receive Transfer shows "I got my tickets", "I haven't received
   them", the delivery form, and the buyer's instructions; no empty contact field; "Open <provider>" only if S8only's
-  listing has a known provider (its platform is not in C's records — record what shows; a one-column sandbox read of
-  its listing's platform would settle it in advance, **needs the owner's authorisation**, not requested). **Re-opening S8only writes
+  listing has a known provider. **Settled by A's read (owner-authorised directly to A, 18:27:31Z, two fields only):
+  S8only `seller_sent`, listing `92f8effe` `ticket_platform = 'other'` → `providerLink('other')` is null → expect NO
+  "Open …" button**, and the generic buyer instructions ("How to receive your tickets"; three steps; no contact
+  placeholder) — the same set the owner's DV-20-8 screenshot showed on D6. **Re-opening S8only writes
   no new data:** its `buyer_viewed_at` is already set (D and A reads), and the notification fires only on the first view.
 - **N2 — decision 2, same screen, OFFLINE (A's safeguard, adopted):** load S8only online, then turn **Airplane Mode
-  on**, then tap "I got my tickets" → the dialog shows the exact copy → tap **Cancel** → nothing changes. The dialog
+  on with Wi-Fi OFF** (check the status bar: airplane icon, no Wi-Fi icon — iOS can keep Wi-Fi on in Airplane Mode),
+  then tap "I got my tickets" → the dialog shows the exact copy → tap **Cancel** → nothing changes. The dialog
   needs no network, so the check loses nothing; a stray tap on "Confirm and release payment" would then fail on the
   device ("Error / Something went wrong…") instead of reaching `confirm-and-release` (functions-js turns the failed
   fetch into a FunctionsFetchError and does not retry; the screen refetches only after a provider hand-off). **Derived
   from code by A, not tested on a phone.** Still: do not tap Confirm.
-- **N3 — F-BID-1, read-only, optional (already in Build 20; only needs the sequence captured):** online, open Device
+- **N3 — NOT in the owner's list for the next build (per A's relay of the owner's scope); kept here as the smallest
+  route to F-BID-1 device evidence if the owner adds it later — F-BID-1, read-only (already in Build 20):** online, open Device
   D7's listing → Airplane Mode on → tap Place bid → expect the offline state with Retry and **no bid form**. Do not
   submit anything.
 - **Not planned (carry forward, labels unchanged):** DV-20-5 BLOCKED, DV-20-6 SKIPPED, DV-20-10/11 UNOBSERVED,
-  DV-20-12 weak, DV-20-13 BLOCKED (would need a staged notice). The decision-1 return question ("Did the tickets
-  arrive?") needs a sent transfer with a known provider; if S8only has none, it stays UNTESTED on device.
+  DV-20-12 weak, DV-20-13 BLOCKED (would need a staged notice). **The decision-1 return question ("Did the tickets
+  arrive?") stays UNTESTED on device:** S8only has no provider, so no hand-off; the only sent transfers that could
+  reach it are D1/D2, whose Receive screens mint a signed URL for a retained proof file (`receive/[id].tsx:105`) —
+  **off-limits; do not open D1/D2 as the buyer.**
+- **Scope as relayed by A (owner's words, to be confirmed with the owner when guiding starts):** "inspect S8only's buyer
+  controls and provider button, then load the screen online, turn Airplane Mode on with Wi-Fi off, open the
+  receipt-confirmation dialog and cancel. Do not confirm receipt or release payment." **Start only when A sends the
+  build number and install link.**
