@@ -259,3 +259,27 @@ and that an earlier bid-form screenshot "was not the correct final output".
 - **C's own framing error, corrected:** C's step told the owner "if a bid form does appear, that's the failure we're
   looking for". That was imprecise. A form with real values from a read that succeeded is correct behaviour; the
   failure is a form built on a read that FAILED.
+
+### DV-20-9 fixture selection (C, 2026-09-18) — owner's constraints: no further access to the retained D1/D2 proof
+### files; Sandbox L7 untouched. **Read from the repo's migrations and Build 20's source; not yet confirmed against
+### the sandbox.**
+- **D1 and D2 are ruled out entirely, not just "don't look at the image".** In `8da50c0`,
+  `app/transfer/receive/[id].tsx:100-109` calls `supabase.storage.from('proof-docs').createSignedUrl(path, 3600)`
+  whenever `transfer_evidence_path` is set and the status is `seller_sent` — merely opening either transfer mints a
+  signed URL for a retained object. That is storage access, which the owner's ruling bars.
+- **L7 is ruled out** by the standing restriction.
+- **Candidate: `8f59d37e` "Sandbox S8only"** — last recorded as `seller_sent` with `transfer_evidence_path` NULL, so
+  the proof-URL effect returns early and **no storage is touched**. Two cautions from the record: it sits beside
+  L7 under the same venue name, so **the event name is the only on-screen discriminator**; and it is reachable only
+  via the listing detail's "View transfer".
+- **Opening the Receive screen is NOT read-only, and whether it writes depends on a fact C must not read itself.**
+  On mount it calls `mark_transfer_viewed` (`0550_transfer_state_guard.sql`):
+  `UPDATE transfers SET buyer_viewed_at = COALESCE(buyer_viewed_at, now()) WHERE id = … AND buyer_id = auth.uid()`.
+  `trg_notify_transfer_state_inbox` (`058`) inserts a `transfer_viewed` notification to the seller **only when
+  `buyer_viewed_at` goes NULL → NOT NULL**; every other branch is gated on a status transition, the status-only
+  triggers (`033`, `034`) cannot fire because status is not in the SET list, and there is no `updated_at` trigger
+  on `transfers`. So: **if S8only's `buyer_viewed_at` is already set, opening it writes nothing; if it is NULL, the
+  first buyer view stamps it and writes one notification to the seller.**
+- **Pre-check needed before the owner opens anything, and it is A's read, not C's:** for `8f59d37e` — `status`,
+  `transfer_evidence_path IS NULL`, `buyer_viewed_at` (null or set), `buyer_id` (which account must be signed in),
+  and the listing's event name. Sandbox state is not inferred from last night's record.
