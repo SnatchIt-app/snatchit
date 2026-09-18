@@ -4481,7 +4481,17 @@ merge or new build yet."
   `cf9b75b`: 0 lines. **A — PASS on both decisions (payment boundary, d16191e0):** A's own mutants in A's own worktree
   reproduced CM1's and CM2's kill sets exactly; A checked `flight.inFlight` is a getter on the ref-held single-flight
   object (synchronous, not stale state); `handleConfirm` has one call site; A parsed `platformInstructions.ts` — all 13
-  contact placeholders are seller-role. **D (behaviour) — pending.**
+  contact placeholders are seller-role. **D (behaviour) — correct for both decisions; two undefended invariants, each
+  proven with a surviving mutant (2371/2371 green):** (1) every receive test mocks `PlatformInstructions`, so a
+  component line printing `Send to: ${buyerEmail}` ("Send to: null") went unseen → **I1** renders the real component
+  for every platform with a witness; (2) dropping `answered()` on the confirm path left "I got my tickets" enabled but
+  dead after a failed release → **C10**. D also found d1's OM8 prediction stale at the tip (defended there by C8 and
+  the premium-provider-handoff source guard, not O6). **Fixed at `0f329c3a` (test-only).** Harnesses at the tip: d1
+  10/10, d2 13/13 — **after C corrected five predictions it again left stale when adding I1/C10 (C's error, second
+  time today), and after C sent both reviewers a non-existent sha (`1a1c32d0`) written before the commit returned;
+  corrected to `0f329c3a` within minutes.** Gates: tsc 0; vitest 120 / 2373; lint 0 / 29.
+  **D's lesson, adopted:** an ANCHOR proves the screen rendered; only a WITNESS — the same query finding the same
+  string where it should appear — proves an absence assertion can fail (X6's title check had an anchor, no witness).
 - **A's observation (not a finding), verified by C:** `react-native-web`'s `Alert.alert` is `static alert() {}`, so on
   an Expo web target the dialog never appears and confirm becomes unreachable (Report issue already was). The repo has
   `app.json` `web` config and a dev script `"web": "expo start --web"`, but no web export in scripts or CI; the
