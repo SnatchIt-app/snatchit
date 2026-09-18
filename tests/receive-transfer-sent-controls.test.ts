@@ -255,10 +255,16 @@ describe('F-XFER-3 — negative controls: every other state (all five statuses, 
     expect(buttonByLabel(host.output, DISPUTE)).toBeUndefined();
   });
 
-  it.each(['buyer_confirmed', 'disputed', 'auto_released'])(
-    'X9: %s without delivery details — no confirm or report controls leak into a finished transfer',
-    async (status) => {
-      h.transfer = transfer({ status });
+  // Each finished status both without and WITH delivery details (D's review): the title below claims both, and a
+  // leak conditioned on delivery being present (XM11) passed when only the "without" half was run.
+  it.each([
+    ['buyer_confirmed', 'without', null], ['buyer_confirmed', 'with', 'buyer@example.test'],
+    ['disputed', 'without', null], ['disputed', 'with', 'buyer@example.test'],
+    ['auto_released', 'without', null], ['auto_released', 'with', 'buyer@example.test'],
+  ])(
+    'X9: %s %s delivery details — no confirm or report controls leak into a finished transfer',
+    async (status, _label, email) => {
+      h.transfer = transfer({ status, delivery_email: email });
       const host = await mountReceive();
 
       expect(renderedTransfer(host)).toBe(true);
