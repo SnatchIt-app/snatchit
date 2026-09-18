@@ -3973,3 +3973,23 @@ proof files untouched. **The server-side expiry decision stays separate and open
   is reviewed and passed; C is not amending it. Same one-line shape as the 1b fix (a ref lock plus two tests).
   **Owner's call.** This is the fourth time today the pattern has held: *the fix was right, and the search for where
   else the shape lives is what found the rest.*
+  **CONFIRMED LIVE by two independent runs, not inferred from the code:** D appended a throwaway probe to the Batch 1
+  profile suite (two presses in one tick, count uploads) and got `expected 2 to be 1`; **C ran the same probe
+  separately and got the same result**, then removed it. So the profile tab starts two uploads on a same-tick double
+  press. The race is in Build 19's code too — Batch 1 changed when the busy flag clears, not what guards re-entry.
+  **When authorised the fix is the one already written in 1b:** the ref lock plus E9/E10 equivalents, because the
+  release matters as much as the lock.
+- **D's correction to its own Batch 1 verdict, recorded in D's words rather than C's:** D's PASS was a verdict on the
+  tests and stands as that, but it did not catch a live defect sitting in the diff. D's diagnosis of how: *on F-BID-1
+  it asked which line does the work and found the render guard was the only one; on F-AVATAR-1 it never asked the
+  same question about `if (!user || avatarUploading) return;`* — the standard applied in one place and not the other.
+  D also corrected its 1b disposition after C's evidence: it had written "the shipped behaviour is correct" about a
+  guard it had not exercised, one message after saying a claim is not a fact until someone runs it.
+- **D's instrument ruling on R11/R12, accepted:** keep the `setInterval` spy, do NOT add clock advancement. What the
+  tests must prove is that no timer is created and that a live one is cleared; a spy observes exactly that, while
+  advancing a clock would only show the consequence of a timer already proven not to exist and would couple the test
+  to the 60-second period, an implementation detail.
+- **D's final verdict: Batch 1b PASS at `0ca71ff`**, re-run at that head (vitest 2311 / 113, gated surface vs 2fe7abd
+  zero lines), with all four new controls verified on D's own runs: remove the ref check → E9 alone; never release the
+  ref → E10 alone; remove the effect status gate → R12 alone; buyer screen renders the seller string → R1 + R9.
+  **A test verdict only — not a merge or deployment authorisation; sequencing is A's and the gate is the owner's.**
