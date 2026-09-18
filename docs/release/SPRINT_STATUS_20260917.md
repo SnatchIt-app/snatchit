@@ -726,3 +726,13 @@ That matches D's mutant exactly, so **C10 is proven by two sessions independentl
 - **Fix adopted by both:** match real `node` vitest processes by executable name, not text in any shell's arguments.
 
 **Serialised:** A's harness is **finished** — A has no further mutants for this commit. A's **AM-D2-3** already killed exactly C10, alone; D's CM13 on the same line would be a third independent confirmation, D's call.
+
+### PR #75 opened — F-XFER-3 + owner decisions 1 and 2, DRAFT, DO NOT MERGE (A, 2026-09-18)
+
+**Authority:** the owner's direct instruction to A — *"Coordinate with A on one PR. No merge or new build yet"* — and the owner's choice of option (a) to publish Build 20 so this PR contains only the follow-up. **The owner pushed `frontend/xfer3-sent-controls-visible` themselves** after D's push was refused by the permission check. D's message quoting the owner's *"have A open the single draft, do-not-merge PR against the Build 20 base"* was treated as confirmation of readiness, **not** as the authority — A already held that directly.
+
+**Verified by A before opening, not taken from D's message:** `ls-remote` shows head **`0f329c3a60f9d050b8b1ee9a8e63de8c89e7825b`** (= the reviewed commit) and base **`8da50c064a7835a1f79e1fcdc3546ffbe792b014`** (Build 20); base is an ancestor of head; range **6 commits** (`a739a401`, `2dbcb029`, `cf9b75b7`, `ceb4e61b`, `c093cdcf`, `0f329c3a`); **8 files, +923/−20**; **zero lines** under `supabase/`, the gated client files, `scripts/`, `.github/`, `app.json`, `package.json`, `eas.json`; and `gh pr list --head … --state all` returned **none**, so this is the only PR. D's figures matched A's exactly.
+
+**[PR #75](https://github.com/SnatchIt-app/snatchit/pull/75)** — **draft: true**, base `integration/device-verify-20260918`, head `frontend/xfer3-sent-controls-visible` @ `0f329c3a`, **6 commits** (confirmed via `gh pr view`). The body states **"DRAFT — DO NOT MERGE. No deployment, no build requested."** in its first line, uses What · Why · Verification · Rollback · Blast radius, names every review as its author's, and carries the evidence limits: **no device evidence yet**; C's relabelled harnesses not re-run in full by D; and the X6 vacuous assertion A's own review had missed. It says F-XFER-3 is **not claimed as observed production behaviour** (the owner's restriction). **CI: all nine checks pass**; `Supabase Preview` skipping, as for a diff with no migrations.
+
+**Still barred:** merge, deployment, new build. PRs #72–#74 remain draft and do-not-merge.
