@@ -446,3 +446,18 @@ Two objects in the public `avatars` bucket under the buyer's folder + `profiles.
 
 **Raised during the pass, not started:** F-BID-3 (raw "TypeError" in the bid-failure alert), F-LAYOUT-1 (listing sticky
 bar truncates the price), F-LAYOUT-2 (Home notice has no horizontal inset). F-XFER-3 was raised and fixed (PR #75).
+
+## Next sandbox build — smallest device-check list (C, 2026-09-18; existing fixtures only, nothing run yet)
+Needs a build that contains PR #75 (`0f329c3a`). All steps as the sandbox buyer; **no new fixtures**.
+- **N1 — F-XFER-3 + decision 1, S8only (`8f59d37e`):** Receive Transfer shows "I got my tickets", "I haven't received
+  them", the delivery form, and the buyer's instructions; no empty contact field; "Open <provider>" only if S8only's
+  listing has a known provider (its platform is not in C's records — record what shows). **Re-opening S8only writes
+  no new data:** its `buyer_viewed_at` is already set (D and A reads), and the notification fires only on the first view.
+- **N2 — decision 2, same screen:** tap "I got my tickets" → the dialog shows the exact copy → tap **Cancel** →
+  nothing changes. **Do not tap "Confirm and release payment"** (it would release sandbox payment).
+- **N3 — F-BID-1, read-only, optional (already in Build 20; only needs the sequence captured):** online, open Device
+  D7's listing → Airplane Mode on → tap Place bid → expect the offline state with Retry and **no bid form**. Do not
+  submit anything.
+- **Not planned (carry forward, labels unchanged):** DV-20-5 BLOCKED, DV-20-6 SKIPPED, DV-20-10/11 UNOBSERVED,
+  DV-20-12 weak, DV-20-13 BLOCKED (would need a staged notice). The decision-1 return question ("Did the tickets
+  arrive?") needs a sent transfer with a known provider; if S8only has none, it stays UNTESTED on device.
