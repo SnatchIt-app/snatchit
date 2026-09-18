@@ -310,7 +310,8 @@ export default function TransferReceiveScreen() {
       <Header />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
-        {/* Delivery info gate (required before any other action) */}
+        {/* Delivery info: required before a PENDING transfer can proceed. On one already marked sent it is still
+            asked for, but it never hides the confirm / report controls below (F-XFER-3). */}
         {needsDeliveryInfo ? (
           <>
             <View style={s.gate}>
@@ -368,8 +369,10 @@ export default function TransferReceiveScreen() {
           </View>
         ) : null}
 
-        {/* SELLER_SENT — the seller's claim, then confirm / dispute */}
-        {transfer.status === 'seller_sent' && !needsDeliveryInfo ? (
+        {/* SELLER_SENT — the seller's claim, then confirm / dispute. F-XFER-3: NOT gated on delivery info. The
+            server lets a transfer be marked sent without it and that starts the auto-release clock, so a missing
+            phone number must never stand between the buyer and "I haven't received them". */}
+        {transfer.status === 'seller_sent' ? (
           <>
             <View style={s.stateBlock}>
               <Text style={[textStyle('title'), s.claimTitle]}>{transferStatusCopy('seller_sent', 'buyer').title}</Text>
