@@ -4333,3 +4333,15 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   provably harmless today and conditionally harmful later. Every layer of correction was its own surface. All
   seven were found — and it is the reason **none of these five branches should land before the device
   verification nobody has run.**
+
+- **1e re-pinned: D PASS at `f3cff27`.** D verified the diff is comment-only (five added lines, no deletions, no
+  code) and **deliberately did not re-run the suite**, saying so: *comments cannot change behaviour, so the diff
+  is the verification, and "gates identical" should mean someone checked WHY they are identical rather than that
+  they ran the numbers again out of ritual.*
+- **THE CLOSING CAVEAT ON ALL FIVE BRANCHES, in D's words, and the most important sentence in this record:**
+  *"My verdicts say the tests discriminate and the mechanisms are right; not one of them says the app behaves
+  correctly on a handset. Those are different claims, and the distance between them is exactly what this sequence
+  has been demonstrating."* Five branches of state-correctness work, **every one verified in tests and source
+  only**. Seven instances of the same defect shape were found — the seventh produced by a correction rather than
+  by the original code — which is not an argument against correcting, since all seven were found, but is the
+  reason **nothing here should land without device verification that nobody has done.**
