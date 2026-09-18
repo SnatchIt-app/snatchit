@@ -4415,7 +4415,15 @@ behaviour.
   dispute without asking, confirm without single-flight, drop the release warning, error read as success, leak into
   finished states.
 - **Gates:** tsc exit 0; vitest 117 files / 2343 tests; lint 0 errors / 29 warnings (baseline).
-- **Review: A — PASS (confirm path, 8a9934a); D — pending.** Not pushed, no PR, no build. A's server reading, verified
+- **D's review (independent, own worktree):** harness reproduced 8/8; fix correct; **one gap — XM9, a leak
+  conditioned on delivery being PRESENT (`seller_sent || (pending && !needsDeliveryInfo)`), passed all 2343 tests**
+  (C reproduced: 117/2343 green under XM9). It offers a release button and "By confirming, you release payment" on a
+  pending transfer — money safe (`confirm_transfer_received` rejects non-`seller_sent`, per D), but inside the suite's
+  own stated scope. **Closed by D's X10** (pending WITH delivery details: no confirm, no report; anchored on the form
+  being absent). D also added XM10 (report button not disabled while busy) → killed by X5 (X6 incidentally).
+  **Head now `2dbcb02` (X10 on top of `a739a40`); harness 10/10 as predicted — after C corrected XM2's prediction ({X7} → {X7, X10}), which C
+  had left stale when adding X10: C's error, recorded.** Gates: tsc 0; vitest 117 / 2344; lint 0 / 29.
+- **Review: A — PASS (confirm path, 8a9934a); D — verdict "final once X10 is in", X10 now in.** Not pushed, no PR, no build. A's server reading, verified
   by C: `confirm_transfer_received` (`0550:191`) and `buyer_dispute_transfer` (`0550:207`) — the last definitions — and
   the `confirm-and-release` edge function reference no delivery field (0550's delivery lines are all
   `set_transfer_delivery_info`, `:227-264`, plus a comment; the edge function has 0). **So the server always accepted
@@ -4426,7 +4434,9 @@ behaviour.
   tap. Unchanged by this fix, which now places that one-tap control below a form the buyer may be filling in. What
   `confirm-and-release` does after the status change was not traced by A or C.
 - **Left as they were, recorded for the owner (outside the ruling):** (a) the "Open <provider>" button and platform
-  instructions stay gated on delivery info, and the return prompt cannot fire in this state; (b) the delivery prompt
+  instructions stay gated on delivery info, and the return prompt cannot fire in this state; **D flags (a) as the same
+  mechanism hiding a buyer action on a sent transfer, in the same file — better decided than discovered** (the
+  instructions take the buyer's email/phone, both null here, so hiding them may be deliberate); (b) the delivery prompt
   still says "so the seller knows where to send your tickets" on a sent transfer; (c) the proof view now renders in
   this state — its signed URL was already minted regardless of the gate, so no new storage access; (d) order unchanged:
   form, details, then the controls.
