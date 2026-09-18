@@ -1018,3 +1018,18 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 **Two corrections from D (2026-09-18), both applied:**
 1. **PR #76's review citation** now cites **D's own verdict**, confirmed to A directly: D PASS at `a6a8323`, re-pinned to `f3cff27` after verifying the added commit is comment-only (`a6a8323..f3cff27` = 1 file, +5, 0 non-comment lines). It no longer cites C's backlog, which agreed but was secondhand. The PR body was edited and is still a draft.
 2. **"No hosted-database action" was too broad.** The accurate wording: a merge into the release branch triggers **no production deployment and no migration or hosted-database change**. However, the `web/` **preview** it produces runs against **production Supabase** (anon key, within RLS, including sign-in). That wiring is pre-existing, and `web/` is unchanged by #72–#76. A's report to the owner used the broader wording and is corrected in the next report. **Observation, not filed:** whether previews should point at production is the owner's call (recommendation §6).
+
+### OWNER DECISION: website previews must not connect to the production database. Plan issued, nothing applied (A, 2026-09-18)
+
+**Owner:**
+- *"website previews should not connect to the production database. Prepare a concrete plan … preserve Production settings … If that requires more setup, propose temporarily disabling automatic previews for this release branch as the interim option. Report the exact proposed change before applying it."*
+- PRs #72–#76 stay unmerged until this is settled.
+
+**Plan:** `docs/release/WEB_PREVIEW_ISOLATION_PLAN_20260918.md`. Everything in it comes from read-only reads.
+- **Affected projects:**
+  - `snatchit-web`: three shared preview+production entries (Supabase URL, anon key, site URL) point previews at production. There are 100 or more READY previews with those values baked in.
+  - `snatchit-admin`: its preview target also points at production, but new previews are already off (the ignored-build step builds only `ab3e17f`).
+- **Test database:** none suitable exists. The mobile sandbox is unsuitable, for the reasons in §2. Supabase Branching is not recommended, because it is the AUTODEPLOY-1 surface.
+- **Phase 2 proposal:** a new isolated project with synthetic data (**$10/month** in the Pro org), then a Preview-only split of the three entries, with production values unchanged.
+- **Interim, proposed and awaiting approval:** I2, a `snatchit-web` ignored-build step that skips every non-production build. The exact PATCH and its rollback are in §4.
+- **#76 checks, separated (§5):** all code checks pass. The one failure is Vercel's deployment **rate limit**. It is not a code result and will not be retried.
