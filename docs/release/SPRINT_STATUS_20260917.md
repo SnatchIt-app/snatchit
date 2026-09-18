@@ -793,3 +793,9 @@ That matches D's mutant exactly, so **C10 is proven by two sessions independentl
 - A did not check the bucket's hosted policy. The claim is from source.
 
 **Still barred:** merge, deployment, new build, handset runs, sandbox reads beyond those already authorized. PRs #72–#75 remain draft and do-not-merge.
+
+**Addendum — C adopted the N2 safeguard (resolved by A at `26a1b212`, `frontend/premium-experience-backlog`).**
+- N2 now runs offline: load S8only online, turn Airplane Mode on, tap "I got my tickets", check the dialog, tap Cancel. It is labelled as derived from code, not tested on a phone, and "Do not tap Confirm" stays in the step.
+- The avatar-retention observation is in C's backlog as pre-existing, not filed, and the owner's call.
+- The N1 provider read is recorded as needing the owner's authorization; it has not been requested.
+- Nothing was run.
