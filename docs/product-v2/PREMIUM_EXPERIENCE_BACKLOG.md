@@ -4308,8 +4308,28 @@ clean, lint 0 errors / 29 warnings. No merge, deploy or build.
 | `frontend/batch1b-twin-screens` | `0ca71ff` | F-XFER-2 (+2-A), F-AVATAR-2 | D PASS, A PASS | #72 |
 | `frontend/batch1c-profile-avatar` | `649248a` | F-AVATAR-3 | D PASS, A PASS | #73 (draft, 9/9 green) |
 | `frontend/batch1d-security-notice-lock` | `016d8e2` | F-SEC-1 (+1-A) | D PASS, A PASS | #74 (standalone off the gate, 9/9 green) |
-| `frontend/batch1e-security-notice-throws` | `a6a8323` | F-SEC-2 (+2-A) | D PASS, A PASS | **none — owner's PR authorisation named 1/1b/1c only** |
+| `frontend/batch1e-security-notice-throws` | `f3cff27` | F-SEC-2 (+2-A) | D PASS, A PASS | **none — owner's PR authorisation named 1/1b/1c only** |
 **Sequencing:** 1b requires 1, 1c requires 1b, 1e requires 1d; 1d is independent of all UI batches.
 **Open for the owner:** F-SEC-1-B (test hardening, 1b/1c, with a different property needed for `my-listings`) ·
 F-SEC-3 · the "third state" copy question on throw outcomes · **device verification — nothing in any of these five
 branches has run on a handset** · B's design proposals and the shared-primitives ownership decision.
+
+- **TM7 PROVED equivalent by D, not conceded — and the proof is now in the code (`f3cff27`, comment only, gates
+  unchanged).** D wrote the mutant itself and showed no input can distinguish it: `runExclusive` clears `error`
+  each cycle, and the only earlier `setError` in the sign-out action is on the `!out.signedOut` branch, which
+  **returns** — so `error` is necessarily null when the nav guard runs and clearing it is a no-op. **D's note,
+  worth keeping: this is the first "survives by design" claim of the sprint that held up to being attacked, and D
+  is the one who insisted they all be attacked.**
+  **The caveat is why it went into the source and not just here:** equivalence is a property of the code as it
+  stands. If that failure branch ever falls through, or anything sets an error on the success path, the same line
+  becomes an over-correcting guard that erases a genuine failure on a security surface — the present-tense trap D
+  named in 1c, now applied to the thing D had just proved safe.
+- **D withdrew the general form of its `unhandledRejection` objection**, keeping it scoped to a permanent suite
+  fixture (runner coupling, ordering, attribution) and agreeing those costs do not apply to a one-file throwaway
+  probe where the direct observation is the point. D: *"I'd rather be corrected on the scope of my own argument
+  than have you work around it."*
+- **The count as it ended: seven instances of the same shape, and the seventh came out of a correction rather than
+  the original code.** A found a defect C's fix introduced (F-SEC-2-A); the fix for that carries a mutant that is
+  provably harmless today and conditionally harmful later. Every layer of correction was its own surface. All
+  seven were found — and it is the reason **none of these five branches should land before the device
+  verification nobody has run.**
