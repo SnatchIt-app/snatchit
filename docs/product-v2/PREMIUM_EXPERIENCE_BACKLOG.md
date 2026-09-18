@@ -4415,8 +4415,16 @@ behaviour.
   dispute without asking, confirm without single-flight, drop the release warning, error read as success, leak into
   finished states.
 - **Gates:** tsc exit 0; vitest 117 files / 2343 tests; lint 0 errors / 29 warnings (baseline).
-- **Review:** A (confirm path = payment release) and D (tests, independent) — requested, pending. Not pushed, no PR,
-  no build.
+- **Review: A — PASS (confirm path, 8a9934a); D — pending.** Not pushed, no PR, no build. A's server reading, verified
+  by C: `confirm_transfer_received` (`0550:191`) and `buyer_dispute_transfer` (`0550:207`) — the last definitions — and
+  the `confirm-and-release` edge function reference no delivery field (0550's delivery lines are all
+  `set_transfer_delivery_info`, `:227-264`, plus a comment; the edge function has 0). **So the server always accepted
+  both actions in this state; the client gate was the only obstacle — the fix yields actions that succeed, not buttons
+  that fail.** The kept form works too: `set_transfer_delivery_info` accepts `pending` or `seller_sent` (`0550:237`).
+- **A's observation (pre-existing, outside the ruling, owner's question):** "Report issue" asks before acting;
+  "I got my tickets" does not — `handleConfirm` goes straight to `confirm-and-release`, guarded only against a double
+  tap. Unchanged by this fix, which now places that one-tap control below a form the buyer may be filling in. What
+  `confirm-and-release` does after the status change was not traced by A or C.
 - **Left as they were, recorded for the owner (outside the ruling):** (a) the "Open <provider>" button and platform
   instructions stay gated on delivery info, and the return prompt cannot fire in this state; (b) the delivery prompt
   still says "so the seller knows where to send your tickets" on a sent transfer; (c) the proof view now renders in
