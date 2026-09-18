@@ -943,3 +943,29 @@ No delivery fields, evidence path, storage, other rows or L7.
 **D keeps no separate device-evidence file** by design: C's checklist and this status are the records of truth, and a third copy could drift. D's message is D's review of those two. *A's "mark them in your device-evidence records" was the wrong ask.*
 
 *Attribution, D's correction (D, 2026-09-18):* D says the miss on note 2 was D's. D flagged the gap without searching the record, where the settling line had stood since `675628c8`. **Both halves are recorded:** the Build 21 entry did not cite the 16:46:13Z read, and D did not search for it. Neither changes the finding.
+
+### S8only release check RUN (authorized directly to A); handset pass CLOSED; release recommendation ISSUED (A, 2026-09-18)
+
+**Owner, directly to A:**
+- *"run the read-only S8only check to confirm its current transfer status, whether receipt was confirmed, and whether payment was released … no writes or proof-file access."*
+- *"Skip creating a provider fixture. Keep the provider-button and return-from-provider phone checks explicitly untested."*
+- *"C can close the handset pass; no further phone work for now."*
+- *"Keep PR #75 draft and do-not-merge until that recommendation is ready. No new build or production deployment."*
+
+**S8only read, 21:56:47Z.** One `begin read only` transaction (`tx_read_only=on`); the script refuses the production ref and requires the sandbox ref. Scratchpad `dv20/s8only_release_read_20260918.{sh,log}`.
+
+| Question | Field(s) read | Result |
+|---|---|---|
+| Current status | `transfers.status` | **`seller_sent`** |
+| Was receipt confirmed? | status; `payout_decisions` rows (the confirm path writes one); `transfer_confirmed` notifications | **NO**: not `buyer_confirmed`, **0** `payout_decisions` rows, **0** `transfer_confirmed` notifications |
+| Was payment released? | `payout_released_at`; `stripe_transfer_id` (null or not only); `payout_released` / `order_complete` notifications | **NO**: `payout_released_at` NULL, `stripe_transfer_id` NULL, **0** and **0** |
+
+**What the records now establish:** nothing was confirmed or released on S8only, **by READ**. Before this it rested on owner-reported screen state plus source. The online N2 Cancel released nothing at the server.
+
+**Not read:** `transfer_evidence_path`, storage, other transfers, L7.
+
+**Provider fixture: NOT created.** The "Open <provider>" button and the return-from-provider question are **explicitly UNTESTED on device**, by the owner's decision.
+
+**Handset pass:** C has been told it may close it. No further phone work.
+
+**Release recommendation ISSUED:** `docs/release/RELEASE_RECOMMENDATION_PRS_72_75_20260918.md`. PRs #72–#75 remain **draft and do-not-merge** until the owner decides.

@@ -999,3 +999,11 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - D1/D2, their proof files, and L7 were not opened (C-REPORTED).
 
 *Precision (D's review, applied by A):* for re-opening S8only, read **"no data changed"** rather than "no new sandbox write". Each opening runs one UPDATE that writes the same value, derived from the repo migrations at `0f329c3a`; the sandbox's deployed bodies were not read. **No proof-file access on S8only** rests on A's 16:46:13Z read (`transfer_evidence_path` null), plus no seller-side attach recorded since.
+
+**Addendum: owner-authorized read (A, directly), 21:56:47Z, read-only.** S8only `8f59d37e`:
+- status `seller_sent`;
+- `payout_released_at` NULL and `stripe_transfer_id` NULL;
+- 0 `payout_decisions` rows;
+- 0 `transfer_confirmed`, 0 `payout_released` and 0 `order_complete` notifications.
+
+**Nothing was confirmed or released: READ.** This replaces the owner-reported-plus-source strength above. No write. Evidence path, storage, other rows and L7 were not read. The handset pass is closed, and there is no further phone work.
