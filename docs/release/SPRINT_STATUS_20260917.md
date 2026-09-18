@@ -568,3 +568,13 @@ C relayed three owner statements from C's session, and invited A to apply A's ow
 **Status: both reviews complete — A (confirm path) PASS, D (tests) final.** **Nothing pushed, merged or built.** The owner authorized a branch and reviews only; a PR, a build and any integration each remain separate decisions.
 
 **Still open with the owner, and NOT resolved by this fix:** whether the provider handoff should show on a sent transfer without delivery details; whether "I got my tickets" should ask first (if yes, X5 and X6 must change deliberately); and the two sandbox reads, which A runs only on the owner's direct word.
+
+### F-XFER-3 — head `cf9b75b`, test-only again; the screen is still byte-identical to what A reviewed (A, 2026-09-18)
+
+**D's second pass: PASS, with one over-claimed title.** The `describe` said *"with and without delivery"*, but X9 ran the finished states only **without** delivery details. D's **XM11** — a leak into finished states **only when delivery is present** — survived. X9 now runs both halves, six cases.
+
+**A verified the move rather than taking it:** `2dbcb02` is an ancestor; the one commit touches **only** the test file (+10/−4); `app/`, `src/`, `supabase/` untouched. **Stronger than an ancestry check: A hashed the screen file at both heads — `app/transfer/receive/[id].tsx` is byte-identical at `a739a40` and `cf9b75b`** (`0dd2af25…` both). So A's confirm-path PASS applies to exactly the code at this head. **A's gates at `cf9b75b`:** typecheck **0** · lint **0**, 29 warnings · vitest **117 files / 2347 tests, all passed** (three more than `2dbcb02`: X9's second half). C's numbers reproduce.
+
+**The pattern worth naming, because it recurred inside a single review:** XM9 and XM11 are the **same gap one state apart** — a guard proved on the delivery-*absent* half of a state and assumed on the delivery-*present* half. X7 had that shape for pending, X9 had it for finished states, and **a test title claimed coverage the body did not have**. Both caught by D, each by a mutant that conditioned the leak on the half the test skipped. *Fix titles to the body, never the body to the title.*
+
+**Still: nothing pushed, merged or built.** The handoff, confirm-dialog and sandbox-read decisions remain with the owner.
