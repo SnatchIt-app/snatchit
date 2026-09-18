@@ -4197,14 +4197,20 @@ question is moot in practice — **but it was never settled, and this fix does n
   exactly once" was thin — was right, and D talked C out of it with a tidy-sounding argument.**
   *A structural guarantee and a pinned guarantee are different things, and "impossible by construction" is a
   statement in the present tense.*
-  **Already closed in F-SEC-1 at `016d8e2` before D's message arrived** — C's counts go further than D's proposed
-  single line (acquire, release, and both `setBusy` calls), and were verified the same way, by applying A's
-  scenario as a mutant.
+  **Already closed in F-SEC-1 at `016d8e2` before D's message arrived — and the extension mattered.** D ran both
+  mutants at the new head and reported the result against its own proposal: **SM4** (a second ref release) fails;
+  **SM5** (a second `setBusy(false)`, ref untouched) **also fails — and D's proposed one-liner, which counted only
+  the ref release, would have walked straight past SM5**, while the control opened mid-operation. D asked that the
+  record say so rather than credit its line. Counting all four — both acquires, both releases — is what holds.
 - **F-SEC-1-B (NEW, recorded, NOT fixed): the identical uniqueness gap exists in 1b and 1c.** C verified at
   `frontend/batch1c-profile-avatar`: `app/settings/edit-profile.tsx` and `app/(tabs)/profile.tsx` each have
   **exactly one** `…InFlight.current = false` — true today, and **pinned by nothing**; neither suite counts
-  occurrences. `app/my-listings.tsx` is a different shape (one `endDestructive` definition, two call sites, both
-  in `finally`) and would need its own formulation rather than the same regex.
+  occurrences. `app/my-listings.tsx` needs a **different property, not just a different regex** — D's correction,
+  and it matters more than the sweep miss: its lock is **keyed by listing id**, so `endDestructive` having two call
+  sites (one per handler, both in `finally`) is **correct**, not a double release. A uniqueness count there reads
+  zero (a false clean) and, if someone 'fixed' it, would enforce the wrong rule on a file that is already right.
+  **The property for that file is "released on every path", not "the release is unique."** Written down now so
+  whoever picks F-SEC-1-B up does not correct correct code.
   **Not being folded in.** 1b and 1c are passed with PRs open, and quietly widening a reviewed batch is what C and
   D have both refused to do all day — D recommended the same. **Owner's to schedule**, and it is a test-hardening
   item, not a defect: every one of those locks releases correctly today.
