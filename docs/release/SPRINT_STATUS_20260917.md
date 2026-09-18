@@ -473,3 +473,17 @@ C asked A the question that decides whether real users can reach the state. **A 
 ### F-LAYOUT-1 — recorded only
 
 The listing-detail sticky bar truncates the price to *"CURREN…"* / *"$…"*. C's finding; recorded for the owner; nothing started.
+
+### F-XFER-3 confirmed by C independently — and it reaches PRODUCTION, not only the sandbox (A, 2026-09-18)
+
+**C re-derived all three of A's points from source** (recorded on premium at `205e25b`): `formatCountdown` returns null only for a falsy timestamp, so the discriminating condition is `expires_at IS NOT NULL`, and the receive file is identical between `6561d1f` and `2fe7abd`, so both read the same pre-fix tree · the `transfer_viewed` notification is at most one row — unique index `057:50`, `ON CONFLICT (dedupe_key) DO NOTHING` at `057:83`, key `'transfer_viewed:'||id` at `058:185` · and neither `mark_transfer_sent` definition references delivery info.
+
+**A resolved C's citation rather than accepting it:** `69604d5` is 140's own commit on `fix/140-proof-upload-repair`, and **`140_proof_upload_repair.sql` is byte-identical at `69604d5` and at the built `8da50c0`**, so C's check applies to what is in Build 20. A also re-read `0553`: **zero** delivery references, and `auto_release_at = now() + INTERVAL '72 hours'` is set at **`0553:37`** (C cited `:35`; a two-line difference in the citation, the fact identical).
+
+**The materially new consequence, and it is A's to state because it is about payments in production:**
+- The only migrations that define `public.mark_transfer_sent` are **`0550`, `0553` and `140`** (A's grep across the chain).
+- **Production is at ledger 135 and nothing has been applied since 2026-09-12**; `140` is above 135 and applied only to the sandbox.
+- **So production's `mark_transfer_sent` is `0553`'s body — which enforces no delivery info and starts the 72-hour auto-release clock.**
+- **F-XFER-3 is therefore live behaviour in production, not a sandbox artifact.** *(This is derived from the repository's migration chain and the recorded production ledger — **not** from a production read, which is not authorized and was not performed. A redefinition applied to production outside the chain would change it; nothing in the records suggests one.)*
+
+**What stays unchanged:** the buyer is **not locked out** — C confirmed in source that saving delivery info clears `needsDeliveryInfo` and reveals confirm/dispute. The open question is still the product one A named: **whether hiding dispute behind a form the buyer may not understand can cost them the dispute window before the 72-hour auto-release.** Owner's to scope; nothing started; nothing run.
