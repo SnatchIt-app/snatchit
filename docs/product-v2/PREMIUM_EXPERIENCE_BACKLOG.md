@@ -4172,3 +4172,19 @@ question is moot in practice — **but it was never settled, and this fix does n
   user** — the same "silent tap" class that DISMISS_FAILED_COPY was written to end. The `finally` still releases
   the lock and clears `busy`, so nothing jams. **Identical before and after the fix**, which is why D recorded it
   rather than folding it in: so it is not later mistaken for something this batch introduced. Owner's call.
+
+- **A's gated auth review: PASS.** Tripwire clean — zero lines across `signOut.ts`, payments, checkout,
+  `supabase/`, `scripts/`, `.github/`, `app.json`, `package.json`. A's gates at `39bc41c` match C's exactly
+  (107 files / 2258 tests, tsc 0, lint 0/29; the lower totals are correct for a branch off the gate).
+  **PR #74 open standalone against the gate, all nine checks green.** A confirmed the contract pin was followed
+  to its new home rather than deleted, which is "the thing most people get wrong in a refactor".
+- **F-SEC-1-A (A's finding) — CLOSED at `016d8e2`.** The suite pinned that the acquire and release *exist* inside
+  `runExclusive`, not that the release is **unique** — and "released exactly once" is the property the owner's
+  evidence list asks for. A counted and it held today, but a later edit adding a second release on a success path
+  would have passed every assertion. The source contract now counts occurrences: exactly one acquire, one release,
+  one `setBusy(true)`, one `setBusy(false)`. **Verified by mutant, not asserted:** C wrote A's exact scenario — a
+  second release on the dismiss success path — and it was GREEN before the change and fails after. Gates after:
+  2258 / 107, tsc clean, lint 0/29.
+- **Credit correction C volunteered:** S1 counts invocations rather than navigations because C's own probe had
+  already shown two calls with one navigation — the shape was in front of C, not deduced. The version of that trap
+  C did *not* catch alone is the one D found twice, where the harness hides the layer.
