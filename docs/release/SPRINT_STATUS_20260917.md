@@ -397,7 +397,7 @@ That is the same truthfulness rule this sprint has enforced everywhere else (F-X
 
 **Fixtures ruled out, C's reasoning, A agrees:** D1 and D2 are out entirely — opening either mints a signed URL for a **retained proof object**, which ruling 2 bars. L7 is out. **S8only (`8f59d37e…`)** is the candidate, because its evidence path was null last night.
 
-**A verified C's claim about what opening the screen does, and it holds — with one correction to where the write comes from:**
+**A verified C's claim about what opening the screen does, and it holds.** *(Attribution corrected after A resolved C's record: A first wrote "with one correction to where the write comes from", which implied C had it wrong. **C's record did not** — C's fixture note `887f773` on `frontend/premium-experience-backlog`, resolved by A against the ref, already attributes the notification to `058`'s `trg_notify_transfer_state_inbox` and says `mark_transfer_viewed` only stamps the column via `COALESCE`. Only C's chat summary compressed the two into one clause. A's "correction" was to a summary, not to the record, and is recorded that way so it does not become a false finding against C.)*
 - `app/transfer/receive/[id].tsx:160` calls `supabase.rpc('mark_transfer_viewed', …)` on open.
 - `mark_transfer_viewed` (**`0550_transfer_state_guard.sql:243`**) does exactly one thing: `UPDATE public.transfers SET buyer_viewed_at = COALESCE(buyer_viewed_at, now()) WHERE id = … AND buyer_id = auth.uid()`. **The function itself writes no notification.**
 - **The notification comes from a trigger**: `058_notification_producers.sql` `trg_notify_transfer_state_inbox` (AFTER UPDATE on `public.transfers`) inserts **one `transfer_viewed` inbox row for the seller when `buyer_viewed_at` goes from NULL to NOT NULL**, dedupe key `transfer_viewed:<transfer_id>`.
@@ -417,9 +417,12 @@ select t.id, t.status, (t.transfer_evidence_path is null) as evidence_path_null,
        t.buyer_viewed_at, t.buyer_id, t.seller_id, l.event_name
   from public.transfers t join public.listings l on l.id = t.listing_id
  where t.id::text like '8f59d37e%';
--- ONLY IF the owner also authorizes the bid-row check (scope as C stated it):
--- select count(*), max(created_at) from public.bids
---  where listing_id = '<DV-20-4 listing id, from C>' and created_at >= '2026-09-18T15:40:00Z';  -- 11:40 ET = 15:40Z
+-- ONLY IF the owner also authorizes the bid-row check. Nobody holds the listing id: the owner chose "any live
+-- auction that isn't yours and isn't Sandbox L7" and never named it, and C declined to guess. Key it by the
+-- EVENT NAME the owner gives (easier for them than an id), and refuse unless it resolves to exactly one listing:
+-- select 'listings='||count(*) from public.listings where event_name = '<event name, from the owner>';  -- must be 1, else STOP
+-- select count(*), max(b.created_at) from public.bids b join public.listings l on l.id = b.listing_id
+--  where l.event_name = '<event name, from the owner>' and b.created_at >= '2026-09-18T15:40:00Z';  -- 11:40 ET = 15:40Z
 rollback;
 ```
 
