@@ -4252,3 +4252,38 @@ clean, lint 0 errors / 29 warnings. No merge, deploy or build.
   returned-error path has always had that property, so reusing its copy keeps the two consistent instead of
   inventing a third state — but nothing here establishes which side of that line a real throw falls on. Same shape
   as F-SEC-1's open question, and kept out of the fix's claims.
+
+- **F-SEC-2-A (A's finding, on C's own fix) — FIXED at `a6a8323`.** The catch C added in F-SEC-2 spanned the whole
+  action, **including the `router.replace` that runs AFTER a successful sign-out**, so a throw there showed
+  "Couldn't sign out" for an action that completed — every session and push binding really ended and the screen
+  said the opposite about the user's account security. **C introduced it; the catch was right, its scope was not.**
+  The navigation is now guarded separately and logged; C verified it is belt-and-braces anyway (the global auth
+  listener in `app/_layout.tsx` + `useAuth` routes on sign-out).
+  **The principle, the mirror of the one this sprint enforces everywhere:** *a throw is an unknown outcome only
+  while the outcome is unknown; past the success line it is known, and no failure may be asserted over it* — the
+  same rule as never asserting success before confirmation. **T7** pins it; **TM6** (navigation back inside the
+  outer catch — A's exact scenario) kills T7. **TM7 survives and is recorded, not hidden:** an over-correcting nav
+  guard that cleared a real failure passes, because that guard only ever runs after success, so no test can
+  distinguish it. Gates at `a6a8323`: vitest **2265 / 108**, tsc clean, lint 0/29.
+- **D's ruling on C's "indirect assertion" worry: it is NOT indirect, and D told C not to close the gap.**
+  `onPress={handler}` discards the promise, so "an unhandled rejection" IS "that discarded promise rejected" —
+  asserting it resolves asserts the cause, not a proxy. It holds because the action path is one fully-awaited
+  chain with no floating promises, which D checked rather than assumed. D also advised AGAINST a
+  `process.on('unhandledRejection')` spy in the suite: it couples to the runner, is order-dependent under parallel
+  files, and cannot attribute a late rejection to the test that caused it.
+- **F-SEC-3 (NEW — D's lead from the same file, and C PROBED it rather than leaving it unverified).**
+  `useSecurityNotices.ts:50-51` calls `void load()` twice (mount and the AppState listener) and `load()` (`:29-43`)
+  has `try`/`finally` with **no catch** — so a throwing `get_my_security_notices`, or a throw out of
+  `parseSecurityNotices`/`selectActionableNotice` inside that try, rejects a discarded promise. **C's probe:
+  exactly ONE unhandled rejection, observed.** *(The probe used the `process.on('unhandledRejection')` instrument
+  D rejected for a permanent test — legitimate for a throwaway probe, not for a suite fixture.)*
+  **Stakes, stated accurately rather than inflated:** the read path already intends to fail quietly (its own
+  comment says so) and `finally` still clears `inFlight`, so the user-facing outcome is unchanged — no notice
+  shown, nothing jams. What differs is mechanism: a handled quiet failure versus an unhandled rejection that
+  surfaces as a warning or in crash reporting. **Outside F-SEC-2's authorisation; recorded, nothing started.**
+  **Sixth time a fix's twin was sitting in the same file.**
+- **D's ruling on the copy, adopted, with the part worth writing down:** keep the existing message, and record that
+  **the fix changes the character of the over-claim rather than creating it** — *silent-and-possibly-wrong became
+  visible-and-possibly-wrong.* Still the right trade, because a security action that says nothing is worse. If a
+  third state is ever wanted ("we couldn't tell whether that worked"), it is a copy decision for the owner, not a
+  bug fix.
