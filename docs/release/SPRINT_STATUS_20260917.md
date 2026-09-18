@@ -1014,3 +1014,7 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 **Deferred and documented, unchanged:** F-SEC-3, F-SEC-1-B, the unknown-outcome wording (recommendation §3).
 
 **Still barred:** merge, deployment, production database updates, phone testing.
+
+**Two corrections from D (2026-09-18), both applied:**
+1. **PR #76's review citation** now cites **D's own verdict**, confirmed to A directly: D PASS at `a6a8323`, re-pinned to `f3cff27` after verifying the added commit is comment-only (`a6a8323..f3cff27` = 1 file, +5, 0 non-comment lines). It no longer cites C's backlog, which agreed but was secondhand. The PR body was edited and is still a draft.
+2. **"No hosted-database action" was too broad.** The accurate wording: a merge into the release branch triggers **no production deployment and no migration or hosted-database change**. However, the `web/` **preview** it produces runs against **production Supabase** (anon key, within RLS, including sign-in). That wiring is pre-existing, and `web/` is unchanged by #72–#76. A's report to the owner used the broader wording and is corrected in the next report. **Observation, not filed:** whether previews should point at production is the owner's call (recommendation §6).

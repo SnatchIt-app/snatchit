@@ -16,7 +16,7 @@
   - D found that GitHub's deployments API holds no records for either branch, which cannot settle it.
   - **UNVERIFIED:** the production-branch setting of each connected hosted project (the Vercel projects, including `snatchit-web`, which builds previews on these PRs, and the Supabase integration's current `git_branch`).
   - **What settles it:** the owner reads those settings in the dashboards, or authorizes a read. Until then, step 1's "no production effect" is expected, not verified.
-  - **SETTLED 2026-09-18** by the owner-authorized read of those settings (§6). **No production deployment and no hosted-database action.** The merge does trigger CI, one Vercel **preview** of `web/`, and a skipped admin build.
+  - **SETTLED 2026-09-18** by the owner-authorized read of those settings (§6). **No production deployment and no migration or hosted-database change.** The `web/` preview runs against production Supabase, as every previous preview did. The merge does trigger CI, one Vercel **preview** of `web/`, and a skipped admin build.
 - The result is the Build 21 tree, byte for byte, plus one test-title rename (§2).
 
 **Step 2 — production release (not recommended yet).** A production client from this branch is blocked **server-side**:
@@ -66,7 +66,7 @@ Target: `release/production-gate-20260918`, currently **`6561d1f`**. Keep ruling
 | **B2** | **AUTODEPLOY-1.** The branch is **818 commits and 68 migration files ahead of `main`**. The integration was disconnected on 2026-08-27 (`git_branch` cleared), but it is **still installed and still reports on PRs against the production project**, one reconnect away. A merge into `main` carrying those 68 files is exactly the path that applied `071` to production in August. | any merge of the branch into `main` | The owner's visual dashboard confirmation that auto-deploy is off (`AUTODEPLOY-VERIFIED-OFF`), and the B1 ceremony. **Step 1 does not touch `main`.** |
 | ~~**B3**~~ | ~~F-SEC-2 has no PR.~~ **CLEARED 2026-09-18:** [PR #76](https://github.com/SnatchIt-app/snatchit/pull/76) opened as draft/do-not-merge, base `frontend/batch1d-security-notice-lock` (`016d8e2`, #74's head), head `f3cff27`; 3 commits, 2 files, +265/−5. | — | — |
 | **B4** | **No production build of this tree exists.** The `production` profile (`pk_live`, production project) has never built it. **App Store release status remains unverified**; the owner's restriction stands. | release | B1, then an owner-authorized production build and store steps. |
-| ~~**B5**~~ | ~~Step 1's "no production effect" is unverified.~~ **SETTLED 2026-09-18 by an owner-authorized read of the settings (no setting changed): merging into the release branch triggers no production deployment and no hosted-database action.** See §6. | — | — |
+| ~~**B5**~~ | ~~Step 1's "no production effect" is unverified.~~ **SETTLED 2026-09-18 by an owner-authorized read of the settings (no setting changed): merging into the release branch triggers no production deployment and no migration or hosted-database change.** ~~"no hosted-database action"~~ was too broad (D): the `web/` preview it produces runs against **production** Supabase with the anon key. That wiring is pre-existing, and `web/` is unchanged by these PRs. See §6. | — | — |
 
 **Still DEFERRED (owner, 2026-09-18: "Keep F-SEC-3, F-SEC-1-B and the unknown-outcome wording deferred and documented"):** **A's recommendation: none blocks step 1. Decide the third before any production build, because its copy ships in that build.**
 - **F-SEC-3** (LOW, pre-existing): the read path swallows a thrown error.
@@ -125,3 +125,5 @@ Each of these is its own owner decision:
 **Side facts, recorded, not acted on:**
 - `snatchit-web`'s production branch is `feature/web-accounts-foundation`, not `main`.
 - Its preview deployments use the production Supabase project, with the public anon key only.
+
+**Observation, not filed (D, 2026-09-18; the owner's call):** `snatchit-web` preview deployments use the **production** Supabase URL and anon key. Anyone who opens a preview URL (SSO-protected) runs unreleased `web/` code against the production database, within RLS, including sign-in. This is pre-existing and applies to every PR's preview. Whether previews should point at production is a separate decision. Neither A nor D is acting on it. D found no static-generation markers in `web/`, so there is no sign of production reads at build time; the build itself was not audited.
