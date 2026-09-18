@@ -92,11 +92,13 @@ export function onForeground(state: HandoffState, now: number): ReturnDecision {
 
 /**
  * Ask "Did the tickets arrive?" only while the seller's claim is the latest
- * authoritative state and the buyer can still act. Every other state answers
- * the question itself and must be shown instead.
+ * authoritative state. Every other state answers the question itself and must
+ * be shown instead. Missing delivery details no longer suppress it: on a sent
+ * transfer the buyer can confirm or report regardless (F-XFER-3), so the
+ * question is answerable (owner's decision 1). It only asks — it confirms nothing.
  */
-export function returnPrompt(freshStatus: string, needsDeliveryInfo: boolean): boolean {
-  return freshStatus === 'seller_sent' && !needsDeliveryInfo;
+export function returnPrompt(freshStatus: string): boolean {
+  return freshStatus === 'seller_sent';
 }
 
 export const RETURN_PROMPT = {
