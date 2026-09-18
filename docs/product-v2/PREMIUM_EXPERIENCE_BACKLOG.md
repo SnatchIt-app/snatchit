@@ -4512,7 +4512,7 @@ merge or new build yet."
   only, no horizontal padding. Presentation only; the copy and behaviour passed (DV-20-3). Belongs with F-LAYOUT-1 and
   the shared-primitives decision. Nothing started.
 
-- **Observation (A, 2026-09-18; PRE-EXISTING, not filed, owner's call):** a replaced avatar is never deleted — each save
+- **F-AVATAR-4 — DEFERRED (owner; filed by A, close-out §3/§4; no deletion or cleanup). Was: observation (A, 2026-09-18; PRE-EXISTING):** a replaced avatar is never deleted — each save
   uploads a new object (`avatarImage.ts:124`) and no client code deletes from `avatars` — and the bucket is public, so
   an old photo stays reachable by anyone holding its path. The Build 20 pass left two such objects on the sandbox buyer.
   Not caused by F-AVATAR-1/2/3; nothing started.

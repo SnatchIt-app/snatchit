@@ -476,3 +476,9 @@ Needs a build that contains PR #75 (`0f329c3a`). All steps as the sandbox buyer;
   controls and provider button, then load the screen online, turn Airplane Mode on with Wi-Fi off, open the
   receipt-confirmation dialog and cancel. Do not confirm receipt or release payment." **Start only when A sends the
   build number and install link.**
+
+## Build 21 — `candidate/2026-09-18-build-d2` → `0f329c3a` (PR #75 head; EAS 1d78bb45-cd89-419f-b1e3-ba679ac7eb7f)
+FINISHED 18:37:02Z, iOS, preview profile (sandbox), internal, 1.0.0 (A; EAS record also confirmed by D). **C verified
+the tag resolves to `0f329c3a` locally; C could not read the EAS record from this machine** (relies on A and D for
+it). Installing replaces Build 20 (one bundle id); the app shows no build number. Checks: N1 and N2 above, scope as
+relayed by A, confirmed with the owner before the first step.
