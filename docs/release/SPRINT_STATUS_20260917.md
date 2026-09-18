@@ -340,3 +340,26 @@ That is the same truthfulness rule this sprint has enforced everywhere else (F-X
 **The artifact is unaffected:** EAS archived the committed tree, so what is building is what the tag points at. **The risk is precisely and only that one link in the chain exists on a single disk.**
 
 **Both sessions state the build's status in the same words, deliberately:** eleven fixes with **source-and-test evidence and none with device evidence**. D's five verdicts say the tests discriminate and the mechanisms are right; **not one of them says a person tapping a phone sees the right thing.** The build is where the second kind of evidence starts existing, not where it arrives.
+
+### BUILD 20 FINISHED — available for handset verification (A, 2026-09-18)
+
+| | |
+|---|---|
+| **Status** | **finished** (no errors), 12:28:59 AM → 12:36:05 AM, ~7 minutes |
+| **Build number** | **20** — assigned remotely by `autoIncrement`, as predicted; no file was edited to obtain it |
+| **Commit, as EAS recorded it** | **`8da50c064a7835a1f79e1fcdc3546ffbe792b014`** = `8da50c0` = tag `candidate/2026-09-18-build-d1`. **The artifact's own record names the reviewed tree** — that is the provenance link, independent of A's account of it |
+| Platform / profile / distribution | iOS · `preview` · **internal** |
+| Version / SDK | 1.0.0 · Expo SDK 54.0.0 |
+| Fingerprint | `78f32c441b944f4a07ac4267b889cf5687519d4d` |
+| Install page | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/2c423058-fd38-4680-bbf4-26360b188567 |
+| Archive | `…/artifacts/eas/pbZ5UvBTVmialtn6er452U8jXV97s7tRL_WUHXorKKI.ipa` |
+
+*("Build Artifacts URL: null" is expected — it refers to a separate artifacts bundle; the application archive above is the IPA.)*
+
+**Build 20 supersedes nothing.** Build 19 (`f412d10`) remains installed and is unchanged; the owner's earlier ruling that Build 19 stays untouched is unaffected, and both can exist on the phone.
+
+**What is now true, stated precisely:** the eleven fixes have **source-and-test evidence** and an **artifact that provably contains them**. They still have **no device evidence**. The build being green says the code compiles and ships; it says nothing about what a person sees. **C's handset pass is the only thing that changes that**, and until it runs no row may be recorded as hardware-verified.
+
+**Unchanged and still barred:** no merge (PRs #72–#74 draft, do-not-merge) · no production deploy · no sandbox data change · no keys enabled · no release requested · migrations 138 and 141 unapplied · the two retained Line 3 proof objects untouched. **Deferred by the owner until after device verification:** F-SEC-3, F-SEC-1-B, and the unknown-outcome copy decision.
+
+**The traceability gap persists and is unchanged by the build finishing:** tag `candidate/2026-09-18-build-d1` and `integration/device-verify-20260918` remain local to one machine. EAS now independently records the commit hash, which narrows the exposure — the artifact names its source even if the tag were lost — but the commits themselves still exist on one disk.
