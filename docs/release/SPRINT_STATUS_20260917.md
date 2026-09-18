@@ -1070,3 +1070,47 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 - **Change:** both entries went from `preview, production` to `production`, with value fingerprints unchanged. The other 18 entries are unchanged, the ignore step is intact, and no deployment was triggered.
 - **Fail-closed verified by build:** a local `next build` without them exits 1, "Missing required environment variables"; the dummy-value control exits 0. Statically, all 194 remote branches with `web/` have the same guard, and none has a Vercel config override.
 - The plan's corrected claims are updated to match.
+
+### RELEASE-BRANCH CONSOLIDATION DONE: #72 → #73 → #74 → #76 → #75 merged into `release/production-gate-20260918` = **`8f45e9b`** (A, 2026-09-18)
+
+**Authority, owner directly to A:** *"mark ready and merge PRs #72 → #73 → #74 → #76 → #75 into release/production-gate-20260918, using merge commits … This authorises release-branch consolidation only: no merge into main, production deployment, database migration or new build."*
+
+**Method at every step:**
+- Confirm the reviewed head and the base (after a manual retarget for #73, #76 and #75).
+- Rehearse `merge --no-ff` on the current remote branch, and require the first-parent patch to be byte-identical to the PR's own patch, with the expected file count.
+- `gh pr ready`, then `gh pr merge --merge --match-head-commit <reviewed head>`.
+- Verify the parents (previous head + reviewed head), the tree (= rehearsal tree) and the first-parent patch (byte-identical).
+- Wait for CI on the new head.
+- Check the Vercel and Supabase effects.
+
+| # | Merge commit | First-parent effect | CI (push) | Vercel `snatchit-web` status | Deployments since the merge |
+|---|---|---|---|---|---|
+| #72 | `e6042e8e` | 19 files, +2222/−73 | [success](https://github.com/SnatchIt-app/snatchit/actions/runs/35403453503) | "success — Canceled by Ignored Build Step" | 1 web preview CANCELED · admin 0 |
+| #73 | `7f4baa25` | 2, +280/−1 | [success](https://github.com/SnatchIt-app/snatchit/actions/runs/35403710462) | same | same |
+| #74 | `92f63713` | 3, +281/−17 | [success](https://github.com/SnatchIt-app/snatchit/actions/runs/35403893830) | same | same |
+| #76 | `8bdd9fb3` | 2, +265/−5 | [success](https://github.com/SnatchIt-app/snatchit/actions/runs/35404116124) | same | same |
+| #75 | `8f45e9bb` | 8, +923/−20 | [success](https://github.com/SnatchIt-app/snatchit/actions/runs/35404338817) | same | same |
+
+- **Code checks:** all 5 CI jobs passed on every merge commit (typecheck/lint/unit tests, fresh-DB migrations, Deno, web build, admin build).
+- **Deployment checks, kept separate from code:**
+  - Each Vercel web deployment was **CANCELED by the ignore step**, and its status reads success.
+  - `snatchit-admin` created no deployment.
+  - `Supabase Preview` was **skipped** each time, and the production branch binding stayed `git_branch ""`.
+- **No production deployment, no migration, no database action.** `main` is untouched at `eadd456a`.
+
+**Notes:**
+- **#75 on GitHub:** after retargeting it showed **12 files (+1465/−38)**, the predicted two-merge-base display artefact. Its real effect was the 8 reviewed files, byte-identical.
+- **#74's pre-check:** `mergeable: UNKNOWN` while GitHub recomputed after the base moved. The rehearsal was clean, and the result equals it.
+- **A's own slip, caught by the guard:** A first passed #72's full sha from memory. It was wrong, and the pre-check stopped on the head mismatch. The ids were then resolved with `git rev-parse` before use.
+
+**Final result:**
+- **`8f45e9bb` vs Build 21 (`0f329c3a`):** exactly **one file**, `tests/profile-avatar-same-tick.test.ts` (+11/−5). That is **byte-identical** to the documented `2567401..649248a` test-title rename, and nothing else.
+- `6561d1f` is still an ancestor, so F-BIDS-1 is carried.
+- The whole integration: 30 files, +3966/−111, with 0 lines under `supabase/`, the gated client files or build config.
+- **D's independent check: requested.**
+
+**Still barred, and still open:**
+- No merge into `main` (B2).
+- No production deployment, migration or build.
+- The preview test database, the old preview addresses, and F-SEC-3, F-SEC-1-B and the unknown-outcome wording are left for later.
+- PR branches were kept (`delete_branch_on_merge: false`).
