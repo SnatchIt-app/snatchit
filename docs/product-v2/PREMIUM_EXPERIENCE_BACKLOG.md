@@ -4370,11 +4370,24 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   `0553_fix_mark_transfer_sent_overload_ambiguity.sql` nor 140 (`69604d5`, both overloads `:45`, `:108`) mentions a
   delivery field (0 matches each); both gate on status alone and are granted to `authenticated`. So `seller_sent`
   without delivery info is reachable by a direct RPC from any client without the send screen's gate. **Why it is a
-  money question, not only copy (A):** `mark_transfer_sent` sets `auto_release_at = now() + 72 hours` (`0553:35`), so
+  money question, not only copy (A):** `mark_transfer_sent` sets `auto_release_at = now() + 72 hours` (`0553:37`; C first cited `:35`, a line number taken from `tail | grep -n` output, not the file — A caught it), so
   whether putting confirm/dispute behind a delivery form costs a buyer time inside the dispute window before
   payment releases is a product decision, named and not answered. The buyer is not locked out — saving delivery info
   clears `needsDeliveryInfo` and the block appears — the path to disputing is just longer than the path to doing
   nothing. Owner's call; A's lane for the release timing.
+  **Where it stands relative to production — three separate claims, not one:**
+  1. **Server: production very likely runs `0553`'s body** (A, 277c2db) — `mark_transfer_sent` is defined only in
+     `0550`, `0553`, `140`; production's ledger is at 135 with nothing applied since 2026-09-12, and 140 sits above it.
+     **Derived from the chain and the recorded ledger, not from a production read** (none authorised, none run).
+  2. **Buyer screen: the same gate is in the tagged store client.** At `mobile/v1.0-build9-apple-review`,
+     `app/transfer/receive/[id].tsx:254-258` defines `needsDeliveryInfo` over `pending` **or** `seller_sent`, and
+     `:381` renders the `seller_sent` block only when `!needsDeliveryInfo`. **Which build is live in the App Store,
+     and whether it is publicly released, is not established in C's records**, so "real users see this today" is
+     not claimed.
+  3. **Reaching the state in production needs the seller to bypass the app.** The same tagged client's send screen
+     disables sending without delivery info (`send/[id].tsx:204,353-355`). So an ordinary seller using the app
+     cannot put a transfer here; a seller (or any client) calling `mark_transfer_sent` directly can. **The exposure
+     is a bypass case, not the everyday path** — which narrows the owner's decision rather than removing it.
 - **F-LAYOUT-1 (NEW, from the owner's 11:59 screenshot, Build 20; recorded only, not added to the handset pass).**
   Listing-detail sticky bar: the price label and amount truncate to "CURREN…" / "$…", so the bar shows no price at
   all beside PLACE BID and BUY NOW · $110. Source at `8da50c0`: `src/screens/ListingDetailScreen.tsx:1286-1293` —
