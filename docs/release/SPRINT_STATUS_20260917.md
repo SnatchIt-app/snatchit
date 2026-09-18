@@ -80,3 +80,24 @@ The owner reopened scope after the close for two client-only fixes. **The close-
 **Head pinned, independently resolved by both sides: `frontend/batch1-state-correctness @ 2fe7abd`.** D had quoted a second commit `ad914f2` as if it were on the batch ref; **A resolved it rather than searching for it** — `git cat-file` plus `git branch --contains` put it on **`frontend/premium-experience-backlog`**, one doc file (`docs/product-v2/PREMIUM_EXPERIENCE_BACKLOG.md`, +24 lines), C's backlog record of the F-AVATAR-2 finding, touching no code and belonging to no batch. `origin/frontend/batch1-state-correctness` is `2fe7abd` on both sides' fetches, and the gated-surface check at that head is zero lines on both sides' runs.
 
 **D volunteered the cause rather than only the correction:** D took the commit id straight from C's message and passed it on as verified, without resolving it against a ref, one message after telling A that volunteered self-criticism still needs checking. **The shared standard both sessions now hold: a commit id from a peer is a CLAIM, not a fact, until one of us resolves it against a ref** — and two people pinning the head independently is what caught it, not one relaying it. D will name the exact head it reviewed in every 1b verdict; A will resolve every hash before reviewing against it.
+
+## Batch 1b — A's review of the transfer wording: **ONE FINDING, otherwise PASS** (A, 2026-09-17)
+
+**Head, resolved by A against the ref before reviewing (the standard, applied): `frontend/batch1b-twin-screens @ 3fc2acb`**, `cat-file` a commit, `branch --contains` on that branch only, and **`2fe7abd` confirmed an ancestor**, so the reviewed Batch 1 head is untouched. Two commits, four files: two screens, two test files.
+
+**A's own gate runs at `3fc2acb`, not C's numbers** (worktree detached to the head, no concurrent vitest — checked, because a run with company is void):
+
+| Gate | A's result |
+|---|---|
+| `npm run typecheck` | **exit 0** |
+| `npm run lint` | **exit 0** — 29 warnings, 0 errors (baseline) |
+| `npm run test` (full vitest) | **exit 0 — 113 files, 2305 tests, all passed** |
+| Gated surface `2fe7abd..3fc2acb` over `src/lib/payments.ts`, `src/lib/checkout/`, `src/lib/auth/signOut.ts`, `supabase/`, `scripts/`, `.github/`, `app.json`, `package.json` | **ZERO lines** |
+
+C's reported numbers reproduce exactly. Client-only holds: no server file, no migration, no status rule, no CTA gating, no payment or auth module.
+
+**The mechanics are right.** `app/transfer/receive/[id].tsx`: the effect is now `if (!transfer?.expires_at || transfer.status !== 'pending') return;` with `transfer?.status` added to the deps, matching the send screen; the render gate moves from `status !== 'buyer_confirmed'` to `status === 'pending'`; `:341` uses the pinned constant. So on a **seller_sent** transfer the buyer now sees **no window line at all** — which is the answer A argued for and C reached independently: the send window is the seller's and stops meaning anything once the tickets are on their way. C also **added and then removed** a `setCountdown(null)` reset when its mutant survived, on the grounds that the render gate already hides a stale value — the right call, and the removal is documented in the code.
+
+**FINDING F-XFER-2-A (A, wording review, MUST FIX before integration; LOW severity, no state or money effect).** Both screens now share one string: `TRANSFER_EXPIRY_COPY.passed = 'Send window has passed — send now if you still can'`. Its second clause is **an instruction addressed to the seller**, and the buyer's receive screen now renders it verbatim. Past the window on a still-pending transfer, **the buyer is told to "send now if you still can" — an action they cannot take and that is not theirs.** The old literal was wrong because it asserted an unenforced rule; the replacement is wrong because it addresses the wrong party. The fix is small and C's to make: a second key for the buyer's side (the true buyer-facing statement is that the window has passed and the seller may still send), or make the shared constant role-neutral. **The `TRANSFER_EXPIRY_COPY` constant, its comment and R7's "neither screen carries the literal" pin all stay as they are** — only the buyer's string is at issue.
+
+**Everything else A checked and cleared:** nothing in the code or the copy anticipates the owner's open decision on server-side enforcement; the CTA is untouched on both screens; no third copy of the literal can reappear silently, because R7 pins its absence on both screens.
