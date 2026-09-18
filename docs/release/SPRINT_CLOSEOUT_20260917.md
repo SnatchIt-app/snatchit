@@ -81,6 +81,7 @@ What §16 established while reading was still permitted:
 | **Buyer's existing stale deletion notice** in the sandbox | **owner** | **OPEN** | The 141 fix is forward-only and that identity has already withdrawn, so the row persists until §4 is separately authorized |
 | **F-BIDS-1 follow-up:** bump the load generation before the `!userId` return | **C**, A integrates | **OPEN, minor** | Carried with the fix to its candidate |
 | Dead code and stale status lines noted in passing | **A** | **OPEN, cosmetic** | A future cleanup PR; never bundled with a functional change |
+| **F-AVATAR-4** — replaced profile photos are never deleted, and they stay publicly reachable by their path *(filed 2026-09-18)* | **C** (avatar flow); A records | **DEFERRED** (owner, 2026-09-18) — storage/privacy, pre-existing | Source at `8da50c0` and `0f329c3a`: every save uploads a NEW timestamped object `<uid>/avatar_<ms>.<ext>` (`avatarImage.ts:124`), no client code deletes from `avatars`, and the bucket is public (`avatarImage.ts:6`, `getPublicUrl`). So a photo the user replaced stays in storage, reachable by anyone who holds its URL. **Not caused by F-AVATAR-1/2/3.** Two unchecked points, not inferred: the hosted bucket policy, including whether objects can be listed, and how many such files exist in production. The sandbox holds two from the Build 20 pass (manifest §18). **The owner's order: no deletion and no cleanup.** |
 
 ---
 
@@ -101,6 +102,7 @@ What §16 established while reading was still permitted:
 | **Cleanup sweep for proof-docs orphans** | Owner | Design only (≥30 d, dry-run first, no scheduled job); implementation not requested |
 | **Require proof before marking sent** | Owner | Proposal written; needs installed-build data or a named read authorization |
 | **Next SDK move (iOS 27)** | Nobody is proposing one | Recorded as a hard dependency: scene-based lifecycle or the app fails to launch |
+| **F-AVATAR-4 fix, and any cleanup of retained avatar files** | Owner, 2026-09-18 | Filed, not fixed. **No deletion or cleanup of any avatar object**, sandbox or production. Any fix (delete-on-replace, a sweep, a bucket policy change) is a future decision. |
 
 ---
 

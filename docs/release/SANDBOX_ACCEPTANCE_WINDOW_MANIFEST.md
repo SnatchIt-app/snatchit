@@ -989,3 +989,5 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - No key is enabled.
 - No function has been deployed.
 - The 72-hour auto-release tail is still carried. S8only's `auto_release_at` (09-11) has passed without release, as D noted: it is one of the stranded transfers already on record.
+
+**Addendum, 2026-09-18: owner-authorized read (A, directly).** 18:27:31Z, one read-only transaction on the sandbox ref: S8only `8f59d37e` status = `seller_sent`, and its listing `92f8effe` has `ticket_platform` = `other`. Those two fields only. **No write.** A new sandbox preview build (Build 21, EAS `1d78bb45…`) was submitted afterwards. The owner has authorised its handset checks only as far as **Cancel** on S8only's receipt dialog. **Confirming receipt is not authorized**, so the next pass is expected to add no new transfer write: the S8only view is already stamped, so re-opening changes nothing (see the N1 check in the sprint status).

@@ -799,3 +799,70 @@ That matches D's mutant exactly, so **C10 is proven by two sessions independentl
 - The avatar-retention observation is in C's backlog as pre-existing, not filed, and the owner's call.
 - The N1 provider read is recorded as needing the owner's authorization; it has not been requested.
 - Nothing was run.
+
+### NEXT SANDBOX PREVIEW BUILD — Build 21 SUBMITTED; S8only provider read RUN; F-AVATAR-4 FILED (A, 2026-09-18)
+
+**Authority: the owner, directly to A.**
+- *"prepare and submit the next sandbox preview build using Build 20's contents plus the reviewed PR #75 changes. Verify the combined version and run the required checks. No production merge or deployment."*
+- *"Also authorised: the read-only check of S8only's ticket provider. Send C the result."*
+- *"C is authorised to guide the next-build checks: inspect S8only's buyer controls and provider button, then load the screen online, turn Airplane Mode on with Wi-Fi off, open the receipt-confirmation dialog and cancel. Do not confirm receipt or release payment."*
+- *"File retained old avatar files as a deferred storage/privacy finding. No deletion or cleanup."*
+- Existing restrictions on the D1/D2 proof files and Sandbox L7 remain.
+
+**Combined version: `0f329c3a60f9d050b8b1ee9a8e63de8c89e7825b`, the PR #75 head, used as it stands.** No new merge was needed.
+- The remote holds it at `refs/heads/frontend/xfer3-sent-controls-visible` (A, `ls-remote`), and PR #75 is still draft and open, with base `8da50c06`.
+- `8da50c0` (Build 20) is an ancestor. There are 6 commits after it and no merges: `a739a401` `2dbcb029` `cf9b75b7` `ceb4e61b` `c093cdcf` `0f329c3a`.
+- The change is 8 files, +923/−20, all under `app/`, `src/lib/transfer/` or `tests/`.
+- **0 files** under `supabase/`, the gated client files, `scripts/`, `.github/`, `app.json`, `app.config.*`, `eas.json`, `package(-lock).json`, `.env*`, `ios/` or `android/`.
+- *A's first scope check returned a FALSE zero: an unmatched zsh glob (`app.config.*`) aborted the command before `git diff` ran. A re-ran it with quoted pathspecs, plus a witness that the same command returns the 8 files, before recording the 0.*
+- Local annotated tag **`candidate/2026-09-18-build-d2` → `0f329c3a`**, **not pushed**. No push was authorized, and none is needed for traceability, because the source commit is already on the remote.
+
+**D's independent provenance check: PASS (git only, no vitest or tsc).**
+- D resolved the head, the base, the 6 commits and the 8 files the same way.
+- D confirmed the same zero with witnesses: the pathspec returns 3 for `app/`+`src/lib/transfer/`, and returns `package.json` for a commit that did touch it.
+- `eas.json`, `app.json`, `package.json` and `package-lock.json` are **blob-identical to Build 20**.
+- D also checked the profile choice: `sandbox` is `ios.simulator: true`, so a handset build must use `preview`.
+
+**Required checks, run by A on the combined tree** (clean worktree at `0f329c3a`, dependencies byte-identical to Build 20):
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | **exit 0** |
+| `npm run lint` | **exit 0**. 29 warnings, 0 errors, the same baseline as Build 20 |
+| `npm run test` | **exit 0**. **120/120 files, 2373/2373 tests.** Run alone: no vitest process before or after, and D held off at A's request |
+
+**Build configuration: unchanged from Build 20.** `preview` profile, `distribution: internal`, `EXPO_PUBLIC_APP_ENV=sandbox`, Supabase `ofaidukbieeekqaboscm`, Stripe `pk_test_…`, `appVersionSource: remote` with `autoIncrement`. Only the `production` profile points at `hqycwntpfoztoinemqns`/`pk_live`.
+
+**Build 21, submitted:**
+
+| | |
+|---|---|
+| **EAS build id** | **`1d78bb45-cd89-419f-b1e3-ba679ac7eb7f`** |
+| **Build number** | **21**, assigned remotely by `autoIncrement`. No file was edited |
+| **Commit, as EAS recorded it** | **`0f329c3a60f9d050b8b1ee9a8e63de8c89e7825b`** |
+| Profile / distribution / version | `preview` · INTERNAL · 1.0.0 |
+| Submitted from | worktree at the tag. `git status --porcelain --untracked-files=all` was **empty** before and after the upload; the only ignored file besides `node_modules` is ESLint's cache (`.expo/cache/eslint/…`), which `.gitignore` excludes from the archive |
+| Logs / install page | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/1d78bb45-cd89-419f-b1e3-ba679ac7eb7f |
+
+**Build 21 REPLACES Build 20 on the phone** (one bundle id, `com.jdt-inc.snatchit`), and the app does not display its build number.
+
+**Evidence classes for this build (D's framing, which A adopts):**
+- **PR #75 (F-XFER-3, decision 1, decision 2): source and test review only. NO device evidence.**
+- **Build 20's contents:** unchanged in source, because PR #75 does not touch their files. **A Build 20 device result applies to Build 21 only by inference, not by observation.**
+
+**S8only provider read: RUN, authorized directly to A.** 18:27:31Z, one `begin read only` transaction; the script refuses the production ref and requires the sandbox ref. **Two fields only:**
+- status = **`seller_sent`**;
+- `listings.ticket_platform` = **`other`** (listing `92f8effe`).
+
+No delivery fields, evidence path, storage, other rows or L7.
+- **Consequence, derived from `0f329c3a`:** `providerLink('other')` is null, so **S8only shows NO "Open <provider>" button**.
+- The generic buyer instructions for `other` still render under the `seller_sent` gate. None of their steps holds a contact placeholder.
+- **The decision-1 return question cannot be reached on S8only, so it stays UNTESTED on device.**
+- The only sent transfers that could exercise it are D1/D2. Their Receive screens create a signed URL for the proof file (`receive/[id].tsx:105`), so **opening them as the buyer is proof-file access and is off-limits.** D adds that a fixture with a named platform would be a sandbox data change, and that decision is the owner's.
+- **Sent to C before any testing.** C has updated its next-build list: no Open button expected, generic instructions, N2 run with Airplane Mode and Wi-Fi off (checked on the status bar), N3 out of scope, D1/D2 off-limits. C will confirm scope with the owner directly and will not start until A sends the build number and install link.
+
+**F-AVATAR-4 FILED, DEFERRED:** replaced profile photos are never deleted and stay publicly reachable by their path. It is in the close-out's §3 (open findings) and §4 (deferred decisions). **No deletion or cleanup.**
+
+**Correction to D's question, answered from the record:** `candidate/2026-09-18-build-d1` is on the remote because **A pushed it under the owner's option-(a) authorization** (see "Owner-authorized reads RUN, and Build 20 published" above), not someone else.
+
+**Still barred:** merge (PRs #72–#75 stay draft and do-not-merge), production deploy, release, sandbox writes (**Confirm receipt stays forbidden on the handset**), keys, the D1/D2 proof files, Sandbox L7.
