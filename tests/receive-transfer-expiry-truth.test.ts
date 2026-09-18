@@ -183,8 +183,8 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
 
   it('R8: the seller sends while the buyer is away — the countdown clears with the status', async () => {
     // The only in-screen transition this screen has: the buyer opens the ticket provider, comes back, and the
-    // screen re-reads. Without the explicit reset the last countdown string would survive the status change
-    // and go on claiming a window that has stopped applying.
+    // screen re-reads. The countdown state keeps its last value across the status change — the RENDER gate is
+    // what stops it being shown, which is why RM2 (widening that gate) kills this test and nothing else.
     const host = await mountReceive();
     expect(windowLine(host)).toMatch(/remaining/);
 
@@ -233,6 +233,62 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
     for (const [role, copy] of Object.entries(TRANSFER_EXPIRY_COPY)) {
       expect(copy.toLowerCase(), role).not.toContain('expired');
       expect(copy.toLowerCase(), role).not.toMatch(/can(no|')?t send|blocked|too late/);
+    }
+  });
+
+  it('R11: a pending transfer starts exactly one countdown timer', async () => {
+    const setInt = vi.spyOn(globalThis, 'setInterval');
+    try {
+      await mountReceive();
+      expect(setInt.mock.calls.length).toBe(1);
+      expect(setInt.mock.calls[0][1]).toBe(60_000);
+    } finally {
+      setInt.mockRestore();
+    }
+  });
+
+  it('R12: a transfer the window no longer applies to starts NO timer, and a live one is cleared', async () => {
+    // D's review: the effect's status gate was invisible to every assertion on rendered output, because what
+    // it stops is a `setInterval` that fires `setCountdown` once a minute for as long as the screen is open —
+    // a re-render per minute that changes nothing on screen. "Unobservable" has to include resource
+    // behaviour, or the rule that deleted the redundant reset would eat a guard that does real work.
+    const setInt = vi.spyOn(globalThis, 'setInterval');
+    const clearInt = vi.spyOn(globalThis, 'clearInterval');
+    try {
+      h.transfer = transfer({ status: 'seller_sent', expires_at: PAST() });
+      await mountReceive();
+      expect(setInt.mock.calls.length).toBe(0);
+
+      // And through the live transition: whatever was started while pending must be stopped, not left running.
+      setInt.mockClear();
+      clearInt.mockClear();
+      h.transfer = transfer();                       // pending, inside the window
+      const host = await mountReceive();
+      expect(setInt.mock.calls.length).toBe(1);
+
+      const open = findElement(
+        host.output,
+        (el) => el.type === 'Button' && typeof el.props.label === 'string' && (el.props.label as string).startsWith('Open '),
+      );
+      (open?.props.onPress as () => void)();
+      host.flush();
+
+      const realNow = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(realNow + 60_000);
+      try {
+        h.transfer = transfer({ status: 'seller_sent', expires_at: new Date(realNow - HOUR).toISOString() });
+        h.appState.current?.('active');
+        await flush();
+        host.flush();
+      } finally {
+        clock.mockRestore();
+      }
+
+      expect(clearInt.mock.calls.length).toBeGreaterThanOrEqual(1);   // the pending timer was stopped
+      expect(setInt.mock.calls.length).toBe(1);                        // and no new one took its place
+    } finally {
+      setInt.mockRestore();
+      clearInt.mockRestore();
     }
   });
 

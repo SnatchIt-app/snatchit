@@ -198,6 +198,43 @@ describe('F-AVATAR-2 — Edit Profile keeps every avatar control busy until the 
     expect(h.uploads.length).toBe(1);
   });
 
+  it('E9: two presses in the SAME tick start one upload — the press `disabled` cannot stop', async () => {
+    // D's review: E3 and E4 prove the controls are disabled, not that the guard works, because the helpers
+    // model a disabled control and return before calling onPress. The guard exists for the press the prop
+    // cannot stop — a second tap landing before React re-renders with disabled=true. This delivers exactly
+    // that press: the handler, twice, in one tick.
+    const host = await mountEditProfile();
+    const press = ring(host)?.props.onPress as () => void;
+    expect(press).toBeTypeOf('function');
+
+    press();
+    press();          // same tick: the first has not re-rendered yet, so `disabled` is still false
+    await flush();
+    host.flush();
+
+    expect(h.uploads.length).toBe(1);
+  });
+
+  it('E10: the lock is released, so a later press works — a lock that never opens is its own defect', async () => {
+    // Nothing pinned the release: a mutant that never cleared the ref passed every other test, because they
+    // each press once. This presses again after a completed cycle.
+    const host = await mountEditProfile();
+    pressRing(host);
+    await flush();
+    h.uploads[0].resolve(UPLOAD_OK);
+    await flush();
+    h.writes[0].resolve({ error: null });
+    await flush();
+    host.flush();
+    expect(ringBusy(host)).toBe(false);
+
+    pressRing(host);
+    await flush();
+    host.flush();
+
+    expect(h.uploads.length).toBe(2);
+  });
+
   it('E5: both controls go idle once the save resolves', async () => {
     const host = await mountEditProfile();
     pressRing(host);

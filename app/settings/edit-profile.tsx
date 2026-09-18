@@ -11,7 +11,7 @@
 
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -38,6 +38,7 @@ export default function EditProfileScreen() {
   const [pageLoading, setPageLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInFlight = useRef(false);
 
   const [displayName, setDisplayName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -63,7 +64,12 @@ export default function EditProfileScreen() {
   }, [user?.id]);
 
   async function handleAvatarPress() {
-    if (!user || avatarUploading) return;
+    // The ref is the lock, not the state: a second press landing in the SAME tick reads the same stale
+    // `avatarUploading` closure and walks straight past a state guard, which is the press `disabled` cannot
+    // stop either (D's review — the state guard passed every test while doing nothing). The state below is
+    // what the two controls SHOW; this is what makes them one operation.
+    if (!user || avatarInFlight.current) return;
+    avatarInFlight.current = true;
     // F-AVATAR-2: busy covers the WHOLE operation, upload and save. It used to clear the moment the upload
     // returned, which left BOTH controls live again — the ring and "Change photo" share this flag — while the
     // write was still in flight and the old photo was still showing. A second press then raced the first
@@ -84,6 +90,7 @@ export default function EditProfileScreen() {
       }
       setAvatarUrl(result.publicUrl);
     } finally {
+      avatarInFlight.current = false;
       setAvatarUploading(false);
     }
   }
