@@ -985,3 +985,32 @@ No delivery fields, evidence path, storage, other rows or L7.
 - the production-branch settings of the connected Vercel projects and the Supabase integration are **UNVERIFIED**.
 
 It is added as **B5, a precondition for step 1.** A did not read those hosted settings: no read of them is authorized, and the owner can check them in the dashboards.
+
+### Deployment settings READ; PR #76 (F-SEC-2) OPENED; deferred items kept (A, 2026-09-18) — both authorized directly to A
+
+**Owner:**
+- *"Read the deployment settings for every connected Vercel project and the Supabase GitHub integration … Change no settings."*
+- *"Open the missing draft, do-not-merge PR for the reviewed F-SEC-2 fix, with the correct dependency on F-SEC-1, and run its normal CI checks."*
+- *"Keep F-SEC-3, F-SEC-1-B and the unknown-outcome wording deferred and documented."*
+
+**Settings (read-only, nothing changed): a merge into `release/production-gate-20260918` triggers NO production deployment and NO hosted-database action.** Full table: recommendation §6.
+- **Supabase production:** one branch `main` with `git_branch ""` (unchanged since 2026-08-27T15:49:25Z). Read via the Supabase connector and, as a witness, the CLI; they agree.
+- **Supabase sandbox:** no branches.
+- **Vercel:** 2 of 8 projects are linked to this repo.
+  - `snatchit-web`: production branch **`feature/web-accounts-foundation`**. A merge produces a **preview** of `web/`, which is SSO-protected; its public env points at production Supabase with the anon key.
+  - `snatchit-admin`: production branch `admin/operating-console`. Every commit except `ab3e17f` is skipped by the ignored-build step.
+- **GitHub Actions:** `ci.yml` runs on push only (CI, no secrets). There are no webhooks, and no Expo app reacts.
+
+**PR #76** ([link](https://github.com/SnatchIt-app/snatchit/pull/76)):
+- draft; base `frontend/batch1d-security-notice-lock` @ `016d8e2` (#74's head: the F-SEC-1 dependency); head `f3cff27`; 3 commits, 2 files, +265/−5.
+- A checked before opening: there was no earlier PR for this head, and the scope was 0 lines of gated, config or server files, checked with a witness.
+- **Checks:**
+  - `Immutability + ordering` pass (PR run).
+  - 5 CI jobs pass (the branch-push run on the same commit; `ci.yml` runs PR events only for PRs into `main`).
+  - `Supabase Preview` skipped.
+  - **`Vercel – snatchit-web` failed: rate limited, retry in 24 hours.** No preview ran; CI's own web build passes. No retry was requested, because a retry is a deployment.
+- **Review citation:** D PASS on F-SEC-2 is cited from **C's backlog** (`PREMIUM_EXPERIENCE_BACKLOG.md:4291`). A's records do not hold D's verdict directly, so A has asked D to confirm it.
+
+**Deferred and documented, unchanged:** F-SEC-3, F-SEC-1-B, the unknown-outcome wording (recommendation §3).
+
+**Still barred:** merge, deployment, production database updates, phone testing.

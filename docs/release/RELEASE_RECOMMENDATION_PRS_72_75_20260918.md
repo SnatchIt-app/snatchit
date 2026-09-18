@@ -52,6 +52,11 @@ Target: `release/production-gate-20260918`, currently **`6561d1f`**. Keep ruling
 **CI already on record:**
 - PRs #72–#75: 8 of 9 checks pass, 1 skipped (`Supabase Preview`, which skips when there are no migrations).
 - `f3cff27`, from its branch push: 5 pass and `Supabase Preview` skipped. It has never had a PR run, so the PR-only `Immutability + ordering` check has not run on it.
+- **#76 (2026-09-18):**
+  - `Immutability + ordering` **pass** (a PR run, 22:11Z).
+  - The 5 CI jobs **pass**. These are the branch-push run on the identical commit (04:20Z). `ci.yml` runs pull-request events only for PRs into `main`, so for every PR here (#72–#76) CI is the branch-push run.
+  - `Supabase Preview` skipped.
+  - **`Vercel – snatchit-web` FAILED: "Deployment rate limited — retry in 24 hours".** The preview deployment never ran; nothing about the code failed. CI's own `Web build (Next.js)` job passes. **A retry is a preview deployment, and it is not requested.**
 
 ## 3. Release blockers
 
