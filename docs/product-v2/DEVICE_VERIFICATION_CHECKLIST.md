@@ -167,7 +167,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | **PASSED** on the final state, 11:43:47 — **one earlier screen unreported, see note** |
 | DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
-| DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
+| DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | **PASSED** 14:15 (below) — device evidence for F-XFER-1's client half; enabled = appearance only |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | **PASSED** 13:35 (below) — device evidence for F-XFER-2's pending branch |
 | DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED on its property — the save completed (14:09), spinner timing and a single change not captured (below) |
@@ -405,3 +405,14 @@ cover it in tests). A one-second save is short enough that a handset may not be 
 - **Wrote to the sandbox (owner accepted before running):** a second object in the public `avatars` bucket and
   `profiles.avatar_path` updated immediately on pick (`app/settings/edit-profile.tsx:86`), not on Save changes. Not read
   back.
+
+### DV-20-7 — PASSED, Build 20, 2026-09-18 14:15 (owner-reported; sandbox SELLER account)
+Device D6's Send Transfer: **PENDING**; exact line **"Send window has passed — send now if you still can"**
+(`TRANSFER_EXPIRY_COPY.seller`); **Mark as sent appeared bright red and enabled**. Nothing was pressed. The owner
+referenced a screenshot; **C did not receive the image** — this record rests on the owner's written report.
+- **Enabled is appearance only** (owner's words): whether submitting works was not tested, deliberately — pressing it
+  would have marked D6 sent and started its auto-release clock.
+- **Device evidence for the fix:** the line renders only when the countdown is "Expired"; before F-XFER-1
+  (`ffd0f062`; `6561d1f:309`) the same state rendered "Transfer window expired".
+- **No write:** the send screen's mount path only reads `transfers` (`app/transfer/send/[id].tsx:108`, select); the
+  writes on that screen (`mark_transfer_sent`, `attach_transfer_evidence`) are behind buttons that were not pressed.
