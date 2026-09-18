@@ -3937,3 +3937,39 @@ proof files untouched. **The server-side expiry decision stays separate and open
 - Running total of C's prediction accuracy across Batch 1 and 1b: **eight corrections, every one of them C's
   prediction rather than a test defect**, plus two real test weaknesses the mutants exposed (the Home `view()`
   conflation, found by HM1, and D's four helper gaps).
+
+- **Batch 1b closed out at `0ca71ff`** (from 3fc2acb → `fbe83a2` → `0ca71ff`). Three review findings landed after the
+  first push, and **two of them were real defects in C's own fix, not test gaps**:
+  - **F-XFER-2-A (A's wording review, `fbe83a2`).** Batch 1b gave both screens ONE string, and its second clause —
+    "send now if you still can" — is addressed to the SELLER. The buyer read an instruction for an action they
+    cannot take. *The old literal was wrong for asserting an unenforced rule; C's replacement was wrong for
+    addressing the wrong party.* `TRANSFER_EXPIRY_COPY` now carries one string per role; the buyer's says what is
+    true from their side ("the seller may still send"). **R9** pins that the buyer's screen renders neither the
+    seller's string nor any instruction to send — matching the *shape* by regex, not the exact string — and **R10**
+    that the roles differ and neither asserts a block. A's note, recorded: R7 guaranteed the two screens SHARE a
+    constant and guaranteed nothing about its suitability, and a shared constant is exactly where an audience
+    mismatch hides from a suite.
+  - **D's finding 2 — the avatar re-entry guard DID NOT WORK (`0ca71ff`).** D removed it and all 8 tests passed; C
+    wrote the press `disabled` cannot stop (the handler twice in one tick, before React re-renders) and **two
+    uploads started**. The state guard read the same stale closure both times. E3/E4 only ever proved the controls
+    were disabled. The lock is now a **ref**, the pattern F-DESTRUCT-1 already used for this race, with the state
+    kept as what the controls SHOW. **E9** pins the same-tick press; **E10** pins the RELEASE, after a mutant that
+    never cleared the ref passed everything else. *C's earlier claim that "the function's own guard is the actual
+    lock" was contradicted by C's own suite.*
+  - **D's finding 1 — the countdown effect's status gate was unpinned.** It is invisible in rendered output because
+    what it stops is a `setInterval(…, 60_000)` firing `setCountdown` once a minute for as long as the screen is
+    open. **R11/R12** pin it through the resource: one timer while pending, none once the window stops applying,
+    and a live timer cleared across the transition.
+  - **CAVEAT now recorded beside the code, at D's insistence:** *"a line no test can justify and no user can observe
+    is worse than no line"* was right for the inert reset C deleted and would be WRONG for the effect gate.
+    **Observable must include resource behaviour** — timers, subscriptions, re-render loops — or the rule eats a
+    guard that does real work. Not a slogan; it is written next to both cases.
+  - **Gates at `0ca71ff`:** vitest **2311 passed / 113 files**; tsc clean; lint 0 errors / 29 warnings; gated surface
+    vs 2fe7abd **zero lines**. A: wording CLOSED (3413b6b) with A's own gate runs matching. D: mechanics PASS at
+    3fc2acb, final verdict pending on the two closures.
+- **F-AVATAR-3 (NEW, C, outside 1b's authorised items — recorded, not fixed).** `app/(tabs)/profile.tsx:190` still
+  guards with `if (!user || avatarUploading) return;` — **state, not a ref** — so the profile tab carries the same
+  same-tick double-press race that D's review exposed in Edit Profile, and its suite has no E9-equivalent. Batch 1
+  is reviewed and passed; C is not amending it. Same one-line shape as the 1b fix (a ref lock plus two tests).
+  **Owner's call.** This is the fourth time today the pattern has held: *the fix was right, and the search for where
+  else the shape lives is what found the rest.*
