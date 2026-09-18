@@ -161,7 +161,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 
 | # | Row | What must be true on the handset | Status |
 |---|---|---|---|
-| DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | UNTESTED |
+| DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | **PASSED** 11:34 (below) |
 | DV-20-2 | Home "Ended" offline | same | UNTESTED |
 | DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | UNTESTED |
 | DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | UNTESTED |
@@ -198,3 +198,20 @@ identification. DV-20-1 is the right one for it — the owner reproduced the Bui
 result is known exactly. **If the old copy appears, that is AMBIGUOUS between a failed install and a failed fix:
 reinstall, confirm the app reopened, and re-run before anything is recorded as FAIL.** Letting a first-row failure
 land on the code by default would have been very hard to unwind afterwards.
+
+### DV-20-1 — PASSED, Build 20, 2026-09-18 11:34 (owner-reported)
+Airplane Mode **on** and Wi-Fi **off** (both confirmed by the owner). Home → FILTERS → **Recently sold** showed exactly:
+**"YOU'RE OFFLINE"** / **"Check your internet connection and try again."** / a visible **"RETRY"** button.
+**No "NOTHING SOLD YET", no spinner.**
+- **This is the before/after the row was chosen for.** On Build 19 (`f412d10`) the owner saw, under the same
+  conditions, twice: "NOTHING SOLD YET / Completed sales show up here.", no error, no Retry, no spinner. Build 20
+  shows the offline state instead. The defect is not reproduced.
+- **Build identification, settled by the same observation:** the old copy did not appear, so the ambiguity the
+  owner was warned about (stale install vs failed fix) does not arise. Build 20 is what is installed.
+- **What this does NOT establish, recorded rather than inferred:** which render branch produced the state — the
+  filter's own classified failure or the main feed's `loadError`. Both are correct outcomes for this row (neither
+  is the empty copy), and on screen they are the same component with the same copy, so the observation cannot tell
+  them apart. Whether Home had loaded online before going offline was **not captured**.
+- **Still UNTESTED on this row family:** DV-20-2 (Ended), DV-20-3 (a failed refresh over rows already shown), the
+  slow-network premature-empty path, and whether the screen recovers without user action once the connection
+  returns.
