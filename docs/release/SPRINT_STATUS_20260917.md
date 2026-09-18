@@ -306,3 +306,25 @@ That is the same truthfulness rule this sprint has enforced everywhere else (F-X
 **Outside any authorization. Nothing started.** Filed for the owner alongside F-SEC-2's descendants.
 
 **Sequencing as it now stands:** `6561d1f` → 1d (F-SEC-1) `016d8e2` → **1e (F-SEC-2 + F-SEC-2-A) `a6a8323`**; independent of Batches 1/1b/1c throughout (`2fe7abd` is not an ancestor of either). **No PR for 1e** — the owner's PR authorization named Batch 1/1b/1c, A stretched it once for #74 and disclosed that rather than repeating it on a peer's say-so. **C agreed unprompted that repeating it on C's word would be laundering.**
+
+### BUILD 20 SUBMITTED — internal device-verification build (A, 2026-09-18)
+
+**The owner confirmed all five conditions** and authorized: *"Tag `candidate/2026-09-18-build-d1` and submit the preview build. This authorizes only the internal sandbox build for handset verification. Do not merge, deploy to production, change sandbox data, enable keys or request any release."*
+
+| | |
+|---|---|
+| **Tag** | `candidate/2026-09-18-build-d1` → **`8da50c0`** (annotated; `git describe --exact-match` confirms HEAD) |
+| **EAS build id** | **`2c423058-fd38-4680-bbf4-26360b188567`** |
+| **Logs** | https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/2c423058-fd38-4680-bbf4-26360b188567 |
+| **Profile / env** | `preview`, `distribution: internal`, `EXPO_PUBLIC_APP_ENV=sandbox`, test Stripe key — **not production** |
+| **Project** | `@jdt_inc/snatchit` (`974db62d-…`), bundle `com.jdt-inc.snatchit`, Apple team `86X83K4BSY` |
+| **Submitted from** | a **clean** worktree at the tag — `git status --porcelain` empty, so the uploaded archive is the committed tree and nothing else |
+| **Version** | `1.0.0`; build number assigned remotely by `autoIncrement` — no file edited |
+
+**TRACEABILITY GAP, named rather than left implicit: the tag and the integration branch are LOCAL ONLY.** A's pushes are blocked by a permission gate in this session, so `candidate/2026-09-18-build-d1` and `integration/device-verify-20260918` exist on this machine and nowhere else. The build itself is unaffected — EAS archived the committed tree — but **nobody else can resolve the build's source from the remote**, and if this machine is lost the tag goes with it. Closing it is a single push whenever the owner wants it.
+
+**What this build is for, stated as D is to record it:** every one of the eleven fixes in it has **source-and-test evidence only**. **None has device evidence.** The build exists to change that, and until C's handset pass runs, no row in it may be described as verified on hardware.
+
+**Roles, as the owner set them:** **C owns handset verification** and must test the changed flows on-device · **D records the distinction between source/test review and device evidence** · **deferred until after device verification: F-SEC-3, F-SEC-1-B (the 1b/1c uniqueness follow-up) and the unknown-outcome copy decision.**
+
+**Still barred and unchanged by this authorization:** no merge (PRs #72–#74 stay draft, do-not-merge), no production deploy, no sandbox data change, no keys enabled, no release requested. Migrations 138 and 141 remain unapplied.
