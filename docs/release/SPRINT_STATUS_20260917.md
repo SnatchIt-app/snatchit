@@ -1064,3 +1064,9 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 **Stripe preview key (§6.7):** not determined. The value was never exposed; the dashboard location is given.
 
 **PR #76's historical rate-limit failure** stays recorded and was not retried. **PRs #72–#76 remain unmerged**, pending D's review and the owner.
+
+**Website Preview scope removed from the database URL and public key: APPLIED and VERIFIED (A, 2026-09-18; the plan's §6.9).**
+- **Authority:** the owner's instruction, which says an earlier authorization existed. A's records hold none for the website entries, so it was applied on this instruction and the discrepancy is recorded.
+- **Change:** both entries went from `preview, production` to `production`, with value fingerprints unchanged. The other 18 entries are unchanged, the ignore step is intact, and no deployment was triggered.
+- **Fail-closed verified by build:** a local `next build` without them exits 1, "Missing required environment variables"; the dummy-value control exits 0. Statically, all 194 remote branches with `web/` have the same guard, and none has a Vercel config override.
+- The plan's corrected claims are updated to match.

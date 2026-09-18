@@ -78,7 +78,7 @@ Every fact below comes from **read-only** reads made on 2026-09-18:
 
 ## 3. Interim: stop automatic previews now (the owner's fallback, because phase 2 needs setup)
 
-~~**Safety property, from source:** `web/src/lib/env.ts` throws … A preview can fail to build, but it can never silently serve without a database.~~ **CORRECTED (owner, 2026-09-18): that is no fallback for `snatchit-web`.** Its Preview-scoped Supabase URL, anon key and site URL are still **present**. So a build that bypasses the ignore setting **succeeds and connects to production**. `env.ts` protects only when the variables are *missing*, which is true today for `snatchit-admin` (§6) but not for the website.
+~~**Safety property, from source:** `web/src/lib/env.ts` throws … A preview can fail to build, but it can never silently serve without a database.~~ **CORRECTED (owner, 2026-09-18): at that point it was no fallback for `snatchit-web`,** because its Preview-scoped Supabase URL and anon key were still present. ~~A bypassing build connects to production.~~ **Superseded by §6.9 (applied 2026-09-18):** the website's Supabase URL and anon key no longer have a Preview scope. A bypassing Preview build now **fails at build**, verified locally with a positive control.
 
 | Option | Mechanism | Effect | Assessment |
 |---|---|---|---|
@@ -174,7 +174,7 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
 1. **A branch can override the suppression.** A `vercel.json`, `vercel.toml` or `vercel.ts` with `ignoreCommand` in a project's root directory (`web/`, `admin/`) overrides the project setting for that branch's deployments. D found none on any remote branch today.
 2. **A manual Redeploy** with "Use project's Ignore Build Step" unticked builds anyway.
 3. **CLI (`vercel deploy`), API-created deployments and deploy hooks:** the docs do not say whether the ignore step applies. **UNVERIFIED, so treat them as not covered.** No deploy hooks are configured today.
-4. **For `snatchit-web`, any build that gets past suppression connects to PRODUCTION.** Its Preview variables still point there (the corrected claim in §3). Phase 2, or D's fail-closed layer for the website (removing Preview scope from its three shared entries, awaiting approval), would change that.
+4. ~~**For `snatchit-web`, any build that gets past suppression connects to PRODUCTION.**~~ **Superseded by §6.9:** a Preview build that gets past suppression now **fails at build**, because it has no Supabase URL or anon key. It stops holding if a Preview Supabase variable is added later, or if build env is injected (item 9).
 5. **For `snatchit-admin`,** a build that gets past suppression **fails at build.**
    - **D verified it:** a local `next build` at `ab3e17f` with `VERCEL_ENV=preview` and no Supabase, site or label variables exits 1 ("Missing required environment variables…"). A positive control with dummy values exits 0.
    - D also confirmed statically that **all 6 remote `admin/*` branches** have the same `env.ts` throw, imported by the layout and the middleware.
@@ -186,7 +186,7 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
    - How GitHub displays an ignored (canceled) build was not verified.
 7. **If `autoExposeSystemEnvs` were turned off,** `VERCEL_ENV` would be unset and the web command would skip **production** builds too. That fails in the safe direction for data, but it would block web releases.
 8. **Existing deployments are unaffected** (6.6).
-9. **`vercel pull` / `vercel build` + `vercel deploy --prebuilt`** (D). The build runs **locally** with the pulled environment, so it skips **both** the ignore step and Preview scoping. `snatchit-admin`'s **Development** target still holds the production URL and anon key; that was preserved as the owner required. So `vercel pull --environment=development` puts production values on disk. For `snatchit-web`, the Preview values still point at production. **So neither change covers CLI deploys.**
+9. **`vercel pull` / `vercel build` + `vercel deploy --prebuilt`** (D). The build runs **locally** with the pulled environment, so it skips **both** the ignore step and Preview scoping. `snatchit-admin`'s **Development** target still holds the production URL and anon key; that was preserved as the owner required. So `vercel pull --environment=development` puts production values on disk. ~~For `snatchit-web`, the Preview values still point at production.~~ *(Superseded by §6.9: the website has no Preview Supabase values any more.)* **But the Production-target values of both projects can still be pulled and built with locally, so neither change covers CLI deploys by someone with access.**
 10. **Local files uploaded by CLI deploys** (D). A CLI upload can carry gitignored files. The April admin previews' upload included `supabase/.temp/*`, and a `.env.local` would travel the same way, where Next loads it at build.
     - **By file name, neither April upload contained any `.env*` file.** The only dot-directory was `supabase/.temp`.
     - D reports that no admin worktree on this machine has production- or sandbox-ref lines in `.env.local`, or a `.vercel` link, so this route is not live from here today.
@@ -234,3 +234,34 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
 - **(b)** Three routes added to §6.4 (items 9–11).
 - **(c)** Wording tightened.
 - D found nothing contradicting the §6.2/6.3 read-backs, §6.6 or §6.7, which D did not re-read. D read and changed nothing hosted.
+
+### 6.9 `snatchit-web`: Preview scope removed from the database URL and public key (APPLIED 2026-09-18)
+
+- **Authority:** the owner, directly to A: *"I already authorised removing Preview scope from the website database URL and public key … Please complete that authorised change, preserving Production and Development values and scopes."*
+  - **A's records held no earlier authorization for the website entries.** The earlier approvals covered the website's ignore step and the admin console's four settings. A applied the change on this instruction and records the discrepancy here, not to dispute it.
+- **Checked first that it had not already been applied:** both entries still read `preview, production`. Neither has a Development scope, so there is no Development value to preserve.
+- **Captured before:** all 20 entries' ids, targets and types, with value fingerprints where readable, and the two values in scope. Saved to `scratchpad/preview_iso/web_env_capture_before.json` (0600). Nothing was printed.
+
+| Entry | Before | After | Value |
+|---|---|---|---|
+| `uZFQ2V71TmlPwYyH` `NEXT_PUBLIC_SUPABASE_URL` | preview, production | **production** | fingerprint unchanged |
+| `vGsy3JDH4VbsSDsI` `NEXT_PUBLIC_SUPABASE_ANON_KEY` | preview, production | **production** | fingerprint unchanged |
+
+- **Read back:**
+  - All 20 entries are still present.
+  - The other 18 have unchanged id, target and type, and an unchanged value fingerprint where readable. The Sensitive entries' values cannot be read, so for those only id, target and type were compared.
+  - No Supabase URL or anon key targets Preview.
+  - The project's only changed field is `updatedAt`, and the ignore step is intact.
+  - **No deployment was triggered.** The newest web deployment is still 2026-09-18T17:26:56Z.
+- **Still Preview-scoped, deliberately untouched:** `NEXT_PUBLIC_SITE_URL` (`https://snatchti.com`), `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (Sensitive, test or live not determined) and `NEXT_PUBLIC_SENTRY_DSN`. None is a database connection.
+- **Fail-closed, VERIFIED BY BUILD:**
+  - Statically, **all 194 remote branches with a `web/` app** have the `env.ts` throw for a missing URL and anon key. None has a `web/vercel.json`, `.toml` or `.ts`.
+  - `env.ts` is imported by the root `layout.tsx`, the Supabase client and the listing, checkout and auth code.
+  - **Empirical run** (A's first attempt in a scratch worktree was void: Turbopack rejects a symlinked `node_modules`):
+    - Local `next build` of the release branch's `web/`, run in the records worktree's byte-identical `web/`, clean, with no `.env` loaded.
+    - Environment given: `NODE_ENV=production`, `VERCEL_ENV=preview`, site URL, `pk_test_control`, and **no Supabase URL or anon key**.
+    - Result: **exit 1** at "Collecting page data", with *"Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY"* (log md5 `1621d58f…`).
+    - **Positive control**, the same with dummy values (`https://control.invalid`): **exit 0**, with 31 route lines (md5 `8fc16da1…`).
+    - The worktree's existing `.next` was moved aside and restored, and `web/` shows no changes.
+  - **Limit: Vercel's own build was not exercised.**
+- **Rollback:** set both entries' targets back to `["preview","production"]`.
