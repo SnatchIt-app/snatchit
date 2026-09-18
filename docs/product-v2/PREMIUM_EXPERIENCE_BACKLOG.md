@@ -4156,3 +4156,19 @@ answer it did not produce:** whether a second `signOutAllDevices()` would surfac
 successful sign-out** is **UNRESOLVED**. The probe that found the defect used a mock that forced the second call
 to fail; that outcome was never observed against a real session. After this fix there is no second call, so the
 question is moot in practice — **but it was never settled, and this fix does not settle it.**
+
+- **D's F-SEC-1 verdict: PASS at `39bc41c`** — mechanism and controls, the half the owner assigned. D's own runs:
+  vitest 2258 / 107, tsc 0, gated surface zero including `signOut.ts`; standalone confirmed (`2fe7abd` not an
+  ancestor). D verified each of the owner's five requirements rather than reading them, and **wrote the two-refs
+  mutant itself rather than taking C's**: SM3 kills S8 alone. D's note: *"one ref, not two" is now pinned by a test
+  instead of resting on my argument in a commit message — I would not have insisted on it if it had stayed prose.*
+  D also judged `runExclusive` better than what it specified (one release site **for the pair**, so the two-refs
+  drift is impossible by shape rather than by convention) and confirmed the contract pin was **widened, not
+  weakened**, by checking the two removed lines could no longer be true at the old site.
+- **F-SEC-2 (NEW, PRE-EXISTING — D found it, C verified it; NOT introduced by F-SEC-1 and NOT in its scope).**
+  Neither the old code nor `runExclusive` catches a **thrown** error — only the `error` field a call returns. C
+  confirmed the consumer: `src/components/SecurityNoticeBanner.tsx:43,45` passes the async handlers straight to
+  `onPress`, so a network throw from the RPC or the SDK becomes an unhandled rejection with **no message to the
+  user** — the same "silent tap" class that DISMISS_FAILED_COPY was written to end. The `finally` still releases
+  the lock and clears `busy`, so nothing jams. **Identical before and after the fix**, which is why D recorded it
+  rather than folding it in: so it is not later mistaken for something this batch introduced. Owner's call.
