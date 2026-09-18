@@ -62,14 +62,29 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
   // background refresh block a sign-out, or the reverse.
   const actionInFlight = useRef(false);
 
-  /** The single acquire and the single release for both actions, so a double release is impossible. */
-  const runExclusive = useCallback(async (action: () => Promise<void>) => {
+  /**
+   * The single acquire and the single release for both actions, so a double release is impossible — and the
+   * single place a THROWN failure is turned into something the user can see.
+   *
+   * F-SEC-2: only the `error` field a call returns was ever handled. A rejection — the session read or the
+   * SecureStore work under `performSignOut`, or the RPC itself — propagated out of a handler the banner passes
+   * straight to `onPress`, so it became an unhandled rejection and the screen said nothing. The lock released
+   * and `busy` cleared, so nothing jammed; the user simply tapped a security action and was told nothing, which
+   * is the silent tap `DISMISS_FAILED_COPY` exists to prevent.
+   *
+   * `failureCopy` is the caller's existing message, not a new one: a throw is the same thing to the user as the
+   * returned error it sits beside — the action did not complete and they may try again.
+   */
+  const runExclusive = useCallback(async (action: () => Promise<void>, failureCopy: string) => {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       await action();
+    } catch (e) {
+      console.warn('[securityNotices] action threw:', e instanceof Error ? e.message : e);
+      setError(failureCopy);
     } finally {
       actionInFlight.current = false;
       setBusy(false);
@@ -87,7 +102,7 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
         return;
       }
       setNotice(null);
-    });
+    }, DISMISS_FAILED_COPY);
   }, [notice, runExclusive]);
 
   const signOutAll = useCallback(async () => {
@@ -97,7 +112,7 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
       const out = await signOutAllDevices();
       if (!out.signedOut) { setError(SIGN_OUT_FAILED_COPY); return; }
       router.replace('/(auth)/login');
-    });
+    }, SIGN_OUT_FAILED_COPY);
   }, [runExclusive]);
 
   return { notice, busy, error, dismiss, signOutAll };
