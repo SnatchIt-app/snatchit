@@ -4345,3 +4345,12 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   only**. Seven instances of the same defect shape were found — the seventh produced by a correction rather than
   by the original code — which is not an argument against correcting, since all seven were found, but is the
   reason **nothing here should land without device verification that nobody has done.**
+
+- **F-BID-3 (NEW, from the owner's DV-20-4 screenshot; PRE-EXISTING, not part of F-BID-1).** The bid-submission failure
+  path shows the user a **raw transport error string**: the screenshot reads "Bid failed" / **"TypeError: Network
+  request failed."** Source at `8da50c0`: `src/screens/PlaceBidScreen.tsx:176`, `Alert.alert('Bid failed',
+  error.message)` after the `bids` insert returns an error. F-BID-1 fixed the listing READ; this is the WRITE path,
+  untouched by it. Two problems in one line: a developer-facing `TypeError` is shown to a person, and an offline
+  failure is not classified as offline — the same class of unclassified failure F-HOME-1 and F-BID-1 fixed
+  elsewhere. **On a money-adjacent screen, the copy should also not imply anything about whether a bid was placed.**
+  Recorded; nothing started; owner's call.

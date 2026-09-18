@@ -239,6 +239,23 @@ and that an earlier bid-form screenshot "was not the correct final output".
   later correct screen would not cancel it out. Nothing in the source explains a form turning into the offline
   state on its own — the screen reads once when it opens — which fits a re-entry or a Retry in between, but that
   sequence was not reported either.
-- **The row stands as PASSED because the owner ruled it so on their own observation.** C has asked the owner the one
-  question that would close the gap (below the table in the chat), and will amend this note — not the ruling —
-  with whatever the answer is.
+- **The row stands as PASSED because the owner ruled it so on their own observation.**
+- **OWNER'S ANSWER (2026-09-18), recorded exactly:** the earlier screenshot shows **Airplane Mode on**, **current bid
+  $100**, **proposed bid $105**, and an alert **"Bid failed" / "TypeError: Network request failed."** The later
+  screenshot shows the offline state with Retry and no form. **No $0 is visible in either screenshot.** The sequence
+  between them was **not captured**: *do not infer when the form loaded or which buttons were pressed* (owner's
+  instruction). An earlier statement elsewhere that the owner had not tapped submit is **unsupported** and is not
+  repeated here.
+- **What this settles for DV-20-4's property:** the defect was a form built on a FAILED read — a $0 current bid and a
+  floor from nothing. **Neither screenshot shows that.** $100/$105 are real values, i.e. a form from a read that
+  succeeded. The earlier screenshot's context (when that read happened relative to Airplane Mode) stays
+  **UNRESOLVED**, as the owner directed.
+- **A fact about the build, stated as source rather than as a claim about the owner's actions:** in `8da50c0`, the
+  alert "Bid failed" carrying an error message is emitted at `src/screens/PlaceBidScreen.tsx:176` —
+  `Alert.alert('Bid failed', error.message)` — inside `submitBid`, after the `bids` insert returns an error. It is
+  not emitted by the listing read. **Whether a bid row was written is NOT verified;** a request failing with
+  "Network request failed" under Airplane Mode most likely never reached the server, but that is not evidence. A can
+  check it read-only if the owner authorises that read.
+- **C's own framing error, corrected:** C's step told the owner "if a bid form does appear, that's the failure we're
+  looking for". That was imprecise. A form with real values from a read that succeeded is correct behaviour; the
+  failure is a form built on a read that FAILED.
