@@ -222,7 +222,7 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
   });
 });
 
-describe('F-XFER-3 — negative controls: every other state is exactly as before', () => {
+describe('F-XFER-3 — negative controls: every other state (all five statuses, with and without delivery) is as before', () => {
   it('X7: pending without delivery details — the form gates as before; no confirm, no report, no pending copy', async () => {
     h.transfer = transfer({ status: 'pending' });
     const host = await mountReceive();
@@ -241,6 +241,18 @@ describe('F-XFER-3 — negative controls: every other state is exactly as before
     expect(buttonByLabel(host.output, CONFIRM)).toBeDefined();
     expect(buttonByLabel(host.output, DISPUTE)).toBeDefined();
     expect(deliveryForm(host)).toBeUndefined();
+  });
+
+  it('X10: pending WITH delivery details — the normal pre-send state shows no confirm and no report', async () => {
+    // D's review: a leak conditioned on delivery being PRESENT (XM9) passed every suite, because X7 only covers
+    // pending WITHOUT it. This is the commonest state a transfer is ever in, and it was the one not pinned.
+    h.transfer = transfer({ status: 'pending', delivery_email: 'buyer@example.test' });
+    const host = await mountReceive();
+
+    expect(renderedTransfer(host)).toBe(true);
+    expect(deliveryForm(host)).toBeUndefined();   // anchored: delivery satisfied, so this IS the normal state
+    expect(buttonByLabel(host.output, CONFIRM)).toBeUndefined();
+    expect(buttonByLabel(host.output, DISPUTE)).toBeUndefined();
   });
 
   it.each(['buyer_confirmed', 'disputed', 'auto_released'])(
