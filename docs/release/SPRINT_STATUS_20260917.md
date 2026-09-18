@@ -649,3 +649,38 @@ C relayed three owner statements from C's session, and invited A to apply A's ow
 **Push settled — nobody pushes C's branch until the owner decides, and the PR waits on that.** C has declined to push `frontend/xfer3-sent-controls-visible` itself, on the ground that D's authorized push was refused at D's gate and is pending the owner, so a push from C would reach the same result by another door — the same boundary every session has held tonight. **A agrees and is not pushing it either.** **Consequence, stated plainly: the one PR cannot be opened until the branch is on the remote, so the PR is BLOCKED on the owner's decision about D's refused push** (or on the owner authorizing some other session to push). The review work is unaffected — A reviews from the shared object store.
 
 **C's confirmation on the arrival prompt:** nothing routes it through the dialog. "They're here" stays dismiss-plus-highlight; **O6** pins that it sends nothing, and decision 2 adds **C8** — no invoke and no dialog from "here". `handleConfirm` keeps its single call site. *(A will verify O6 and C8 at the head C hands over, as with every head.)*
+
+### Owner's decisions 1 and 2 — A's payment-boundary review: **PASS**, with A's own mutants (A, 2026-09-18)
+
+**Heads, resolved by A in the shared object store (branch not pushed):** `cf9b75b` (reviewed baseline) → **`ceb4e61b`** (decision 1) → **`c093cdcf`** (decision 2), linear, one commit each, so each decision is reviewable alone as the owner required. **Gated surface `cf9b75b..c093cdcf` over payments, checkout, signOut, `supabase/`, `scripts/`, `.github/`, `app.json`, `package.json`, `eas.json`: ZERO lines.** Seven files, +589/−24: the receive screen, `providerHandoff.ts`, `transferState.ts`, and four test files.
+
+**A's gates at `c093cdcf`, A's own runs, no concurrent vitest:** typecheck **0** · lint **0**, 29 warnings · vitest **119 files / 2371 tests, all passed**. C's numbers reproduce exactly.
+
+**Decision 2 — THE PAYMENT BOUNDARY — read line by line:**
+- `handleConfirm` now opens a dialog and **sends nothing on the tap**. `confirm-and-release` is reached **only** from the dialog's explicit action (*"Confirm and release payment"*), inside the **same** `flight.run(confirmReceipt)`; **`confirmReceipt`'s body is untouched**, so the request, its `{ transfer_id }` body and every server rule behind it are exactly as before.
+- **Cancel** calls only `answered()` — **it sends nothing.** The dialog is `cancelable: false`, so it cannot be dismissed without one of the two answers.
+- **Copy:** title *"Confirm you received the tickets?"*, body ***"Confirming receipt releases payment to the seller.** Only confirm if you can see the tickets in your ticket account."* — plain, and the same claim the screen's release warning already makes.
+- **Two synchronous guards:** a `confirmAsking` **ref** set before the dialog opens, so a same-tick double tap cannot stack a second dialog; and **`flight.inFlight`**, which A verified is a **getter on a ref-held single-flight object** (`src/lib/async/singleFlight.ts:22`, held by `useSingleFlight`'s `useRef`), so it is synchronously accurate, not stale React state.
+- **`handleConfirm` still has a single call site** — the button. The arrival prompt's "here" is unchanged (dismiss plus highlight), pinned by **C8**.
+- **X5 and X6 changed deliberately**, as required: X5 now reads *"confirming asks first, then stays single-flight."*
+
+**A's OWN mutants — run in A's worktree, never C's, with predictions written first, applied-and-changed asserted, and a digest-verified restore to a clean tree** (`scratchpad/dv20/a_boundary_mutants.py`):
+
+| Mutant | A's prediction (must include) | Killed by | Matches C's harness |
+|---|---|---|---|
+| **AM-D2-1** — one-tap release restored at the button | C1, C4 | **C1, C2, C3, C4, C5, C6, C7, C9, X5, X6** | yes — C's CM1 |
+| **AM-D2-2** — Cancel releases payment | C3 | **C3, C9** | yes — C's CM2 |
+
+**Both predictions met, and both kill sets are identical to C's independently run harness.** That is the boundary proven from two directions: the tests fail if one-tap release comes back, and they fail if Cancel ever sends.
+
+**Decision 1 — outside the boundary, and A checked that it stays outside it:**
+- **It releases nothing.** `openProvider` sets only local handoff state and calls `Linking.openURL` — no RPC, no invoke, no table write. `returnPrompt(status)` now drops its delivery argument and asks on any sent transfer, but the prompt **only asks**, and "here" only highlights (C8).
+- The render condition becomes `seller_sent || (pending && !needsDeliveryInfo)` — **exactly the old condition plus the one target state** (sent, no delivery details); pending still waits for delivery details. *(Same shape as D's XM9 mutant, but on the handoff block, where it is intended.)*
+- **No destination, no button:** the pre-existing `{link ? … : null}` guard.
+- **"Omit empty contact fields" holds, and A verified why rather than taking the comment:** `interpolateStep` would print *"(email not yet provided)"* for a missing value — **but A parsed every step in `src/lib/platformInstructions.ts`: all 13 `{buyer_email}` / `{buyer_phone}` placeholders sit in SELLER-role steps; buyer-role steps contain none**, and the receive screen renders `role="buyer"`. So no contact placeholder can reach the buyer — and C's suite **pins that over every platform**, so it is defended, not merely true.
+
+**A finding C made against its own earlier suite, recorded because it bears on A's earlier PASS:** since `cf9b75b`, X6's *"not shown as confirmed"* assertion checked the `buyer_confirmed` **title**, which is a `StateBlock` prop and never appears in the flattened text — **so that check could not fail.** C now checks the body copy, and C's CM12 proves it live. **A's confirm-path PASS at `a739a40`/`cf9b75b` cited X6 without catching that half of it was vacuous**; A had checked X6's `alerts === []` half only. Recorded against A's review as well as C's test.
+
+**One observation, not a finding:** `react-native-web`'s `Alert.alert` is a **no-op** (A read `node_modules/react-native-web/dist/exports/Alert/index.js`: `static alert() {}`). So on the Expo **web** target the new dialog would never appear and confirm would be unreachable — **exactly as "Report issue" already is.** `app.json` carries a `web` block, but **no web export appears in `package.json` scripts or CI**, so A finds no evidence it ships. Relevant only if it ever does.
+
+**Status: A's payment-boundary review PASS on both decisions. D's behaviour review outstanding. The PR remains BLOCKED on the owner's push decision.** No merge, no build, no handset testing until these are in a build.
