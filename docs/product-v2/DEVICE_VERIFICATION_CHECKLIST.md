@@ -482,3 +482,17 @@ FINISHED 18:37:02Z, iOS, preview profile (sandbox), internal, 1.0.0 (A; EAS reco
 the tag resolves to `0f329c3a` locally; C could not read the EAS record from this machine** (relies on A and D for
 it). Installing replaces Build 20 (one bundle id); the app shows no build number. Checks: N1 and N2 above, scope as
 relayed by A, confirmed with the owner before the first step.
+
+### Build 21 — S8only, 2026-09-18 14:44 (owner-reported, screenshot) — dialog observed ONLINE; not the planned offline check
+The owner tapped "I got my tickets" **while online** (status bar: Wi-Fi and cellular, no airplane). Observed: the dialog
+**"Confirm you received the tickets?"** / **"Confirming receipt releases payment to the seller. Only confirm if you can
+see the tickets in your ticket account."** with separate **"Confirm and release payment"** and **"Cancel"** — the exact
+`CONFIRM_RECEIPT_DIALOG` copy. Behind it: "I GOT MY TICKETS" and "I HAVEN'T RECEIVED THEM" both visible; the release
+warning ("By confirming, you release payment to the seller…"); the seller's claim ("Seller marked as sent / That is the
+seller's update, not a confirmation…"); generic instruction steps 2–3, the platform warning and Tips.
+- **Recorded, per the owner, as NOT the planned offline N2.** What it does show on the device: the tap opens the dialog
+  with the exact copy. What happened next (Cancel?) was **not yet reported** at the time of this entry.
+- **N1 partly observed:** both controls, the release warning, the seller's claim and the generic instructions are
+  visible. **Not yet observed:** the delivery form (not in view) and the absence of an "Open …" button (the area where it
+  would render, just after Tips, is partly behind the dialog). No empty contact field is visible in the uncovered area.
+- Scope: the owner proceeded with the scoped checks after C restated A's relay; not explicitly "confirmed" in words.
