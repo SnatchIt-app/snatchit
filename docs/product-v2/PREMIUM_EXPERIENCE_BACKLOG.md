@@ -3909,3 +3909,31 @@ integrated head **6561d1f** so F-BIDS-1's pattern is available. Worktree `/Users
   all three reproduce exactly — M7 7 failed / 1 passed with B5 the sole survivor; DM7 D8 alone; AM3 6 of 6.
   Gates on the pushed head, D's own run: vitest 2289 / 111, tsc 0. **AM3 is the one that earns the tri-state
   helper:** under the old boolean, A2/A4/A5/A6 would all have passed with the control absent from the screen.
+
+## Batch 1b — the twin screens (C, 2026-09-17). `frontend/batch1b-twin-screens @ 3fc2acb`
+Owner authorised exactly two items, client-only: F-XFER-2 and F-AVATAR-2. Cut from the **reviewed** Batch 1
+head `2fe7abd`, which is untouched at 2fe7abd. D reviews the tests, A reviews the transfer wording.
+
+| # | Commit | Fix | Tests | Negative controls |
+|---|---|---|---|---|
+| 1 | `f743d76` | **F-XFER-2** `app/transfer/receive/[id].tsx` — the countdown effect is gated on `pending` like the send screen's, the render gate matches, and the expired case reads `TRANSFER_EXPIRY_COPY`. **On `seller_sent` the window line is gone entirely, not softened** (A's position, independently reached; the send window stops meaning anything once the tickets are on their way). | 8 (R1–R8) | 5/5 after two corrections |
+| 2 | `3fc2acb` | **F-AVATAR-2** `app/settings/edit-profile.tsx` — busy spans upload *and* save, cleared in a `finally`, across **both** controls (the ring and "Change photo" share one flag). | 8 (E1–E8) | 6/6 after two corrections |
+
+**Gates, fresh:** vitest **2305 passed / 113 files**; tsc clean; lint **0 errors, 29 warnings** (baseline).
+**Gated surface vs 2fe7abd: zero lines** (payments, the three checkout modules, signOut, `supabase/`, `scripts/`,
+`.github/`). Diffstat: four files — two screens, two test files. No build, no sandbox, Build 19 and the retained
+proof files untouched. **The server-side expiry decision stays separate and open; nothing here anticipates it.**
+
+**Method notes — four predictions wrong, and what each taught:**
+- **A line was DELETED because its mutant survived.** C added an explicit `setCountdown(null)` reset; RM5 showed the
+  render gate already hides a stale value, so nothing could observe it. *A line no test can justify and no user can
+  observe is worse than no line*, so it went rather than being kept as "defense in depth".
+- **RM2 (wide render gate alone) KILLS R8**, where C predicted survival. That is what gives the render gate its own
+  targeted control — via the one real in-screen transition: the buyer opens the ticket provider, returns after
+  `MIN_AWAY_MS`, and the seller has sent meanwhile.
+- **EM3/EM4 taught the layering on the avatar screen:** the `disabled` props are PRESENTATION (EM3 kills E2 alone,
+  EM4 kills E1 alone) and the function's own `if (avatarUploading) return` is the LOCK — EM5 alone changes nothing,
+  and only EM6 (guard plus both props) kills all four. Both layers now have their own control.
+- Running total of C's prediction accuracy across Batch 1 and 1b: **eight corrections, every one of them C's
+  prediction rather than a test defect**, plus two real test weaknesses the mutants exposed (the Home `view()`
+  conflation, found by HM1, and D's four helper gaps).
