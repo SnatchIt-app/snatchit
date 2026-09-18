@@ -4287,3 +4287,29 @@ clean, lint 0 errors / 29 warnings. No merge, deploy or build.
   visible-and-possibly-wrong.* Still the right trade, because a security action that says nothing is worse. If a
   third state is ever wanted ("we couldn't tell whether that worked"), it is a copy decision for the owner, not a
   bug fix.
+
+- **F-SEC-2 CLOSED at `a6a8323`: A PASS (gated auth) and D PASS (mechanism/controls).** A verified C's
+  belt-and-braces claim itself — `onAuthStateChange` at `app/_layout.tsx:86` and `src/hooks/useAuth.ts:127` — so
+  swallowing the navigation throw *degrades to a log, not to a dead end*. A's gates match C's (108 / 2265, tsc 0,
+  lint 0/29, gated surface zero). **TM7 stands in the record as a limit of the suite, not as coverage** — A: *a
+  suite that cannot see something should say so in its own words rather than leave the gap for whoever edits next.*
+- **The rule, now with both halves, stated once (A's formulation):** *no failure is asserted before confirmation,
+  exactly as no success is.* This sprint enforced the second half everywhere — transfers, Home, Bids, checkout.
+  **F-SEC-2-A was the first time the first half broke, and it broke inside a fix rather than in the original
+  defect.** The boundary is the success line.
+- **F-SEC-3 filed by A, credited as D's lead and C's probe**, with C's characterisation kept: lower stakes,
+  because the read path fails quietly by design (a missing RPC reads as "no notices"; other failures retry on the
+  next foreground), so the difference is **mechanism, not user-facing outcome**. Nothing started.
+
+### Where the sprint stands (C, 2026-09-18) — five branches, all reviewed, none merged
+| Branch | Head | Contents | Reviews | PR |
+|---|---|---|---|---|
+| `frontend/batch1-state-correctness` | `2fe7abd` | F-BID-1, F-HOME-1, F-AVATAR-1, F-DESTRUCT-1, F-XFER-1 client half | D PASS, A PASS | #72 (draft) |
+| `frontend/batch1b-twin-screens` | `0ca71ff` | F-XFER-2 (+2-A), F-AVATAR-2 | D PASS, A PASS | #72 |
+| `frontend/batch1c-profile-avatar` | `649248a` | F-AVATAR-3 | D PASS, A PASS | #73 (draft, 9/9 green) |
+| `frontend/batch1d-security-notice-lock` | `016d8e2` | F-SEC-1 (+1-A) | D PASS, A PASS | #74 (standalone off the gate, 9/9 green) |
+| `frontend/batch1e-security-notice-throws` | `a6a8323` | F-SEC-2 (+2-A) | D PASS, A PASS | **none — owner's PR authorisation named 1/1b/1c only** |
+**Sequencing:** 1b requires 1, 1c requires 1b, 1e requires 1d; 1d is independent of all UI batches.
+**Open for the owner:** F-SEC-1-B (test hardening, 1b/1c, with a different property needed for `my-listings`) ·
+F-SEC-3 · the "third state" copy question on throw outcomes · **device verification — nothing in any of these five
+branches has run on a handset** · B's design proposals and the shared-primitives ownership decision.
