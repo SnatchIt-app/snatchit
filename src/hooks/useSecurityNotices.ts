@@ -118,6 +118,11 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
       try {
         router.replace('/(auth)/login');
       } catch (e) {
+        // Log only. This guard must NEVER clear `error`: today that would be a no-op — `runExclusive` clears it
+        // each cycle and the only earlier `setError` here is on the `!out.signedOut` branch, which returns — so
+        // `error` is necessarily null when this runs (D proved it as an equivalent mutant). That equivalence is
+        // a property of the code as it stands: if that branch ever falls through, or anything sets an error on
+        // the success path, clearing here would erase a real failure on a security surface.
         console.warn('[securityNotices] post-sign-out navigation failed:', e instanceof Error ? e.message : e);
       }
     }, SIGN_OUT_FAILED_COPY);
