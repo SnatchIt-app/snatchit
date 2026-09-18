@@ -343,7 +343,7 @@ export default function TransferReceiveScreen() {
         {countdown && transfer.status === 'pending' ? (
           <View style={[s.countdown, countdown === 'Expired' && s.countdownExpired]}>
             <Text style={[textStyle('bodySm'), s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
-              {countdown === 'Expired' ? TRANSFER_EXPIRY_COPY.passed : countdown}
+              {countdown === 'Expired' ? TRANSFER_EXPIRY_COPY.buyer : countdown}
             </Text>
           </View>
         ) : null}

@@ -307,7 +307,7 @@ export default function TransferSendScreen() {
         {expiryCountdown && transfer.status === 'pending' ? (
           <View style={[s.countdown, expiryCountdown === 'Expired' && s.countdownExpired]}>
             <Text style={[textStyle('bodySm'), s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
-              {expiryCountdown === 'Expired' ? TRANSFER_EXPIRY_COPY.passed : `${expiryCountdown} to send`}
+              {expiryCountdown === 'Expired' ? TRANSFER_EXPIRY_COPY.seller : `${expiryCountdown} to send`}
             </Text>
           </View>
         ) : null}

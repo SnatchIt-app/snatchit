@@ -96,7 +96,7 @@ function transfer(extra: Record<string, unknown> = {}) {
 /** The countdown row, identified by the copy it can carry. */
 function windowLine(host: HookHost): string | undefined {
   const text = screenText(host.output);
-  if (text.includes(TRANSFER_EXPIRY_COPY.passed)) return TRANSFER_EXPIRY_COPY.passed;
+  if (text.includes(TRANSFER_EXPIRY_COPY.buyer)) return TRANSFER_EXPIRY_COPY.buyer;
   if (text.includes('Transfer window expired')) return 'Transfer window expired';
   const remaining = screenText(host.output).split(' | ').find((t) => /remaining/.test(t));
   return remaining;
@@ -132,7 +132,7 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
 
     expect(rendered(host)).toBe(true);
     expect(screenText(host.output)).not.toContain('Transfer window expired');
-    expect(windowLine(host)).toBe(TRANSFER_EXPIRY_COPY.passed);
+    expect(windowLine(host)).toBe(TRANSFER_EXPIRY_COPY.buyer);
   });
 
   it('R2: seller_sent and past the window — no window line at all; the tickets are already on their way', async () => {
@@ -141,7 +141,7 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
 
     expect(rendered(host)).toBe(true);
     expect(screenText(host.output)).not.toContain('Transfer window expired');
-    expect(screenText(host.output)).not.toContain(TRANSFER_EXPIRY_COPY.passed);
+    expect(screenText(host.output)).not.toContain(TRANSFER_EXPIRY_COPY.buyer);
     expect(windowLine(host)).toBeUndefined();
   });
 
@@ -157,7 +157,7 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
     const host = await mountReceive();
 
     expect(windowLine(host)).toMatch(/remaining/);
-    expect(screenText(host.output)).not.toContain(TRANSFER_EXPIRY_COPY.passed);
+    expect(screenText(host.output)).not.toContain(TRANSFER_EXPIRY_COPY.buyer);
   });
 
   it('R5: buyer_confirmed — no window line, as before', async () => {
@@ -213,6 +213,29 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
     expect(windowLine(host)).toBeUndefined();
   });
 
+  it('R9: the buyer is never told to send — that instruction is the seller\'s', async () => {
+    // F-XFER-2-A (A's wording review): batch 1b gave both screens one string, and its second clause —
+    // "send now if you still can" — is addressed to the seller. The buyer cannot send and it is not their
+    // action. The old literal was wrong for asserting an unenforced rule; this was wrong for addressing the
+    // wrong party.
+    h.transfer = transfer({ expires_at: PAST() });
+    const host = await mountReceive();
+
+    const shown = screenText(host.output);
+    expect(rendered(host)).toBe(true);
+    expect(shown).toContain(TRANSFER_EXPIRY_COPY.buyer);
+    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.seller);
+    expect(shown.toLowerCase()).not.toMatch(/send now|you (can |still )?send/);
+  });
+
+  it('R10: the two roles carry different words, and neither asserts a block', async () => {
+    expect(TRANSFER_EXPIRY_COPY.buyer).not.toBe(TRANSFER_EXPIRY_COPY.seller);
+    for (const [role, copy] of Object.entries(TRANSFER_EXPIRY_COPY)) {
+      expect(copy.toLowerCase(), role).not.toContain('expired');
+      expect(copy.toLowerCase(), role).not.toMatch(/can(no|')?t send|blocked|too late/);
+    }
+  });
+
   it('R7: neither transfer screen carries the literal any more — one pinned source, not two strings', async () => {
     // Asserted on the source rather than by importing both screens: the send screen pulls native modules that
     // vitest cannot load, and what matters here is that no third copy of the string reappears later.
@@ -224,6 +247,6 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
       expect(src, name).toContain('TRANSFER_EXPIRY_COPY');
       expect(src, name).not.toContain("'Transfer window expired'");
     }
-    expect(TRANSFER_EXPIRY_COPY.passed.toLowerCase()).not.toContain('expired');
+    expect(TRANSFER_EXPIRY_COPY.buyer.toLowerCase()).not.toContain('expired');
   });
 });

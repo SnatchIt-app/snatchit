@@ -55,7 +55,14 @@ export function formatCountdown(ts: string | null, now: number = Date.now()): st
  * anticipate that answer, and it must be revisited if enforcement arrives.
  */
 export const TRANSFER_EXPIRY_COPY = {
-  passed: 'Send window has passed — send now if you still can',
+  /** The seller's screen: they are the one who can still act. */
+  seller: 'Send window has passed — send now if you still can',
+  /**
+   * The buyer's screen. F-XFER-2-A: batch 1b gave both screens the seller's string, so the buyer was told to
+   * "send now if you still can" — an action they cannot take and that is not theirs. The buyer's true
+   * statement is what the server will still allow, said about the other party.
+   */
+  buyer: 'Send window has passed — the seller may still send',
 } as const;
 
 /** The canonical badge label + tone for a status. Word carries the meaning. */

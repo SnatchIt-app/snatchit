@@ -132,7 +132,7 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
 
     const shown = texts(host).join(' | ');
     expect(shown).not.toContain('Transfer window expired');
-    expect(shown).toContain(TRANSFER_EXPIRY_COPY.passed);
+    expect(shown).toContain(TRANSFER_EXPIRY_COPY.seller);
   });
 
   it('X2: past the window, Mark as sent stays enabled — the server still accepts it', async () => {
@@ -156,7 +156,7 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
     const shown = texts(host).join(' | ');
 
     expect(shown).toMatch(/to send/);
-    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.passed);
+    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.seller);
   });
 
   it('X5: once the server has moved the row off pending, the window line is gone entirely', async () => {
@@ -169,13 +169,14 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
     // asserting one of those would be asserting the absence twice over.
     expect(shown).toContain('Send tickets to');
     expect(findElement(host.output, (el) => el.type === 'ScrollView')).toBeDefined();
-    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.passed);
+    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.seller);
     expect(shown).not.toContain('Transfer window expired');
   });
 
   it('X6: the copy is pinned in one place and never asserts a block', async () => {
-    expect(TRANSFER_EXPIRY_COPY.passed.length).toBeGreaterThan(0);
-    expect(TRANSFER_EXPIRY_COPY.passed.toLowerCase()).not.toContain('expired');
-    expect(TRANSFER_EXPIRY_COPY.passed.toLowerCase()).not.toMatch(/can(no|')?t send|blocked|too late/);
+    // The seller's string may tell the seller to act; the buyer's must not (F-XFER-2-A).
+    expect(TRANSFER_EXPIRY_COPY.seller.length).toBeGreaterThan(0);
+    expect(TRANSFER_EXPIRY_COPY.seller.toLowerCase()).not.toContain('expired');
+    expect(TRANSFER_EXPIRY_COPY.seller.toLowerCase()).not.toMatch(/can(no|')?t send|blocked|too late/);
   });
 });
