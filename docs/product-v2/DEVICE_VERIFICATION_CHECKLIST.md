@@ -515,3 +515,16 @@ seller's update, not a confirmation…"); generic instruction steps 2–3, the p
   on device** (tests only; automated coverage is not device evidence).
 - **Sandbox writes: none new.** Re-opening S8only rewrote the same `buyer_viewed_at` (already set; no notification).
   Nothing was confirmed or released.
+
+### Build 21 handset pass — CLOSED (owner, 2026-09-18, relayed by A)
+Owner (to A): "Skip creating a provider fixture. Keep the provider-button and return-from-provider phone checks
+explicitly untested. … C can close the handset pass; no further phone work for now."
+- **"Nothing confirmed or released" is now backed by a READ** (A, owner-authorised directly to A, read-only, 21:56:47Z;
+  log `dv20/s8only_release_read_20260918.log` in A's scratchpad): S8only `status = seller_sent`; `payout_released_at`
+  NULL; `stripe_transfer_id` NULL; 0 `payout_decisions` rows; 0 notifications of `transfer_confirmed`,
+  `payout_released` or `order_complete`. No evidence path, storage or other rows read.
+- **Explicitly UNTESTED on device (owner's instruction; no provider fixture will be created):** the "Open <provider>"
+  button on a sent transfer without delivery details, and the return-from-provider question ("Did the tickets
+  arrive?"). Also not device-tested: single-flight through the dialog, the lock re-arming after a failed release, and
+  the release itself — automated coverage only, which is not device evidence.
+- No further phone work for now. PR #75 remains draft / do not merge.
