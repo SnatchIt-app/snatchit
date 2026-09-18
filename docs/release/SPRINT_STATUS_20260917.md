@@ -250,3 +250,25 @@ C's reported numbers reproduce exactly. Client-only holds: no server file, no mi
 **Unresolved, reported rather than closed:** whether a second `signOutAllDevices()` would surface "sign out failed" over a **successful** sign-out. The probe that found the defect used a mock forcing the second call to fail. After the fix there is no second call, so it is **moot in practice and still UNVERIFIED as a claim** — deliberately not collapsed, because if it ever matters again it will be because something else calls that function twice.
 
 **Status: A's gated auth review PASS (with F-SEC-1-A open). D's mechanism-and-controls review is still outstanding. Nothing integrated; no build.**
+
+### F-SEC-1-A closed at `016d8e2`; **A's framing of it corrected by D**; and F-SEC-2 filed (A, 2026-09-17)
+
+**Closed, and closed by mutant rather than by assertion.** C's `016d8e2` (**one test file, +8 lines; the hook untouched — A verified**) makes the source contract **count** occurrences: exactly one `actionInFlight.current = true`, one `= false`, one `setBusy(true)`, one `setBusy(false)`. **D proved the control in both directions with its own mutant SM4** — a second release inserted on the success path — which **passed all 14 tests before the change and fails after**. A's gates at `016d8e2`: typecheck **exit 0** · lint **exit 0**, 29 warnings · vitest **107 files / 2258 tests, all passed**. **[PR #74](https://github.com/SnatchIt-app/snatchit/pull/74) re-pointed; head confirmed `016d8e2`.**
+
+**Why the gap was worth closing, in D's words and proven by D:** the mutant is not cosmetic. A second release opens the lock **before the operation it represents has finished** — between that release and `router.replace`, a press can start a second sign-out. Same shape as F-AVATAR-1, the defect this whole chain began with.
+
+**A's framing was WRONG and D corrected it.** A recorded F-SEC-1-A as *"precisely what the owner's evidence list asks to be proved"*. **It is not: "verify it clears exactly once" was the owner's evidence item for BATCH 1c, not for F-SEC-1.** F-SEC-1's third item is *"prove a failed sign-out releases the guard"*, which S3 does and SM2 kills. **So F-SEC-1-A was discretionary hardening, not a gap against this batch's spec** — it did not block the PASS, and neither A's nor D's PASS at `39bc41c` is withdrawn. *(This is A's second overstatement of the day, after the AUTODEPLOY-1 claim, both caught by D. The pattern in both: A attached a true finding to a stronger authority than it had.)*
+
+**D's correction against itself, recorded because D volunteered it:** in 1c, D told C that a single release site made a double clear *"impossible by construction… a stronger guarantee than any assertion could give you"*, and declined the control. **SM4 is the demonstration that this was half wrong: impossible-by-construction is true of *this* construction and says nothing about the next edit.**
+
+**THE SAME GAP IS IN 1b AND 1c — A verified D's counts independently:** `avatarInFlight.current = false` appears **exactly once** in `app/settings/edit-profile.tsx` at `0ca71ff` and **exactly once** in `app/(tabs)/profile.tsx` at `2567401`. True today, **undefended in both**, same one-line control available.
+
+**A's decision, agreeing with D's recommendation: do NOT reopen 1b or 1c.** They are passed, their PRs are open, and quietly widening a reviewed batch is the thing this sprint has avoided all day. The control is taken in 1d, where the work was in flight. **The identical gap in 1b and 1c is recorded as a FOLLOW-UP for the owner to schedule** — if they would rather have all three at once, that is a scope decision and theirs.
+
+### F-SEC-2 — a thrown error on a security action is silent (NEW, OPEN, pre-existing)
+
+**A verified it in source at `016d8e2` rather than relaying C and D.** `runExclusive` is `try { await action(); } finally { … }` — **no `catch`**. Only an `error` field *returned* by a call is handled; a **thrown** one propagates. `src/components/SecurityNoticeBanner.tsx` passes the async `signOutAll` and `dismiss` straight to `onPress`, so the rejected promise is unhandled and **the user sees nothing at all**. A network throw on "Sign out of all devices" is a tap that does nothing and says nothing.
+
+**Not this batch's doing and not made worse by it:** the pre-fix code had the same `try/finally` with no `catch`, so the behaviour is identical before and after. **The lock is unaffected** — the `finally` still releases and clears busy, so nothing jams; A confirmed that reading the same code.
+
+It is **the same "silent tap" class that `DISMISS_FAILED_COPY` was written to end**, on a security surface. **Recorded for the owner; nothing started, nothing authorized.**
