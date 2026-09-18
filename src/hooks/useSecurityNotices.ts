@@ -111,7 +111,15 @@ export function useSecurityNotices(userId: string | undefined): SecurityNoticesS
       // it does not undo the rebind. A failed SDK sign-out keeps the user signed in and says so.
       const out = await signOutAllDevices();
       if (!out.signedOut) { setError(SIGN_OUT_FAILED_COPY); return; }
-      router.replace('/(auth)/login');
+      // F-SEC-2-A: past this line the sign-out HAPPENED — every session and push binding ended. A throw from
+      // here must never be reported as a failed sign-out, or the screen tells the user the opposite of the
+      // truth about their account security. A throw is an unknown outcome only while the outcome is unknown.
+      // The navigation is belt-and-braces anyway: the global auth listener routes on sign-out.
+      try {
+        router.replace('/(auth)/login');
+      } catch (e) {
+        console.warn('[securityNotices] post-sign-out navigation failed:', e instanceof Error ? e.message : e);
+      }
     }, SIGN_OUT_FAILED_COPY);
   }, [runExclusive]);
 

@@ -33,13 +33,21 @@ const h = vi.hoisted(() => {
     marks: [] as ReturnType<typeof deferred<{ error: unknown }>>[],
     replaces: [] as string[],
     notices: [] as unknown[],
+    navThrows: false,
   };
 });
 
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => {} }), currentState: 'active' },
 }));
-vi.mock('expo-router', () => ({ router: { replace: (p: string) => { h.replaces.push(p); } } }));
+vi.mock('expo-router', () => ({
+  router: {
+    replace: (p: string) => {
+      h.replaces.push(p);
+      if (h.navThrows) throw new Error('navigation failed');
+    },
+  },
+}));
 vi.mock('@/src/lib/auth/signOut', () => ({
   SIGN_OUT_FAILED_COPY: "Couldn't sign out — check your connection and try again.",
   signOutAllDevices: () => {
@@ -96,6 +104,7 @@ async function mountHook(): Promise<{ host: HookHost; latest: () => Api }> {
 beforeEach(() => {
   h.signOuts.length = 0; h.marks.length = 0; h.replaces.length = 0;
   h.notices = [NOTICE];
+  h.navThrows = false;
   vi.resetModules();
 });
 
@@ -182,6 +191,27 @@ describe('F-SEC-2 — a thrown action is not a silent one', () => {
     host.flush();
 
     expect(h.signOuts.length).toBe(1);
+  });
+
+  it('T7: a sign-out that SUCCEEDED is never reported as failed, even if the navigation throws', async () => {
+    // F-SEC-2-A (A's review): the catch C added spans the whole action, including the router.replace that runs
+    // AFTER a successful sign-out. A throw there would show "Couldn't sign out" for an action that completed —
+    // every session and push binding really ended, and the screen would say otherwise. A throw is an unknown
+    // outcome only while the outcome is unknown; past the success line it is known.
+    // The navigation is belt-and-braces anyway: the global auth listener routes on sign-out.
+    h.navThrows = true;
+    const { host, latest } = await mountHook();
+
+    const pending = latest().signOutAll();
+    await flush();
+    h.signOuts[0].resolve({ signedOut: true });
+
+    await expect(pending).resolves.toBeUndefined();
+    host.flush();
+
+    expect(h.replaces).toEqual(['/(auth)/login']);   // it was attempted
+    expect(latest().error).toBeNull();               // and nothing claims the sign-out failed
+    expect(latest().busy).toBe(false);               // the lock still released
   });
 
   it('T6: a thrown action still leaves the control usable for the other action too', async () => {
