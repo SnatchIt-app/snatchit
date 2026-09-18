@@ -496,3 +496,22 @@ seller's update, not a confirmation…"); generic instruction steps 2–3, the p
   visible. **Not yet observed:** the delivery form (not in view) and the absence of an "Open …" button (the area where it
   would render, just after Tips, is partly behind the dialog). No empty contact field is visible in the uncovered area.
 - Scope: the owner proceeded with the scoped checks after C restated A's relay; not explicitly "confirmed" in words.
+
+### Build 21 — results, 2026-09-18 (owner-reported) — checks COMPLETE
+- **N2 (decision 2) — PASSED, ONLINE (owner's instruction: record it as tested online).** 14:44: tapping "I got my
+  tickets" opened the dialog with the exact copy and separate "Confirm and release payment" / "Cancel". The owner
+  **tapped Cancel**: the dialog closed and the screen stayed on Receive Transfer. **"Confirm and release payment" was NOT
+  tapped.** Not run offline: the offline variant was only a safeguard against a stray Confirm, not a different
+  property, and the owner recorded the online run as the result. Whether Cancel sent anything is not observable on the
+  handset; the screen did not change. No database read.
+- **N1 (F-XFER-3 + decision 1) — PASSED.** Both "I got my tickets" and "I haven't received them" visible, the
+  **delivery form present**, the generic "How to receive your tickets" instructions shown, **no "Open …" button**
+  (S8only's `ticket_platform = 'other'`), and **no blank or "not provided" contact text**.
+- **Device evidence by change (Build 21):** F-XFER-3 — controls visible on sent-without-delivery ✔. Decision 1 — the
+  no-destination branch (instructions shown, no button) ✔; **the "Open <provider>" branch and the return question
+  ("Did the tickets arrive?") — UNTESTED on device** (no in-scope fixture: S8only has no provider; D1/D2 off-limits).
+  Decision 2 — the tap opens the dialog with the exact copy, and Cancel closes it without changing the screen ✔;
+  single-flight through the dialog, the lock re-arming after a failed release, and the release itself — **not tested
+  on device** (tests only; automated coverage is not device evidence).
+- **Sandbox writes: none new.** Re-opening S8only rewrote the same `buyer_viewed_at` (already set; no notification).
+  Nothing was confirmed or released.
