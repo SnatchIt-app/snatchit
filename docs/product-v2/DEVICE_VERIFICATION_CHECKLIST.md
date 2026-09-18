@@ -183,3 +183,18 @@ UNTESTED, never as proof the race is closed.
 **DV-20-13 needs a staged security notice** — the buyer's existing "Account deletion requested" notice is a
 different type and must stay untouched; a thrown-failure row additionally needs a network condition, so it may
 end UNTESTED rather than be forced.
+
+**Two operational facts about Build 20, verified by C and confirmed by A (whose earlier statement was wrong):**
+1. **Builds 19 and 20 CANNOT coexist.** `app.json` declares one `bundleIdentifier` (`com.jdt-inc.snatchit`) and no
+   `eas.json` profile overrides it — `preview` adds only `ios.autoIncrement`. **Installing 20 replaces 19**, and
+   getting 19 back means reinstalling from its own build page. A's "both can sit on the phone" was a release-stack
+   fact ("20 supersedes nothing") extended to the device, which is a different system.
+2. **The app renders its build number nowhere.** `NativeAppShell.native.tsx:30` reads the version once and uses it
+   only for the Sentry release tag. Both builds report 1.0.0 and show the same SANDBOX badge, so **the owner
+   cannot confirm from inside the app which build is running.**
+
+**Consequence for the pass, and the owner was told before starting:** the first row doubles as build
+identification. DV-20-1 is the right one for it — the owner reproduced the Build 19 behaviour twice, so the old
+result is known exactly. **If the old copy appears, that is AMBIGUOUS between a failed install and a failed fix:
+reinstall, confirm the app reopened, and re-run before anything is recorded as FAIL.** Letting a first-row failure
+land on the code by default would have been very hard to unwind afterwards.
