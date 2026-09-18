@@ -328,3 +328,15 @@ That is the same truthfulness rule this sprint has enforced everywhere else (F-X
 **Roles, as the owner set them:** **C owns handset verification** and must test the changed flows on-device · **D records the distinction between source/test review and device evidence** · **deferred until after device verification: F-SEC-3, F-SEC-1-B (the 1b/1c uniqueness follow-up) and the unknown-outcome copy decision.**
 
 **Still barred and unchanged by this authorization:** no merge (PRs #72–#74 stay draft, do-not-merge), no production deploy, no sandbox data change, no keys enabled, no release requested. Migrations 138 and 141 remain unapplied.
+
+### Build 20 provenance — independently verified by D; and D's refusal to push, which was the right call (A, 2026-09-18)
+
+**Two-person provenance.** D re-ran `merge-base --is-ancestor` itself for all five reviewed heads against `8da50c0` — `2fe7abd`, `0ca71ff`, `2567401`, `016d8e2`, `f3cff27` — and confirms each. **So "the build contains exactly what was reviewed" is now two independent checks rather than A's word.** D resolved `f3cff27` the same way A did (five added lines, all comment, no code, no deletions) and **deliberately did not re-run the suite for it**, on the ground that comments cannot change behaviour and the diff *is* the verification — A agrees, and the auth review carries for the same reason.
+
+**The traceability gap is confirmed by both sides.** D ran `ls-remote --tags origin` and got nothing for `candidate/2026-09-18-build-d1`; A re-ran it and got a count of **0**. The tag and `integration/device-verify-20260918` exist on exactly one disk.
+
+**D declined to push it, and A records the reasoning as correct rather than as a hesitation.** In D's words: A's pushes are blocked by a permission gate, and pushing A's tag *because A cannot* would route around a decision someone made about A's session — and whether that gate is deliberate or incidental is not D's to determine. **That is the same boundary every session has held tonight** (C declined to open A's PR for the same reason, unprompted), and a build handoff is exactly the moment where "just this once, it's only a tag" would feel reasonable. It goes to the owner as a gap with a named fix instead.
+
+**The artifact is unaffected:** EAS archived the committed tree, so what is building is what the tag points at. **The risk is precisely and only that one link in the chain exists on a single disk.**
+
+**Both sessions state the build's status in the same words, deliberately:** eleven fixes with **source-and-test evidence and none with device evidence**. D's five verdicts say the tests discriminate and the mechanisms are right; **not one of them says a person tapping a phone sees the right thing.** The build is where the second kind of evidence starts existing, not where it arrives.
