@@ -594,3 +594,44 @@ C relayed three owner statements from C's session, and invited A to apply A's ow
 **The one PR, and a base problem the owner should know about now rather than at PR time.** The clean base for this PR is `integration/device-verify-20260918` (`8da50c0`, Build 20's tree), so the PR shows F-XFER-3 and the two additions and nothing else. **That branch, and the Build 20 tag, exist only on A's machine**: A checked, and neither they nor `frontend/xfer3-sent-controls-visible` are on the remote. A's pushes are blocked by a permission gate in this session, and C and D have both declined to push on A's behalf, which is correct. So when the branch is ready, the options are: **(a)** the owner pushes the integration branch and the Build 20 tag (the one-line command A gave earlier), which also closes the standing traceability gap, and the PR bases on it cleanly; or **(b)** the PR bases on `release/production-gate-20260918`, and its diff also carries all of Build 20's already-reviewed batches, which buries the new work. **A recommends (a).** Nothing is needed until C's commits are ready.
 
 **Unchanged:** no merge, no new build, no handset testing of these changes until they are in a build. **The two sandbox reads are still not authorized in A's session** and have not been run.
+
+### Owner-authorized reads RUN, and Build 20 published (A, 2026-09-18) — authorization given to A DIRECTLY
+
+**The owner, to A directly:** *"run both sandbox read-only checks now—S8only's deadline, buyer_viewed_at and notification around 11:58 AM September 18; and whether my buyer account saved a $105 bid on Device D7 around 11:43 AM. Report the results to C. Preserve all existing restrictions on proof-file access and Sandbox L7."* And: *"I choose option (a): publish the Build 20 integration branch and tag … You are authorised to attempt that push through your normal permission/approval mechanism."*
+
+**How the reads were bounded.** Script `scratchpad/dv20/owner_reads_20260918.sh`, output logged beside it. It refuses unless the connection string names the sandbox `ofaidukbieeekqaboscm` and refuses the production ref outright; one `begin read only … rollback` transaction, and the output confirms **`tx_read_only=on`**. **No `storage.objects` access, no signed URL, no proof-file metadata, nothing touching Sandbox L7.** S8only's evidence path is reported **only as a boolean** — the path itself was not read out. Run at **16:46:13Z**.
+
+**(1) S8only — `8f59d37e-52fd-4733-b311-532445ff441c`**
+
+| Read | Result |
+|---|---|
+| rows matching the prefix | **exactly 1** (stop condition not met) |
+| status | **`seller_sent`** |
+| buyer | **the owner's buyer account** (`919d511e…`) |
+| event | **Sandbox S8only** (not L7) |
+| `expires_at` | **`2026-09-09T01:20:22Z`** — non-null, and past |
+| `buyer_viewed_at` | **`2026-09-18T15:58:05.544Z`** = 11:58:05 ET |
+| `transfer_evidence_path IS NULL` | **true** |
+| `transfer_viewed` notification | **exactly 1 row, created `2026-09-18T15:58:05.544Z`, recipient = the seller** |
+
+**What that settles:**
+- **The write is RESOLVED: the owner's 11:58 open was the FIRST view, and it changed sandbox data.** `buyer_viewed_at` carries the owner's open time to the millisecond, and the seller's `transfer_viewed` row carries the **identical** timestamp — the same transaction, via `058`'s NULL→NOT NULL trigger. **One sandbox row updated, one in-app notification row written to the seller.** *(This read did not check delivery of that notification; the records hold the sandbox push key as deferred, so no push could have been sent — stated from the records, not from this read.)*
+- **The fix evidence condition HOLDS: `expires_at` is non-null.** So on the pre-fix code this exact transfer would have shown **"Transfer window expired"**; on Build 20 the owner saw **no window line**. **DV-20-9 is therefore genuine device evidence for F-XFER-2** on a sent transfer — no longer conditional.
+- **No signed URL could have been minted for S8only:** the proof-view effect requires a stored path, and there is none.
+- **A data-derived check on the account:** `mark_transfer_viewed` only updates where `buyer_id = auth.uid()`, and it updated — so at 11:58 the owner was signed in as `919d511e…`.
+
+**(2) Device D7 — the $105 bid around 11:43 ET**
+
+| Read | Result |
+|---|---|
+| listings named "Device D7" | **exactly 1** (`b1c3c478…`), `active`, the owner's buyer is **not** the seller |
+| `current_bid` | **100** |
+| the owner's buyer's bids on it, 15:30Z–16:00Z | **NONE** |
+| **all** bids on it, 15:30Z–16:00Z (count only, no identities) | **0** |
+| the owner's buyer's bids on it, **ever** | **0** |
+
+**What that settles: NO bid was saved.** No account bid on Device D7 in the window, and the current bid is still $100. **The "Bid failed / TypeError: Network request failed" alert was TRUE** — the insert never committed — even though it showed the user a raw technical string (F-BID-3). The all-bidders count makes this conclusion **independent of which account was signed in at 11:43**. **DV-20-4's open question — "whether a bid row was written" — is CLOSED: none was.** F-BID-1 itself still has no device evidence; that was about a form built on a failed *read*, which neither screenshot shows.
+
+**(3) Build 20 PUBLISHED — the push succeeded.** A attempted it through the normal mechanism, as authorized, and it was **not** blocked this time. The remote now holds **`refs/heads/integration/device-verify-20260918` → `8da50c0`** and the annotated tag **`candidate/2026-09-18-build-d1`** (tag object `f01c99ce`, **peeling to `8da50c0`**) — A confirmed with `ls-remote` after the push. **The standing traceability gap is CLOSED**: the build's source can now be resolved from the remote by anyone. The F-XFER-3 PR can base on the integration branch and show only the follow-up work.
+
+**Unchanged:** no merge, no new build. The two retained proof objects were not touched. Sandbox L7 was not touched.
