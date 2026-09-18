@@ -76,15 +76,37 @@ describe('the surface (source contract)', () => {
   it('the actions are wired: Sign out of all devices → signOutAllDevices (K-2, failure copy on the screen); Dismiss → mark read', () => {
     expect(hook).toContain("supabase.rpc(SECURITY_NOTICES_RPC)");
     expect(hook).toContain("supabase.rpc(MARK_NOTICES_READ_RPC, { p_ids: ids })");
-    // A failed Dismiss is not a dead button: the notice stays and the failure is on the screen; each action clears the last error first.
+    // A failed Dismiss is not a dead button: the notice stays and the failure is on the screen; each action
+    // clears the last error first. F-SEC-1 moved that clear into `runExclusive`, the single acquire/release both
+    // actions run through, so the ordering is now pinned there — same rule, one site instead of two.
+    const r = hook.indexOf('const runExclusive = useCallback(');
+    expect(r).toBeGreaterThan(-1);
+    const rEnd = hook.indexOf('const dismiss = useCallback(', r);
+    const exclusiveBody = hook.slice(r, rEnd);
+    expect(exclusiveBody).toContain('setError(null);');
+    expect(exclusiveBody.indexOf('setError(null);')).toBeLessThan(exclusiveBody.indexOf('await action();'));
+
     const d = hook.indexOf('const dismiss = useCallback(');
     expect(d).toBeGreaterThan(-1);
     const dEnd = hook.indexOf('const signOutAll = useCallback(', d);
     const dismissBody = hook.slice(d, dEnd);
-    expect(dismissBody).toContain('setError(null);');
     expect(dismissBody).toContain('setError(DISMISS_FAILED_COPY);');
-    expect(dismissBody.indexOf('setError(null);')).toBeLessThan(dismissBody.indexOf('supabase.rpc(MARK_NOTICES_READ_RPC'));
     expect(dismissBody.indexOf('setError(DISMISS_FAILED_COPY);')).toBeLessThan(dismissBody.indexOf('setNotice(null);'));
+    // F-SEC-1: both actions run through the one lock, and it is NOT the read lock.
+    expect(hook).toContain('const actionInFlight = useRef(false);');
+    expect(dismissBody).toContain('await runExclusive(');
+    const soBody = hook.slice(hook.indexOf('const signOutAll = useCallback('));
+    expect(soBody).toContain('await runExclusive(');
+    expect(exclusiveBody).toContain('actionInFlight.current = true;');
+    expect(exclusiveBody).toContain('actionInFlight.current = false;');
+    // F-SEC-1-A (A's review): "released exactly once" is the property the evidence asks for, and existence
+    // assertions cannot express it — a later edit adding a second release on a success path would pass them all.
+    // Counted here, so the structural argument has a test: one acquire, one release, one busy-clear in the file.
+    const occurrences = (hay: string, needle: string) => hay.split(needle).length - 1;
+    expect(occurrences(hook, 'actionInFlight.current = true;')).toBe(1);
+    expect(occurrences(hook, 'actionInFlight.current = false;')).toBe(1);
+    expect(occurrences(hook, 'setBusy(false);')).toBe(1);
+    expect(occurrences(hook, 'setBusy(true);')).toBe(1);
     expect(hook).toContain('signOutAllDevices()');
     expect(hook).toContain('SIGN_OUT_FAILED_COPY');
     expect(hook).not.toContain('supabase.auth.signOut(');
