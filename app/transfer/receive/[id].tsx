@@ -39,7 +39,7 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
-import { formatCountdown, buyerNeedsDelivery, transferStatusCopy, transferStatusMeta } from '@/src/lib/transfer/transferState';
+import { formatCountdown, buyerNeedsDelivery, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY } from '@/src/lib/transfer/transferState';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -162,12 +162,17 @@ export default function TransferReceiveScreen() {
     });
   }, [userId, id]);
 
+  // F-XFER-2: the send window is the SELLER's, and it only means anything while the transfer is pending.
+  // This effect had no status condition at all, so a buyer could watch a countdown — and then be told the
+  // window "expired" — on a transfer the seller had already sent. Gated like the send screen's.
   useEffect(() => {
-    if (!transfer?.expires_at) return;
+    // No explicit reset here: the render gate below is what hides a stale value, and a line no test can
+    // justify and no user can observe is worse than no line at all (its mutant survived, so it went).
+    if (!transfer?.expires_at || transfer.status !== 'pending') return;
     setCountdown(formatCountdown(transfer.expires_at));
     timerRef.current = setInterval(() => setCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [transfer?.expires_at]);
+  }, [transfer?.expires_at, transfer?.status]);
 
   async function handleDeliverySubmit(email: string | null, phone: string | null) {
     if (!id) return;
@@ -335,10 +340,10 @@ export default function TransferReceiveScreen() {
           </>
         ) : null}
 
-        {countdown && transfer.status !== 'buyer_confirmed' ? (
+        {countdown && transfer.status === 'pending' ? (
           <View style={[s.countdown, countdown === 'Expired' && s.countdownExpired]}>
             <Text style={[textStyle('bodySm'), s.countdownText, countdown === 'Expired' && s.countdownExpiredText]}>
-              {countdown === 'Expired' ? 'Transfer window expired' : countdown}
+              {countdown === 'Expired' ? TRANSFER_EXPIRY_COPY.buyer : countdown}
             </Text>
           </View>
         ) : null}

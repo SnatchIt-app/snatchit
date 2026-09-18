@@ -47,6 +47,21 @@ export default function MyListingsScreen() {
   const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
 
   const initialLoadDone = useRef(false);
+  // F-DESTRUCT-1: one destructive request per listing at a time. The ref is the lock (a second tap that
+  // lands before the re-render is dropped here, not by React state); the state drives the row's busy look.
+  const destructiveInFlight = useRef<Set<string>>(new Set());
+  const [busyListingIds, setBusyListingIds] = useState<ReadonlySet<string>>(new Set());
+
+  function beginDestructive(id: string): boolean {
+    if (destructiveInFlight.current.has(id)) return false;
+    destructiveInFlight.current.add(id);
+    setBusyListingIds(new Set(destructiveInFlight.current));
+    return true;
+  }
+  function endDestructive(id: string): void {
+    destructiveInFlight.current.delete(id);
+    setBusyListingIds(new Set(destructiveInFlight.current));
+  }
 
   const fetchMyListings = useCallback(async (silent = false) => {
     if (!userId) return;
@@ -107,29 +122,41 @@ export default function MyListingsScreen() {
       Alert.alert('Cannot delete', 'This listing has bids and cannot be deleted.');
       return;
     }
-    const { error } = await supabase.from('listings').delete().eq('id', listing.id).eq('seller_id', userId);
-    if (error) { Alert.alert('Delete failed', error.message); return; }
-    setListings((prev) => prev.filter((l) => l.id !== listing.id));
-    if (listing.cover_image_path) {
-      try {
-        await supabase.storage.from('auction-media').remove([listing.cover_image_path]);
-      } catch (e) {
-        console.warn('[MyListings] cover image cleanup failed:', e);
+    if (!beginDestructive(listing.id)) return;
+    try {
+      const { error } = await supabase.from('listings').delete().eq('id', listing.id).eq('seller_id', userId);
+      if (error) { Alert.alert('Delete failed', error.message); return; }
+      setListings((prev) => prev.filter((l) => l.id !== listing.id));
+      if (listing.cover_image_path) {
+        try {
+          await supabase.storage.from('auction-media').remove([listing.cover_image_path]);
+        } catch (e) {
+          console.warn('[MyListings] cover image cleanup failed:', e);
+        }
       }
+    } finally {
+      endDestructive(listing.id);
     }
   }
 
   async function performCancel(listing: Listing) {
-    const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
-    if (error) { Alert.alert('Cancel failed', error.message); return; }
-    setListings((prev) =>
-      prev.map((l) =>
-        l.id === listing.id ? { ...l, auction_status: 'cancelled' as const, ended_at: new Date().toISOString() } : l,
-      ),
-    );
+    if (!beginDestructive(listing.id)) return;
+    try {
+      const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
+      if (error) { Alert.alert('Cancel failed', error.message); return; }
+      setListings((prev) =>
+        prev.map((l) =>
+          l.id === listing.id ? { ...l, auction_status: 'cancelled' as const, ended_at: new Date().toISOString() } : l,
+        ),
+      );
+    } finally {
+      endDestructive(listing.id);
+    }
   }
 
   function handleDelete(listing: Listing) {
+    // Nothing to confirm twice: a request is already running for this listing.
+    if (destructiveInFlight.current.has(listing.id)) return;
     if (listing.bid_count > 0 && listing.auction_status === 'active') {
       Alert.alert('Cancel listing', 'This listing has bids. Cancelling will void all bids. Are you sure?', [
         { text: 'Keep listing', style: 'cancel' },
@@ -259,6 +286,7 @@ export default function MyListingsScreen() {
                     : router.push(`/listing/${item.id}`)
                 }
                 onDelete={() => handleDelete(item)}
+                busy={busyListingIds.has(item.id)}
                 onEdit={() => router.push(`/listing/edit/${item.id}` as never)}
               />
             );

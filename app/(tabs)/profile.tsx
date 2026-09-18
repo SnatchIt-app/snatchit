@@ -94,6 +94,10 @@ export default function ProfileScreen() {
   const [signOutBusy,     setSignOutBusy]     = useState(false);
   const [avatarUrl,       setAvatarUrl]       = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // F-AVATAR-3: the LOCK is this ref; `avatarUploading` is what the control SHOWS. A second press landing in
+  // the same event loop reads the same stale state closure and walks past a state guard, and `disabled` cannot
+  // stop it either because React has not re-rendered yet. Same pattern as F-AVATAR-2 and F-DESTRUCT-1.
+  const avatarInFlight = useRef(false);
   const [payoutStatus,    setPayoutStatus]    = useState<PayoutStatus>('not_connected');
 
   async function loadData() {
@@ -187,19 +191,26 @@ export default function ProfileScreen() {
   }
 
   async function handleAvatarPress() {
-    if (!user || avatarUploading) return;
+    if (!user || avatarInFlight.current) return;
+    avatarInFlight.current = true;
+    // F-AVATAR-1: busy covers the WHOLE operation, upload and save. It used to clear when the upload
+    // returned, which left the ring idle and still showing the old photo while the write was in flight —
+    // and with the guard already open, a second tap could race that write.
     setAvatarUploading(true);
-    const result = await pickAndUploadAvatar(user.id);
-    setAvatarUploading(false);
-
-    if (!result.ok) {
-      if (result.error !== 'Cancelled.') Alert.alert('Upload failed', result.error);
-      return;
+    try {
+      const result = await pickAndUploadAvatar(user.id);
+      if (!result.ok) {
+        if (result.error !== 'Cancelled.') Alert.alert('Upload failed', result.error);
+        return;
+      }
+      const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
+      if (dbError) { Alert.alert('Save failed', dbError.message); return; }
+      setAvatarUrl(result.publicUrl);
+      setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
+    } finally {
+      avatarInFlight.current = false;
+      setAvatarUploading(false);
     }
-    const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
-    if (dbError) { Alert.alert('Save failed', dbError.message); return; }
-    setAvatarUrl(result.publicUrl);
-    setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
   }
 
   async function handleSignOut() {

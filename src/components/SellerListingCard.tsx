@@ -41,6 +41,8 @@ type Props = {
   listing: Listing;
   onPress: () => void;
   onDelete?: () => void;
+  /** F-DESTRUCT-1: a destructive request is running for this listing — the actions stand down. */
+  busy?: boolean;
   onEdit?: () => void;
   isVerifiedSeller?: boolean;
   /** Sold but tickets not sent yet — surfaces the "send the tickets" line. */
@@ -54,7 +56,7 @@ function titleCase(s: string | null | undefined): string {
   return (s ?? '').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend }: Props) {
+export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend, busy }: Props) {
   const badge = sellerBadge(listing);
   const cancelled = badge === 'cancelled';
   const canEdit = canEditListing(listing);
@@ -121,12 +123,12 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
               </Tappable>
             ) : null}
             {canDelete && onDelete ? (
-              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
+              <Tappable onPress={onDelete} disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel="Delete listing">
                 <Text style={[textStyle('label'), s.delete]}>Delete</Text>
               </Tappable>
             ) : null}
             {canCancel && onDelete ? (
-              <Tappable onPress={onDelete} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
+              <Tappable onPress={onDelete} disabled={busy} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel listing">
                 <Text style={[textStyle('label'), s.cancel]}>Cancel</Text>
               </Tappable>
             ) : null}

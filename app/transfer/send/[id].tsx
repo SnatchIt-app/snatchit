@@ -24,6 +24,7 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
 import {
+  TRANSFER_EXPIRY_COPY,
   formatCountdown,
   sellerAlreadySent,
   sellerDeliveryMissing,
@@ -306,7 +307,7 @@ export default function TransferSendScreen() {
         {expiryCountdown && transfer.status === 'pending' ? (
           <View style={[s.countdown, expiryCountdown === 'Expired' && s.countdownExpired]}>
             <Text style={[textStyle('bodySm'), s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
-              {expiryCountdown === 'Expired' ? 'Transfer window expired' : `${expiryCountdown} to send`}
+              {expiryCountdown === 'Expired' ? TRANSFER_EXPIRY_COPY.seller : `${expiryCountdown} to send`}
             </Text>
           </View>
         ) : null}
