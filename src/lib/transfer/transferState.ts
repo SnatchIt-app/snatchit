@@ -42,6 +42,29 @@ export function formatCountdown(ts: string | null, now: number = Date.now()): st
   return `${m}m remaining`;
 }
 
+/**
+ * F-XFER-1: what the send screen may say once the device clock passes `expires_at`.
+ *
+ * It may NOT say "expired". Nothing on the server enforces that word: `mark_transfer_sent` (140) gates on
+ * status alone and never reads `expires_at`, so a send past the window still succeeds until the sweep moves
+ * the row off `pending`. The old chip asserted an enforcement no layer performed, and it asserted it from
+ * the device's own clock. This says only what is true from here: the window has passed, sending may still
+ * work, and the system decides.
+ *
+ * Whether the window SHOULD be enforced server-side is the owner's, routed through A. This copy does not
+ * anticipate that answer, and it must be revisited if enforcement arrives.
+ */
+export const TRANSFER_EXPIRY_COPY = {
+  /** The seller's screen: they are the one who can still act. */
+  seller: 'Send window has passed — send now if you still can',
+  /**
+   * The buyer's screen. F-XFER-2-A: batch 1b gave both screens the seller's string, so the buyer was told to
+   * "send now if you still can" — an action they cannot take and that is not theirs. The buyer's true
+   * statement is what the server will still allow, said about the other party.
+   */
+  buyer: 'Send window has passed — the seller may still send',
+} as const;
+
 /** The canonical badge label + tone for a status. Word carries the meaning. */
 export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
   switch (status) {

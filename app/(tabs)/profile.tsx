@@ -188,18 +188,23 @@ export default function ProfileScreen() {
 
   async function handleAvatarPress() {
     if (!user || avatarUploading) return;
+    // F-AVATAR-1: busy covers the WHOLE operation, upload and save. It used to clear when the upload
+    // returned, which left the ring idle and still showing the old photo while the write was in flight —
+    // and with the guard already open, a second tap could race that write.
     setAvatarUploading(true);
-    const result = await pickAndUploadAvatar(user.id);
-    setAvatarUploading(false);
-
-    if (!result.ok) {
-      if (result.error !== 'Cancelled.') Alert.alert('Upload failed', result.error);
-      return;
+    try {
+      const result = await pickAndUploadAvatar(user.id);
+      if (!result.ok) {
+        if (result.error !== 'Cancelled.') Alert.alert('Upload failed', result.error);
+        return;
+      }
+      const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
+      if (dbError) { Alert.alert('Save failed', dbError.message); return; }
+      setAvatarUrl(result.publicUrl);
+      setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
+    } finally {
+      setAvatarUploading(false);
     }
-    const { error: dbError } = await supabase.from('profiles').update({ avatar_path: result.storagePath }).eq('id', user.id);
-    if (dbError) { Alert.alert('Save failed', dbError.message); return; }
-    setAvatarUrl(result.publicUrl);
-    setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
   }
 
   async function handleSignOut() {

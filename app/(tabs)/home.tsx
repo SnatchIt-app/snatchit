@@ -21,7 +21,7 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, RefreshControl, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -29,6 +29,15 @@ import { allInFromDollars } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
+import {
+  HOME_FILTER_REFRESH_FAILED_COPY,
+  initialFilterLoadState,
+  mayShowEmptyCopy,
+  type FilterDataset,
+  type FilterLoadState,
+} from '@/src/lib/home/filterLoad';
+import { failureSurface } from '@/src/lib/screens/refreshPolicy';
+import { textStyle } from '@/src/theme/typography';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { Chip, EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
@@ -147,6 +156,23 @@ export default function HomeScreen() {
   const [allListings,   setAllListings]   = useState<Listing[]>([]);
   const [soldListings,  setSoldListings]  = useState<Listing[]>([]);
   const [endedListings, setEndedListings] = useState<Listing[]>([]);
+  // F-HOME-1: the two lazy datasets each carry their own load state. Without this a slow or failed read
+  // rendered the settled empty copy, so the screen told the shopper the marketplace was empty when it had
+  // only failed to look.
+  const [filterLoad, setFilterLoad] = useState<Record<FilterDataset, FilterLoadState>>({
+    recently_sold: initialFilterLoadState,
+    ended: initialFilterLoadState,
+  });
+
+  function markFilterLoading(ds: FilterDataset) {
+    setFilterLoad((prev) => ({ ...prev, [ds]: { ...prev[ds], loading: true } }));
+  }
+  function markFilterFailed(ds: FilterDataset, kind: FilterLoadState['error']) {
+    setFilterLoad((prev) => ({ ...prev, [ds]: { ...prev[ds], loading: false, error: kind } }));
+  }
+  function markFilterLoaded(ds: FilterDataset) {
+    setFilterLoad((prev) => ({ ...prev, [ds]: { loading: false, error: null, settled: true } }));
+  }
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
   const { isOffline } = useNetworkStatus();
@@ -202,6 +228,7 @@ export default function HomeScreen() {
   }
 
   async function fetchSoldListings() {
+    markFilterLoading('recently_sold');
     const baseQuery = supabase
       .from('listings')
       .select('*')
@@ -210,16 +237,22 @@ export default function HomeScreen() {
       .limit(30);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
-    if (error) { console.warn('[HomeScreen] sold fetch error:', error.message); return; }
-    if (!data) return;
+    if (error || !data) {
+      // Rows already on screen stay: a failed refresh never empties the feed (F-BIDS-1's rule).
+      console.warn('[HomeScreen] sold fetch error:', error?.message ?? 'no rows returned');
+      markFilterFailed('recently_sold', classifyLoadFailure(error, offlineRef.current));
+      return;
+    }
 
     const rows = data as Listing[];
     setSoldListings(rows);
     soldLoadedOnce.current = true;
+    markFilterLoaded('recently_sold');
 
   }
 
   async function fetchEndedListings() {
+    markFilterLoading('ended');
     // Ended = auction_status 'ended' but not yet sold
     const baseQuery = supabase
       .from('listings')
@@ -230,12 +263,16 @@ export default function HomeScreen() {
       .limit(30);
     const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
 
-    if (error) { console.warn('[HomeScreen] ended fetch error:', error.message); return; }
-    if (!data) return;
+    if (error || !data) {
+      console.warn('[HomeScreen] ended fetch error:', error?.message ?? 'no rows returned');
+      markFilterFailed('ended', classifyLoadFailure(error, offlineRef.current));
+      return;
+    }
 
     const rows = data as Listing[];
     setEndedListings(rows);
     endedLoadedOnce.current = true;
+    markFilterLoaded('ended');
 
   }
 
@@ -378,6 +415,19 @@ export default function HomeScreen() {
   const priceActive = hasPriceFilter(filters);
   const yourSceneActive = filters.chip === 'your_scene';
 
+  // F-HOME-1: which lazy dataset the active chip is showing, and how its last read went.
+  const activeDataset: FilterDataset | null =
+    filters.chip === 'recently_sold' ? 'recently_sold' : filters.chip === 'ended' ? 'ended' : null;
+  const datasetState = activeDataset ? filterLoad[activeDataset] : null;
+  const datasetBusy = datasetState?.loading === true && filteredListings.length === 0;
+  const datasetFailure = datasetState
+    ? failureSurface(filteredListings.length, datasetState.error !== null)
+    : 'none';
+  const retryDataset = () => {
+    if (activeDataset === 'recently_sold') void fetchSoldListings();
+    if (activeDataset === 'ended')         void fetchEndedListings();
+  };
+
   const emptyCopy =
     filters.chip === 'recently_sold' ? { title: 'Nothing sold yet', body: 'Completed sales show up here.' }
     : filters.chip === 'ended'       ? { title: 'No ended auctions', body: 'Auctions that closed without a sale show up here.' }
@@ -418,14 +468,30 @@ export default function HomeScreen() {
             tintColor={v2.brand.red}
           />
         }
-        ListHeaderComponent={loading ? <DiscoveryGridSkeleton /> : null}
+        ListHeaderComponent={
+          loading || datasetBusy ? <DiscoveryGridSkeleton /> :
+          datasetFailure === 'inline' && datasetState?.error ? (
+            <View style={s.notice} accessibilityRole="alert">
+              <Text style={[textStyle('bodySm'), s.noticeText]}>
+                {HOME_FILTER_REFRESH_FAILED_COPY[datasetState.error]}
+              </Text>
+              <Pressable onPress={retryDataset} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry loading this filter">
+                <Text style={[textStyle('label'), s.noticeAction]}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
-          loading ? null : loadError ? (
+          loading || datasetBusy ? null :
+          datasetFailure === 'screen' && datasetState?.error ? (
+            // The filter's own read failed with nothing to keep — say so, never "nothing sold yet".
+            <ScreenState state={datasetState.error} onRetry={retryDataset} />
+          ) : loadError ? (
             <ScreenState
               state={loadError}
               onRetry={() => fetchListings().finally(() => setLoading(false))}
             />
-          ) : (
+          ) : datasetState && !mayShowEmptyCopy(datasetState) ? null : (
             <EmptyState title={emptyCopy.title} body={emptyCopy.body} />
           )
         }
@@ -522,6 +588,15 @@ export default function HomeScreen() {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.sm,
+    paddingBottom: v2.space.md,
+  },
+  noticeText: { color: v2.text.muted, flexShrink: 1 },
+  noticeAction: { color: v2.brand.red },
   container: { flex: 1, backgroundColor: v2.surface.canvas },
   // Holds the feed and the overlay bar; clips the bar as it slides up so it
   // never rides over the brand header.
