@@ -175,19 +175,28 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
 2. **A manual Redeploy** with "Use project's Ignore Build Step" unticked builds anyway.
 3. **CLI (`vercel deploy`), API-created deployments and deploy hooks:** the docs do not say whether the ignore step applies. **UNVERIFIED, so treat them as not covered.** No deploy hooks are configured today.
 4. **For `snatchit-web`, any build that gets past suppression connects to PRODUCTION.** Its Preview variables still point there (the corrected claim in §3). Phase 2, or D's fail-closed layer for the website (removing Preview scope from its three shared entries, awaiting approval), would change that.
-5. **For `snatchit-admin`,** a build that gets past suppression should **fail** at `env.ts`, with no URL, anon key or site URL. That holds only for code that validates as `ab3e17f` does. It stops holding if a Preview variable is added later, or if a deployment injects build env through CLI flags.
-6. **Failed-check noise is still possible.**
+5. **For `snatchit-admin`,** a build that gets past suppression **fails at build.**
+   - **D verified it:** a local `next build` at `ab3e17f` with `VERCEL_ENV=preview` and no Supabase, site or label variables exits 1 ("Missing required environment variables…"). A positive control with dummy values exits 0.
+   - D also confirmed statically that **all 6 remote `admin/*` branches** have the same `env.ts` throw, imported by the layout and the middleware.
+   - **Vercel's own build was not exercised.**
+   - It stops holding if a Preview variable is added later, or if a deployment injects build env (see 9).
+6. **Failed-check noise is still possible.** For admin, D confirmed the failure happens at build, not at request time, so it would show as a failed build.
    - Canceled (ignored) builds count toward the Hobby deployment quota, so **"Deployment rate limited" failures can still appear on commits.**
    - A build that gets past suppression and fails at `env.ts` would also show as a failed check.
    - How GitHub displays an ignored (canceled) build was not verified.
 7. **If `autoExposeSystemEnvs` were turned off,** `VERCEL_ENV` would be unset and the web command would skip **production** builds too. That fails in the safe direction for data, but it would block web releases.
 8. **Existing deployments are unaffected** (6.6).
+9. **`vercel pull` / `vercel build` + `vercel deploy --prebuilt`** (D). The build runs **locally** with the pulled environment, so it skips **both** the ignore step and Preview scoping. `snatchit-admin`'s **Development** target still holds the production URL and anon key; that was preserved as the owner required. So `vercel pull --environment=development` puts production values on disk. For `snatchit-web`, the Preview values still point at production. **So neither change covers CLI deploys.**
+10. **Local files uploaded by CLI deploys** (D). A CLI upload can carry gitignored files. The April admin previews' upload included `supabase/.temp/*`, and a `.env.local` would travel the same way, where Next loads it at build.
+    - **By file name, neither April upload contained any `.env*` file.** The only dot-directory was `supabase/.temp`.
+    - D reports that no admin worktree on this machine has production- or sandbox-ref lines in `.env.local`, or a `.vercel` link, so this route is not live from here today.
+11. **Phase-2 note, defence in depth (D):** admin's CSP (`next.config.ts:4`, the same on all 7 refs) always allows the **production** host in `connect-src` and `img-src`. An admin preview pointed at an isolated database would still let the browser reach production. Phase 2 should derive that host from the configured URL.
 
 ### 6.5 The two existing admin previews (read-only: deployment metadata and uploaded source listing; no page loaded, no operator action, no data read)
 
 | Deployment | Built | Source | vs approved console `ab3e17f` |
 |---|---|---|---|
-| `dpl_6Ax3FuXf2wuGeq3SXbrdMAftRXnH` | 2026-04-08T03:30Z via **CLI** | git meta sha `1cae7cba…` "Initial commit from Create Next App", ref `main`, **dirty working tree**. **That commit is not in this repository** | **0** of its 46 source files byte-identical. It predates `ab3e17f` (2026-09-07) by five months |
+| `dpl_6Ax3FuXf2wuGeq3SXbrdMAftRXnH` | 2026-04-08T03:30Z via **CLI** | git meta sha `1cae7cba…` "Initial commit from Create Next App", ref `main`, **dirty working tree**. **That commit is not in any fetched ref** (A and D both checked the local object store after a fetch; a commit that was never pushed cannot be ruled out elsewhere) | **0** of its 46 source files byte-identical. It predates `ab3e17f` (2026-09-07) by five months |
 | `dpl_V9Hhhvis8Dmpnsg6JFqVx8opVHut` | 2026-04-09T01:50Z via **CLI** | the same sha, ref and dirty tree | **0** of 55 byte-identical |
 
 - **Unreviewed code, not the approved console.**
@@ -219,3 +228,9 @@ PATCH /v9/projects/prj_UjnXiY7r3PV4NCMH70UpdWT9rvfL?teamId=team_rld7LG9DKzgaph97
 - It is **not a code result**, and it was **not retried.** A retry would be a production-connected preview, and I2 would now cancel it anyway.
 - All code checks pass (§5).
 - PRs #72–#76 remain **unmerged**.
+
+**D's review of §6 (2026-09-18), applied above:**
+- **(a)** Admin fail-closed holds: verified by a local build with a positive control, and statically on all 7 refs.
+- **(b)** Three routes added to §6.4 (items 9–11).
+- **(c)** Wording tightened.
+- D found nothing contradicting the §6.2/6.3 read-backs, §6.6 or §6.7, which D did not re-read. D read and changed nothing hosted.
