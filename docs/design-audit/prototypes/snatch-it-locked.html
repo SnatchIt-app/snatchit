@@ -529,12 +529,14 @@ table.t td b{color:var(--pageInk)}
    <p>Content scrolls under the glass with matched bottom padding and a 34 px scrim above the bar, so the last line of
     a price breakdown is never trapped behind it.</p></div>
   <div class="card"><h2>Chrome accents</h2>
-   <p>Five places, and no more: the wordmark, the 1 px top edge on nav bar / action bar / dock, the selected-tab
-    indicator, the inner highlight on a CTA, and the ring on the profile avatar.</p>
+   <p>Five places, and no more: the wordmark, the 1 px top edge on nav bar / action bar / dock, the
+    <b>selected-tab indicator</b> — chrome by ruling, never red — the inner highlight on a CTA, and the ring on the
+    profile avatar.</p>
    <h3>Status colour</h3>
-   <p><b>Approved 18 Sep:</b> chrome for live and leading, amber for attention, and <b>green only for confirmed
-    payment or a completed money state</b>. Red is for primary consumer actions and destructive actions, never for
-    passive status — so discovery contains none of it, and the ending-soon pill is amber.</p></div>
+   <p><b>Final, 18 Sep:</b> chrome for live and leading, amber for attention, and <b>green only for confirmed
+    payment or a completed money state</b>. <b>Red is reserved for primary actions, destructive actions and the brand
+    mark</b> — never for passive navigation or decoration. So the selected tab is chrome, the dock's bid count is
+    chrome, the ending-soon pill is amber, and discovery carries no red at all.</p></div>
   <div class="card"><h2>Motion</h2>
    <p>Reduce Motion is the default and the shipping baseline. With motion on: screen change rises 4 px over 200 ms;
     sheets translate 14 px over 260 ms; a Home view switch crossfades at 200 ms; a changed bid value dips once.</p>
@@ -555,10 +557,13 @@ table.t td b{color:var(--pageInk)}
   it. What remains is a dependency list, not a set of open questions.</p>
  <table class="t">
   <tr><th style="width:13rem">Approved</th><th>The ruling</th><th>How the prototype obeys it</th></tr>
-  <tr><td><b>Red</b></td><td>Red is for primary consumer actions and destructive actions. Never for passive status
-   or decoration.</td><td>Exactly one filled red control on Listing, Send, Receive and Checkout, and none on the other
-   five screens. Destructive is outlined red, never filled. Status and live-bid indicators are chrome or amber; the
-   ending-soon pill is amber, and the dock's bid count is chrome.</td></tr>
+  <tr><td><b>Red</b><br><span class="kbd">final 18 Sep</span></td><td>Red is reserved for <b>primary actions,
+   destructive actions and the brand mark</b>. Not for passive navigation or decoration — the selected tab indicator
+   is chrome.</td><td>Exactly one filled red control on Listing, Send, Receive and Checkout, and none on the other
+   five screens. Destructive is outlined red, never filled. The <b>selected-tab indicator and the dock's bid count are
+   chrome</b>; status and live-bid indicators are chrome or amber, and the ending-soon pill is amber, so discovery
+   carries no red. The brand-mark slot is granted but unused here — this prototype sets the wordmark in chrome, which
+   is a Chrome Signal choice rather than a constraint, and a red mark is one token away.</td></tr>
   <tr><td><b>Radius — scoped exception</b></td><td>Liquid may use 14 / 16 / 20 px on its glass CTAs, overlays and
    grouped surfaces. The rest of the app stays square.</td><td>20 px on the glass CTA and the sheets, 16 px on media
    inside a Liquid surface, 14 px on grouped Liquid lists. Every other corner is 0 or a pill — four stray values
@@ -1136,7 +1141,7 @@ function sheet(id){
    ${sec('Delivery',`<div style="display:flex;gap:7px;flex-wrap:wrap">
      <button class="chip" aria-pressed="true">Mobile transfer</button><button class="chip" aria-pressed="false">Any method</button></div>`)}
    <div class="sm">Prices are all-in. Filtering never hides fees, because there are none to hide.</div>
-   <div class="stack" style="gap:var(--s3)">${gcta('Show 6 events','',{act:'closeSheet'})}
+   <div class="stack" style="gap:var(--s3)">${gcta('Show 6 events','',{kind:'neutral',act:'closeSheet'})}
     ${gcta('Reset','',{kind:'quiet',act:'resetFilters'})}</div></div>`;
  }
  if(id==='photos'){
@@ -1160,7 +1165,7 @@ function sheet(id){
   <div style="margin-top:var(--s4)">${kv([['Your bid',money(e.p),'price-sm'],['Status',ended?'You won':'You’re leading'],
     ['Placed','Tue 19:04'],['All-in if you win',money(e.p+14),'price-sm'],['Delivery','Mobile transfer · DICE']])}</div>
   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
-   ${gcta(ended?'View your ticket':'Raise your bid','',{kind:ended?'neutral':'',act:'closeSheet'})}
+   ${gcta(ended?'View your ticket':'Raise your bid','',{kind:'neutral',act:'closeSheet'})}
    ${gcta('Close','',{kind:'quiet',act:'closeSheet'})}</div>`;
  }
  if(id==='bid'){

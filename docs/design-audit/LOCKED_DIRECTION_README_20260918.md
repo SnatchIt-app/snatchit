@@ -58,7 +58,7 @@ liquid · liquid.
 
 | Approved | The ruling | How the prototype obeys it |
 |---|---|---|
-| **Red** | Red is for primary consumer actions and destructive actions. Never for passive status or decoration. | Exactly one filled red control on Listing, Send, Receive and Checkout; none on the other five screens. Destructive is outlined red, never filled. Status and live-bid indicators are chrome or amber, the ending-soon pill is amber, and the dock's bid count is chrome. |
+| **Red** *(final, 18 Sep)* | Red is reserved for **primary actions, destructive actions and the brand mark**. It is not used for passive navigation or decoration — **the selected tab indicator is chrome.** | Red now resolves to **nine elements in the whole product**, every one a money commitment or a destructive action: Place bid (screen and sheet), Mark as sent (screen and confirm), Confirm receipt (screen and confirm), Pay, and Delete account (outlined, screen and sheet). **Zero red in the navigation layer** — the selected-tab indicator and the dock's bid count are both chrome, verified per screen. Status and live-bid indicators are chrome or amber; the ending-soon pill is amber. The brand-mark slot is granted but unused: this prototype sets the wordmark in chrome, which is a Chrome Signal choice rather than a constraint, and a red mark is one token away. |
 | **Radius — scoped exception** | Liquid may use **14 / 16 / 20 px** on its glass CTAs, overlays and grouped surfaces. The rest of the app stays square. | 20 px on the CTA and the sheets, 16 px on media inside a Liquid surface, 14 px on grouped Liquid lists. Every other corner is 0 or a pill. Four strays were squared off to enforce it: 2 px actions, a 2 px scan code, 10 px tab buttons and a 3 px card swatch. |
 | **Green** | Green is reserved for confirmed payment or completed money states. | Green now resolves to **four elements in the whole app**: receipt confirmed with payment released, the paid checkout receipt, a confirmed ticket, and a won bid whose payment is complete. Proof "Verified", identity "Phone and ID verified", "Marked as sent" and "You're the leading bidder" were green and are now chrome — none of them is a completed money state. |
 | **Blur — deferred** | Real blur waits for an authorised build. The solid translucent fallback is the baseline for prototypes and planning. | The prototype **defaults to the fallback**, with raised alphas carrying the legibility a blur would have provided. Measured: **zero blurred surfaces on load**, 21 when the top-bar `Glass` control previews real blur. What you see on load is what ships. |
@@ -105,8 +105,9 @@ screen with its consequence on its own sub-line, and a disabled action stating i
 Flat, square actions everywhere else. Destructive is outlined, never filled.
 
 **Chrome accents.** Five places and no more: the wordmark, the 1 px top edge on nav bar / action bar / dock, the
-selected-tab indicator, the inner highlight on a CTA, and the ring on the profile avatar. Status colour is
-**chrome for live and leading, amber for attention, green only for confirmed payment or a completed money state.**
+**selected-tab indicator** — chrome by ruling, never red — the inner highlight on a CTA, and the ring on the profile
+avatar. Status colour is **chrome for live and leading, amber for attention, green only for confirmed payment or a
+completed money state.**
 
 **Motion.** Reduce Motion is the default and the shipping baseline. With motion on: screen change rises 4 px over
 200 ms; sheets translate 14 px over 260 ms; a Home view switch crossfades at 200 ms; a changed bid value dips once.
@@ -154,7 +155,8 @@ transfer rule.
 | Direction tokens per screen | **as locked** (list in §1) |
 | Rounded CTA present | Listing, Send, Receive, Checkout — **and nowhere else** |
 | **Radius** — every corner in the app | **0, pill, or the granted 14 / 16 / 20.** Runtime audit across nine screens and seven sheets: **zero strays**. The only other values are the simulated iOS status bar's own hardware (1 px signal bars, 3 px battery) |
-| **Red** — filled elements | **exactly one** on each of Listing, Send, Receive, Checkout; **zero** on Home, Bids, Tickets, Profile, Settings. Destructive outlined, never filled |
+| **Red** — every red element in the app and in all seven sheets | **nine**, each a money commitment or a destructive action (Place bid ×2, Mark as sent ×2, Confirm receipt ×2, Pay, Delete account ×2 outlined). **Zero** on Home, Bids, Tickets, Profile, and zero in the filters, photos, bid-detail and dispute sheets |
+| **Red in the navigation layer** | **zero.** Selected-tab indicator and dock badge are chrome on all five dock-bearing screens, checked against the computed indicator gradient rather than the stylesheet |
 | **Green** — every green element in the app | **four, all completed money states:** receipt confirmed / payment released · paid checkout receipt · confirmed ticket · won bid with payment complete. Nothing else in the product is green |
 | **Blur** — surfaces with a live backdrop filter | **0 on load** (solid fallback, as ruled); 21 when real blur is previewed |
 | Content-layer glass | **zero**, in either mode |
@@ -181,6 +183,13 @@ transfer rule.
 Send and Receive — the two screens where a fold costs you money — **fit with the action visible and the whole
 breakdown above it.** The rest is the honest cost of the chosen directions: a 4:5 Gallery flyer on Tickets, a 4:5
 Editorial hero on Home and Listing, and grouped lists on Settings where every row now clears 44 px.
+
+### One thing the red audit caught
+
+The prototype's own text claimed "discovery carries no red", and the **filter sheet's apply button was red** — so the
+claim was false inside that overlay. Applying a filter commits nothing, so it has no claim on the colour. That button
+and the bid-status sheet's navigational action are now neutral glass (contrast 10.21:1), which makes discovery
+genuinely red-free and leaves red meaning exactly one thing: *you are about to move money or destroy something.*
 
 ### Not verified
 
