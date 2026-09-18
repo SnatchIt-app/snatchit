@@ -170,9 +170,9 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | **PASSED** 13:35 (below) — device evidence for F-XFER-2's pending branch |
 | DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
-| DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
+| DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED on its property — the save completed (14:09), spinner timing and a single change not captured (below) |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
-| DV-20-12 | Avatar, same-tick double press | one picker, one upload | UNTESTED, **weak-pass** (see below) |
+| DV-20-12 | Avatar, same-tick double press | one picker, one upload | **PASS (weak)** 14:09 — one picker (below) |
 | DV-20-13 | Security notice actions | one sign-out per press; a thrown failure shows a message | UNTESTED, **needs a staged notice** |
 
 **DV-20-12 is a weak-pass row by construction, and C is saying so before it is run.** The old state guard already
@@ -384,3 +384,15 @@ instructions, no "Open …" button, Event "Device D6", Seller "Unknown", Deliver
   "Transfer window expired" (`2fe7abd:341`).
 - **Write: UNKNOWN, not read.** If this was the buyer's first view of D6, it stamped `buyer_viewed_at` and wrote one
   `transfer_viewed` notification to the seller (the owner was told before opening and proceeded). Not verified.
+
+### DV-20-12 — PASS (weak), and DV-20-10 partly observed — Build 20, 2026-09-18 14:09 (owner-reported, screenshot)
+On the sandbox buyer's Profile tab, a quick double-tap on the photo **opened only one picker**, and the selected image
+(a non-personal Snatch It promotional graphic) **appeared as the profile photo**.
+- **DV-20-12 is PASS (weak), by construction, as recorded before the run:** one picker is equally consistent with "the
+  lock held" and "the two taps did not land in the same frame". A FAIL (two pickers) would have been conclusive; this
+  PASS is not proof the race is closed. The same-tick behaviour is pinned by P1–P6 in tests.
+- **DV-20-10's own property was not captured** (owner): whether the spinner stayed until the save finished, and
+  whether the photo changed exactly once. What was observed is only that the upload and save completed. Row stays
+  UNTESTED on its property.
+- **This wrote to the sandbox (owner accepted before running):** one object in the public `avatars` bucket under the
+  buyer's folder, and `profiles.avatar_path` for the buyer. Not read back.
