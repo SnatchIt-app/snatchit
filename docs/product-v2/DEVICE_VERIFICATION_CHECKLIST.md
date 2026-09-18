@@ -164,7 +164,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | **PASSED** 11:34 (below) |
 | DV-20-2 | Home "Ended" offline | same | **PASSED** 11:39 (below) |
 | DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | UNTESTED |
-| DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | UNTESTED |
+| DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | **PASSED** on the final state, 11:43:47 — **one earlier screen unreported, see note** |
 | DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
@@ -224,3 +224,21 @@ Offline with Wi-Fi off (owner); Airplane Mode as set for DV-20-1, not separately
   inferring it from the first.
 - Same limit as DV-20-1, recorded rather than inferred: the screen cannot show whether the filter's own failure
   state or the main feed's rendered it. Both are correct for this row.
+
+### DV-20-4 — PASSED on the final state, Build 20, 2026-09-18 11:43:47 (owner-reported, owner's ruling)
+The owner's correction, recorded verbatim in substance: the correct post-action state was
+**"YOU'RE OFFLINE"** / **"Check your internet connection and try again."** / a visible **"RETRY"** button, with
+**no bid form and no $0 value present.** The owner directed that DV-20-4 be recorded as PASSED on this final state,
+and that an earlier bid-form screenshot "was not the correct final output".
+- **Before/after:** on Build 19 a failed listing read fell through to the full bid form on a floor derived from
+  `?? 0`. The final state here is the offline state instead — the defect's outcome did not reproduce.
+- **DISCLOSED, NOT INFERRED — an earlier screen in this attempt showed a bid form, and C never received that report
+  or its screenshot.** Not captured: whether that form appeared **while still online** (a real read, real values —
+  correct behaviour) or **after Airplane Mode was on**, and what current bid and minimum it showed. **That
+  distinction is load-bearing:** a bid form rendered OFFLINE with "$0" would be the Build 19 defect itself, and a
+  later correct screen would not cancel it out. Nothing in the source explains a form turning into the offline
+  state on its own — the screen reads once when it opens — which fits a re-entry or a Retry in between, but that
+  sequence was not reported either.
+- **The row stands as PASSED because the owner ruled it so on their own observation.** C has asked the owner the one
+  question that would close the gap (below the table in the chat), and will amend this note — not the ruling —
+  with whatever the answer is.
