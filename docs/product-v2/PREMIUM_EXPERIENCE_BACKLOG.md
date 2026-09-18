@@ -4434,7 +4434,8 @@ behaviour.
   XM8 (all six) and XM11 (the three WITH) fail differently — **after C fixed its own regex bug: `(?:with|without)`
   matched "with" inside "without", keying every "without" failure as "with"; the resulting XM8 "mismatch" was the
   harness, and it had also made XM11's first "as predicted" unable to tell the halves apart.** Gates: tsc 0; vitest
-  117 / 2347; lint 0 / 29. A's PASS covered `a739a40`'s screen, which is unchanged. Not pushed, no PR, no build. A's server reading, verified
+  117 / 2347; lint 0 / 29. **A's PASS carried to `cf9b75b`** — A hashed `app/transfer/receive/[id].tsx` at `a739a40` and
+  `cf9b75b`: byte-identical. **Review complete at `cf9b75b`.** Not pushed, no PR, no build. A's server reading, verified
   by C: `confirm_transfer_received` (`0550:191`) and `buyer_dispute_transfer` (`0550:207`) — the last definitions — and
   the `confirm-and-release` edge function reference no delivery field (0550's delivery lines are all
   `set_transfer_delivery_info`, `:227-264`, plus a comment; the edge function has 0). **So the server always accepted
