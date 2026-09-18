@@ -427,3 +427,49 @@ rollback;
 ```
 
 **Stop conditions:** more or fewer than one transfer row; `status` other than `seller_sent`; `transfer_evidence_path` NOT null (then opening the screen would mint a signed URL for a stored object, which is the D1/D2 case and is barred).
+
+### DV-20-9 opened BEFORE the pre-check — recorded as observed, the write recorded as UNKNOWN; F-XFER-3 answered; F-LAYOUT-1 (A, 2026-09-18)
+
+**The owner opened S8only's Receive Transfer screen at 11:58 ET (≈15:58Z), before any read ran.** C recorded it at `b081535` on `frontend/premium-experience-backlog`. **A's prepared pre-check therefore no longer works as a pre-check** — it was designed to decide *before* the open whether the open would write, and the open has happened. **Nothing has been run and nothing is authorized; A runs nothing.**
+
+**What the owner reported:** badge **MARKED SENT**; event **"Sandbox S8only"** (so the L7 stop did not trigger); **no expiry line**; the delivery-info prompt and form. The navigation sequence was not supplied and **no database outcome has been confirmed by the owner.**
+
+**As recorded (C's structure, A concurs):**
+- **DV-20-9 PASSED on the screen as observed.**
+- **The fix evidence is recorded separately and is CONDITIONAL.**
+- **The write is UNKNOWN.** The open stamped `buyer_viewed_at` and wrote one `transfer_viewed` notification to the seller **only if** the column was NULL beforehand; nobody knows whether it was.
+
+**A's sharpening of the condition — narrower claim, better-founded (verified in source at `6561d1f`, the pre-fix tree):** C conditioned the fix evidence on `expires_at` being **still past**. **The discriminating condition is weaker than that: `expires_at IS NOT NULL`, past OR future.**
+- Pre-fix, the receive screen's countdown block (`:338-344`) is a **top-level sibling** — **not** inside the delivery gate (`:309-318`) and **not** inside the `!needsDeliveryInfo` block (`:320-336`). C was right about that.
+- Pre-fix, the effect (`:166`) runs `formatCountdown` for **any non-null** `expires_at`, and `formatCountdown` returns `"Expired"` if past **or `"Xh Ym remaining"` if future** — it returns `null` only when the timestamp is null.
+- So pre-fix, a `seller_sent` transfer with **any** `expires_at` showed **a** window line — *"Transfer window expired"* or a countdown. **The absence of any window line on Build 20 discriminates the fix whenever `expires_at` is non-null.** Only a NULL `expires_at` would make the observation uninformative, because the pre-fix screen would also have shown nothing.
+- **A's 09-17 read gave `expires_at = 2026-09-09T01:20Z`** — non-null. And `expires_at` is one of the columns `guard_transfer_state_columns` protects (`0550`), so changing it since then would have required a bypassed write. **That makes "still non-null" very likely — but nobody has re-read it, so the condition stays open.**
+
+**The after-the-fact read, PREPARED BY A AND NOT RUN.** It settles all four open points for `8f59d37e` in one read-only transaction. **The notification check is exact, not approximate:** `enqueue_notification` writes to `public.notifications`, which has a **unique index on `dedupe_key`** (`057`), so `transfer_viewed:<transfer_id>` exists **at most once** — its `created_at` alone says which open wrote it.
+
+```sql
+-- sandbox ofaidukbieeekqaboscm ONLY; read-only; unlinked worktree, explicit project ref; NOT AUTHORIZED
+begin read only;
+select 'rows='||count(*) from public.transfers where id::text like '8f59d37e%';        -- must be exactly 1, else STOP
+select t.id, t.status, t.buyer_viewed_at, t.expires_at,
+       (t.transfer_evidence_path is null) as evidence_path_null
+  from public.transfers t where t.id::text like '8f59d37e%';
+select count(*) as transfer_viewed_rows, min(n.created_at), max(n.created_at)
+  from public.notifications n join public.transfers t on n.dedupe_key = 'transfer_viewed:'||t.id::text
+ where t.id::text like '8f59d37e%';                                                      -- 0 or 1, by the unique index
+rollback;
+```
+
+**How it reads:** one `transfer_viewed` row created ≈15:57–15:59Z → **the owner's open wrote it** (a sandbox data change, after the fact). One row created earlier → **a prior open wrote it and today's open changed no values.** Zero rows → the trigger never fired for this transfer. `expires_at` non-null → the fix evidence holds. `evidence_path_null` true → no signed URL could have been minted for S8only's own path; **it cannot reach D1/D2 in either case**, since the screen only signs the path stored on its own transfer.
+
+### F-XFER-3 — **A's answer: the server does NOT enforce buyer delivery info before `mark_transfer_sent`**
+
+C asked A the question that decides whether real users can reach the state. **A verified in source at `8da50c0`:** in `140_proof_upload_repair.sql`, **both** overloads — the 3-arg at `:45` and the 2-arg at `:108` — gate on **status alone**; neither references any delivery field. **Both are granted to `authenticated`.** The only enforcement is **client-side**: the send screen's `disabled={… || buyerDeliveryMissing}`.
+
+**So `seller_sent` with no buyer delivery info IS reachable** by any path that skips the client gate — a direct authenticated RPC by the seller, either overload, or any client build without that gate. And in that state, per C: `buyerNeedsDelivery` (`transferState.ts:126-128`) includes `seller_sent`, and the receive screen shows the seller's claim, **confirm/dispute** and the proof view **only when `!needsDeliveryInfo`** — **the buyer's confirm and dispute are hidden behind a delivery form.**
+
+**Why this is A's lane and not only a layout question:** a `seller_sent` transfer carries `auto_release_at`, after which payment releases to the seller. **Whether putting dispute behind a form the buyer may not understand can cost them the dispute window before auto-release is a product question A names and does not answer.** The buyer is not locked out — filling the form reveals the controls — but the path to disputing is longer than the path to doing nothing. **OPEN, owner's to scope; nothing started.**
+
+### F-LAYOUT-1 — recorded only
+
+The listing-detail sticky bar truncates the price to *"CURREN…"* / *"$…"*. C's finding; recorded for the owner; nothing started.
