@@ -4041,3 +4041,31 @@ and opens it**; C declined to open a second one, since release integration is A'
 - **Review PRs, owned by A, both draft, no merge / no deploy / no build:** #72 (Batch 1 + 1b) and **#73 (1c alone,
   stacked on #72)** — https://github.com/SnatchIt-app/snatchit/pull/73 — **all nine checks pass** at `2567401`.
   D's implementation and control review of 1c is still open; nothing integrates before it lands.
+
+- **D's Batch 1c verdict: PASS at `2567401`** — implementation AND negative controls, as the owner required, on D's
+  own runs (vitest 2317 / 114; gated surface zero across all three batches; PM1 → P1+P2, PM2 → P3+P5+P6).
+  - **D's structural finding, stronger than C's claim:** the acquire sits before the first `await` and before
+    `setAvatarUploading(true)`, and there is **exactly one** `avatarInFlight.current = false` in the file, in a
+    `finally` — D counted rather than eyeballed. So a double clear is **impossible by construction**, which is a
+    better guarantee than any assertion. P4 is renamed to what it observes; the structural argument lives in the
+    commit, not in the test's name.
+  - **D declined C's offer of an interleaving test for P2, and the reasoning is worth keeping:** P2 pins the
+    invariant (no second operation starts while one is in flight) and out-of-order completion follows deductively;
+    it already has a control that fires (PM1). A permanent test that removes the lock to demonstrate the reversion
+    would pin *the behaviour of code that does not exist* — that is a mutant's job, transiently. The reversion has
+    been demonstrated live twice (C's run and D's independent probe) and that evidence belongs in this record.
+- **F-SEC-1 (NEW, C, from D's hand-over — a LEAD that C probed and CONFIRMED).** `src/hooks/useSecurityNotices.ts`
+  guards `dismiss` (`:56`) and `signOutAll` (`:74`) with `if (busy) return;` — **state, not a ref**, the same shape
+  as the three avatar/listing races.
+  - **Probe result: the same handler reference called twice in one tick invokes `signOutAllDevices()` TWICE**, with
+    one navigation. So the guard does not stop a real double-tap on a **security action**.
+  - **C's first probe was INVALID and C caught it before reporting a result.** It re-read `api.signOutAll` for the
+    second call, so the harness's synchronous re-render handed it a fresh closure with `busy` already true — it
+    "passed" and proved nothing. Real React does not re-render between two presses in one event loop. Capturing the
+    handler ONCE reproduces the real condition. *Suspect the harness when a result flatters the code.*
+  - **What is NOT established:** whether the second `signOutAllDevices()` fails in production and therefore shows
+    "sign out failed" after a successful sign-out. C's mock forced the second call to fail; the real return value
+    after sessions are revoked is unverified. The confirmed part is that the second invocation happens at all.
+  - **Outside every current authorisation, and it touches auth** — `src/lib/auth/signOut.ts` is on the gated
+    surface, so any fix goes to A before merge. Recorded for the owner; nothing started. **Fifth instance of the
+    same shape today**, and the first one C found by taking a hand-over rather than being handed the defect.
