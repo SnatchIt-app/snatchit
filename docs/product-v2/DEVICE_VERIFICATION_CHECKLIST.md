@@ -169,7 +169,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | UNTESTED |
-| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | UNTESTED |
+| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence conditional on one unre-read column |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
 | DV-20-12 | Avatar, same-tick double press | one picker, one upload | UNTESTED, **weak-pass** (see below) |
@@ -291,3 +291,39 @@ and that an earlier bid-form screenshot "was not the correct final output".
 - **Pre-check needed before the owner opens anything, and it is A's read, not C's:** for `8f59d37e` — `status`,
   `transfer_evidence_path IS NULL`, `buyer_viewed_at` (null or set), `buyer_id` (which account must be signed in),
   and the listing's event name. Sandbox state is not inferred from last night's record.
+
+### DV-20-9 — PASSED on the observed screen, Build 20, 2026-09-18 11:58 (owner-reported)
+Owner's report and 11:58 screenshot: **Receive Transfer** for **"Sandbox S8only"**, badge **MARKED SENT**, **no expiry
+line visible**. The screen also showed the delivery-information prompt ("Please provide your delivery info so the
+seller knows where to send your tickets.") and form (phone field, SAVE DELIVERY INFO). Transfer card: Event "Sandbox
+S8only", Seller "Unknown", Method "mobile transfer". **Navigation sequence not supplied; no database outcome
+confirmed** (owner's words) — neither is inferred below.
+- **Fixture discriminator held:** the event name reads "Sandbox S8only", not "Sandbox L7". "MARKED SENT" is
+  `seller_sent`'s label (`src/lib/transfer/transferState.ts:72`).
+- **The row's property is met on what the screenshot shows.** In `8da50c0` the line would render at
+  `app/transfer/receive/[id].tsx:343`, between the delivery form and the Transfer card — that region is on screen and
+  empty.
+- **Does this screen exercise the fix? Yes, conditionally.** Before F-XFER-2 (`2fe7abd`, `:338`) the countdown block
+  rendered for every status except `buyer_confirmed` and was **not** inside the delivery-prompt gate, so a
+  `seller_sent` transfer with a past `expires_at` showed "Transfer window expired" in that same region. The only change
+  to this file between `2fe7abd` and Build 20 is F-XFER-2 (`git diff --stat`: 1 file, +10/−5). **The condition:**
+  S8only's `expires_at` was last recorded past (09-09T01:20Z, A's read 2026-09-17) and was **not re-read** around this
+  open. If that holds, this is device evidence for F-XFER-2's `seller_sent` branch; if `expires_at` were NULL, neither
+  build would show a line and the screen would say nothing about the fix. Row and fix evidence recorded separately,
+  as for DV-20-4.
+- **A's pre-check was not run before this open** (it was never authorised). So **whether this open stamped
+  `buyer_viewed_at` and wrote one `transfer_viewed` notification to the seller is UNKNOWN** — it did so only if the
+  column was NULL beforehand. A can settle it read-only if the owner authorises that read.
+- **Storage:** S8only is a different transfer from D1/D2, so opening it cannot reach their retained objects. Whether
+  a signed URL was minted for S8only's *own* path depends on that path being NULL — last recorded NULL, not re-read.
+  The absence of a proof section on screen is **not** evidence either way: the proof block sits inside the same
+  `!needsDeliveryInfo` gate (`:372`).
+- **"Seller: Unknown"** is the fallback at `:358` when `display_name` is empty; A recorded `display_name` NULL on both
+  DV accounts (2026-09-17). Visible; not raised; not investigated.
+- The delivery prompt on a sent transfer → **F-XFER-3** (backlog).
+
+### 11:59 screenshot — a listing-detail screen, NOT Receive Transfer (owner's classification)
+Recorded for one thing only, at the owner's direction and **without expanding this pass**: the sticky bottom bar
+truncates the price label and amount to **"CURREN…"** and **"$…"** ("total" visible), beside PLACE BID and
+BUY NOW · $110. → **F-LAYOUT-1** (backlog). Which listing this is, and how the owner reached it, were not reported and
+are not inferred.

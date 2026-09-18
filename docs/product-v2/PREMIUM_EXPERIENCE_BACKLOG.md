@@ -4354,3 +4354,25 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   failure is not classified as offline — the same class of unclassified failure F-HOME-1 and F-BID-1 fixed
   elsewhere. **On a money-adjacent screen, the copy should also not imply anything about whether a bid was placed.**
   Recorded; nothing started; owner's call.
+
+- **F-XFER-3 (NEW, a question rather than a verdict; from the owner's DV-20-9 report + Build 20 source).** On a
+  `seller_sent` transfer with no delivery info, the buyer's Receive screen asks "Where should the seller send your
+  tickets?" about tickets the seller has already marked sent — and, in source, the same condition **hides the seller's
+  claim, the confirm/dispute controls and the proof view**: `buyerNeedsDelivery` (`src/lib/transfer/transferState.ts:126-128`)
+  is true for `pending` **or `seller_sent`**, and `app/transfer/receive/[id].tsx:372` renders the `seller_sent` block
+  only when `!needsDeliveryInfo`. Including `seller_sent` is deliberate per the function's doc comment; whether
+  gating confirm/dispute behind a delivery form after the seller has sent is intended is the open question. The
+  owner reported only the prompt and form; the screenshot is consistent with the source (no confirm or dispute
+  control visible). **Reachability not checked:** the seller client blocks sending without delivery info
+  (`sellerDeliveryMissing`, `:132`), but whether the server does is a `mark_transfer_sent` question. Transfers are a
+  stop-and-ask area: C raises it; A and the owner decide; nothing started.
+- **F-LAYOUT-1 (NEW, from the owner's 11:59 screenshot, Build 20; recorded only, not added to the handset pass).**
+  Listing-detail sticky bar: the price label and amount truncate to "CURREN…" / "$…", so the bar shows no price at
+  all beside PLACE BID and BUY NOW · $110. Source at `8da50c0`: `src/screens/ListingDetailScreen.tsx:1286-1293` —
+  `StickyBar` left slot, `PriceDisplay size="sticky"`, which applies `numberOfLines={1}` and `minWidth: 0` on purpose
+  (its header: introduced after the Jul 29 App Review screenshot where this bar wrapped into a one-character column).
+  So the primitive traded wrapping for truncation, and here the truncation reached the amount. **Probable squeeze by
+  the two buttons — a reading of the source, not verified;** the handset's text-size setting was not reported. The
+  price itself is still on the page (the panel above shows "STARTING BID $110 total"), so this is presentation, not a
+  wrong number. `PriceDisplay` is a shared primitive, so this belongs with the shared-primitives ownership decision.
+  Nothing started; owner's call.
