@@ -162,7 +162,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | # | Row | What must be true on the handset | Status |
 |---|---|---|---|
 | DV-20-1 | Home "Recently sold" offline | a classified failure, never "Nothing sold yet" | **PASSED** 11:34 (below) |
-| DV-20-2 | Home "Ended" offline | same | UNTESTED |
+| DV-20-2 | Home "Ended" offline | same | **PASSED** 11:39 (below) |
 | DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | UNTESTED |
 | DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | UNTESTED |
 | DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
@@ -215,3 +215,12 @@ Airplane Mode **on** and Wi-Fi **off** (both confirmed by the owner). Home → F
 - **Still UNTESTED on this row family:** DV-20-2 (Ended), DV-20-3 (a failed refresh over rows already shown), the
   slow-network premature-empty path, and whether the screen recovers without user action once the connection
   returns.
+
+### DV-20-2 — PASSED, Build 20, 2026-09-18 11:39 (owner-reported)
+Offline with Wi-Fi off (owner); Airplane Mode as set for DV-20-1, not separately restated. Home → FILTERS →
+**Ended** showed exactly: **"YOU'RE OFFLINE"** / **"Check your internet connection and try again."** / a visible
+**"RETRY"** button. **No "NO ENDED AUCTIONS", no spinner.**
+- Build 19 carried this defect on BOTH lazy datasets; this row confirms the fix covers the second one rather than
+  inferring it from the first.
+- Same limit as DV-20-1, recorded rather than inferred: the screen cannot show whether the filter's own failure
+  state or the main feed's rendered it. Both are correct for this row.
