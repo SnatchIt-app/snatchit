@@ -165,15 +165,15 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-2 | Home "Ended" offline | same | **PASSED** 11:39 (below) |
 | DV-20-3 | Home filter refresh fails over rows | rows stay, notice + Retry appear | **PASSED** 13:33 (below) |
 | DV-20-4 | Place bid, connection off | error state with Retry; **no bid form, no $0 current bid** | **PASSED** on the final state, 11:43:47 — **one earlier screen unreported, see note** |
-| DV-20-5 | Place bid, read rejects | no permanent spinner | UNTESTED |
-| DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
+| DV-20-5 | Place bid, read rejects | no permanent spinner | **BLOCKED** — no way to make the read reject on a handset |
+| DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | **SKIPPED** (owner) — needs a throwaway listing created and deleted; property not visible on a handset |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | **PASSED** 14:15 (below) — device evidence for F-XFER-1's client half; enabled = appearance only |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | **PASSED** 13:35 (below) — device evidence for F-XFER-2's pending branch |
 | DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence condition MET on D's read (`expires_at` non-null); the open wrote one seller notification |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED on its property — the save completed (14:09), spinner timing and a single change not captured (below) |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED on its property — save completed ~1 s (14:12), stand-down not observed (below) |
 | DV-20-12 | Avatar, same-tick double press | one picker, one upload | **PASS (weak)** 14:09 — one picker (below) |
-| DV-20-13 | Security notice actions | one sign-out per press; a thrown failure shows a message | UNTESTED, **needs a staged notice** |
+| DV-20-13 | Security notice actions | one sign-out per press; a thrown failure shows a message | **BLOCKED** — needs a staged security notice (a sandbox write, not authorised) |
 
 **DV-20-12 is a weak-pass row by construction, and C is saying so before it is run.** The old state guard already
 blocked a *slower* second tap; only a press landing inside the same event loop (~16 ms) got through. So a **FAIL
@@ -418,3 +418,31 @@ line above, a TRANSFER EVIDENCE "Transfer proof — ADD" row, and MARK AS SENT i
   (`ffd0f062`; `6561d1f:309`) the same state rendered "Transfer window expired".
 - **No write:** the send screen's mount path only reads `transfers` (`app/transfer/send/[id].tsx:108`, select); the
   writes on that screen (`mark_transfer_sent`, `attach_transfer_evidence`) are behind buttons that were not pressed.
+
+## Build 20 handset pass — CLOSED (owner, 2026-09-18)
+Owner: "Skip DV-20-6 and close the Build 20 handset pass. Keep the skipped, blocked and unobserved checks clearly
+labelled; don't count automated coverage as device evidence."
+
+| Label | Rows |
+|---|---|
+| **PASSED — device evidence** | DV-20-1 (11:34), DV-20-2 (11:39), DV-20-3 (13:33), DV-20-7 (14:15), DV-20-8 (13:35), DV-20-9 (11:58) |
+| **PASSED on final state only** | DV-20-4 (11:43:47) — **F-BID-1 itself has NO device evidence**: the sequence was not captured and no screen shows a form built on a failed read. No bid was written (D and A reads). |
+| **PASS (weak), by construction** | DV-20-12 (14:09) — one picker; a PASS cannot show the taps landed in the same frame |
+| **UNOBSERVED — property not seen** | DV-20-10 (14:09), DV-20-11 (14:12) — the saves completed; spinner persistence / controls standing down were not observed |
+| **SKIPPED (owner)** | DV-20-6 |
+| **BLOCKED** | DV-20-5 (no handset method), DV-20-13 (needs a staged notice) |
+
+**Automated coverage is NOT device evidence.** Where a row above mentions tests, that is where the behaviour is pinned
+in code; it does not change the row's label.
+
+**Device evidence by fix:** F-HOME-1 — DV-20-1/2/3. F-XFER-1 — DV-20-7. F-XFER-2 — DV-20-8 (pending) and DV-20-9
+(sent). **None:** F-BID-1, F-AVATAR-1/2/3 (weak pass only on the same-tick case), F-DESTRUCT-1, F-SEC-1, F-SEC-2.
+
+**Sandbox writes during the pass (all owner-accepted before running, except S8only, which was opened before the
+pre-check):** S8only first buyer view → `buyer_viewed_at` stamped + one `transfer_viewed` notification to the seller
+(confirmed by D and A reads). D6 buyer view at 13:35 → the same pair **only if** it was the first view (**not read**).
+Two objects in the public `avatars` bucket under the buyer's folder + `profiles.avatar_path` updated twice (14:09,
+14:12; not read back). **No bids, no transfer status change, no proof-file or storage access to D1/D2, L7 untouched.**
+
+**Raised during the pass, not started:** F-BID-3 (raw "TypeError" in the bid-failure alert), F-LAYOUT-1 (listing sticky
+bar truncates the price), F-LAYOUT-2 (Home notice has no horizontal inset). F-XFER-3 was raised and fixed (PR #75).
