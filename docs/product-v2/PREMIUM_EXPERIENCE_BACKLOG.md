@@ -4188,3 +4188,23 @@ question is moot in practice — **but it was never settled, and this fix does n
 - **Credit correction C volunteered:** S1 counts invocations rather than navigations because C's own probe had
   already shown two calls with one navigation — the shape was in front of C, not deduced. The version of that trap
   C did *not* catch alone is the one D found twice, where the harness hides the layer.
+
+- **D's retraction of its own 1c advice, in D's words, and the generalisable line from it.** In 1c D told C that a
+  single release site made a double clear *"impossible by construction… a stronger guarantee than any assertion
+  could give you"*, and told C not to chase it. D now withdraws that: **impossible-by-construction is true of the
+  construction that exists; it is not a guarantee about the next edit.** D proved it by writing the mutant (a
+  second release on the success path) and watching all 14 tests pass. **C's original instinct — that "cleared
+  exactly once" was thin — was right, and D talked C out of it with a tidy-sounding argument.**
+  *A structural guarantee and a pinned guarantee are different things, and "impossible by construction" is a
+  statement in the present tense.*
+  **Already closed in F-SEC-1 at `016d8e2` before D's message arrived** — C's counts go further than D's proposed
+  single line (acquire, release, and both `setBusy` calls), and were verified the same way, by applying A's
+  scenario as a mutant.
+- **F-SEC-1-B (NEW, recorded, NOT fixed): the identical uniqueness gap exists in 1b and 1c.** C verified at
+  `frontend/batch1c-profile-avatar`: `app/settings/edit-profile.tsx` and `app/(tabs)/profile.tsx` each have
+  **exactly one** `…InFlight.current = false` — true today, and **pinned by nothing**; neither suite counts
+  occurrences. `app/my-listings.tsx` is a different shape (one `endDestructive` definition, two call sites, both
+  in `finally`) and would need its own formulation rather than the same regex.
+  **Not being folded in.** 1b and 1c are passed with PRs open, and quietly widening a reviewed batch is what C and
+  D have both refused to do all day — D recommended the same. **Owner's to schedule**, and it is a test-hardening
+  item, not a defect: every one of those locks releases correctly today.
