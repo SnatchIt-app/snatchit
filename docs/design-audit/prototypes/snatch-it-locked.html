@@ -126,7 +126,7 @@ main{max-width:1420px;margin:0 auto;padding:1.4rem 1.1rem 0}
 .dock::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
  background:linear-gradient(90deg,transparent,rgba(255,255,255,.26) 22%,rgba(255,255,255,.1) 55%,transparent)}
 .dock button{flex:1;background:none;border:0;cursor:pointer;color:rgba(244,246,248,.5);display:flex;flex-direction:column;
- align-items:center;gap:3px;padding:5px 0 3px;font:inherit;position:relative;border-radius:10px}
+ align-items:center;gap:3px;padding:5px 0 3px;font:inherit;position:relative;border-radius:0}
 .dock button s{text-decoration:none;font-size:9.5px;font-weight:500}
 .dock button svg{width:21px;height:21px;display:block}
 .dock button:hover{color:var(--ink2)}
@@ -290,7 +290,7 @@ main{max-width:1420px;margin:0 auto;padding:1.4rem 1.1rem 0}
 
 /* ---- flat actions (non-Liquid screens) ---- */
 .act{width:100%;border:0;cursor:pointer;font:inherit;font-size:var(--tBody);font-weight:700;color:#000;
- background:#FF1A1A;padding:11px 14px;min-height:46px;border-radius:2px;display:flex;
+ background:#FF1A1A;padding:11px 14px;min-height:46px;border-radius:0;display:flex;
  flex-direction:column;align-items:center;justify-content:center;gap:1px;
  box-shadow:0 1px 0 rgba(255,255,255,.32) inset,0 -1px 0 rgba(0,0,0,.25) inset,0 10px 24px -12px rgba(255,26,26,.75)}
 .act:hover{filter:brightness(1.06)}.act:active{transform:translateY(1px)}
@@ -344,6 +344,18 @@ main{max-width:1420px;margin:0 auto;padding:1.4rem 1.1rem 0}
 .motion .spin{animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* Solid translucent fallback — the default, because no blur library is installed and no build is
+   authorised. Alphas are raised to carry the legibility that a blur would otherwise provide. */
+.screen.solid .hdr,.screen.solid .dock{background:rgba(12,13,15,.94);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .hdr.float{background:linear-gradient(180deg,rgba(0,0,0,.62),rgba(0,0,0,0))}
+.screen.solid .sheet{background:rgba(22,24,28,.97);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .scrim2{background:rgba(4,4,6,.74);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .gcta.neutral{background:rgba(56,60,68,.96);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .gcta.quiet{background:rgba(30,32,37,.96);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .iconbtn.onart{background:rgba(8,9,11,.74);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .viewsel button{background:rgba(10,11,13,.88);backdrop-filter:none;-webkit-backdrop-filter:none}
+.screen.solid .viewsel button[aria-pressed="true"]{background:linear-gradient(180deg,rgba(236,240,246,.22),rgba(236,240,246,.12)),rgba(10,11,13,.9)}
+
 /* ---- switch ---- */
 .sw{width:38px;height:22px;border-radius:999px;border:1px solid var(--line2);background:rgba(255,255,255,.07);
  position:relative;cursor:pointer;flex:0 0 auto;padding:0}
@@ -374,7 +386,7 @@ main{max-width:1420px;margin:0 auto;padding:1.4rem 1.1rem 0}
  color:#fff;border-color:rgba(255,255,255,.34)}
 
 /* ---- ticket pass ---- */
-.qr{width:58px;height:58px;flex:0 0 58px;background:#F4F6F8;padding:5px;border-radius:2px}
+.qr{width:58px;height:58px;flex:0 0 58px;background:#F4F6F8;padding:5px;border-radius:0}
 .qr svg{width:100%;height:100%;display:block}
 
 /* ---- sheets ---- */
@@ -383,7 +395,7 @@ main{max-width:1420px;margin:0 auto;padding:1.4rem 1.1rem 0}
  border:0;padding:0;cursor:pointer}
 .sheet{position:relative;background:rgba(20,22,26,.86);backdrop-filter:saturate(180%) blur(28px);
  -webkit-backdrop-filter:saturate(180%) blur(28px);border-top:1px solid rgba(255,255,255,.16);
- border-radius:22px 22px 0 0;padding:10px var(--pad) calc(var(--safeBot) + 6px);max-height:86%;overflow-y:auto}
+ border-radius:20px 20px 0 0;padding:10px var(--pad) calc(var(--safeBot) + 6px);max-height:86%;overflow-y:auto}
 .sheet::before{content:'';display:block;width:36px;height:4px;border-radius:999px;background:rgba(255,255,255,.22);margin:0 auto 12px}
 .sheet .listrow{min-height:44px}
 .sheet h3{font-family:var(--fName);font-size:var(--tTitle);font-weight:var(--wName);letter-spacing:var(--lsName)}
@@ -439,6 +451,8 @@ table.t td b{color:var(--pageInk)}
   <div class="seg" id="modeSeg" role="group" aria-label="Home view mode"></div>
   <span class="lbl">Motion</span>
   <div class="seg" id="motionSeg" role="group" aria-label="Motion preference"></div>
+  <span class="lbl">Glass</span>
+  <div class="seg" id="glassSeg" role="group" aria-label="Glass rendering"></div>
   <div class="spacer"></div>
   <button class="tlink" data-jump="map">Screen map</button>
   <button class="tlink" data-jump="system">Shared system</button>
@@ -503,10 +517,14 @@ table.t td b{color:var(--pageInk)}
     typographic. Everywhere else names use the system sans. Every figure is tabular so columns align.</p>
    <p>Micro labels are the only uppercase in the product, at 10 px with 0.09 em tracking. No oversized all-caps.</p></div>
   <div class="card"><h2>CTA treatment</h2>
-   <p><b>Glass CTA on four screens only:</b> Listing, Send, Receive, Checkout. 20 px radius, 52 px tall, translucent
-    with a 22 px blur, one inner top highlight, and a red glow at 60% opacity below it.</p>
-   <p>Everywhere else the action is flat — 2 px radius, the same red. Bids, Tickets, Profile, Settings and Home have no
+   <p><b>Glass CTA on four screens only:</b> Listing, Send, Receive, Checkout. 20 px radius, 52 px tall, an opaque
+    brand-red fill with one inner specular highlight and a red glow beneath. Real backdrop blur is deferred until a
+    build is authorised, so the surrounding bar and the neutral buttons ship as a raised-alpha translucent fill.</p>
+   <p>Everywhere else the action is flat and square in the same red. Bids, Tickets, Profile, Settings and Home have no
     bottom action at all, so they keep the dock and nothing else.</p>
+   <h3>Radius, as approved</h3>
+   <p>The scoped exception grants Liquid <b>14 / 16 / 20 px</b> — grouped surfaces, media, CTAs and sheets. Every other
+    corner in the product is 0 or a pill.</p>
    <h3>The readability rule</h3>
    <p>Content scrolls under the glass with matched bottom padding and a 34 px scrim above the bar, so the last line of
     a price breakdown is never trapped behind it.</p></div>
@@ -514,9 +532,9 @@ table.t td b{color:var(--pageInk)}
    <p>Five places, and no more: the wordmark, the 1 px top edge on nav bar / action bar / dock, the selected-tab
     indicator, the inner highlight on a CTA, and the ring on the profile avatar.</p>
    <h3>Status colour</h3>
-   <p><b>Chrome for live and leading, amber for attention, green only for a confirmed payment state.</b> Red is reserved
-    for the primary action and destructive states, so discovery contains none of it — including the ending-soon pill,
-    which is amber.</p></div>
+   <p><b>Approved 18 Sep:</b> chrome for live and leading, amber for attention, and <b>green only for confirmed
+    payment or a completed money state</b>. Red is for primary consumer actions and destructive actions, never for
+    passive status — so discovery contains none of it, and the ending-soon pill is amber.</p></div>
   <div class="card"><h2>Motion</h2>
    <p>Reduce Motion is the default and the shipping baseline. With motion on: screen change rises 4 px over 200 ms;
     sheets translate 14 px over 260 ms; a Home view switch crossfades at 200 ms; a changed bid value dips once.</p>
@@ -532,32 +550,68 @@ table.t td b{color:var(--pageInk)}
 </section>
 
 <section class="block" id="open">
- <h2>Unresolved visual decisions — before implementation</h2>
- <p class="intro">Eight things this prototype had to decide in order to exist. Each is a real choice, and each is
-  reversible in one place.</p>
+ <h2>Decisions — four approved on 18 September</h2>
+ <p class="intro">The four rulings below are settled and already applied to this prototype, not just recorded next to
+  it. What remains is a dependency list, not a set of open questions.</p>
  <table class="t">
-  <tr><th style="width:15rem">Decision</th><th>What the prototype does</th><th>Why it needs a ruling</th></tr>
-  <tr><td><b>1 · Red for destructive</b></td><td>Destructive actions are outlined, never filled, and red is absent from
-   discovery entirely — the ending-soon pill is amber.</td><td>It reverses the direction approved on 14 Sep. D is
-   carrying it as an A-or-B.</td></tr>
-  <tr><td><b>2 · Corner radius</b></td><td>Content stays at 0. Liquid introduces 14 px grouped lists on Profile and
-   Settings, 16 px on Liquid-mode Home media, and 20 px on the glass CTA.</td><td>"Radius 0 is identity" is a stated
-   rule. Liquid cannot exist without curvature, so the exception has to be granted deliberately.</td></tr>
-  <tr><td><b>3 · Green</b></td><td>Green appears only on a confirmed payment state (verified proof, released payment).
-   Status and live indicators are chrome or amber.</td><td>You asked for chrome/amber on status. Payment confirmation
-   is arguably status too — if so, green leaves the product.</td></tr>
-  <tr><td><b>4 · Condensed face</b></td><td>Used for names on Editorial and Index only. The prototype falls back to a
-   system condensed stack; the app's Oswald is not loaded here.</td><td>Two faces by role is a system commitment, and
-   the real face will set differently from the fallback.</td></tr>
-  <tr><td><b>5 · Blur without a build</b></td><td>Every glass surface assumes a real backdrop blur.</td><td>Neither
-   <span class="kbd">expo-blur</span> nor <span class="kbd">expo-glass-effect</span> is installed. Without an authorised
-   build the CTA ships as a solid translucent fill — close, but not glass.</td></tr>
-  <tr><td><b>6 · Gallery on Tickets</b></td><td>One 4:5 flyer per ticket, so a second ticket sits below the fold.</td>
-   <td>It is the most beautiful Tickets screen and the least scannable. A wallet with eight tickets may want Ledger.</td></tr>
-  <tr><td><b>7 · Home mode persistence</b></td><td>The view mode is session state and resets to Editorial Market.</td>
-   <td>Whether a chosen view is remembered per person, and whether it syncs across devices, is a product decision.</td></tr>
-  <tr><td><b>8 · Where the direction label lives</b></td><td>Outside the phone, on the plate under the device.</td>
-   <td>Deliberate: nothing about the review tooling is allowed inside a frame that is meant to read as the app.</td></tr>
+  <tr><th style="width:13rem">Approved</th><th>The ruling</th><th>How the prototype obeys it</th></tr>
+  <tr><td><b>Red</b></td><td>Red is for primary consumer actions and destructive actions. Never for passive status
+   or decoration.</td><td>Exactly one filled red control on Listing, Send, Receive and Checkout, and none on the other
+   five screens. Destructive is outlined red, never filled. Status and live-bid indicators are chrome or amber; the
+   ending-soon pill is amber, and the dock's bid count is chrome.</td></tr>
+  <tr><td><b>Radius — scoped exception</b></td><td>Liquid may use 14 / 16 / 20 px on its glass CTAs, overlays and
+   grouped surfaces. The rest of the app stays square.</td><td>20 px on the glass CTA and the sheets, 16 px on media
+   inside a Liquid surface, 14 px on grouped Liquid lists. Every other corner is 0 or a pill — four stray values
+   (2 px actions, a 2 px scan code, 10 px tab buttons, a 3 px card swatch) were squared off to enforce it.</td></tr>
+  <tr><td><b>Green</b></td><td>Green is reserved for confirmed payment or completed money states.</td>
+   <td>Green now appears in four places only: receipt confirmed with payment released, the paid checkout receipt,
+   a confirmed ticket, and a won bid whose payment is complete. Proof "Verified", identity "Phone and ID verified",
+   "Marked as sent" and "You're the leading bidder" were all green and are now chrome — none of them is a completed
+   money state.</td></tr>
+  <tr><td><b>Blur — deferred</b></td><td>Real blur waits for an authorised build. The solid translucent fallback is
+   the baseline for prototypes and planning.</td><td>The prototype now <b>defaults to the fallback</b>, with raised
+   alphas carrying the legibility a blur would have provided. <span class="kbd">Glass</span> in the top bar previews
+   real blur so the eventual upgrade can be judged — but what you see on load is what ships.</td></tr>
+ </table>
+
+ <h2 style="margin-top:2.2rem">Remaining implementation dependencies</h2>
+ <p class="intro">Nothing here is a visual question. These are the things that must exist, in order, before the locked
+  direction can be built.</p>
+ <table class="t">
+  <tr><th style="width:13rem">Dependency</th><th>What it blocks</th><th>Owner</th></tr>
+  <tr><td><b>Release-critical state fixes</b><br><span class="kbd">stage 0</span></td><td>Everything. The bid form's
+   <span class="kbd">0</span> floor, the re-entrant destructive actions, Home's in-flight empty state and the avatar
+   spinner come before any visual work.</td><td>C</td></tr>
+  <tr><td><b>Token pair</b></td><td>Every screen. One surface ramp plus the scoped radius set land in
+   <span class="kbd">src/theme/v2.ts</span> and must be mirrored in
+   <span class="kbd">packages/design-tokens/src/brand.ts</span> — the parity test compares them strictly, so a
+   one-sided edit fails the suite.</td><td>B proposes · A merges</td></tr>
+  <tr><td><b><span class="kbd">liveBid.ts</span></b></td><td>Home, Listing and Bids. One pure function from a real
+   end time to exactly one of four states, with a boundary mutant that must fail.</td><td>C</td></tr>
+  <tr><td><b><span class="kbd">Notice</span> + <span class="kbd">StickyBar</span></b></td><td>All four money screens.
+   The glass CTA is a <i>variant</i> of StickyBar, not a new component, and its primary fill is opaque for the
+   contrast reason above.</td><td>C</td></tr>
+  <tr><td><b>Media slots</b></td><td>Home, Listing, Tickets, Checkout. A 4:5 hero slot and a 3:2 feed slot in
+   <span class="kbd">src/lib/media/slots.ts</span>, with <span class="kbd">contentFit: cover</span> so the crops match
+   the prototype.</td><td>C</td></tr>
+  <tr><td><b>Condensed display face</b></td><td>Editorial and Index names only. The real face has to be bundled and
+   measured; this prototype falls back to a system condensed stack, which sets differently.</td><td>Owner picks · C bundles</td></tr>
+  <tr><td><b>An authorised build</b></td><td><i>Only</i> the blur upgrade and the gradient hairline. Deferred by the
+   ruling above, and nothing else waits on it.</td><td>Owner</td></tr>
+  <tr><td><b>Handset pass</b></td><td>Sign-off, not construction. No screen in this prototype has been rendered on a
+   device, and type and spacing will differ there.</td><td>C</td></tr>
+ </table>
+
+ <h2 style="margin-top:2.2rem">Two things still genuinely open</h2>
+ <p class="intro">Neither blocks implementation, and both are cheap to change later.</p>
+ <table class="t">
+  <tr><th style="width:13rem">Open</th><th>What the prototype does</th><th>Why it can wait</th></tr>
+  <tr><td><b>Gallery on Tickets</b></td><td>One 4:5 flyer per ticket, so a second ticket sits 171 px below the
+   fold.</td><td>It is the most beautiful Tickets screen and the least scannable. A wallet with eight tickets may
+   want Ledger — decidable once someone holds a real one.</td></tr>
+  <tr><td><b>Home mode persistence</b></td><td>Session state; resets to Editorial Market.</td><td>Whether a chosen
+   view is remembered per person, and whether it syncs across devices, is a product decision rather than a visual
+   one.</td></tr>
  </table>
 </section>
 
@@ -638,7 +692,7 @@ const I={
 /* ===========================================================================
    State
    =========================================================================== */
-const ST={screen:'home',mode:'editorial',motion:false,sheet:null,listing:0,artStep:0,tab:'active',
+const ST={screen:'home',mode:'editorial',motion:false,blur:false,sheet:null,listing:0,artStep:0,tab:'active',
  filters:{when:'all',price:'any'},flow:{bid:'idle',sent:'idle',received:'idle',paid:'idle'}};
 
 const SCREENS=[
@@ -837,7 +891,7 @@ function scListing(){
      ${e.mins<=360&&e.mins>0?`<div class="meter" style="width:84px"><i style="width:${e.pct||50}%"></i></div>
       <div class="sm num">${e.pct||50}% of the final 6 h</div>`:''}</div></div>
 
-   ${placed?notice('ok','You’re the leading bidder','Your bid of '+money(cur)+' is in. If you’re still leading when the auction ends, your card is charged automatically.'):''}
+   ${placed?notice('','You’re the leading bidder','Your bid of '+money(cur)+' is in. If you’re still leading when the auction ends, your card is charged automatically.'):''}
 
    ${sec('The details',kv([['Seller','the seller · 14 sales'],['Delivery','Mobile transfer · DICE'],
      ['Restrictions','Name change not allowed'],['Price shown','All-in, fees included'],
@@ -925,14 +979,14 @@ function scSend(){
   hdr:backHdr('Send tickets'),
   body:`<div class="pad stack" style="gap:var(--s5);padding-top:var(--s4);padding-bottom:var(--s6)">
    ${done
-    ? notice('ok','Marked as sent','The buyer has 72 hours to confirm. Your payout releases after that, or sooner if they confirm.','If the buyer reports a problem, the payout is held for review.')
+    ? notice('','Marked as sent','The buyer has 72 hours to confirm. Your payout releases after that, or sooner if they confirm.','If the buyer reports a problem, the payout is held for review.')
     : notice('warn','','Send by Thu 02:00 — 5h 12m left','If the window closes first, the sale is cancelled and the buyer is refunded.')}
    ${rail([['done','Buyer paid','Tue 19:04'],[done?'done':'now','You send',done?'14:32':'by Thu 02:00'],
      [done?'now':'','Buyer confirms',done?'72h open':'72h once sent'],['','Payout',money(120)]])}
    ${sec('Transfer proof',`<div class="panel" style="display:flex;gap:11px;align-items:center">
      <span class="art" style="width:44px;height:44px;flex:0 0 44px">${poster(e.id+11)}</span>
      <span class="stack" style="gap:2px;flex:1;min-width:0"><span class="body ink" style="font-weight:600">Screenshot attached</span>
-      <span class="sm">Stored with this transfer · 14:32</span></span><span class="pill ok">Verified</span></div>`)}
+      <span class="sm">Stored with this transfer · 14:32</span></span><span class="pill chrome">Verified</span></div>`)}
    <button class="listrow" style="border-top:1px solid var(--line)">
     <span class="grow"><span class="body ink" style="font-weight:600">How to transfer on DICE</span>
      <span class="sm">5 steps · about 3 minutes · 3 cautions</span></span><span class="chev">${I.chev}</span></button>
@@ -999,7 +1053,7 @@ function scCheckout(){
    ${sec('Delivery',kv([['Method','Mobile transfer · DICE'],['To','buyer@example.test'],
      ['Seller sends by','Thu 02:00 — 24h after payment'],['If they don’t','Cancelled and refunded in full']]))}
    ${paid?'':sec('Paying with',`<div class="panel" style="display:flex;gap:11px;align-items:center">
-     <span style="width:34px;height:22px;flex:0 0 34px;border-radius:3px;border:1px solid var(--line2);
+     <span style="width:34px;height:22px;flex:0 0 34px;border-radius:0;border:1px solid var(--line2);
       background:linear-gradient(135deg,#2B3340,#151A22)"></span>
      <span class="stack" style="gap:1px;flex:1"><span class="body ink">Visa •••• 1881</span>
       <span class="sm">Expires 04/29</span></span><span class="chev">${I.chev}</span></div>`)}
@@ -1024,7 +1078,7 @@ function scProfile(){
      <span class="art" style="width:100%;height:100%;border-radius:999px;display:block">${poster(2)}</span></span>
     <span class="stack" style="gap:3px;flex:1;min-width:0"><span class="hero-title" style="font-size:19px">the seller</span>
      <span class="sm">Member since March 2026 · 14 sales · 4.9 ★</span>
-     <span><span class="pill ok">Phone and ID verified</span></span></span></div>
+     <span><span class="pill chrome">Phone and ID verified</span></span></span></div>
    ${sec('Money',`<div class="grp">${kv([['Next payout','$120.00 · Sun 26 Oct','price-sm'],
      ['Payout method','Bank •••• 4242'],['Paid out · last 30 days','$482.00','price-sm'],['In review','$0.00','price-sm']])}</div>
     <div class="sm" style="margin-top:6px">A payout releases when the buyer confirms, or automatically 72 hours after you send.</div>`)}
@@ -1092,7 +1146,7 @@ function sheet(id){
    <span class="sheen"></span></div>
   <div style="display:flex;gap:8px;margin-top:var(--s4)">${[0,1,2].map(i=>`
    <button style="flex:1;border:1px solid ${i===ST.artStep?'rgba(255,255,255,.4)':'var(--line)'};background:none;
-    padding:0;cursor:pointer;border-radius:10px;overflow:hidden" data-act="setArt-${i}" aria-label="Photo ${i+1}">
+    padding:0;cursor:pointer;border-radius:16px;overflow:hidden" data-act="setArt-${i}" aria-label="Photo ${i+1}">
     <span class="art" style="aspect-ratio:4/5;width:100%;display:block">${poster(e.id+i*6)}</span></button>`).join('')}</div>
   <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">${gcta('Done','',{kind:'neutral',act:'closeSheet'})}</div>`;
  }
@@ -1186,6 +1240,7 @@ function sheet(id){
 function render(){
  const s=SC[ST.screen]();
  const el=document.getElementById('screen');
+ el.classList.toggle('solid',!ST.blur);
  el.innerHTML=`${statusbar()}${ribbon()}
   <div class="view${ST.motion?' viewfx':''}" data-dir="${s.dir}">
    ${s.hdr&&!s.floatHdr?s.hdr:''}
@@ -1208,6 +1263,9 @@ function render(){
  document.getElementById('motionSeg').innerHTML=
   `<button data-motion="reduce" aria-pressed="${!ST.motion}">Reduce Motion</button>
    <button data-motion="full" aria-pressed="${ST.motion}">Full motion</button>`;
+ document.getElementById('glassSeg').innerHTML=
+  `<button data-blur="off" aria-pressed="${!ST.blur}">Solid · ships today</button>
+   <button data-blur="on" aria-pressed="${ST.blur}">Real blur · needs a build</button>`;
  const def=screenDef(ST.screen);
  const mode=MODES.find(m=>m.id===ST.mode);
  document.getElementById('plate').innerHTML=
@@ -1221,11 +1279,12 @@ function render(){
 
 /* interaction */
 document.addEventListener('click',e=>{
- const t=e.target.closest('[data-nav],[data-open],[data-sheet],[data-act],[data-mode],[data-motion],[data-filter],[data-setfilter],[data-tab],[data-jump]');
+ const t=e.target.closest('[data-nav],[data-open],[data-sheet],[data-act],[data-mode],[data-motion],[data-blur],[data-filter],[data-setfilter],[data-tab],[data-jump]');
  if(!t)return;
  const d=t.dataset;
  if(d.jump){document.getElementById(d.jump).scrollIntoView({behavior:ST.motion?'smooth':'auto'});return;}
  if(d.motion){ST.motion=d.motion==='full';render();return;}
+ if(d.blur){ST.blur=d.blur==='on';render();return;}
  if(d.mode){ST.mode=d.mode;ST.screen='home';ST.sheet=null;render();return;}
  if(d.nav){
   if(d.nav==='back'){ST.screen=ST.screen==='listing'?'home':['send','receive'].includes(ST.screen)?'tickets':
