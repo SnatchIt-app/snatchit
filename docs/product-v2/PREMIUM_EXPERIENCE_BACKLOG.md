@@ -4013,7 +4013,7 @@ state guard → P1, P2 · **PM2** never releases → P3, P5, P6 (D's E10 point: 
 bricks the control) · **PM3** clears busy before the save → A1, A2, P4 but **no longer A3**, because the ref
 rather than the state is now what stops a second press · **PM4** removes the acquire → A3, P1, P2.
 
-**Gates:** vitest **2317 passed / 113 files**; tsc clean; lint 0 errors / 29 warnings. **Gated surface across all
+**Gates:** vitest **2317 passed / 114 files**; tsc clean; lint 0 errors / 29 warnings. **Gated surface across all
 three batches vs `6561d1f`: zero lines** (payments, checkout, signOut, `supabase/`, `scripts/`, `.github/`,
 app.json, package.json). No build, no sandbox, Build 19 and the retained proof files untouched.
 
@@ -4025,3 +4025,19 @@ app.json, package.json). No build, no sandbox, Build 19 and the retained proof f
 
 **PR:** the owner authorised a review PR for 1/1b/1c so CI can run — **no merge, no deploy, no build**. **A owns
 and opens it**; C declined to open a second one, since release integration is A's lane.
+
+- **Correction to C's own Batch 1c report: the file count was 113, and it is 114.** A measured 114 at `2567401`
+  and flagged the mismatch; C re-ran and confirmed A is right. 1b was 113 files; 1c adds
+  `tests/profile-avatar-same-tick.test.ts`. The test TOTAL (2317) was correct throughout — C carried the file
+  count forward from the 1b run instead of reading it off the 1c run, i.e. reported a number it had not looked at
+  in a message whose whole point was verified evidence. **A's reason for not letting it go is the one worth
+  keeping: a reported count that doesn't reconcile is the shape of the thing that is right until it isn't.**
+- **Owner's ruling on server-side transfer expiry (via A): NO server-side enforcement this sprint; keep the honest
+  client wording.** F-XFER-1's open half is therefore CLOSED by decision, not by code. The copy C and A landed was
+  written to be true under either answer, so the ruling costs nothing to absorb — that is what the restraint bought.
+  **If enforcement is ever added, `TRANSFER_EXPIRY_COPY`'s comment already says the copy must be revisited.**
+- **F-AVATAR-3 is a STANDING defect, not a regression** (A's framing, accepted): the state guard is in `f412d10`,
+  the build on the owner's phone. Batch 1 changed when the busy flag clears, not what guards re-entry.
+- **Review PRs, owned by A, both draft, no merge / no deploy / no build:** #72 (Batch 1 + 1b) and **#73 (1c alone,
+  stacked on #72)** — https://github.com/SnatchIt-app/snatchit/pull/73 — **all nine checks pass** at `2567401`.
+  D's implementation and control review of 1c is still open; nothing integrates before it lands.
