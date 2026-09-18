@@ -4478,7 +4478,14 @@ merge or new build yet."
 - **Found and fixed:** X6's "not shown as confirmed" assertion (since `cf9b75b`) checked the buyer_confirmed TITLE,
   which is a `StateBlock` prop and never in the flattened text — **vacuous**; now the body copy, proven live by CM12.
 - **Gates at `c093cdcf`:** tsc 0; vitest 119 / 2371; lint 0 / 29; gated surface + `supabase/ scripts/ .github/` since
-  `cf9b75b`: 0 lines. **Review: A (payment boundary) and D (behaviour) requested.**
+  `cf9b75b`: 0 lines. **A — PASS on both decisions (payment boundary, d16191e0):** A's own mutants in A's own worktree
+  reproduced CM1's and CM2's kill sets exactly; A checked `flight.inFlight` is a getter on the ref-held single-flight
+  object (synchronous, not stale state); `handleConfirm` has one call site; A parsed `platformInstructions.ts` — all 13
+  contact placeholders are seller-role. **D (behaviour) — pending.**
+- **A's observation (not a finding), verified by C:** `react-native-web`'s `Alert.alert` is `static alert() {}`, so on
+  an Expo web target the dialog never appears and confirm becomes unreachable (Report issue already was). The repo has
+  `app.json` `web` config and a dev script `"web": "expo start --web"`, but no web export in scripts or CI; the
+  marketplace web is the separate Next.js app in `web/`. Nothing ships the Expo web target as far as the repo shows.
 - **Push/PR: not done.** The owner authorised D to push; D's push was refused by D's permission gate and is with the
   owner. C did not push: doing so would route around that gate. A will open the one PR against
   `integration/device-verify-20260918` (on the remote at `8da50c0`) once one session is cleared to push; its body must
