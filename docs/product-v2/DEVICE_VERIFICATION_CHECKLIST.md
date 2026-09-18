@@ -357,3 +357,10 @@ storage, no L7, no logs, no trigger read. D's output files: `d_owner_answer_a1.t
 - **What this adds to DV-20-4, without inference about the sequence:** the earlier screenshot's "$100 current bid /
   $105 proposed" matches D7's real `current_bid` 100 and its +$5 minimum — i.e. that form was built from a read that
   **succeeded**, not the $0 defect. F-BID-1 itself still has no device evidence (unchanged).
+- **Corroborated independently by A** (owner authorised A directly; one read-only transaction, `tx_read_only=on`,
+  16:46:13Z; evidence path reported only as a boolean; recorded at A's `675628c8`): S8only exactly one row,
+  `seller_sent`, buyer `919d511e…`, event "Sandbox S8only", `expires_at` 2026-09-09T01:20:22Z, `buyer_viewed_at`
+  15:58:05.544Z, evidence path null = true, `transfer_viewed` rows = 1 at 15:58:05.544Z to the seller. Because
+  `mark_transfer_viewed` updates only where `buyer_id = auth.uid()` and it did update, **the owner was signed in as
+  `919d511e` at 11:58.** D7: exactly one listing, `current_bid` 100; bids 15:30–16:00Z by any account: **0** — so
+  "no bid was saved" holds **whichever account was signed in at 11:43.** Two sessions' reads agree on every field.
