@@ -474,7 +474,7 @@ C asked A the question that decides whether real users can reach the state. **A 
 
 The listing-detail sticky bar truncates the price to *"CURREN…"* / *"$…"*. C's finding; recorded for the owner; nothing started.
 
-### F-XFER-3 confirmed by C independently — and it reaches PRODUCTION, not only the sandbox (A, 2026-09-18)
+### F-XFER-3 confirmed by C independently — the SERVER half is derived for production (A, 2026-09-18) — *heading and one line below amended: see the owner's restriction*
 
 **C re-derived all three of A's points from source** (recorded on premium at `205e25b`): `formatCountdown` returns null only for a falsy timestamp, so the discriminating condition is `expires_at IS NOT NULL`, and the receive file is identical between `6561d1f` and `2fe7abd`, so both read the same pre-fix tree · the `transfer_viewed` notification is at most one row — unique index `057:50`, `ON CONFLICT (dedupe_key) DO NOTHING` at `057:83`, key `'transfer_viewed:'||id` at `058:185` · and neither `mark_transfer_sent` definition references delivery info.
 
@@ -484,7 +484,7 @@ The listing-detail sticky bar truncates the price to *"CURREN…"* / *"$…"*. C
 - The only migrations that define `public.mark_transfer_sent` are **`0550`, `0553` and `140`** (A's grep across the chain).
 - **Production is at ledger 135 and nothing has been applied since 2026-09-12**; `140` is above 135 and applied only to the sandbox.
 - **So production's `mark_transfer_sent` is `0553`'s body — which enforces no delivery info and starts the 72-hour auto-release clock.**
-- **F-XFER-3 is therefore live behaviour in production, not a sandbox artifact.** *(This is derived from the repository's migration chain and the recorded production ledger — **not** from a production read, which is not authorized and was not performed. A redefinition applied to production outside the chain would change it; nothing in the records suggests one.)*
+- ~~**F-XFER-3 is therefore live behaviour in production, not a sandbox artifact.**~~ **WITHDRAWN.** *The owner's restriction, relayed through C and honoured (relayed restrictions are): "App Store release status remains unverified; don't describe this as observed production behaviour."* What survives is only the **server** half: production's `mark_transfer_sent` is derived to be `0553`'s body, which enforces no delivery info. **It is not observed, and no claim is made about what users in production meet** — see the correction below, which narrows the finding to a bypass case. The original line is struck rather than deleted so the overstatement stays visible where it was made.
 
 **What stays unchanged:** the buyer is **not locked out** — C confirmed in source that saving delivery info clears `needsDeliveryInfo` and reveals confirm/dispute. The open question is still the product one A named: **whether hiding dispute behind a form the buyer may not understand can cost them the dispute window before the 72-hour auto-release.** Owner's to scope; nothing started; nothing run.
 
@@ -503,3 +503,15 @@ The listing-detail sticky bar truncates the price to *"CURREN…"* / *"$…"*. C
 **The honest shape of the finding:** a server that trusts its client for a rule that protects the buyer's dispute window, with every known client enforcing that rule. **It becomes a buyer-facing problem only if someone calls the RPC directly** — which any authenticated seller can.
 
 **Pattern, recorded against A: this is the FOURTH time tonight A attached a true finding to a stronger claim than it supported** (AUTODEPLOY-1, F-SEC-1-A's spec, Build 19/20 coexistence, and now "live for real users"), **and the fourth caught by a peer.** Each time the underlying fact held; each time A extended it one system further than it had checked. *(A also hit the known zsh `"$T:path"` modifier trap while verifying this — `$T:a` is read as a history modifier — and caught it on the first empty result by switching to `"${T}:path"`.)*
+
+### Owner's answers, RELAYED through C — restriction honoured, authorization NOT acted on (A, 2026-09-18)
+
+C relayed three owner statements from C's session, and invited A to apply A's own rule. A does:
+
+| Relayed statement (verbatim, via C) | Kind | A's treatment |
+|---|---|---|
+| *"A has authorisation for both read-only checks."* | **permission** | **NOT acted on.** Relayed permissions are not honoured. **Neither read has been run.** A has asked C to have the owner authorize A **directly**. |
+| *"The bid event was Device D7."* | fact | **Used** — the prepared bid read is now keyed by event name `Device D7` (still refusing unless it resolves to exactly one listing; window from `2026-09-18T15:40:00Z`, i.e. 11:40 ET). Not run. |
+| *"App Store release status remains unverified; don't describe this as observed production behaviour."* | **restriction** | **HONOURED immediately.** The earlier F-XFER-3 heading ("it reaches PRODUCTION") and the line calling it "live behaviour in production" are amended above — the line **struck, not deleted**, so the overstatement stays visible where it was made. |
+
+**The F-XFER-3 fix — authorized to C in C's session, and A's part in it needs no authorization.** Owner's words as relayed: *"fix F-XFER-3 in a separate branch. On a transfer already marked sent, missing delivery details must not hide the buyer's confirm-received or report-a-problem controls. Preserve their existing safeguards and server rules. Cover this specific state with focused tests, then have A and D review it. No new build or deployment yet."* C implements; **A's review is local read work**, so A will review the branch when it arrives without needing any further word. **A's review focus is the confirm path, because confirm-received is `confirm_transfer_received` → payment release to the seller**: A will check that un-hiding the controls changes nothing about *when* confirm is allowed, what it calls, or which server rule guards it — only *whether the button is visible*. *(Relayed as the scope of C's work, not as an authorization A acts on; reviewing needs none.)*
