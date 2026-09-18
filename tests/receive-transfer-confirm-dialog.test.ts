@@ -260,6 +260,25 @@ describe('Decision 2 — "I got my tickets" asks before it releases', () => {
     expect(dialogs()).toEqual([]);
   });
 
+  it('C10: after a FAILED release, a later tap asks again — the lock re-arms on the confirm path too', async () => {
+    // D's review: C9 pinned the re-arm after Cancel only. Dropping answered() from the explicit action left
+    // "I got my tickets" enabled but dead after a failed release, and passed every suite.
+    const host = await mountReceive();
+    await tapConfirm(host);
+    action(0, DIALOG.confirm)?.onPress?.();
+    await flush();
+    host.flush();
+    expect(h.invokes).toHaveLength(1);                 // witness: the release really went out
+    h.invokes[0].d.resolve({ data: null, error: { message: 'Edge Function returned a non-2xx status code' } });
+    await flush();
+    host.flush();
+
+    await tapConfirm(host);
+
+    expect(dialogs()).toHaveLength(2);                 // it asks again, rather than doing nothing
+    expect(h.invokes).toHaveLength(1);                 // and asking sends nothing on its own
+  });
+
   it('C9: after Cancel, a later tap asks again', async () => {
     const host = await mountReceive();
     await tapConfirm(host);
