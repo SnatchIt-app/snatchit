@@ -4214,3 +4214,41 @@ question is moot in practice — **but it was never settled, and this fix does n
   **Not being folded in.** 1b and 1c are passed with PRs open, and quietly widening a reviewed batch is what C and
   D have both refused to do all day — D recommended the same. **Owner's to schedule**, and it is a test-hardening
   item, not a defect: every one of those locks releases correctly today.
+
+## F-SEC-2 — a thrown security action says so (C, 2026-09-18). `frontend/batch1e-security-notice-throws @ 3b9dc9d`
+Owner authorised it as a standalone security-surface fix with five tests named. **Base: `016d8e2`, the F-SEC-1
+head — not the gate.** C's scoping call, flagged to A rather than taken silently: the instruction is to *preserve*
+the shared same-tick lock, and that lock exists only on the F-SEC-1 branch, so "standalone" can only mean
+standalone from the UI batches. Verified independent of 1/1b/1c (`2fe7abd` not an ancestor). **1e requires 1d;
+sequencing is A's.**
+
+**The defect:** only the `error` field a call RETURNS was handled. A rejection — the session read or SecureStore
+work under `performSignOut`, or the RPC — propagated out of a handler `SecurityNoticeBanner.tsx:43,45` passes
+straight to `onPress`, so it became an unhandled rejection and the screen said nothing. The lock released and
+`busy` cleared, so nothing jammed: the user tapped a security action and was told nothing — the silent tap
+`DISMISS_FAILED_COPY` exists to prevent. **Pre-existing; identical before and after F-SEC-1**, which is why D
+recorded it rather than folding it in.
+
+**Fix:** `runExclusive` takes the caller's **existing** failure copy and catches, so the throw path joins the
+returned-error path at the one site that already owns the lock. **No new strings**, no change to sign-out policy,
+session semantics or `signOut.ts`. The lock still releases in the same single `finally` on every path.
+
+**Tests (6) and controls (5/5 as predicted — the first clean sweep of the sequence):** T1 thrown sign-out shows
+`SIGN_OUT_FAILED_COPY`, no navigation · T2 thrown dismiss shows `DISMISS_FAILED_COPY`, notice stays · T3 the lock
+releases after each · T4 a retry works and clears the old message · T5 same-tick double invocation still one
+action · T6 a throw in one action does not strand the other. **TM1** removes the catch (the shipped defect) ·
+**TM2** catches silently · **TM3** rethrows after reporting so the rejection escapes again · **TM4** crosses the
+two copies, kills T2 alone · **TM5** skips the release on the throw path.
+
+**Exact diff vs `016d8e2`: two files, +221/−4** (hook +23/−4, new suite). **Zero lines** vs the gate on
+`signOut.ts`, payments, checkout, `supabase/`, `scripts/`, `.github/`. **Gates:** vitest **2264 / 108**, tsc
+clean, lint 0 errors / 29 warnings. No merge, deploy or build.
+
+**Two limits C stated rather than let pass as coverage:**
+- **The "no unhandled rejection" assertion is indirect.** The tests assert the handler's promise RESOLVES — the
+  same property, stated so the suite can check it — not that nothing reaches the process's rejection handler.
+- **The copy choice is a judgement, not a derivation. A throw is an UNKNOWN outcome, not a known failure.** If a
+  rejection lands after the session actually ended, "Couldn't sign out" asserts a failure that did not happen. The
+  returned-error path has always had that property, so reusing its copy keeps the two consistent instead of
+  inventing a third state — but nothing here establishes which side of that line a real throw falls on. Same shape
+  as F-SEC-1's open question, and kept out of the fix's claims.
