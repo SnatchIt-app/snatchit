@@ -186,14 +186,23 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
     expect(h.rpcs).toEqual([{ name: 'buyer_dispute_transfer', args: { p_transfer_id: 't-1' } }]);
   });
 
-  it('X5: confirming is still single-flight — one double tap, one release call; both controls stand down', async () => {
+  // X5/X6 CHANGED ON PURPOSE with the owner's decision 2: they used to pin ONE-TAP release (tap → confirm-and-release).
+  // Their new form — tap → dialog → explicit action → one release call — is the evidence that one-tap release is gone.
+  const RELEASE = 'Confirm and release payment';
+  const DIALOG_TITLE = 'Confirm you received the tickets?';
+
+  it('X5: confirming asks first, then stays single-flight — one release call; both controls stand down', async () => {
     const host = await mountReceive();
     const confirm = buttonByLabel(host.output, CONFIRM);
     expect(confirm).toBeDefined();
-    const press = confirm?.props.onPress as () => void;   // captured once: the closure a real double tap holds
+    (confirm?.props.onPress as () => void)();
+    await flush();
 
-    press();
-    press();
+    expect(h.invokes).toEqual([]);                  // the tap alone sends nothing
+    const release = h.alerts[0]?.buttons?.find((b) => b.text === RELEASE)?.onPress;
+    expect(release).toBeTypeOf('function');
+    release?.();
+    release?.();                                    // captured once, pressed twice
     await flush();
     host.flush();
 
@@ -208,15 +217,17 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
     expect(confirm).toBeDefined();
     (confirm?.props.onPress as () => void)();
     await flush();
+    h.alerts[0]?.buttons?.find((b) => b.text === RELEASE)?.onPress?.();
+    await flush();
     host.flush();
 
-    expect(h.alerts).toEqual([]);                    // nothing claimed while the server has not answered
+    expect(h.alerts.map((a) => a.title)).toEqual([DIALOG_TITLE]);   // nothing claimed while the server has not answered
     h.invokes[0].d.resolve({ data: null, error: { message: 'Edge Function returned a non-2xx status code' } });
     await flush();
     host.flush();
 
-    expect(h.alerts.map((a) => a.title)).toEqual(['Error']);
-    expect(screenText(host.output)).not.toContain(transferStatusCopy('buyer_confirmed', 'buyer').title);
+    expect(h.alerts.map((a) => a.title)).toEqual([DIALOG_TITLE, 'Error']);
+    expect(screenText(host.output)).not.toContain(transferStatusCopy('buyer_confirmed', 'buyer').body);
     expect(buttonByLabel(host.output, CONFIRM)?.props.disabled).toBe(false);
     expect(buttonByLabel(host.output, DISPUTE)?.props.disabled).toBe(false);
   });

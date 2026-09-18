@@ -39,7 +39,7 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
-import { formatCountdown, buyerNeedsDelivery, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY } from '@/src/lib/transfer/transferState';
+import { formatCountdown, buyerNeedsDelivery, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -190,12 +190,34 @@ export default function TransferReceiveScreen() {
     fetchTransfer();
   }
 
+  // Owner's decision 2: confirming receipt asks first, and only the dialog's explicit action sends anything. One
+  // dialog at a time: a same-tick double tap must not stack a second dialog whose "confirm" would land after the
+  // first release had already completed. The flag is cleared by either answer; the dialog cannot be dismissed
+  // without one (cancelable: false).
+  const confirmAsking = useRef(false);
+
   function handleConfirm() {
-    if (!id) return;
-    flight.run(confirmReceipt).catch(() => {
-      setConfirming(false);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    });
+    if (!id || confirmAsking.current || flight.inFlight) return;
+    confirmAsking.current = true;
+    const answered = () => { confirmAsking.current = false; };
+    Alert.alert(
+      CONFIRM_RECEIPT_DIALOG.title,
+      CONFIRM_RECEIPT_DIALOG.body,
+      [
+        { text: CONFIRM_RECEIPT_DIALOG.cancel, style: 'cancel', onPress: answered },
+        {
+          text: CONFIRM_RECEIPT_DIALOG.confirm,
+          onPress: () => {
+            answered();
+            flight.run(confirmReceipt).catch(() => {
+              setConfirming(false);
+              Alert.alert('Error', 'Something went wrong. Please try again.');
+            });
+          },
+        },
+      ],
+      { cancelable: false },
+    );
   }
 
   async function confirmReceipt() {

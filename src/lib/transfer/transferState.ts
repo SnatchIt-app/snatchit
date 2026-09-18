@@ -117,6 +117,18 @@ export function sellerAlreadySent(status: string): boolean {
   return status === 'seller_sent' || status === 'buyer_confirmed' || status === 'auto_released';
 }
 
+/**
+ * Owner's decision 2 (2026-09-18): "I got my tickets" asks first. The dialog says plainly what confirming does —
+ * the same claim the screen's release warning already makes — and only its explicit action sends anything.
+ * Cancel sends nothing. What the action sends, and every server rule behind it, are unchanged.
+ */
+export const CONFIRM_RECEIPT_DIALOG = {
+  title: 'Confirm you received the tickets?',
+  body: 'Confirming receipt releases payment to the seller. Only confirm if you can see the tickets in your ticket account.',
+  cancel: 'Cancel',
+  confirm: 'Confirm and release payment',
+} as const;
+
 type DeliveryLike = { status: string; delivery_email: string | null; delivery_phone: string | null };
 
 /**
