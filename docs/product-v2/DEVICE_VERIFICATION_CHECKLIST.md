@@ -169,7 +169,7 @@ says the code does what we wrote; it cannot say the screen does what a person se
 | DV-20-6 | Delete / cancel a listing | one request; the row stands down while it runs | UNTESTED |
 | DV-20-7 | Send Transfer past the window | "Send window has passed — send now if you still can"; **Mark as sent still enabled** | UNTESTED |
 | DV-20-8 | Receive Transfer, `pending`, past the window | the buyer's wording, not the seller's; no instruction to send | UNTESTED |
-| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence conditional on one unre-read column |
+| DV-20-9 | Receive Transfer, `seller_sent` | **no window line at all** | **PASSED** 11:58 on the observed screen (below); fix evidence conditional on `expires_at IS NOT NULL` (unre-read) |
 | DV-20-10 | Profile avatar, single press | spinner persists through the save; photo updates once | UNTESTED |
 | DV-20-11 | Edit Profile avatar, single press | same, and both controls stand down | UNTESTED |
 | DV-20-12 | Avatar, same-tick double press | one picker, one upload | UNTESTED, **weak-pass** (see below) |
@@ -306,14 +306,20 @@ confirmed** (owner's words) — neither is inferred below.
 - **Does this screen exercise the fix? Yes, conditionally.** Before F-XFER-2 (`2fe7abd`, `:338`) the countdown block
   rendered for every status except `buyer_confirmed` and was **not** inside the delivery-prompt gate, so a
   `seller_sent` transfer with a past `expires_at` showed "Transfer window expired" in that same region. The only change
-  to this file between `2fe7abd` and Build 20 is F-XFER-2 (`git diff --stat`: 1 file, +10/−5). **The condition:**
-  S8only's `expires_at` was last recorded past (09-09T01:20Z, A's read 2026-09-17) and was **not re-read** around this
-  open. If that holds, this is device evidence for F-XFER-2's `seller_sent` branch; if `expires_at` were NULL, neither
-  build would show a line and the screen would say nothing about the fix. Row and fix evidence recorded separately,
-  as for DV-20-4.
+  to this file between `2fe7abd` and Build 20 is F-XFER-2 (`git diff --stat`: 1 file, +10/−5). **The condition is
+  `expires_at IS NOT NULL` — past or future (A's sharpening of C's first wording, "still past", verified by C):**
+  `formatCountdown` (`transferState.ts:35-43` at `2fe7abd`) returns null only for a null timestamp — "Expired" if
+  past, "…remaining" if future — so the pre-fix screen showed *a* window line on `seller_sent` for any non-null
+  value. S8only's `expires_at` was non-null (09-09T01:20Z) in A's read of 2026-09-17, and 0550 guards the column, so
+  it is very likely unchanged — but it was **not re-read**, so the fix evidence stays conditional. Only a NULL would
+  make this screen uninformative about the fix. Row and fix evidence recorded separately, as for DV-20-4.
 - **A's pre-check was not run before this open** (it was never authorised). So **whether this open stamped
   `buyer_viewed_at` and wrote one `transfer_viewed` notification to the seller is UNKNOWN** — it did so only if the
-  column was NULL beforehand. A can settle it read-only if the owner authorises that read.
+  column was NULL beforehand. A can settle it read-only if the owner authorises that read — and one row does it:
+  `notifications.dedupe_key` has a unique index and `enqueue_notification` inserts `ON CONFLICT (dedupe_key) DO
+  NOTHING` (`057:50,83`), and the key is `transfer_viewed:<id>` (`058:185`). So at most one such row exists, and its
+  `created_at` answers the question: ≈15:57–15:59Z → today's open wrote it; earlier → a prior open did and today's
+  wrote nothing; none → the trigger never fired. Prepared by A, not run.
 - **Storage:** S8only is a different transfer from D1/D2, so opening it cannot reach their retained objects. Whether
   a signed URL was minted for S8only's *own* path depends on that path being NULL — last recorded NULL, not re-read.
   The absence of a proof section on screen is **not** evidence either way: the proof block sits inside the same

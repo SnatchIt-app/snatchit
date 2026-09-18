@@ -4366,6 +4366,15 @@ branches has run on a handset** · B's design proposals and the shared-primitive
   control visible). **Reachability not checked:** the seller client blocks sending without delivery info
   (`sellerDeliveryMissing`, `:132`), but whether the server does is a `mark_transfer_sent` question. Transfers are a
   stop-and-ask area: C raises it; A and the owner decide; nothing started.
+  **A's answer (2026-09-18), verified by C: the server does NOT enforce delivery info.** Neither the applied
+  `0553_fix_mark_transfer_sent_overload_ambiguity.sql` nor 140 (`69604d5`, both overloads `:45`, `:108`) mentions a
+  delivery field (0 matches each); both gate on status alone and are granted to `authenticated`. So `seller_sent`
+  without delivery info is reachable by a direct RPC from any client without the send screen's gate. **Why it is a
+  money question, not only copy (A):** `mark_transfer_sent` sets `auto_release_at = now() + 72 hours` (`0553:35`), so
+  whether putting confirm/dispute behind a delivery form costs a buyer time inside the dispute window before
+  payment releases is a product decision, named and not answered. The buyer is not locked out — saving delivery info
+  clears `needsDeliveryInfo` and the block appears — the path to disputing is just longer than the path to doing
+  nothing. Owner's call; A's lane for the release timing.
 - **F-LAYOUT-1 (NEW, from the owner's 11:59 screenshot, Build 20; recorded only, not added to the handset pass).**
   Listing-detail sticky bar: the price label and amount truncate to "CURREN…" / "$…", so the bar shows no price at
   all beside PLACE BID and BUY NOW · $110. Source at `8da50c0`: `src/screens/ListingDetailScreen.tsx:1286-1293` —
