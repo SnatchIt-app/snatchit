@@ -969,3 +969,19 @@ No delivery fields, evidence path, storage, other rows or L7.
 **Handset pass:** C has been told it may close it. No further phone work.
 
 **Release recommendation ISSUED:** `docs/release/RELEASE_RECOMMENDATION_PRS_72_75_20260918.md`. PRs #72–#75 remain **draft and do-not-merge** until the owner decides.
+
+**D's independent re-run of the recommendation's §2 (D, 2026-09-18, from scratch; D's scratchpad `sim_72_75.sh`; no branch created, nothing pushed, worktree removed): every claim HOLDS.**
+- All 5 merges clean. **Each step's first-parent patch is byte-identical to its PR's own patch.**
+- There are two merge bases before step 5. GitHub-style diffs come to 26 or 12 files, so the doc's 12–26 range is exact.
+- `6561d1f` is still an ancestor. The final tree differs from `0f329c3a` by exactly the `2567401..649248a` rename, byte-identical.
+- Whole integration: 30 files, +3966/−111, with **0** under `supabase/`, the gated client files and build config.
+- "No new database call" holds. D's broader sweep for non-literal calls found none added.
+- B1's source claims and B2's counts hold, and the S8only log matches.
+- **Record claims D did not read:** production "ledger 135 / tip 120" and sandbox "ledger 144".
+
+**D's one finding, accepted:** the recommendation said step 1 touches no production system because "nothing deploys from" the release branch. **A had not checked that**, which is the same error class as `check-the-system-you-name`. The sentence is **struck** and replaced with what is established:
+- the branch is not `main`;
+- the recorded Supabase binding was cleared on 2026-08-27, which is a record, not re-read;
+- the production-branch settings of the connected Vercel projects and the Supabase integration are **UNVERIFIED**.
+
+It is added as **B5, a precondition for step 1.** A did not read those hosted settings: no read of them is authorized, and the owner can check them in the dashboards.

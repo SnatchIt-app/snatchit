@@ -10,7 +10,12 @@
 
 **Step 1 — integrate into the release branch (recommended now).** Merge the four PRs, plus one PR for F-SEC-2 that has not been opened yet, into **`release/production-gate-20260918`**, in the order in §2.
 - Use merge commits, not squash and not rebase, so every reviewed commit id survives.
-- This touches no production system. The release branch is not `main`, and nothing deploys from it (§3, B2).
+- ~~This touches no production system. The release branch is not `main`, and nothing deploys from it (§3, B2).~~ **Struck by A after D's review: A had not checked that "nothing deploys from it".** What is established:
+  - The release branch is not `main`.
+  - The one auto-deploy binding on record, Supabase to `main`, had its `git_branch` cleared to `""` on 2026-08-27 (`DEPLOYMENT_PATHS.md`). That is a record, **not re-read now**.
+  - D found that GitHub's deployments API holds no records for either branch, which cannot settle it.
+  - **UNVERIFIED:** the production-branch setting of each connected hosted project (the Vercel projects, including `snatchit-web`, which builds previews on these PRs, and the Supabase integration's current `git_branch`).
+  - **What settles it:** the owner reads those settings in the dashboards, or authorizes a read. Until then, step 1's "no production effect" is expected, not verified.
 - The result is the Build 21 tree, byte for byte, plus one test-title rename (§2).
 
 **Step 2 — production release (not recommended yet).** A production client from this branch is blocked **server-side**:
@@ -55,6 +60,7 @@ Target: `release/production-gate-20260918`, currently **`6561d1f`**. Keep ruling
 | **B2** | **AUTODEPLOY-1.** The branch is **818 commits and 68 migration files ahead of `main`**. The integration was disconnected on 2026-08-27 (`git_branch` cleared), but it is **still installed and still reports on PRs against the production project**, one reconnect away. A merge into `main` carrying those 68 files is exactly the path that applied `071` to production in August. | any merge of the branch into `main` | The owner's visual dashboard confirmation that auto-deploy is off (`AUTODEPLOY-VERIFIED-OFF`), and the B1 ceremony. **Step 1 does not touch `main`.** |
 | **B3** | **F-SEC-2 has no PR.** | step 4 | The owner authorizes a draft PR for `f3cff27`. |
 | **B4** | **No production build of this tree exists.** The `production` profile (`pk_live`, production project) has never built it. **App Store release status remains unverified**; the owner's restriction stands. | release | B1, then an owner-authorized production build and store steps. |
+| **B5** | **Step 1's "no production effect" is unverified** (added after D's review). Nobody has read the production-branch settings of the connected hosted projects: the Vercel projects and the Supabase integration's current `git_branch`. | step 1, as a precondition | The owner confirms in the dashboards that neither the Vercel projects nor the Supabase integration uses `release/production-gate-20260918` as a production branch, or authorizes a read of those settings. |
 
 **Decisions now due.** The owner deferred these "until after device verification", and that verification is now closed. **A's recommendation: none blocks step 1. Decide the third before any production build, because its copy ships in that build.**
 - **F-SEC-3** (LOW, pre-existing): the read path swallows a thrown error.
