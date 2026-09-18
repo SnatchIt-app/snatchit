@@ -3993,3 +3993,35 @@ proof files untouched. **The server-side expiry decision stays separate and open
   zero lines), with all four new controls verified on D's own runs: remove the ref check → E9 alone; never release the
   ref → E10 alone; remove the effect status gate → R12 alone; buyer screen renders the seller string → R1 + R9.
   **A test verdict only — not a merge or deployment authorisation; sequencing is A's and the gate is the owner's.**
+
+## Batch 1c — the profile-tab avatar race (C, 2026-09-17). `frontend/batch1c-profile-avatar @ 2567401`
+Owner authorised F-AVATAR-3 with the four required tests named. Cut from the passed 1b head `0ca71ff`, so the
+stack is linear: `6561d1f` → Batch 1 `2fe7abd` → 1b `0ca71ff` → 1c `2567401`. D reviews the implementation **and
+the negative controls**. The server-side expiry decision stays separate and untouched.
+
+**Fix** (`app/(tabs)/profile.tsx`): the lock is a **ref**; `avatarUploading` stays as what the control SHOWS.
+The state guard it replaces was in Build 19 and survived F-AVATAR-1 — Batch 1 changed when the flag clears, not
+what guards re-entry.
+
+**Tests (6):** P1 same-tick double press → one upload and one `profiles.update`, **with the stored path asserted
+rather than assumed** · P2 out-of-order completion cannot arise, checked against both the UI press and the raw
+handler · P3 a later press succeeds once the prior save completed · P4 the control stays available and the busy
+state cleared exactly once · P5 a failed save releases the lock · P6 a cancelled pick releases it.
+
+**Controls 4/4**, after two corrected predictions that both show *the lock changed layer*: **PM1** restores the
+state guard → P1, P2 · **PM2** never releases → P3, P5, P6 (D's E10 point: a guard that locks and never unlocks
+bricks the control) · **PM3** clears busy before the save → A1, A2, P4 but **no longer A3**, because the ref
+rather than the state is now what stops a second press · **PM4** removes the acquire → A3, P1, P2.
+
+**Gates:** vitest **2317 passed / 113 files**; tsc clean; lint 0 errors / 29 warnings. **Gated surface across all
+three batches vs `6561d1f`: zero lines** (payments, checkout, signOut, `supabase/`, `scripts/`, `.github/`,
+app.json, package.json). No build, no sandbox, Build 19 and the retained proof files untouched.
+
+**Two limits C stated to D rather than letting them read as coverage:**
+- **P2 is an argument, not an observation.** C cannot observe an ordering the lock prevents from existing; it
+  asserts no second save overlaps the first and that the stored path is the single upload's.
+- **P4's "cleared exactly once"** actually asserts the observable consequence — one upload, one save, control
+  re-enabled — because counting clears would mean reaching into React internals. Said so in the test.
+
+**PR:** the owner authorised a review PR for 1/1b/1c so CI can run — **no merge, no deploy, no build**. **A owns
+and opens it**; C declined to open a second one, since release integration is A's lane.
