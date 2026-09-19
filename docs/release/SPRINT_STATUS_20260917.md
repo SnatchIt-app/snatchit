@@ -1226,3 +1226,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
 - **#77:** blocked on the owner's dashboard check.
 - **D's recommendation:** "Check again" for the reservation-unverifiable state (owner decision).
 - Nothing merged, applied, deployed or built.
+- **Handset runbook `d98f0dd5`:** D confirms all five dispositions and that it is ready for the owner's authorisation.
+  - D withdrew its price-unit item: 100 means $100.
+  - D confirmed the §7 end state is the product's own cancel shape (`cancel_listing()`, 047): `reserve_buy_now` (20260906100000) and `validate_and_apply_bid` (047) both refuse a cancelled listing.
+  - Nothing has run on the sandbox.
