@@ -1314,3 +1314,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - (1) 138 also redefines `action_dispatch`. 144 must be rebased onto the body applied immediately before it, or 138's action branches are silently dropped on replay;
     - (2) the R2 rule is valid for deployed expiry v38 only, so it must be re-reviewed before any RC edge deploy.
   - **Owner items:** p1 alerting vs p2 (p2 default); the 10-minute window, plus an optional read of expiry run durations; the turn-on order (setting off → console classification control → owner flip); changing `release_stuck` (unchanged in v1; overlap cross-referenced).
+- **144 built by D (`bd12e297`, local); A review PASS, 2026-09-19.**
+  - **A's independent replay:** RESET 0, census unchanged, pgTAP **5354/5354** (211 = 46/46, amended 182/183 pass). The four md5s match D's; the setting is seeded false.
+  - **The redefinitions are minimal diffs** against 117/118.
+  - **The rollback on a clone equals the gate** on 8 items; the positive control is 13 differing lines before the rollback.
+  - **Doc fix requested:** the CI census, expected_grants and the grant manifest are public-schema only, so the design §6's "+1" note is wrong; the build correctly omits them.
+  - **Owner items:** publication (a draft PR); p1/p2; the 10-minute window; the turn-on order; the rollback refusing while any `refund_resolution` case history exists. The 138 rebase is required before any PR.
