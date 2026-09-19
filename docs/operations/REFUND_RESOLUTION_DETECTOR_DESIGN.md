@@ -27,48 +27,42 @@
 - **R4:** left to `reconciliation_mismatch` (see §1).
 - **Excluded:** `disputed` and `reversed` transfers. The dispute flow and its cases own them.
 
-### 2.1 R2: can "the expiry job refunded it" be told apart from "refunded outside expiry" in the DB alone?
+### 2.1 R2: the expiry job's own refund is never assumed (owner, 2026-09-19)
 
-**Not exactly. The rule below errs towards opening a case.** What each writer leaves on `payments` (source read 2026-09-19):
+**Every expired + refunded order opens a case. Nothing is suppressed.** A refund id plus a timestamp within ten minutes
+of expiry does **not** prove the expiry job issued a **full** refund: the database records no refund source and no
+amount, and `status = 'refunded'` is written for a partial refund too.
 
-| Writer | `status` | `refunded_at` | `stripe_refund_id` |
-|---|---|---|---|
-| Expiry main path (v38, deployed) | `refunded` | seconds after the run's `expired_at` (the RPC sets `expired_at = now()`, then refunds per transfer) | **always** its own `re_…` (unconditional update) |
-| Expiry self-heal (Phase 1b), after a failed main refund | `refunded` | minutes to hours after `expired_at` | always |
-| `charge.refunded` webhook (repository) | `refunded`, **only if not already `refunded`** (`.neq`) | the time of the webhook | only if the payload carries `charge.refunds.data[0].id`. The source notes recent API versions omit it, so usually **none** |
-| `charge.dispute.closed` lost (repository) | `refunded` (only if not already) | the time of the webhook | none |
-| Console `refund_execute` action | via the webhook, as above | as above | as above; plus an `ops.action` row (`refund_execute`, subject = the payment) |
+**The missed refund this fixes** (pgTAP 211, section M drives exactly this):
+1. expiry's own refund **fails** (a Stripe error, or a non-live row), so the payment stays `succeeded`;
+2. `detect_refunds` opens its p1 `refund_pending` case after 60 minutes;
+3. an external **partial** refund is recorded within ten minutes of expiry, **carrying a refund id**;
+4. `payments.status` becomes `refunded`, so `detect_refunds`' own sweep **auto-resolves** `refund_pending` — its query
+   only looks at payments that are not refunded;
+5. under the earlier rule the refund-resolution case was suppressed as well, so **a remainder owed to the buyer was
+   invisible**. The earlier claim that `detect_refunds` "opens after 60 minutes anyway" was wrong: that case does not
+   survive step 4.
 
-**Rule:**
-```
-expiry_refunded(t, p) :=
-      p.stripe_refund_id is not null
-  and p.refunded_at >= coalesce(t.expired_at, t.expires_at)
-  and p.refunded_at <  coalesce(t.expired_at, t.expires_at) + interval '10 minutes'
-  and not exists (select 1 from ops.action a
-                   where a.action_type = 'refund_execute' and a.subject_id = p.id)
-```
-Everything else that is expired + refunded is R2. The rule is therefore:
-- **exact** for refunds recorded before expiry, which expiry skips (`refunded_at < expired_at`);
-- **exact** for webhook refunds without an id, dispute losses and console refunds.
+**What the database still says** is carried as **triage text** in the summary, never as grounds to hide a case:
 
-Residual misclassification, stated at its real strength:
-- **False R2 (safe; costs one support check):**
-  - a self-heal refund more than 10 minutes after expiry;
-  - an expiry refund whose DB update failed, then marked by an id-less webhook.
+| What the row shows | Summary text |
+|---|---|
+| a console `refund_execute` action exists | "…so the refund did not come from the expiry job" |
+| no `stripe_refund_id` | "no refund id is recorded, which the expiry job always writes, so the refund did not come from it" |
+| no `refunded_at` | "no refund timestamp is recorded" |
+| `refunded_at` < expiry | "the refund was recorded BEFORE expiry, so the expiry job skipped its own refund" |
+| `refunded_at` within 10 min of expiry | "consistent with an expiry-issued refund, but UNCONFIRMED: the database records no refund source and no amount" |
+| later than that | "recorded more than 10 minutes after expiry…" |
 
-  Support sees the Stripe refund's metadata (`reason = transfer_expired`, `source = enforce-transfer-expiry…`) and closes as A.
-- **Missed R2 (possible only if all three hold):**
-  1. expiry did **not** refund a succeeded payment (a non-live row, or a failed Stripe call);
-  2. someone refunded it outside the console within 10 minutes of `expired_at`;
-  3. the webhook payload carried a refund id.
+**Consequence, stated plainly:** with the detector on, the ordinary expiry path opens a case too. The switch is seeded
+off, so the volume can be judged before it is turned on. **Safe exclusion becomes possible only with reliable
+provenance** — the refund's source and amount recorded where the refund is made. That is a server change, and the
+owner's decision.
 
-  I know of no path that produces this routinely, but the DB cannot exclude it. If expiry's Stripe call failed, `detect_refunds`' p1 `refund_pending` case opens after 60 minutes anyway.
-- **What would make it exact:** expiry recording its own refund's source on the payment. That is a payment-path server change, and outside this proposal (owner decision).
-- **Re-review trigger (A, 2026-09-19):** this rule is valid only for the **deployed** refund writers: `enforce-transfer-expiry` v38 and `stripe-webhook` as in the repository.
-  - The release candidate's edge deploy changes the writer table above: Phase 0, `record_payment_refund`, and `amount_refunded_cents` from `20260906110000` / `20260906120000`.
-  - Before any such deploy, 144's R2 rule must be re-reviewed.
-- **The 10-minute window is an assumption.** It covers a run of many transfers at about 1 Stripe call each. It is not measured in production: the run duration is visible in `cron.job_run_details`, and reading it needs the owner's authorisation.
+**Re-review trigger (A, 2026-09-19):** the provenance text is read from the **deployed** writers —
+`enforce-transfer-expiry` v38 and `stripe-webhook` as in the repository. Before any edge deploy that changes how a
+refund is recorded (the release candidate's Phase 0 / `record_payment_refund` / `amount_refunded_cents`,
+`20260906110000` / `20260906120000`), this section and 144 must be re-reviewed.
 
 ## 3. The case
 
@@ -101,16 +95,28 @@ For each transfer currently in R1, R2 or R3, per run:
 - R2 → R3, R3 → R2 and any return to R1 are impossible by the transfer's rules: an expired transfer cannot be sent, and a sent one cannot expire. They fall under the default.
 - **A simpler fallback** (A's): one case per transfer, reopened only on R4. It is not recommended, because after a B closure support would have to notice an R1→R2 or R1→R3 change themselves.
 
-## 5. Closure by support
+## 5. Classification is not closure (owner, 2026-09-19; A's corrections)
 
-- The existing `execute_action('case_status', subject = the case, params {status, classification}, reason)` is used, with one addition in `action_dispatch`'s `case_status` branch:
-  - for a `refund_resolution` case moving to `resolved` or `dismissed`, it **requires** `params.classification ∈ {'A','B','C'}`; otherwise it is rejected `precondition`. There is no "D/unresolved" closing value (A).
-  - The value is stored in the `status_changed` event's data, and prefixed to `resolution_note`, e.g. `[C] remainder refunded in Stripe`.
-- Other case types are unchanged, and a regression test pins that.
-- Reopening a closed case (`case_status` → `open`) stays as today. A reopened case's next closure needs a classification again.
-- **The console must send the classification** before support can close these cases there: a select control on refund-resolution cases, in a separate D console change after the database part. Until then these cases can only be closed through the action RPC.
-  - This is the safe direction: no silent closure.
-  - It is also a real usability gap if the detector is turned on first. **Turn it on only after the console change.**
+Selecting A, B or C must never silently close a refund or payout that is still owed. Three separate steps:
+
+1. **`case_refund_classify`** `{classification, assignee?}` + a reason. Records a `classified` event. **It never changes
+   the case's status.** It raises the obligation the classification implies:
+   - **B** (partial, fulfilment continues) → `payout_owed`. Nothing releases it today (F-PAYOUT-PARTIAL-1), so **B can
+     never close on its own**.
+   - **C** (partial, order cancelled) → `remainder_refund_owed`.
+   - **A** (full refund) → `reversal_decision`, **only** when the transfer was already paid out; otherwise none.
+   - When an obligation is raised the case must have an **assignee** (given here or already set): money that is owed is
+     never merely open and ownerless.
+   - Re-classification is allowed: a new event, last one wins, with its own reason. Never silent.
+2. **`case_refund_obligation`** `{kind, settled, note}` records what happened to an obligation that was raised. Kinds:
+   `payout_owed`, `remainder_refund_owed`, `reversal_decision`. Settling one is its own human record, with a note.
+3. **`case_status` → resolved/dismissed** is refused unless a classification is recorded (for `resolved`) **and every
+   obligation raised for the case is recorded settled**. Dismissal does not bypass an outstanding obligation; a case
+   with nothing outstanding can still be dismissed as a false positive.
+
+Both actions are named `case_*` deliberately: `action_dispatch`'s `case_%` preamble then loads the case and enforces the
+caller's expected version, and `action_allowed_roles` gives admin / risk / support. Every other case type dispatches
+exactly as before (211 C15–C17, and control M9b).
 
 ## 6. What the migration would contain (on A's number; four-files rule)
 - Two check-constraint widenings: `case_type` and `case_event.kind`.

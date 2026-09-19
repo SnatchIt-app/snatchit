@@ -1,15 +1,19 @@
--- ROLLBACK for 144_ops_refund_resolution_detector.sql. Restores the bodies 144 replaced (117: run_job,
--- run_all_detectors; 118: action_dispatch — rebase with the migration if 138 lands first), drops the detector, deletes
--- the setting row and narrows both checks. REFUSES if any refund_resolution case or state_changed event exists:
--- that is case history, and removing it is an owner decision, not a rollback step.
+-- ROLLBACK / DISABLE for 144_ops_refund_resolution_detector.sql.
+--
+-- It never deletes case history (owner, 2026-09-19). Two outcomes, decided by what exists:
+--   * NO refund-resolution case, no state_changed/classified/obligation_changed event and no case_refund_* action:
+--     a full reversal — the bodies 144 replaced are restored, the detector is dropped, the setting row is deleted and
+--     both checks (and the action-type check) are narrowed back.
+--   * ANY such history: a DISABLE — the same bodies are restored and the detector is dropped, so nothing detects or
+--     changes any more, while the cases, their events and the actions stay readable, and the vocabulary stays widened
+--     because those rows need it. The setting is set to false rather than deleted. A NOTICE says which outcome ran.
+-- RECOVERY after a disable: re-apply 144 (it is idempotent: create or replace, `on conflict do nothing` for the
+-- setting, and the checks are re-widened), then the owner flips refund_resolution_detector_enabled. The history that
+-- was kept is picked up again: an open case keeps its state, and a closed one keeps suppressing per the design's §4.
+-- The bodies restored here are 117/118's. After 144 is rebased onto 138 (merge order 143 → 138 → 144 → 145), this file
+-- must restore 138's execute_action / action_dispatch instead — see the migration header.
 begin;
 set local lock_timeout = '3s';
-do $rb$ begin
-  if exists (select 1 from ops."case" where case_type = 'refund_resolution')
-     or exists (select 1 from ops.case_event where kind = 'state_changed') then
-    raise exception 'rollback 144 refused: refund_resolution case history exists (owner decision)';
-  end if;
-end $rb$;
 
 create or replace function ops.run_job(p_job_name text, p_trigger text default 'cron')
 returns jsonb language plpgsql security definer set search_path = ''
@@ -148,6 +152,122 @@ end;
 $ops$;
 revoke all on function ops.run_all_detectors() from public, anon, authenticated;
 grant execute on function ops.run_all_detectors() to service_role;
+
+create or replace function ops.execute_action(
+  p_idempotency_key text, p_action_type text, p_subject_kind text, p_subject_id uuid,
+  p_params jsonb default '{}'::jsonb, p_reason text default null, p_expected jsonb default null,
+  p_subject_ref text default null)
+returns jsonb language plpgsql security definer set search_path = ''
+as $ops$
+declare
+  v_uid   uuid := auth.uid();
+  v_role  text;
+  a       ops.action%rowtype;
+  v_appr  uuid;
+  v_ttl   integer;
+  v_res   jsonb;
+begin
+  perform ops.assert_reader();
+  -- The pause switch itself stays operable, so a founder can un-pause from
+  -- the console (platform_admin only; audited like every setting change).
+  if not (p_action_type = 'setting_set' and p_subject_ref = 'actions_enabled') then
+    perform ops.assert_actions_enabled();
+  end if;
+  v_role := ops.actor_role();
+
+  if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9._:-]{8,80}$' then
+    raise exception 'invalid_input: idempotency key must be 8-80 chars of [A-Za-z0-9._:-]';
+  end if;
+  if p_action_type is null or p_action_type not in (
+      'case_create','case_assign','case_status','case_priority','case_due','case_note',
+      'dispute_resolve','payout_release','listing_relist','report_resolve',
+      'user_restrict','user_unrestrict','refund_execute','job_retry','setting_set') then
+    raise exception 'invalid_input: unknown action_type %', coalesce(p_action_type, '(null)');
+  end if;
+  if p_subject_kind is null or p_subject_kind not in ('case','payment','transfer','listing','user','report','job','setting','none') then
+    raise exception 'invalid_input: unknown subject_kind %', coalesce(p_subject_kind, '(null)');
+  end if;
+
+  -- action ↔ subject pairing (a case verb may only target a case, etc.)
+  if not (case p_action_type
+            when 'case_create'     then p_subject_kind in ('none','payment','transfer','listing','user','report','job')
+            when 'dispute_resolve' then p_subject_kind = 'transfer'
+            when 'payout_release'  then p_subject_kind = 'transfer'
+            when 'listing_relist'  then p_subject_kind = 'listing'
+            when 'report_resolve'  then p_subject_kind = 'report'
+            when 'user_restrict'   then p_subject_kind = 'user'
+            when 'user_unrestrict' then p_subject_kind = 'user'
+            when 'refund_execute'  then p_subject_kind = 'payment'
+            when 'job_retry'       then p_subject_kind = 'job'
+            when 'setting_set'     then p_subject_kind = 'setting'
+            else p_subject_kind = 'case' end) then
+    raise exception 'invalid_input: % cannot target a %', p_action_type, p_subject_kind;
+  end if;
+  if p_subject_id is null and p_action_type not in ('case_create','job_retry','setting_set') then
+    raise exception 'invalid_input: subject_id required for %', p_action_type;
+  end if;
+
+  -- idempotency: the same key always returns the same action
+  select * into a from ops.action where idempotency_key = p_idempotency_key;
+  if found then
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end if;
+
+  if not (v_role = any(ops.action_allowed_roles(p_action_type))) then
+    raise exception 'insufficient_privilege: % may not perform %', v_role, p_action_type using errcode = '42501';
+  end if;
+  if p_action_type in ('dispute_resolve','payout_release','listing_relist','report_resolve','user_restrict',
+                       'user_unrestrict','refund_execute','setting_set')
+     and coalesce(trim(p_reason), '') = '' then
+    raise exception 'invalid_input: a reason is required for %', p_action_type;
+  end if;
+
+  begin
+    insert into ops.action (idempotency_key, action_type, subject_kind, subject_id, subject_ref, params, expected, reason, requested_by)
+    values (p_idempotency_key, p_action_type, p_subject_kind, p_subject_id, p_subject_ref,
+            coalesce(p_params, '{}'::jsonb), p_expected, nullif(trim(p_reason), ''), v_uid)
+    returning * into a;
+  exception when unique_violation then
+    select * into a from ops.action where idempotency_key = p_idempotency_key;
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end;
+
+  perform ops.audit_write('action.requested', a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                          a.expected, jsonb_build_object('action_type', a.action_type, 'params', a.params),
+                          'requested', a.correlation_id, a.id);
+  if a.subject_kind = 'case' and a.action_type <> 'case_create' then
+    insert into ops.case_event (case_id, actor, kind, data)
+    select a.subject_id, v_uid, 'action_requested', jsonb_build_object('action_id', a.id, 'action_type', a.action_type)
+     where exists (select 1 from ops."case" where id = a.subject_id);
+  end if;
+
+  if ops.action_requires_approval(a.action_type) then
+    v_res := ops.action_precheck(a);
+    if v_res is not null then
+      update ops.action set state = 'rejected', reject_reason = v_res ->> 'reject_reason', result = v_res,
+             completed_at = now(), version = version + 1 where id = a.id;
+      perform ops.audit_write('action.' || a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                              a.expected, v_res, 'rejected', a.correlation_id, a.id);
+      return jsonb_build_object('status','rejected','action_id', a.id, 'result', v_res,
+                                'reject_reason', v_res ->> 'reject_reason', 'message', v_res ->> 'message');
+    end if;
+    v_ttl := coalesce((select (value #>> '{}')::integer from ops.setting where key = 'approval_ttl_hours'), 72);
+    insert into ops.approval (action_id, action_hash, requested_by, expires_at)
+    values (a.id, ops.action_hash(a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.params),
+            v_uid, now() + make_interval(hours => v_ttl))
+    returning id into v_appr;
+    update ops.action set state = 'awaiting_approval', approval_id = v_appr, version = version + 1 where id = a.id;
+    return jsonb_build_object('status','awaiting_approval','action_id', a.id, 'approval_id', v_appr,
+                              'message','a second founder must approve this action');
+  end if;
+
+  return ops.action_run(a.id);
+end;
+$ops$;
+revoke all on function ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text) from public, anon, authenticated;
+grant execute on function ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text) to authenticated;
 
 create or replace function ops.action_dispatch(p_action ops.action)
 returns jsonb language plpgsql security definer set search_path = ''
@@ -416,12 +536,31 @@ end;
 $ops$;
 revoke all on function ops.action_dispatch(ops.action) from public, anon, authenticated;
 
-drop function ops.detect_refund_resolution();
-delete from ops.setting where key = 'refund_resolution_detector_enabled';
-alter table ops."case" drop constraint case_case_type_check;
-alter table ops."case" add constraint case_case_type_check
-  check (case_type = any (array['paid_unsettled', 'transfer_deadline_soon', 'transfer_overdue', 'release_stuck', 'refund_pending', 'refund_failed', 'dispute_open', 'dispute_evidence_due', 'payout_review', 'report_review', 'webhook_stuck', 'job_failure', 'notification_failure', 'reconciliation_mismatch', 'manual']));
-alter table ops.case_event drop constraint case_event_kind_check;
-alter table ops.case_event add constraint case_event_kind_check
-  check (kind = any (array['created', 'seen', 'assigned', 'status_changed', 'priority_changed', 'due_changed', 'note_added', 'action_requested', 'action_outcome', 'auto_resolved', 'reopened']));
+drop function if exists ops.detect_refund_resolution();
+
+do $rb$
+declare
+  v_hist boolean;
+begin
+  v_hist := exists (select 1 from ops."case" where case_type = 'refund_resolution')
+         or exists (select 1 from ops.case_event where kind in ('state_changed','classified','obligation_changed'))
+         or exists (select 1 from ops.action where action_type in ('case_refund_classify','case_refund_obligation'));
+  if v_hist then
+    update ops.setting set value = 'false'::jsonb, updated_at = now()
+     where key = 'refund_resolution_detector_enabled';
+    raise notice '144 rollback: DISABLED. Case history exists and is kept; the vocabulary stays widened. Re-apply 144 to recover.';
+  else
+    delete from ops.setting where key = 'refund_resolution_detector_enabled';
+    alter table ops."case" drop constraint case_case_type_check;
+    alter table ops."case" add constraint case_case_type_check
+      check (case_type = any (array['paid_unsettled', 'transfer_deadline_soon', 'transfer_overdue', 'release_stuck', 'refund_pending', 'refund_failed', 'dispute_open', 'dispute_evidence_due', 'payout_review', 'report_review', 'webhook_stuck', 'job_failure', 'notification_failure', 'reconciliation_mismatch', 'manual']));
+    alter table ops.case_event drop constraint case_event_kind_check;
+    alter table ops.case_event add constraint case_event_kind_check
+      check (kind = any (array['created', 'seen', 'assigned', 'status_changed', 'priority_changed', 'due_changed', 'note_added', 'action_requested', 'action_outcome', 'auto_resolved', 'reopened']));
+    alter table ops.action drop constraint action_action_type_check;
+    alter table ops.action add constraint action_action_type_check
+      check (action_type = any (array['case_create', 'case_assign', 'case_status', 'case_priority', 'case_due', 'case_note', 'dispute_resolve', 'payout_release', 'listing_relist', 'report_resolve', 'user_restrict', 'user_unrestrict', 'refund_execute', 'job_retry', 'setting_set']));
+    raise notice '144 rollback: FULL REVERSAL. No refund-resolution history existed.';
+  end if;
+end $rb$;
 commit;

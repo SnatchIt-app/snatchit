@@ -11,7 +11,7 @@
 -- Fixture writes bypass the 055/056 transfer guard exactly as the other suites do (transaction-local).
 -- ============================================================================
 BEGIN;
-SELECT plan(46);
+SELECT plan(60);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
@@ -54,18 +54,41 @@ CREATE FUNCTION tap._ncases(n int) RETURNS int LANGUAGE sql AS $f$
   select count(*)::int from ops."case" c where c.case_type = 'refund_resolution' and c.subject_id = tap._t(n) $f$;
 -- close the fixture's open case as platform_support, through the real action entry point
 INSERT INTO kernel.platform_role (identity_id, role, granted_by) VALUES (tap.other_user(), 'platform_support', tap.admin_user());
-CREATE FUNCTION tap._close(n int, p_class text, p_key text) RETURNS jsonb LANGUAGE plpgsql AS $f$
+-- one support step at a time, each through ops.execute_action as platform_support
+CREATE FUNCTION tap._act(n int, p_type text, p_params jsonb, p_key text, p_reason text DEFAULT 'checked in Stripe')
+RETURNS jsonb LANGUAGE plpgsql AS $f$
 declare v jsonb; v_case uuid := (tap._open(n)).id;
 begin
   if v_case is null then return '{"status":"no_open_case"}'::jsonb; end if;   -- keeps a failure a failure, not an abort
   perform tap.login(tap.other_user()); perform tap._aal2();
-  v := ops.execute_action(p_key, 'case_status', 'case', v_case,
-         case when p_class is null then '{"status":"resolved"}'::jsonb
-              else jsonb_build_object('status', 'resolved', 'classification', p_class) end,
-         'checked in Stripe');
+  v := ops.execute_action(p_key, p_type, 'case', v_case, p_params, p_reason);
   perform tap.logout();
   return v;
 end $f$;
+CREATE FUNCTION tap._classify(n int, p_class text, p_key text, p_assignee uuid DEFAULT NULL) RETURNS jsonb LANGUAGE sql AS $f$
+  select tap._act(n, 'case_refund_classify',
+                  case when p_assignee is null then jsonb_build_object('classification', p_class)
+                       else jsonb_build_object('classification', p_class, 'assignee', p_assignee) end, p_key) $f$;
+CREATE FUNCTION tap._settle(n int, p_kind text, p_key text) RETURNS jsonb LANGUAGE sql AS $f$
+  select tap._act(n, 'case_refund_obligation',
+                  jsonb_build_object('kind', p_kind, 'settled', true, 'note', 'done, see Stripe'), p_key) $f$;
+CREATE FUNCTION tap._closenow(n int, p_key text) RETURNS jsonb LANGUAGE sql AS $f$
+  select tap._act(n, 'case_status', '{"status":"resolved"}'::jsonb, p_key) $f$;
+-- the whole support path for a fixture: classify (assigning support), settle whatever it raised, then close
+CREATE FUNCTION tap._resolve(n int, p_class text, p_key text) RETURNS jsonb LANGUAGE plpgsql AS $f$
+declare v jsonb; v_obl text;
+begin
+  v := tap._classify(n, p_class, p_key || '-cls', tap.other_user());
+  v_obl := v #>> '{result,obligation}';
+  if v_obl is not null then perform tap._settle(n, v_obl, p_key || '-obl'); end if;
+  return tap._closenow(n, p_key || '-cls2');
+end $f$;
+CREATE FUNCTION tap._obl(n int, p_kind text) RETURNS boolean LANGUAGE sql AS $f$
+  select coalesce((select (e.data ->> 'settled')::boolean from ops.case_event e
+                    join ops."case" c on c.id = e.case_id
+                   where c.case_type = 'refund_resolution' and c.subject_id = tap._t(n)
+                     and e.kind = 'obligation_changed' and e.data ->> 'kind' = p_kind
+                   order by e.created_at desc limit 1), false) $f$;
 CREATE FUNCTION tap._tx(n int, p_status text) RETURNS void LANGUAGE plpgsql AS $f$ begin
   perform set_config('app.bypass_transfer_guard', 'on', true);
   update public.transfers set status = p_status,
@@ -117,11 +140,17 @@ SELECT is(tap._state((tap._open(1)).id), 'R1', 'S2: pending + refunded → an op
 SELECT ok((SELECT c.priority = 'p2' AND c.due_at IS NULL AND c.detector = 'refund_resolution' AND c.subject_kind = 'transfer'
                   AND c.title = 'Refund recorded — support action needed' FROM tap._open(1) c),
   'S3: the case is p2, has NO due time, subject = the transfer');
-SELECT is(tap._state((tap._open(2)).id), 'R2', 'S4: refunded before expiry (expiry skipped) → R2');
-SELECT is(tap._ncases(3), 0, 'S5: the expiry job''s own refund (id, 5 s after expired_at) → no case');
-SELECT is(tap._state((tap._open(4)).id), 'R2', 'S6: webhook refund after expiry without a refund id → R2');
-SELECT is(tap._state((tap._open(5)).id), 'R2', 'S7: a console refund_execute for the payment → R2 even inside the window');
-SELECT is(tap._state((tap._open(6)).id), 'R2', 'S8: a refund 11 min after expiry → R2 (documented false R2, safe side)');
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%recorded BEFORE expiry%' FROM tap._open(2) c),
+  'S4: refunded before expiry (expiry skipped its own refund) → R2, with that provenance');
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%consistent with an expiry-issued refund, but UNCONFIRMED%'
+             FROM tap._open(3) c),
+  'S5: a refund id 5 s after expiry is NOT proof of a full refund — the case opens, the hint is triage text only');
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%no refund id is recorded%' FROM tap._open(4) c),
+  'S6: a webhook refund after expiry without a refund id → R2, with that provenance');
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%console refund_execute action exists%' FROM tap._open(5) c),
+  'S7: a console refund_execute for the payment → R2, and the summary says the refund did not come from expiry');
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%more than 10 minutes after expiry%' FROM tap._open(6) c),
+  'S8: a refund 11 min after expiry → R2, and the summary says so');
 SELECT is(tap._state((tap._open(7)).id), 'R2', 'S9: refunded_at NULL → R2 (uncertain never hides a case)');
 SELECT is(tap._state((tap._open(8)).id), 'R3', 'S10: seller_sent + refunded, no payout → R3');
 SELECT is(tap._state((tap._open(9)).id), 'R3', 'S11: buyer_confirmed + refunded, no payout → R3');
@@ -133,13 +162,14 @@ SELECT is((SELECT count(*)::int FROM ops."case" WHERE case_type = 'reconciliatio
              AND subject_id = 'eeeeeeee-0000-0000-0000-000000000011' AND status = 'open'), 1,
   'S16: …and it owns fixture 11 (reconciliation_mismatch on the payment)');
 SELECT ok((SELECT c.summary LIKE '%amount refunded: unknown%' AND c.summary LIKE 'R1:%' AND c.summary LIKE '%pi_rr_1%'
+                  AND c.summary LIKE '%Provenance (database only, triage)%'
                   AND c.summary NOT LIKE '%@%' AND c.summary NOT LIKE '%+1305%' FROM tap._open(1) c),
   'S17: the summary states the state, the payment and "amount refunded: unknown", and no contact details');
 SELECT ok((SELECT r #>> '{detail,opened}' = '0' AND r #>> '{detail,resolved}' = '0' FROM (SELECT tap._run211() AS r) x),
   'S18: a second run opens nothing and resolves nothing');
 SELECT is((SELECT count(*)::int FROM ops.case_event e JOIN ops."case" c ON c.id = e.case_id
-             WHERE c.case_type = 'refund_resolution' AND e.kind = 'state_changed'), 9,
-  'S19: one state event per case (9 cases), none added by the second run');
+             WHERE c.case_type = 'refund_resolution' AND e.kind = 'state_changed'), 10,
+  'S19: one state event per case (10 cases, the expiry-issued one included), none added by the second run');
 
 -- ── Section T — transitions ─────────────────────────────────────────────────
 -- while open: R1 → R2 on the same case; R3 → R4 pointer; leaving the states never resolves
@@ -170,11 +200,16 @@ SELECT tap._rr(15, 'pending', now() - interval '1 hour', NULL);
 SELECT tap._rr(16, 'pending', now() - interval '1 hour', NULL);
 SELECT tap._rr(17, 'pending', now() - interval '1 hour', NULL);
 SELECT tap._run211();
-SELECT tap._close(13, 'A', 'k211-close-13-a');
-SELECT tap._close(14, 'C', 'k211-close-14-c');
-SELECT tap._close(15, 'B', 'k211-close-15-b');
-SELECT tap._close(16, 'A', 'k211-close-16-a');
-SELECT tap._close(17, 'A', 'k211-close-17-a');
+-- each closure is now classify → settle whatever it raised → close (section C proves each step separately)
+SELECT tap._resolve(13, 'A', 'k211-r13a');
+SELECT tap._resolve(14, 'C', 'k211-r14c');
+SELECT tap._resolve(15, 'B', 'k211-r15b');
+SELECT tap._resolve(16, 'A', 'k211-r16a');
+SELECT tap._resolve(17, 'A', 'k211-r17a');
+SELECT is((SELECT count(*)::int FROM ops."case" c WHERE c.case_type = 'refund_resolution'
+             AND c.subject_id IN (tap._t(13), tap._t(14), tap._t(15), tap._t(16), tap._t(17))
+             AND c.status = 'resolved'), 5,
+  'T4b: all five closed only after their obligations were recorded settled');
 SELECT tap._tx(13, 'expired');
 SELECT tap._tx(14, 'expired');
 SELECT tap._tx(15, 'expired');
@@ -194,23 +229,50 @@ SELECT tap._run211();
 SELECT ok(tap._ncases(15) = 2 AND tap._ncases(16) = 2 AND tap._ncases(17) = 1,
   'T10: another run changes nothing after those decisions');
 
--- ── Section C — closure through the real action entry point ─────────────────
+-- ── Section C — classify, obligations, closure (each its own action) ────────
 SELECT tap._rr(21, 'pending', now() - interval '1 hour', NULL);
+SELECT tap._rr(22, 'pending', now() - interval '1 hour', NULL);
+SELECT tap._rr(23, 'pending', now() - interval '1 hour', NULL);
 SELECT tap._run211();
-SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%classification (A, B or C)%'
-             FROM (SELECT tap._close(21, NULL, 'k211-close-21-none') AS r) x),
-  'C1: platform_support cannot close a refund-resolution case without a classification');
-SELECT ok((SELECT r ->> 'status' = 'rejected' FROM (SELECT tap._close(21, 'D', 'k211-close-21-d') AS r) x),
-  'C2: "D" (unresolved) is not a closing value');
-SELECT is((SELECT status FROM tap._open(21)), 'open', 'C3: both refusals leave the case open');
-SELECT is(tap._close(21, 'B', 'k211-close-21-b') ->> 'status', 'succeeded', 'C4: classification B closes it');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%classify this case first%'
+             FROM (SELECT tap._closenow(21, 'k211-c1-close') AS r) x),
+  'C1: a refund-resolution case cannot be resolved before it is classified');
+SELECT is(tap._classify(21, 'D', 'k211-c2-bad') ->> 'status', 'rejected', 'C2: "D" is not a classification');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%assignee is required%'
+             FROM (SELECT tap._classify(21, 'B', 'k211-c3-noassignee') AS r) x),
+  'C3: B leaves the payout owed, so classifying it without an assignee is refused');
+SELECT ok((SELECT r ->> 'status' = 'succeeded' AND r #>> '{result,obligation}' = 'payout_owed'
+             FROM (SELECT tap._classify(21, 'B', 'k211-c4-cls', tap.other_user()) AS r) x),
+  'C4: B with an assignee is recorded and raises payout_owed');
+SELECT ok((SELECT c.assignee = tap.other_user() AND c.status = 'open' FROM tap._open(21) c)
+      AND NOT tap._obl(21, 'payout_owed'),
+  'C5: classifying assigns the case, does NOT close it, and the obligation is unsettled');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%unsettled obligation(s): payout_owed%'
+             FROM (SELECT tap._closenow(21, 'k211-c6-close') AS r) x),
+  'C6: B alone can never close the case — the payout is still owed');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%never raised%'
+             FROM (SELECT tap._act(21, 'case_refund_obligation',
+                     '{"kind":"reversal_decision","settled":true,"note":"x"}'::jsonb, 'k211-c7-wrongobl') AS r) x),
+  'C7: an obligation that was never raised cannot be recorded settled');
+SELECT is(tap._settle(21, 'payout_owed', 'k211-c8-settle') ->> 'status', 'succeeded',
+  'C8: settling the obligation is its own action, with a note');
+SELECT is(tap._closenow(21, 'k211-c9-close') ->> 'status', 'succeeded', 'C9: only now does the case close');
 SELECT ok((SELECT c.status = 'resolved' AND c.resolution_note = '[B] checked in Stripe' AND c.resolved_by = tap.other_user()
              FROM ops."case" c WHERE c.case_type = 'refund_resolution' AND c.subject_id = tap._t(21)),
-  'C5: resolved by support, the note carries the classification');
+  'C10: closed by support, the note carries the recorded classification');
 SELECT is((SELECT e.data ->> 'classification' FROM ops.case_event e JOIN ops."case" c ON c.id = e.case_id
              WHERE c.subject_id = tap._t(21) AND e.kind = 'status_changed' AND e.data ->> 'to' = 'resolved'), 'B',
-  'C6: the status_changed event stores the classification');
--- R7: a pre-existing case type still dispatches exactly as before (A: pin one from 118; rebase note in the header)
+  'C11: the closing event records the classification that was in force');
+SELECT ok((SELECT r ->> 'status' = 'succeeded' AND r #>> '{result,obligation}' = 'reversal_decision'
+             FROM (SELECT tap._classify(19, 'A', 'k211-c12-paid', tap.other_user()) AS r) x),
+  'C12: A on an order that was already paid out raises reversal_decision, not a clean close');
+SELECT is(tap._act(22, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c13-dismiss') ->> 'status', 'succeeded',
+  'C13: a case with nothing outstanding can be dismissed as a false positive');
+SELECT tap._classify(23, 'B', 'k211-c14-cls', tap.other_user());
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%unsettled obligation%'
+             FROM (SELECT tap._act(23, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c14-dismiss') AS r) x),
+  'C14: dismissal cannot be used to walk away from an unsettled obligation either');
+-- R7 (A's pin): a pre-existing case type still dispatches exactly as before
 CREATE TABLE tap.m211 (k text PRIMARY KEY, v jsonb);
 CREATE FUNCTION tap._manual211() RETURNS jsonb LANGUAGE plpgsql AS $f$
 declare r1 jsonb; r2 jsonb;
@@ -223,13 +285,40 @@ begin
   return jsonb_build_object('create', r1, 'close', r2);
 end $f$;
 INSERT INTO tap.m211 SELECT 'manual', tap._manual211();
-SELECT is((SELECT v #>> '{create,status}' FROM tap.m211 WHERE k = 'manual'), 'succeeded', 'C7: case_create still dispatches');
+SELECT is((SELECT v #>> '{create,status}' FROM tap.m211 WHERE k = 'manual'), 'succeeded', 'C15: case_create still dispatches');
 SELECT is((SELECT v #>> '{close,status}' FROM tap.m211 WHERE k = 'manual'), 'succeeded',
-  'C8: a manual case still resolves with a reason only (no classification needed)');
+  'C16: a manual case still resolves with a reason only — no classification, no obligations');
 SELECT ok((SELECT c.resolution_note = 'done' AND c.status = 'resolved' AND NOT (e.data ? 'classification')
              FROM ops."case" c JOIN ops.case_event e ON e.case_id = c.id AND e.kind = 'status_changed'
             WHERE c.id = (SELECT (v #>> '{create,result,case_id}')::uuid FROM tap.m211 WHERE k = 'manual')),
-  'C9: …with its note and event unchanged (no classification key)');
+  'C17: …with its note and event unchanged');
+
+-- ── Section M — the refund that used to be missed (owner, 2026-09-19) ───────
+-- expiry's own refund FAILS → detect_refunds opens p1 refund_pending → an external PARTIAL refund lands within ten
+-- minutes of expiry WITH a refund id → payments.status = 'refunded' → detect_refunds' sweep resolves its own case →
+-- the old 144 rule then suppressed the refund-resolution case, so a remainder owed to the buyer was invisible.
+SELECT tap._rr(30, 'expired', NULL, NULL, now() - interval '70 minutes', 'succeeded');
+SELECT tap._run211('refunds');
+SELECT is((SELECT count(*)::int FROM ops."case" WHERE case_type = 'refund_pending' AND status = 'open'
+             AND subject_id = 'eeeeeeee-0000-0000-0000-000000000030'), 1,
+  'M1 (witness): while the payment is still succeeded, detect_refunds opens its p1 refund_pending case');
+SELECT set_config('app.bypass_payment_guard', 'on', true);
+UPDATE public.payments SET status = 'refunded', refunded_at = now() - interval '70 minutes' + interval '4 minutes',
+       stripe_refund_id = 're_partial_30' WHERE id = 'eeeeeeee-0000-0000-0000-000000000030';
+SELECT tap._run211('refunds');
+SELECT is((SELECT status FROM ops."case" WHERE case_type = 'refund_pending'
+             AND subject_id = 'eeeeeeee-0000-0000-0000-000000000030'), 'resolved',
+  'M2 (the reported failure): a PARTIAL refund marks the payment refunded, so detect_refunds sweeps its own case away');
+SELECT tap._run211();
+SELECT ok((SELECT tap._state(c.id) = 'R2' AND c.summary LIKE '%consistent with an expiry-issued refund, but UNCONFIRMED%'
+             FROM tap._open(30) c),
+  'M3 (the fix): the refund-resolution case is opened anyway — a refund id near expiry never suppresses it');
+SELECT ok((SELECT r ->> 'status' = 'succeeded' AND r #>> '{result,obligation}' = 'remainder_refund_owed'
+             FROM (SELECT tap._classify(30, 'C', 'k211-m4-cls', tap.other_user()) AS r) x),
+  'M4: classifying it C records that the remainder is still owed…');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%remainder_refund_owed%'
+             FROM (SELECT tap._closenow(30, 'k211-m4-close') AS r) x),
+  'M5: …and the case cannot be closed until that remainder is recorded settled');
 
 -- ── catalogue ───────────────────────────────────────────────────────────────
 SELECT ok((SELECT p.prosecdef AND p.proconfig = '{"search_path=\"\""}'

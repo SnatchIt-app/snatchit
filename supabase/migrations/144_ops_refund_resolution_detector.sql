@@ -19,18 +19,38 @@
 --     The detector NEVER resolves or sweeps this type. After support closes a case it opens a new one for the same
 --     transfer only on a transition the closure did not cover: the same state never reopens; R1 closed as A (full)
 --     or C (partial, cancelled, remainder refunded) → R2 stays closed; any other transition opens (design §4).
+--   * ops.execute_action: the two new action types are added to its allow-list (its subject pairing already requires
+--     a case for any type it does not name).
 --   * ops.run_job / ops.run_all_detectors: job 'refund_resolution', skipped for EVERY trigger (manual included) while
 --     ops.setting refund_resolution_detector_enabled is false. Seeded false here; turning it on is an audited,
 --     approval-gated setting_set by the owner, after the console can send a classification (design §8).
---   * ops.action_dispatch case_status: closing (resolved/dismissed) a refund_resolution case requires
---     params.classification in ('A','B','C'); it is stored in the status_changed event and prefixed to
---     resolution_note. Every other case type is unchanged.
+--   * CLASSIFYING IS NOT CLOSING (owner, 2026-09-19). Two new action types, both on ops.execute_action and
+--     ops.action_dispatch, named case_* so the dispatch's case_% preamble loads the case and checks the caller's
+--     expected version, and so action_allowed_roles gives admin/risk/support:
+--       - case_refund_classify {classification A|B|C, assignee?} + reason: records the classification in a
+--         'classified' event. It NEVER changes status. It raises the obligation the classification implies —
+--         B → payout_owed (nothing releases it today: F-PAYOUT-PARTIAL-1); C → remainder_refund_owed;
+--         A → reversal_decision, but only when the transfer was already paid out. When an obligation is raised the
+--         case must have an assignee (given here or already set), so money that is owed is never ownerless.
+--       - case_refund_obligation {kind, settled, note}: records what happened to an obligation that was raised.
+--     case_status resolved/dismissed on a refund_resolution case is then refused unless a classification is recorded
+--     (for 'resolved') and EVERY obligation raised for the case is recorded settled. So choosing B, or A on a paid-out
+--     order, can never by itself close money that is still owed, and dismissal cannot be used to walk away from one.
+--     The recorded classification is prefixed to resolution_note and carried in the closing event.
+--     Every other case type dispatches exactly as before (211 C15-C17).
 --   No public object (Gate-2 census and grant manifests unchanged), no table, no index, no schedule change.
 --
--- THE R2 RULE (design §2.1). The expiry job's own refund is recognised only on positive evidence: stripe_refund_id set,
--- refunded_at within [expired_at, expired_at + 10 minutes), and no console refund_execute action for the payment.
--- Anything else expired + refunded is R2: the conservative direction (a false R2 costs one support check in Stripe; a
--- missed R2 could leave a remainder unrefunded). It cannot be exact from the database alone.
+-- THE R2 RULE (owner, 2026-09-19; design §2.1). EVERY expired + refunded order opens a case. Nothing is suppressed.
+-- A refund id plus a timestamp within ten minutes of expiry does NOT prove the expiry job issued a FULL refund: the
+-- database records no refund source and no amount, and `status = 'refunded'` is written for a partial refund too. The
+-- earlier rule suppressed exactly the case that hides a remainder owed to a buyer:
+--   expiry's own refund FAILS → detect_refunds opens p1 refund_pending → an external PARTIAL refund lands within ten
+--   minutes of expiry carrying a refund id → payments.status = 'refunded' → detect_refunds' sweep auto-resolves
+--   refund_pending (its query excludes refunded payments) → under the old rule, nothing was left to find.
+-- pgTAP 211 (section M) drives that exact sequence. What the database knows about the refund's origin is carried as
+-- TRIAGE TEXT in the case summary ("consistent with an expiry-issued refund, but UNCONFIRMED", "…did not come from the
+-- expiry job", …) and never hides a case. Safe exclusion needs reliable provenance — the refund's source and amount
+-- recorded at the source — which is a server change and the owner's decision.
 -- RE-REVIEW TRIGGER (A, 2026-09-19): the rule is valid for the DEPLOYED refund writers only — enforce-transfer-expiry
 -- v38 (byte-verified by A, 2026-09-19) and stripe-webhook as in the repository (deployed v41 not byte-read). Before any
 -- edge deploy that changes how a refund is recorded (the release candidate's Phase 0 / record_payment_refund /
@@ -42,10 +62,12 @@
 -- (138's, if 138 merges first) and make the rollback restore that same body. pgTAP 211 pins a pre-existing action type
 -- still dispatching (R7); the full suite with both in the chain is the backstop (206 exercises 138).
 --
--- ROLLBACK: supabase/rollbacks/144_ops_refund_resolution_detector_rollback.sql — restores the 117/118 bodies, drops
--- the detector, deletes the setting row, narrows both checks. It REFUSES if any refund_resolution case or
--- state_changed event exists (case history: an owner decision). job_state/job_run rows named 'refund_resolution'
--- (skipped runs) stay as history.
+-- ROLLBACK / DISABLE: supabase/rollbacks/144_ops_refund_resolution_detector_rollback.sql never deletes case history
+-- (owner, 2026-09-19). With no refund-resolution history it is a full reversal (bodies restored, detector dropped,
+-- setting row deleted, all three checks narrowed). With history it DISABLES instead: the same bodies are restored and
+-- the detector dropped, the cases, events and actions stay, the vocabulary stays widened because those rows need it,
+-- and the setting is set false. RECOVERY is re-applying 144 (idempotent) and the owner flipping the setting; the kept
+-- history is picked up again. job_state/job_run rows named 'refund_resolution' stay as history either way.
 -- VERIFY (read-only): md5(pg_get_functiondef(...)) of ops.detect_refund_resolution(), ops.run_job(text,text),
 --   ops.run_all_detectors(), ops.action_dispatch(ops.action) against the review; pg_get_constraintdef of
 --   case_case_type_check and case_event_kind_check; select value from ops.setting
@@ -66,7 +88,15 @@ alter table ops."case" add constraint case_case_type_check
   check (case_type = any (array['paid_unsettled', 'transfer_deadline_soon', 'transfer_overdue', 'release_stuck', 'refund_pending', 'refund_failed', 'dispute_open', 'dispute_evidence_due', 'payout_review', 'report_review', 'webhook_stuck', 'job_failure', 'notification_failure', 'reconciliation_mismatch', 'manual', 'refund_resolution']));
 alter table ops.case_event drop constraint case_event_kind_check;
 alter table ops.case_event add constraint case_event_kind_check
-  check (kind = any (array['created', 'seen', 'assigned', 'status_changed', 'priority_changed', 'due_changed', 'note_added', 'action_requested', 'action_outcome', 'auto_resolved', 'reopened', 'state_changed']));
+  check (kind = any (array['created', 'seen', 'assigned', 'status_changed', 'priority_changed', 'due_changed', 'note_added', 'action_requested', 'action_outcome', 'auto_resolved', 'reopened', 'state_changed', 'classified', 'obligation_changed']));
+-- Two new action types. They are named case_* on purpose: action_dispatch's case_% preamble then loads the case, checks
+-- the caller's expected version and builds v_before, and action_allowed_roles' default gives admin/risk/support.
+alter table ops.action drop constraint action_action_type_check;
+alter table ops.action add constraint action_action_type_check
+  check (action_type = any (array['case_create', 'case_assign', 'case_status', 'case_priority', 'case_due', 'case_note',
+                                  'case_refund_classify', 'case_refund_obligation',
+                                  'dispute_resolve', 'payout_release', 'listing_relist', 'report_resolve',
+                                  'user_restrict', 'user_unrestrict', 'refund_execute', 'job_retry', 'setting_set']));
 
 -- ── the owner's switch, seeded OFF (feature flags are flipped only by an audited setting_set, never a migration)
 insert into ops.setting (key, value) values ('refund_resolution_detector_enabled', 'false'::jsonb) on conflict (key) do nothing;
@@ -91,21 +121,30 @@ begin
   for r in
     select t.id as transfer_id, t.status as transfer_status, p.stripe_payment_intent_id, p.total, p.amount,
            p.seller_fee, p.refunded_at, l.event_name,
-           case when t.status = 'pending' then 'R1' when t.status = 'expired' then 'R2' else 'R3' end as state
+           case when t.status = 'pending' then 'R1' when t.status = 'expired' then 'R2' else 'R3' end as state,
+           -- What the database can say about where the refund came from. TRIAGE ONLY: it never hides a case, because
+           -- none of it proves the amount. Only Stripe shows the refund's metadata and how much was refunded.
+           case when exists (select 1 from ops.action a
+                              where a.action_type = 'refund_execute' and a.subject_id = p.id)
+                  then 'a console refund_execute action exists for this payment, so the refund did not come from the expiry job'
+                when p.stripe_refund_id is null
+                  then 'no refund id is recorded, which the expiry job always writes, so the refund did not come from it'
+                when p.refunded_at is null
+                  then 'no refund timestamp is recorded'
+                when p.refunded_at < coalesce(t.expired_at, t.expires_at)
+                  then 'the refund was recorded BEFORE expiry, so the expiry job skipped its own refund'
+                when p.refunded_at < coalesce(t.expired_at, t.expires_at) + interval '10 minutes'
+                  then 'consistent with an expiry-issued refund, but UNCONFIRMED: the database records no refund source and no amount'
+                else 'recorded more than 10 minutes after expiry, so it is unlikely to be the expiry job''s own refund'
+           end as provenance
       from public.transfers t
       join public.payments p on p.id = t.payment_id
       left join public.listings l on l.id = t.listing_id
      where p.status = 'refunded'
        and (t.status = 'pending'
-            -- R2: the expiry job's own refund is recognised only on positive evidence (design §2.1; valid for the
-            -- deployed writers only — see the header's re-review trigger). Anything uncertain is R2.
-            or (t.status = 'expired'
-                and not coalesce(p.stripe_refund_id is not null
-                                 and p.refunded_at >= coalesce(t.expired_at, t.expires_at)
-                                 and p.refunded_at <  coalesce(t.expired_at, t.expires_at) + interval '10 minutes'
-                                 and not exists (select 1 from ops.action a
-                                                  where a.action_type = 'refund_execute' and a.subject_id = p.id),
-                                 false))
+            -- R2: EVERY expired + refunded order (owner, 2026-09-19). A refund id plus a timestamp near expiry does
+            -- not prove the expiry job issued a FULL refund, so it never suppresses a case; it is triage text only.
+            or t.status = 'expired'
             or (t.status in ('seller_sent', 'buyer_confirmed', 'auto_released')
                 and t.stripe_transfer_id is null and t.payout_released_at is null))
      order by t.id
@@ -137,7 +176,7 @@ begin
               and (select e.data ->> 'to' from ops.case_event e
                     where e.case_id = c.id and e.kind = 'state_changed' order by e.created_at desc limit 1) = 'R1'
               and (select e.data ->> 'classification' from ops.case_event e
-                    where e.case_id = c.id and e.kind = 'status_changed' and e.data ->> 'to' in ('resolved', 'dismissed')
+                    where e.case_id = c.id and e.kind = 'classified'
                     order by e.created_at desc limit 1) in ('A', 'C'))) then
         v_suppressed := v_suppressed + 1;
         continue;
@@ -148,20 +187,21 @@ begin
       when 'R1' then 'R1: a refund is recorded on an order that is still pending (tickets not marked sent). Steps: '
                   || 'classify the refund in the Stripe Dashboard (payment amount, amount refunded, any transfer); tell '
                   || 'the seller whether to transfer the tickets; for C, refund the remainder in Stripe.'
-      when 'R2' then 'R2: the order expired and its refund was not recognised as the expiry job''s own (a refund the '
-                  || 'expiry job issued carries metadata reason transfer_expired in Stripe). Steps: in Stripe, check '
-                  || 'whether the charge is fully refunded; if a remainder is owed, refund it; tell the buyer and the seller.'
+      when 'R2' then 'R2: the order expired with a refund recorded. Whether the charge is FULLY refunded is unknown '
+                  || 'here: a partial refund leaves a remainder owed to the buyer, and the database records no amount. '
+                  || 'Steps: in Stripe, check the amount refunded against the charge (the expiry job''s own refunds carry '
+                  || 'metadata reason transfer_expired); if a remainder is owed, refund it; tell the buyer and the seller.'
       else          'R3: the tickets are marked sent but the payment is refunded, so the seller payout is blocked and '
                   || 'no tool releases it (F-PAYOUT-PARTIAL-1). Steps: classify the refund in Stripe; escalate the payout '
                   || 'to the owner. A release_stuck case may also be open for this transfer.'
     end;
     v_res := ops.detect_case('refund_resolution', 'transfer', r.transfer_id, null,
                'Refund recorded — support action needed',
-               format('%s Payment %s for "%s": total $%s, seller net $%s, recorded refunded at %s; amount refunded: '
-                      || 'unknown (the database records none). Transfer status: %s. Close this case with the '
-                      || 'classification: A full refund, B partial refund with fulfilment continuing, C partial refund '
-                      || 'with the order cancelled and the remainder refunded.',
-                      v_steps, coalesce(r.stripe_payment_intent_id, '?'), coalesce(r.event_name, '?'),
+               format('%s Provenance (database only, triage): %s. Payment %s for "%s": total $%s, seller net $%s, '
+                      || 'recorded refunded at %s; amount refunded: unknown (the database records none). Transfer '
+                      || 'status: %s. Classify this case A full refund, B partial refund with fulfilment continuing, '
+                      || 'C partial refund with the order cancelled and the remainder refunded.',
+                      v_steps, r.provenance, coalesce(r.stripe_payment_intent_id, '?'), coalesce(r.event_name, '?'),
                       to_char(coalesce(r.total, 0) / 100.0, 'FM999999990.00'),
                       to_char((coalesce(r.amount, 0) - coalesce(r.seller_fee, 0)) / 100.0, 'FM999999990.00'),
                       coalesce(to_char(r.refunded_at at time zone 'utc', 'YYYY-MM-DD HH24:MI"Z"'), 'unknown'),
@@ -357,6 +397,125 @@ $ops$;
 revoke all on function ops.run_all_detectors() from public, anon, authenticated;
 grant execute on function ops.run_all_detectors() to service_role;
 
+-- ── ops.execute_action (118 body + 144: the two new case_refund_* action types) ───────────────────────────────
+-- 138 COLLISION: rebase this body too before any PR (header).
+create or replace function ops.execute_action(
+  p_idempotency_key text, p_action_type text, p_subject_kind text, p_subject_id uuid,
+  p_params jsonb default '{}'::jsonb, p_reason text default null, p_expected jsonb default null,
+  p_subject_ref text default null)
+returns jsonb language plpgsql security definer set search_path = ''
+as $ops$
+declare
+  v_uid   uuid := auth.uid();
+  v_role  text;
+  a       ops.action%rowtype;
+  v_appr  uuid;
+  v_ttl   integer;
+  v_res   jsonb;
+begin
+  perform ops.assert_reader();
+  -- The pause switch itself stays operable, so a founder can un-pause from
+  -- the console (platform_admin only; audited like every setting change).
+  if not (p_action_type = 'setting_set' and p_subject_ref = 'actions_enabled') then
+    perform ops.assert_actions_enabled();
+  end if;
+  v_role := ops.actor_role();
+
+  if p_idempotency_key is null or p_idempotency_key !~ '^[A-Za-z0-9._:-]{8,80}$' then
+    raise exception 'invalid_input: idempotency key must be 8-80 chars of [A-Za-z0-9._:-]';
+  end if;
+  if p_action_type is null or p_action_type not in (
+      'case_create','case_assign','case_status','case_priority','case_due','case_note',
+      'case_refund_classify','case_refund_obligation',
+      'dispute_resolve','payout_release','listing_relist','report_resolve',
+      'user_restrict','user_unrestrict','refund_execute','job_retry','setting_set') then
+    raise exception 'invalid_input: unknown action_type %', coalesce(p_action_type, '(null)');
+  end if;
+  if p_subject_kind is null or p_subject_kind not in ('case','payment','transfer','listing','user','report','job','setting','none') then
+    raise exception 'invalid_input: unknown subject_kind %', coalesce(p_subject_kind, '(null)');
+  end if;
+
+  -- action ↔ subject pairing (a case verb may only target a case, etc.)
+  if not (case p_action_type
+            when 'case_create'     then p_subject_kind in ('none','payment','transfer','listing','user','report','job')
+            when 'dispute_resolve' then p_subject_kind = 'transfer'
+            when 'payout_release'  then p_subject_kind = 'transfer'
+            when 'listing_relist'  then p_subject_kind = 'listing'
+            when 'report_resolve'  then p_subject_kind = 'report'
+            when 'user_restrict'   then p_subject_kind = 'user'
+            when 'user_unrestrict' then p_subject_kind = 'user'
+            when 'refund_execute'  then p_subject_kind = 'payment'
+            when 'job_retry'       then p_subject_kind = 'job'
+            when 'setting_set'     then p_subject_kind = 'setting'
+            else p_subject_kind = 'case' end) then
+    raise exception 'invalid_input: % cannot target a %', p_action_type, p_subject_kind;
+  end if;
+  if p_subject_id is null and p_action_type not in ('case_create','job_retry','setting_set') then
+    raise exception 'invalid_input: subject_id required for %', p_action_type;
+  end if;
+
+  -- idempotency: the same key always returns the same action
+  select * into a from ops.action where idempotency_key = p_idempotency_key;
+  if found then
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end if;
+
+  if not (v_role = any(ops.action_allowed_roles(p_action_type))) then
+    raise exception 'insufficient_privilege: % may not perform %', v_role, p_action_type using errcode = '42501';
+  end if;
+  if p_action_type in ('dispute_resolve','payout_release','listing_relist','report_resolve','user_restrict',
+                       'user_unrestrict','refund_execute','setting_set')
+     and coalesce(trim(p_reason), '') = '' then
+    raise exception 'invalid_input: a reason is required for %', p_action_type;
+  end if;
+
+  begin
+    insert into ops.action (idempotency_key, action_type, subject_kind, subject_id, subject_ref, params, expected, reason, requested_by)
+    values (p_idempotency_key, p_action_type, p_subject_kind, p_subject_id, p_subject_ref,
+            coalesce(p_params, '{}'::jsonb), p_expected, nullif(trim(p_reason), ''), v_uid)
+    returning * into a;
+  exception when unique_violation then
+    select * into a from ops.action where idempotency_key = p_idempotency_key;
+    return jsonb_build_object('status','idempotent_replay','action_id', a.id, 'state', a.state,
+                              'result', a.result, 'approval_id', a.approval_id);
+  end;
+
+  perform ops.audit_write('action.requested', a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                          a.expected, jsonb_build_object('action_type', a.action_type, 'params', a.params),
+                          'requested', a.correlation_id, a.id);
+  if a.subject_kind = 'case' and a.action_type <> 'case_create' then
+    insert into ops.case_event (case_id, actor, kind, data)
+    select a.subject_id, v_uid, 'action_requested', jsonb_build_object('action_id', a.id, 'action_type', a.action_type)
+     where exists (select 1 from ops."case" where id = a.subject_id);
+  end if;
+
+  if ops.action_requires_approval(a.action_type) then
+    v_res := ops.action_precheck(a);
+    if v_res is not null then
+      update ops.action set state = 'rejected', reject_reason = v_res ->> 'reject_reason', result = v_res,
+             completed_at = now(), version = version + 1 where id = a.id;
+      perform ops.audit_write('action.' || a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.reason,
+                              a.expected, v_res, 'rejected', a.correlation_id, a.id);
+      return jsonb_build_object('status','rejected','action_id', a.id, 'result', v_res,
+                                'reject_reason', v_res ->> 'reject_reason', 'message', v_res ->> 'message');
+    end if;
+    v_ttl := coalesce((select (value #>> '{}')::integer from ops.setting where key = 'approval_ttl_hours'), 72);
+    insert into ops.approval (action_id, action_hash, requested_by, expires_at)
+    values (a.id, ops.action_hash(a.action_type, a.subject_kind, a.subject_id, a.subject_ref, a.params),
+            v_uid, now() + make_interval(hours => v_ttl))
+    returning id into v_appr;
+    update ops.action set state = 'awaiting_approval', approval_id = v_appr, version = version + 1 where id = a.id;
+    return jsonb_build_object('status','awaiting_approval','action_id', a.id, 'approval_id', v_appr,
+                              'message','a second founder must approve this action');
+  end if;
+
+  return ops.action_run(a.id);
+end;
+$ops$;
+revoke all on function ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text) from public, anon, authenticated;
+grant execute on function ops.execute_action(text,text,text,uuid,jsonb,text,jsonb,text) to authenticated;
+
 -- ── ops.action_dispatch (118 body + 144: classification to close a refund_resolution case) ───────────────────
 -- 138 COLLISION: rebase this body onto the one immediately before 144 before any PR (header).
 create or replace function ops.action_dispatch(p_action ops.action)
@@ -377,6 +536,11 @@ declare
   v_note   uuid;
   v_status text;
   v_before jsonb;
+  v_class    text;     -- 144: the recorded classification (A/B/C)
+  v_open_obl text;     -- 144: obligations raised for this case and not recorded settled
+  v_obl      text;
+  v_assignee uuid;
+  v_paid     boolean;
 begin
   -- ── case_* ──────────────────────────────────────────────────────────────
   if a.action_type like 'case_%' and a.action_type <> 'case_create' then
@@ -425,20 +589,35 @@ begin
     if v_status in ('resolved','dismissed') and coalesce(trim(a.reason),'') = '' then
       return jsonb_build_object('status','rejected','reject_reason','precondition','message','a reason is required to resolve or dismiss');
     end if;
-    -- 144: a refund-resolution case closes only with support's classification from Stripe: A full refund, B partial
-    -- refund with fulfilment continuing, C partial refund with the order cancelled and the remainder refunded.
-    if v_case.case_type = 'refund_resolution' and v_status in ('resolved','dismissed')
-       and coalesce(a.params ->> 'classification', '') not in ('A','B','C') then
-      return jsonb_build_object('status','rejected','reject_reason','precondition',
-                                'message','a classification (A, B or C) is required to close a refund-resolution case');
+    -- 144: closing is not the same act as classifying (owner, 2026-09-19). A classification must be RECORDED
+    -- (case_refund_classify) and every obligation it raised recorded SETTLED (case_refund_obligation). So choosing B,
+    -- or A on a paid-out order, can never by itself close money that is still owed.
+    if v_case.case_type = 'refund_resolution' and v_status in ('resolved','dismissed') then
+      v_class := (select e.data ->> 'classification' from ops.case_event e
+                   where e.case_id = a.subject_id and e.kind = 'classified'
+                   order by e.created_at desc limit 1);
+      v_open_obl := (select string_agg(x.kind, ', ' order by x.kind) from (
+                       select distinct on (e.data ->> 'kind') e.data ->> 'kind' as kind, e.data ->> 'settled' as settled
+                         from ops.case_event e
+                        where e.case_id = a.subject_id and e.kind = 'obligation_changed'
+                        order by e.data ->> 'kind', e.created_at desc) x
+                      where x.settled is distinct from 'true');
+      if v_class is null and v_status = 'resolved' then
+        return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                  'message','classify this case first (case_refund_classify: A, B or C)');
+      end if;
+      if v_open_obl is not null then
+        return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                  'message', format('unsettled obligation(s): %s — record each with case_refund_obligation before closing', v_open_obl));
+      end if;
     end if;
     update ops."case"
        set status = v_status,
            resolved_at = case when v_status in ('resolved','dismissed') then now() else null end,
            resolved_by = case when v_status in ('resolved','dismissed') then v_uid else null end,
            resolution_note = case when v_status in ('resolved','dismissed')
-                                  then case when v_case.case_type = 'refund_resolution'
-                                            then '[' || (a.params ->> 'classification') || '] ' || a.reason
+                                  then case when v_case.case_type = 'refund_resolution' and v_class is not null
+                                            then '[' || v_class || '] ' || a.reason
                                             else a.reason end
                                   else resolution_note end,
            version = version + 1
@@ -447,8 +626,80 @@ begin
     values (a.subject_id, v_uid, case when v_before ->> 'status' in ('resolved','dismissed') and v_status not in ('resolved','dismissed') then 'reopened' else 'status_changed' end,
             jsonb_build_object('from', v_before ->> 'status', 'to', v_status, 'reason', a.reason, 'action_id', a.id)
             || case when v_case.case_type = 'refund_resolution' and v_status in ('resolved','dismissed')
-                    then jsonb_build_object('classification', a.params ->> 'classification') else '{}'::jsonb end);
+                    then jsonb_build_object('classification', v_class) else '{}'::jsonb end);
     return jsonb_build_object('status','succeeded','version', v_case.version);
+
+  -- ── 144: classify, and raise the obligation that classification implies ─────────────────────────────
+  when 'case_refund_classify' then
+    if v_case.case_type <> 'refund_resolution' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','only a refund-resolution case is classified');
+    end if;
+    if coalesce(a.params ->> 'classification','') not in ('A','B','C') then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                'message','classification must be A (full refund), B (partial, fulfilment continues) or C (partial, order cancelled)');
+    end if;
+    if coalesce(trim(a.reason),'') = '' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','a reason is required to classify (what Stripe showed)');
+    end if;
+    select (t.stripe_transfer_id is not null or t.payout_released_at is not null) into v_paid
+      from public.transfers t where t.id = v_case.subject_id;
+    v_obl := case a.params ->> 'classification'
+               when 'B' then 'payout_owed'                 -- nothing releases it today: F-PAYOUT-PARTIAL-1
+               when 'C' then 'remainder_refund_owed'
+               else case when coalesce(v_paid, false) then 'reversal_decision' else null end
+             end;
+    -- money that is owed is never merely open and ownerless (A, 2026-09-19)
+    v_assignee := coalesce(nullif(a.params ->> 'assignee','')::uuid, v_case.assignee);
+    if v_obl is not null and v_assignee is null then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                'message', format('classification %s leaves %s outstanding: an assignee is required',
+                                                  a.params ->> 'classification', v_obl));
+    end if;
+    update ops."case" set assignee = coalesce(v_assignee, assignee), version = version + 1
+     where id = a.subject_id returning * into v_case;
+    insert into ops.case_event (case_id, actor, kind, data, created_at)
+    values (a.subject_id, v_uid, 'classified',
+            jsonb_build_object('classification', a.params ->> 'classification', 'reason', a.reason,
+                               'implies_obligation', v_obl, 'assignee', v_assignee, 'action_id', a.id),
+            clock_timestamp());
+    if v_obl is not null and not exists (select 1 from ops.case_event e
+                                          where e.case_id = a.subject_id and e.kind = 'obligation_changed'
+                                            and e.data ->> 'kind' = v_obl) then
+      insert into ops.case_event (case_id, actor, kind, data, created_at)
+      values (a.subject_id, v_uid, 'obligation_changed',
+              jsonb_build_object('kind', v_obl, 'settled', false, 'raised_by', a.params ->> 'classification', 'action_id', a.id),
+              clock_timestamp());
+    end if;
+    return jsonb_build_object('status','succeeded','classification', a.params ->> 'classification',
+                              'obligation', v_obl, 'assignee', v_assignee, 'version', v_case.version);
+
+  -- ── 144: record what happened to an obligation — settling one is its own human record ────────────────
+  when 'case_refund_obligation' then
+    if v_case.case_type <> 'refund_resolution' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition','message','only a refund-resolution case carries these obligations');
+    end if;
+    if coalesce(a.params ->> 'kind','') not in ('payout_owed','remainder_refund_owed','reversal_decision') then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                'message','kind must be payout_owed, remainder_refund_owed or reversal_decision');
+    end if;
+    if not exists (select 1 from ops.case_event e where e.case_id = a.subject_id and e.kind = 'obligation_changed'
+                     and e.data ->> 'kind' = a.params ->> 'kind') then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                'message','that obligation was never raised for this case');
+    end if;
+    if coalesce(trim(coalesce(a.params ->> 'note', a.reason)),'') = '' then
+      return jsonb_build_object('status','rejected','reject_reason','precondition',
+                                'message','a note is required: what was done, and where it can be seen');
+    end if;
+    update ops."case" set version = version + 1 where id = a.subject_id returning version into v_ver;
+    insert into ops.case_event (case_id, actor, kind, data, created_at)
+    values (a.subject_id, v_uid, 'obligation_changed',
+            jsonb_build_object('kind', a.params ->> 'kind',
+                               'settled', coalesce((a.params ->> 'settled')::boolean, false),
+                               'note', coalesce(a.params ->> 'note', a.reason), 'action_id', a.id),
+            clock_timestamp());
+    return jsonb_build_object('status','succeeded','kind', a.params ->> 'kind',
+                              'settled', coalesce((a.params ->> 'settled')::boolean, false), 'version', v_ver);
 
   when 'case_priority' then
     if (a.params ->> 'priority') not in ('p1','p2','p3','p4') then
