@@ -4711,7 +4711,9 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   6.0.24 → StackRouter `REPLACE` replaces only the focused route), not from device logs. Effect: the buyer's own hold
   lasts until server expiry (the 10-minute TTL in real use) instead of being released. No safety impact (it is the
   buyer's own hold; the server expiry is the backstop), and the settlement screen's "Back to home" is on a sold listing
-  (no release wanted). **Not observed:** whether a back swipe on that Home reveals the stale listing screen. D's
+  (no release wanted). **Not observed (D's scope addition):** if the stack becomes [(tabs), listing, (tabs)], Android
+  back or any later pop from Home would return to the stale listing screen, and leaving it then fires the release, possibly
+  long after the hold mattered. A device log of the navigation state after "Back to home" would settle both points. D's
   ordering advice (H2 before "Back to home") was precautionary and harmless. **C's and D's shared prediction (release
   on leaving) was wrong; recorded as such.**
 - **Copy observation (H5), owner's call:** the pre-existing line "Payment is held until your ticket reaches you. Secured

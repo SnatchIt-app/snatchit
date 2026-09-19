@@ -557,7 +557,7 @@ All results are **owner-reported**; screenshots where noted (UI renders the kick
 - **Not observed:** whether "Check again" issued a request offline (no network on device); server state — pending A's §7
   and after-reads (D witnesses).
 
-### Build 22 — clean-up and after-reads (A, READ strength; D witnessing)
+### Build 22 — clean-up and after-reads (A, READ strength; D witnessed A's raw files — pre `f065fa0c…`, clean-up `cb8e92cc…`, post `66509c14…` — not an independent sandbox read)
 - **§7 done 17:31:43Z** (1:31 PM local): all four fixtures `active`/`cancelled`, no hold.
 - **Pre-§7 read-only snapshot, 17:31:41Z:** F1, F2 and F3 were **still reserved by `919d511e` with live holds**; F4
   reserved (expected). **C's expectation, sent to A before the reads ("F1–F3 probably active"), was WRONG.**
