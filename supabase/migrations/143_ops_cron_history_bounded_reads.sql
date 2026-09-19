@@ -36,19 +36,22 @@
 --   * detect_jobs: exactly the runs the old 7-day CTE held (start_time inside 7 days), ranked per job by runid
 --     (= by start_time for one job), so the last-2 / last-5 / last-success / last-error values are the same.
 --   * Reads go in slices of at most 5000 runids, so no sort or hash handles more than 5000 rows whatever the
---     planner estimates: in production the table has never been analysed and work_mem is 2 MB.
+--     planner estimates. Production's statistics for this table are not established (no vacuum or analyse is
+--     recorded, but those counters reset) and work_mem is 2 MB; measured both without and with statistics.
 --
 -- THE ONE DELIBERATE DIFFERENCE. The applied job_health picked a job's last run with
 -- `order by start_time desc limit 1`; DESC sorts NULLs first, so a job that EVER had a startup-timeout run
 -- (start_time NULL) showed that run as its last run for ever, hiding newer runs, including a hung one. 143 shows
 -- the newest run (largest runid). Every 24-hour count is identical. pgTAP 210 pins both statements (B1, B2, C10).
 --
--- MEASURED (local, synthetic history, never analysed, work_mem 2 MB, 3 runs each; 37 d = 457,591 rows,
+-- MEASURED (local, synthetic history without statistics, work_mem 2 MB, 3 runs each; 37 d = 457,591 rows,
 -- 74 d = 915,059 rows): job_health 2.6 s → 4 ms (37 d) and 5.3 s → 4 ms (74 d); detect_jobs 0.80 s → 65 ms and
 -- 0.88 s → 66 ms. Blocks per call: job_health 1.43 M / 2.86 M → ~720; detect_jobs 19.9 k / 39.7 k → ~4.3 k (the
 -- 7-day window itself). Both are now independent of history length. Worst case: a job with no run in the last
 -- 25 hours (e.g. one that never ran) makes job_health walk older history in slices, one pass over the table at most
--- (37 d + such jobs: 3.8 s → 80 ms). No sequential scan, temp file or external sort in any new plan.
+-- (37 d + such jobs: 3.8 s → 80 ms). With statistics (37 d, analysed): job_health 2.5 s → 4 ms (~1.0 k blocks),
+-- detect_jobs 0.87 s → 66 ms (~6.6 k blocks). No sequential scan, temp file or external sort in any new plan.
+-- Local timings are warm-cache; blocks, temp and plan shape are what transfer to production.
 --
 -- ROLLBACK: supabase/rollbacks/143_ops_cron_history_bounded_reads_rollback.sql restores the 116/117 bodies verbatim.
 -- VERIFY (read-only): select md5(pg_get_functiondef('ops.job_health()'::regprocedure)),
@@ -88,7 +91,7 @@ begin
 
   if v_avail then
     -- 143: bounded read of cron.job_run_details, in slices of at most 5000 runids so that no sort or hash depends
-    -- on planner estimates (the table has no statistics in production). See the migration header for the proof.
+    -- on planner estimates (production's statistics for the table are not established). See the migration header.
     -- (1) Floor, for the 24-hour window with a 1-hour margin: every run that started inside the window has a larger
     --     runid.
     -- Floor by binary search over runid (about 20 primary-key probes instead of a walk through the whole window).
@@ -247,7 +250,7 @@ begin
   if v_cron_available then
     -- 143: the same runs as before (those that started inside the last 7 days), found through the runid primary
     -- key instead of a full read, in slices of at most 5000 runids so that every sort or hash handles at most 5000
-    -- rows whatever the planner estimates (the table has no statistics in production). See the migration header.
+    -- rows whatever the planner estimates (production's statistics are not established). See the migration header.
     -- Floor, for the 7-day window with a 1-hour margin.
     -- Floor by binary search over runid (about 20 primary-key probes instead of a walk through the whole window).
     -- Any run whose start_time <= the target is a valid floor (see the migration header): every run with a smaller
