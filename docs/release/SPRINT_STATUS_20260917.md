@@ -1139,3 +1139,22 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
   - **The sandbox was never production-shaped**: no 110–120, 121 or 126.
   - Eleven read-only live facts (L1–L11) are listed with exact reads. **None is requested or run.**
 - **Nothing** was applied, deployed, merged into `main`, built, or read from production.
+
+### Production-readiness: live facts READ, rehearsal RUN, go/no-go DRAFTED (A, 2026-09-18). No hosted writes
+
+**Authority, owner directly to A:** read-only production checks (configuration, migration history, deployed function versions, **secret names only**, scheduled jobs, backup metadata, exposed schemas, minimum aggregate counts; no secret values, customer rows or proof files). Plus the compatibility review and a local rehearsal with reviewers.
+
+**Production access, recorded because the owner asked for these reads:**
+- `list_migrations`, `list_edge_functions`, and `get_edge_function` × 11 (by a helper agent: source only, no invocation, no literal secrets found).
+- Five read-only SQL selects: function md5s and signatures, FK definitions and object existence; Vault names, cron metadata (no command text), `net._http_response` status counts and the minimal counts; one function definition (`cleanup_expired_reservations`); two platform-config flags; the client's RPC and table name existence.
+- CLI: `secrets list` (**names only**, digests dropped), `backups list`, `branches list`.
+- A REST schema probe with the public anon key against a non-existent table (no data).
+- **Nothing written. No proof files. No customer rows.**
+
+**Result:** `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md`.
+- **GO (conditional) for shape A:** migrations 140 + 20260909000000 only, no edge deploy, then the app build.
+- **NO-GO now for the server line**, blocked by the Vault restriction; RC old-client checkout timing is not demonstrated; the rollback cutoff comes minutes after apply.
+
+**A's correction, recorded:** mid-analysis, A said 136 depends on 135. **The rehearsal disproved it**: 136 inserts its own template and applied alone. The go/no-go keeps 136 out for a different reason (it would surface stale `account_deletion_pending` notices before 141).
+
+**D's review:** requested; the addendum will follow.
