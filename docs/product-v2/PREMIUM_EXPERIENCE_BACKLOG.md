@@ -4741,7 +4741,11 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   2460). D confirmed: the flag stays set through a pending "Check again" and through a re-check whose settled read fails
   (setup throws before fetchListing); auction mode never sets it. **A: PASS at `19b6fc2b`** (visibility only; fresh
   detached checkout: tsc 0, lint 0/29, vitest 2460). **Push HELD by A** pending the owner's direct confirmation to
-  publish (the request reached A only via C). Not device-tested. Gate is now `e191cbfa` (#77 merged); C verified that
+  publish (the request reached A only via C). → **Owner confirmed directly to A; published as draft PR #81 "[DO NOT
+  MERGE]"** (https://github.com/SnatchIt-app/snatchit/pull/81). **C checked it on GitHub:** head `19b6fc2b`, draft, OPEN,
+  base `release/production-gate-20260918`, MERGEABLE, every check SUCCESS, Supabase Preview SKIPPED. A's own controls:
+  the rule ignoring reservation-unknown kills only E10; clearing the payment flag before the read kills only E9. No
+  merge, no build. Not device-tested. Gate is now `e191cbfa` (#77 merged); C verified that
   `05d85732` is an ancestor and that the only difference is three supabase files (142 migration, its rollback, pgTAP
   209), with no app/src change. Harness busy guard
   refined per D (only a `node` process running vitest counts; the earlier `pgrep -fl vitest` failed safe, voiding runs
@@ -4754,6 +4758,14 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   (b) the `checking` window after a PaymentSheet error (a few seconds while the result is reconciled) shows the line.
   It resolves to unreachable (hidden) or a verdict. The rule as implemented covers failed or unreachable lookups, not
   in-flight moments.
+- **COPY RISK (A, 2026-09-19, from A's review of B's delivery plan; owner's call whether it matters now; not
+  started):** `TRANSFER_EXPIRY_COPY.seller` "Send window has passed — send now if you still can"
+  (`transferState.ts:59`). On the sandbox the expiry cron is refused (401, per A), so transfers never expire and the
+  line is literally true. In production, per main's edge source (synced to deployed 08-05; **A has not read
+  production**), the */2 cron expires a pending transfer past `expires_at` with a full Stripe refund within ~2 min,
+  and `mark_transfer_sent` then raises. The hedge "if you still can" holds, but a seller who sends through the provider
+  after that is sending tickets for an already-refunded order. Weigh it next time this copy is touched. Source: A's
+  `docs/release/TICKET_DELIVERY_PREFERENCES_A_REVIEW_20260919.md` §3 (snatchit-converge).
 - **COPY BACKLOG — pre-payment escrow assurance (owner, 2026-09-19): "future protection should be phrased conditionally,
   rather than implying funds are already held."** Not changed; flagged:
   1. Checkout's `ESCROW_NOTE_COPY` "Payment is held until your ticket reaches you. Secured by Stripe." in every ordinary
