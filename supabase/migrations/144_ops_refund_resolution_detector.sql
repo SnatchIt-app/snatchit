@@ -97,6 +97,8 @@ declare
   v_i     integer;
   v_def   text;
   v_list  text;
+  v_n_before integer;
+  v_n_after  integer;
   v_keep  text[] := array['case_case_type_check:job_failure', 'case_case_type_check:manual',
                           'case_event_kind_check:status_changed', 'case_event_kind_check:auto_resolved',
                           'action_action_type_check:case_create', 'action_action_type_check:payout_release',
@@ -110,6 +112,10 @@ begin
       raise exception '144: % is missing on %', v_spec[v_i][2], v_spec[v_i][1];
     end if;
     continue when position('''' || v_spec[v_i][4] || '''' in v_def) > 0;   -- already admitted (re-apply, or a later base)
+    -- Count every quoted literal in the definition, whatever it contains, and require the rebuilt constraint to hold
+    -- exactly one more. The extractor below reads [a-z_] values; a value with a digit or a capital would otherwise be
+    -- dropped in silence and only surface later as a check violation on insert (A, 2026-09-19).
+    select count(*) into v_n_before from regexp_matches(v_def, '''[^'']+''', 'g');
     select string_agg(quote_literal(m[1]), ', ' order by ord) into v_list
       from regexp_matches(v_def, '''([a-z_]+)''', 'g') with ordinality as t(m, ord);
     if v_list is null then
@@ -118,6 +124,13 @@ begin
     execute format('alter table %s drop constraint %I', v_spec[v_i][1], v_spec[v_i][2]);
     execute format('alter table %s add constraint %I check (%I = any (array[%s, %L]))',
                    v_spec[v_i][1], v_spec[v_i][2], v_spec[v_i][3], v_list, v_spec[v_i][4]);
+    select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+     where c.conname = v_spec[v_i][2] and c.conrelid = v_spec[v_i][1]::regclass;
+    select count(*) into v_n_after from regexp_matches(v_def, '''[^'']+''', 'g');
+    if v_n_after <> v_n_before + 1 then
+      raise exception '144: rebuilding % kept % of % values — a value the extractor cannot read would have been dropped',
+                      v_spec[v_i][2], v_n_after - 1, v_n_before;
+    end if;
   end loop;
 
   -- every value 144 needs is admitted…
