@@ -4674,7 +4674,19 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   = `sandbox-seller@snatchit.test` (17_DEVICE_TEST_PROCEDURE.md:75 settlement read; D6/D7 seller; DV-20-7). D's records
   agree on both ids (D holds ids only). A confirms both email↔id pairs in its P3 lookup, plus `deletion_state` (D's note).
   Not these: `contact@snatchitapp.com` (Build 16 buyer), U2 `f53b8466` (API-only). Handset must be signed in as the
-  buyer for H1–H5; owner confirms on screen before H1. Saved-delivery-preference design task: **on hold** until
+  buyer for H1–H5; owner confirms on screen before H1. **A confirmed P3/P3b** (buyer ACTIVE; seller has no identity_ext
+  row); D PASSed the fixture SQL. **#80 @ `3ff5712f` pushed by A; CI checked by C on GitHub: every check SUCCESS,
+  Supabase Preview SKIPPED, still draft.**
+- **Session order (D's finding, verified by C and A):** leaving a listing screen fires `beforeRemove` →
+  `release_reservation` (`ListingDetailScreen.tsx:205`, `reservationExit.ts`), and 127 refuses only on a *succeeded*
+  payment (`127_release_reservation_guards.sql:131`), so refunded fixtures don't block it. F1: check the refund screen →
+  back gesture (H2) → re-enter → only then "Back to home". A listing may then show "Buy now" (expected; don't tap). H5
+  ends by closing the app; C tells A at once, and A runs §7 immediately. Runbook amendment: A's `f2af1200`.
+- **Navigation gap (C, raised with A and D before the write):** F1–F4 (status `reserved`, no bids, no transfer) appear in
+  none of Home (`status='active'`), Explore (active/active) or Bids (the buyer's bids and transfers). Proposed: deep link
+  `snatchit://listing/<id>`, opened with the app already open and signed in. A cold launch routes to Home via
+  `rootRouteDecision` (source reading; not device-verified). F1's link is the first step and doubles as the check; if
+  it fails → stop, and A runs §7. Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
