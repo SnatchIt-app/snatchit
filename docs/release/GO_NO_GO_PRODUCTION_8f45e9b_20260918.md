@@ -15,7 +15,8 @@
 
 | Shape | Verdict |
 |---|---|
-| **A. App release. Two migrations (`140`, `20260909000000`), no edge-function deploy, then a production app build** | **GO, conditional on the owner decisions in §9.** Every step is compatible with the installed store app and the deployed edge functions. Rollback is data-safe at any point and restores production's exact function bodies [REH]. |
+| ~~**A. Two migrations (`140`, `20260909000000`)**~~ | ~~GO~~ → **NO-GO as drafted. D found a break, and A verified it LIVE (§10):** the candidate app's checkout selects `payments.amount_refunded_cents`, which production lacks. The candidate's settled-first and refund-display checkout logic therefore reads "nothing", **silently**. |
+| **A′. App release. `140` + `20260909000000` + one new additive migration adding `payments.amount_refunded_cents int` (nullable), no edge deploy, then a production app build** | **GO, once that migration is authored, tested, CI-green and reviewed, and the owner decisions in §9 are made.** The app stays **byte-identical to the device-tested Build 21**. Every step is compatible with the installed store app and the deployed edges. Rollback is data-safe at any point [REH]. |
 | **B. The server line** (the other required-by-edge migrations plus a redeploy of the candidate's edge functions) | **NO-GO now.** 133 cannot apply without a Vault change, which stays restricted. Old-client checkout timing under the payments RC is not demonstrated. The rollback cutoff is minutes after apply, not at redeploy (§6). It needs its own plan. |
 
 ## 1. The eleven live facts [LIVE]
@@ -44,12 +45,12 @@ The candidate app's runtime needs were established by **runtime behaviour**, not
 | `attach_transfer_evidence` ("Add proof" on a sent transfer with no proof) | "Couldn't add the screenshot" | [SRC] `markSent.ts`, send screen | **YES → `140`** |
 | `mark_transfer_sent` (Mark as sent) | works: success is decided by a status read-back, not by the reply | [SRC] `markSent.ts:132-162` | no (140 also makes retries idempotent) |
 | `register_push_token`, challenge RPCs (128/131/135) | PGRST202 → the legacy insert-only path, once per process | [TEST] `push-registration.test.ts` | no |
-| `revoke_push_token`, `revoke_all_push_bindings` (129/131) | PGRST202 is logged and ignored; sign-out proceeds | [TEST] `auth-sign-out`, `logout-scope` | no |
+| `revoke_push_token`, `revoke_all_push_bindings` (129/131) | PGRST202 is logged and ignored; sign-out proceeds. **Precisely (D):** there is **no** legacy revoke, so the device's `push_tokens` row stays active after sign-out. That is **the same as build 9**, which never touches it (2 tokens exist). Record it as an **existing gap left unchanged**, not as graceful degradation | [TEST] `auth-sign-out`, `logout-scope` | no |
 | `get_my_security_notices` (136) | no notice, no error, nothing logged | [TEST] probe PN1, with discriminating control PN2 | no. **Keep it out:** 136 would surface `account_deletion_pending` rows while F-NOTICE-1's fix (141) is unapplied |
 | `record_payment_refund` | the name appears only in a **comment** in `setupDecision.ts`; there is no call | [SRC] | no (a false positive of name matching) |
 | `venue.ticket_type`, `venue.inventory_batch` | `venue` is not exposed | [SRC] `src/lib/venue/client.ts` has **no importers** | no (dead code) |
 
-All other RPCs and tables the app uses exist in production [LIVE, catalog names only].
+~~All other RPCs and tables the app uses exist in production [LIVE, catalog names only].~~ **Corrected (D):** a catalog-names check cannot see a **missing column**. D's column-level check covered all 64 `.from()` chains over 10 tables (select, eq, in, order, update and insert columns, column privileges, embeds) and 24 `.rpc()` calls (argument names, EXECUTE). It found **exactly one** gap: `payments.amount_refunded_cents` (§10). After shape A′ the only missing RPCs are the 7 proven to degrade safely.
 
 **Excluded, and why:**
 
@@ -123,7 +124,9 @@ All other RPCs and tables the app uses exist in production [LIVE, catalog names 
 - **The cutoff is minutes after apply, not at redeploy.**
   - Cron `sweep-deletion-pending` (every 2 min) calls `kernel.sweep_deletion_pending`, which `20260906130000` replaces.
   - Cron `enforce-transfer-expiry` (every 2 min) runs the **deployed** edge, which calls functions that 127 and the RC replace.
-  - Both run new semantics against production data within about 2 minutes.
+  - **Added by D:** cron `auto-finalize-auctions` (every 2 min) calls `public.auto_finalize_expired_auctions`, which calls `public.cleanup_expired_reservations`, **redefined by `20260906110000`**. Also reachable: the daily `monitor-signing-key-invariants` → `kernel.check_signing_key_invariants` (133); `ops-daily-summary` / `ops-detect-tick` → ops functions (126, out of scope).
+  - All run new semantics against production data within about 2 minutes.
+  - **A future interplay:** `20260906120000`'s rollback drops `payments.amount_refunded_cents`. If A′'s column migration is applied first, that rollback would remove A′'s column too.
 - **Rollbacks that drop data:**
   - 128 drops device-proof hashes;
   - 130 drops checkout claim tokens;
@@ -148,16 +151,22 @@ All other RPCs and tables the app uses exist in production [LIVE, catalog names 
    - the owner's visual AUTODEPLOY confirmation;
    - confirm a fresh daily backup exists (L7).
    - **Do not use `supabase db push`:** it would push all 22.
-2. **Apply `140`** by targeted apply (the sandbox-window method: file + ledger row). **Read back:** the ledger row; the md5 of both overloads and `attach_transfer_evidence` equal the rehearsal values; the grants.
-3. **Apply `20260909000000`** the same way; read back.
-4. **Read-only smoke:** catalog checks only (no invocations, per the standing restriction).
-5. **Production app build** from a candidate tag (EAS `production`: `pk_live`, production project), then TestFlight, then the App Store: owner steps.
+2. **Apply the A′ column migration** (additive: `ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS amount_refunded_cents int`). Read back that the column exists and `has_column_privilege('authenticated', …, 'SELECT')` is true. Nothing in production writes it (0 of 29 deployed edge files; 0 production-chain SQL), so it stays NULL and its rollback (drop column) loses nothing.
+3. **Apply `140`** by targeted apply (the sandbox-window method: file + ledger row). **Read back:** the ledger row; the md5 of both overloads and `attach_transfer_evidence` equal the rehearsal values; the grants.
+4. **Apply `20260909000000`** the same way; read back.
+5. **Read-only smoke:** catalog checks only (no invocations, per the standing restriction).
+6. **Production app build** from a candidate tag (EAS `production`: `pk_live`, production project), then TestFlight, then the App Store: owner steps.
    - DB first, then the app: an app shipped first would open Tickets on an error screen.
-6. **No edge deploy. No merge into `main`.**
+7. **No edge deploy. No merge into `main`.**
 
 ## 9. Remaining owner decisions
 
-1. **Choose shape A** (GO as above), or wait for a full server-line release.
+1. **Choose how to close D's break.**
+   - **A′** (A recommends): a new additive column migration, with the app unchanged and identical to Build 21. It needs a registry number from A (next free: 142), a pgTAP test, CI, D's review and your authorization to author it.
+   - **Client tolerance:** changes the device-tested, gated checkout code, so it needs a new review and a new build.
+   - **Include `20260906120000`:** brings shape-B risks, including payment guard triggers under the deployed edges.
+   - **Accept and record:** the candidate's checkout fixes stay inert in production. D assesses the outcomes as no worse than build 9 and the server guards still prevent a double charge; A has not independently verified the build-9 comparison.
+   Then choose **A′** (GO as above), or wait for a full server-line release.
 2. **Accept contract-level evidence** for candidate app ↔ deployed edges, or require an end-to-end run in an isolated environment that carries production's edge versions. That needs the deferred new project.
 3. **The unknown-outcome wording** (deferred): decide before step 5, because it ships in the build.
 4. **Authorize the two applies** (steps 2–3) and later the production build (step 5), each separately.
@@ -165,3 +174,29 @@ All other RPCs and tables the app uses exist in production [LIVE, catalog names 
 6. **Record:** 123/124 must never be rolled back in production. 136 waits for 141.
 
 **Status of this plan:** reviewers are D (requested; see the addendum when it lands). B is not reachable in this session, and B's sign-off is needed only for shape B (133/monitor).
+
+## 10. D's independent review (2026-09-18), and A's verification of it
+
+- **BREAK, verified LIVE by A:**
+  - Production `public.payments` has **no** `amount_refunded_cents` column (column-name read). It is created only by `20260906120000:306`.
+  - The candidate app selects it at `CheckoutNative.tsx:228` (`fetchSettledPayment`) and `:595` (`revalidateAgainstServer`). **Both discard the error** (`return data ?? null`; `pickSettled(rows ?? null)`), so PostgREST's 42703 turns every settled or refunded payment into "none", **silently**.
+  - Reproduced locally: *"column amount_refunded_cents does not exist"* on the production-shaped database.
+  - The status filter values (`succeeded`, `refunded`) are valid under production's `payments_status_check`, so the column is the only gap.
+- **Effect under shape A (D, from source):**
+  - A buy-now buyer whose charge landed can get `not_held` (the fixed "reservation expired" outcome).
+  - An auction winner is refused by the deployed `create-payment-intent` ("Payment already completed"), so there is no double charge.
+  - Refund states never show.
+- **Provenance:** `0590f3e0` (2026-09-14, Premium batch 1). It was already at `6561d1f` and is **not** in build 9. Not introduced by #72–#76.
+- **The fix A proposes (A′), prototyped [REH]:**
+  - The column is added; `authenticated` may select it (table-level grant).
+  - The app's exact query runs with no error under RLS.
+  - Dropping it reverses it.
+  - `20260906120000` still applies afterwards (its `ADD COLUMN IF NOT EXISTS` is a no-op).
+- **Shape-B cutoff:** `auto-finalize-auctions` → `cleanup_expired_reservations` is added (§6).
+- **The `cleanup_expired_reservations` drift, proven harmless by an exact check:**
+  - the quoted values are **byte-identical** (`'public'`, `'app.bypass_listing_guard'`, `'on'`, `'active'`, `'reserved'`);
+  - there are no quoted identifiers;
+  - the remaining text is identical after case-folding and whitespace normalisation.
+- **Rollback ACLs (D's gap):** production's EXECUTE grantees on both `mark_transfer_sent` overloads are `authenticated`, `service_role` and `postgres` [LIVE]. The rehearsal's grantees are **the same set** on the base, after 140 and after its rollback [REH].
+- **Contract claims:** D confirms create-payment-intent and confirm-payment at source. D did not check delete-account's withdraw or the connect types; A checked both (§5).
+- **D's method:** `client_deps_check.py` and `client_tables_check.py` (D's scratchpad), on local copies of A's production-shaped database. D had no production access.
