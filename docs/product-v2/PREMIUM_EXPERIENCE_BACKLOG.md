@@ -4893,6 +4893,15 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       P2; removing the buyer's column kills only B3). Gates at `131017a5`: tsc 0; lint 0/29; vitest 125 files / 2479
       tests. **Awaiting D; then C publishes the draft DO-NOT-MERGE PR** (A asks the PR body to name the
       `payout_released_at` semantics he verified in the deployed job v38, so a reviewer can check the premise).
+    - **D: PASS at `131017a5`** (own gates alone, matching; controls Y1 {B2, receive}, Y2 {N3, F1}, Y3 {P2}, Y4 {V14};
+      D's own predictions for Y1/Y2 were incomplete and corrected after observing, like mine). D's note, recorded and
+      C's to schedule: the buyer's read has no other payout field, so any further money claim needs the same treatment.
+    - **PUBLISHED by C (owner-authorised): draft PR #84 "[DO NOT MERGE]"**
+      (https://github.com/SnatchIt-app/snatchit/pull/84), head `131017a5`, base `release/production-gate-20260918`,
+      draft, MERGEABLE; branch `fix/seller-deadline-copy` pushed. The PR body carries A's premise note (deployed v38:
+      `apply_auto_release` sets only the status; `record_transfer_payout` writes `payout_released_at` after the Stripe
+      transfer succeeds) and the disclosed control corrections (NM5 survivor; DM3/NM8/NM9 incomplete predictions).
+      **No merge, build, deploy, DB mutation or payment action.**
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
