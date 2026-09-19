@@ -4658,14 +4658,23 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   gets no report (its decision has no detail). Tests Q9 (D's rank pin + witness), Q10, Q11, Q13, Q14; RED first for
   Q11/Q13/Q14. Mutants, all as predicted (138 tests, 7 suites): UM1 {Q13}, UM2 {Q14}, UM3 {Q11}, UM4 {Q9, R9}, UM5
   {Q14}, UM6 {Q13}. Gates: tsc 0; lint 0 errors / 29 warnings; vitest 2447/2447. Gated diff vs `d75c15cc`: holdState.ts
-  (+3 −3), payControl.ts (+2 −2, doc comment). **Awaiting A (payment boundary) and D (behaviour).**
+  (+3 −3), payControl.ts (+2 −2, doc comment). **D: PASS** (own worktree; DU1 {Q14}, DU2 {Q13}, DU3 {Q9, R9}, DU4
+  {W5}, all as predicted; no path leaves a stale statusUnknown after a successful re-validation). **Awaiting A (payment
+  boundary)**; A pushes after review. D's housekeeping (correct): `mutants_reservation.py` had pre-unification anchors
+  (M6, M8) → re-pointed at `3ff5712f`, M1–M9 re-predicted before the run (unchanged), UM1–UM6 folded in: 16/16 as
+  predicted, run alone, clean (old version kept as `mutants_reservation.d75c15cc.py`).
 - **Release-testing round (owner, via A's session; C's own authorisation direct, 2026-09-19):** after review + CI, A
   merges #77–#80 into `release/production-gate-20260918`, builds one sandbox preview, writes only the runbook's synthetic
   fixtures (D reviews), runs before/after checks. C guides H1–H5 once A and D confirm build + fixtures ready. **H5b
   (Stripe payment setup) skipped; no payment submission.** Clean-up proposed by A: A runs §7 (cancel the four listings),
-  D witnesses, at session end/abandonment or T+2h30m after the fixture write, whichever first (A's timer). **Open:** P3
-  buyer/seller sign-in emails — not in C's records (D6's "Delivery email sandbox-buyer@snatchit.test" is a delivery
-  field, not proof of the signed-in account); asked the owner. Saved-delivery-preference design task: **on hold** until
+  D witnesses, at session end/abandonment or T+2h30m after the fixture write, whichever first (A's timer). **P3 resolved from
+  the authorised records (owner: same accounts as Builds 20/21, no delivery-email substitute, no new accounts):** buyer
+  `919d511e-c4e6-4422-a71d-e2bc0139de65` = `sandbox-buyer@snatchit.test` (A's auth.sessions reads, manifest :303/:482;
+  buyer on S8only/D6, and A's READ of the Build 20 11:58 S8only buyer view); seller `2f5844b4-5144-4cd6-936d-4b59d8d5c6a0`
+  = `sandbox-seller@snatchit.test` (17_DEVICE_TEST_PROCEDURE.md:75 settlement read; D6/D7 seller; DV-20-7). D's records
+  agree on both ids (D holds ids only). A confirms both email↔id pairs in its P3 lookup, plus `deletion_state` (D's note).
+  Not these: `contact@snatchitapp.com` (Build 16 buyer), U2 `f53b8466` (API-only). Handset must be signed in as the
+  buyer for H1–H5; owner confirms on screen before H1. Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
