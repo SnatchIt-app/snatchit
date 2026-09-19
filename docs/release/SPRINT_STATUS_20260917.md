@@ -1182,3 +1182,25 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
 - **Remedy (i), recommended by A and D:** treat a `refunded` row with a NULL amount as `refund_pending`. It is a gated client change and needs its own test.
 - **Remedy (ii):** accept with an operating rule.
 - **A′ is GO only together with (i) or the owner's acceptance of (ii).** Go/no-go §11.
+
+**Remedy (i) implemented, `142` authored, focused end-to-end rehearsal done (A, 2026-09-18). Go/no-go §12.**
+- **The owner chose (i) and corrected it twice:**
+  - no "refund in progress", and the wording "A refund was recorded for this payment. We can't confirm the refunded amount here.";
+  - relayed by C and adopted by A as a restriction: no refund message says "No purchase was made", and partial and full refunds state only the recorded amount.
+- **§11 corrected:** A's and D's remedy, "NULL → `refund_pending`", would have kept "No purchase was made" and added "being processed". The RC never backfills, so existing refunded rows stay NULL for good.
+- **C: `fix/refund-amount-unknown @ b061c077`** (local only).
+  - Kinds: refunded, partially_refunded, refund_unconfirmed, already_settled. The only control goes to Tickets.
+  - A's payment-boundary review: PASS. Verified fresh: typecheck 0; lint 0 errors / 29 warnings; vitest 2401 tests.
+  - C's 9 mutants plus (j) all as predicted.
+- **A: `142` at `fix/142-payments-amount-refunded-cents @ e3c03d51`** (local only), with pgTAP 209 and the rollback.
+  - Registered.
+  - Full chain: 89/89 pgTAP files. Production shape: 209 fails without 142 and passes 11/11 with it.
+- **End-to-end [REH]:**
+  - **Before 142:** a paid buyer is told "Nothing was charged".
+  - **The deployed webhook's branch, run verbatim on a partial refund:** refunded, dated, amount NULL.
+  - **C's fix:** 10/10. **The gate:** 7/10 fail. **Mutant (a2):** exactly the two production-reachable rows fail.
+  - **The rollback:** data-safe in A′; it refuses when values exist or when the RC is present; its cutoff is the app release.
+- **New finding F-CHK-READERR:** the swallowed error on the settled read tells a paid buyer "Nothing was charged". This is demonstrated; it has not been fixed; it is the owner's call.
+- **Shape-B precondition:** the RC rollback drops the column.
+- **D's behavioural review of `b061c077`:** pending.
+- **Nothing pushed, applied, deployed or built.** The local rehearsal databases are kept.

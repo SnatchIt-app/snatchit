@@ -16,7 +16,7 @@
 | Shape | Verdict |
 |---|---|
 | ~~**A. Two migrations (`140`, `20260909000000`)**~~ | ~~GO~~ → **NO-GO as drafted. D found a break, and A verified it LIVE (§10):** the candidate app's checkout selects `payments.amount_refunded_cents`, which production lacks. The candidate's settled-first and refund-display checkout logic therefore reads "nothing", **silently**. |
-| **A′. App release. `140` + `20260909000000` + one new additive migration adding `payments.amount_refunded_cents int` (nullable), no edge deploy, then a production app build** | **GO only together with the refund-classification fix in §11 (or the owner's explicit acceptance of its operating rule), once the migration is authored, tested, CI-green and reviewed, and the §9 decisions are made.** ~~The app stays byte-identical to Build 21~~: with the §11 fix, one pure function in the gated `setupDecision.ts` changes. Every step is compatible with the installed store app and the deployed edges. Rollback is data-safe at any point [REH]. |
+| **A′. App release. `140` + `20260909000000` + one new additive migration adding `payments.amount_refunded_cents int` (nullable), no edge deploy, then a production app build** | **Superseded by §12.8.** ~~**GO only together with the refund-classification fix in §11 (or the owner's explicit acceptance of its operating rule), once the migration is authored, tested, CI-green and reviewed, and the §9 decisions are made.** ~~The app stays byte-identical to Build 21~~: with the §11 fix, one pure function in the gated `setupDecision.ts` changes. Every step is compatible with the installed store app and the deployed edges. Rollback is data-safe at any point [REH].~~ **§12.6: data-safe, but its cutoff is the app release.** |
 | **B. The server line** (the other required-by-edge migrations plus a redeploy of the candidate's edge functions) | **NO-GO now.** 133 cannot apply without a Vault change, which stays restricted. Old-client checkout timing under the payments RC is not demonstrated. The rollback cutoff is minutes after apply, not at redeploy (§6). It needs its own plan. |
 
 ## 1. The eleven live facts [LIVE]
@@ -217,9 +217,158 @@ The candidate app's runtime needs were established by **runtime behaviour**, not
   - **whether any of the 7 was partial is not knowable from the database** (no amount is stored; it would need Stripe, which was not read).
   - The trigger is rare: a buyer re-entering checkout for that listing.
 - **Remedies:**
-  - **(i) Recommended by A and D:** in `isRefundConfirmed`, a `refunded` row with a NULL amount is **not** confirmed, so it becomes `refund_pending`, which promises nothing.
-    - It is safe in both worlds: under `20260906120000`'s writer every refunded row carries the amount, so behaviour there is unchanged.
+  - **(i) Recommended by A and D:** in `isRefundConfirmed`, a `refunded` row with a NULL amount is **not** confirmed, ~~so it becomes `refund_pending`, which promises nothing~~. **Struck (§12.1): `refund_pending`'s copy also said "No purchase was made" and "being processed".**
+    - ~~It is safe in both worlds: under `20260906120000`'s writer every refunded row carries the amount, so behaviour there is unchanged.~~ **Struck (§12.1): the RC never backfills, so existing refunded rows stay NULL for good.**
     - **Cost:** a gated-surface client change (C implements, A reviews, D tests), a test that fails without it, and the app is no longer byte-identical to Build 21 (one pure function).
   - **(ii)** Accept and record it, with an operating rule: no Dashboard partial refunds while this build runs without the payments RC.
   - **(iii)** The RC's writer (shape B), out of scope now.
 - **D confirmed A′ closes the query break with D's checker:** the column is no longer flagged; the only missing RPCs are the 7 in the degrade set; the column is integer, nullable, with no default, and SELECT is granted. D has dropped its local copies.
+
+## 12. Remedy (i) implemented, `142` authored, focused end-to-end rehearsal (2026-09-18)
+
+**Owner's decision (A's session):**
+- Remedy (i), but not "refund in progress": an unknown amount does not establish processing status.
+- Wording such as "A refund was recorded for this payment. We can't confirm the refunded amount here."
+- Preserve the order's independently established status, and don't invite another payment.
+- Cover unknown, partial and full amounts.
+- A authors the column migration locally. A focused end-to-end rehearsal is required before any release recommendation.
+- No production writes, deploys or builds.
+
+**Owner's correction, given to C directly and relayed by C.** A adopts it because it narrows what may be claimed; A does not treat a relay as authorization:
+- no refund message says "No purchase was made" unless separate order evidence establishes it, because even a confirmed full refund can follow a completed purchase;
+- confirmed partial or full refunds describe only what the recorded amounts establish.
+
+### 12.1 Corrections to §11 (struck in place above)
+- **Remedy (i) was wrongly specified.**
+  - §11 said a NULL amount → `refund_pending` "promises nothing". False: at `8f45e9b`, `refund_pending`'s copy (`holdState.ts:96-101`) said "A refund is being processed … No purchase was made".
+  - A found this while scoping and D confirmed it. D asked for it to be recorded as D's error. It was equally A's: A wrote §11 and recommended it without reading that copy.
+- **"Unchanged under the RC writer" was incomplete.**
+  - `20260906120000` never backfills (its lines 303-304: "a refund we did not observe is not a fact we may invent").
+  - The 7 existing refunded rows, and every refund written before the RC ships, stay NULL permanently. **The neutral state is permanent for them, not interim.**
+
+### 12.2 The client change: C implements, A reviews the payment boundary, D reviews behaviour
+- **Where:** `fix/refund-amount-unknown @ 9f85c7be` (base `8f45e9bb`; local only; worktree `snatchit-refund`).
+- **Files:** `setupDecision.ts`, `holdState.ts`, `CheckoutNative.tsx`, 4 test files, and the static preview.
+- **Untouched:** `payments.ts`, `payControl.ts`, `signOut.ts`, `supabase/`.
+- **Kinds.** One mapping, `refundStateFor`, serves both setup and revalidation:
+  - `refunded`: status `refunded`, dated, and a recorded amount ≥ a known total;
+  - `partially_refunded`: 0 < recorded amount < known total, on either status;
+  - `refund_unconfirmed`: everything else. That includes every production refund today, succeeded rows carrying the full amount, and amounts with an unknown total;
+  - `already_settled`: succeeded with no recorded amount;
+  - `isRefundConfirmed`'s fallback is now `false`.
+- **Copy:**
+  - kicker "Refund";
+  - titles "Refund recorded", "Partial refund recorded", "Full refund recorded";
+  - bodies: "A refund was recorded for this payment. We can't confirm the refunded amount here." / "A partial refund of $X was recorded for this payment." / "A full refund of $X was recorded for this payment.";
+  - pointer "Check Tickets for this order's current status.";
+  - the only control is "Go to Tickets". There is no Pay, no retry and no route to the listing.
+  - No kind says "No purchase was made", "order stands", processing, cancellation or bank timing.
+- **A's payment-boundary review: PASS.**
+  - Fresh on a clean detached checkout, dependencies identical: typecheck exit 0; lint 0 errors / 29 warnings (the gate `8f45e9b` also has 29); vitest 121 files / 2400 tests passed.
+  - Every non-null settled row returns before `fetchListing` and `createIntent`.
+  - Pay is re-armed only on the ready path (:375) or a `held` revalidation (:635), and a refund row reaches neither.
+  - `refundState` is never cleared.
+- **C's negative controls:** 9/9 as predicted, (a)–(i). (a), (b) and (c) fail differently.
+- **Nit, now closed:** `refundViewModel`'s null-amount fallback swapped only the body, so a full-refund kind without an amount kept the title "Full refund recorded". `refundStateFor` made that unreachable; mutant (a2) showed it.
+  - **Fixed at `b061c077`** (holdState.ts + test only): a confirmed kind with no amount now renders exactly as the neutral kind. K5 pins it; C's mutant (j) kills K5 alone.
+  - A re-verified `b061c077` fresh: typecheck 0; lint 0 errors / 29 warnings; vitest 121 files / 2401 tests; end-to-end check 10/10.
+  - Still possible: `refundViewModel(confirmed kind, 0)` would print "$0". It is unreachable, because `recordedRefundCents` maps 0 to null. Left to D.
+- **Final head: `fix/refund-amount-unknown @ b061c077`.**
+- **D's behavioural review:** pending at the time of writing; see §12.9.
+
+### 12.3 Migration `142` (A)
+- **Where:** `fix/142-payments-amount-refunded-cents @ e3c03d51` (base `8f45e9bb`; local only; not pushed).
+- **Files:**
+  - `supabase/migrations/142_payments_amount_refunded_cents.sql`;
+  - `supabase/rollbacks/142_payments_amount_refunded_cents_rollback.sql`;
+  - `supabase/tests/209_payments_amount_refunded_cents.sql`.
+- **Number:** 142 and 209 are free across every ref and 119 worktrees (a positive control found 140/207). Now registered.
+- **What it does:**
+  - `ADD COLUMN IF NOT EXISTS amount_refunded_cents int`, byte-identical to `20260906120000:306`, so either may apply first with the same result;
+  - a post-check refuses any other same-named shape;
+  - `lock_timeout 3s`;
+  - no writer, trigger, grant or index; never backfilled.
+- **The four files:** none of the others moves.
+  - `payments` has table-level grants only (209 S5 pins that).
+  - The Gate-2 census after replay is 32|108|37|38, equal to `ci.yml`'s `EXPECT_*`.
+
+### 12.4 Rehearsal results [REH]
+Setup:
+- **Database:** local production shape, built in production's historical order: ledger 135, 16/17 function md5s identical to production (the 17th is the known keyword-case drift).
+- **Data:** synthetic rows seeded **before** 142, including an existing refunded row with no amount.
+- **Stack:** local PostgREST 16.2 with JWT roles and RLS, and supabase-js.
+- **Client:** the app's own `decideCheckoutSetup` and copy, with the screen's exact query text drift-guarded.
+- **No charges:** `createIntent` is a spy, and nothing calls Stripe.
+
+| Step | Result |
+|---|---|
+| Full chain with 142 (fresh replay) | 89/89 pgTAP files PASS; 209 11/11 |
+| 209 on the production shape **without** 142 | S1–S4 fail; S6 errors (42703) and aborts the file (negative control) |
+| 209 on the production shape with 142 only | 11/11. Re-applying 142 is a no-op (NOTICE) |
+| 142's shape guard | refuses a pre-existing `bigint`, `int default 0` and `int not null default 0` column |
+| Before 142 | the checkout read fails 42703; the error is swallowed. A paid buyer and a refunded buyer both get `not_held` with **"Nothing was charged"**; 0 intents only because the listing is sold |
+| Apply 142 → 140 → 20260909000000 under a live PostgREST | relfilenode unchanged (no rewrite); the existing refunded row stays NULL (10/10 NULL); 12 concurrent `select('*')` readers show no error before or after, with or without a schema reload; the buyer's checkout read works at once; `get_my_tickets` answers **PGRST202 until `notify pgrst, 'reload schema'`**, then works |
+| The deployed webhook's `charge.refunded` branch, run verbatim, on a $50-of-$110 partial refund | the row becomes `refunded`, dated, amount **NULL**; a second partial refund changes nothing |
+| Buyer PATCH of `amount_refunded_cents` on their own row | 0 rows updated; value unchanged |
+| Check, **C's fix** (9 buyers; `9f85c7be`, re-run at `b061c077`) | **10/10 PASS** at both. Both production-reachable rows show "Refund recorded / A refund was recorded for this payment. We can't confirm the refunded amount here." Known partials show "$50"; the known full refund shows "$110"; no amount appears for unknown rows. The CTA is Tickets everywhere. 0 intents, 0 listing reads. Revalidation gives the same kind |
+| Check, **gate `8f45e9b`** (negative control and witness) | **7/10 FAIL.** b1 and b2 show "Payment refunded … No purchase was made" with "Back to listing"; b6 and b7 show "Refund in progress … No purchase was made"; b4 and b8 show "Your order stands" (b8: "$110 … Part of this payment") |
+| Check, C's fix with mutant (a2) (both safeguards removed) | exactly b1 and b2 fail: "Full refund recorded" for a partial refund |
+
+The harness is scratch-only and never committed: `…/scratchpad/reh/wt/tests/zzprobe/e2e_refund_unknown.test.ts`; results in `…/scratchpad/e2e/*.jsonl`.
+
+### 12.5 Compatibility, step by step, with 142
+- **Store app (build 9, `4740091`):** its client code (`src`, `app`, `hooks`, `lib`, `components`) never reads the `payments` table (witness: 11 files read `listings`). The column is invisible to it.
+- **Deployed edges:** every `payments` read uses an explicit column list, and the insert uses explicit fields, so they are unaffected. The webhook's refund branch was exercised verbatim above.
+- **Database functions:**
+  - `payments%rowtype` and `select * into` adapt;
+  - no function returns the payments rowtype, and no view depends on the table;
+  - `ops.payment_json`/`order_detail`/`user_detail` gain a null `amount_refunded_cents` key. The admin console source has no reference to it; D is checking the rendering.
+- **PostgREST schema cache:** after each apply, run `notify pgrst, 'reload schema'` as a runbook step. Hosted Supabase normally reloads on DDL through its event trigger, but that was not verified on production.
+- **Limit:** production's PostgREST version was not read, and the local one is 16.2.
+
+### 12.6 Rollback limits, demonstrated
+- **R2:** with any value present, the rollback refuses (4 rows) and the column stays.
+- **R1:** with `20260906120000` applied (full chain), the rollback refuses and the column stays.
+- **The state A′ can actually reach** (all NULL: the webhook's partial refund applied, no RC writer): the rollback succeeds, leaving 19 columns and an identical ACL. No row data is lost, because nothing but NULL ever lived in the column.
+- **Cutoff = the app release.** After that rollback, the new client's read breaks again, and paid buyers are told "Nothing was charged" [REH, `afterRollback`]. Before release, rollback is safe; after release, fix forward. Re-applying 142 restores the column, all NULL.
+- **Hazard recorded for shape B, not changed now:** `20260906120000`'s rollback drops `amount_refunded_cents` (its rollback's final block). Once 142 has shipped with the app, rolling back the payments RC would recreate the column break. **Precondition for shape B:** amend that rollback to keep the column when 142 is in the ledger.
+
+### 12.7 New finding F-CHK-READERR (A, demonstrated; not fixed)
+- **What:** both settled-payment reads discard their error (`CheckoutNative.tsx:226-233`, `:593-599`).
+- **Effect:** any failure of that read falls through to the hold check. For a buyer who paid (the listing is sold), the result is `not_held`: **"Nothing was charged. Go back to the listing…"** — a false statement about money. The `pre` and `afterRollback` phases above demonstrate it with 42703.
+- **With 142 applied**, that cause is gone. A server-side error on this one read, while the listings read succeeds, still reaches it.
+- **Origin:** introduced by the candidate (build 9 has no such copy), and triggered only by errors.
+- **Suggested fix, not implemented:** a settled-read error → `reservation_unverifiable` ("Unable to verify … try again"), with no intent.
+- **Owner decision:** include it in this change, or defer.
+
+### 12.8 Verdict and deployment order (A′, revised)
+- **A′ = `142` + `140` + `20260909000000`, no edge deploy, then a production app build containing C's fix. Recommended for release once the following hold:**
+  - D's behavioural review passes (§12.9);
+  - CI is green on both branches, which needs the owner's authorization to push and open draft PRs;
+  - both branches are merged into `release/production-gate-20260918`, which needs its own authorization;
+  - the owner decisions in §12.10 are made.
+- **Order (each step owner-authorized; none authorized):**
+  1. Preconditions: the owner's visual AUTODEPLOY confirmation; a fresh backup; never `db push`.
+  2. Targeted apply of **`142`**. Read back: column `integer`/nullable/no default; `relfilenode` unchanged; `count(*) where amount_refunded_cents is not null` = 0; `has_column_privilege('authenticated', …, 'SELECT')`.
+  3. Targeted apply of `140`; read back.
+  4. Targeted apply of `20260909000000`; read back.
+  5. `notify pgrst, 'reload schema'`; read-only catalog smoke.
+  6. Production app build from a tag that contains C's fix; TestFlight; App Store. These are owner steps.
+- **Rollback:** 142 can be rolled back only before step 6's release. 140 and `20260909000000` are as in §6.
+- **Ledger note:** 142 lands above 121–141 (as 140 already does). The default `db push` would silently omit the lower pending versions; targeted applies are unaffected.
+- **Shape B stays NO-GO**, and now carries the §12.6 rollback precondition.
+
+### 12.9 D's behavioural review
+Pending at the time of writing.
+
+### 12.10 Remaining owner decisions (replaces §9 items 0–1)
+1. **Push and draft PRs for CI.** Authorize pushing `fix/142-payments-amount-refunded-cents` and `fix/refund-amount-unknown` and opening draft do-not-merge PRs against `release/production-gate-20260918`.
+   - CI's pgTAP job is non-superuser, and 209 has only run under the superuser harness.
+   - A push also starts a snatchit-web preview, which the ignore step cancels; canceled builds still count toward the Vercel quota.
+2. **Merge.** After CI is green and D passes the change, authorize merging both into the release gate (merge commits), then a new candidate tag.
+3. **Device evidence for the new refund screen.** Accept unit, end-to-end and static-preview evidence, or require a sandbox preview build with a handset check. The app is no longer byte-identical to Build 21. A handset check also needs a refunded sandbox row, which is a sandbox data write with its own authorization. Phone testing is currently not authorized.
+4. **F-CHK-READERR (§12.7):** include the fail-closed read in this change, or defer.
+5. **The unknown-outcome wording** (deferred): decide before the build.
+6. **§9 item 2 still stands:** contract-level evidence for the rest of the app ↔ deployed edges, beyond this refund path.
+7. **Applies and build:** authorize the three applies, and later the production build, each separately.
+8. **Legacy refunds:** the 7 existing refunded rows will always show the neutral state (no backfill). A Stripe-reconciled amount would be a production data write, needing its own authorization; A does not recommend it for this release.
