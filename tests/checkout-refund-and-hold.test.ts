@@ -269,6 +269,6 @@ describe('review change 2: Pay is restored only after the server confirms the ho
     // from the server. (The old index comparison would now pass vacuously: `.from('payments')` is no longer here.)
     expect(body).toContain('decideRevalidation(');
     expect(body).toContain('readSettled: () => readSettledPayments(supabase, listingId, buyerId)');
-    expect(body).toContain(".from('listings')");
+    expect(body).toContain('readListing: () => readListingHold(supabase, listingId)');
   });
 });

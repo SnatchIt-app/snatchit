@@ -56,11 +56,11 @@ import {
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, refundViewModel } from '@/src/lib/checkout/holdState';
+import { fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
 import { decideCheckoutSetup, decideRevalidation, type RefundState } from '@/src/lib/checkout/setupDecision';
-import { readSettledPayments, SettledReadError } from '@/src/lib/checkout/settledRead';
+import { readListingHold, readSettledPayments, SettledReadError } from '@/src/lib/checkout/settledRead';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -274,7 +274,7 @@ export default function CheckoutScreen() {
         }
         if (decision.kind === 'reservation_unverifiable') {
           // The hold may still be live; a retry is honest here.
-          setPaymentError('Unable to verify reservation. Please try again.');
+          setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
           return;
         }
         if (decision.kind === 'not_held') {
@@ -598,14 +598,7 @@ export default function CheckoutScreen() {
       { buyerId, isBuyNow, now: new Date() },
       {
         readSettled: () => readSettledPayments(supabase, listingId, buyerId),
-        fetchListing: async () => {
-          const { data } = await supabase
-            .from('listings')
-            .select('status, reserved_by, reserved_until')
-            .eq('id', listingId)
-            .maybeSingle();
-          return data;
-        },
+        readListing: () => readListingHold(supabase, listingId),
       },
     );
     if (outcome.kind === 'payment_status_unknown') {
@@ -614,6 +607,14 @@ export default function CheckoutScreen() {
       setPaymentReady(false);
       setStatusUnknown(true);
       setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
+      return 'unknown';
+    }
+    if (outcome.kind === 'reservation_unverifiable') {
+      // D's R2 (owner, 2026-09-19): the listing read failed, so the hold is UNKNOWN, not lost. Withhold Pay; claim
+      // nothing about the hold or a charge. The control is a retry, which re-runs setup (the check), never payment.
+      reportCheckoutFailure('reservation-check', outcome.detail);
+      setPaymentReady(false);
+      setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
       return 'unknown';
     }
     if (outcome.kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
