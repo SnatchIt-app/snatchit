@@ -358,10 +358,41 @@ The harness is scratch-only and never committed: `…/scratchpad/reh/wt/tests/zz
 - **Ledger note:** 142 lands above 121–141 (as 140 already does). The default `db push` would silently omit the lower pending versions; targeted applies are unaffected.
 - **Shape B stays NO-GO**, and now carries the §12.6 rollback precondition.
 
-### 12.9 D's behavioural review
-Pending at the time of writing.
+### 12.9 D's behavioural review of `b061c077` — behaviour PASS, with one owner-level finding (verified by A)
+- **D's own evidence:**
+  - full suite on D's own worktree, run alone: 121 files / 2401 tests;
+  - C's harness re-pointed at D's worktree: 10/10;
+  - D's probes DP1–DP6 all hold: 0 intents on every mixed row set; the neutral state never shows an amount; the CTA is Tickets; no forbidden claims. A's nit is confirmed closed.
+- **D's checkers on `a142_e2e_rehears`:**
+  - the only missing RPCs are the 7 in the degrade set;
+  - tables and columns are clean, also against C's source;
+  - the column is integer and nullable, and `authenticated` has SELECT;
+  - witness: `a142_e2epre_rehears` still flags the column at both checkout sites.
+- **D's review of A's E2E:** sound. **Limit:** the revalidate branch is re-implemented in the harness rather than run in the RN screen; C's S2 source pin covers the wiring.
+- **Admin console:** no effect. `toPayment` (`admin/src/lib/types.ts:581`, live `ab3e17f`) picks explicit fields, and unknown keys are ignored.
+- **Live ADD COLUMN** [D, local]:
+  - plpgsql `select * into` a payments variable adapts;
+  - an open session's PREPARED `select * from public.payments` fails once with "cached plan must not change result type". Only direct database clients holding such a statement are exposed; PostgREST is not.
+- **FINDING D-TKT, verified by A: "Go to Tickets" cannot show this order, so the pointer is false.**
+  - `app/(tabs)/tickets.tsx` → `fetchMyTickets` → `rpc('get_my_tickets')`, which reads only `kernel.tickets`. Marketplace purchases never appear there.
+  - A's own witness: the paid marketplace buyer b3 got **0 rows** from `get_my_tickets` in §12.4.
+  - The empty state reads "No tickets yet / Tickets you own will show up here", which implies the buyer owns nothing. That contradicts the owner's "preserve the order's independently established status".
+  - D says production has 0 `kernel.tickets` rows; A did not read that count, and the finding holds without it.
+  - **Origin: A's spec (R5 said "Tickets (preferred)") without checking what Tickets shows. A's E2E encoded the same wrong expectation.** It is the fourth "check the system you name" error in this sprint.
+  - **Where the order's status lives:** `/transfer/receive/<transferId>`. The Bids tab lists purchases, but only transfers in `pending`, `seller_sent`, `disputed`, `buyer_confirmed` or `auto_released` status, so a cancelled order is silently absent there.
+  - **C is holding `b061c077` unchanged pending the owner's choice.**
+- **D's minor findings:**
+  - (1) render precedence (`if (refundState)` at :695) is pinned by nothing; D's mutant DM1 left 0 of 2400 tests failing. A asked C to add a pin with the next change;
+  - (2) with two refunded rows, the one shown depends on database order (no ORDER BY). This matters only once amounts are written (the RC). Deferred;
+  - (3) the settled read still swallows its error. This is the same as A's F-CHK-READERR (§12.7).
+
+**Decision added to §12.10 (item 0): the refund screen's destination.**
+- **(b) A recommends:** remove the pointer and make the CTA "Back to home". It is the smallest change and makes no claim.
+- **(a)** When a transfer exists for this payment, "View order" → `/transfer/receive/<id>`; otherwise Home with no pointer. This adds one more buyer-own read, which is an authoritative-state read that A reviews.
+- **(c)** The Bids tab. Not recommended.
 
 ### 12.10 Remaining owner decisions (replaces §9 items 0–1)
+0. **The refund screen's destination (D-TKT, §12.9):** (b) remove the pointer and go Home (A recommends), (a) the order's transfer page when one exists, or (c) the Bids tab. Until this is decided, `b061c077` is not merge-ready.
 1. **Push and draft PRs for CI.** Authorize pushing `fix/142-payments-amount-refunded-cents` and `fix/refund-amount-unknown` and opening draft do-not-merge PRs against `release/production-gate-20260918`.
    - CI's pgTAP job is non-superuser, and 209 has only run under the superuser harness.
    - A push also starts a snatchit-web preview, which the ignore step cancels; canceled builds still count toward the Vercel quota.

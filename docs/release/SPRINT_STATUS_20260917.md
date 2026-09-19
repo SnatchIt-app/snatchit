@@ -1204,3 +1204,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
 - **Shape-B precondition:** the RC rollback drops the column.
 - **D's behavioural review of `b061c077`:** pending.
 - **Nothing pushed, applied, deployed or built.** The local rehearsal databases are kept.
+- **D's review of `b061c077`: behaviour PASS, and one owner-level finding, verified by A.** "Go to Tickets" cannot show a marketplace order: Tickets reads only `kernel.tickets`, the rehearsal buyer b3 got 0 rows, and the empty state says "Tickets you own will show up here".
+  - It came from A's spec (R5).
+  - C is holding. The destination is the owner's call: (b) Home, no pointer, which A recommends; (a) the order's transfer page; (c) Bids.
+  - D's minors: render precedence is unpinned (C to pin); refunded-row order is deferred; the swallowed read error is the same as F-CHK-READERR.
+  - Admin console: no effect. Go/no-go §12.9.
