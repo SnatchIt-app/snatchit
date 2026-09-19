@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { bidOutcomeCopy } from '@/src/lib/bid/bidEntry';
-import { notHeldCopy, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
+import { notHeldCopy, refundViewModel } from '@/src/lib/checkout/holdState';
 import { payControl } from '@/src/lib/checkout/payControl';
 import { UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
 import { REGISTRATION_REMEDY } from '@/src/lib/push/registration';
@@ -54,13 +54,14 @@ describe('static previews are labelled and pinned to source', () => {
       expect(html).toContain(c.title);
       expect(html).toContain(c.body);
     }
-    for (const k of Object.values(REFUND_COPY)) {
-      expect(html).toContain(k.kicker);
-      expect(html).toContain(k.title);
+    for (const v of [refundViewModel('refund_unconfirmed', null), refundViewModel('partially_refunded', 2000), refundViewModel('refunded', 11000)]) {
+      expect(html).toContain(v.kicker);
+      expect(html).toContain(v.title);
+      expect(html).toContain(v.body);
+      expect(html).toContain(v.cta.label);
     }
-    expect(html).toContain(REFUND_COPY.refunded.body);
-    expect(html).toContain(REFUND_COPY.refund_pending.body);
-    expect(html).toContain(partialRefundBody('$20'));
+    expect(html).not.toContain('No purchase was made');
+    expect(html).not.toContain("Check Tickets for this order's current status.");
     const base = { authLoading: false, paymentLoading: false, confirming: false, paymentReady: false, paymentError: false, formattedTotal: '$88' };
     expect(html).toContain(payControl({ ...base, confirming: true }).label);          // Confirming payment
     expect(html).toContain(payControl({ ...base, finalizing: true }).label);          // Finalizing your order
