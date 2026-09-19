@@ -172,7 +172,8 @@ describe('the state says only that the status could not be checked', () => {
   });
 
   it('R8: the copy is exactly the check-failed sentence, and claims nothing else', () => {
-    expect(PAYMENT_STATUS_UNKNOWN_COPY).toBe("We couldn't check the status of this payment.");
+    // The owner's wording (2026-09-19).
+    expect(PAYMENT_STATUS_UNKNOWN_COPY).toBe("We couldn't check whether this has already been paid.");
     expect(PAYMENT_STATUS_UNKNOWN_COPY).not.toMatch(UNBACKED);
   });
 });
