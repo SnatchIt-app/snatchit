@@ -4846,7 +4846,21 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       DM11 (defensive latches) are predicted survivors and survived. **A: PASS** (own run alone: tsc 0, lint 0/29,
       32/32; A's control A-M1, removing `expired → closed`, killed exactly {V4, V13, V14, V18, X5} = DM4). A's non-
       blocking nit (the comment cites main's edge source; now also byte-verified as deployed v38) was left as is: still
-      accurate, no churn. **Not published**: A is asking the owner whether to open a PR. **Awaiting D.**
+      accurate, no churn. **Not published**: A is asking the owner whether to open a PR.
+      **D: PASS in scope** (own worktree, alone: tsc 0, lint 0/29, vitest 2461; D's controls MX1b {V10}, MX3 {V2, V13},
+      MX5 {V13, V18}), with two test/comment findings, both verified and fixed test-only in **`4a96e05e`**: (1) V10 was
+      blind to a direct `from('payments')` and to RPCs (D's MX1 survived); it now records table and RPC names (DM17 and
+      DM18 → {V10}); (2) X5's comment wrongly said an expired order hides "Send tickets to". Controls at `4a96e05e`: 18/18
+      as predicted (DM3 carries its post-run correction). Gates: tsc 0; lint 0/29; vitest 124 files / 2461 tests. **Tip
+      for publication, if authorised: `4a96e05e`.**
+      - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
+        above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
+        is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
+        delivery details"), details unchanged. Not changed.
+      - **Pre-existing, out of scope (D) — F-SELL-STATES-1:** `reversed` and `disputed` transfers still render the
+        sending instructions and "Send tickets to" (the gate is only `!alreadySent`); `reversed` has no state block.
+      - Minor (D): "still open when last checked" shows no time and can stay long after the +150 s read; truthful given
+        "it can close at any time". No action.
   - **D's final-head checklist (recorded):** refund_recorded only from a confirmed signal (no NULL, cache or amount
     inference); no cancellation or full-refund implication wherever it renders; the restriction as the owner decides
     (else V15 pins the interim); V14's absence witnessed in the same query scope, with a mutant re-adding the email that
