@@ -4799,6 +4799,37 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
     docs say so; not tested). The gate's expiry edge (Phase 0 with an amount test) is not production.
   - **Awaiting A's assessment** (support resolution path; expiry treatment; whether the restriction is safe without a
     server change). Then the restriction, controls, and the final head to A and D.
+  - **A's assessment (2026-09-19) — verdict: don't build the restriction on its own.** It is safe only with (1) an
+    owner-set operating rule/SOP ("a refund recorded on a pending order means the order is cancelled; support refunds
+    the remainder in the Stripe Dashboard, within 24 h where possible") and (2) a detection so support sees these
+    orders (an ops case for a pending — ideally also an expired — transfer whose payment is `refunded`; D's area,
+    alert-only). "Partial refund, order proceeds" needs a server change (record the amount, pay out the remainder, a
+    support "proceed" action): a payment-rule change for the owner.
+    - (a) Support's only tool is the Stripe Dashboard. The webhook then does nothing (`.neq('status','refunded')`).
+      The ops console's `refund_execute` is setting-gated (production value unread), and its precheck refuses non-
+      `succeeded` payments. The executor edges are not deployed in production. Nothing moves a pending transfer except
+      `mark_transfer_sent` and expiry.
+    - (b) Expiry: `expired` within ~2 min; Phase 1 skips `refunded` (no Stripe call, no push); 1b never selects it; no
+      inbox/email notification on expiry; the listing stays `sold`; no payout. **The closure is silent to buyer, seller
+      and ops.**
+    - Consequence: DEPLOYED expiry skip + Stripe DOCS ("including partial refunds") + MAIN webhook ⇒ after a partial
+      Dashboard refund, automation never refunds the remainder; it stays captured until someone refunds it by hand, and
+      nothing prompts anyone. **Unverified:** whether production's webhook endpoint subscribes to `charge.refunded`
+      (if not, the row stays `succeeded`, refund_recorded never shows, and expiry refunds the remainder, capped by
+      Stripe).
+    - (c) A full refund: the restriction protects the seller. A partial refund: the order is stuck with or without it;
+      the restriction moves the rescue to the buyer's remainder (one Dashboard refund) instead of the seller's payout
+      (no sanctioned tool). With it, a partially refunded order can never complete in-app.
+    - (d) A: the delivery target belongs with the sending instructions (buyer's personal data, used only for the
+      transfer). Hide it with the proof upload; keep the event, price, status and buyer's display name. An inactive
+      Mark as sent is client-only (the server still accepts `mark_transfer_sent`), so the copy and tests must say so.
+    - **C spot-checked two claims in main's source:** the payout skip when the payment is not `succeeded`
+      (`enforce-transfer-expiry:535`); the inbox trigger branches only on seller_sent / buyer_confirmed / disputed
+      (`058`, its only definition), so there is no expiry notification.
+    - **New pre-existing finding (A) — F-PAYOUT-PARTIAL-1, recorded, not C's lane:** a partially refunded order that IS
+      sent never pays the seller automatically: the transfer flips to `auto_released` after 72 h, then Phase 2b retries
+      and skips it every 2 min for ever.
+    - Interim `938423e0` (wording only) is safe to keep until the owner rules (A). A is reporting to the owner.
   - **D's final-head checklist (recorded):** refund_recorded only from a confirmed signal (no NULL, cache or amount
     inference); no cancellation or full-refund implication wherever it renders; the restriction as the owner decides
     (else V15 pins the interim); V14's absence witnessed in the same query scope, with a mutant re-adding the email that
