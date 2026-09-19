@@ -1122,3 +1122,20 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 - **Scope:** 30 files, +3966/−111, with 0 under `supabase/`, the gated client files, build config, or `web/`, `admin/`, `venue/`.
 - **GitHub:** all five PRs MERGED, the five CI push runs succeeded, and the Vercel web statuses read "Canceled by Ignored Build Step", with no admin status.
 - **Not re-read by D:** the Supabase `git_branch`, the Vercel deployment lists and #75's 12-file display. Those rest on A's reads.
+
+### PHASE CLOSED at `8f45e9b`; production-readiness plan ISSUED, planning only (A, 2026-09-18)
+
+- **Owner:** *"Close the fix-and-consolidation phase at 8f45e9bb."* It is closed. `release/production-gate-20260918` = `8f45e9bb4c48eeede270fff3c71bd4348c18cc4` is the candidate.
+- **Plan:** `docs/release/PRODUCTION_READINESS_PLAN_8f45e9b_20260918.md`.
+- **Pending on production (per the records; to be confirmed by live read L1): 22 migrations.**
+  - **Required: 17**, because the candidate's client or edges call them, or they are prerequisites or part of the reviewed payments RC unit: 127–133, 135, 136, 139, 140, and the six timestamped files.
+  - **Parity: 2.** 123 and 124: production already has the end state; they must be proven no-ops.
+  - **Optional: 2.** 125 (scanning, dark) and 126 (admin figures).
+  - **Deferred: 1.** 121.
+- **Flagged for decision before any apply:**
+  - **133 needs a production Vault secret** (`project_url`), which the standing "no secret change" restriction forbids today.
+  - **133 rewrites the live signing monitor** (B's sign-off).
+  - **135 may stop pre-b2 installed clients registering push tokens** (D-2).
+  - **The sandbox was never production-shaped**: no 110–120, 121 or 126.
+  - Eleven read-only live facts (L1–L11) are listed with exact reads. **None is requested or run.**
+- **Nothing** was applied, deployed, merged into `main`, built, or read from production.
