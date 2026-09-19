@@ -39,6 +39,9 @@ The fix-and-consolidation phase is **closed at `release/production-gate-20260918
 **The sandbox is not production-shaped [R]:**
 - It never received 110–120 (production's trust-root and ops-console chain; ruling 5 kept 115–120 off it).
 - It holds **20 of the 22**. It lacks 121 and 126.
+  - The numbered ones are recorded per window in the manifest.
+  - `20260909000000` is recorded explicitly.
+  - The four `20260906*` files are **inferred** from the ledger counts (132 rows with versions >109 = 123, 124, 125), **not recorded individually**. A sandbox ledger read would settle it; it is not needed for production.
 - Sandbox device evidence therefore **never ran against a production-shaped database**, and **sandbox-applied does not mean production-required** (§2).
 
 ## 2. The 22 pending migrations, classified
