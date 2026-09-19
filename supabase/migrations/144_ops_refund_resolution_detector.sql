@@ -34,8 +34,9 @@
 --         case must have an assignee (given here or already set), so money that is owed is never ownerless.
 --       - case_refund_obligation {kind, settled, note}: records what happened to an obligation that was raised.
 --     case_status resolved/dismissed on a refund_resolution case is then refused unless a classification is recorded
---     (for 'resolved') and EVERY obligation raised for the case is recorded settled. So choosing B, or A on a paid-out
---     order, can never by itself close money that is still owed, and dismissal cannot be used to walk away from one.
+--     and EVERY obligation raised for the case is recorded settled — for 'dismissed' as well as 'resolved', because a
+--     dismissal is a closure too. So choosing B, or A on a paid-out order, can never by itself close money that is
+--     still owed, and a case cannot be dismissed before anyone has looked at the money.
 --     The recorded classification is prefixed to resolution_note and carried in the closing event.
 --     Every other case type dispatches exactly as before (211 C15-C17).
 --   No public object (Gate-2 census and grant manifests unchanged), no table, no index, no schedule change.
@@ -83,20 +84,59 @@ begin;
 set local lock_timeout = '3s';
 
 -- ── vocabulary ────────────────────────────────────────────────────────────────────────────────────────────────
-alter table ops."case" drop constraint case_case_type_check;
-alter table ops."case" add constraint case_case_type_check
-  check (case_type = any (array['paid_unsettled', 'transfer_deadline_soon', 'transfer_overdue', 'release_stuck', 'refund_pending', 'refund_failed', 'dispute_open', 'dispute_evidence_due', 'payout_review', 'report_review', 'webhook_stuck', 'job_failure', 'notification_failure', 'reconciliation_mismatch', 'manual', 'refund_resolution']));
-alter table ops.case_event drop constraint case_event_kind_check;
-alter table ops.case_event add constraint case_event_kind_check
-  check (kind = any (array['created', 'seen', 'assigned', 'status_changed', 'priority_changed', 'due_changed', 'note_added', 'action_requested', 'action_outcome', 'auto_resolved', 'reopened', 'state_changed', 'classified', 'obligation_changed']));
--- Two new action types. They are named case_* on purpose: action_dispatch's case_% preamble then loads the case, checks
--- the caller's expected version and builds v_before, and action_allowed_roles' default gives admin/risk/support.
-alter table ops.action drop constraint action_action_type_check;
-alter table ops.action add constraint action_action_type_check
-  check (action_type = any (array['case_create', 'case_assign', 'case_status', 'case_priority', 'case_due', 'case_note',
-                                  'case_refund_classify', 'case_refund_obligation',
-                                  'dispute_resolve', 'payout_release', 'listing_relist', 'report_resolve',
-                                  'user_restrict', 'user_unrestrict', 'refund_execute', 'job_retry', 'setting_set']));
+-- Each widening EXTENDS the list that is in force rather than restating one (138 may or may not have landed first,
+-- and a re-add that loses existing values applies cleanly and only breaks at the first insert — 138's own lesson).
+do $vocab$
+declare
+  v_spec  text[][] := array[['ops."case"', 'case_case_type_check', 'case_type', 'refund_resolution'],
+                            ['ops.case_event', 'case_event_kind_check', 'kind', 'state_changed'],
+                            ['ops.case_event', 'case_event_kind_check', 'kind', 'classified'],
+                            ['ops.case_event', 'case_event_kind_check', 'kind', 'obligation_changed'],
+                            ['ops.action', 'action_action_type_check', 'action_type', 'case_refund_classify'],
+                            ['ops.action', 'action_action_type_check', 'action_type', 'case_refund_obligation']];
+  v_i     integer;
+  v_def   text;
+  v_list  text;
+  v_keep  text[] := array['case_case_type_check:job_failure', 'case_case_type_check:manual',
+                          'case_event_kind_check:status_changed', 'case_event_kind_check:auto_resolved',
+                          'action_action_type_check:case_create', 'action_action_type_check:payout_release',
+                          'action_action_type_check:setting_set'];
+  v_pair  text;
+begin
+  for v_i in 1 .. array_length(v_spec, 1) loop
+    select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+     where c.conname = v_spec[v_i][2] and c.conrelid = v_spec[v_i][1]::regclass;
+    if v_def is null then
+      raise exception '144: % is missing on %', v_spec[v_i][2], v_spec[v_i][1];
+    end if;
+    continue when position('''' || v_spec[v_i][4] || '''' in v_def) > 0;   -- already admitted (re-apply, or a later base)
+    select string_agg(quote_literal(m[1]), ', ' order by ord) into v_list
+      from regexp_matches(v_def, '''([a-z_]+)''', 'g') with ordinality as t(m, ord);
+    if v_list is null then
+      raise exception '144: could not read the values of %', v_spec[v_i][2];
+    end if;
+    execute format('alter table %s drop constraint %I', v_spec[v_i][1], v_spec[v_i][2]);
+    execute format('alter table %s add constraint %I check (%I = any (array[%s, %L]))',
+                   v_spec[v_i][1], v_spec[v_i][2], v_spec[v_i][3], v_list, v_spec[v_i][4]);
+  end loop;
+
+  -- every value 144 needs is admitted…
+  for v_i in 1 .. array_length(v_spec, 1) loop
+    select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+     where c.conname = v_spec[v_i][2] and c.conrelid = v_spec[v_i][1]::regclass;
+    if position('''' || v_spec[v_i][4] || '''' in v_def) = 0 then
+      raise exception '144: % does not admit %', v_spec[v_i][2], v_spec[v_i][4];
+    end if;
+  end loop;
+  -- …and nothing that was admitted before was lost (138's check, same shape)
+  foreach v_pair in array v_keep loop
+    select pg_get_constraintdef(c.oid) into v_def from pg_constraint c
+     where c.conname = split_part(v_pair, ':', 1);
+    if position('''' || split_part(v_pair, ':', 2) || '''' in v_def) = 0 then
+      raise exception '144: % lost the existing value %', split_part(v_pair, ':', 1), split_part(v_pair, ':', 2);
+    end if;
+  end loop;
+end $vocab$;
 
 -- ── the owner's switch, seeded OFF (feature flags are flipped only by an audited setting_set, never a migration)
 insert into ops.setting (key, value) values ('refund_resolution_detector_enabled', 'false'::jsonb) on conflict (key) do nothing;
@@ -602,7 +642,8 @@ begin
                         where e.case_id = a.subject_id and e.kind = 'obligation_changed'
                         order by e.data ->> 'kind', e.created_at desc) x
                       where x.settled is distinct from 'true');
-      if v_class is null and v_status = 'resolved' then
+      if v_class is null then
+        -- dismissal is a closure too: without a classification nobody has looked at the money (A, 2026-09-19)
         return jsonb_build_object('status','rejected','reject_reason','precondition',
                                   'message','classify this case first (case_refund_classify: A, B or C)');
       end if;

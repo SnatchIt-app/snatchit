@@ -11,7 +11,7 @@
 -- Fixture writes bypass the 055/056 transfer guard exactly as the other suites do (transaction-local).
 -- ============================================================================
 BEGIN;
-SELECT plan(60);
+SELECT plan(61);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
@@ -266,8 +266,12 @@ SELECT is((SELECT e.data ->> 'classification' FROM ops.case_event e JOIN ops."ca
 SELECT ok((SELECT r ->> 'status' = 'succeeded' AND r #>> '{result,obligation}' = 'reversal_decision'
              FROM (SELECT tap._classify(19, 'A', 'k211-c12-paid', tap.other_user()) AS r) x),
   'C12: A on an order that was already paid out raises reversal_decision, not a clean close');
-SELECT is(tap._act(22, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c13-dismiss') ->> 'status', 'succeeded',
-  'C13: a case with nothing outstanding can be dismissed as a false positive');
+SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%classify this case first%'
+             FROM (SELECT tap._act(22, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c13-dismiss') AS r) x),
+  'C13: a dismissal is a closure too — it cannot be used before anyone has classified the money');
+SELECT tap._classify(22, 'A', 'k211-c18-cls');
+SELECT is(tap._act(22, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c18-dismiss') ->> 'status', 'succeeded',
+  'C18: once classified A with nothing outstanding, it can still be dismissed as a false positive');
 SELECT tap._classify(23, 'B', 'k211-c14-cls', tap.other_user());
 SELECT ok((SELECT r ->> 'status' = 'rejected' AND r ->> 'message' LIKE '%unsettled obligation%'
              FROM (SELECT tap._act(23, 'case_status', '{"status":"dismissed"}'::jsonb, 'k211-c14-dismiss') AS r) x),
