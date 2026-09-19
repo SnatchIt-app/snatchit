@@ -1095,3 +1095,11 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 **Evidence classes:**
 - **#78 refund screens** (H1–H4) and **#79's payment-lookup failure** (H5, offline): **device evidence, observed** on Build 22.
 - **#80's reservation-lookup fix:** in the build, **not exercised on the device**. Its evidence is source, tests and the E2E rehearsal only.
+- **D witnessed §7 and both after-reads: PASS.**
+  - The md5s match: pre `f065fa0c…`, cleanup `cb8e92cc…`, post `66509c14…`. The scripts are unchanged since D's review.
+  - The payment row md5s are identical across baseline, pre and post.
+  - 0 side effects since T0.
+- **The release prediction was D's, and the record says so at D's request.** A shared it.
+  - D's most economical explanation, **not verified**: `router.replace('/(tabs)/home')` from checkout never removed the deep-linked listing screen, so `beforeRemove` never fired.
+  - A refusal is less likely on the repo source: 127 returns early only for sold listings or a succeeded payment. The sandbox's deployed body was not read.
+- **Possible product follow-up (the owner's call; NOT a finding).** If "Back to home" leaves the listing screen mounted underneath, a real buyer's hold survives leaving until its server-side expiry. That expiry is the designed backstop, but it is not the release path the code intends. Confirming it needs a device log or an authorised API-log read.
