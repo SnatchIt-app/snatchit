@@ -144,6 +144,8 @@ export default function CheckoutScreen() {
   const [statusUnknown, setStatusUnknown] = useState(false);
   // The payment lookup itself failed (not the reservation's): hides the escrow line (owner, 2026-09-19).
   const [paymentStatusUnknown, setPaymentStatusUnknown] = useState(false);
+  // The reservation lookup failed: also hides the escrow line until a listing read succeeds (owner, 2026-09-19).
+  const [reservationStatusUnknown, setReservationStatusUnknown] = useState(false);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // CFT-306: the settlement record after the charge is a step of its own.
@@ -241,6 +243,7 @@ export default function CheckoutScreen() {
                 .select('status, reserved_by, reserved_until')
                 .eq('id', lid)
                 .single();
+              if (!error) setReservationStatusUnknown(false);
               return error ? null : data;
             },
             createIntent: () =>
@@ -281,6 +284,7 @@ export default function CheckoutScreen() {
           // The hold may still be live, so claim nothing about it. Owner (2026-09-19): the same unknown state as
           // re-validation's — "Check again" re-runs this check; no Pay until a check succeeds.
           setStatusUnknown(true);
+          setReservationStatusUnknown(true);
           setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
           return;
         }
@@ -624,6 +628,7 @@ export default function CheckoutScreen() {
       reportCheckoutFailure('reservation-check', outcome.detail);
       setPaymentReady(false);
       setStatusUnknown(true);
+      setReservationStatusUnknown(true);
       setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
       return 'unknown';
     }
@@ -893,7 +898,7 @@ export default function CheckoutScreen() {
           )}
         </View>
 
-        {showEscrowNote({ paymentStatusUnknown, confirmUnreachable: checkUnreachable }) ? (
+        {showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable }) ? (
           <Text style={[textStyle('bodySm'), s.trust]}>{ESCROW_NOTE_COPY}</Text>
         ) : null}
 

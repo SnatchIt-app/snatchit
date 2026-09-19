@@ -89,14 +89,19 @@ export const RESERVATION_UNVERIFIABLE_COPY = "We couldn't check your reservation
 export const PAYMENT_STATUS_UNKNOWN_COPY = "We couldn't check whether this has already been paid.";
 
 /**
- * The escrow line under checkout's payment state. It describes a payment state, so (owner, 2026-09-19) it is hidden
- * whenever the payment status is unknown: the settled-payment lookup failed (setup or re-validation), or a payment
- * result could not be confirmed (unreachable). A reservation-unknown state is not one: its payment lookup succeeded.
+ * The escrow assurance under checkout's payment state. Owner (2026-09-19): shown only where it is supported, so it is
+ * hidden while the settled-payment lookup has failed, while a payment result could not be confirmed (unreachable), and
+ * while the reservation could not be checked, until a read succeeds. "A successful lookup finding no payment does not
+ * establish that money is being held."
  */
 export const ESCROW_NOTE_COPY = 'Payment is held until your ticket reaches you. Secured by Stripe.';
 
-export function showEscrowNote(i: { paymentStatusUnknown: boolean; confirmUnreachable: boolean }): boolean {
-  return !i.paymentStatusUnknown && !i.confirmUnreachable;
+export function showEscrowNote(i: {
+  paymentStatusUnknown: boolean;
+  reservationStatusUnknown: boolean;
+  confirmUnreachable: boolean;
+}): boolean {
+  return !i.paymentStatusUnknown && !i.reservationStatusUnknown && !i.confirmUnreachable;
 }
 
 /**

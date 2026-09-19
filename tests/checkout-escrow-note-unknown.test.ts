@@ -9,7 +9,12 @@
  * - the settled-payment lookup failed (F-CHK-READERR: "We couldn't check whether this has already been paid."), from
  *   setup or re-validation;
  * - a payment result could not be confirmed (`checkUnreachable`: "We couldn't confirm your payment yet").
- * The reservation-unknown state is not one of them: the payment lookup succeeded before the listing read failed.
+ *
+ * Owner, 2026-09-19 (refinement): "hide the payment-held assurance in the unknown-reservation state too, including while
+ * its recheck is pending. The distinction is whether the message is supported, not merely whether payment status is
+ * known. A successful lookup finding no payment does not establish that money is being held." So the reservation-
+ * unknown state ("We couldn't check your reservation.") hides it as well, until a listing read succeeds. Visibility of
+ * the assurance only: no payment decision, reservation behaviour, Pay or "Check again" action changes.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -23,16 +28,20 @@ describe('the rule', () => {
   });
 
   it('E2: hidden when the payment lookup failed', () => {
-    expect(showEscrowNote({ paymentStatusUnknown: true, confirmUnreachable: false })).toBe(false);
+    expect(showEscrowNote({ paymentStatusUnknown: true, reservationStatusUnknown: false, confirmUnreachable: false })).toBe(false);
   });
 
   it('E3: hidden when a payment result could not be confirmed', () => {
-    expect(showEscrowNote({ paymentStatusUnknown: false, confirmUnreachable: true })).toBe(false);
-    expect(showEscrowNote({ paymentStatusUnknown: true, confirmUnreachable: true })).toBe(false);
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: false, confirmUnreachable: true })).toBe(false);
+    expect(showEscrowNote({ paymentStatusUnknown: true, reservationStatusUnknown: false, confirmUnreachable: true })).toBe(false);
   });
 
-  it('E4 (witness): shown when the payment status is known', () => {
-    expect(showEscrowNote({ paymentStatusUnknown: false, confirmUnreachable: false })).toBe(true);
+  it('E10: hidden when the reservation could not be checked (owner: the assurance is not supported there)', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: true, confirmUnreachable: false })).toBe(false);
+  });
+
+  it('E4 (witness): shown when neither the payment nor the reservation is unknown', () => {
+    expect(showEscrowNote({ paymentStatusUnknown: false, reservationStatusUnknown: false, confirmUnreachable: false })).toBe(true);
   });
 });
 
@@ -46,9 +55,9 @@ const between = (s: string, from: string, to: string) => {
 };
 
 describe('the screen applies it', () => {
-  it('E5: the line renders once, only through the rule, fed both unknown states; the screen no longer spells it out', () => {
+  it('E5: the line renders once, only through the rule, fed every unknown state; the screen no longer spells it out', () => {
     const s = src();
-    expect(s).toContain('showEscrowNote({ paymentStatusUnknown, confirmUnreachable: checkUnreachable }) ? (');
+    expect(s).toContain('showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable }) ? (');
     expect(s.split('{ESCROW_NOTE_COPY}').length - 1).toBe(1);
     expect(s).not.toContain('Payment is held until your ticket reaches you');   // witness: E1 finds it in holdState
   });
@@ -63,7 +72,7 @@ describe('the screen applies it', () => {
     expect(block).toContain('setPaymentStatusUnknown(true);');
   });
 
-  it('E8: a reservation-unknown state does not mark it — its payment lookup succeeded (witness: E6, E7)', () => {
+  it('E8: a reservation-unknown state does not mark the PAYMENT flag — it has its own (witness: E6, E7)', () => {
     const s = src();
     expect(between(s, "if (decision.kind === 'reservation_unverifiable') {", "if (decision.kind === 'not_held')")).not.toContain('setPaymentStatusUnknown');
     expect(between(s, "if (outcome.kind === 'reservation_unverifiable') {", '}\n')).not.toContain('setPaymentStatusUnknown');
@@ -77,5 +86,25 @@ describe('the screen applies it', () => {
     const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
     expect(setupStart).not.toContain('setPaymentStatusUnknown');   // witness: the same query finds it in the dependency
     expect(s.split('setPaymentStatusUnknown(false);').length - 1).toBe(1);
+  });
+
+  it('E11: setup marks the reservation unknown when its listing read fails', () => {
+    const block = between(src(), "if (decision.kind === 'reservation_unverifiable') {", "if (decision.kind === 'not_held')");
+    expect(block).toContain('setReservationStatusUnknown(true);');
+  });
+
+  it('E12: re-validation marks it too', () => {
+    const block = between(src(), "if (outcome.kind === 'reservation_unverifiable') {", '}\n');
+    expect(block).toContain('setReservationStatusUnknown(true);');
+  });
+
+  it('E13: only a SUCCESSFUL listing read clears it — so the line stays hidden while the recheck is pending', () => {
+    const s = src();
+    const dep = between(s, 'fetchListing: async (lid) => {', 'createIntent: () =>');
+    expect(dep).toContain('if (!error) setReservationStatusUnknown(false);');
+    expect(dep.indexOf('if (!error) setReservationStatusUnknown(false);')).toBeLessThan(dep.indexOf('return error ? null : data;'));
+    const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
+    expect(setupStart).not.toContain('setReservationStatusUnknown');   // witness: the same query finds it in the dependency
+    expect(s.split('setReservationStatusUnknown(false)').length - 1).toBe(1);
   });
 });
