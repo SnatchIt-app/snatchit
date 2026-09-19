@@ -1238,3 +1238,13 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Observation: the app did not release the holds on leaving; the cause is not established.
   - #80 has no device evidence.
   - #77 is still open, waiting for the owner's attestation line.
+- **#77 merged, 2026-09-19 (A).**
+  - The owner visually confirmed Deploy to production OFF, 14:19 local. A confirmed from the organisation's project list that "Snatch It" is `hqycwntpfoztoinemqns`. The attestation line was then added; the guard passed (run 35460874599).
+  - Merged as `e191cbfa` (parents `05d85732`, `e3c03d51`), patch-identical to the rehearsal; only the 3 142 files. `main` is unchanged at `eadd456a`.
+  - Gate CI 35461331147 is green, with pgTAP Files=89 / Tests=5314.
+  - **A's slip:** A retyped #77's full sha from memory, wrongly. `--match-head-commit` refused, and nothing merged. A re-ran with the sha resolved from git.
+- **Production Disk IO investigation (read-only)** in `PROD_DISK_IO_INVESTIGATION_20260919.md`:
+  - `ops-detect-tick`, every 5 minutes, full-scans the 245 MB `cron.job_run_details` table. That is 99% of disk reads, about 12 s per run, steady since 2026-09-08.
+  - No user-facing impact is visible (p95 about 0.6–0.7 s, 0 5xx).
+  - The smallest fix is a D-authored migration that bounds the read and adds history clean-up ($0). The applies are not blocked, but 142 should be timed between detector runs.
+- **C's escrow-note change** (`fix/checkout-escrow-note-unknown` @ `19b6fc2b`, visibility only): A PASS and D PASS; 124 files / 2460 tests. **The push is held for the owner's direct confirmation**, because it was relayed.
