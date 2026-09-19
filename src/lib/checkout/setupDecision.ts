@@ -16,25 +16,31 @@
  * covers it.
  *
  * PREMIUM BATCH 1 (A-03, CFT-308). A `refunded` payment used to count as
- * settled and reached the success screen. It now has its own kinds:
- *   refunded        — a CONFIRMED refund: `refunded_at` set and the refunded
- *                     amount covers the total. "Payment refunded" is allowed.
- *   refund_pending  — status says refunded but the refund is not confirmed
- *                     complete (no `refunded_at`, or a partial amount). Says a
- *                     refund is in progress; promises nothing about the bank.
- * Neither creates or presents an intent, and neither is a purchase success.
+ * settled and reached the success screen. It now has its own kinds, decided
+ * ONLY by what the row establishes (owner, 2026-09-18, remedy (i)):
+ *   refunded           — a CONFIRMED FULL refund: status `refunded`, dated, and
+ *                        a recorded amount covering a known total.
+ *   partially_refunded — a recorded amount above zero and below a known total.
+ *   refund_unconfirmed — a refund is recorded but its amount is not established
+ *                        (null/zero amount, unknown total, an undated full
+ *                        amount, or a succeeded row carrying the full amount).
+ *                        This is where EVERY production refund lands today: the
+ *                        deployed webhook (a16a16dc) sets `refunded` +
+ *                        `refunded_at` on any charge.refunded and writes no
+ *                        amount. It replaced `refund_pending`, whose claims
+ *                        ("being processed", "No purchase was made") no
+ *                        reachable row supports.
+ * None creates or presents an intent, and none is a purchase success.
  * `already_settled` now means `succeeded` ONLY, and succeeded is checked
  * before refunded so a buyer holding both rows is never told the wrong one.
  *
- * F8 (A's review of this batch). The server's single refund writer
- * (`record_payment_refund`, 20260906120000 :518-522) flips status to
+ * F8 (A's review of this batch). The payments RC's refund writer (not yet in
+ * production) (`record_payment_refund`, 20260906120000 :518-522) flips status to
  * `refunded` and stamps `refunded_at` only when the refunded amount reaches
  * the total. A PARTIAL refund therefore leaves a `succeeded` row carrying
  * `amount_refunded_cents > 0` and no date — which used to reach the success
  * screen with no sign that money came back. That row is `partially_refunded`
- * here: the order stands, and the screen says what was returned. Because of
- * the same writer, a `refunded` row is always dated and full today, so
- * `refund_pending` is defensive: kept as insurance against a diverging writer.
+ * here, and the screen says only the amount recorded.
  *
  * PREMIUM BATCH 1 (CFT-301, D9-UX-1). `reservation_expired` is renamed
  * `not_held`: the server cannot tell a hold that ran out from one that was
@@ -79,9 +85,7 @@ export interface SetupDeps<Intent> {
 
 export type SetupDecision<Intent> =
   | { kind: 'already_settled' }
-  | { kind: 'partially_refunded'; refundedCents: number }
-  | { kind: 'refunded' }
-  | { kind: 'refund_pending' }
+  | RefundState
   | { kind: 'reservation_unverifiable' }
   | { kind: 'not_held' }
   | { kind: 'ready'; intent: Intent };
@@ -98,12 +102,16 @@ export function isSettled(p: SettledPayment | null | undefined): boolean {
   return !!p && (SETTLED_STATUSES as readonly string[]).includes(p.status);
 }
 
-/** A refund is confirmed only when it is dated and covers the total. */
+/**
+ * A FULL refund is confirmed only when it is dated AND a recorded amount covers a
+ * known total. An unknown amount or total establishes nothing about the size of
+ * the refund — the production row shape — so it is not confirmed.
+ */
 export function isRefundConfirmed(p: SettledPayment): boolean {
   if (p.status !== 'refunded') return false;
   if (!p.refunded_at) return false;
   if (p.total != null && p.amount_refunded_cents != null) return p.amount_refunded_cents >= p.total;
-  return true;
+  return false;
 }
 
 /**
@@ -116,20 +124,49 @@ export function pickSettled(rows: SettledPayment | SettledPayment[] | null | und
   return settled.find((p) => p.status === 'succeeded') ?? settled.find((p) => p.status === 'refunded') ?? null;
 }
 
-/** Cents returned on a succeeded row, i.e. a partial refund; 0 when none. */
-export function partialRefundCents(p: SettledPayment | null | undefined): number {
-  if (!p || p.status !== 'succeeded') return 0;
-  const c = p.amount_refunded_cents ?? 0;
-  return c > 0 ? c : 0;
+/** The recorded refunded amount when it is a positive number; null when absent or zero. */
+export function recordedRefundCents(p: SettledPayment | null | undefined): number | null {
+  const c = p?.amount_refunded_cents;
+  return typeof c === 'number' && c > 0 ? c : null;
 }
 
-export type SettledKind = 'already_settled' | 'partially_refunded' | 'refunded' | 'refund_pending';
+export type RefundKind = 'partially_refunded' | 'refunded' | 'refund_unconfirmed';
+export type SettledKind = 'already_settled' | RefundKind;
+
+/** What the refund screen shows. The neutral kind never carries an amount. */
+export type RefundState =
+  | { kind: 'partially_refunded'; refundedCents: number }
+  | { kind: 'refunded'; refundedCents: number }
+  | { kind: 'refund_unconfirmed'; refundedCents: null };
 
 export function settledKind(p: SettledPayment | null): SettledKind | null {
   if (!p) return null;
-  if (p.status === 'succeeded') return partialRefundCents(p) > 0 ? 'partially_refunded' : 'already_settled';
-  if (p.status === 'refunded') return isRefundConfirmed(p) ? 'refunded' : 'refund_pending';
+  const cents = recordedRefundCents(p);
+  const total = p.total ?? null;
+  if (p.status === 'succeeded') {
+    if (cents == null) return 'already_settled';
+    if (total != null && cents < total) return 'partially_refunded';
+    // The full amount on a succeeded row, or an amount with no known total: "part of this payment" is not
+    // established, and neither is a full refund.
+    return 'refund_unconfirmed';
+  }
+  if (p.status === 'refunded') {
+    if (isRefundConfirmed(p)) return 'refunded';
+    if (cents != null && total != null && cents < total) return 'partially_refunded';
+    return 'refund_unconfirmed';
+  }
   return null;
+}
+
+/** The refund screen's state for a settled row, or null when there is no refund to show. */
+export function refundStateFor(p: SettledPayment | null): RefundState | null {
+  const kind = settledKind(p);
+  if (!kind || kind === 'already_settled') return null;
+  const cents = recordedRefundCents(p);
+  // A confirmed kind always has an amount (settledKind requires one); the null check only satisfies the type and,
+  // if it were ever reached, degrades to the neutral kind rather than presenting a missing amount.
+  if (kind === 'refund_unconfirmed' || cents == null) return { kind: 'refund_unconfirmed', refundedCents: null };
+  return { kind, refundedCents: cents };
 }
 
 export function holdIsMine(l: ListingHold | null, buyerId: string, now: Date): boolean {
@@ -156,9 +193,9 @@ export async function decideCheckoutSetup<Intent>(
     // 1. Already paid, or refunded? Then nothing here may create, init or
     //    present anything. Succeeded is preferred over refunded.
     const settled = pickSettled(await deps.fetchSettledPayment(input.listingId, input.buyerId));
-    const kind = settledKind(settled);
-    if (kind === 'partially_refunded') return { kind, refundedCents: partialRefundCents(settled) };
-    if (kind) return { kind };
+    if (settledKind(settled) === 'already_settled') return { kind: 'already_settled' };
+    const refund = refundStateFor(settled);
+    if (refund) return refund;
 
     // 2. Buy Now must still hold the listing. (Only reachable when NOT paid.)
     if (input.mode === 'buy_now') {

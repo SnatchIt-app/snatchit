@@ -56,10 +56,10 @@ import {
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, partialRefundBody, REFUND_COPY } from '@/src/lib/checkout/holdState';
+import { fmtHoldUntil, notHeldCopy, notHeldReason, refundViewModel } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
-import { decideCheckoutSetup, holdIsMine, partialRefundCents, pickSettled, settledKind, SETTLED_STATUSES } from '@/src/lib/checkout/setupDecision';
+import { decideCheckoutSetup, holdIsMine, pickSettled, refundStateFor, settledKind, SETTLED_STATUSES, type RefundState } from '@/src/lib/checkout/setupDecision';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -137,9 +137,7 @@ export default function CheckoutScreen() {
   // screen's release call succeeded; the wording depends on it (CFT-301).
   const [holdLost, setHoldLost] = useState<{ releasedByUs: boolean; at: number } | null>(null);
   // A refund state found at setup (A-03). Never a purchase success.
-  const [refundState, setRefundState] = useState<
-    { kind: 'refunded' | 'refund_pending' } | { kind: 'partially_refunded'; refundedCents: number } | null
-  >(null);
+  const [refundState, setRefundState] = useState<RefundState | null>(null);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // CFT-306: the settlement record after the charge is a step of its own.
@@ -257,16 +255,11 @@ export default function CheckoutScreen() {
           setSettlement('completed');
           return;
         }
-        if (decision.kind === 'refunded' || decision.kind === 'refund_pending') {
+        if (decision.kind === 'refunded' || decision.kind === 'partially_refunded' || decision.kind === 'refund_unconfirmed') {
           // A-03: a refund is never a success and never a reason to set up a
-          // new intent here. Its own screen says so.
-          setRefundState({ kind: decision.kind });
-          return;
-        }
-        if (decision.kind === 'partially_refunded') {
-          // F8: the order stands, but part of the money came back. Not the
-          // celebration screen; say what was returned.
-          setRefundState({ kind: 'partially_refunded', refundedCents: decision.refundedCents });
+          // new intent here. Its own screen says only what the recorded
+          // amounts establish (owner, 2026-09-18).
+          setRefundState(decision);
           return;
         }
         if (decision.kind === 'reservation_unverifiable') {
@@ -598,10 +591,9 @@ export default function CheckoutScreen() {
       .in('status', [...SETTLED_STATUSES])
       .limit(5);
     const settled = pickSettled(rows ?? null);
-    const kind = settledKind(settled);
-    if (kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
-    if (kind === 'partially_refunded') { setRefundState({ kind, refundedCents: partialRefundCents(settled) }); setPaymentReady(false); return 'refund'; }
-    if (kind) { setRefundState({ kind }); setPaymentReady(false); return 'refund'; }
+    if (settledKind(settled) === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
+    const refund = refundStateFor(settled);
+    if (refund) { setRefundState(refund); setPaymentReady(false); return 'refund'; }
     if (!isBuyNow) return 'held'; // an auction winner holds no reservation
     const { data: listing } = await supabase
       .from('listings')
@@ -704,8 +696,7 @@ export default function CheckoutScreen() {
     return (
       <View style={s.safe}>
         <RefundView
-          state={refundState.kind}
-          refundedCents={refundState.kind === 'partially_refunded' ? refundState.refundedCents : null}
+          state={refundState}
           cover={cover}
           eventName={showName}
           venue={showVenue}
@@ -908,27 +899,25 @@ export default function CheckoutScreen() {
   );
 }
 
-// A-03: a refund is its own screen. It never says the purchase succeeded and
-// never promises when money reaches the bank.
+// A-03: a refund is its own screen. It says only what the recorded amounts
+// establish (owner, 2026-09-18): never that the purchase succeeded or that none
+// was made, never processing, cancellation, bank timing or the order's status.
+// The only control goes to Tickets — no retry, no way back to the listing.
 function RefundView({
-  state, refundedCents, cover, eventName, venue, whenLabel,
+  state, cover, eventName, venue, whenLabel,
 }: {
-  state: 'refunded' | 'refund_pending' | 'partially_refunded';
-  refundedCents: number | null;
+  state: RefundState;
   cover: string | null; eventName: string; venue: string; whenLabel: string;
 }) {
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
-  const copy = REFUND_COPY[state];
-  const body = state === 'partially_refunded' ? partialRefundBody(formatCents(refundedCents ?? 0)) : copy.body;
-  // A partial refund leaves a real order behind; the others leave nothing.
-  const orderStands = state === 'partially_refunded';
+  const view = refundViewModel(state.kind, state.refundedCents);
   return (
     <View style={s.confirmWrap}>
       <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>
-        <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{copy.kicker}</Text>
-        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{copy.title}</Text>
+        <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{view.kicker}</Text>
+        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{view.title}</Text>
         <View style={s.confirmCard}>
           <EventMedia
             asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
@@ -945,12 +934,13 @@ function RefundView({
             ) : null}
           </View>
         </View>
-        <Text style={[textStyle('body'), s.confirmNote]}>{body}</Text>
+        <Text style={[textStyle('body'), s.confirmNote]}>{view.body}</Text>
+        <Text style={[textStyle('bodySm'), s.meta]}>{view.pointer}</Text>
       </View>
       <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
         <Button
-          label={orderStands ? 'Back to home' : 'Back to listing'}
-          onPress={() => (orderStands ? router.replace('/(tabs)/home') : router.back())}
+          label={view.cta.label}
+          onPress={() => router.replace(view.cta.href)}
           variant="primary"
           size="lg"
           block

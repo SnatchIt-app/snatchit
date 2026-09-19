@@ -17,6 +17,8 @@
  * back, and the way forward is always the listing, never a retry.
  */
 
+import { formatCents } from '../money';
+
 export type NotHeldReason = 'released_by_us' | 'ran_out' | 'unknown';
 
 export interface NotHeldCopy {
@@ -74,35 +76,59 @@ export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string |
 }
 
 /**
- * The refund states this route can show. `refunded` and `refund_pending` are
- * not purchase successes. `partially_refunded` is an order that stands with
- * part of the money returned; it is not the celebration screen either.
+ * The refund states this route can show (owner, 2026-09-18). Each says ONLY what
+ * the recorded amounts establish: no claim that nothing was bought (a confirmed
+ * full refund can follow a completed purchase), and nothing about processing,
+ * cancellation, bank timing or the order's status — the order's status is
+ * established elsewhere (Tickets), so the screen points there instead.
+ * `refund_unconfirmed` is every production refund today: the amount is unknown.
  */
 export const REFUND_COPY = {
+  refund_unconfirmed: {
+    kicker: 'Refund',
+    title: 'Refund recorded',
+    body: "A refund was recorded for this payment. We can't confirm the refunded amount here.",
+  },
   partially_refunded: {
-    kicker: 'Partial refund issued',
-    title: 'Part of this payment was refunded',
-    body:
-      'Your order stands. {amount} has been returned to your original payment method; ' +
-      'when it appears depends on your bank or card provider.',
+    kicker: 'Refund',
+    title: 'Partial refund recorded',
+    body: 'A partial refund of {amount} was recorded for this payment.',
   },
   refunded: {
-    kicker: 'Payment refunded',
-    title: 'This payment was refunded',
-    body:
-      'The refund has been issued to your original payment method. When it appears ' +
-      'depends on your bank or card provider. No purchase was made.',
-  },
-  refund_pending: {
-    kicker: 'Refund in progress',
-    title: 'A refund is being processed',
-    body:
-      "This payment is being refunded. No purchase was made and there is nothing you " +
-      "need to do. We'll update this order once the refund is complete.",
+    kicker: 'Refund',
+    title: 'Full refund recorded',
+    body: 'A full refund of {amount} was recorded for this payment.',
   },
 } as const;
 
-/** Fill the amount into the partial-refund body. */
-export function partialRefundBody(formattedAmount: string): string {
-  return REFUND_COPY.partially_refunded.body.replace('{amount}', formattedAmount);
+export type RefundCopyKind = keyof typeof REFUND_COPY;
+
+/** An instruction, not a claim: the order's status is established on Tickets. */
+export const REFUND_POINTER = "Check Tickets for this order's current status.";
+
+export interface RefundViewModel {
+  kicker: string;
+  title: string;
+  body: string;
+  pointer: string;
+  /** Always Tickets: never the listing (it could invite another purchase) and never a retry. */
+  cta: { label: string; href: '/(tabs)/tickets' };
+}
+
+/**
+ * What the refund screen renders, as a pure function so it is testable as
+ * behaviour. The neutral kind never shows an amount, even if one is passed.
+ */
+export function refundViewModel(kind: RefundCopyKind, refundedCents: number | null): RefundViewModel {
+  const copy = REFUND_COPY[kind];
+  const amount = kind !== 'refund_unconfirmed' && refundedCents != null ? formatCents(refundedCents) : null;
+  return {
+    kicker: copy.kicker,
+    title: copy.title,
+    // A confirmed kind with no amount cannot reach here from refundStateFor; if one ever did, it falls back to the
+    // neutral body rather than printing a placeholder.
+    body: amount ? copy.body.replace('{amount}', amount) : REFUND_COPY.refund_unconfirmed.body,
+    pointer: REFUND_POINTER,
+    cta: { label: 'Go to Tickets', href: '/(tabs)/tickets' },
+  };
 }

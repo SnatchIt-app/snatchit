@@ -51,20 +51,21 @@ describe('refund states never reach the success screen', () => {
   it('a confirmed refund is its own kind, and creates no intent', async () => {
     const d = deps({ fetchSettledPayment: vi.fn(async () => REFUNDED_CONFIRMED) });
     const r = await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d);
-    expect(r).toEqual({ kind: 'refunded' });
+    expect(r).toEqual({ kind: 'refunded', refundedCents: 11000 });
     expect(d.createIntent).not.toHaveBeenCalled();
   });
 
-  it('an undated refund is pending, not confirmed', async () => {
+  it('an undated full amount is not a confirmed full refund — the neutral kind, with no amount', async () => {
+    // Owner 2026-09-18: `refund_pending` ("being processed", "No purchase was made") is gone — nothing establishes it.
     const d = deps({ fetchSettledPayment: vi.fn(async () => REFUNDED_UNDATED) });
     const r = await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'auction' }, d);
-    expect(r).toEqual({ kind: 'refund_pending' });
+    expect(r).toEqual({ kind: 'refund_unconfirmed', refundedCents: null });
     expect(d.createIntent).not.toHaveBeenCalled();
   });
 
-  it('a partial refund is pending, not confirmed', () => {
+  it('a known partial amount on a refunded row is a partial refund — what the amounts establish', () => {
     expect(isRefundConfirmed(REFUNDED_PARTIAL)).toBe(false);
-    expect(settledKind(REFUNDED_PARTIAL)).toBe('refund_pending');
+    expect(settledKind(REFUNDED_PARTIAL)).toBe('partially_refunded');
   });
 
   it('succeeded outranks refunded whatever order the rows arrive in', () => {
@@ -79,17 +80,17 @@ describe('refund states never reach the success screen', () => {
     expect(settledKind({ status: 'pending' })).toBeNull();
   });
 
-  it('refund copy promises nothing about the bank and never says the purchase succeeded', () => {
-    for (const [kind, c] of Object.entries(REFUND_COPY)) {
+  it('refund copy promises nothing about the bank, the purchase or the order', () => {
+    // Owner 2026-09-18: "No purchase was made" is removed from refund messaging entirely, and no copy infers
+    // processing, cancellation, bank timing or order status (the full pattern and its witness are in
+    // checkout-refund-amount-unknown.test.ts).
+    for (const c of Object.values(REFUND_COPY)) {
       const text = `${c.kicker} ${c.title} ${c.body}`;
       expect(text).not.toMatch(/business days|within \d|by (tomorrow|friday)/i);
       expect(text).not.toMatch(/you're in|purchase (complete|confirmed)|tickets are (ready|confirmed)/i);
-      // A full or pending refund means no purchase; a partial refund leaves the order standing.
-      if (kind === 'partially_refunded') expect(text).toMatch(/order stands/i);
-      else expect(text).toMatch(/no purchase was made/i);
+      expect(text).not.toMatch(/no purchase|order stands/i);
+      expect(c.kicker).not.toBe('Payment refunded');
     }
-    expect(REFUND_COPY.refunded.kicker).toBe('Payment refunded');
-    expect(REFUND_COPY.refund_pending.kicker).not.toMatch(/refunded$/i);
   });
 });
 
@@ -207,8 +208,8 @@ describe('price change requires a fresh acceptance (A-02)', () => {
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { partialRefundCents } from '../src/lib/checkout/setupDecision';
-import { partialRefundBody } from '../src/lib/checkout/holdState';
+import { recordedRefundCents } from '../src/lib/checkout/setupDecision';
+import { refundViewModel } from '../src/lib/checkout/holdState';
 
 const screen = () => readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutNative.tsx'), 'utf8');
 
@@ -225,14 +226,14 @@ describe('F8: a partial refund on a succeeded payment is not a celebration', () 
   it('a succeeded row with nothing returned is still already_settled', () => {
     expect(settledKind({ status: 'succeeded', amount_refunded_cents: 0, total: 11000 })).toBe('already_settled');
     expect(settledKind({ status: 'succeeded', amount_refunded_cents: null })).toBe('already_settled');
-    expect(partialRefundCents({ status: 'refunded', amount_refunded_cents: 11000 })).toBe(0);
+    expect(recordedRefundCents({ status: 'succeeded', amount_refunded_cents: 0 })).toBeNull();
   });
 
-  it('says the order stands and names the amount, without promising the bank', () => {
-    const body = partialRefundBody('$40');
-    expect(body).toMatch(/order stands/i);
+  it('names the recorded amount, and claims nothing about the order or the bank', () => {
+    // Owner 2026-09-18: "Your order stands" was an order-status claim this screen cannot establish.
+    const body = refundViewModel('partially_refunded', 4000).body;
     expect(body).toContain('$40');
-    expect(body).not.toMatch(/business days|within \d/i);
+    expect(body).not.toMatch(/order stands|business days|within \d|bank/i);
     expect(REFUND_COPY.partially_refunded.kicker).not.toMatch(/^Payment refunded$/);
   });
 });

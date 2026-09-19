@@ -50,8 +50,9 @@ describe('(a) buy_now re-entry after a succeeded payment', () => {
   it('a refunded purchase is also settled: never re-charge a refunded buyer', async () => {
     const d = deps({ fetchSettledPayment: vi.fn(async () => ({ status: 'refunded' })) });
     // A-03: refunded is still a no-setup state (never re-charge), but it is no
-    // longer reported as settled — a bare refunded row is a refund in progress.
-    expect((await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d)).kind).toBe('refund_pending');
+    // longer reported as settled. A bare refunded row establishes only that a
+    // refund was recorded (owner 2026-09-18): the neutral kind.
+    expect((await decideCheckoutSetup({ listingId: 'L', buyerId: 'buyer', mode: 'buy_now' }, d)).kind).toBe('refund_unconfirmed');
     expect(d.createIntent).not.toHaveBeenCalled();
   });
 });
