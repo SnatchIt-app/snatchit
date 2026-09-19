@@ -4689,7 +4689,18 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   it fails → stop, and A runs §7. **D: sound, no better route** (no app/src query filters on `reserved_by` at
   `3ff5712f`). A deep-link open is read-only until a tap or leaving the screen: the only write on mount is
   auto-finalize, and only when `ends_at <= now()` with auction_status active; the fixtures' `ends_at` is +1 day. A warm
-  open returns `same_phase`, so the link is not replaced. Awaiting A's decision. Saved-delivery-preference design task: **on hold** until
+  open returns `same_phase`, so the link is not replaced. **A accepted the deep-link route.**
+- **Build 22 (A):** gate `release/production-gate-20260918` = `05d85732` (#78 `43944ca1` → #79 `082824f2` → #80
+  `05d85732`, merge commits, CI green per A); EAS `3ae689cd-9737-4a14-b31e-6491c1163f81`, preview profile, buildNumber
+  22, commit `05d85732`. **C resolved it:** origin gate = `05d85732`; tree `e5bc58c8` = the tree of `3ff5712f` (the
+  reviewed tip). #77 is still open (awaiting the owner's attestation line).
+- **H1–H5 strings confirmed by C at `05d85732`:** "Finish checkout"; H1 "Refund" / "Refund recorded" / "A refund was
+  recorded for this payment. We can't confirm the refunded amount here." / "Back to home"; H3 "Partial refund recorded"
+  / "A partial refund of $50 was recorded for this payment."; H4 "Full refund recorded" / "A full refund of $110 was
+  recorded for this payment."; H5 "We couldn't check whether this has already been paid." + "Check again". The refund
+  screen also shows the event card and has no back arrow (H2 = left-edge swipe). H5 also shows "Checkout", the order
+  rows and "Total" (not Pay controls). The app displays no email, so F1 showing "Finish checkout" (only when
+  reserved_by = the signed-in user) is the account check. Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
