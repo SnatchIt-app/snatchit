@@ -1039,3 +1039,26 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - **Automatic branching: OFF.**
 - The project ref was not visible in the screenshot.
 - A's attempt to add the `AUTODEPLOY-VERIFIED-OFF` line to #77's description was **blocked by A's own permission layer**. The owner adds it. #77 stays unmerged until the guard passes.
+
+**§19 progress, 2026-09-19 (A).**
+- **#80's last change `3ff5712f`:** both unknown-reservation states now read "We couldn't check your reservation." with "Check again". A's payment-boundary review of the diff: PASS. D: PASS, with 4/4 own controls. CI run 35423790253: 123 files / 2447 tests. A's two local full-suite runs at `3ff5712f` were **void**: 10 and then 26 failures, every one a 5-second timeout in untouched suites, at load average 82 while other sessions ran mutation suites. They were repeated cleanly at the gate (below).
+- **Merges into `release/production-gate-20260918`,** as merge commits with `--match-head-commit` after retargeting; each first-parent patch-id is identical to the rehearsal, and gate CI is green after each:
+
+  | PR | Merge commit | Parents | Patch-id | Gate CI run |
+  |---|---|---|---|---|
+  | #78 | `43944ca1` | `8f45e9bb`, `df3572a1` | `0fae1d56…` | 35423967194 |
+  | #79 | `082824f2` | `43944ca1`, `11e1518f` | `91b401f6…` | 35424080729 |
+  | #80 | `05d85732` | `082824f2`, `3ff5712f` | `a3c84c49…` | 35424210094 (123 files / 2447 tests) |
+
+  - **The gate tree is byte-identical to `3ff5712f`.**
+  - **#77 is still open**, blocked on the owner's attestation line.
+- **Combined result, local, at `05d85732`** (clean worktree, dependencies identical, 0 vitest before and after, load ≈ 3): typecheck 0; lint 0 errors / 29 warnings; vitest 123 files / 2447 tests. Since Build 21 (`0f329c3a`) 13 files changed; **0** config or dependency files changed (witnessed).
+- **Build 22 submitted:**
+  - EAS `3ae689cd-9737-4a14-b31e-6491c1163f81`, `preview` profile (sandbox, `pk_test_`), buildNumber **22**, commit `05d85732f4e61cba124bec8d4dfb8b7c57e06e12`;
+  - local tag `candidate/2026-09-19-build-e1`, not pushed;
+  - worktree clean before and after the upload.
+- **P3 [READ] 05:21:25Z:** buyer `919d511e-c4e6-4422-a71d-e2bc0139de65` (1 match), seller `2f5844b4-5144-4cd6-936d-4b59d8d5c6a0` (1 match), distinct. **P3b:** buyer `ACTIVE`; seller has no `identity_ext` row.
+- **The fixture SQL `fixture_final.sql` md5 `41a05c07…`** is **PASSed by D**. D diffed it against d98f0dd5's §4 and found only the added guard and T0 lines. The wrappers were verified the same way; `after_check.sh` is at md5 `2ce596f4…`.
+- **Navigation:** the fixture listings appear on no list, so each is opened warm by deep link `snatchit://listing/<id>` (C proposed it; D agreed). The first link doubles as the check: on failure, stop and run §7 at once.
+- **Session amendment** (runbook `f2af1200`): leaving a listing releases its hold, so H2 comes before H1's "Back to home", and §7 runs right after H5.
+- **Nothing written to the sandbox yet.**
