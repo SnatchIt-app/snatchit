@@ -4901,7 +4901,7 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       draft, MERGEABLE; branch `fix/seller-deadline-copy` pushed. The PR body carries A's premise note (deployed v38:
       `apply_auto_release` sets only the status; `record_transfer_payout` writes `payout_released_at` after the Stripe
       transfer succeeds) and the disclosed control corrections (NM5 survivor; DM3/NM8/NM9 incomplete predictions).
-      **No merge, build, deploy, DB mutation or payment action.**
+      **CI green (C checked on GitHub): every check SUCCESS, Supabase Preview SKIPPED.** **No merge, build, deploy, DB mutation or payment action.**
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
