@@ -52,7 +52,7 @@ No customer rows were read.
    - adds a daily pg_cron clean-up that keeps a bounded history (for example 14 days) of `cron.job_run_details`.
    This removes the full-table scan and the temp spill, i.e. about 99% of today's disk reads. The ops console is D's area, so it would be a D-authored, A-reviewed migration with pgTAP and CI, applied only with the owner's authorization. Shrinking the existing 245 MB file afterwards would need a separately authorized `VACUUM FULL` of that one table, which takes a brief exclusive lock; it is optional once the scan is bounded.
 2. **Interim relief, only if the budget runs out before (1) ships ($0; one reversible statement; owner authorization needed):** `ops-detect-tick` every 15 minutes instead of 5, which cuts this load about threefold. The cost is slower ops-case detection.
-3. **A compute upgrade is not recommended as the fix.** Verified prices (Supabase docs):
+3. **Compute upgrade: undetermined** (corrected 2026-09-19 at the owner's direction). Whether an upgrade is needed cannot be concluded until the remaining Disk IO budget, memory, swap and the compute tier are read; none of them were. What is established: an upgrade would not remove the full-table scan. A's chat report said "a bigger compute tier isn't needed" — that overstated the evidence. Verified prices (Supabase docs):
    - Micro about $10/month, Small about $15/month; the Pro plan's $10 compute credit covers Micro. So **Micro → Small adds about $5/month**.
    - If the instance is still **Nano**, docs state that a Nano in a paid organization is **billed the same as Micro**, and recommend upgrading. **Nano → Micro would cost $0 extra**, with less than 2 minutes of downtime.
    - Neither removes the full-table scan.
@@ -63,3 +63,13 @@ No customer rows were read.
   - 140 and `20260909000000` are function definitions.
 - **Timing:** several detectors read `public.payments` inside the detector's single transaction (`detect_refunds`, `detect_paid_unsettled`, `detect_disputes` and others, per 117/118). So 142's `ACCESS EXCLUSIVE` lock on `payments` would wait behind a detector run in progress (runs start every 5 minutes and last about 12 seconds). It would then fail cleanly after 3 s. Apply 142 in the gap, about 1–4 minutes after a detector run starts at :00/:05/…, and retry if it fails.
 - **Recommendation:** do not apply while the budget is depleted. Preferably ship fix (1) first, or at least read "Disk IO % consumed" immediately before the window.
+
+## Owner decisions after the investigation (2026-09-19, directly to A)
+- **Conclusions stay bounded.** The sampled logs (edge logs 12:00–18:25Z; job timings) show **no observed impact**. Remaining budget, memory, swap and
+  compute tier remain **unverified**. No conclusion that an upgrade is unnecessary until those are known (item 3 above corrected accordingly).
+- **Not authorised:** detector schedule changes (so item 2, the 15-minute interim, is not available without a new decision), history deletion
+  (so item 1's daily clean-up and any `VACUUM FULL` are out), and a compute upgrade.
+- **Authorised:** A coordinates and reviews D's fix. D, separately and directly authorised by the owner: a **local** performance fix for
+  `ops.job_health()` and `ops.detect_jobs()` that preserves monitoring coverage and alert meaning, with query optimisation separated from retention.
+  **Number 143 / pgTAP 210** (registry). Nothing pushed, applied or scheduled.
+- **Production applies stay on hold** while the monitoring fix is prepared.
