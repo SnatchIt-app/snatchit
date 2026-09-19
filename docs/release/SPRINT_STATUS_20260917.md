@@ -1327,3 +1327,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Production stays exposed until the edge is deployed** (owner-gated).
   - **PR #82 body corrected** to record the CI result; the guard re-ran green.
   - **C's `c002647b` PASS** (seller payout claim now gated on `payout_released_at`, verified: that column is written only by `record_transfer_payout` after the Stripe transfer succeeds). A's control kills only P2. The buyer-side equivalent was handed back to C with the read approved.
+- **C's transfer-screen round published: draft PR #84** (`fix/seller-deadline-copy` @ `131017a5`, base the gate, client-only). A verified the remote head equals the reviewed head; **CI green** (unit 125 files; pgTAP unchanged 89/5314).
+  - Seller and buyer payout claims are now gated on `payout_released_at`, whose semantics A verified in the byte-verified deployed v38: `apply_auto_release` sets only the status, and `record_transfer_payout` writes the column after the Stripe transfer succeeds.
+  - A failed read no longer claims "not found" on either screen.
+  - A's controls: forcing the seller title kills only P2; dropping the buyer's column kills only B3.
+  - The refund-recorded screen remains held on `hold/seller-refund-recorded`.
