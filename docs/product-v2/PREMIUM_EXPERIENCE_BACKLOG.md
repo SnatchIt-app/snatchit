@@ -4780,8 +4780,25 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
     main (verified with owner authorisation); the webhook v41 was not byte-read; a pending order can only be cancelled
     by transfer `expired` or payment `refunded`; the embed resolves via PostgREST 16.2 and a hidden row is `null`, not
     an error (a bad relationship name is 400 → the whole read fails; never use `!inner`). D agrees with the block.
-    **S5 wording → owner.** The pending block (proof upload + Mark as sent) stays on refund-only (A, D). The code still
-    carries the blocked S5 until the owner decides; not for final review.
+    **S5 wording → owner.** The pending block (proof upload + Mark as sent) stays on refund-only (A, D).
+  - **Owner's S5 decision (2026-09-19):** "Ask support first": "A refund was recorded for this order. We can't confirm
+    the refunded amount here. Contact support before transferring tickets." Keep the order details visible, but no
+    normal sending instructions and no active Mark as sent while unresolved; imply neither cancellation nor a full
+    refund. **Before that restriction: A assesses how support resolves the state and how the expiry job treats it.**
+    No silent change to expiry or refund rules; no permanently blocked partial refund. The consequence claim stays
+    unverified until traced.
+  - **`938423e0`:** the wording only (kind `refund_recorded`, title "Refund recorded" — C chose it over the preview's
+    "Order refunded", which implies a full refund; flagged to the owner). INTERIM: instructions, delivery target and
+    Mark as sent unchanged (V15). V14's "no email" check was vacuous (the Row value is a prop) and is now asserted on
+    the Row element with witnesses. Gates: tsc 0; lint 0/29; vitest 2467.
+  - **C's trace of the consequence (main's source, not production):** webhook `:705-724` marks `refunded` with no amount
+    check; expiry Phase 1 `:231` skips `refunded`; the self-heal sweep `:356-374` only takes `succeeded`; no other
+    function on main refunds; Phase 2 pays out only `seller_sent`. ⇒ **No automated path refunds the remainder** of a
+    partially refunded order that expires. "Permanently" is not established (a manual Dashboard refund is possible).
+    Unverified: the deployed webhook (not byte-read) and Stripe emitting charge.refunded for partial refunds (Stripe's
+    docs say so; not tested). The gate's expiry edge (Phase 0 with an amount test) is not production.
+  - **Awaiting A's assessment** (support resolution path; expiry treatment; whether the restriction is safe without a
+    server change). Then the restriction, controls, and the final head to A and D.
 - **COPY RISK (A, 2026-09-19, from A's review of B's delivery plan; owner's call whether it matters now; not
   started):** `TRANSFER_EXPIRY_COPY.seller` "Send window has passed — send now if you still can"
   (`transferState.ts:59`). On the sandbox the expiry cron is refused (401, per A), so transfers never expire and the
