@@ -4577,3 +4577,29 @@ state. … No push, merge, production changes or build yet."
 - **Minors routed to A (payment boundary, not changed):** two refunded rows resolve by DB order (`.limit(5)`, no ORDER
   BY; unreachable while production amounts are NULL); `fetchSettledPayment` discards `error` (before migration 142 the
   read fails silently — the client must not ship before 142).
+- **Destination decided (owner, direct, 2026-09-18):** "Choose 'Back to home.' Remove 'Go to Tickets' and the line
+  directing buyers there. Don't add another database read for this fix. Have D verify the final navigation and
+  refund-screen priority." **Done at `df3572a1`** (fix/refund-amount-unknown): every refund kind's only control is "Back
+  to home" → `/(tabs)/home`; the Tickets line is gone; wording unchanged. C1/C2/S1 + preview updated; mutants (l) CTA
+  back to Tickets and (m) the line re-added both caught; harness 13/13. Gates: typecheck 0; lint 0/29; test 121/2404.
+  **D verifying navigation and priority (S3).**
+
+## F-CHK-READERR — the settled-payment lookup fails closed (C, 2026-09-18). `fix/checkout-settled-read-fail-closed @ 8c20e75e`
+**Owner (direct):** "You also have my direct authorisation to fix F-CHK-READERR as a separately reviewable change,
+coordinated with A. If the payment lookup fails, show that payment status couldn't be checked and withhold payment
+creation/submission until a successful read establishes the appropriate state. Retrying the lookup must not itself
+initiate payment. … No production changes or build."
+- **Defect:** both settled-payment reads (setup; server re-validation) discarded `error`, so a failed read looked like
+  "no payment" — setup proceeded to the hold and intent; re-validation could re-arm Pay or report "Nothing was charged".
+- **Change (one commit on `df3572a1`, its own branch for a separately reviewable PR):** new `settledRead.ts`
+  (`readSettledPayments` → rows | error; RN- and alias-free for A's E2E); `decideCheckoutSetup` → `payment_status_unknown`
+  before `fetchListing`/`createIntent`; new pure `decideRevalidation` (error stops before the listing read); `payControl`
+  `statusUnknown` → "Check again" (retry = re-run setup = the check; never the pay handler); copy "We couldn't check the
+  status of this payment."; reported as stage `payment-status` with `<code>: <message>`, no PII. A successful re-check
+  proceeds as before.
+- **Tests:** `tests/checkout-settled-read-fail-closed.test.ts` (R1–R9, W1–W6); three structural pins moved with the query.
+  **Mutants 10/10 as predicted**; A's setup and revalidate controls fail differently (R4/R5 vs R6). C found and closed its
+  own gap first (W6: the screen's dependency must throw, not return []).
+- **Gates:** typecheck 0; lint 0/29; test 122/2427. Gated surface vs `df3572a1`: holdState +6, payControl +6,
+  settledRead +52 (new), setupDecision ±52, CheckoutNative ±91; payments.ts, signOut.ts, supabase/, scripts/,
+  .github/: 0. **Review requested: A (payment boundary), D (behaviour). Local only; A publishes draft PRs after review.**
