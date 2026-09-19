@@ -1073,3 +1073,25 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
   - F1 `222580c0-8de0-4f78-af38-d9b43e8ea173` (refunded, NULL); F2 `f6b38f37-9a0a-4221-90c1-dda5b8c00ae8` (refunded, 5000); F3 `6366000d-2379-44b4-84a2-3bfa9c7df23a` (refunded, 11000); F4 `2d700276-260f-4a46-9303-f3d41c62bb4b` (no payment). All are reserved by buyer `919d511e…`.
   - **Baseline** after-check, 16:42:42Z (file md5 `d52d23e0…`): all 4 holds live; payment row md5s F1 `bc55ca4a…`, F2 `5104b436…`, F3 `7bd9f8fc…`; 0 notifications, bids or transfers, and 0 buyer payments since T0.
   - **Holds expire 19:42:27Z. §7 fallback deadline 19:12:27Z; timer running.**
+
+**§19 HANDSET PASS on Build 22: complete, and clean-up DONE (2026-09-19).**
+
+| Step | Result (owner-reported via C; screenshots exist for H1, H3, H4 and H5a) |
+|---|---|
+| Account proof | The F1 deep link opened F1 showing "Finish checkout", so the handset is 919d511e |
+| H1 (F1, amount unknown) | "REFUND / REFUND RECORDED / A refund was recorded for this payment. We can't confirm the refunded amount here."; only **BACK TO HOME**, which went to Home. **PASS** |
+| H2 (back gesture) | The left-edge swipe returned to F1, still showing "Finish checkout"; re-entering gave the same refund screen with no Pay. **PASS** |
+| H3 (F2, $50) | "PARTIAL REFUND RECORDED / A partial refund of $50 was recorded for this payment."; only BACK TO HOME. **PASS** |
+| H4 (F3, $110) | "FULL REFUND RECORDED / A full refund of $110 was recorded for this payment."; only BACK TO HOME. **PASS** |
+| H5 (F4, offline) | Online it showed "Finish checkout". In Airplane Mode with no Wi-Fi: "We couldn't check whether this has already been paid.", with **CHECK AGAIN** as the only control and no Pay. After one CHECK AGAIN tap, still offline: the same state (owner's words, no screenshot). **PASS** |
+| H5b | Not run, per the owner. |
+
+**Reads [READ], raw files under `scratchpad/hf/out/`, D witnessing:**
+- **Pre-§7 snapshot** 17:31:41Z (md5 `f065fa0c…`): **F1–F3 were still reserved by the buyer with live holds.** The app did NOT release them when the owner left the screens. That was contrary to A's and D's prediction and C's expectation. **The cause is not established:** the deep-linked listing screen may not have been removed by `router.replace` from checkout, or the release call was sent and refused, or it was never sent. No logs were read, because none were authorised. F4 was reserved, as expected.
+- **§7** 17:31:43Z (md5 `cb8e92cc…`): the exactly-4 guard passed; all four are `active/cancelled` with no hold; psql exit 0. That was **about 1h50m before the holds would have lapsed**, and the fallback timer was stopped.
+- **Post-§7** 17:31:44Z (md5 `66509c14…`): the payment row md5s for F1–F3 are **identical** to the baseline, so the payments were unchanged byte for byte. 0 buyer payments since T0; 0 `public.notifications`; 0 `notify.notification`; 0 bids; 0 transfers.
+- **The device session changed no fixture row**, and nothing else in the sandbox was read or touched: D1/D2, L7 and storage were untouched.
+
+**Evidence classes:**
+- **#78 refund screens** (H1–H4) and **#79's payment-lookup failure** (H5, offline): **device evidence, observed** on Build 22.
+- **#80's reservation-lookup fix:** in the build, **not exercised on the device**. Its evidence is source, tests and the E2E rehearsal only.

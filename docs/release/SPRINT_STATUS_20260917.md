@@ -1230,3 +1230,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - D withdrew its price-unit item: 100 means $100.
   - D confirmed the §7 end state is the product's own cancel shape (`cancel_listing()`, 047): `reserve_buy_now` (20260906100000) and `validate_and_apply_bid` (047) both refuse a cancelled listing.
   - Nothing has run on the sandbox.
+- **Handset round, 2026-09-19 (A). Manifest §19.**
+  - #78, #79 and #80 are merged into the gate, which is now `05d85732` (patch-identical, CI green). Build 22 (EAS `3ae689cd`) was built from it.
+  - The fixtures were written at 16:42:27Z.
+  - H1–H5: **PASS** on the device, owner-reported via C. H5b was not run.
+  - §7 clean-up ran at 17:31:43Z: all four fixtures are cancelled; the payments are byte-unchanged; 0 notifications, bids or transfers.
+  - Observation: the app did not release the holds on leaving; the cause is not established.
+  - #80 has no device evidence.
+  - #77 is still open, waiting for the owner's attestation line.
