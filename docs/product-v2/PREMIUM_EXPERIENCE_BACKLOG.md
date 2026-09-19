@@ -4553,3 +4553,13 @@ state. … No push, merge, production changes or build yet."
 - **Gates:** typecheck 0; lint 0 / 29; test 121 / 2400. Gated surface: `holdState.ts`, `setupDecision.ts`,
   `CheckoutNative.tsx` changed (+138/−85); `payments.ts`, `payControl.ts`, `signOut.ts`, `supabase/`, `scripts/`,
   `.github/`: 0. **Review requested: A (payment boundary), D (behaviour). Local only.**
+- **A — PASS (payment boundary) at `9f85c7be`**, fresh gates on a clean checkout; boundary reading (every settled row
+  returns before `fetchListing`/`createIntent`; Pay re-armed only on the ready and 'held' paths; `refundState` never
+  cleared). **A's production-shaped E2E** (local DB with 142+140+20260909000000, PostgREST, buyer JWTs under RLS, this
+  code's functions): **10/10 on this code, 7/10 fail on the gate `8f45e9b`**; both rows production can produce (the
+  dated NULL-amount row, and the deployed webhook branch run verbatim on a $50-of-$110 partial) show the neutral copy,
+  Tickets CTA, 0 intents, 0 listing reads. Deviations accepted as the owner's correction (A notes it came via C).
+- **A's nit fixed at `b061c077`:** a confirmed kind with no amount now renders the WHOLE neutral view (was body-only,
+  which under mutant (a2) showed "Full refund recorded" above the neutral body). K5 pins it; mutant (j) kills K5 alone;
+  harness 10/10 with (c)'s new K5 kill predicted before the run. Gates: typecheck 0; lint 0 / 29; test 121 / 2401.
+  **D (behaviour) — pending at `b061c077`.**
