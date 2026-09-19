@@ -4527,3 +4527,29 @@ merge or new build yet."
 → one file, `tests/profile-avatar-same-tick.test.ts` (+11/−5, 649248a's test-title rename) — **the app code equals
 Build 21's**. Per A: CI green on every merge; nothing deployed or migrated; nothing to `main`; no build. D is
 independently checking the comparison. PR branches kept.
+
+## Refund states — only what the recorded amounts establish (C, 2026-09-18). `fix/refund-amount-unknown @ 9f85c7be`
+**Owner (direct to C):** "Go. You have my direct approval to implement the refund-state fix locally from 8f45e9bb, with
+A reviewing the payment boundary and D reviewing behaviour. One correction: remove 'No purchase was made' from refund
+messaging entirely unless separate order evidence establishes that. Even a confirmed full refund can follow a completed
+purchase. … Unknown amount: 'A refund was recorded for this payment. We can't confirm the refunded amount here.'
+Confirmed partial or full refund: describe only what the recorded amounts establish. Don't infer processing,
+cancellation, bank timing or order status. Keep the Tickets route, and offer no payment retry from an unresolved refund
+state. … No push, merge, production changes or build yet."
+- **Defect (verified in source at `8f45e9bb`):** the deployed webhook (`a16a16dc`, charge.refunded) sets `refunded` +
+  `refunded_at` and writes no amount; `isRefundConfirmed` returned `true` for that row → "This payment was refunded …
+  No purchase was made." `refund_pending` claimed "being processed" / "No purchase was made". Production deployment of
+  `a16a16dc` is A's claim from records, not verified by C.
+- **Change:** kinds `refunded` (dated + recorded amount ≥ known total), `partially_refunded` (0 < amount < known total,
+  either status — a deliberate difference from A's R1, per the owner's rule), `refund_unconfirmed` (everything else,
+  incl. the production row; replaces `refund_pending`). `refundStateFor()` shared by setup and re-validation; neutral
+  never carries an amount. `refundViewModel()` pure: kicker "Refund"; bodies neutral (owner's words) / "A partial refund
+  of $X was recorded for this payment." / "A full refund of $X was recorded for this payment."; pointer "Check Tickets
+  for this order's current status."; CTA "Go to Tickets" for all kinds. Screen renders it; re-validation turns Pay off.
+- **Tests:** new `tests/checkout-refund-amount-unknown.test.ts` (M1–M9, P1–P4, W1, K1–K4, C1–C2, S1–S2); updated pins in
+  three suites + the static preview. RED reproduced the production row → `refunded`. **9/9 mutants as predicted on the
+  first run**, incl. A's (a)(b)(c) failing differently; (a) alone is caught by the matrix, and the production-row decision
+  tests need (a2) because `refundStateFor` is a second layer.
+- **Gates:** typecheck 0; lint 0 / 29; test 121 / 2400. Gated surface: `holdState.ts`, `setupDecision.ts`,
+  `CheckoutNative.tsx` changed (+138/−85); `payments.ts`, `payControl.ts`, `signOut.ts`, `supabase/`, `scripts/`,
+  `.github/`: 0. **Review requested: A (payment boundary), D (behaviour). Local only.**
