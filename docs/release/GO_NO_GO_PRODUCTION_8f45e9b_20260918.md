@@ -476,3 +476,46 @@ The harness is scratch-only and never committed: `…/scratchpad/reh/wt/tests/zz
 1. `20260906120000`'s rollback drops `amount_refunded_cents`; amend it to keep the column once 142 is in the ledger (§12.6).
 2. `pickSettled` must be deterministic once amounts are written. With two refunded rows, `[NULL, full]` shows neutral but `[full, NULL]` shows "A full refund of $110" (C's probe). Rule: neutral if any refunded row is unconfirmed (§12.9).
 3. The existing items: the Vault `project_url` decision (restricted), B's monitor review, the RC old-client checkout timing, and the rollback cutoff (§9 item 5).
+
+### 12.12 Final checkout change, merge rehearsal, and the handset-check preparation (2026-09-19)
+**Owner's decisions:**
+- C was authorised directly to fix the reservation lookup and improve the payment-lookup wording.
+- The back gesture stays.
+- #77 stays blocked until the owner's auto-deploy verification is actually done; **no attestation is added from an old record.**
+- One focused sandbox handset check is to be prepared, without repeating Build 20/21.
+- No merges, database applies or builds.
+
+**Changes (C), each reviewed by A (payment boundary) and D (behaviour); both PASS:**
+- **`11e1518f`** on #79's branch (copy only): "We couldn't check whether this has already been paid." (the owner's wording).
+- **`d75c15cc`**, new branch `fix/checkout-reservation-read-fail-closed`, **draft #80**, stacked on #79 (the owner told C "a separate, focused change"):
+  - `readListingHold` returns `{listing}` / `{listing:null}` / `{error}`;
+  - in `decideRevalidation`, an error (returned or thrown, caught) gives `reservation_unverifiable`, never `lost`/`held`;
+  - the screen withholds Pay and shows "Unable to verify reservation. Please try again." (setup's existing sentence, now shared), with "Try again" (it re-runs the check);
+  - C's mutants: 10/10, plus #79's set re-run 11/11; D's mutants and probes agree.
+- **A, fresh with identical dependencies:** `11e1518f` 122 files / 2430 tests; `d75c15cc` 123 files / 2447 tests; typecheck 0 and lint 0 errors / 29 warnings at both.
+- **CI:** all code jobs pass on #79 at `11e1518f` (run 35421017563; unit 122 / 2430) and #80 at `d75c15cc` (run 35421017525; unit 123 / 2447). The guard passes on both. snatchit-web was cancelled by the ignore step, and Supabase Preview skipped.
+
+**End-to-end rehearsal on `d75c15cc` [REH]:**
+
+| Phase | Result |
+|---|---|
+| Refund screens | 10/10 |
+| Payment lookup failing (42703 and network) | fails closed, with the new wording |
+| Control | unchanged |
+| **Listing lookup failing at re-validation** (`/listings` injected, `/payments` answering) | ba (unpaid, live hold) → `reservation_unverifiable`, listing read attempted once, "Try again"/retry, no hold or charge claim; the paid buyers are decided before the listing read |
+| **Parent `11e1518f`**, same injection | ba → `lost`: "This listing is no longer held for you. Nothing was charged…" (negative control) |
+
+**D's non-blocking recommendation (owner decision):** unify both unknown-status states on "Check again", with the copy "We couldn't check your reservation.". D's reasons:
+- the action is the same;
+- on re-validation, "Try again" can read as "pay again";
+- `paymentError` ranks below `paymentReady` in `payControl`, so Pay is withheld only by the branch's `setPaymentReady(false)` (pinned by Q13), whereas `statusUnknown` ranks above `paymentReady`.
+
+**Merge rehearsal [REH, local `--no-ff`, not pushed]** on `release/production-gate-20260918 @ 8f45e9bb`, in the order #78 → #79 → #80 → #77:
+- no conflicts;
+- every first-parent patch-id is **identical** to the PR's own diff (#78 8 files, #79 9, #80 7, #77 3);
+- the final tree equals `d75c15cc`'s tree plus exactly the three 142 files.
+
+**Handset check:** prepared in `docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, not run.
+- It covers the three refund screens, the kept back gesture, "Back to home", and the offline payment-lookup state.
+- The fixture SQL dry-ran cleanly on the local full chain, with 0 notifications, and was rolled back.
+- Each sandbox step lists its authorization.

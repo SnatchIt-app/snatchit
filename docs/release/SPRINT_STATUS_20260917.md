@@ -1217,3 +1217,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **New owner decisions:** R2 (the listing-read error in re-validation), the back gesture, and an optional copy change.
   - **Payments-release conditions:** the RC rollback column, and `pickSettled` determinism.
   - Go/no-go §12.11. Nothing merged, applied, deployed or built. The rehearsal databases are kept.
+
+**Final checkout change (A, 2026-09-19).** Go/no-go §12.12.
+- **The changes:** C's `11e1518f` (the payment-lookup wording, on #79) and `d75c15cc` (the reservation lookup fails closed, draft #80, stacked on #79).
+- **Reviews and tests:** A and D PASS. CI is green on #79 and #80. The E2E listing-failure phase discriminates: the fix is unverifiable, the parent says "Nothing was charged".
+- **Merge rehearsal:** #78 → #79 → #80 → #77 is clean, and every patch-id is identical.
+- **Handset check:** prepared (`HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`), not run.
+- **#77:** blocked on the owner's dashboard check.
+- **D's recommendation:** "Check again" for the reservation-unverifiable state (owner decision).
+- Nothing merged, applied, deployed or built.
