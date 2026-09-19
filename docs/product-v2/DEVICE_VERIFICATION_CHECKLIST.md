@@ -528,3 +528,31 @@ explicitly untested. … C can close the handset pass; no further phone work for
   arrive?"). Also not device-tested: single-flight through the dialog, the lock re-arming after a failed release, and
   the release itself — automated coverage only, which is not device evidence.
 - No further phone work for now. PR #75 remains draft / do not merge.
+
+## Build 22 — final checkout pass H1–H5 (`05d85732`; EAS 3ae689cd-9737-4a14-b31e-6491c1163f81)
+Gate `release/production-gate-20260918` = `05d85732` (#78 → #79 → #80; tree = the reviewed `3ff5712f`). Runbook: A's
+`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md` as amended `f2af1200` (H2 before H1's "Back to home"; §7 right
+after H5). Owner authorised the pass directly; **H5b (Stripe payment setup) skipped; no payment submitted.** Fixtures
+F1–F4 written by A at 16:42:27Z (12:42 PM local), reserved by buyer `919d511e` (sandbox-buyer), seller `2f5844b4`; D
+reviewed the SQL. Each listing was opened by deep link `snatchit://listing/<id>` from Safari/Notes with the app already
+open (no in-app surface lists a buyer's reserved listings). Strings were checked against `05d85732` before the session.
+All results are **owner-reported**; screenshots where noted (UI renders the kicker, title and button in capitals).
+
+| Step | Result | Observed |
+|---|---|---|
+| Account | **PASSED** | F1's deep link opened F1 showing **"Finish checkout"**, which renders only when `reserved_by` = the signed-in user → the handset was the buyer. |
+| H1 (F1, amount unknown), 13:18 | **PASSED** (screenshot) | "REFUND" / "REFUND RECORDED" / card HANDSET-FINAL F1 / "A refund was recorded for this payment. We can't confirm the refunded amount here." Only control: BACK TO HOME. No amount, no Pay, no Tickets line. BACK TO HOME → Home (after H2). |
+| H2 (back gesture) | **PASSED** | The left-edge swipe returned to the F1 listing; its button was "Finish checkout" (owner confirmed); re-entering → "Refund recorded" again, BACK TO HOME the only button, no Pay or amount (owner confirmed). |
+| H3 (F2, partial), 13:24 | **PASSED** (screenshot) | "PARTIAL REFUND RECORDED" / "A partial refund of $50 was recorded for this payment." / BACK TO HOME only → Home. |
+| H4 (F3, full), 13:25 | **PASSED** (screenshot) | "FULL REFUND RECORDED" / "A full refund of $110 was recorded for this payment." / BACK TO HOME only → Home. |
+| H5 (F4, offline), 13:28 | **PASSED** (screenshot for the first screen) | Opened online ("Finish checkout"); Airplane Mode on (status-bar icon, no Wi-Fi icon); tapped it → "We couldn't check whether this has already been paid." with **CHECK AGAIN** as the only control; no Pay; no hold/charge claim; no refund screen. Also shown: header CHECKOUT + back arrow, Ticket $100 / Service fee $10 / TOTAL $110, "The service fee is included in this total." One CHECK AGAIN tap offline → "the same thing appears" (owner's words; no screenshot). App closed while offline, then Airplane Mode off. |
+
+- **Observation, not a failure (outside the stop list):** the H5 screen also shows the pre-existing line "Payment is held until
+  your ticket reaches you. Secured by Stripe." under the unknown-status message. It is general escrow copy, not a Pay
+  control, and not from #78–#80. Whether it should show while payment status is unknown is a copy question for the owner,
+  recorded here without expanding the pass.
+- **Not device-tested, by design:** the reservation-unknown state ("We couldn't check your reservation." + "Check again")
+  is not reachable on a device without a listing-read-only failure (A's §1). Its evidence is automated: Q9–Q14, UM1–UM6
+  and D's DU1–DU4, **not device evidence**.
+- **Not observed:** whether "Check again" issued a request offline (no network on device); server state — pending A's §7
+  and after-reads (D witnesses).
