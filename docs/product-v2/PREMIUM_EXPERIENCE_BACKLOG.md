@@ -4644,3 +4644,22 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   scripts/, .github/: 0. **Back gesture unchanged (owner).**
 - **Review requested:** A (payment boundary), D (behaviour). Local only. Placement for publication (own draft PR on
   #79's branch, or fast-forward #79) left to A with the owner.
+- **Reviewed and published (A; C verified):** **#79** now at `11e1518f` (draft) and **#80**
+  `fix/checkout-reservation-read-fail-closed@d75c15cc` (draft, stacked on #79); CI green on #80 (every check pass;
+  Supabase Preview skipped). **D — PASS on both** (harnesses 10/10 and 11/11 in D's worktree; probes through the real
+  `readListingHold`); A's E2E listingerr control: reservation_unverifiable at the fix vs 'lost'/"Nothing was charged"
+  at the parent.
+- **OWNER DECISION PENDING — unify the two unknown-status states (D recommends; C agrees):** setup's and re-validation's
+  reservation-unverifiable paths → "We couldn't check your reservation." + "Check again" (via the `statusUnknown`
+  precedence, which ranks above `paymentReady`/`holdLost`, making "never Pay while unknown" structural rather than
+  resting on one `setPaymentReady(false)`); "Try again" stays for genuine setup failures. Changes setup's existing
+  sentence. No change until the owner decides.
+- **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
+  authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
+  at both `11e1518f` and `d75c15cc`:** refund kicker "Refund"; "Refund recorded" / "A refund was recorded for this
+  payment. We can't confirm the refunded amount here."; "Partial refund recorded" / "A partial refund of $50 was recorded
+  for this payment."; "Full refund recorded" / "A full refund of $110 was recorded for this payment."; one control "Back
+  to home"; payment-lookup failure "We couldn't check whether this has already been paid." + "Check again"; the listing
+  control "Finish checkout". The H5 message renders because no hold copy is set on that path (render order: hold copy →
+  price change → unreachable → payment error). If the owner approves the unification, H1–H5 are unaffected (the
+  reservation path is not device-testable, per A's §1).
