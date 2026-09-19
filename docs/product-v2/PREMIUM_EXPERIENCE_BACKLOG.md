@@ -4852,7 +4852,9 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       blind to a direct `from('payments')` and to RPCs (D's MX1 survived); it now records table and RPC names (DM17 and
       DM18 → {V10}); (2) X5's comment wrongly said an expired order hides "Send tickets to". Controls at `4a96e05e`: 18/18
       as predicted (DM3 carries its post-run correction). Gates: tsc 0; lint 0/29; vitest 124 files / 2461 tests. **Tip
-      for publication, if authorised: `4a96e05e`.**
+      for publication, if authorised: `4a96e05e`.** A verified `4a96e05e` (parent `5c9dd9ca`; test files only), so A's
+      PASS carries over. A's own witness: a direct `from('payments')` in fetchTransfer failed only V10 (the RPC half was
+      not tested independently by A; C's DM18 covers it).
       - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
