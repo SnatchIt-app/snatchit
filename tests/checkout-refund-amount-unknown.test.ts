@@ -151,6 +151,12 @@ describe('the copy says only what the recorded amounts establish', () => {
     expect(allText(refundViewModel('refund_unconfirmed', 5000))).not.toMatch(/\$|\d/);
   });
 
+  it('K5: a confirmed kind with no amount is shown EXACTLY as the neutral kind — not a "Full refund" title above it', () => {
+    // A's nit: unreachable through refundStateFor today, but the fallback swapped only the body.
+    expect(refundViewModel('refunded', null)).toEqual(refundViewModel('refund_unconfirmed', null));
+    expect(refundViewModel('partially_refunded', null)).toEqual(refundViewModel('refund_unconfirmed', null));
+  });
+
   it('K4: partial and full state the recorded amount, nothing more', () => {
     expect(refundViewModel('partially_refunded', 5000).body).toBe('A partial refund of $50 was recorded for this payment.');
     expect(refundViewModel('refunded', TOTAL).body).toBe('A full refund of $110 was recorded for this payment.');

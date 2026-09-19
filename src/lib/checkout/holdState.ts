@@ -120,14 +120,14 @@ export interface RefundViewModel {
  * behaviour. The neutral kind never shows an amount, even if one is passed.
  */
 export function refundViewModel(kind: RefundCopyKind, refundedCents: number | null): RefundViewModel {
-  const copy = REFUND_COPY[kind];
-  const amount = kind !== 'refund_unconfirmed' && refundedCents != null ? formatCents(refundedCents) : null;
+  // A confirmed kind with no amount cannot reach here from refundStateFor; if one ever did, it is shown EXACTLY as
+  // the neutral kind — never a "Full/Partial refund recorded" title above an amount nobody established.
+  const shown: RefundCopyKind = kind !== 'refund_unconfirmed' && refundedCents != null ? kind : 'refund_unconfirmed';
+  const copy = REFUND_COPY[shown];
   return {
     kicker: copy.kicker,
     title: copy.title,
-    // A confirmed kind with no amount cannot reach here from refundStateFor; if one ever did, it falls back to the
-    // neutral body rather than printing a placeholder.
-    body: amount ? copy.body.replace('{amount}', amount) : REFUND_COPY.refund_unconfirmed.body,
+    body: shown === 'refund_unconfirmed' ? copy.body : copy.body.replace('{amount}', formatCents(refundedCents as number)),
     pointer: REFUND_POINTER,
     cta: { label: 'Go to Tickets', href: '/(tabs)/tickets' },
   };
