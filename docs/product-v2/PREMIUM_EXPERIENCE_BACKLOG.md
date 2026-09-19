@@ -4686,7 +4686,10 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   none of Home (`status='active'`), Explore (active/active) or Bids (the buyer's bids and transfers). Proposed: deep link
   `snatchit://listing/<id>`, opened with the app already open and signed in. A cold launch routes to Home via
   `rootRouteDecision` (source reading; not device-verified). F1's link is the first step and doubles as the check; if
-  it fails → stop, and A runs §7. Saved-delivery-preference design task: **on hold** until
+  it fails → stop, and A runs §7. **D: sound, no better route** (no app/src query filters on `reserved_by` at
+  `3ff5712f`). A deep-link open is read-only until a tap or leaving the screen: the only write on mount is
+  auto-finalize, and only when `ends_at <= now()` with auction_status active; the fixtures' `ends_at` is +1 day. A warm
+  open returns `same_phase`, so the link is not replaced. Awaiting A's decision. Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
