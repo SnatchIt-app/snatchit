@@ -76,6 +76,12 @@ export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string |
 }
 
 /**
+ * F-CHK-READERR (owner, 2026-09-18): the settled-payment lookup failed. Says only that the status couldn't be
+ * checked — nothing about a charge, a refund, the hold or the listing. Payment stays withheld until a check succeeds.
+ */
+export const PAYMENT_STATUS_UNKNOWN_COPY = "We couldn't check the status of this payment.";
+
+/**
  * The refund states this route can show (owner, 2026-09-18). Each says ONLY what
  * the recorded amounts establish: no claim that nothing was bought (a confirmed
  * full refund can follow a completed purchase), and nothing about processing,

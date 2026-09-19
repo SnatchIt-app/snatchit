@@ -264,7 +264,11 @@ describe('review change 2: Pay is restored only after the server confirms the ho
     const start = src.indexOf('async function revalidateAgainstServer()');
     const end = src.indexOf('async function recheckPayment()');
     const body = src.slice(start, end);
-    expect(body.indexOf(".from('payments')")).toBeLessThan(body.indexOf(".from('listings')"));
-    expect(body).toMatch(/holdIsMine\(listing, user\.id, new Date\(\)\)/);
+    // F-CHK-READERR moved the order into decideRevalidation (settled read first; the listing only after, and never on
+    // a failed read — driven by R6/R7 in checkout-settled-read-fail-closed.test.ts). The screen supplies both reads
+    // from the server. (The old index comparison would now pass vacuously: `.from('payments')` is no longer here.)
+    expect(body).toContain('decideRevalidation(');
+    expect(body).toContain('readSettled: () => readSettledPayments(supabase, listingId, buyerId)');
+    expect(body).toContain(".from('listings')");
   });
 });

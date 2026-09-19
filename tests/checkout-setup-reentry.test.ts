@@ -157,10 +157,12 @@ describe('the screen runs this orchestrator on mount (thin wiring check)', () =>
     expect(block).not.toMatch(/initPaymentSheet|presentPaymentSheet|createPaymentIntent/);
   });
   it('the own-rows payment read is scoped to listing AND buyer and to settled statuses', () => {
-    const start = src.indexOf("from('payments')");
-    const q = src.slice(start, src.indexOf('maybeSingle()', start));
-    expect(q).toContain("eq('listing_id', lid)");
-    expect(q).toContain("eq('buyer_id', bid)");
-    expect(q).toContain("in('status', [...SETTLED_STATUSES])");
+    // F-CHK-READERR: the read lives in settledRead.ts and both call sites use it (R1 in
+    // checkout-settled-read-fail-closed.test.ts drives the exact query).
+    const read = readFileSync(resolve(__dirname, '..', 'src/lib/checkout/settledRead.ts'), 'utf8');
+    expect(read).toContain("eq('listing_id', listingId)");
+    expect(read).toContain("eq('buyer_id', buyerId)");
+    expect(read).toContain("in('status', [...SETTLED_STATUSES])");
+    expect(src).toContain('readSettledPayments(supabase, lid, bid)');
   });
 });

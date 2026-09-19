@@ -214,8 +214,10 @@ describe('the screen uses the view model and the shared refund state', () => {
   });
 
   it('S2: re-validation lands every refund row in the refund state with Pay turned off', () => {
+    // F-CHK-READERR moved the mapping into decideRevalidation (refund rows -> refundStateFor; driven by R7 in
+    // checkout-settled-read-fail-closed.test.ts). The screen applies it with Pay turned off.
     const body = slice(screenSrc(), 'async function revalidateAgainstServer()', 'async function recheckPayment()');
-    expect(body).toContain('const refund = refundStateFor(settled);');
-    expect(body).toContain("if (refund) { setRefundState(refund); setPaymentReady(false); return 'refund'; }");
+    expect(body).toContain('decideRevalidation(');
+    expect(body).toContain("setRefundState(outcome); setPaymentReady(false); return 'refund';");
   });
 });
