@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { transferStatusCopy, transferStatusMeta } from '@/src/lib/transfer/transferState';
+import { buyerAutoReleasedCopy, transferStatusCopy, transferStatusMeta } from '@/src/lib/transfer/transferState';
 import { bidPresentation, type BidRowInput } from '@/src/lib/bids/bidState';
 
 const root = resolve(__dirname, '..');
@@ -67,9 +67,14 @@ describe('vocabulary: claim ≠ possession', () => {
 describe('screens use the vocabulary, not their own words', () => {
   it('receive: pending/sent/confirmed/released/disputed all come from transferStatusCopy', () => {
     const receive = stripComments(read('app/transfer/receive/[id].tsx'));
-    for (const st of ['pending', 'seller_sent', 'buyer_confirmed', 'auto_released', 'disputed']) {
+    for (const st of ['pending', 'seller_sent', 'buyer_confirmed', 'disputed']) {
       expect(receive, st).toContain(`transferStatusCopy('${st}', 'buyer')`);
     }
+    // Updated 2026-09-19 (owner/A): auto_released goes through buyerAutoReleasedCopy, which returns exactly this
+    // shared copy once `payout_released_at` is set, and claims nothing about the money before that.
+    expect(receive).toContain('buyerAutoReleasedCopy(transfer.payout_released_at)');
+    expect(buyerAutoReleasedCopy('2026-09-19T00:00:00Z')).toEqual(transferStatusCopy('auto_released', 'buyer'));
+    expect(buyerAutoReleasedCopy(null)).not.toEqual(transferStatusCopy('auto_released', 'buyer'));
     expect(receive).not.toContain('Transfer complete');
     expect(receive).toContain("Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.')");
   });

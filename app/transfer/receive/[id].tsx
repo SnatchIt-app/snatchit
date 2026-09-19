@@ -39,7 +39,7 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
-import { formatCountdown, buyerNeedsDelivery, transferReadOutcome, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
+import { formatCountdown, buyerAutoReleasedCopy, buyerNeedsDelivery, transferReadOutcome, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -60,6 +60,8 @@ type TransferData = {
   status: string;
   transfer_method: TransferMethod;
   expires_at: string | null;
+  /** Written only after the Stripe payout transfer succeeded; gates the buyer's money sentence. */
+  payout_released_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
@@ -116,7 +118,7 @@ export default function TransferReceiveScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, status, transfer_method, expires_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
+        'id, status, transfer_method, expires_at, payout_released_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
       )
@@ -474,8 +476,9 @@ export default function TransferReceiveScreen() {
 
         {/* AUTO_RELEASED — what happened to the money, not to the tickets */}
         {transfer.status === 'auto_released' ? (
-          <StateBlock title={transferStatusCopy('auto_released', 'buyer').title} tone="success">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('auto_released', 'buyer').body}</Text>
+          // The money sentence waits for `payout_released_at` (A's review): the status is only the release decision.
+          <StateBlock title={buyerAutoReleasedCopy(transfer.payout_released_at).title} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{buyerAutoReleasedCopy(transfer.payout_released_at).body}</Text>
           </StateBlock>
         ) : null}
 
@@ -504,8 +507,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StateBlock({ title, tone, children }: { title: string; tone: 'success' | 'warning'; children: React.ReactNode }) {
-  const color = tone === 'success' ? v2.status.success : v2.status.warning;
+function StateBlock({ title, tone, children }: { title: string; tone: 'success' | 'warning' | 'neutral'; children: React.ReactNode }) {
+  const color = tone === 'success' ? v2.status.success : tone === 'warning' ? v2.status.warning : v2.text.primary;
   return (
     <View style={s.stateBlock}>
       <Text style={[textStyle('title'), { color }]}>{title}</Text>

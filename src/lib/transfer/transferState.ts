@@ -177,6 +177,20 @@ export function transferStatusCopy(status: string, role: TransferRole): { title:
   }
 }
 
+/**
+ * The buyer's auto-release block (owner, 2026-09-19; A's review). `auto_released` is the release DECISION;
+ * `payout_released_at` is written only by `record_transfer_payout`, after the Stripe transfer succeeded. Without that
+ * field the screen says the window closed and the order is complete, and claims nothing about money reaching the
+ * seller. With it, the existing sentence stands.
+ */
+export function buyerAutoReleasedCopy(payoutReleasedAt: string | null | undefined): { title: string; body: string } {
+  if (payoutReleasedAt) return transferStatusCopy('auto_released', 'buyer');
+  return {
+    title: 'Review window closed',
+    body: 'The review window closed without a confirmation or a report from you. This order is complete.',
+  };
+}
+
 /** Seller side: the ticket is out the door (any state at/after sent). */
 export function sellerAlreadySent(status: string): boolean {
   return status === 'seller_sent' || status === 'buyer_confirmed' || status === 'auto_released';

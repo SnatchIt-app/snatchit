@@ -52,6 +52,7 @@ describe('transferReadOutcome — what a read failure may be called', () => {
 const h = vi.hoisted(() => ({
   transfer: null as Record<string, unknown> | null,
   error: null as { code?: string | null; message: string } | null,
+  selects: [] as string[],
   network: false,
 }));
 
@@ -88,7 +89,8 @@ vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FO
 vi.mock('@/src/lib/supabase', () => {
   const table = () => {
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'order', 'limit', 'in', 'neq', 'or', 'update', 'eq']) q[m] = () => q;
+    for (const m of ['order', 'limit', 'in', 'neq', 'or', 'update', 'eq']) q[m] = () => q;
+    q.select = (c: string) => { h.selects.push(c); return q; };
     const reply = async () => ({ data: h.transfer, error: h.error });
     q.single = reply;
     q.maybeSingle = reply;
@@ -150,6 +152,7 @@ async function mount(which: 'send' | 'receive'): Promise<HookHost> {
 beforeEach(() => {
   h.transfer = transfer();
   h.error = null;
+  h.selects.length = 0;
   h.network = false;
   vi.resetModules();
 });
@@ -224,5 +227,32 @@ describe('the seller is told a payout moved only when the payout itself was reco
     const shown = texts(await mount('send'));
     expect(shown).not.toContain(RELEASED);
     expect(shown).toContain('Your payout is being processed');
+  });
+
+  it('B1 (witness): the buyer, auto_released WITH payout_released_at — the existing money sentence stands', async () => {
+    h.transfer = transfer({ status: 'auto_released', payout_released_at: new Date().toISOString() });
+    const host = await mount('receive');
+    expect(blockTitled(host, 'Payment released')).toBeDefined();
+    expect(texts(host)).toContain('so payment went to the seller');
+  });
+
+  it('B2: the buyer, auto_released WITHOUT it — the window closed and the order is complete, with no money claim', async () => {
+    // A's review: the same defect as the seller's, on the buyer's side. The status is the release DECISION;
+    // payout_released_at is written only after the Stripe transfer succeeded (record_transfer_payout).
+    h.transfer = transfer({ status: 'auto_released', payout_released_at: null });
+    const host = await mount('receive');
+    const shown = texts(host);
+
+    expect(blockTitled(host, 'Payment released')).toBeUndefined();   // witness: B1 finds this title
+    expect(shown).not.toContain('went to the seller');
+    expect(shown).toContain('The review window closed without a confirmation or a report from you.');
+    expect(shown).toContain('This order is complete.');
+    expect(shown.toLowerCase()).not.toMatch(/refund|cancel/);        // and no refund or cancellation claim
+  });
+
+  it('B3: the buyer read carries the payout field it now gates on (A approved this one column)', async () => {
+    await mount('receive');
+    expect(h.selects.some((c) => c.includes('payout_released_at'))).toBe(true);
+    expect(h.selects.some((c) => c.includes('listing:listings!listing_id('))).toBe(true);   // witness
   });
 });
