@@ -28,6 +28,7 @@ import {
   sellerAlreadySent,
   sellerDeliveryMissing,
   sellerWindowView,
+  transferReadOutcome,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { textStyle } from '@/src/theme/typography';
@@ -101,8 +102,15 @@ export default function TransferSendScreen() {
       .eq('seller_id', userId)
       .single();
 
-    if (fetchErr || !data) {
-      setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
+    // A failed read is never "not found" (owner, 2026-09-19): only a row-less answer supports that.
+    const outcome = transferReadOutcome({
+      isNetwork: !!fetchErr && isNetworkError(fetchErr),
+      code: (fetchErr as { code?: string | null } | null)?.code,
+      hasRow: !!data,
+      failed: !!fetchErr,
+    });
+    if (outcome !== 'ok') {
+      setError(outcome);
     } else {
       setError('');
       // Marked BEFORE the transfer is set, so no render sees a post-deadline row as unchecked (no redundant re-read).
@@ -294,10 +302,13 @@ export default function TransferSendScreen() {
     return (
       <View style={s.root}>
         <Header />
-        {error === '__offline__' ? (
+        {error === 'offline' ? (
           <ScreenState state="offline" onRetry={() => fetchTransfer()} />
+        ) : error === 'unavailable' ? (
+          // The read failed and said nothing about the order: the app's neutral error state, never "not found".
+          <ScreenState state="error" onRetry={() => fetchTransfer()} />
         ) : (
-          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>{error || 'Transfer not found'}</Text></View>
+          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>Transfer not found</Text></View>
         )}
       </View>
     );
@@ -321,10 +332,11 @@ export default function TransferSendScreen() {
           </StateBlock>
         ) : null}
 
-        {/* Buyer delivery target. Unchanged here: whether fulfilment details (phone/email) show follows the final
-            fulfilment policy (owner, 2026-09-19). */}
+        {/* Buyer delivery target. The details themselves are unchanged: whether fulfilment details (phone/email) show
+            follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
+            "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={s.section}>
-          <Text style={[textStyle('micro'), s.sectionLabel]}>Send tickets to</Text>
+          <Text style={[textStyle('micro'), s.sectionLabel]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} /> : null}
           {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} /> : null}
           {buyerDeliveryMissing ? (
@@ -440,8 +452,15 @@ export default function TransferSendScreen() {
 
         {/* AUTO_RELEASED */}
         {transfer.status === 'auto_released' ? (
-          <StateBlock title="Payout released" tone="success">
-            <Text style={[textStyle('bodySm'), s.stateText]}>The buyer review window passed without a dispute. Your payout has been released.</Text>
+          // The status is the release DECISION; `payout_released_at` is written only after the Stripe transfer
+          // succeeds, and the job can skip a payout and retry for ever. So the money claim waits for that field
+          // (owner, 2026-09-19) — the same gate buyer_confirmed already uses.
+          <StateBlock title={transfer.payout_released_at ? 'Payout released' : 'Review window passed'} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>
+              {transfer.payout_released_at
+                ? 'The buyer review window passed without a dispute. Your payout has been released.'
+                : 'The buyer review window passed without a dispute. Your payout has not been recorded as released yet. Contact support@snatchitapp.com if it does not arrive.'}
+            </Text>
           </StateBlock>
         ) : null}
 

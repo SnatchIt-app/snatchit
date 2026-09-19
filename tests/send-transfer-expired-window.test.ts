@@ -221,7 +221,8 @@ describe('the Send Transfer screen', () => {
   it('V11 (witness): an open order shows the instructions and the delivery target', async () => {
     const host = await mountSend();
     expect(instructions(host)).toBeDefined();
-    expect(texts(host)).toContain('Send tickets to');
+    expect(texts(host)).toContain('Send tickets to');          // witness: the sending heading stays on an open order
+    expect(texts(host)).not.toContain("Buyer's delivery details");
     expect(deliveryRow(host)).toBeDefined();
     expect(texts(host)).toMatch(/\d+m remaining to send/);
   });
@@ -280,6 +281,9 @@ describe('the Send Transfer screen', () => {
     expect(instructions(host)).toBeUndefined();             // witness: V11 finds it on an open order
     // Unchanged by this correction: phone/email display follows the final fulfilment policy (owner, 2026-09-19).
     expect(deliveryRow(host)).toBeDefined();
+    // Owner (2026-09-19): a neutral heading here — "Send tickets to" would instruct the opposite of the block above.
+    expect(shown).toContain("Buyer's delivery details");
+    expect(shown).not.toContain('Send tickets to');
     expect(shown).not.toContain('Send window has passed');
     expect(shown).not.toMatch(ENCOURAGES_SENDING);
   });

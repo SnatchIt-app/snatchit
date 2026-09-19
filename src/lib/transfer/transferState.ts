@@ -109,6 +109,27 @@ export function sellerWindowView(i: {
     : { kind: 'checking', line: TRANSFER_EXPIRY_COPY.seller };
 }
 
+/**
+ * What a transfer read may be CALLED when it does not return the row (owner, 2026-09-19): a failed read must not become
+ * a claim that the order does not exist. Only PostgREST's no-row answer (or a row-less success) supports "not found";
+ * every other failure is `unavailable`, which the screens show as the app's neutral error state.
+ */
+export type TransferReadOutcome = 'ok' | 'offline' | 'not_found' | 'unavailable';
+
+export function transferReadOutcome(i: {
+  isNetwork: boolean;
+  code?: string | null;
+  hasRow: boolean;
+  /** True when the read returned an error at all; a row-less success is still "no row". */
+  failed?: boolean;
+}): TransferReadOutcome {
+  if (i.isNetwork) return 'offline';
+  if (i.hasRow) return 'ok';
+  if (i.code === 'PGRST116') return 'not_found';
+  if (i.failed || (i.code != null && i.code !== '')) return 'unavailable';
+  return 'not_found';
+}
+
 /** The canonical badge label + tone for a status. Word carries the meaning. */
 export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
   switch (status) {
