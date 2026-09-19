@@ -4857,7 +4857,32 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       not tested independently by A; C's DM18 covers it). **D: review closed, PASS at `4a96e05e`** (D's MX1 — the
       direct payments read that survived at `5c9dd9ca` — is now {V10}; MX1b, MX3 and MX5 unchanged, as predicted).
       **Both reviews closed; awaiting the owner's publication decision and the expired-state heading question.**
-      - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
+      - **Owner's final round (2026-09-19):** finish from `4a96e05e` with the neutral heading; preserve the authorised
+    visibility of fulfilment details; A and D review, then C publishes a draft DO-NOT-MERGE PR (C is authorised for
+    feature-branch pushes and draft PRs; no merge, build, deploy, DB mutation or payment action). The refund-recorded
+    restriction stays dependent on A and D's safeguards: nothing turns an unknown or partial refund into a cancelled
+    order, a full refund, permission to send or permission to release. Also: review the buyer/seller screens so failed
+    or missing reads cannot produce unsupported claims.
+    - **`6e326376`:** (i) closed order → heading "Buyer's delivery details" (details unchanged; DM19/DM20);
+      (ii) **`transferReadOutcome`** on BOTH transfer screens — network → offline, PostgREST no-row or a row-less
+      success → "Transfer not found", anything else → the app's neutral `ScreenState` 'error' + Retry. Previously every
+      non-network failure claimed the order did not exist; (iii) the seller's `auto_released` block no longer claims a
+      payout moved without `payout_released_at` (the gate `buyer_confirmed` already used), because the status is the
+      release decision and the deployed job can skip a payout (A's F-PAYOUT-PARTIAL-1) — it now says the window passed,
+      the payout is not recorded as released, and points at support.
+    - **`c002647b`:** P1/P2 also pin the StateBlock TITLE. **Disclosed: my control NM5 first SURVIVED** — a title
+      claiming "Payout released" while the body stayed correct; titles are props, invisible to body assertions (the
+      same class as D's delivery-Row finding).
+    - Tests: `tests/transfer-read-and-payout-claims.test.ts` N1–N4, F1–F4 on both screens (describe.each, with the F4
+      good-read witness), P1–P3; RED first. Gates at `c002647b`: tsc 0; lint 0/29; vitest 125 files / 2476 tests.
+      Controls: **27/27 as predicted** (13 suites, 210 tests) after the NM5 fix; earlier label-only mismatches
+      (DM20/NM6/NM7 key suffixes) corrected post-run.
+    - **Recorded, not changed (A's lane):** the buyer's `auto_released` copy claims payment "went to the seller" from
+      the status alone; the buyer's read carries no payout field, so gating it needs a read change.
+    - **Buyer screen, expired order:** shows only the status badge — no instructions, no delivery form, no claim. A gap
+      (the buyer is told nothing), not a false claim; recorded for the owner, not designed here.
+    - **Awaiting A and D; then C publishes the draft DO-NOT-MERGE PR.**
+  - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
         delivery details"), details unchanged. Not changed.
