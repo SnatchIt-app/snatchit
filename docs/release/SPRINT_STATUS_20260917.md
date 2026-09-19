@@ -1257,3 +1257,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Records, last 24 hours:** 720 runs succeeded; 719/719 HTTP 200; 0 expired, 0 refunded, no warnings or errors.
   - **Not confirmed:** any end-to-end expiry in production; earlier history (R4) was not read.
 - **Owner scope correction (delivery preferences):** saved defaults in Settings and confirmed delivery details before bidding and checkout in the new app are **core**. The plan is revised in §5a (server-backed bid entry point, `create-payment-intent` contract flag, Settings, the required step). Older apps are planned separately in §5b as compatibility, **explicitly not compliance**. PR #81 stays draft; production applies stay on hold.
+- **Seller expired-window wording (C's change, owner-approved to C; A reviewed on the payment boundary), 2026-09-19.** C's S1–S5 on the Send screen, with a payment-status embed.
+  - **A's answers:**
+    - A payment can be 'refunded' while its transfer is pending. main's webhook marks **any** charge.refunded, partial included, with no amount. The deployed expiry job then **skips** the refund on 'refunded', so the remainder of a partial refund is never refunded by it.
+    - There is no other cancelled state for a pending order.
+    - The embed resolves for the seller, and a row hidden by row security gives `null` with 200. Probe on local PostgREST 16.2, throwaway clone `a142_embed_rehears`, synthetic rows. Controls: a bad relationship name gives 400; `!inner` gives 406.
+    - The expiry refund updates the row the seller reads, and a NULL seller_id is impossible for marketplace payments (`payments_rail_pairing_ck`).
+  - **O1 BLOCKING:** S5 must not say "don't transfer" or hide the destination on an amount-unknown refund. The wording goes to the owner.
+  - **O2:** a second quiet re-read about 150 s after the deadline, a re-read on foreground, and a re-read when mark-sent fails with 'expired'.
+  - **Harness note:** the local production-shaped replay lacks production's out-of-band transfers→profiles FK (row 123), so the send screen's buyer embed gets PGRST200 there. The FK was added to the throwaway database only.
