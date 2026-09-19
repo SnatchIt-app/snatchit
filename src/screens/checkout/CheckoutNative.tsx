@@ -56,7 +56,7 @@ import {
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel } from '@/src/lib/checkout/holdState';
+import { ESCROW_NOTE_COPY, fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel, showEscrowNote } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
 import { decideCheckoutSetup, decideRevalidation, type RefundState } from '@/src/lib/checkout/setupDecision';
@@ -142,6 +142,8 @@ export default function CheckoutScreen() {
   // F-CHK-READERR: the settled-payment lookup failed, so whether the buyer already paid is unknown. Pay is withheld
   // and the only action re-runs the check (setup), until a read succeeds.
   const [statusUnknown, setStatusUnknown] = useState(false);
+  // The payment lookup itself failed (not the reservation's): hides the escrow line (owner, 2026-09-19).
+  const [paymentStatusUnknown, setPaymentStatusUnknown] = useState(false);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // CFT-306: the settlement record after the charge is a step of its own.
@@ -215,6 +217,7 @@ export default function CheckoutScreen() {
         setPaymentLoading(true);
         setPaymentError(null);
         setStatusUnknown(false);
+        setPaymentStatusUnknown(false);
 
         // Settled-first, then hold, then intent — see setupDecision.ts. The
         // 3-D Secure return can remount this screen after the charge landed;
@@ -257,6 +260,7 @@ export default function CheckoutScreen() {
           // succeeds.
           reportCheckoutFailure('payment-status', decision.detail);
           setStatusUnknown(true);
+          setPaymentStatusUnknown(true);
           setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
           return;
         }
@@ -608,6 +612,7 @@ export default function CheckoutScreen() {
       reportCheckoutFailure('payment-status', outcome.detail);
       setPaymentReady(false);
       setStatusUnknown(true);
+      setPaymentStatusUnknown(true);
       setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
       return 'unknown';
     }
@@ -887,9 +892,9 @@ export default function CheckoutScreen() {
           )}
         </View>
 
-        <Text style={[textStyle('bodySm'), s.trust]}>
-          Payment is held until your ticket reaches you. Secured by Stripe.
-        </Text>
+        {showEscrowNote({ paymentStatusUnknown, confirmUnreachable: checkUnreachable }) ? (
+          <Text style={[textStyle('bodySm'), s.trust]}>{ESCROW_NOTE_COPY}</Text>
+        ) : null}
 
         <View style={{ height: 120 }} />
       </ScrollView>
