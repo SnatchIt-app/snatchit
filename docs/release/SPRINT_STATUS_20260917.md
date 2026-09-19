@@ -1292,3 +1292,15 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Mechanism:** the webhook sets `payments.status='refunded'` for any `charge.refunded` (`main`'s source; deployed v41 not byte-read). The deployed payout (`enforce-transfer-expiry` v38, byte-verified) skips any payment that is not 'succeeded'. The transfer then flips to `auto_released` after 72 hours, and Phase 2b retries and skips it every 2 minutes indefinitely.
   - **Unverified:** that production's Stripe endpoint is subscribed to `charge.refunded` (an owner Dashboard check).
   - **Fix options:** record the refunded amount, then pay out the remaining transferable amount (a payment-rule change, the owner's decision). The gate candidate's `amount_refunded_cents`/`fullyRefunded` logic is related but not deployed. C spot-checked the payout skip and the missing expiry notification in `main`'s source (2026-09-19).
+- **2026-09-19, owner authorisations carried out (A):**
+  - **143 published** as draft DO-NOT-MERGE **PR #82**, at D's reviewed `6b700aed`.
+    - The jobs-page "last run" change has its own section for the owner's review. Publication is not approval to apply.
+    - The AUTODEPLOY line comes from the owner's visual check at 14:19 today, scoped to publication and CI.
+    - **CI is green** (run 35466024802): pgTAP 90/5339, 210 ok as non-superuser, census 32|108|37|38.
+  - **Stripe check** (read-only), in `REFUND_RESOLUTION_PLAN_20260919.md` §1:
+    - Our event ledger received and processed `charge.refunded` 3 times (07-04 → 08-04). The ledger's only writer is our function `stripe-webhook`.
+    - The ledger holds **no events of any type after 2026-08-05**, and there were 0 `stripe-webhook` requests in the last 24 hours.
+    - Stripe's own endpoint configuration was **not read**: the Stripe CLI has only a sandbox context, and the browser stopped at the login page. A did not authenticate. The owner's Dashboard check is specified in the plan.
+  - **Refund resolution plan written** (`REFUND_RESOLUTION_PLAN_20260919.md`). It covers full refunds, partial refunds that continue, partial refunds that cancel with a remainder owed, and unknown amounts. Every fact carries a strength label. The seller net is `amount − seller_fee`, within the `source_transaction` ceiling. Refunds debit the platform, and Stripe keeps its processing fees. Recovering money already paid out needs a reversal, and nothing starts one. It establishes no cancellation rule and no 24-hour promise.
+  - **The detector proposal (R1–R4)** has been requested from D: local only, closed only by a support action.
+  - **C's deadline-copy commit `5c9dd9ca`**: review **PASS**. No payment read, no gated files. 32/32 on the changed tests; A's own mutant killed exactly C's predicted DM4 set. **Not published**, because that is not authorised. The refund-recorded screen stays held at `938423e0` (`hold/seller-refund-recorded`).
