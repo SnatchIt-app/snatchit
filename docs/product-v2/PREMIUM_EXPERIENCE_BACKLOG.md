@@ -4799,6 +4799,16 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
     docs say so; not tested). The gate's expiry edge (Phase 0 with an amount test) is not production.
   - **Awaiting A's assessment** (support resolution path; expiry treatment; whether the restriction is safe without a
     server change). Then the restriction, controls, and the final head to A and D.
+  - **D's final-head checklist (recorded):** refund_recorded only from a confirmed signal (no NULL, cache or amount
+    inference); no cancellation or full-refund implication wherever it renders; the restriction as the owner decides
+    (else V15 pins the interim); V14's absence witnessed in the same query scope, with a mutant re-adding the email that
+    must fail V14; controls run at that head.
+  - **Finding F-SELL-NUDGE-1 (recorded, NOT in scope, owner's call):** outside the send screen, the seller is still
+    nudged to send for any pending transfer, including one past the deadline or with a refund recorded:
+    `app/my-listings.tsx:177` counts it under the **"Send tickets"** filter (sold + transfer pending), and the seller's
+    listing detail says "The buyer has paid. Payment is held until they confirm." (`detailState.ts:170`). The new
+    copy renders only on the send screen (`git grep`), so it is not contradicted there, but these surfaces don't know
+    about the deadline or a recorded refund.
 - **COPY RISK (A, 2026-09-19, from A's review of B's delivery plan; owner's call whether it matters now; not
   started):** `TRANSFER_EXPIRY_COPY.seller` "Send window has passed — send now if you still can"
   (`transferState.ts:59`). On the sandbox the expiry cron is refused (401, per A), so transfers never expire and the
