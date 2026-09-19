@@ -69,8 +69,13 @@ describe('the screen applies it', () => {
     expect(between(s, "if (outcome.kind === 'reservation_unverifiable') {", '}\n')).not.toContain('setPaymentStatusUnknown');
   });
 
-  it('E9: a new setup (the check) clears it, so the line returns only after a successful lookup', () => {
-    const setupStart = between(src(), 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
-    expect(setupStart).toContain('setPaymentStatusUnknown(false);');
+  it('E9: only a SUCCESSFUL payment lookup clears it — not the start of the re-check, while the status is still unknown', () => {
+    const s = src();
+    const dep = between(s, 'fetchSettledPayment: async (lid, bid) => {', 'fetchListing: async (lid) => {');
+    const afterRead = between(dep, "if ('error' in read) throw new SettledReadError(read.error);", 'return read.rows;');
+    expect(afterRead).toContain('setPaymentStatusUnknown(false);');
+    const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
+    expect(setupStart).not.toContain('setPaymentStatusUnknown');   // witness: the same query finds it in the dependency
+    expect(s.split('setPaymentStatusUnknown(false);').length - 1).toBe(1);
   });
 });

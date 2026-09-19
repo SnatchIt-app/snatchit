@@ -217,7 +217,6 @@ export default function CheckoutScreen() {
         setPaymentLoading(true);
         setPaymentError(null);
         setStatusUnknown(false);
-        setPaymentStatusUnknown(false);
 
         // Settled-first, then hold, then intent — see setupDecision.ts. The
         // 3-D Secure return can remount this screen after the charge landed;
@@ -232,6 +231,8 @@ export default function CheckoutScreen() {
               // read; a failure throws, so setup stops before the hold and any intent.
               const read = await readSettledPayments(supabase, lid, bid);
               if ('error' in read) throw new SettledReadError(read.error);
+              // The payment status is established again only now, so the escrow line stays hidden during a re-check.
+              setPaymentStatusUnknown(false);
               return read.rows;
             },
             fetchListing: async (lid) => {
