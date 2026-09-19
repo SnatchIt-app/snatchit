@@ -89,6 +89,12 @@ export interface SetupDeps<Intent> {
  */
 export type SettledRead = { rows: SettledPayment[] } | { error: { code: string | null; message: string } };
 
+/**
+ * The re-validation listing read's result (D's R2): the row, a successful read with no row (`listing: null`), or an
+ * error that must never be read as "no row". Produced by readListingHold (settledRead.ts).
+ */
+export type ListingRead = { listing: ListingHold | null } | { error: { code: string | null; message: string } };
+
 export type SetupDecision<Intent> =
   | { kind: 'payment_status_unknown'; detail: string }
   | { kind: 'already_settled' }
@@ -236,6 +242,7 @@ export type RevalidationOutcome =
   | { kind: 'payment_status_unknown'; detail: string }
   | { kind: 'already_settled' }
   | RefundState
+  | { kind: 'reservation_unverifiable'; detail: string }
   | { kind: 'held'; reservedUntilMs: number | null }
   | { kind: 'lost' };
 
@@ -243,10 +250,12 @@ export type RevalidationOutcome =
  * The server re-validation (A-04): settled first, then the hold. Pure, with injected reads, so both checkout entry
  * paths can be driven by tests and by A's end-to-end rehearsal. F-CHK-READERR: a failed settled read stops here —
  * the listing is never read, so an error can never become "held" (Pay re-armed) or "lost" ("Nothing was charged").
+ * D's R2 (owner, 2026-09-19): a failed LISTING read — returned or thrown — is `reservation_unverifiable`, never
+ * "lost" and never "held"; only a successful read decides the hold.
  */
 export async function decideRevalidation(
   input: { buyerId: string; isBuyNow: boolean; now: Date },
-  deps: { readSettled: () => Promise<SettledRead>; fetchListing: () => Promise<ListingHold | null> },
+  deps: { readSettled: () => Promise<SettledRead>; readListing: () => Promise<ListingRead> },
 ): Promise<RevalidationOutcome> {
   let read: SettledRead;
   try {
@@ -260,7 +269,14 @@ export async function decideRevalidation(
   const refund = refundStateFor(settled);
   if (refund) return refund;
   if (!input.isBuyNow) return { kind: 'held', reservedUntilMs: null }; // an auction winner holds no reservation
-  const listing = await deps.fetchListing();
+  let lread: ListingRead;
+  try {
+    lread = await deps.readListing();
+  } catch (e) {
+    lread = { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
+  }
+  if ('error' in lread) return { kind: 'reservation_unverifiable', detail: `${lread.error.code ?? 'no-code'}: ${lread.error.message}` };
+  const listing = lread.listing;
   if (listing && holdIsMine(listing, input.buyerId, input.now)) {
     return { kind: 'held', reservedUntilMs: new Date(listing.reserved_until as string).getTime() };
   }

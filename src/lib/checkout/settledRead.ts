@@ -9,7 +9,7 @@
  * Kept free of React Native and path aliases (like setupDecision.ts) so A's end-to-end rehearsal can call it with a
  * real PostgREST client.
  */
-import { SETTLED_STATUSES, type SettledPayment, type SettledRead } from './setupDecision';
+import { SETTLED_STATUSES, type ListingHold, type ListingRead, type SettledPayment, type SettledRead } from './setupDecision';
 
 interface SettledQuery {
   eq(column: string, value: string): SettledQuery;
@@ -48,6 +48,36 @@ export async function readSettledPayments(client: SettledReadClient, listingId: 
     // Only a list establishes "no settled payment"; any other reply (null, an object, a string) establishes nothing.
     if (!Array.isArray(data)) return { error: { code: null, message: 'unexpected response: not a list' } };
     return { rows: data as SettledPayment[] };
+  } catch (e) {
+    return { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
+  }
+}
+
+/** The part of a Supabase/PostgREST client the listing read uses (typed loosely for the same TS2589 reason). */
+export interface ListingReadClient {
+  from(table: 'listings'): unknown;
+}
+
+interface ListingQuery {
+  eq(column: string, value: string): ListingQuery;
+  maybeSingle(): PromiseLike<{ data: unknown; error: { code?: string | null; message?: string } | null }>;
+}
+
+/**
+ * The re-validation read of a listing's hold (D's R2). A successful read with no row is `{ listing: null }` (the hold
+ * is not ours: 'lost'); a returned error, a thrown request, or a reply that is neither a row nor null is an error —
+ * the hold is then UNKNOWN, never lost. Kept free of React Native and path aliases for A's E2E.
+ */
+export async function readListingHold(client: ListingReadClient, listingId: string): Promise<ListingRead> {
+  try {
+    const { data, error } = await (client.from('listings') as { select(columns: string): ListingQuery })
+      .select('status, reserved_by, reserved_until')
+      .eq('id', listingId)
+      .maybeSingle();
+    if (error) return { error: { code: error.code ?? null, message: error.message ?? 'unknown error' } };
+    if (data === null || data === undefined) return { listing: null };
+    if (typeof data !== 'object' || Array.isArray(data)) return { error: { code: null, message: 'unexpected response: not a row' } };
+    return { listing: data as ListingHold };
   } catch (e) {
     return { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
   }

@@ -133,8 +133,8 @@ describe('setup: a failed lookup stops before the hold and before any intent', (
 function revalidateDeps(read: unknown) {
   return {
     readSettled: vi.fn(async () => read),
-    fetchListing: vi.fn(async () => LIVE_HOLD),
-  } as unknown as Parameters<typeof decideRevalidation>[1] & { fetchListing: ReturnType<typeof vi.fn> };
+    readListing: vi.fn(async () => ({ listing: LIVE_HOLD })),
+  } as unknown as Parameters<typeof decideRevalidation>[1] & { readListing: ReturnType<typeof vi.fn> };
 }
 
 describe('re-validation: a failed lookup never re-arms Pay and never reports a lost hold', () => {
@@ -143,14 +143,14 @@ describe('re-validation: a failed lookup never re-arms Pay and never reports a l
     const r = await decideRevalidation({ buyerId: 'buyer', isBuyNow, now: NOW }, d);
 
     expect(r).toEqual({ kind: 'payment_status_unknown', detail: `42703: ${PG_42703.message}` });
-    expect(d.fetchListing).not.toHaveBeenCalled();
+    expect(d.readListing).not.toHaveBeenCalled();
   });
 
   it('R7: a successful read behaves as before — settled, refund, held, lost, auction', async () => {
     const run = (read: unknown, isBuyNow = true, listing: unknown = LIVE_HOLD) => {
       const d = revalidateDeps(read);
-      d.fetchListing.mockImplementation(async () => listing);
-      return decideRevalidation({ buyerId: 'buyer', isBuyNow, now: NOW }, d).then((r) => ({ r, listingReads: d.fetchListing.mock.calls.length }));
+      d.readListing.mockImplementation(async () => ({ listing }));
+      return decideRevalidation({ buyerId: 'buyer', isBuyNow, now: NOW }, d).then((r) => ({ r, listingReads: d.readListing.mock.calls.length }));
     };
     expect(await run({ rows: [{ status: 'succeeded' }] })).toEqual({ r: { kind: 'already_settled' }, listingReads: 0 });
     expect(await run({ rows: [{ status: 'refunded', refunded_at: '2026-09-13T10:00:00Z', amount_refunded_cents: null, total: 11000 }] }))
