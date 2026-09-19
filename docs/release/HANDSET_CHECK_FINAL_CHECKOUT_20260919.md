@@ -107,6 +107,16 @@ The expected copy is the wording at the **built commit** (`d75c15cc` unless §2.
 
 End the session by closing the app. No other screens.
 
+**Session amendment, 2026-09-19 (D found it; A verified at `3ff5712f`). Leaving a fixture listing's screen releases its hold.**
+- `ListingDetailScreen`'s `beforeRemove` listener (`shouldReleaseReservation`, `reservationExit.ts`) calls `release_reservation` when a screen for a listing the buyer holds is removed.
+- The current `release_reservation` (127) refuses only when a *succeeded* payment exists; refunded fixtures do not stop it. The listing returns to `active`, i.e. buyable.
+- Hence:
+  1. **Order:** do H2 (back gesture → the listing still shows "Finish checkout" → re-enter → the same refund screen) **before** tapping H1's "Back to home". After "Back to home", F1 may show "Buy now". That is still safe, because re-entering checkout shows the refund screen with no Pay.
+  2. **§7 runs as soon as H5 is done, or as soon as the session is abandoned**, not near T+2h30m. A listing the buyer left is a live sandbox buy-now listing until §7. The T+2h30m timer stays only as a fallback.
+  3. **§6:** a visited listing that reads `active` with no hold is the app's own release, not an anomaly. Any notification since T0 is checked against `release_reservation`, which the local dry run never exercised.
+  4. H5 ends by closing the app, so F4's hold is not released; §7 ends it.
+- **Baseline:** `after_check` also runs once straight after the fixture write, before H1. It prints each fixture payment's `refunded_at` and `md5(row)`, so "payments unchanged" is proven byte for byte (D's optional suggestion, adopted). Locally, the row md5s were identical before and after §7.
+
 ## 6. After-reads (read-only; D witnesses)
 - The fixture payments are unchanged: status, `refunded_at` and amount as inserted.
 - No new `payments` row for the buyer on F1–F4, unless H5b was run; then exactly one `pending` row on F4.
