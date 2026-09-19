@@ -1305,3 +1305,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **The detector proposal (R1–R4)** has been requested from D: local only, closed only by a support action.
   - **C's deadline-copy commit `5c9dd9ca`**: review **PASS**. No payment read, no gated files. 32/32 on the changed tests; A's own mutant killed exactly C's predicted DM4 set. **Not published**, because that is not authorised. The refund-recorded screen stays held at `938423e0` (`hold/seller-refund-recorded`).
 - **Deadline copy, tip `4a96e05e`** (C; test-only over `5c9dd9ca`, after D's in-scope PASS and two test/comment findings): A verified 0 non-test changes and 32/32 on the changed files. A's own witness, a direct `from('payments')` read, fails only V10. **A PASS carries to the tip.** It is not published, because that is not authorised. For the owner, from D: the "Send tickets to" heading still shows on an expired order, and the instructions and target render pre-existingly for reversed or disputed orders.
+- **Refund-resolution detector design (D, `e733c887`), A review, 2026-09-19: PASS as a design, with 2 required changes. 144/211 allocated to D, for a local build only.**
+  - **Verified (replay):**
+    - R4 already opens a p1 `reconciliation_mismatch` case (`detect_reconciliation`, 117);
+    - `detect_release_stuck` has no payment-status filter;
+    - the functions redefined (`run_job`, `run_all_detectors`, `action_dispatch`) come from 115/117/118 only, so there is no dependency on the RC.
+  - **Required:**
+    - (1) 138 also redefines `action_dispatch`. 144 must be rebased onto the body applied immediately before it, or 138's action branches are silently dropped on replay;
+    - (2) the R2 rule is valid for deployed expiry v38 only, so it must be re-reviewed before any RC edge deploy.
+  - **Owner items:** p1 alerting vs p2 (p2 default); the 10-minute window, plus an optional read of expiry run durations; the turn-on order (setting off → console classification control → owner flip); changing `release_stuck` (unchanged in v1; overlap cross-referenced).
