@@ -18,20 +18,10 @@ Also reconcile the 24-hour expiry/refund claim with the deployed functions and t
 
 Where the gate differs from B's base: `create-payment-intent` and `enforce-transfer-expiry` changed (132/134), so B's line numbers there are stale. The substance A relies on was re-read on the gate.
 
-## Evidence limit — production was not read
-A attempted a read-only production read of the deployed definitions:
-- the edge-function list and source;
-- `pg_get_functiondef` for the transfer functions;
-- `cron.job`.
-
-**The session's permission classifier refused it as an unauthorised production read.** A did not retry it or work around it.
-
-"Production" below therefore rests on three sources:
-- `main`'s edge source, synced to the deployed source on 08-05;
-- the 2026-09-12 production-state record: "11 legacy edges, unchanged hashes";
-- the production ledger at 135, which means repo bodies up to 120, with `20260906*` not applied.
-
-**That is the strength of records, not of a fresh read.** The reads that would close the gap are in §6.
+## Evidence limit
+The first production read (about 18:5xZ) was refused by the permission classifier, and A did not retry it. **The owner then authorised it directly.** The read-only checks ran at 19:0xZ; results are in §8.
+- §2 and §3 were written at records strength. §8 now verifies the deployed code, the database bodies, the schedule and the last day of execution.
+- **Not read:** customer rows, the deployed code of the edge writers `confirm-payment` and `stripe-webhook` (the authorisation covered the expiry function), and any history older than 24 hours.
 
 ## 1. Verdict
 The direction is right: confirm the destination at commitment, record it per order, copy it when the transfer is created, and freeze it once the seller has sent. **Five corrections are needed before anything is built.**
@@ -54,7 +44,7 @@ The direction is right: confirm the destination at commitment, record it per ord
 | **Sale → transfer created** | **Two writers:** `settle_listing_for_payment` (`20260906100000:140, :166`), and `ensure_transfer_exists` (061 is the final body; still called by the client at `payments.ts:380`). | **Three writers, per `main`:** `confirm-payment` inserts directly (`:258-267`); `stripe-webhook`'s fallback inserts directly (`:330-341`); and `ensure_transfer_exists`. `settle_listing_for_payment` is **absent**, because `20260906100000` is not applied and shape B is NO-GO. | Calls `ensure_transfer_exists`. | Every writer sets `expires_at = now() + 24h` and no destination. Only a BEFORE INSERT trigger on `transfers` covers all of them in both environments (Q1). |
 | **Change after send** | `set_transfer_delivery_info` allows `status IN ('pending','seller_sent')` (`0550:237`). **F11 is confirmed.** | Same (0550 ≤ 120). | The receive form appears only while both fields are NULL. | Freeze the destination on the server once the status is no longer `pending` (S4). |
 | **Mark as sent** | `mark_transfer_sent` checks only the caller and the status. It checks neither the destination nor `expires_at` (`0550:158-189`, and 140 on the gate). **F12 is confirmed.** | The pre-140 bodies (140 is not applied). | The button is **disabled when both fields are NULL** (`send/[id].tsx:204, :355`). | A server-side refusal (S5) does not break any honest old client. |
-| **Provider / method** | `transfer_method` CHECK allows `mobile_transfer`/`email` (`000:81`). `ticket_platform` has its own CHECK (`033:49`). **Nothing ties the two** (F9 confirmed). `transfer_method` is not frozen on UPDATE (`072:123`). The client matrix is in `platformInstructions.ts`. | Same. | Any combination can be created. | The server validates the type against the transfer's method. A same-table `NOT VALID` CHECK for new listings comes later (stage 5). |
+| **Provider / method** | `transfer_method` CHECK allows `mobile_transfer`/`email` (`000:81`). `ticket_platform` has its own CHECK (`033:49`). **Nothing ties the two** (F9 confirmed). `transfer_method` is not frozen on UPDATE (`072:123`). The client matrix is in `platformInstructions.ts`. | Same. | Any combination can be created. | The server validates the type against the transfer's method. A same-table `NOT VALID` CHECK for new listings comes later (stage 4 of §5a). |
 
 ## 3. The 24-hour expiry/refund claim, reconciled
 B's F2 and F3 cite **candidate** source (`20260906100000`, `0551`). Production does not run `20260906100000`. On the production-equivalent source:
@@ -68,7 +58,9 @@ B's F2 and F3 cite **candidate** source (`20260906100000`, `0551`). Production d
 - the writer B cites does not exist in production;
 - the gate's edge adds Phase 0, settlement reconciliation, which production lacks.
 
-**Not verified:**
+**Status after §8:** (i) is **verified** (byte-identical). (ii) is **verified** for the last 24 hours: 719/719 HTTP 200. (iii) is **zero in the last 24 hours**; earlier history was not read.
+
+**Originally not verified:**
 - (i) that production's deployed `enforce-transfer-expiry` is byte-identical to `main`'s;
 - (ii) that production's cron ticks actually succeed (a refused tick expires nothing);
 - (iii) how many production transfers have expired or been refunded for want of a destination.
@@ -126,39 +118,62 @@ B's F2 and F3 cite **candidate** source (`20260906100000`, `0551`). Production d
 - **Compatibility with Build 9:** unaffected. Its send button already requires a destination, and its form appears only while both fields are NULL.
 - **Optional, not recommended now:** a compare-and-set, where the seller passes the destination they saw. Adding a parameter to `mark_transfer_sent` risks the overload ambiguity that 0553 fixed. The simpler guard is a re-read before sending, plus B's in-app "buyer updated" notice.
 
-## 5. Smallest staged plan
-- **Stage 0 — owner decisions only, no code:**
-  - Q3: keep today's rule;
-  - S3: deferred;
-  - whether to authorise the §6 reads.
-- **Stage 1 — harden the existing paths (A, one migration, after 140 is applied in production):**
-  - S4 freeze and validation, plus S5.
-  - pgTAP with negative controls, one test per path through the real entry point.
-  - No new object, so no census change. The rollback restores the applied bodies.
-  - Build 9 is unaffected on every honest path.
-- **Stage 2 — capture store and copy (one migration):**
-  - `order_delivery_destinations`;
-  - `confirm_delivery_for_listing(listing_id, method, destination)`, which validates the method against the listing's current `transfer_method`, and the format;
-  - the `BEFORE INSERT` trigger on `transfers`;
-  - **freeze `listings.transfer_method` once a bid, reservation or destination exists**, by extending `guard_listing_state_columns`. Without this, a method change silently drops the copy.
-  - It is additive and optional, so it is harmless to old apps.
-- **Stage 3 — client (C; gated by A; needs a build):**
-  - the capture step and the "Tickets go to" row on bid, checkout and pay-after-win;
-  - on the receive screen, Change while `pending` and read-only afterwards;
-  - listing-form method chips limited to each provider's methods (C5);
-  - the legacy form kept as the fallback.
-- **Stage 4 — Settings defaults:** `buyer_delivery_defaults`. Optional, and pre-fill only.
-- **Stage 5 — new-listing validation:** a platform/method CHECK, `NOT VALID` so existing rows aren't checked, after C5 is live. Existing mismatches need an R4 count first.
-- **Not staged:** S3 hard enforcement (it refuses Build 9, and no minimum-version gate is known to A), off-session charging, and any change to the clock.
+## 5. Staged plan (revised to the owner's scope, 2026-09-19)
+**The owner's requirements are core scope, not optional:**
+- **saved delivery defaults in Settings**;
+- **confirmed delivery details before bidding and before checkout (including pay-after-win) in the new app**.
 
-**Existing bids and orders with no delivery details:**
-- **Pending transfers:** unchanged. The legacy receive form stays; the 24-hour rule stays; S5 matches what clients already do.
-- **Active bids and pending payments placed before stage 3, or from Build 9:**
-  - no destination row exists;
-  - a new client asks once on the pay-after-win or checkout screen, before any money moves;
-  - on an old client, the transfer is created without a destination, and the legacy form applies.
-- **Never backfill from profiles.** The seller must never see an unconfirmed profile value, and the destination must match the buyer's **provider** account (F8).
-- **A legacy transfer that was marked sent with no destination** (possible only by bypass): after S4 the buyer cannot add one. That is acceptable, because the seller has already sent.
+Compatibility with older apps is planned separately (§5b). It does **not** claim that their existing flow meets the new requirement.
+
+### 5a. The new app (core)
+- **Stage 0 — owner decisions, no code:**
+  - Q3: keep today's rule (no payment-rule change is authorised);
+  - the old-app cut-off policy (§5b).
+- **Stage 1 — harden the existing paths (A; one migration, after 140 is applied in production):**
+  - **S4:** freeze the destination unless the status is `pending`, and validate it on the server: type against method, US 10-digit numbers, email shape.
+  - **S5:** `mark_transfer_sent` refuses when the destination for the method is absent.
+  - pgTAP with negative controls, one test per real entry point.
+  - Store apps are unaffected on every honest path (§2).
+- **Stage 2 — capture store, defaults and copy (one migration; four-file rule):**
+  - `buyer_delivery_defaults` (owner-only; one phone and one email) with `set_delivery_default`;
+  - `order_delivery_destinations`, keyed (listing, buyer), recording method, destination, `confirmed_at` and `source`;
+  - **server-backed confirmation for the new app, without refusing old apps:**
+    - a bid entry point that records the confirmed destination **and** inserts the bid in one transaction. It runs as SECURITY INVOKER, so the existing RLS and bid triggers apply unchanged. The new app bids **only** through it;
+  - the `BEFORE INSERT` trigger on `transfers` that copies the recorded destination (method must match);
+  - `listings.transfer_method` frozen once a bid, reservation or destination exists.
+- **Stage 2b — checkout confirmation (edge):**
+  - `create-payment-intent` accepts the confirmed destination and, **when the request declares the new client contract**, refuses to create an intent without one. Requests without the contract take the legacy path (§5b).
+  - Covers `buy_now` and pay-after-win (`auction`).
+  - **Dependency:** a production `create-payment-intent` deploy. Production runs v47 (updated 2026-09-02), and edge deploys are held with the release. Stage 2b ships with the next authorised edge deploy.
+- **Stage 3 — client (C; gated by A; needs a build):**
+  - **Settings → Ticket delivery** (defaults), B's C3;
+  - the **required** "Where should we send your tickets?" step before the bid sheet, before checkout, and before pay-after-win whenever no confirmed destination of the listing's type exists, pre-filled from the defaults;
+  - the "Tickets go to" row with Change;
+  - on the receive screen, Change while `pending` and read-only afterwards;
+  - listing method chips limited to each provider's methods;
+  - the legacy receive form kept **only** for orders created without a confirmed destination.
+- **Stage 4 — new-listing validation:** a platform/method CHECK, `NOT VALID` so existing rows aren't checked, after the stage-3 build is live. Existing mismatches need an R4 count.
+
+### 5b. Older apps (Build 9 and any build before stage 3) — compatibility, not compliance
+- **Stated plainly:** their flow does **not** meet the new requirement.
+  - Their buyers bid and pay with no confirmed destination (direct bid INSERT; `create-payment-intent` with no destination).
+  - They give a destination only after purchase, on the receive screen.
+  - If they never open the app, the transfer expires at 24 hours and they are refunded in full (§8).
+- **While they remain supported:**
+  - they keep today's paths and today's 24-hour rule;
+  - their orders are identifiable: no `order_delivery_destinations` row, so the transfer has no copied destination;
+  - stages 1 and 2 do not break them.
+- **Optional server-side mitigation for their orders (owner decision; changes the deployed expiry edge):** a buyer push when a pending transfer still has no destination, within the existing 24-hour window. The deployed Phase 3 has no such reminder today (§8). This mitigates; it does not meet the requirement.
+- **Cut-off (owner decision, later):**
+  - revoke direct bid INSERT for clients, and make the delivery contract mandatory in `create-payment-intent`. From then on, old apps cannot bid or buy.
+  - A version signal exists: requests carry a `SnatchIt/<build>` user agent. But Build 9 has no upgrade prompt, so its users would see generic errors.
+  - Before choosing a date, the owner would need a count of active old-app users (an aggregate production read, separately authorised).
+- **Existing data:**
+  - pending transfers and active bids created before stage 3 keep the legacy path;
+  - a new-app user whose older bid wins is asked to confirm on the pay-after-win step before any money moves;
+  - **never backfill from profiles** (F8).
+
+**Not staged:** off-session charging, and any change to the 24-hour clock or to refunds.
 
 ## 6. Production reads that need the owner's authorisation (read-only, exact)
 - **R1 (code only):** `list_edge_functions`, plus `get_edge_function` for `enforce-transfer-expiry`, `confirm-payment` and `stripe-webhook`. Compare against `main`.
@@ -176,3 +191,55 @@ B's F2 and F3 cite **candidate** source (`20260906100000`, `0551`). Production d
 
 ## 7. Where the numbers stand
 Nothing is allocated. Stage 1 and stage 2 numbers come from A's registry when they are written.
+
+## 8. Production verification (owner-authorised directly, read-only, 2026-09-19 19:00–19:10Z)
+**Reads:**
+- the edge-function list and `get_edge_function('enforce-transfer-expiry')`;
+- catalog-only SQL: function md5s and flags, `transfers` column defaults, the triggers on `transfers`, derived booleans for the `cron.job` row (the command itself was not printed);
+- `cron.job_run_details` bounded through the run-ID primary key (`runid > max-20000`; the window covered from 2026-09-18 04:14Z);
+- aggregated `function_edge_logs` and `function_logs` for the function.
+
+No customer rows were read. No writes, no refund execution.
+
+### What the code permits
+- **Deployed edge `enforce-transfer-expiry`:** v38, updated 2026-08-05T05:02:14Z, `verify_jwt` true.
+  - **All six files are byte-identical to `origin/main`** (`index.ts` plus `_shared/{stripe,payouts,payout-logic,payout-policy,sentry}.ts`).
+  - They differ from the gate's version, which adds Phase 0 and the 134/120-era changes.
+- **Auth:** constant-time match against `INTERNAL_CRON_SECRET` or the service-role key; otherwise 401.
+- **Phase 1:**
+  - calls `enforce_transfer_expiry()`, which moves every `pending` transfer with `expires_at < now()` to `expired`, **with no destination check**;
+  - for each one, issues a **full** Stripe refund (no amount; idempotency key `refund_expiry_<transfer>`), **live-mode payments only**, skipping payments already refunded or carrying a refund id;
+  - then sets the payment to `refunded`, with `refunded_at` and `stripe_refund_id`, and **no amount**.
+- **Phase 1b:** re-attempts refunds for expired transfers whose live payment is still `succeeded` with no refund id, 20 per run.
+- **Phase 3 reminders:** the seller, 6 hours before expiry; the buyer, before auto-release. **None for a missing destination.**
+- **Database** (md5 of `pg_get_functiondef`):
+  - **12 of 13 are identical** to the local production-shaped replay (`a142_e2epre_rehears`): `enforce_transfer_expiry`, `ensure_transfer_exists`, `set_transfer_delivery_info`, both `mark_transfer_sent` overloads, `guard_transfer_state_columns`, `mark_listing_sold`, `complete_auction_payment`, `apply_auto_release`, `apply_payout_hold`, `apply_manual_review` and `get_auto_release_candidates`.
+  - **`record_transfer_payout` differs** (production `30622f91…`, replay `464d2299…`). It is on the payout path, not the expiry path, and was not investigated here. Recorded for follow-up.
+  - `settle_listing_for_payment` and `settle_verified_payment` are **absent**.
+  - **`ensure_transfer_exists` is the only public function that inserts transfers.**
+  - `transfers.expires_at` defaults to `now() + 24h` and is nullable (the repo's 002 says `not null`: a small drift).
+  - The triggers on `transfers` are one BEFORE UPDATE guard plus AFTER notify and reset triggers. **There is no BEFORE INSERT trigger.**
+- **Not read:** the deployed `confirm-payment` (v36, updated 2026-08-04T18:20Z) and `stripe-webhook` (v41, updated 2026-08-06T01:05Z). Both predate `main`'s sync commit (2026-08-06T01:38Z). In `main` they insert transfers with `expires_at` 24 hours ahead, but that is **not byte-verified**.
+
+### What the schedule invokes
+- Cron **job 9, `enforce-transfer-expiry`**, `*/2 * * * *`, **active**, database `postgres`, user `postgres`.
+- It posts to the production host's `/functions/v1/enforce-transfer-expiry`, with the bearer taken from Vault. **There is no JWT literal in the command.** That is 720 invocations a day.
+
+### What the execution records confirm (2026-09-18 19:04Z → 2026-09-19 19:02Z)
+- `cron.job_run_details`: **720 runs, all `succeeded`** ("1 row", which means the request was queued); average 0.092 s, maximum 1.33 s.
+- `function_edge_logs`: **719 POSTs, all HTTP 200**; 0 × 401, 0 × 5xx. The 720th run falls before the log window starts.
+- `function_logs`:
+  - 719 × "Phase 1 — no expired transfers found";
+  - 719 × "Phase 2 — no payout candidates due";
+  - 719 × "run complete";
+  - boot and shutdown lines only;
+  - **no warning or error lines, and no Phase 1b lines**.
+- **Confirmed:** the job runs and authenticates every 2 minutes, and **in the last 24 hours it expired and refunded nothing**.
+- **Not confirmed:** that an expiry and refund has ever run end to end in production. No transfer qualified in this window, and history is capped at 24 hours. Historical counts are R4 (customer-data aggregates, not authorised).
+
+### Consequences
+- B's F2/F3 is correct for production **at the level of the deployed code and a live, authenticated schedule**.
+  - The writers differ from B's citation: `ensure_transfer_exists`, plus two edge writers in `main`.
+  - No instance was observed in the last day.
+- **The sandbox finding does not carry over to production.** The sandbox's job is refused with 401, so nothing expires there. Production's job is accepted.
+- C's "send now if you still can" note (§3) therefore applies in production.
