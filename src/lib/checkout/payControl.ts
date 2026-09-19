@@ -49,6 +49,11 @@ export interface PayControlInput {
   paymentError: boolean;
   /** The hold is known to be gone: expired, released, or taken. */
   holdLost?: boolean;
+  /**
+   * F-CHK-READERR: the buyer's settled-payment lookup failed, so whether they already paid is unknown. The only
+   * action re-runs the check; Pay is never offered from here.
+   */
+  statusUnknown?: boolean;
   /** Milliseconds left on the buyer's hold; null when there is no countdown. */
   reservationMsLeft?: number | null;
   /** Preformatted all-in total, e.g. "$66". Never recomputed here. */
@@ -77,6 +82,7 @@ export function payControl(i: PayControlInput): PayControl {
   if (i.checking)       return { label: 'Checking your payment', loading: true, disabled: true, action: 'none' };
   if (i.authLoading)    return { label: 'Authenticating',    loading: true,  disabled: true,  action: 'none' };
   if (i.paymentLoading) return { label: 'Setting up payment', loading: true, disabled: true,  action: 'none' };
+  if (i.statusUnknown)  return { label: 'Check again',       loading: false, disabled: false, action: 'retry' };
   if (i.holdLost)       return { label: 'Back to listing',   loading: false, disabled: false, action: 'back' };
   if (i.paymentReady && withinExpiryMargin(i.reservationMsLeft)) {
     return { label: 'Checking your hold', loading: true, disabled: true, action: 'none' };

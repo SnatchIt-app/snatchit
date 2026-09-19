@@ -56,10 +56,11 @@ import {
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, refundViewModel } from '@/src/lib/checkout/holdState';
+import { fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, refundViewModel } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
-import { decideCheckoutSetup, holdIsMine, pickSettled, refundStateFor, settledKind, SETTLED_STATUSES, type RefundState } from '@/src/lib/checkout/setupDecision';
+import { decideCheckoutSetup, decideRevalidation, type RefundState } from '@/src/lib/checkout/setupDecision';
+import { readSettledPayments, SettledReadError } from '@/src/lib/checkout/settledRead';
 
 // User-safe message for any non-actionable setup failure. The REAL error
 // (stage + detail) goes to console + Sentry via reportCheckoutFailure so we
@@ -67,7 +68,7 @@ import { decideCheckoutSetup, holdIsMine, pickSettled, refundStateFor, settledKi
 // failures without ever surfacing raw Stripe internals to buyers.
 const SAFE_PAYMENT_ERROR = "We couldn't start payment. Please try again.";
 
-type CheckoutStage = 'reservation-check' | 'payment-intent' | 'sheet-init';
+type CheckoutStage = 'reservation-check' | 'payment-intent' | 'sheet-init' | 'payment-status';
 
 function reportCheckoutFailure(stage: CheckoutStage, detail: string) {
   console.error(`[checkout] setup failed at ${stage}:`, detail);
@@ -138,6 +139,9 @@ export default function CheckoutScreen() {
   const [holdLost, setHoldLost] = useState<{ releasedByUs: boolean; at: number } | null>(null);
   // A refund state found at setup (A-03). Never a purchase success.
   const [refundState, setRefundState] = useState<RefundState | null>(null);
+  // F-CHK-READERR: the settled-payment lookup failed, so whether the buyer already paid is unknown. Pay is withheld
+  // and the only action re-runs the check (setup), until a read succeeds.
+  const [statusUnknown, setStatusUnknown] = useState(false);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // CFT-306: the settlement record after the charge is a step of its own.
@@ -210,6 +214,7 @@ export default function CheckoutScreen() {
       try {
         setPaymentLoading(true);
         setPaymentError(null);
+        setStatusUnknown(false);
 
         // Settled-first, then hold, then intent — see setupDecision.ts. The
         // 3-D Secure return can remount this screen after the charge landed;
@@ -220,15 +225,11 @@ export default function CheckoutScreen() {
           {
             fetchSettledPayment: async (lid, bid) => {
               // Several rows may exist (a refunded one and a later succeeded one);
-              // pickSettled prefers succeeded. No arbitrary limit(1) any more (A-03).
-              const { data } = await supabase
-                .from('payments')
-                .select('status, refunded_at, amount_refunded_cents, total')
-                .eq('listing_id', lid)
-                .eq('buyer_id', bid)
-                .in('status', [...SETTLED_STATUSES])
-                .limit(5);
-              return data ?? null;
+              // pickSettled prefers succeeded (A-03). F-CHK-READERR: the one shared
+              // read; a failure throws, so setup stops before the hold and any intent.
+              const read = await readSettledPayments(supabase, lid, bid);
+              if ('error' in read) throw new SettledReadError(read.error);
+              return read.rows;
             },
             fetchListing: async (lid) => {
               const { data, error } = await supabase
@@ -250,6 +251,15 @@ export default function CheckoutScreen() {
           },
         );
 
+        if (decision.kind === 'payment_status_unknown') {
+          // F-CHK-READERR (owner, 2026-09-18): a failed lookup is not "no payment". Say only that the status
+          // couldn't be checked; the one action re-runs this check. Nothing is created or submitted until a read
+          // succeeds.
+          reportCheckoutFailure('payment-status', decision.detail);
+          setStatusUnknown(true);
+          setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
+          return;
+        }
         if (decision.kind === 'already_settled') {
           confirmedRef.current = true;
           setSettlement('completed');
@@ -581,33 +591,43 @@ export default function CheckoutScreen() {
   // Settled-first, then the hold. Used at the expiry margin and after a
   // reachable "not verified" check, so Pay is never restored on the strength of
   // the device clock alone (review, required change 2).
-  async function revalidateAgainstServer(): Promise<'settled' | 'refund' | 'held' | 'lost'> {
+  async function revalidateAgainstServer(): Promise<'settled' | 'refund' | 'held' | 'lost' | 'unknown'> {
     if (!user) return 'lost';
-    const { data: rows } = await supabase
-      .from('payments')
-      .select('status, refunded_at, amount_refunded_cents, total')
-      .eq('listing_id', listingId)
-      .eq('buyer_id', user.id)
-      .in('status', [...SETTLED_STATUSES])
-      .limit(5);
-    const settled = pickSettled(rows ?? null);
-    if (settledKind(settled) === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
-    const refund = refundStateFor(settled);
-    if (refund) { setRefundState(refund); setPaymentReady(false); return 'refund'; }
-    if (!isBuyNow) return 'held'; // an auction winner holds no reservation
-    const { data: listing } = await supabase
-      .from('listings')
-      .select('status, reserved_by, reserved_until')
-      .eq('id', listingId)
-      .maybeSingle();
-    if (listing && holdIsMine(listing, user.id, new Date())) {
+    const buyerId = user.id;
+    const outcome = await decideRevalidation(
+      { buyerId, isBuyNow, now: new Date() },
+      {
+        readSettled: () => readSettledPayments(supabase, listingId, buyerId),
+        fetchListing: async () => {
+          const { data } = await supabase
+            .from('listings')
+            .select('status, reserved_by, reserved_until')
+            .eq('id', listingId)
+            .maybeSingle();
+          return data;
+        },
+      },
+    );
+    if (outcome.kind === 'payment_status_unknown') {
+      // F-CHK-READERR: never re-arm Pay and never report a lost hold on a failed lookup.
+      reportCheckoutFailure('payment-status', outcome.detail);
+      setPaymentReady(false);
+      setStatusUnknown(true);
+      setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
+      return 'unknown';
+    }
+    if (outcome.kind === 'already_settled') { confirmedRef.current = true; setSettlement('completed'); return 'settled'; }
+    if (outcome.kind === 'held') {
       // Follow the server's deadline; Pay returns only if it is outside the margin.
-      setReservedUntil(new Date(listing.reserved_until as string).getTime());
+      if (outcome.reservedUntilMs != null) setReservedUntil(outcome.reservedUntilMs);
       return 'held';
     }
-    setPaymentReady(false);
-    setHoldLost({ releasedByUs: false, at: Date.now() });
-    return 'lost';
+    if (outcome.kind === 'lost') {
+      setPaymentReady(false);
+      setHoldLost({ releasedByUs: false, at: Date.now() });
+      return 'lost';
+    }
+    setRefundState(outcome); setPaymentReady(false); return 'refund';
   }
 
   // Manual "Check status" after an unreachable check. Never re-offers Pay on
@@ -737,6 +757,7 @@ export default function CheckoutScreen() {
     paymentReady,
     paymentError: !!paymentError,
     holdLost: !!holdLost,
+    statusUnknown,
     reservationMsLeft: isBuyNow ? reservationMsLeft : null,
     formattedTotal: formatCents(totalCents),
   });

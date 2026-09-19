@@ -83,7 +83,14 @@ export interface SetupDeps<Intent> {
   now?: () => Date;
 }
 
+/**
+ * The settled-payment read's result (F-CHK-READERR): rows, or an error that must never be read as "no payment".
+ * Produced by readSettledPayments (settledRead.ts).
+ */
+export type SettledRead = { rows: SettledPayment[] } | { error: { code: string | null; message: string } };
+
 export type SetupDecision<Intent> =
+  | { kind: 'payment_status_unknown'; detail: string }
   | { kind: 'already_settled' }
   | RefundState
   | { kind: 'reservation_unverifiable' }
@@ -192,7 +199,15 @@ export async function decideCheckoutSetup<Intent>(
 
     // 1. Already paid, or refunded? Then nothing here may create, init or
     //    present anything. Succeeded is preferred over refunded.
-    const settled = pickSettled(await deps.fetchSettledPayment(input.listingId, input.buyerId));
+    //    F-CHK-READERR (owner, 2026-09-18): a failed read is NOT "no payment". Stop here — before the hold and
+    //    before any intent — and say only that the status couldn't be checked.
+    let rows: Awaited<ReturnType<SetupDeps<Intent>['fetchSettledPayment']>>;
+    try {
+      rows = await deps.fetchSettledPayment(input.listingId, input.buyerId);
+    } catch (e) {
+      return { kind: 'payment_status_unknown', detail: e instanceof Error ? e.message : String(e) };
+    }
+    const settled = pickSettled(rows);
     if (settledKind(settled) === 'already_settled') return { kind: 'already_settled' };
     const refund = refundStateFor(settled);
     if (refund) return refund;
@@ -215,6 +230,41 @@ export async function decideCheckoutSetup<Intent>(
   } finally {
     inFlight.delete(key);
   }
+}
+
+export type RevalidationOutcome =
+  | { kind: 'payment_status_unknown'; detail: string }
+  | { kind: 'already_settled' }
+  | RefundState
+  | { kind: 'held'; reservedUntilMs: number | null }
+  | { kind: 'lost' };
+
+/**
+ * The server re-validation (A-04): settled first, then the hold. Pure, with injected reads, so both checkout entry
+ * paths can be driven by tests and by A's end-to-end rehearsal. F-CHK-READERR: a failed settled read stops here —
+ * the listing is never read, so an error can never become "held" (Pay re-armed) or "lost" ("Nothing was charged").
+ */
+export async function decideRevalidation(
+  input: { buyerId: string; isBuyNow: boolean; now: Date },
+  deps: { readSettled: () => Promise<SettledRead>; fetchListing: () => Promise<ListingHold | null> },
+): Promise<RevalidationOutcome> {
+  let read: SettledRead;
+  try {
+    read = await deps.readSettled();
+  } catch (e) {
+    read = { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
+  }
+  if ('error' in read) return { kind: 'payment_status_unknown', detail: `${read.error.code ?? 'no-code'}: ${read.error.message}` };
+  const settled = pickSettled(read.rows);
+  if (settledKind(settled) === 'already_settled') return { kind: 'already_settled' };
+  const refund = refundStateFor(settled);
+  if (refund) return refund;
+  if (!input.isBuyNow) return { kind: 'held', reservedUntilMs: null }; // an auction winner holds no reservation
+  const listing = await deps.fetchListing();
+  if (listing && holdIsMine(listing, input.buyerId, input.now)) {
+    return { kind: 'held', reservedUntilMs: new Date(listing.reserved_until as string).getTime() };
+  }
+  return { kind: 'lost' };
 }
 
 /** Test seam: forget any in-flight setup. */
