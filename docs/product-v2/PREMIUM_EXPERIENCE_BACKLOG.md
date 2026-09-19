@@ -4758,6 +4758,30 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   (b) the `checking` window after a PaymentSheet error (a few seconds while the result is reconciled) shows the line.
   It resolves to unreachable (hidden) or a verdict. The rule as implemented covers failed or unreachable lookups, not
   in-flight moments.
+- **Seller expired-window messaging — APPROVED by the owner (2026-09-19, direct), in progress** on
+  `fix/seller-expired-window-copy` (off gate `e191cbfa`; local). Owner: "Remove 'send now if you still can.' A
+  phone-clock deadline alone must not encourage sending tickets or assert that a refund occurred. Use neutral wording
+  while the order's current status is being checked. Where the server confirms cancellation, expiry or refund, clearly
+  tell the seller not to transfer tickets for that order. … Don't change payment rules or treat a successful status
+  refresh as a guarantee against a later expiry race. Keep this separate from the saved-delivery feature. No deployment
+  or new build yet."
+  - `e64bea9e`: `sellerWindowView` (transferState): countdown unchanged; device clock past the deadline → "Send window
+    has passed — checking this order's status" plus ONE quiet re-read; still pending on a post-deadline read → "…this
+    order was still open when last checked, but it can close at any time"; transfer `expired` → "Order expired / This
+    order expired before it was marked as sent. Don't transfer the tickets for this order.", with the instructions and
+    "Send tickets to" hidden (today an expired transfer still shows both, with no message). The read embeds
+    `payment:payments!payment_id(status)`. Tests V0–V17; X1, X5 and R7 updated and labelled.
+  - `5f8c940d` (A's O2): one follow-up read 150 s after a post-deadline "still open" (at most two automatic reads).
+    V18. Gates: tsc 0; lint 0/29; vitest 124 files / 2466 tests.
+  - **A's review: S5 (refund-only) BLOCKED on the payment boundary; C verified it in main's source.**
+    `stripe-webhook:705-724` marks `refunded` for ANY charge.refunded, including partial ones, with no amount;
+    `enforce-transfer-expiry:231` then skips its own refund. So "Don't transfer" after a partial refund could leave the
+    buyer with neither the tickets nor the remainder. A's facts: the production expiry edge v38 is byte-identical to
+    main (verified with owner authorisation); the webhook v41 was not byte-read; a pending order can only be cancelled
+    by transfer `expired` or payment `refunded`; the embed resolves via PostgREST 16.2 and a hidden row is `null`, not
+    an error (a bad relationship name is 400 → the whole read fails; never use `!inner`). D agrees with the block.
+    **S5 wording → owner.** The pending block (proof upload + Mark as sent) stays on refund-only (A, D). The code still
+    carries the blocked S5 until the owner decides; not for final review.
 - **COPY RISK (A, 2026-09-19, from A's review of B's delivery plan; owner's call whether it matters now; not
   started):** `TRANSFER_EXPIRY_COPY.seller` "Send window has passed — send now if you still can"
   (`transferState.ts:59`). On the sandbox the expiry cron is refused (401, per A), so transfers never expire and the
