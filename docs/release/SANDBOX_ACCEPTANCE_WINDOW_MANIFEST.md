@@ -1068,3 +1068,8 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
   - Install page: https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/3ae689cd-9737-4a14-b31e-6491c1163f81. It replaces Build 21.
 - **D's provenance check: PASS.** The gate is exactly 3 merges, each patch-identical to its PR, with the tree equal to `3ff5712f`; `main` is unchanged at `eadd456a`; #77 is open and unmerged; the EAS record shows `preview`/INTERNAL/`05d85732`.
 - **C confirmed the H1–H5 strings at `05d85732`.** The account proof is F1's own "Finish checkout", which shows only when `reserved_by` is the signed-in user.
+- **FIXTURES WRITTEN [READ], T0 = 2026-09-19 16:42:27.926227Z** (A; C's go signal: the owner had Build 22 installed and was waiting warm on Home).
+  - `fixture_write.sh`, one transaction; SQL md5 `41a05c07…` (D's PASS); psql exit 0; output file md5 `2150c235…`.
+  - F1 `222580c0-8de0-4f78-af38-d9b43e8ea173` (refunded, NULL); F2 `f6b38f37-9a0a-4221-90c1-dda5b8c00ae8` (refunded, 5000); F3 `6366000d-2379-44b4-84a2-3bfa9c7df23a` (refunded, 11000); F4 `2d700276-260f-4a46-9303-f3d41c62bb4b` (no payment). All are reserved by buyer `919d511e…`.
+  - **Baseline** after-check, 16:42:42Z (file md5 `d52d23e0…`): all 4 holds live; payment row md5s F1 `bc55ca4a…`, F2 `5104b436…`, F3 `7bd9f8fc…`; 0 notifications, bids or transfers, and 0 buyer payments since T0.
+  - **Holds expire 19:42:27Z. §7 fallback deadline 19:12:27Z; timer running.**
