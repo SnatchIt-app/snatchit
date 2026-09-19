@@ -4739,7 +4739,11 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   18/18 as predicted (EM1–EM10 re-derived, RM1–RM7), with a busy guard (D's housekeeping). Gates: tsc 0; lint 0/29;
   vitest 124 files / 2460 tests. Gated: holdState.ts +16. **D: PASS at `19b6fc2b`** (own worktree, alone; 18/18 re-run;
   2460). D confirmed: the flag stays set through a pending "Check again" and through a re-check whose settled read fails
-  (setup throws before fetchListing); auction mode never sets it. **Awaiting A.** Not device-tested. Harness busy guard
+  (setup throws before fetchListing); auction mode never sets it. **A: PASS at `19b6fc2b`** (visibility only; fresh
+  detached checkout: tsc 0, lint 0/29, vitest 2460). **Push HELD by A** pending the owner's direct confirmation to
+  publish (the request reached A only via C). Not device-tested. Gate is now `e191cbfa` (#77 merged); C verified that
+  `05d85732` is an ancestor and that the only difference is three supabase files (142 migration, its rollback, pgTAP
+  209), with no app/src change. Harness busy guard
   refined per D (only a `node` process running vitest counts; the earlier `pgrep -fl vitest` failed safe, voiding runs
   when a shell merely mentioned vitest).
 - **Adjacent, raised by D, for the owner (not in this change):** (a) the not-held state shows "…Nothing was charged…"
