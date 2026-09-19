@@ -1062,3 +1062,9 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - **Navigation:** the fixture listings appear on no list, so each is opened warm by deep link `snatchit://listing/<id>` (C proposed it; D agreed). The first link doubles as the check: on failure, stop and run §7 at once.
 - **Session amendment** (runbook `f2af1200`): leaving a listing releases its hold, so H2 comes before H1's "Back to home", and §7 runs right after H5.
 - **Nothing written to the sandbox yet.**
+- **Build 22 FINISHED (EAS read, A):**
+  - EAS `3ae689cd-9737-4a14-b31e-6491c1163f81`; iOS; `preview`; INTERNAL; build 22; 1.0.0; SDK 54; `gitCommitHash` `05d85732f4e61cba124bec8d4dfb8b7c57e06e12`;
+  - created 05:36:44Z, completed 05:43:17Z; the IPA is present.
+  - Install page: https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/3ae689cd-9737-4a14-b31e-6491c1163f81. It replaces Build 21.
+- **D's provenance check: PASS.** The gate is exactly 3 merges, each patch-identical to its PR, with the tree equal to `3ff5712f`; `main` is unchanged at `eadd456a`; #77 is open and unmerged; the EAS record shows `preview`/INTERNAL/`05d85732`.
+- **C confirmed the H1–H5 strings at `05d85732`.** The account proof is F1's own "Finish checkout", which shows only when `reserved_by` is the signed-in user.
