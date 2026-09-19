@@ -294,16 +294,20 @@ SELECT ok((SELECT (body #>> '{cases,opened_24h}')::int >= 10 AND (body #>> '{mon
 
 -- ── Section N — run_all_detectors, grants, registration, seed ───────────────
 SELECT tap.login_service();
-SELECT ok((r ->> 'jobs')::int = 12 AND (r ->> 'failed')::int = 0 AND (r ->> 'skipped')::int = 0,
-  'N1: run_all_detectors runs the 11 detectors + refresh_metrics, none failing or skipped')
+-- Amended 2026-09-19 (migration 144): run_all_detectors also lists refund_resolution, which the owner's switch
+-- (refund_resolution_detector_enabled, seeded false) keeps skipped — so 13 jobs, and exactly that one skipped.
+SELECT ok((r ->> 'jobs')::int = 13 AND (r ->> 'failed')::int = 0 AND (r ->> 'skipped')::int = 1
+          AND r #>> '{results,refund_resolution,status}' = 'skipped',
+  'N1: run_all_detectors runs the 12 detectors + refresh_metrics, none failing; only refund_resolution skipped (off)')
   FROM (SELECT ops.run_all_detectors() AS r) x;
 SELECT tap.logout();
 SELECT is(has_function_privilege('anon', 'ops.run_job(text,text)', 'EXECUTE'), false, 'N2: anon cannot execute run_job');
 SELECT is(has_function_privilege('authenticated', 'ops.run_job(text,text)', 'EXECUTE'), true, 'N3: authenticated can (it authorizes itself)');
 SELECT is(has_function_privilege('service_role', 'ops.run_job(text,text)', 'EXECUTE'), true, 'N4: service_role can');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE n.nspname = 'ops' AND p.proname LIKE 'detect\_%'), 13,
-  'N5: 11 detect_* bodies + detect_case + detect_sweep exist');
+            WHERE n.nspname = 'ops' AND p.proname LIKE 'detect\_%'), 14,
+  -- Amended 2026-09-19 (migration 144): + detect_refund_resolution.
+  'N5: 12 detect_* bodies + detect_case + detect_sweep exist');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'ops'
               AND (p.proname LIKE 'detect\_%' OR p.proname IN ('refresh_metrics','build_daily_summary','alert_fire','alert_recover',
@@ -317,7 +321,8 @@ SELECT is(has_function_privilege('authenticated', 'ops.run_all_detectors()', 'EX
 SELECT is((SELECT count(*)::int FROM cron.job WHERE (jobname, schedule) IN (('ops-detect-tick', '*/5 * * * *'), ('ops-daily-summary', '0 13 * * *'))), 2,
   'N8: both cron jobs registered with the documented schedules');
 SELECT is((SELECT count(*)::int FROM cron.job WHERE jobname LIKE 'ops-%'), 2, 'N9: …and no duplicates');
-SELECT is((SELECT count(*)::int FROM ops.job_state WHERE enabled), 13, 'N10: job_state seeded for all 13 job names');
+-- Amended 2026-09-19 (migration 144): + refund_resolution's row, which run_job creates on its first (skipped) run in N1.
+SELECT is((SELECT count(*)::int FROM ops.job_state WHERE enabled), 14, 'N10: job_state holds the 13 seeded job names + refund_resolution');
 
 SELECT * FROM finish();
 ROLLBACK;
