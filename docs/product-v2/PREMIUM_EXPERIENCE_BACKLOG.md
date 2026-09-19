@@ -4881,7 +4881,18 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       the status alone; the buyer's read carries no payout field, so gating it needs a read change.
     - **Buyer screen, expired order:** shows only the status badge — no instructions, no delivery form, no claim. A gap
       (the buyer is told nothing), not a false claim; recorded for the owner, not designed here.
-    - **Awaiting A and D; then C publishes the draft DO-NOT-MERGE PR.**
+    - **`131017a5` (A's review of c002647b):** the buyer-side twin. `buyerAutoReleasedCopy(payout_released_at)` — with
+      the field, the existing sentence; without it, "Review window closed / … This order is complete.", no money,
+      refund or cancellation claim. The buyer's read carries `payout_released_at` (one existing column on a row the
+      buyer already reads; **A approved this read** and verified that `apply_auto_release` sets only the status while
+      `record_transfer_payout` writes the column after the Stripe transfer succeeds). StateBlock gained a neutral tone;
+      premium-transfer-wording's receive case updated and labelled. Tests B1–B3 (RED first for B2/B3); controls NM8–NM11
+      all died. **Post-run correction, labelled:** NM8's real set is {B2, receive} and NM9's {B1 (witness), B2, receive}
+      — the updated wording case also defends them; I predicted only the B-tests.
+    - **A: PASS at `c002647b` and at `131017a5`** (A's own controls: an unconditional "Payout released" title kills only
+      P2; removing the buyer's column kills only B3). Gates at `131017a5`: tsc 0; lint 0/29; vitest 125 files / 2479
+      tests. **Awaiting D; then C publishes the draft DO-NOT-MERGE PR** (A asks the PR body to name the
+      `payout_released_at` semantics he verified in the deployed job v38, so a reviewer can check the premise).
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
