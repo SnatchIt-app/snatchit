@@ -4730,8 +4730,34 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   now only a successful settled lookup clears it). **Reading, open to D/owner:** the reservation-unknown state keeps the
   line (its payment lookup succeeded); the in-flight confirming, finalizing and checking states are unchanged. Tests
   E1–E9 (RED first); controls EM1–EM10 at `bbd3e1bf` and 11/11 at `9eebcac2` (EM9a/EM9b), all as predicted. Gates at
-  `9eebcac2`: tsc 0; lint 0/29; vitest 2456/2456. Gated: holdState.ts +11. **Awaiting A and D.** Not device-tested (no
-  build authorised). Saved-delivery-preference design task: **on hold** until
+  `9eebcac2`: tsc 0; lint 0/29; vitest 2456/2456. Gated: holdState.ts +11. D: PASS at `9eebcac2` (own worktree).
+  **Owner refinement (2026-09-19):** "hide the payment-held assurance in the unknown-reservation state too, including
+  while its recheck is pending. The distinction is whether the message is supported, not merely whether payment status
+  is known. A successful lookup finding no payment does not establish that money is being held." Visibility only, no
+  build or handset run. → **`19b6fc2b`**: `reservationStatusUnknown` is set on both `reservation_unverifiable` paths and
+  cleared only when setup's listing read succeeds (`if (!error)`, return unchanged). Tests E10–E13 (RED first). Controls
+  18/18 as predicted (EM1–EM10 re-derived, RM1–RM7), with a busy guard (D's housekeeping). Gates: tsc 0; lint 0/29;
+  vitest 124 files / 2460 tests. Gated: holdState.ts +16. **Awaiting A and D at `19b6fc2b`.** Not device-tested.
+- **Adjacent, raised by D, for the owner (not in this change):** (a) the not-held state shows "…Nothing was charged…"
+  (holdCopy) with the escrow line directly under it, so the assurance is unsupported where nothing can be bought;
+  (b) the `checking` window after a PaymentSheet error (a few seconds while the result is reconciled) shows the line.
+  It resolves to unreachable (hidden) or a verdict. The rule as implemented covers failed or unreachable lookups, not
+  in-flight moments.
+- **COPY BACKLOG — pre-payment escrow assurance (owner, 2026-09-19): "future protection should be phrased conditionally,
+  rather than implying funds are already held."** Not changed; flagged:
+  1. Checkout's `ESCROW_NOTE_COPY` "Payment is held until your ticket reaches you. Secured by Stripe." in every ordinary
+     pre-payment state (loading, ready to pay, price change, generic setup error, not-held). Present tense before any
+     payment.
+  2. `src/lib/pricing/provenance.ts:43/:50` "…Payment is held until the ticket reaches you." (the marketplace_fixed and
+     auction explanations). By `git grep` it is rendered today only in the dev foundation screen; it would ship
+     wherever the explanation is used.
+  3. Web `web/src/app/listing/[id]/page.tsx:259` "Your money is held by Snatch It until you confirm the ticket arrived."
+     (pre-purchase listing page).
+  4. Web `web/src/app/layout.tsx:30` meta description "…funds held until your ticket is delivered." (general marketing).
+  - Noted, not flagged: `app/settings/legal.tsx:83/:208` (legal text describing the payment flow; legal wording is not
+    C's to change). Post-payment uses are supported by an established payment and are not flagged: `detailState.ts:170`
+    and `transferState.ts:93` ("The buyer has paid. Payment is held…"), the checkout settlement screen (`:1073`), and the
+    seller payout line (`app/transfer/send/[id].tsx:363`). Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
