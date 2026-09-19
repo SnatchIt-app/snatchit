@@ -518,7 +518,7 @@ function listing(d){
   <div style="display:flex;flex-direction:column;gap:4px"><div class="sm">${e.d} · ${e.t} · ${e.v}</div><div class="h1">${e.n}</div></div>
   ${panel}
   ${rows([['Seller','the seller · 14 sales'],['Delivery','Mobile transfer · DICE'],['Restrictions','Name change not allowed'],['Price shown','All-in, fees included']])}
-  <div class="sm t-pr">A bid is a commitment. If you win, your card is charged automatically and the sale is final.</div>
+  <div class="sm t-pr">A bid is a commitment. If you win, you’ll pay the all-in total to complete the purchase, and the sale is final once payment is confirmed.</div>
  </div>`)}${bottom(`<div class="cta">Place bid<span class="s2">Minimum ${money(e.p+5)} · charged only if you win</span></div>
   <div class="cta sec">Buy now for ${money(150)}</div>`)}`);
 }

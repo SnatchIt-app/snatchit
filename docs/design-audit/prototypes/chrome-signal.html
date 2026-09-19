@@ -784,14 +784,14 @@ SC.listing=(c)=>{
      ${e.mins<=360&&e.mins>0?`<div class="meter" style="width:82px"><i style="width:${e.pct||50}%"></i></div>
       <div class="sm">${e.pct||50}% of the final six hours</div>`:''}</div></div>
 
-   ${bidPlaced?notice('ok','You’re the leading bidder','Your bid of '+money(cur)+' is in. If you’re still leading when the auction ends, your card is charged automatically.'):''}
+   ${bidPlaced?notice('ok','You’re the leading bidder','Your bid of '+money(cur)+' is in. If you’re still leading when the auction ends, you’ll pay the all-in total to complete the purchase.'):''}
 
    ${sec('The details',kv([['Seller','the seller · 14 sales'],['Delivery','Mobile transfer · DICE'],
      ['Restrictions','Name change not allowed'],['Price shown','All-in, fees included']]))}
 
    <div class="sm" style="display:flex;gap:8px;align-items:flex-start">
     <span style="color:var(--ink3);flex:0 0 14px;margin-top:1px">${I.shield}</span>
-    <span>A bid is a commitment. If you win, your card is charged automatically and the sale is final.</span></div>
+    <span>A bid is a commitment. If you win, you’ll pay the all-in total to complete the purchase, and the sale is final once payment is confirmed.</span></div>
   </div>`,
   sticky:`<button class="act" data-sheet="bid">${bidPlaced?'Raise your bid':'Place bid'}
     <span class="s2">Minimum ${money(cur+5)} · charged only if you win</span></button>
@@ -1064,7 +1064,7 @@ function sheet(id){
      <div class="sm" style="margin-top:2px">${e.bids} bids${lead?'':' · minimum next '+money(e.p+5)}</div></div>
     <div style="text-align:right">${live(e,'full')}</div></div>
    <div style="margin-top:var(--s4)">${kv([['Your bid',money(e.p),'price-sm'],['Status',lead?'You won':'You’re leading'],
-     ['Placed','Tue 19:04'],['If you win','Charged automatically · sale is final']])}</div>
+     ['Placed','Tue 19:04'],['If you win','You pay to complete · final once paid']])}</div>
    <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
     <button class="act" data-act="closeSheet">${lead?'View your ticket':'Raise your bid'}</button>
     <button class="act ghost" data-act="closeSheet">Close</button></div>`;
@@ -1078,7 +1078,7 @@ function sheet(id){
   if(b==='done') return `<h3>You’re the leading bidder</h3>
    <div class="body" style="margin-top:6px">Your bid of ${money(min)} is in. We’ll tell you the moment someone outbids you.</div>
    <div style="margin-top:var(--s4)">${kv([['Your bid',money(min),'price'],['Auction ends',e.d+' · '+e.t],
-     ['If you win','Charged automatically'],['Delivery','Mobile transfer · DICE']])}</div>
+     ['If you win','You pay to complete the purchase'],['Delivery','Mobile transfer · DICE']])}</div>
    <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
     <button class="act sec" data-act="closeSheet">Done</button></div>`;
   return `<h3>Place a bid</h3>
@@ -1090,7 +1090,7 @@ function sheet(id){
    <div style="margin-top:var(--s4)">${kv([['All-in total if you win',money(min+14),'price-sm'],
      ['Card','Visa •••• 1881'],['Delivery','Mobile transfer · DICE']])}</div>
    <div class="notice warn" style="margin-top:var(--s4)"><div><div class="body ink">A bid is a commitment</div>
-    <div class="sm" style="margin-top:3px">If you win, your card is charged automatically and the sale is final.</div></div></div>
+    <div class="sm" style="margin-top:3px">If you win, you’ll pay the all-in total to complete the purchase, and the sale is final once payment is confirmed.</div></div></div>
    <div class="stack" style="gap:var(--s3);margin-top:var(--s5)">
     <button class="act" data-act="placeBid">Place bid of ${money(min)}</button>
     <button class="act ghost" data-act="closeSheet">Cancel</button></div>`;
