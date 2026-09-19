@@ -198,6 +198,17 @@ describe('the screen uses the view model and the shared refund state', () => {
     expect(view).not.toMatch(/router\.back\(\)|Back to listing|Try again/);
   });
 
+  it('S3: the refund screen takes precedence over the confirmation and the pay UI (D\'s DM1)', () => {
+    // Everything that keeps Pay away after a refund rests on this early return coming first in CheckoutScreen.
+    const body = slice(screenSrc(), 'export default function CheckoutScreen()', '// A-03: a refund is its own screen.');
+    const refund = body.indexOf('  if (refundState) {');
+    const settled = body.indexOf('  if (settlement) {');
+    const main = body.indexOf('\n  return (');
+    expect(refund).toBeGreaterThan(-1);
+    expect(settled).toBeGreaterThan(refund);
+    expect(main).toBeGreaterThan(settled);
+  });
+
   it('S2: re-validation lands every refund row in the refund state with Pay turned off', () => {
     const body = slice(screenSrc(), 'async function revalidateAgainstServer()', 'async function recheckPayment()');
     expect(body).toContain('const refund = refundStateFor(settled);');
