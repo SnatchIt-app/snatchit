@@ -382,9 +382,14 @@ The harness is scratch-only and never committed: `…/scratchpad/reh/wt/tests/zz
   - **Where the order's status lives:** `/transfer/receive/<transferId>`. The Bids tab lists purchases, but only transfers in `pending`, `seller_sent`, `disputed`, `buyer_confirmed` or `auto_released` status, so a cancelled order is silently absent there.
   - **C is holding `b061c077` unchanged pending the owner's choice.**
 - **D's minor findings:**
-  - (1) render precedence (`if (refundState)` at :695) is pinned by nothing; D's mutant DM1 left 0 of 2400 tests failing. A asked C to add a pin with the next change;
-  - (2) with two refunded rows, the one shown depends on database order (no ORDER BY). This matters only once amounts are written (the RC). Deferred;
+  - (1) render precedence (`if (refundState)` at :695) is pinned by nothing; D's mutant DM1 left 0 of 2400 tests failing. **Closed by C at `2c99beb6`** (test-only, on top of `b061c077`). S3 pins it, and D's DM1 (C's mutant (k)) kills S3 alone. Per C: harness 11/11; typecheck 0; lint 0 / 29; vitest 2402. `app/` and `src/` are unchanged since `b061c077`;
+  - (2) with two refunded rows, the one shown depends on database order (both reads use `limit(5)` with no ORDER BY). C's probe: `[NULL, full]` shows the neutral screen, but `[full, NULL]` shows "A full refund of $110".
+    - Unreachable in A′, where every production amount is NULL.
+    - **Precondition for shape B:** make `pickSettled` deterministic before any writer records amounts, e.g. the neutral screen if any refunded row is unconfirmed.
   - (3) the settled read still swallows its error. This is the same as A's F-CHK-READERR (§12.7).
+    - C adds a case: a paid Buy Now buyer who still holds the listing would reach `createIntent`, which the deployed create-payment-intent refuses.
+    - Logging the error (console or Sentry) changes no behaviour.
+    - The real guard is the deployment order: this client must not ship before 142.
 
 **Decision added to §12.10 (item 0): the refund screen's destination.**
 - **(b) A recommends:** remove the pointer and make the CTA "Back to home". It is the smallest change and makes no claim.
