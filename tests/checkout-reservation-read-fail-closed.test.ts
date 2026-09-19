@@ -14,6 +14,11 @@
  * escapes decideRevalidation; J2 it yields an unverifiable outcome — Pay withheld, copy says only that the reservation
  * couldn't be checked, the one action re-runs the check; J3 a successful read is unchanged (no row, someone else's or
  * an expired hold → 'lost'; a live hold → 'held'); J5 the read is an importable function for A's E2E.
+ *
+ * UNIFIED (owner, 2026-09-19, direct; D's recommendation): "unify both unknown-reservation states as 'We couldn't
+ * check your reservation.' with 'Check again.' Neither state may offer Pay until a successful check establishes
+ * eligibility." Setup's and re-validation's unverifiable paths both set statusUnknown, so payControl's rank — not one
+ * line in the screen — keeps Pay away; "Try again" stays for genuine setup failures.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -128,27 +133,39 @@ describe('recovery: a re-check that succeeds proceeds; the legitimate unpaid buy
     expect(d.createIntent).toHaveBeenCalledTimes(1);
   });
 
-  it('Q9: while the reservation is unknown the control is a retry of the check, never Pay', () => {
-    const c = payControl({ authLoading: false, paymentLoading: false, confirming: false, paymentReady: false, paymentError: true, formattedTotal: '$110' });
-    expect(c.action).toBe('retry');
-    expect(c.action).not.toBe('pay');
+  it('Q9: while the reservation is unknown the control is "Check again", never Pay — even with a stale ready flag or inside the margin', () => {
+    // D's rank pin: statusUnknown outranks paymentReady, so no screen path that leaves paymentReady true can show Pay.
+    const unknown = {
+      authLoading: false, paymentLoading: false, confirming: false, paymentReady: false, paymentError: true, statusUnknown: true, formattedTotal: '$110',
+    };
+    const want = { label: 'Check again', loading: false, disabled: false, action: 'retry' };
+    expect(payControl(unknown)).toEqual(want);
+    expect(payControl({ ...unknown, paymentReady: true })).toEqual(want);
+    expect(payControl({ ...unknown, paymentReady: true, reservationMsLeft: 1_000 })).toEqual(want);
+    // Witness: without the flag the same stale ready flag IS Pay, and a genuine setup failure keeps "Try again".
+    expect(payControl({ ...unknown, statusUnknown: false, paymentReady: true }).action).toBe('pay');
+    expect(payControl({ ...unknown, statusUnknown: false }).label).toBe('Try again');
   });
 });
 
 // ── What the buyer sees ────────────────────────────────────────────────────────────────────────────────────────
 const HOLD_OR_CHARGE_CLAIM = /no longer held|lost|released|ran out|expired|nothing was charged|charged|sold/i;
+const INVITES_PAYMENT = /\bpa(?:y|id)/i;
 
 describe('the copy claims nothing about the hold or a charge', () => {
-  it('Q10 (witness): the pattern matches what the old path showed — the not-held copy', () => {
+  it('Q10 (witness): the patterns match what they must catch — the not-held copy, and the Pay label', () => {
     for (const r of ['released_by_us', 'ran_out', 'unknown'] as const) {
       const c = notHeldCopy(r);
       expect(`${c.title} ${c.body}`).toMatch(HOLD_OR_CHARGE_CLAIM);
     }
+    const ready = { authLoading: false, paymentLoading: false, confirming: false, paymentReady: true, paymentError: false, formattedTotal: '$110' };
+    expect(payControl(ready).label).toMatch(INVITES_PAYMENT);
   });
 
-  it('Q11: the reservation-unknown copy is setup\'s existing sentence and makes no such claim', () => {
-    expect(RESERVATION_UNVERIFIABLE_COPY).toBe('Unable to verify reservation. Please try again.');
+  it('Q11: the reservation-unknown copy is the owner\'s sentence; it claims nothing about the hold or a charge and does not invite payment', () => {
+    expect(RESERVATION_UNVERIFIABLE_COPY).toBe("We couldn't check your reservation.");
     expect(RESERVATION_UNVERIFIABLE_COPY).not.toMatch(HOLD_OR_CHARGE_CLAIM);
+    expect(RESERVATION_UNVERIFIABLE_COPY).not.toMatch(INVITES_PAYMENT);
   });
 });
 
@@ -168,17 +185,21 @@ describe('the screen applies it fail-closed', () => {
     expect(body).not.toContain(".from('listings')");
   });
 
-  it('Q13: an unverifiable reservation withholds Pay, says only that, reports, and claims no lost hold', () => {
+  it('Q13: an unverifiable reservation is the unknown state — Pay withheld, says only that, reports, no lost hold', () => {
     const block = between(src(), "if (outcome.kind === 'reservation_unverifiable') {", '}\n');
     expect(block).toContain("reportCheckoutFailure('reservation-check', outcome.detail);");
     expect(block).toContain('setPaymentReady(false);');
+    expect(block).toContain('setStatusUnknown(true);');
     expect(block).toContain('setPaymentError(RESERVATION_UNVERIFIABLE_COPY);');
     expect(block).toContain("return 'unknown';");
     expect(block).not.toMatch(/setHoldLost|setPaymentReady\(true\)|payHandler/);
   });
 
-  it('Q14: setup\'s unverifiable path shows the same sentence (J4: unchanged behaviour, shared constant)', () => {
+  it('Q14: setup\'s unverifiable path is the same unknown state — same sentence, no hold claim, nothing created', () => {
     const block = between(src(), "if (decision.kind === 'reservation_unverifiable') {", "if (decision.kind === 'not_held')");
+    expect(block).toContain('setStatusUnknown(true);');
     expect(block).toContain('setPaymentError(RESERVATION_UNVERIFIABLE_COPY);');
+    expect(block).toContain('return;');
+    expect(block).not.toMatch(/setHoldLost|setPaymentReady\(true\)|createPaymentIntent|initPaymentSheet/);
   });
 });

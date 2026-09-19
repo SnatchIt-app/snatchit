@@ -273,7 +273,9 @@ export default function CheckoutScreen() {
           return;
         }
         if (decision.kind === 'reservation_unverifiable') {
-          // The hold may still be live; a retry is honest here.
+          // The hold may still be live, so claim nothing about it. Owner (2026-09-19): the same unknown state as
+          // re-validation's — "Check again" re-runs this check; no Pay until a check succeeds.
+          setStatusUnknown(true);
           setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
           return;
         }
@@ -611,9 +613,11 @@ export default function CheckoutScreen() {
     }
     if (outcome.kind === 'reservation_unverifiable') {
       // D's R2 (owner, 2026-09-19): the listing read failed, so the hold is UNKNOWN, not lost. Withhold Pay; claim
-      // nothing about the hold or a charge. The control is a retry, which re-runs setup (the check), never payment.
+      // nothing about the hold or a charge. statusUnknown makes the control "Check again", which re-runs setup (the
+      // check), never payment, and outranks any stale ready flag.
       reportCheckoutFailure('reservation-check', outcome.detail);
       setPaymentReady(false);
+      setStatusUnknown(true);
       setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
       return 'unknown';
     }

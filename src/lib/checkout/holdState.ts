@@ -77,10 +77,10 @@ export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string |
 
 /**
  * The hold could not be checked (setup's listing read, and — D's R2 — re-validation's). Says only that it couldn't be
- * verified: nothing about the hold being lost, released or expired, and nothing about a charge. Setup's existing
- * sentence, now shared so both paths say the same thing.
+ * checked: nothing about the hold being lost, released or expired, nothing about a charge, and no word inviting
+ * payment. Owner (2026-09-19): both paths show this with "Check again" (statusUnknown), never Pay.
  */
-export const RESERVATION_UNVERIFIABLE_COPY = 'Unable to verify reservation. Please try again.';
+export const RESERVATION_UNVERIFIABLE_COPY = "We couldn't check your reservation.";
 
 /**
  * F-CHK-READERR (owner, 2026-09-18; wording 2026-09-19): the settled-payment lookup failed. Says only that it

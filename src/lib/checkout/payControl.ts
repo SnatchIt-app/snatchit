@@ -50,8 +50,8 @@ export interface PayControlInput {
   /** The hold is known to be gone: expired, released, or taken. */
   holdLost?: boolean;
   /**
-   * F-CHK-READERR: the buyer's settled-payment lookup failed, so whether they already paid is unknown. The only
-   * action re-runs the check; Pay is never offered from here.
+   * A status check failed, so eligibility to pay is unknown: the settled-payment lookup (F-CHK-READERR) or the
+   * reservation lookup (owner, 2026-09-19). The only action re-runs the check; Pay is never offered from here.
    */
   statusUnknown?: boolean;
   /** Milliseconds left on the buyer's hold; null when there is no countdown. */
