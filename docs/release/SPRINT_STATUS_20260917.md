@@ -1332,3 +1332,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - A failed read no longer claims "not found" on either screen.
   - A's controls: forcing the seller title kills only P2; dropping the buyer's column kills only B3.
   - The refund-recorded screen remains held on `hold/seller-refund-recorded`.
+- **138 is NOT chain-ready — corrected size (A's own replays, 2026-09-19).** D reported "gate + 138 = 20 failures across 11 files + 245 psql errors". That was an artefact: the chain used the gate's copies of the tests 138 amends.
+  - **138's head `1cacdf55` alone: 5435/5435 ALL-PASS.**
+  - **Gate + 138 with its own 14 amended test files: 5485, not_ok = 2, 0 psql errors.**
+  - The two are pins predating 140: `050` test 16 (140 made `mark_transfer_sent` idempotent) and `162` test 84 (function count 107 vs 108, missing 140's function).
+  - **Merge-order decision (A): 138 stays out of this round.** It is unrelated to the owner's refund/payout fixes, and neither A nor D starts it unprompted. 144 must therefore be order-independent (extend, never restate, the constraint lists).
