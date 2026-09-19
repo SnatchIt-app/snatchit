@@ -4649,11 +4649,24 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   Supabase Preview skipped). **D — PASS on both** (harnesses 10/10 and 11/11 in D's worktree; probes through the real
   `readListingHold`); A's E2E listingerr control: reservation_unverifiable at the fix vs 'lost'/"Nothing was charged"
   at the parent.
-- **OWNER DECISION PENDING — unify the two unknown-status states (D recommends; C agrees):** setup's and re-validation's
-  reservation-unverifiable paths → "We couldn't check your reservation." + "Check again" (via the `statusUnknown`
-  precedence, which ranks above `paymentReady`/`holdLost`, making "never Pay while unknown" structural rather than
-  resting on one `setPaymentReady(false)`); "Try again" stays for genuine setup failures. Changes setup's existing
-  sentence. No change until the owner decides.
+- **Unification — APPROVED by the owner (2026-09-19, direct), implemented `3ff5712f`** (one commit on `d75c15cc`, local;
+  A pushes after review). Owner: "unify both unknown-reservation states as 'We couldn't check your reservation.' with
+  'Check again.' Neither state may offer Pay until a successful check establishes eligibility." Setup's and
+  re-validation's `reservation_unverifiable` paths both set `statusUnknown` (ranked above `paymentReady` and the
+  margin, so "never Pay while unknown" is structural); copy is the owner's exact sentence; "Try again" stays for
+  genuine setup failures; re-validation keeps report + `setPaymentReady(false)` and never sets `holdLost`; setup's path
+  gets no report (its decision has no detail). Tests Q9 (D's rank pin + witness), Q10, Q11, Q13, Q14; RED first for
+  Q11/Q13/Q14. Mutants, all as predicted (138 tests, 7 suites): UM1 {Q13}, UM2 {Q14}, UM3 {Q11}, UM4 {Q9, R9}, UM5
+  {Q14}, UM6 {Q13}. Gates: tsc 0; lint 0 errors / 29 warnings; vitest 2447/2447. Gated diff vs `d75c15cc`: holdState.ts
+  (+3 −3), payControl.ts (+2 −2, doc comment). **Awaiting A (payment boundary) and D (behaviour).**
+- **Release-testing round (owner, via A's session; C's own authorisation direct, 2026-09-19):** after review + CI, A
+  merges #77–#80 into `release/production-gate-20260918`, builds one sandbox preview, writes only the runbook's synthetic
+  fixtures (D reviews), runs before/after checks. C guides H1–H5 once A and D confirm build + fixtures ready. **H5b
+  (Stripe payment setup) skipped; no payment submission.** Clean-up proposed by A: A runs §7 (cancel the four listings),
+  D witnesses, at session end/abandonment or T+2h30m after the fixture write, whichever first (A's timer). **Open:** P3
+  buyer/seller sign-in emails — not in C's records (D6's "Delivery email sandbox-buyer@snatchit.test" is a delivery
+  field, not proof of the signed-in account); asked the owner. Saved-delivery-preference design task: **on hold** until
+  this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
   at both `11e1518f` and `d75c15cc`:** refund kicker "Refund"; "Refund recorded" / "A refund was recorded for this
