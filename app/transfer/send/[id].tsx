@@ -24,10 +24,10 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
 import {
-  TRANSFER_EXPIRY_COPY,
   formatCountdown,
   sellerAlreadySent,
   sellerDeliveryMissing,
+  sellerWindowView,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { textStyle } from '@/src/theme/typography';
@@ -68,6 +68,11 @@ export default function TransferSendScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [expiryCountdown, setExpiryCountdown] = useState<string | null>(null);
+  // A server read landed after the device deadline (owner, 2026-09-19): before one does, the seller sees only neutral
+  // "checking" wording. It is never a guarantee: the order can still close at any time.
+  const [windowChecked, setWindowChecked] = useState(false);
+  const windowRecheckRef = useRef(false);
+  const windowFollowUpRef = useRef(false);
   const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
   const expiryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -100,6 +105,8 @@ export default function TransferSendScreen() {
       setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
     } else {
       setError('');
+      // Marked BEFORE the transfer is set, so no render sees a post-deadline row as unchecked (no redundant re-read).
+      if (formatCountdown((data as unknown as TransferData).expires_at) === 'Expired') setWindowChecked(true);
       setTransfer(data as unknown as TransferData);
     }
     if (!quiet) setLoading(false);
@@ -114,6 +121,24 @@ export default function TransferSendScreen() {
     expiryTimerRef.current = setInterval(() => setExpiryCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (expiryTimerRef.current) clearInterval(expiryTimerRef.current); };
   }, [transfer?.expires_at, transfer?.status]);
+
+  // The device clock passed the deadline while the screen was open: check the server once before saying more than
+  // "checking". The read changes nothing on the server; a failed read shows the screen's existing error state.
+  useEffect(() => {
+    if (transfer?.status !== 'pending' || expiryCountdown !== 'Expired' || windowChecked || windowRecheckRef.current) return;
+    windowRecheckRef.current = true;
+    void fetchTransfer(true);
+  }, [transfer?.status, expiryCountdown, windowChecked, fetchTransfer]);
+
+  // A (2026-09-19): the expiry job runs every 2 minutes, so a read at the deadline almost always still says pending.
+  // Once a post-deadline read says so, read ONE more time about 150 s later — at most two automatic reads per screen.
+  // Still no guarantee: the order can close at any time, and the wording says so.
+  useEffect(() => {
+    if (!windowChecked || transfer?.status !== 'pending' || windowFollowUpRef.current) return;
+    windowFollowUpRef.current = true;
+    const t = setTimeout(() => { void fetchTransfer(true); }, 150_000);
+    return () => clearTimeout(t);
+  }, [windowChecked, transfer?.status, fetchTransfer]);
 
   // Auto-release countdown (seller_sent — buyer review window)
   useEffect(() => {
@@ -246,6 +271,10 @@ export default function TransferSendScreen() {
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
   const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
+  const windowView = transfer
+    ? sellerWindowView({ status: transfer.status, countdown: expiryCountdown, checkedSincePassed: windowChecked })
+    : ({ kind: 'none' } as const);
+  const orderClosed = windowView.kind === 'closed';
 
   function Header() {
     return (
@@ -285,7 +314,15 @@ export default function TransferSendScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
       >
-        {/* Buyer delivery target */}
+        {/* Server-confirmed expiry: don't transfer (owner, 2026-09-19) */}
+        {windowView.kind === 'closed' ? (
+          <StateBlock title={windowView.title} tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateSub]}>{windowView.body}</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* Buyer delivery target. Unchanged here: whether fulfilment details (phone/email) show follows the final
+            fulfilment policy (owner, 2026-09-19). */}
         <View style={s.section}>
           <Text style={[textStyle('micro'), s.sectionLabel]}>Send tickets to</Text>
           {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} /> : null}
@@ -300,14 +337,14 @@ export default function TransferSendScreen() {
           ) : null}
         </View>
 
-        {!alreadySent ? (
+        {!alreadySent && !orderClosed ? (
           <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
         ) : null}
 
-        {expiryCountdown && transfer.status === 'pending' ? (
-          <View style={[s.countdown, expiryCountdown === 'Expired' && s.countdownExpired]}>
-            <Text style={[textStyle('bodySm'), s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
-              {expiryCountdown === 'Expired' ? TRANSFER_EXPIRY_COPY.seller : `${expiryCountdown} to send`}
+        {windowView.kind === 'countdown' || windowView.kind === 'checking' || windowView.kind === 'last_checked_open' ? (
+          <View style={[s.countdown, windowView.kind !== 'countdown' && s.countdownExpired]}>
+            <Text style={[textStyle('bodySm'), s.countdownText, windowView.kind !== 'countdown' && s.countdownExpiredText]}>
+              {windowView.line}
             </Text>
           </View>
         ) : null}
