@@ -114,7 +114,7 @@ For each transfer currently in R1, R2 or R3, per run:
 
 ## 6. What the migration would contain (on A's number; four-files rule)
 - Two check-constraint widenings: `case_type` and `case_event.kind`.
-- New function `ops.detect_refund_resolution()` (`SECURITY DEFINER`, `search_path = ''`, revoked from `public`, `anon`, `authenticated`, `service_role`, like the other detectors). This needs a manifest row, `EXPECT_FUNCS` + 1 and an `expected_grants` row.
+- New function `ops.detect_refund_resolution()` (`SECURITY DEFINER`, `search_path = ''`, revoked from `public`, `anon`, `authenticated`, `service_role`, like the other detectors). **No** grant-manifest row, `EXPECT_FUNCS` change or `expected_grants` row: those CI checks cover the `public` schema only (`ci.yml` counts `nspname='public'`; neither manifest has `ops` lines), so an `ops` function correctly needs none of them (corrected 2026-09-19 after A's review; do not add them).
 - `ops.run_job`: one `when` arm. `ops.run_all_detectors`: `'refund_resolution'` in `c_order`. The arm returns `skipped: refund_resolution_disabled` while the setting is false, so the 5-minute tick applies nothing live. Both functions are redefined, so the rollback must restore the **applied** bodies at the time of apply.
 - `ops.action_dispatch`: the §5 check. It is redefined, with the same rollback rule.
 - The setting row, seeded `false`.
