@@ -4562,4 +4562,18 @@ state. … No push, merge, production changes or build yet."
 - **A's nit fixed at `b061c077`:** a confirmed kind with no amount now renders the WHOLE neutral view (was body-only,
   which under mutant (a2) showed "Full refund recorded" above the neutral body). K5 pins it; mutant (j) kills K5 alone;
   harness 10/10 with (c)'s new K5 kill predicted before the run. Gates: typecheck 0; lint 0 / 29; test 121 / 2401.
-  **D (behaviour) — pending at `b061c077`.**
+  **D (behaviour) — PASS on what the screen says and controls, at `b061c077`** (full suite and C's harness 10/10 in
+  D's own worktree; probes: mixed row sets never create an intent; odd rows go neutral; no forbidden text; CTA Tickets;
+  the neutral kind never shows an amount).
+- **FINDING (D; verified by C and A) — the Tickets destination is wrong, OWNER DECISION PENDING:** `app/(tabs)/tickets.tsx`
+  → `get_my_tickets` reads only `kernel.tickets` (`20260909000000:159-164`); a marketplace purchase (`public.payments` /
+  `transfers`) never appears there, so "Go to Tickets" + C's pointer "Check Tickets for this order's current status."
+  lands on "No tickets yet — Tickets you own will show up here." The pointer is **false** (C's wording) and the empty
+  state implies the buyer owns nothing (the order-status inference the owner ruled out). A takes the R5 error as A's.
+  Options to the owner: **Home with no pointer** (A's and C's recommendation), or **"View order" → the transfer when one
+  exists, else Home** (one more buyer-own read; A reviews). **Branch held on the destination** until the owner decides.
+- **Minor (D) — render precedence was unpinned:** DM1 (`if (refundState && false)`) passed 2400/2400. **Pinned by S3 at
+  `2c99beb6` (test-only)**; mutant (k) kills S3 alone; harness 11/11; test 121 / 2402.
+- **Minors routed to A (payment boundary, not changed):** two refunded rows resolve by DB order (`.limit(5)`, no ORDER
+  BY; unreachable while production amounts are NULL); `fetchSettledPayment` discards `error` (before migration 142 the
+  read fails silently — the client must not ship before 142).
