@@ -1158,3 +1158,19 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 **A's correction, recorded:** mid-analysis, A said 136 depends on 135. **The rehearsal disproved it**: 136 inserts its own template and applied alone. The go/no-go keeps 136 out for a different reason (it would surface stale `account_deletion_pending` notices before 141).
 
 **D's review:** requested; the addendum will follow.
+
+**D's review of the go/no-go: ONE BREAK found, verified LIVE by A. The verdict is revised (A, 2026-09-18).**
+- **The break:** the candidate app's checkout selects `payments.amount_refunded_cents` (`CheckoutNative.tsx:228`, `:595`). **Production has no such column**, and it arrives only with `20260906120000`. Both sites discard the error, so the settled-first and refund-display logic silently reads "none".
+- **Shape A (2 migrations) is now NO-GO as drafted.**
+- **Proposed shape A′:** add one additive, nullable column migration (registry number from A; next free 142).
+  - The app stays byte-identical to Build 21.
+  - Prototyped locally: the column is readable by `authenticated`, the app's query runs, the migration drops cleanly, and `20260906120000` still applies afterwards.
+  - Nothing in production writes the column (0 of 29 deployed edge files; 0 production-chain SQL).
+- **D's other findings, applied:**
+  - `auto-finalize-auctions` → `cleanup_expired_reservations` joins the shape-B cutoff list;
+  - the drifted function's quoted values are byte-identical;
+  - rollback ACLs are the same set as production;
+  - sign-out without 129/131 is recorded as an existing gap left unchanged.
+- **A's §2 wording was wrong:** a catalog-names check can't see a missing column.
+
+The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.

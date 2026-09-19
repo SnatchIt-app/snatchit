@@ -35,7 +35,7 @@
 | L10 | Minimum counts | bids with no profile: 0; duplicate `stripe_transfer_id` groups: 0; `rollback_archive` absent; `kernel.sweep_deletion_pending` overloads: 1; **push tokens in total: 2 (0 new in 30 days)** |
 | L11 | Exposed schemas | `public`, `graphql_public`, `kernel`, `ops`. `notify`, `venue`, `catalog`, `payments`, `market` and `signing` are **not** exposed |
 
-## 2. The smallest required migration set: `140` + `20260909000000`
+## 2. The smallest required migration set: `140` + `20260909000000` + the A′ column migration (`payments.amount_refunded_cents`)
 
 The candidate app's runtime needs were established by **runtime behaviour**, not by name references.
 
@@ -62,7 +62,7 @@ The candidate app's runtime needs were established by **runtime behaviour**, not
 | 133 | refuses without Vault `project_url` [REH] |
 | 135 | needs `project_url` to deliver challenges |
 | 136 | not needed, and harmful before 141 |
-| 127–132, 139, RC×4, `20260916000000` | needed only by the candidate's **edge** code, which shape A does not deploy |
+| 127–132, 139, RC×4, `20260916000000` | needed only by the candidate's **edge** code, which shape A does not deploy. **The exception, found by D:** the app needs one column that `20260906120000` creates. A′ supplies that column alone, without the RC's triggers, tables or rollback archive |
 
 ## 3. Introduced by this candidate, or an existing production gap?
 
