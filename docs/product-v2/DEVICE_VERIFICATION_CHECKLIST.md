@@ -556,3 +556,18 @@ All results are **owner-reported**; screenshots where noted (UI renders the kick
   and D's DU1–DU4, **not device evidence**.
 - **Not observed:** whether "Check again" issued a request offline (no network on device); server state — pending A's §7
   and after-reads (D witnesses).
+
+### Build 22 — clean-up and after-reads (A, READ strength; D witnessing)
+- **§7 done 17:31:43Z** (1:31 PM local): all four fixtures `active`/`cancelled`, no hold.
+- **Pre-§7 read-only snapshot, 17:31:41Z:** F1, F2 and F3 were **still reserved by `919d511e` with live holds**; F4
+  reserved (expected). **C's expectation, sent to A before the reads ("F1–F3 probably active"), was WRONG.**
+- **Post-§7, 17:31:44Z:** F1–F3 payment-row md5s identical to the baseline (unchanged byte for byte); 0 new buyer
+  payments; 0 notifications (public or notify); 0 bids; 0 transfers. **The device session made no database change to
+  the fixtures.**
+- **Why the holds survived — established from source, not from device logs (C, after the read):** the refund screen's
+  "Back to home" is `router.replace('/(tabs)/home')` (`CheckoutNative.tsx:968` at `05d85732`). expo-router 6.0.24
+  dispatches `REPLACE` to the root stack, and React Navigation's `StackRouter` `REPLACE` swaps only the focused route
+  (checkout) for a new `(tabs)` route (`routes.map((r, i) => i === currentIndex ? route : r)`). The listing screen
+  therefore stays mounted underneath, `beforeRemove` never fires, and no `release_reservation` is sent. The RPC's
+  signature is not the cause (127: `release_reservation(p_listing_id uuid, p_user_id uuid)` = the client's call). → **F-HOLD-EXIT-1** in the backlog.
+- H1–H5's pass/fail stands: none of their expected results depended on a release.

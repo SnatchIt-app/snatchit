@@ -4700,7 +4700,22 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   recorded for this payment."; H5 "We couldn't check whether this has already been paid." + "Check again". The refund
   screen also shows the event card and has no back arrow (H2 = left-edge swipe). H5 also shows "Checkout", the order
   rows and "Total" (not Pay controls). The app displays no email, so F1 showing "Finish checkout" (only when
-  reserved_by = the signed-in user) is the account check. Saved-delivery-preference design task: **on hold** until
+  reserved_by = the signed-in user) is the account check.
+- **Build 22 pass: H1–H5 all PASSED (owner-reported; screenshots for H1/H3/H4/H5a); H5b skipped; no payment submitted.**
+  Detail in `DEVICE_VERIFICATION_CHECKLIST.md` § Build 22. A's §7 at 17:31:43Z; after-reads (READ): fixture payments
+  unchanged byte for byte, 0 new payments, notifications, bids or transfers. Saved-delivery-preference task: still on
+  hold until the owner resumes it.
+- **F-HOLD-EXIT-1 (NEW; recorded, not started, not authorised):** checkout's "Back to home" (`router.replace`) leaves
+  the listing screen mounted under a new Home, so the listing-exit release (owner rule, `reservationExit.ts`) never
+  fires from it. A's pre-§7 read shows F1–F3 still held after "Back to home". Cause from the library source (expo-router
+  6.0.24 → StackRouter `REPLACE` replaces only the focused route), not from device logs. Effect: the buyer's own hold
+  lasts until server expiry (the 10-minute TTL in real use) instead of being released. No safety impact (it is the
+  buyer's own hold; the server expiry is the backstop), and the settlement screen's "Back to home" is on a sold listing
+  (no release wanted). **Not observed:** whether a back swipe on that Home reveals the stale listing screen. D's
+  ordering advice (H2 before "Back to home") was precautionary and harmless. **C's and D's shared prediction (release
+  on leaving) was wrong; recorded as such.**
+- **Copy observation (H5), owner's call:** the pre-existing line "Payment is held until your ticket reaches you. Secured
+  by Stripe." shows under "We couldn't check whether this has already been paid." Not a Pay control, not from #78–#80. Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
