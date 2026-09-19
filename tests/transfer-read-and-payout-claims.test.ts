@@ -132,6 +132,8 @@ function texts(host: HookHost): string {
   return out.join(' | ');
 }
 const screenState = (host: HookHost) => findElement(host.output, (el) => el.type === 'ScreenState');
+/** StateBlock's title is a prop, never flattened text — a title can claim what the body does not. */
+const blockTitled = (host: HookHost, title: string) => findElement(host.output, (el) => el.props.title === title);
 
 async function mount(which: 'send' | 'receive'): Promise<HookHost> {
   const mod = which === 'send'
@@ -197,6 +199,7 @@ describe('the seller is told a payout moved only when the payout itself was reco
     h.transfer = transfer({ status: 'auto_released', payout_released_at: new Date().toISOString() });
     const host = await mount('send');
     expect(texts(host)).toContain(RELEASED);
+    expect(blockTitled(host, 'Payout released')).toBeDefined();
   });
 
   it('P2: auto_released WITHOUT it claims no release — the job can skip the payout and retry for ever', async () => {
@@ -207,6 +210,9 @@ describe('the seller is told a payout moved only when the payout itself was reco
     expect(shown).toContain('The buyer review window passed without a dispute.');   // the status IS established
     expect(shown).not.toContain(RELEASED);
     expect(shown).toContain('has not been recorded as released yet');
+    // The TITLE must not claim it either (it is a prop, so the body assertions above cannot see it).
+    expect(blockTitled(host, 'Review window passed')).toBeDefined();
+    expect(blockTitled(host, 'Payout released')).toBeUndefined();   // witness: P1 finds this title
     expect(shown.toLowerCase()).not.toMatch(/refund|cancel/);                        // and no refund/cancellation claim
   });
 
