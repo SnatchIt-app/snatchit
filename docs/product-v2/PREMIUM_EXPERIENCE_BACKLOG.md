@@ -4737,9 +4737,16 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   build or handset run. → **`19b6fc2b`**: `reservationStatusUnknown` is set on both `reservation_unverifiable` paths and
   cleared only when setup's listing read succeeds (`if (!error)`, return unchanged). Tests E10–E13 (RED first). Controls
   18/18 as predicted (EM1–EM10 re-derived, RM1–RM7), with a busy guard (D's housekeeping). Gates: tsc 0; lint 0/29;
-  vitest 124 files / 2460 tests. Gated: holdState.ts +16. **Awaiting A and D at `19b6fc2b`.** Not device-tested.
+  vitest 124 files / 2460 tests. Gated: holdState.ts +16. **D: PASS at `19b6fc2b`** (own worktree, alone; 18/18 re-run;
+  2460). D confirmed: the flag stays set through a pending "Check again" and through a re-check whose settled read fails
+  (setup throws before fetchListing); auction mode never sets it. **Awaiting A.** Not device-tested. Harness busy guard
+  refined per D (only a `node` process running vitest counts; the earlier `pgrep -fl vitest` failed safe, voiding runs
+  when a shell merely mentioned vitest).
 - **Adjacent, raised by D, for the owner (not in this change):** (a) the not-held state shows "…Nothing was charged…"
-  (holdCopy) with the escrow line directly under it, so the assurance is unsupported where nothing can be bought;
+  (holdCopy) with the escrow line directly under it, so the assurance is unsupported where nothing can be bought.
+  Sharper after `19b6fc2b` (D): a successful listing read showing the hold is NOT the buyer's clears the reservation
+  flag and renders not-held with the line visible. The same applies to the initial load before any read. Both belong
+  to the pre-payment copy item below;
   (b) the `checking` window after a PaymentSheet error (a few seconds while the result is reconciled) shows the line.
   It resolves to unreachable (hidden) or a verdict. The rule as implemented covers failed or unreachable lookups, not
   in-flight moments.
