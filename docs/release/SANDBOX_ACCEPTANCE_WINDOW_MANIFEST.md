@@ -1103,3 +1103,8 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
   - D's most economical explanation, **not verified**: `router.replace('/(tabs)/home')` from checkout never removed the deep-linked listing screen, so `beforeRemove` never fired.
   - A refusal is less likely on the repo source: 127 returns early only for sold listings or a succeeded payment. The sandbox's deployed body was not read.
 - **Possible product follow-up (the owner's call; NOT a finding).** If "Back to home" leaves the listing screen mounted underneath, a real buyer's hold survives leaving until its server-side expiry. That expiry is the designed backstop, but it is not the release path the code intends. Confirming it needs a device log or an authorised API-log read.
+- **C filed it as F-HOLD-EXIT-1** (recorded; not started; not authorized), with a **source-level** explanation that no device log confirms:
+  - the refund screen's "Back to home" is `router.replace('/(tabs)/home')` (`CheckoutNative.tsx:968` @ `05d85732`);
+  - expo-router 6.0.24 dispatches REPLACE to the root stack, and StackRouter REPLACE swaps only the focused route;
+  - so the listing screen stays mounted, `beforeRemove` never fires, and no `release_reservation` is sent.
+  - The effect: the buyer's own hold lasts until its server-side expiry. There is no safety impact. C also records its own "F1–F3 probably active" as wrong.
