@@ -99,6 +99,8 @@ describe('sellerWindowView — what the seller may be told', () => {
 const h = vi.hoisted(() => ({
   transfer: {} as Record<string, unknown>,
   selects: [] as string[],
+  tables: [] as string[],
+  rpcs: [] as string[],
   reads: 0,
 }));
 
@@ -130,6 +132,7 @@ vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopIns
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
 vi.mock('@/src/lib/supabase', () => {
   const table = (name: string) => {
+    h.tables.push(name);
     if (name === 'transfers') h.reads += 1;
     const q: Record<string, unknown> = {};
     for (const m of ['order', 'limit', 'in', 'neq', 'or', 'update', 'eq']) q[m] = () => q;
@@ -142,7 +145,7 @@ vi.mock('@/src/lib/supabase', () => {
     supabase: {
       from: (name: string) => table(name),
       auth: { getUser: async () => ({ data: { user: { id: 'seller-1' } } }) },
-      rpc: async () => ({ data: null, error: null }),
+      rpc: async (fn: string) => { h.rpcs.push(fn); return { data: null, error: null }; },
       storage: { from: () => ({ createSignedUrl: async () => ({ data: null, error: null }) }) },
     },
   };
@@ -195,15 +198,24 @@ async function mountSend(): Promise<HookHost> {
 beforeEach(() => {
   h.transfer = transfer();
   h.selects.length = 0;
+  h.tables.length = 0;
+  h.rpcs.length = 0;
   h.reads = 0;
   vi.resetModules();
 });
 
 describe('the Send Transfer screen', () => {
-  it('V10: the screen reads no payment data — nothing is inferred from payment status (owner)', async () => {
+  it('V10: the screen reads no payment data — no payments table, embed or RPC (owner: nothing inferred from payment status)', async () => {
+    // D's review: the first version saw only select strings, so a direct from('payments') or an RPC slipped past it.
+    h.transfer = transfer({ expires_at: new Date(Date.now() - HOUR).toISOString() });   // past the deadline: all read paths run
     await mountSend();
+    expect(h.tables).toContain('transfers');                                             // witness: table reads are recorded
+    expect(h.tables).not.toContain('payments');
     expect(h.selects.some((c) => c.includes('listing:listings!listing_id('))).toBe(true);   // witness: embeds are visible here
     expect(h.selects.some((c) => /payments?[:!(]/.test(c))).toBe(false);
+    // The screen's only RPCs are its two actions; none runs on open, and none may read payment state.
+    expect(h.rpcs.every((fn) => fn === 'mark_transfer_sent' || fn === 'attach_transfer_evidence')).toBe(true);
+    expect(h.rpcs).toEqual([]);
   });
 
   it('V11 (witness): an open order shows the instructions and the delivery target', async () => {

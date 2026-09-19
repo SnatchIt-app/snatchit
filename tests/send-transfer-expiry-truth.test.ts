@@ -170,8 +170,9 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
     // Positive anchor first: a blank render would satisfy two `not.toContain`s and prove nothing (D's review).
     // The screen's own heading is the anchor — an expired transfer renders no CTA and no countdown row, so
     // asserting one of those would be asserting the absence twice over.
-    // Updated 2026-09-19: an expired order no longer shows the delivery target ("Send tickets to"); the anchor is
-    // now its "don't transfer" block (owner's seller-window correction).
+    // Updated 2026-09-19 (owner's seller-window correction): the anchor is now the expired order's "don't transfer"
+    // block. The delivery target ("Send tickets to") still shows on expired — its display follows the final
+    // fulfilment policy (owner), pinned in send-transfer-expired-window V14. Do not hide it from this comment.
     expect(findElement(host.output, (el) => el.props.title === 'Order expired')).toBeDefined();
     expect(findElement(host.output, (el) => el.type === 'ScrollView')).toBeDefined();
     expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.seller);
