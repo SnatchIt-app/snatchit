@@ -4720,8 +4720,18 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   long after the hold mattered. A device log of the navigation state after "Back to home" would settle both points. D's
   ordering advice (H2 before "Back to home") was precautionary and harmless. **C's and D's shared prediction (release
   on leaving) was wrong; recorded as such.**
-- **Copy observation (H5), owner's call:** the pre-existing line "Payment is held until your ticket reaches you. Secured
-  by Stripe." shows under "We couldn't check whether this has already been paid." Not a Pay control, not from #78–#80. Saved-delivery-preference design task: **on hold** until
+- **Escrow line while payment status is unknown — APPROVED by the owner (2026-09-19, direct), implemented:** "hide 'Payment
+  is held until your ticket reaches you. Secured by Stripe.' whenever payment status is unknown. It implies a payment
+  state we haven't established." Seen under the H5 message on Build 22. Branch `fix/checkout-escrow-note-unknown` on
+  `05d85732` (local; A pushes after review): `bbd3e1bf` (line → `ESCROW_NOTE_COPY` + `showEscrowNote` in holdState;
+  hidden when the payment lookup failed (`paymentStatusUnknown`, set on setup's and re-validation's
+  `payment_status_unknown` paths) or a payment result could not be confirmed (`checkUnreachable`)). Then **`9eebcac2`**
+  (C's own gap: the flag had been cleared at setup's start, so the line came back during the "Check again" re-check;
+  now only a successful settled lookup clears it). **Reading, open to D/owner:** the reservation-unknown state keeps the
+  line (its payment lookup succeeded); the in-flight confirming, finalizing and checking states are unchanged. Tests
+  E1–E9 (RED first); controls EM1–EM10 at `bbd3e1bf` and 11/11 at `9eebcac2` (EM9a/EM9b), all as predicted. Gates at
+  `9eebcac2`: tsc 0; lint 0/29; vitest 2456/2456. Gated: holdState.ts +11. **Awaiting A and D.** Not device-tested (no
+  build authorised). Saved-delivery-preference design task: **on hold** until
   this pass closes (owner).
 - **Handset check prepared by A, not run** (`docs/release/HANDSET_CHECK_FINAL_CHECKOUT_20260919.md`, H1–H5; separate
   authorisations for merge + sandbox build, sandbox window, clean-up, optional H5b). **C confirmed the on-screen strings
