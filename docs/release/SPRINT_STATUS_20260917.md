@@ -1337,3 +1337,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Gate + 138 with its own 14 amended test files: 5485, not_ok = 2, 0 psql errors.**
   - The two are pins predating 140: `050` test 16 (140 made `mark_transfer_sent` idempotent) and `162` test 84 (function count 107 vs 108, missing 140's function).
   - **Merge-order decision (A): 138 stays out of this round.** It is unrelated to the owner's refund/payout fixes, and neither A nor D starts it unprompted. 144 must therefore be order-independent (extend, never restate, the constraint lists).
+- **Refund/payout safety round — integrated verification (A, 2026-09-19).** Branch `integration/refund-payout-round` (local) = chain `1adc0eec` (143+144+145) + A's payout fix `36db0c36` + C's five client commits through `131017a5`.
+  - Replay RESET 0; census 32|108|37|38; **pgTAP 5419/5419 ALL-PASS**; typecheck 0; **vitest 126 files / 2485 tests** (gate 2447 + A's 6 + C's 32).
+  - Per-PR CI: **#82** green (143, 90/5339); **#83** green (payout fix, unit 124, pgTAP unchanged 89/5314); **#84** green (client, unit 125); **#85** green after A added the AUTODEPLOY line (chain, 92/5425).
+  - A's own rollback check on 145: `detect_jobs` back to 143's `9e932d28…`, helper and setting row gone, cases untouched.
