@@ -4603,3 +4603,16 @@ initiate payment. … No production changes or build."
 - **Gates:** typecheck 0; lint 0/29; test 122/2427. Gated surface vs `df3572a1`: holdState +6, payControl +6,
   settledRead +52 (new), setupDecision ±52, CheckoutNative ±91; payments.ts, signOut.ts, supabase/, scripts/,
   .github/: 0. **Review requested: A (payment boundary), D (behaviour). Local only; A publishes draft PRs after review.**
+- **D's reviews:** (1) refund navigation at `df3572a1` — **PASS** (harness 13/13 in D's worktree; S3 priority holds).
+  (2) F-CHK-READERR at `8c20e75e` — **PASS** on the failures that occur (harness 10/10; full suite 122/2427), with one
+  residue: **RQ1** — a non-list reply (null / object / string) still became rows [] → "no payment" → `createIntent`.
+  **Fixed at `eba8b208`**: non-list → error; R1b pins an empty list, R1c pins the three shapes; mutant N10 fails R1c×3
+  alone; harness 11/11 (after C fixed its own key regex that didn't accept the "c" suffix). Gates: typecheck 0; lint
+  0/29; test 122/2430.
+- **OWNER DECISIONS PENDING (from D; not changed):**
+  - **R2 (pre-existing, a different read):** re-validation's LISTING read drops its error — a failed read → null →
+    `lost` → setHoldLost → "…Nothing was charged…", a claim no read established; a thrown listing read rejects
+    `decideRevalidation` uncaught (Pay stays armed on the margin path until the countdown effect). Setup's listing
+    read already maps errors to `reservation_unverifiable`. Proposed: same pattern for re-validation.
+  - **Back gesture (residual):** a platform back gesture from the refund screen still returns to the listing; the
+    button goes home.
