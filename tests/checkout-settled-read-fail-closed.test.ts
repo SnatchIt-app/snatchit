@@ -65,9 +65,19 @@ describe('readSettledPayments returns rows OR an error — never an error disgui
     ]);
   });
 
-  it('R1b: an empty answer is a successful read with no rows', async () => {
-    expect(await readSettledPayments(fakeClient({ data: null }).client, 'L', 'b')).toEqual({ rows: [] });
+  it('R1b: an empty LIST is a successful read with no rows', async () => {
+    expect(await readSettledPayments(fakeClient({ data: [] }).client, 'L', 'b')).toEqual({ rows: [] });
   });
+
+  it.each([['null', null], ['an object', { status: 'succeeded' }], ['a string', 'ok']])(
+    'R1c (%s): a reply that is not a list establishes nothing — it is an error, never "no payment"',
+    async (_name, data) => {
+      // D's review (RQ1): only an array establishes "no settled payment"; anything else used to become rows [] and
+      // reach createIntent.
+      expect(await readSettledPayments(fakeClient({ data }).client, 'L', 'b'))
+        .toEqual({ error: { code: null, message: 'unexpected response: not a list' } });
+    },
+  );
 
   it('R2: a PostgREST error (the pre-142 42703) is returned as an error with its code', async () => {
     expect(await readSettledPayments(fakeClient({ error: PG_42703 }).client, 'L', 'b'))

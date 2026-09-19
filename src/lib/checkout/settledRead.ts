@@ -45,7 +45,9 @@ export async function readSettledPayments(client: SettledReadClient, listingId: 
       .in('status', [...SETTLED_STATUSES])
       .limit(5);
     if (error) return { error: { code: error.code ?? null, message: error.message ?? 'unknown error' } };
-    return { rows: (Array.isArray(data) ? data : []) as SettledPayment[] };
+    // Only a list establishes "no settled payment"; any other reply (null, an object, a string) establishes nothing.
+    if (!Array.isArray(data)) return { error: { code: null, message: 'unexpected response: not a list' } };
+    return { rows: data as SettledPayment[] };
   } catch (e) {
     return { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
   }
