@@ -4623,3 +4623,24 @@ initiate payment. … No production changes or build."
   (`fix/142-payments-amount-refunded-cents@e3c03d51` → release gate); **#78** `fix/refund-amount-unknown@df3572a1` →
   `release/production-gate-20260918`; **#79** `fix/checkout-settled-read-fail-closed@eba8b208` → base
   `fix/refund-amount-unknown` (separately reviewable). No commits unless a review or CI finding requires one.
+
+## Reservation lookup fails closed + payment-lookup wording (C, 2026-09-19)
+**Owner (direct):** "Direct approval: fix the failed listing/reservation lookup as a separate, focused change. A failed
+read must not claim the reservation is lost or that nothing was charged. Keep Pay unavailable while reservation status
+is unknown. Retrying should only recheck status; it must not submit payment. Cover both failure and successful
+recovery, including the legitimate unpaid-buyer path. Adopt: 'We couldn't check whether this has already been paid.'
+for the payment-lookup failure. Keep the refund screen's back gesture. … A reviews the payment boundary; D reviews
+behaviour. Coordinate publication as a draft PR after review. No merge, database apply or build yet."
+- **Wording — `11e1518f`** on `fix/checkout-settled-read-fail-closed` (PR #79's branch): PAYMENT_STATUS_UNKNOWN_COPY =
+  "We couldn't check whether this has already been paid." (R8 pins it; W1 witness). Gates 122/2430.
+- **Reservation fix — `d75c15cc`** on the new `fix/checkout-reservation-read-fail-closed` (one commit on `11e1518f`):
+  `readListingHold` (row / no row / error, RN-free); `decideRevalidation(readListing)` — an error, returned or thrown,
+  is `reservation_unverifiable`, never 'lost' or 'held'; the screen withholds Pay, shows setup's existing "Unable to
+  verify reservation. Please try again." (now shared), reports `reservation-check`, no `setHoldLost`; retry re-runs
+  setup (the check). Successful reads unchanged; setup's own listing read unchanged (already fail-closed).
+  Tests Q1–Q14 incl. recovery (Q7) and the legitimate unpaid-buyer path (Q8). **Mutants 10/10**, A's control
+  (error → lost / → no row) fails Q4, Q5, Q7. READERR harness re-run 11/11 (two anchors narrowed after its uniqueness
+  check refused). Gates: typecheck 0; lint 0/29; test 123/2447. payments.ts, payControl.ts, signOut.ts, supabase/,
+  scripts/, .github/: 0. **Back gesture unchanged (owner).**
+- **Review requested:** A (payment boundary), D (behaviour). Local only. Placement for publication (own draft PR on
+  #79's branch, or fast-forward #79) left to A with the owner.
