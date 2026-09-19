@@ -4703,9 +4703,13 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   reserved_by = the signed-in user) is the account check.
 - **Build 22 pass: H1–H5 all PASSED (owner-reported; screenshots for H1/H3/H4/H5a); H5b skipped; no payment submitted.**
   Detail in `DEVICE_VERIFICATION_CHECKLIST.md` § Build 22. A's §7 at 17:31:43Z; after-reads (READ): fixture payments
-  unchanged byte for byte, 0 new payments, notifications, bids or transfers. Saved-delivery-preference task: still on
-  hold until the owner resumes it.
-- **F-HOLD-EXIT-1 (NEW; recorded, not started, not authorised):** checkout's "Back to home" (`router.replace`) leaves
+  unchanged byte for byte, 0 new payments, notifications, bids or transfers. Saved-delivery-preference planning: **owned by B, who may continue
+  independently** (owner, 2026-09-19); nothing waits on the owner or C.
+- **Build 22 handset pass — CLOSED (owner, 2026-09-19)** with its recorded results (checklist § Build 22).
+- **F-HOLD-EXIT-1 — DEFERRED by the owner (2026-09-19) as a known reservation/navigation issue; not part of this
+  release; no further navigation investigation.** Keep two strengths apart: **OBSERVED (READ, A, 17:31:41Z):** F1–F3
+  were still held by the buyer after the owner's "Back to home" taps. **INFERRED FROM SOURCE (not observed on device):**
+  why they were still held (below): checkout's "Back to home" (`router.replace`) leaves
   the listing screen mounted under a new Home, so the listing-exit release (owner rule, `reservationExit.ts`) never
   fires from it. A's pre-§7 read shows F1–F3 still held after "Back to home". Cause from the library source (expo-router
   6.0.24 → StackRouter `REPLACE` replaces only the focused route), not from device logs. Effect: the buyer's own hold

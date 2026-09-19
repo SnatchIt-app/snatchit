@@ -571,3 +571,9 @@ All results are **owner-reported**; screenshots where noted (UI renders the kick
   therefore stays mounted underneath, `beforeRemove` never fires, and no `release_reservation` is sent. The RPC's
   signature is not the cause (127: `release_reservation(p_listing_id uuid, p_user_id uuid)` = the client's call). → **F-HOLD-EXIT-1** in the backlog.
 - H1–H5's pass/fail stands: none of their expected results depended on a release.
+
+### Build 22 handset pass — CLOSED (owner, 2026-09-19)
+Closed with the results above: account check, H1, H2, H3, H4 and H5 **PASSED** (owner-reported; screenshots for H1, H3,
+H4 and H5's first screen). **H5b SKIPPED** (owner). No payment submitted. Clean-up done (A's §7, 17:31:43Z); after-reads at
+READ strength (A), witnessed by D from A's raw files. **Not device-tested:** the reservation-unknown state (automated only).
+**Not observed:** whether "Check again" sent a request offline.
