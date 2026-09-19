@@ -1320,3 +1320,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **The rollback on a clone equals the gate** on 8 items; the positive control is 13 differing lines before the rollback.
   - **Doc fix requested:** the CI census, expected_grants and the grant manifest are public-schema only, so the design §6's "+1" note is wrong; the build correctly omits them.
   - **Owner items:** publication (a draft PR); p1/p2; the 10-minute window; the turn-on order; the rollback refusing while any `refund_resolution` case history exists. The 138 rebase is required before any PR.
+- **Refund/payout safety round (owner-authorised implementation), 2026-09-19 — A's item 1 done.**
+  - **Defect (verified in deployed v38 AND the gate):** Phase 2b selected the 20 oldest released-but-unpaid transfers and only then rejected non-`succeeded` payments. Such rows never leave the set (`claim_payout_attempt` refuses PAYMENT_NOT_SUCCEEDED and opens no attempt), so ≥20 of them starve every payable payout, silently. The second capped sweep (expired-lease attempts) is NOT affected: blocked rows open no attempt.
+  - **Fix (`fix/payout-retry-fairness` @ `36db0c36`, draft **PR #83**):** the payments-status and quiet-period predicates move INTO the query, before the limit. No predicate loosened; the protocol's eligibility refusal is untouched.
+  - **Evidence:** `tests/payout-sweep-fairness.test.ts` (6 cases) — F1/F3/F4/F6 **fail before the fix**, 6/6 after. Real PostgREST 16.2 on a production-shaped DB: the old query returns 20 blocked rows, the fixed one exactly the 3 payable. Gates: typecheck 0, lint 0 errors, full vitest alone 124 files / 2453 tests.
+  - **Production stays exposed until the edge is deployed** (owner-gated).
+  - **PR #82 body corrected** to record the CI result; the guard re-ran green.
+  - **C's `c002647b` PASS** (seller payout claim now gated on `payout_released_at`, verified: that column is written only by `record_transfer_payout` after the Stripe transfer succeeds). A's control kills only P2. The buyer-side equivalent was handed back to C with the read approved.
