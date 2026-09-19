@@ -1341,3 +1341,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Replay RESET 0; census 32|108|37|38; **pgTAP 5419/5419 ALL-PASS**; typecheck 0; **vitest 126 files / 2485 tests** (gate 2447 + A's 6 + C's 32).
   - Per-PR CI: **#82** green (143, 90/5339); **#83** green (payout fix, unit 124, pgTAP unchanged 89/5314); **#84** green (client, unit 125); **#85** green after A added the AUTODEPLOY line (chain, 92/5425).
   - A's own rollback check on 145: `detect_jobs` back to 143's `9e932d28…`, helper and setting row gone, cases untouched.
+- **Chain hardened and re-verified (A, 2026-09-19):** chain head `07a29403` = `1adc0eec` + 13 lines in 144 (before/after literal counts; refuses rather than narrowing a vocabulary). A's replay at the new head: RESET 0, census unchanged, **5419/5419 ALL-PASS**. #85 green at that head. **The verified chain head for the report is now `07a29403`.**
+- **146/213 alert-delivery design (D, `bcf616f9`) — A review: GO with three conditions.** D's mapping stands: nothing delivers an ops.alert today, and `notify-report` is the only working path.
+  - (1) A queued `net.http_post` is not a delivery: a **401 queues successfully**. Record the request id, add a reconcile pass against `net._http_response`, and set a separate `delivered_at` only on 2xx; keep unconfirmed alerts eligible.
+  - (2) Send an allow-listed payload only — never contact details or full payloads — pinned by a fixture containing an email and phone.
+  - (3) State that enabling the setting still delivers nothing until scheduling is separately decided.
+  - Item 4's authorisation is between D and the owner; A registered the numbers and reviewed the design only.
