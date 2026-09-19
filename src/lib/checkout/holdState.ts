@@ -79,8 +79,9 @@ export function fmtHoldUntil(reservedUntilMs: number, locale?: string): string |
  * The refund states this route can show (owner, 2026-09-18). Each says ONLY what
  * the recorded amounts establish: no claim that nothing was bought (a confirmed
  * full refund can follow a completed purchase), and nothing about processing,
- * cancellation, bank timing or the order's status — the order's status is
- * established elsewhere (Tickets), so the screen points there instead.
+ * cancellation, bank timing or the order's status. The only control is "Back to
+ * home" (owner, 2026-09-18): Tickets lists only native tickets, so a marketplace
+ * order is never there and its empty state would read as "you own nothing".
  * `refund_unconfirmed` is every production refund today: the amount is unknown.
  */
 export const REFUND_COPY = {
@@ -103,16 +104,12 @@ export const REFUND_COPY = {
 
 export type RefundCopyKind = keyof typeof REFUND_COPY;
 
-/** An instruction, not a claim: the order's status is established on Tickets. */
-export const REFUND_POINTER = "Check Tickets for this order's current status.";
-
 export interface RefundViewModel {
   kicker: string;
   title: string;
   body: string;
-  pointer: string;
-  /** Always Tickets: never the listing (it could invite another purchase) and never a retry. */
-  cta: { label: string; href: '/(tabs)/tickets' };
+  /** Always home: never the listing (it could invite another purchase), never Tickets, never a retry. */
+  cta: { label: 'Back to home'; href: '/(tabs)/home' };
 }
 
 /**
@@ -128,7 +125,6 @@ export function refundViewModel(kind: RefundCopyKind, refundedCents: number | nu
     kicker: copy.kicker,
     title: copy.title,
     body: shown === 'refund_unconfirmed' ? copy.body : copy.body.replace('{amount}', formatCents(refundedCents as number)),
-    pointer: REFUND_POINTER,
-    cta: { label: 'Go to Tickets', href: '/(tabs)/tickets' },
+    cta: { label: 'Back to home', href: '/(tabs)/home' },
   };
 }

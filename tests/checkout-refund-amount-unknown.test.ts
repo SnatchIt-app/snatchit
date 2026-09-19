@@ -11,8 +11,9 @@
  * THE OWNER'S RULES (2026-09-18, direct): unknown amount → "A refund was recorded for this payment. We can't confirm
  * the refunded amount here." Confirmed partial or full → describe only what the recorded amounts establish. Remove
  * "No purchase was made" from refund messaging entirely (even a confirmed full refund can follow a completed
- * purchase). Infer no processing, cancellation, bank timing or order status. Keep the Tickets route; offer no payment
- * retry from an unresolved refund state.
+ * purchase). Infer no processing, cancellation, bank timing or order status. Offer no payment retry from an unresolved
+ * refund state. DESTINATION (owner, second decision, 2026-09-18): "Back to home" — the Tickets tab lists only native
+ * tickets, so a marketplace buyer sent there saw "No tickets yet" (D's finding); no line points to Tickets.
  *
  * A's payment-boundary contract (R1–R6), with one deliberate difference recorded here: a `refunded`-status row whose
  * recorded amount is known and below a known total is `partially_refunded` (the amounts establish exactly that),
@@ -121,7 +122,7 @@ describe('the production refund row', () => {
 const FORBIDDEN = /no purchase|cancel|in progress|being (processed|refunded)|processing|bank|card provider|when it appears|business day|order stands|your order/i;
 const KINDS = ['refund_unconfirmed', 'partially_refunded', 'refunded'] as const;
 const viewFor = (k: (typeof KINDS)[number]) => refundViewModel(k, k === 'refund_unconfirmed' ? null : k === 'refunded' ? TOTAL : 5000);
-const allText = (v: ReturnType<typeof refundViewModel>) => [v.kicker, v.title, v.body, v.pointer, v.cta.label].join(' | ');
+const allText = (v: ReturnType<typeof refundViewModel>) => [v.kicker, v.title, v.body, v.cta.label].join(' | ');
 
 describe('the copy says only what the recorded amounts establish', () => {
   it('W1 (witness): the forbidden-claims pattern matches every claim the old copy made', () => {
@@ -165,15 +166,18 @@ describe('the copy says only what the recorded amounts establish', () => {
 });
 
 describe('where the screen sends the buyer', () => {
-  it.each(KINDS)('C1 (%s): to Tickets — never back to the listing, never a retry', (k) => {
+  it.each(KINDS)('C1 (%s): Back to home — never the listing, never Tickets, never a retry', (k) => {
     const v = viewFor(k);
-    expect(v.cta.href).toBe('/(tabs)/tickets');
-    expect(v.cta.href).not.toMatch(/listing|back/i);
-    expect(v.cta.label).not.toMatch(/listing|try again|pay|retry|back/i);
+    expect(v.cta).toEqual({ label: 'Back to home', href: '/(tabs)/home' });
+    expect(v.cta.label).not.toMatch(/listing|ticket|try again|pay|retry/i);
   });
 
-  it('C2: the pointer is an instruction, not a claim about the order', () => {
-    expect(refundViewModel('refund_unconfirmed', null).pointer).toBe("Check Tickets for this order's current status.");
+  it.each(KINDS)('C2 (%s): nothing on the refund screen points to Tickets', (k) => {
+    // Tickets lists only native tickets; a marketplace order is never there, so any pointer to it would be false and its
+    // empty state ("No tickets yet") would read as "you own nothing" (D's finding, owner's decision 2026-09-18).
+    const v = viewFor(k);
+    expect('pointer' in v).toBe(false);
+    expect(allText(v)).not.toMatch(/ticket/i);
   });
 });
 
@@ -195,7 +199,7 @@ describe('the screen uses the view model and the shared refund state', () => {
     expect(view).toContain('refundViewModel(state.kind, state.refundedCents)');
     expect(view).toContain('label={view.cta.label}');
     expect(view).toContain('onPress={() => router.replace(view.cta.href)}');
-    expect(view).not.toMatch(/router\.back\(\)|Back to listing|Try again/);
+    expect(view).not.toMatch(/router\.back\(\)|Back to listing|Try again|view\.pointer|Tickets/);
   });
 
   it('S3: the refund screen takes precedence over the confirmation and the pay UI (D\'s DM1)', () => {

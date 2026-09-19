@@ -58,10 +58,10 @@ describe('static previews are labelled and pinned to source', () => {
       expect(html).toContain(v.kicker);
       expect(html).toContain(v.title);
       expect(html).toContain(v.body);
-      expect(html).toContain(v.pointer);
       expect(html).toContain(v.cta.label);
     }
     expect(html).not.toContain('No purchase was made');
+    expect(html).not.toContain("Check Tickets for this order's current status.");
     const base = { authLoading: false, paymentLoading: false, confirming: false, paymentReady: false, paymentError: false, formattedTotal: '$88' };
     expect(html).toContain(payControl({ ...base, confirming: true }).label);          // Confirming payment
     expect(html).toContain(payControl({ ...base, finalizing: true }).label);          // Finalizing your order

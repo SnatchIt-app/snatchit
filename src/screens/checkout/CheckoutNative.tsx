@@ -902,7 +902,7 @@ export default function CheckoutScreen() {
 // A-03: a refund is its own screen. It says only what the recorded amounts
 // establish (owner, 2026-09-18): never that the purchase succeeded or that none
 // was made, never processing, cancellation, bank timing or the order's status.
-// The only control goes to Tickets — no retry, no way back to the listing.
+// The only control is "Back to home" — no retry, no way back to the listing.
 function RefundView({
   state, cover, eventName, venue, whenLabel,
 }: {
@@ -935,7 +935,6 @@ function RefundView({
           </View>
         </View>
         <Text style={[textStyle('body'), s.confirmNote]}>{view.body}</Text>
-        <Text style={[textStyle('bodySm'), s.meta]}>{view.pointer}</Text>
       </View>
       <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
         <Button
