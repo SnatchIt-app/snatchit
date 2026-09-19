@@ -4616,3 +4616,10 @@ initiate payment. … No production changes or build."
     read already maps errors to `reservation_unverifiable`. Proposed: same pattern for re-validation.
   - **Back gesture (residual):** a platform back gesture from the refund screen still returns to the listing; the
     button goes home.
+- **A — PASS at `eba8b208`; E2E re-run** (real PostgREST): no injection → the empty list `[]` still means no payment
+  (ba ready, 1 intent; b3/bb already_settled); a real 42703 and a network failure on /payments → all three buyers
+  `payment_status_unknown`, 0 intents, 0 listing reads; check_eba 10/10.
+- **Published as drafts, do not merge (by A; C verified with `gh pr view`):** #77 migration 142
+  (`fix/142-payments-amount-refunded-cents@e3c03d51` → release gate); **#78** `fix/refund-amount-unknown@df3572a1` →
+  `release/production-gate-20260918`; **#79** `fix/checkout-settled-read-fail-closed@eba8b208` → base
+  `fix/refund-amount-unknown` (separately reviewable). No commits unless a review or CI finding requires one.
