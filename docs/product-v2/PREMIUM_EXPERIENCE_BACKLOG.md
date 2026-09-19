@@ -4843,7 +4843,10 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       unchanged**, including on expired (V14; DM14), pending the fulfilment policy. Gates: tsc 0; lint 0/29; vitest
       124 files / 2461 tests. Controls (13 suites, 195 tests): 15/16 as predicted; **DM3 mismatch** — killed {V3, V12}
       where {V3} was predicted (V12 also screens rendered text for "safe to send"), corrected after the run. DM10 and
-      DM11 (defensive latches) are predicted survivors and survived. **Awaiting A and D.**
+      DM11 (defensive latches) are predicted survivors and survived. **A: PASS** (own run alone: tsc 0, lint 0/29,
+      32/32; A's control A-M1, removing `expired → closed`, killed exactly {V4, V13, V14, V18, X5} = DM4). A's non-
+      blocking nit (the comment cites main's edge source; now also byte-verified as deployed v38) was left as is: still
+      accurate, no churn. **Not published**: A is asking the owner whether to open a PR. **Awaiting D.**
   - **D's final-head checklist (recorded):** refund_recorded only from a confirmed signal (no NULL, cache or amount
     inference); no cancellation or full-refund implication wherever it renders; the restriction as the owner decides
     (else V15 pins the interim); V14's absence witnessed in the same query scope, with a mutant re-adding the email that
