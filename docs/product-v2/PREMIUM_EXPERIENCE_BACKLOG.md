@@ -4830,6 +4830,20 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       sent never pays the seller automatically: the transfer flips to `auto_released` after 72 h, then Phase 2b retries
       and skips it every 2 min for ever.
     - Interim `938423e0` (wording only) is safe to keep until the owner rules (A). A is reporting to the owner.
+  - **Owner's ruling (2026-09-19): split the work.** "Hold the refund-recorded screen at the reviewed wording-only stage
+    while A resolves the payment lifecycle. This is not approval to ship that interim screen or implement the sending
+    restriction alone. By 'order details,' I mean event, price, status and buyer name. Buyer phone/email are fulfilment
+    details; whether to display them should follow the final fulfilment policy. Keep the neutral deadline-copy
+    correction separately reviewable. Don't infer cancellation or a full refund from payment status alone."
+    - **HELD (not for shipping):** the refund-recorded screen at `938423e0`; its branch was renamed
+      `hold/seller-refund-recorded`.
+    - **For review: `fix/seller-deadline-copy` @ `5c9dd9ca`** (one commit on `e191cbfa`): S1–S4 + O2 only (neutral
+      "checking" / "last checked" lines, the crossing re-read plus one 150 s follow-up, server `expired` → "Don't
+      transfer" with the sending instructions hidden). **No payment read** (V10; DM15). **Buyer phone/email
+      unchanged**, including on expired (V14; DM14), pending the fulfilment policy. Gates: tsc 0; lint 0/29; vitest
+      124 files / 2461 tests. Controls (13 suites, 195 tests): 15/16 as predicted; **DM3 mismatch** — killed {V3, V12}
+      where {V3} was predicted (V12 also screens rendered text for "safe to send"), corrected after the run. DM10 and
+      DM11 (defensive latches) are predicted survivors and survived. **Awaiting A and D.**
   - **D's final-head checklist (recorded):** refund_recorded only from a confirmed signal (no NULL, cache or amount
     inference); no cancellation or full-refund implication wherever it renders; the restriction as the owner decides
     (else V15 pins the interim); V14's absence witnessed in the same query scope, with a mutant re-adding the email that
