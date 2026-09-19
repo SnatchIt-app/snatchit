@@ -1266,3 +1266,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **O1 BLOCKING:** S5 must not say "don't transfer" or hide the destination on an amount-unknown refund. The wording goes to the owner.
   - **O2:** a second quiet re-read about 150 s after the deadline, a re-read on foreground, and a re-read when mark-sent fails with 'expired'.
   - **Harness note:** the local production-shaped replay lacks production's out-of-band transfers→profiles FK (row 123), so the send screen's buyer embed gets PGRST200 there. The FK was added to the throwaway database only.
+- **143 / 210 reviewed (A), 2026-09-19.** D's `admin/ops-cron-history-perf` @ `67f2ccd5` (local): **PASS on correctness**.
+  - **A's independent checks:**
+    - a replay of the full chain: 5333/5333, with 210 at 25/25;
+    - the md5s match D's;
+    - the rollback bodies are byte-identical to 116/117;
+    - D's old-body comparators are verbatim;
+    - equivalence on A's perturbation (run-ID holes, a raised minimum, a gap at the top, a newest run still starting): `detect_jobs` is identical (21 cases), and `job_health` is exactly equal to the old body with its last-run pick made by run ID.
+  - **For the owner:**
+    - (i) the one deliberate difference changes the console's "last run" for **every** job that ever had a startup timeout. Whether production has any is unread;
+    - (ii) a pre-existing gap: an active job that stops running drops out of `detect_jobs` after 7 days, and its case probably auto-resolves (inferred, not tested). A follow-up, outside 143;
+    - (iii) a CI run of 210, which needs a draft PR, is the owner's call.
+  - Performance was not re-measured by A.
+  - **Retention proposal:** reviewed, comments only. Protect every non-final status; read the vacuum and statistics state first; time the backlog delete to the I/O budget.
+  - The Disk IO record's "never vacuumed or analysed" is corrected to "none since the last statistics reset".
