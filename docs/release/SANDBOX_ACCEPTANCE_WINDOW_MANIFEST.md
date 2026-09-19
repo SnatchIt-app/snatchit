@@ -1007,3 +1007,35 @@ This is stricter than the ruling that closed §16. §16 barred deletion, overwri
 - 0 `transfer_confirmed`, 0 `payout_released` and 0 `order_complete` notifications.
 
 **Nothing was confirmed or released: READ.** This replaces the owner-reported-plus-source strength above. No write. Evidence path, storage, other rows and L7 were not read. The handset pass is closed, and there is no further phone work.
+
+## 19. FINAL-CHECKOUT HANDSET ROUND — owner authorization 2026-09-19 (A: reads, fixtures, clean-up; D: fixture review, witness; C: guides; runbook `HANDSET_CHECK_FINAL_CHECKOUT_20260919.md` @ `d98f0dd5`)
+
+**Authority (owner, directly to A):**
+- merge the reviewed PRs #77–#80 into the release gate after C's reservation-state change passes review and CI (#77 only once the auto-deploy attestation is satisfied);
+- one sandbox preview build;
+- only the runbook's synthetic fixtures, with D reviewing them and A doing the before/after checks;
+- C guides H1–H5, **without H5b**;
+- the four test listings are cancelled at the end, including if the session is abandoned, before their 3-hour holds expire.
+
+**Not covered:** production migrations, production deploys, merges into `main`, real charges. The D1/D2 proof files and Sandbox L7 stay off-limits.
+
+**Precondition reads [READ], 2026-09-19 05:11:11Z.** One `begin read only` transaction through the guarded script (it refuses the production ref and never prints the URL):
+- **P1:** `payments.amount_refunded_cents` is `integer`, nullable, default NULL. `20260906120000` is in the ledger (1 row); 142 is not (0).
+- **P2:**
+  - `listings`: `guard_listing_state`, `trg_guard_listing_identity`, `trg_guard_listing_insert`, `trg_guard_proof_status`, `trg_listings_updated_at` and `trg_notify_auction_won_inbox`, **all ROW-level**;
+  - `payments`: `trg_guard_payment_transitions` (ROW, BEFORE UPD) and `trg_reset_payment_guard_bypass` (**STATEMENT**, AFTER INS/UPD). The fixtures *insert* payments and use no payment bypass, so neither affects them.
+- **P4 (all cron jobs):** job 1 `auto_finalize_expired_auctions` runs every 2 minutes and calls `cleanup_expired_reservations`, which sets listings with `reserved_until <= now()` back to `active` (function body read locally on the same chain). **Lapsed fixture holds would make the listings buyable within about 2 minutes**, hence the mandatory §7. No other job touches `refunded` payments or listing holds.
+- **P5:** 0 `HANDSET-FINAL` listings; 0 `pi_handsetfinal_*` payments.
+- **P3:** pending the owner's confirmation of the buyer and seller sign-in emails. C's records hold only a delivery-email field, which will not be used.
+
+**Clean-up: owner and timing, established before any write.**
+- **A** runs runbook §7 (cancel the four listings; clear the holds); **D** witnesses the read-back.
+- Trigger: C's report that the session is done or abandoned, and **in any case no later than T+2h30m after the fixture write**, whatever the session state.
+- A starts a timer at the write. If the session is still running at T+2h30m, it is stopped, and the steps not run are recorded as not run.
+
+**#77 auto-deploy verification.** The owner checked visually, 2026-09-19 ~01:09 local, and sent a screenshot: Supabase Dashboard, project "Snatch It", branch `main` (PRODUCTION), Settings → Integrations → GitHub.
+- Repository `SnatchIt-app/snatchit` is connected, working directory `.`.
+- **Deploy to production: OFF** (the production branch name field is disabled and empty).
+- **Automatic branching: OFF.**
+- The project ref was not visible in the screenshot.
+- A's attempt to add the `AUTODEPLOY-VERIFIED-OFF` line to #77's description was **blocked by A's own permission layer**. The owner adds it. #77 stays unmerged until the guard passes.
