@@ -1,11 +1,11 @@
-# Refund-resolution detector: design (D, 2026-09-19); local proposal, nothing built or applied
+# Refund-resolution detector: design (D, 2026-09-19); built locally as 144 / pgTAP 211, nothing pushed or applied
 
 **Brief:** A's `docs/release/REFUND_RESOLUTION_PLAN_20260919.md` §4 (on `release/candidate-20260918`), written on the owner's instruction to A.
 - **Rules:** DB reads only, no Stripe call. No due time. Closure only by a support action. No live alert, schedule or apply. A reviews.
 - **Base:** everything below was read at the gate `e191cbfa` (the replayed chain) plus `origin/main`'s edge functions:
   - `enforce-transfer-expiry` = deployed v38, per A;
   - `stripe-webhook` = repository only (deployed v41 has not been byte-read).
-- **Status:** no migration number is claimed yet; A allocates one when this design is agreed.
+- **Status:** design A-PASS; built locally as migration 144 / pgTAP 211 (allocated by A); see §10. No PR, apply or setting flip without the owner.
 
 ## 1. What already exists (so nothing is duplicated)
 
@@ -65,6 +65,9 @@ Residual misclassification, stated at its real strength:
 
   I know of no path that produces this routinely, but the DB cannot exclude it. If expiry's Stripe call failed, `detect_refunds`' p1 `refund_pending` case opens after 60 minutes anyway.
 - **What would make it exact:** expiry recording its own refund's source on the payment. That is a payment-path server change, and outside this proposal (owner decision).
+- **Re-review trigger (A, 2026-09-19):** this rule is valid only for the **deployed** refund writers: `enforce-transfer-expiry` v38 and `stripe-webhook` as in the repository.
+  - The release candidate's edge deploy changes the writer table above: Phase 0, `record_payment_refund`, and `amount_refunded_cents` from `20260906110000` / `20260906120000`.
+  - Before any such deploy, 144's R2 rule must be re-reviewed.
 - **The 10-minute window is an assumption.** It covers a run of many transfers at about 1 Stripe call each. It is not measured in production: the run duration is visible in `cron.job_run_details`, and reading it needs the owner's authorisation.
 
 ## 3. The case
@@ -72,7 +75,7 @@ Residual misclassification, stated at its real strength:
 - `case_type = 'refund_resolution'` (added to `case_case_type_check`); `subject_kind = 'transfer'`; `subject_id` = the transfer. So one open case per transfer.
 - **Priority p2.** p1 would fire a `case:` alert on every opening (`detect_case`). Alerting is the owner's decision, not a detector default.
 - **`due_at` null, always.** No promise.
-- **Title:** "Refund recorded: support action needed".
+- **Title:** "Refund recorded — support action needed".
 - **Summary:** the state code and its meaning; payment and transfer ids and the amounts the DB has (`total`, seller net), each labelled **"amount refunded unknown (DB)"**; and the resolution steps for the state, from the plan's §3 table. Customer contact details are never in the text.
 - **State history:** a new `case_event` kind `state_changed` (added to `case_event_kind_check`), with data `{from, to}`.
   - One event is written when the case opens (`from: null`), and one per later transition while it is open.
@@ -151,3 +154,19 @@ For each transfer currently in R1, R2 or R3, per run:
 - Deployed `stripe-webhook` (v41) and `confirm-and-release` (v36) are not byte-read; their writes above come from repository source.
 - No production rows were read. How many transfers are in R1–R3 today is unknown; counting them is a customer-data aggregate that needs its own authorisation.
 - As the plan says, the DB cannot tell a partial refund from a full one. Classification is support's, from the Stripe Dashboard.
+
+## 10. Build (2026-09-19, local only): migration 144 / pgTAP 211, allocated by A
+- **A's review:** PASS on the design, with two required changes, both done:
+  - **(1) The collision with 138.** `ops/138-operator-onboarding` also redefines `ops.action_dispatch`. 144 sorts after it, so on replay 144's body replaces 138's.
+    - 144 is built on 118's body (the gate). Before any PR, it must be rebased onto the body that lands immediately before it, and its rollback must restore that body.
+    - This is noted in the header. 211's C7–C9 pin pre-existing case actions still dispatching unchanged.
+  - **(2) The R2 re-review trigger** (§2.1, and the migration header).
+- **§8 decisions:**
+  - A agreed 1–3: R3 = `refunded` + `buyer_confirmed`; R4 left to `reconciliation_mismatch`; `release_stuck` unchanged.
+  - 4–6 are owner items: p2 vs p1, the 10-minute window, and the turn-on order. The build uses p2.
+- **Build details:**
+  - The owner's switch gates `run_job` for every trigger, manual included.
+  - The detector is in `run_all_detectors`' order, and reports "skipped" while the switch is off.
+  - `job_state` gets its row on the first (skipped) run.
+  - Tests 182 B31 (settings count 9 → 10) and 183 N1 / N5 / N10 (job count, `detect_*` count, `job_state` rows) are amended in place, with dated notes.
+
