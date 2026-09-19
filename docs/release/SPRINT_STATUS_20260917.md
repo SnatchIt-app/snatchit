@@ -1174,3 +1174,11 @@ It is added as **B5, a precondition for step 1.** A did not read those hosted se
 - **A's §2 wording was wrong:** a catalog-names check can't see a missing column.
 
 The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
+
+**D's second finding, verified by A:** A′ closes the query break (D's checker confirms), but with the column present and always NULL, **a partial refund would read as a full refund, "No purchase was made"**.
+- The deployed webhook marks any `charge.refunded` as `refunded` without an amount.
+- `isRefundConfirmed` returns true when the amount is NULL.
+- Exposure: production has 7 `refunded` payments; whether any was partial is not knowable from the database.
+- **Remedy (i), recommended by A and D:** treat a `refunded` row with a NULL amount as `refund_pending`. It is a gated client change and needs its own test.
+- **Remedy (ii):** accept with an operating rule.
+- **A′ is GO only together with (i) or the owner's acceptance of (ii).** Go/no-go §11.

@@ -16,7 +16,7 @@
 | Shape | Verdict |
 |---|---|
 | ~~**A. Two migrations (`140`, `20260909000000`)**~~ | ~~GO~~ → **NO-GO as drafted. D found a break, and A verified it LIVE (§10):** the candidate app's checkout selects `payments.amount_refunded_cents`, which production lacks. The candidate's settled-first and refund-display checkout logic therefore reads "nothing", **silently**. |
-| **A′. App release. `140` + `20260909000000` + one new additive migration adding `payments.amount_refunded_cents int` (nullable), no edge deploy, then a production app build** | **GO, once that migration is authored, tested, CI-green and reviewed, and the owner decisions in §9 are made.** The app stays **byte-identical to the device-tested Build 21**. Every step is compatible with the installed store app and the deployed edges. Rollback is data-safe at any point [REH]. |
+| **A′. App release. `140` + `20260909000000` + one new additive migration adding `payments.amount_refunded_cents int` (nullable), no edge deploy, then a production app build** | **GO only together with the refund-classification fix in §11 (or the owner's explicit acceptance of its operating rule), once the migration is authored, tested, CI-green and reviewed, and the §9 decisions are made.** ~~The app stays byte-identical to Build 21~~: with the §11 fix, one pure function in the gated `setupDecision.ts` changes. Every step is compatible with the installed store app and the deployed edges. Rollback is data-safe at any point [REH]. |
 | **B. The server line** (the other required-by-edge migrations plus a redeploy of the candidate's edge functions) | **NO-GO now.** 133 cannot apply without a Vault change, which stays restricted. Old-client checkout timing under the payments RC is not demonstrated. The rollback cutoff is minutes after apply, not at redeploy (§6). It needs its own plan. |
 
 ## 1. The eleven live facts [LIVE]
@@ -161,6 +161,7 @@ The candidate app's runtime needs were established by **runtime behaviour**, not
 
 ## 9. Remaining owner decisions
 
+0. **Choose the refund-classification remedy (§11):** (i) the app treats a `refunded` row with no amount as `refund_pending` (A and D recommend this), or (ii) accept it with an operating rule: no partial refunds from the Stripe Dashboard while this build runs without the payments RC.
 1. **Choose how to close D's break.**
    - **A′** (A recommends): a new additive column migration, with the app unchanged and identical to Build 21. It needs a registry number from A (next free: 142), a pgTAP test, CI, D's review and your authorization to author it.
    - **Client tolerance:** changes the device-tested, gated checkout code, so it needs a new review and a new build.
@@ -200,3 +201,25 @@ The candidate app's runtime needs were established by **runtime behaviour**, not
 - **Rollback ACLs (D's gap):** production's EXECUTE grantees on both `mark_transfer_sent` overloads are `authenticated`, `service_role` and `postgres` [LIVE]. The rehearsal's grantees are **the same set** on the base, after 140 and after its rollback [REH].
 - **Contract claims:** D confirms create-payment-intent and confirm-payment at source. D did not check delete-account's withdraw or the connect types; A checked both (§5).
 - **D's method:** `client_deps_check.py` and `client_tables_check.py` (D's scratchpad), on local copies of A's production-shaped database. D had no production access.
+
+## 11. D's second finding: A′ lets a PARTIAL refund read as "No purchase was made" (verified by A)
+
+- **The mechanism, verified at source against production's code:**
+  - The **deployed** `stripe-webhook` (`b98f5aff` line; `deployed_edges/…/stripe-webhook/index.ts:705-724`) handles `charge.refunded`, which Stripe also sends for **partial** refunds, by setting `status='refunded'` and `refunded_at=now()`. **It never looks at the amount.**
+  - Under A′ the new column exists but **nothing in production writes it**, so it is NULL.
+  - The candidate's `isRefundConfirmed` (`setupDecision.ts`) returns **true** for status `refunded`, `refunded_at` set and amount NULL. The kind becomes `refunded`, and `holdState.ts` shows *"This payment was refunded … No purchase was made."*
+  - **For a partial refund the order stands. So that is a false statement about money**, against the product truth "Payment refunded only for a confirmed refund".
+- **New, or pre-existing?**
+  - **New under A′.** Under A without the column the query fails and no refund state shows; build 9 has no refund states.
+  - The root, the old webhook marking partial refunds as `refunded`, **is pre-existing in production data**.
+- **Exposure [LIVE, counts only]:**
+  - production holds **7 `refunded` payments** (all dated, 4 with a refund id), 37 `succeeded`, 11 `pending` and 2 `failed`;
+  - **whether any of the 7 was partial is not knowable from the database** (no amount is stored; it would need Stripe, which was not read).
+  - The trigger is rare: a buyer re-entering checkout for that listing.
+- **Remedies:**
+  - **(i) Recommended by A and D:** in `isRefundConfirmed`, a `refunded` row with a NULL amount is **not** confirmed, so it becomes `refund_pending`, which promises nothing.
+    - It is safe in both worlds: under `20260906120000`'s writer every refunded row carries the amount, so behaviour there is unchanged.
+    - **Cost:** a gated-surface client change (C implements, A reviews, D tests), a test that fails without it, and the app is no longer byte-identical to Build 21 (one pure function).
+  - **(ii)** Accept and record it, with an operating rule: no Dashboard partial refunds while this build runs without the payments RC.
+  - **(iii)** The RC's writer (shape B), out of scope now.
+- **D confirmed A′ closes the query break with D's checker:** the column is no longer flagged; the only missing RPCs are the 7 in the degrade set; the column is integer, nullable, with no default, and SELECT is granted. D has dropped its local copies.
