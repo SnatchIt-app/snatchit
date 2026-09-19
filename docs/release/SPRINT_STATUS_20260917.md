@@ -1209,3 +1209,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - C is holding. The destination is the owner's call: (b) Home, no pointer, which A recommends; (a) the order's transfer page; (c) Bids.
   - D's minors: render precedence is unpinned (C to pin); refunded-row order is deferred; the swallowed read error is the same as F-CHK-READERR.
   - Admin console: no effect. Go/no-go §12.9.
+- **Owner:** Back to home; F-CHK-READERR as a separate change; publish drafts for CI.
+  - **Draft, do-not-merge PRs:** #77 (142 @ `e3c03d51`), #78 (refund fix @ `df3572a1`), #79 (lookup fix @ `eba8b208`, stacked on #78).
+  - **CI:** all code jobs pass. #77's pgTAP has 89 files / 5314 tests, with 209 ok. #77's guard stops only at the owner's AUTODEPLOY attestation. Vercel web previews were cancelled by the ignore step.
+  - **Reviews:** A and D PASS on both heads. D's non-list finding was fixed at `eba8b208`.
+  - **E2E:** the lookup failures (42703 and network) fail closed. The parent arms Pay for a buyer who has paid.
+  - **New owner decisions:** R2 (the listing-read error in re-validation), the back gesture, and an optional copy change.
+  - **Payments-release conditions:** the RC rollback column, and `pickSettled` determinism.
+  - Go/no-go §12.11. Nothing merged, applied, deployed or built. The rehearsal databases are kept.

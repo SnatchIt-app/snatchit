@@ -408,3 +408,71 @@ The harness is scratch-only and never committed: `…/scratchpad/reh/wt/tests/zz
 6. **§9 item 2 still stands:** contract-level evidence for the rest of the app ↔ deployed edges, beyond this refund path.
 7. **Applies and build:** authorize the three applies, and later the production build, each separately.
 8. **Legacy refunds:** the 7 existing refunded rows will always show the neutral state (no backfill). A Stripe-reconciled amount would be a production data write, needing its own authorization; A does not recommend it for this release.
+
+### 12.11 Owner's decisions, the lookup fix, and the draft PRs with CI (2026-09-18, later)
+**Owner's decisions (A's session):**
+- "Back to home", with the Tickets guidance removed.
+- C was authorised directly to fix F-CHK-READERR as a separate change, with A reviewing its payment boundary. Deploying the database first does not cover every lookup failure.
+- After review, publish the refund-fix and migration branches as draft, do-not-merge PRs so CI runs, with the lookup fix separately reviewable.
+- Keep the multiple-refunded-payments issue documented as a condition for the later payments release.
+- Do not generalise the focused rehearsal into proof of the whole app.
+- No merge, database apply, production deploy or build. Keep the rehearsal databases.
+
+**Changes (C), each reviewed by A (payment boundary) and D (behaviour):**
+- **`fix/refund-amount-unknown @ df3572a1`** (on `2c99beb6`): the pointer is removed, and every refund kind's only control is "Back to home" → `/(tabs)/home`. **D: PASS**, 13/13 mutants as predicted.
+- **`fix/checkout-settled-read-fail-closed @ eba8b208`**: `8c20e75e`, plus D's non-list finding.
+  - `readSettledPayments` returns `{rows}` or `{error}`; a thrown request is an error, and so is any reply that is not a list.
+  - Setup stops with `payment_status_unknown` before the hold read and any intent.
+  - `decideRevalidation` stops before the listing read and never re-arms Pay or sets a lost hold.
+  - Copy: "We couldn't check the status of this payment." The control is "Check again", which re-runs setup, never the pay handler.
+  - **D: PASS**, 10/10 mutants; D's non-list finding (RQ1) is closed at `eba8b208`.
+  - **A found no issue D missed, and missed D's non-list finding; recorded.**
+- **A, fresh on clean detached checkouts with identical dependencies:**
+
+  | Head | typecheck | lint | vitest |
+  |---|---|---|---|
+  | `df3572a1` | 0 | 0 errors / 29 warnings | 121 files / 2404 tests |
+  | `8c20e75e` | 0 | 0 errors / 29 warnings | 122 files / 2427 tests |
+  | `eba8b208` | 0 | 0 errors / 29 warnings | 122 files / 2430 tests |
+
+**Focused end-to-end rehearsal [REH], lookup failures.**
+- **Harness:** it now imports the app's own `readSettledPayments` and `decideRevalidation`, and the drift guard follows the query into `settledRead.ts`.
+- **New synthetic buyers:** `ba`, unpaid with a live hold; `bb`, paid (succeeded) with the hold still live.
+
+| Run | b3: paid, listing sold | ba: unpaid, live hold | bb: PAID, live hold |
+|---|---|---|---|
+| Fix `eba8b208`, real 42703 (pre-142 database) | `payment_status_unknown`; 0 intents; 0 listing reads; re-validation unknown; "Check again" | same | same |
+| Fix `eba8b208`, injected network failure on `/payments` only (listings answering) | same | same | same |
+| Fix `eba8b208`, no injection (control) | `already_settled` | `ready`, 1 intent (legitimate; an empty list is still "no payment") | `already_settled` |
+| Parent `df3572a1`, 42703 **or** network failure | `not_held`: "…Nothing was charged." | `ready`, intent created, Pay $110 | **`ready`, intent created, Pay $110 armed for a buyer who has paid**; re-validation `held` |
+
+- Refund check phase: 10/10 at `df3572a1`, `8c20e75e` and `eba8b208`.
+- **Limits:** `payControl` is evaluated from a synthesized input; C's W3–W6 source pins cover the screen wiring. **This rehearsal covers the refund screen and the settled-payment lookup only. It is not evidence for the rest of the app.**
+
+**Draft, do-not-merge PRs (pushed through the normal permission process):**
+
+| PR | Head | Base | CI (non-superuser) |
+|---|---|---|---|
+| **#77** migration 142 | `e3c03d51` | `release/production-gate-20260918` | Code jobs all pass (run 35416207342): unit 120 files / 2373 tests; pgTAP **Files=89, Tests=5314, All tests successful** (base `8f45e9b`: 88 / 5303, so +1 file and +11 = 209), and **209 ok**. **Immutability + ordering: stops at the AUTODEPLOY-1 attestation** (the only `##[error]`). That attestation is the owner's, and it is left out as on #62–#70. The guard's structural checks were run locally with the job's own script: all OK |
+| **#78** refund fix | `df3572a1` | `release/production-gate-20260918` | All pass: unit 121 files / 2404 tests; pgTAP pass; guard pass |
+| **#79** lookup fix | `eba8b208` | `fix/refund-amount-unknown` (stacked) | All pass: unit 122 files / 2430 tests; pgTAP pass; guard pass |
+
+- **Deployment checks, kept separate from the code checks:**
+  - `Vercel – snatchit-web`: "Canceled by Ignored Build Step" on all three. It counts toward the quota.
+  - `Supabase Preview`: skipping.
+  - `snatchit-admin`: no deployment; its ignore step builds only `ab3e17f`, re-read before the push.
+  - No production deployment and no database action.
+
+**New owner decisions from this round:**
+- **R2 (D; pre-existing; a different read):**
+  - Re-validation's **listing** read still discards its error. A failure becomes `lost`, and the buyer sees "This listing is no longer held for you. Nothing was charged…".
+  - In that path the settled read has already succeeded with no settled payment. So the hold claim is unsupported, while the charge claim rests on that read.
+  - A thrown listing read rejects `decideRevalidation` uncaught.
+  - Fix pattern: an unverifiable outcome that withholds Pay. Include it, or defer it.
+- **Back gesture (D):** a platform back gesture from the refund screen returns to the listing. Re-entering checkout from there shows the refund screen again, with no intent (a refunded row is a settled status). Block the gesture, or accept it.
+- **Copy nuance (D, optional):** for an unpaid buyer, "the status of this payment" presupposes a payment. A tighter alternative: "We couldn't check whether this has already been paid."
+
+**Conditions for the later payments release (shape B), consolidated:**
+1. `20260906120000`'s rollback drops `amount_refunded_cents`; amend it to keep the column once 142 is in the ledger (§12.6).
+2. `pickSettled` must be deterministic once amounts are written. With two refunded rows, `[NULL, full]` shows neutral but `[full, NULL]` shows "A full refund of $110" (C's probe). Rule: neutral if any refunded row is unconfirmed (§12.9).
+3. The existing items: the Vault `project_url` decision (restricted), B's monitor review, the RC old-client checkout timing, and the rollback cutoff (§9 item 5).
