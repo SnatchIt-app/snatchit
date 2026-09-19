@@ -35,16 +35,18 @@ Evidence is text: the owner reports what the screen shows. There are no screensh
 - a buyer with two payment rows on the same listing.
 
 ## 2. Authorizations required, each separate
-1. **Merges and the sandbox build.** A merge of #78 and #79 into `release/production-gate-20260918` (the merge recommendation), then **one sandbox preview build** (EAS profile `sandbox`, `pk_test_` publishable key per `eas.json`) from the resulting gate commit. That commit becomes the source of truth. Alternatively, build from #79's head before merging; A then verifies the merged tree is byte-identical to the built one.
+1. **The sandbox build.** One device build with **EAS `--profile preview`**. At `d75c15cc` that profile has internal distribution, `ios.autoIncrement`, the sandbox Supabase URL and a `pk_test_` publishable key; Build 16 used the same profile. *(Corrected per D: the `sandbox` profile is `ios.simulator: true`, a simulator build that cannot install on the handset.)*
+   - **Built commit:** the tree that will merge. That is **`d75c15cc`** (#80's head, containing #78 and #79), or the release-gate commit after #78 → #79 → #80 merge. The merge rehearsal (go/no-go §12.12) shows the merged tree equals `d75c15cc` plus three `supabase/` files for 142, so the app bytes are identical. A records the exact built commit and verifies that `git diff <built> <gate head> -- . ':(exclude)supabase'` is empty. *(Corrected per D: the first draft named only #78 and #79, which would have left out the reservation-lookup fix.)*
+   - The reservation-lookup fix (#80) is in the build but is **not exercised on the device**, because a listings-only failure cannot be induced on a phone. Its evidence stays source, test and E2E only (§1).
 2. **The sandbox window:** the precondition reads (§3), the fixture writes (§4), the handset session (§5), the after-reads (§6).
-3. **Clean-up (§7).** Optional; a separate decision.
+3. **End-of-session step (§7), mandatory and part of the window.** It ends the four fixture listings before their 3-hour holds lapse. If the holds lapsed, `cleanup_expired_reservations` would return the listings to `active`, and four buy-now listings would be live in the sandbox marketplace for other testers (D). It runs even if the session is abandoned.
 4. **H5b only** (optional, §5): it lets the sandbox create a Stripe **test-mode** PaymentIntent and a sandbox `pending` payment row. It is not a charge. Default: not run.
 
 ## 3. Precondition reads (read-only, sandbox only; D witnesses)
 | # | Read | Expect / use |
 |---|---|---|
 | P1 | `select data_type, is_nullable, column_default from information_schema.columns where table_schema='public' and table_name='payments' and column_name='amount_refunded_cents'` | `integer`, `YES`, NULL. Records only *infer* that `20260906120000` is present on the sandbox (readiness plan §2). **If the column is absent, STOP**: the build's checkout reads would fail, and the fix would show the payment-status message on every checkout. |
-| P2 | Non-internal triggers on `public.payments` and `public.listings` (name, timing, events) | Confirms the §4 SQL: the payment guard is BEFORE UPDATE only, and the listing guard needs `app.bypass_listing_guard` to set a hold |
+| P2 | Non-internal triggers on `public.payments` and `public.listings`: name, **ROW or STATEMENT level**, timing, events | Confirms the §4 and §7 SQL: the payment guard is BEFORE UPDATE only; the listing guard needs `app.bypass_listing_guard`. A **statement-level** bypass reset on `listings` (like `trg_reset_transfer_guard_bypass` on transfers) would require the `set_config` to sit right before each guarded UPDATE, which it does. Locally (full chain) all 7 listings triggers are ROW-level (D) |
 | P3 | The owner's sandbox **buyer** and **seller** user ids, resolved from the account emails the owner used in Build 20/21 (C supplies the emails) | Fills `:buyer` / `:seller` |
 | P4 | `cron.job` rows whose command mentions `payments`, `listings`, `reservation` or `transfers` | Confirms no job acts on a `refunded` payment or a live hold within the window. `cleanup_expired_reservations` only releases **expired** holds; fixture holds last 3 h |
 | P5 | `select count(*) from public.listings where event_name like 'HANDSET-FINAL%'` | 0 (no leftovers) |
@@ -79,6 +81,7 @@ select l.event_name, l.id, l.status, l.reserved_until > now() as live, p.status,
 commit;
 ```
 
+- **Prices are in dollars:** `buy_now_price 100` is $100, and the all-in price with the 10% buyer fee is $110 (`allInFromDollars`; checkout uses `dollarsToCents(price)`). That matches the payments' `amount 10000` / `total 11000` cents. *(D suggested 10000, which read the column as cents; verified otherwise, no change.)*
 - **F1** (amount unknown, production's shape) → neutral screen.
 - **F2** (5000 of 11000) → partial screen.
 - **F3** (11000 = total) → full screen.
@@ -91,7 +94,7 @@ commit;
   - **Not proven for the sandbox itself:** its triggers and crons are unread until P2/P4.
 
 ## 5. Handset steps (C guides; the owner operates; the sandbox build from §2)
-The expected copy is the final wording at the head that is built. C confirms the exact strings from that commit before the session; the lines below match `df3572a1`/`eba8b208` except the payment-status line, which the final commit rewords.
+The expected copy is the wording at the **built commit** (`d75c15cc` unless §2.1 names another). C confirms each string from that commit before the session. The lines below are taken from `d75c15cc`.
 
 | Step | Action | Expected | Stop if |
 |---|---|---|---|
@@ -99,7 +102,7 @@ The expected copy is the final wording at the head that is built. C confirms the
 | H2 | From F1's refund screen, use the **back gesture** (kept by the owner) | Returns to the listing. "Finish checkout" again → the same refund screen; still no Pay | A Pay control, or a checkout that sets up payment |
 | H3 | Listing **F2** → "Finish checkout" | "Partial refund recorded" / "A partial refund of $50 was recorded for this payment."; "Back to home" | Any other amount, or "order stands" |
 | H4 | Listing **F3** → "Finish checkout" | "Full refund recorded" / "A full refund of $110 was recorded for this payment."; "Back to home" | "No purchase was made" |
-| H5 | Open listing **F4** online (it shows "Finish checkout"). Turn on **Airplane Mode with Wi-Fi off**, then tap "Finish checkout". Tap "Check again" once, **still offline** | The payment-status message (final wording) and one control, **"Check again"**. After tapping it offline: the same state | A Pay button; "hold ran out", "no longer held" or "Nothing was charged"; any refund screen |
+| H5 | Open listing **F4** online (it shows "Finish checkout"). Turn on **Airplane Mode with Wi-Fi off**, then tap "Finish checkout". Tap "Check again" once, **still offline** | **"We couldn't check whether this has already been paid."** and one control, **"Check again"**. After tapping it offline: the same state | A Pay button; "hold ran out", "no longer held" or "Nothing was charged"; any refund screen |
 | H5b *(optional, separate OK)* | Airplane Mode off → "Check again" | Normal checkout for an unpaid buyer with a live hold: summary plus the Pay control. **Do not tap Pay.** Creates one Stripe **test-mode** PaymentIntent and possibly a sandbox `pending` payment row | Any error screen |
 
 End the session by closing the app. No other screens.
@@ -110,7 +113,16 @@ End the session by closing the app. No other screens.
 - No new notifications for the buyer or seller since the fixture write.
 - Recorded in `SANDBOX_ACCEPTANCE_WINDOW_MANIFEST.md` §19, at READ / owner-reported strength.
 
-## 7. Clean-up (separate decision; proposed)
-- Release the fixture holds: `update public.listings set reserved_until = now() … where event_name like 'HANDSET-FINAL F%'`, with the listing-guard bypass.
-- Leave the tagged rows as audit evidence. Deleting them is a further write, and `refunded` payment rows are terminal by design.
-- If H5b ran, its test-mode PaymentIntent expires unused, and its `pending` row is left for the normal sweep. A reads it back.
+## 7. End of session (mandatory; within the window and before the 3-hour holds lapse)
+*(Corrected per D: the first draft only expired the holds, which would have let the cron put four buy-now listings live.)*
+```sql
+begin;
+select set_config('app.bypass_listing_guard', 'on', true);
+update public.listings set auction_status = 'cancelled', status = 'active', reserved_by = null, reserved_until = null, ended_at = now()
+ where event_name like 'HANDSET-FINAL F%';
+select event_name, status, auction_status, reserved_by is null as no_hold from public.listings where event_name like 'HANDSET-FINAL F%' order by 1;
+commit;
+```
+- **Local dry run [REH], 2026-09-19** (fixtures plus this step, rolled back on `a142_full_rehears`): all four listings end as `active/cancelled` with no hold, and **0 notifications** are written. A `cancelled` listing is not buyable (`detailState.ts`).
+- The tagged listings and payment rows stay as audit evidence. Deleting them is a further write, and `refunded` payment rows are terminal by design.
+- If H5b ran, its test-mode PaymentIntent expires unused, and its `pending` row is left for the normal sweep. A reads it back in §6.
