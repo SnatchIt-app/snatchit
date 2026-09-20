@@ -74,8 +74,8 @@ database and nothing in `net`/`vault` is created or written.
 
 ## 4. The independent review's two findings (2026-09-20), reproduced and fixed
 
-Both were reproduced by tests written before any fix: 213 failed **7 of 36** against the previous head
-(`a9bf6423`), on exactly the assertions below.
+Both were reproduced by tests written before any fix: 213 failed **8 of 36** against the previous head
+(`a9bf6423`) — S1, S2, R1, R2, R4, R5, R6, R7 — on exactly the assertions below.
 
 ### 4.1 Queue starvation (finding 1)
 `dispatch_alerts` selected its batch and *only then* skipped alerts that had used up their attempts. With `p_limit`
@@ -105,14 +105,30 @@ hold the old request, and is **not** marked delivered by a late 2xx belonging to
 row every `ops.alert_ack` writes — that, not the alert row, is the durable record that a person saw it. A durable
 per-incident delivery history would need its own table and is **not** built here.
 
-### 4.3 Found while fixing those
+### 4.3 A standing rule for whoever writes migration 147 or later (A, 2026-09-20)
+146 is now the last definer of `ops.alert_fire`. **Any future migration that redefines it must carry 146's body
+forward** — the recurrence branch that opens a new incident and clears the delivery bookkeeping — or a recurrence
+silently becomes unnotifiable again, which is defect 4.2 reinstated. For the same reason 146's rollback is correct
+only while 146 remains the last definer: it restores 117's body, so running it after a later migration has
+redefined the function would undo that one instead. A holds this in the migration-number registry; it is repeated
+here because this file is what a future author reads.
+
+### 4.4 Found while fixing those
 The rollback did not drop `ops.alert_post` / `ops.alert_response` (added late, in the CI-portability commit) and did
 not restore 117's `alert_fire`. It now does both, in an order that never leaves `alert_fire` writing columns that
 have been dropped.
 
 ## 5. Evidence (local, 2026-09-20)
-- `213`: **36/36**; **29/36** against the pre-fix head, failing S1, S2, R1, R2, R4, R5, R6, R7.
-- Full pgTAP on a **fresh replay of the whole chain** (162 migrations): **5454/5454**.
+- `213`: **36/36**; **28/36** against the pre-fix head, failing S1, S2, R1, R2, R4, R5, R6, R7 — reproduced
+  independently by A, and re-measured by D after A found the error described below.
+  **A correction, recorded rather than quietly fixed:** D first reported this as 7 failures / 29 passing. That number
+  was measured against the 35-assertion version of the file, before the R5 "same incident, no storm" test was added,
+  and D kept quoting it after the file became 36 assertions — while listing eight failing test names beside it, an
+  inconsistency D should have caught. A re-ran the pre-fix control and got 8; D then re-ran it and got 8. A measured
+  number belongs to the exact version of the artefact it was measured on.
+- Full pgTAP on a **fresh replay of the whole chain** (162 migrations): **5454/5454** all-pass. A's independent
+  replay reports **5455/5455** all-pass, and both agree 213 = 36/36. The one-assertion difference between the two
+  local worktrees is recorded, not explained: D has not established its cause. CI at this head is **5461**.
 - Rollback: restores 117's `alert_fire` to md5 `dfcb1956d3bf6bedb7b3359b80122c0d` exactly (the value on a build
   without 146), `ops.alert` 17 → 8 columns, 0 of the four new functions left.
 - **14 negative controls**, every kill set predicted in advance and matched on the first run, each failing a
