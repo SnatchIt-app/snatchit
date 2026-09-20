@@ -8,32 +8,41 @@
 --     neither (the one that matters: ops.alert.payload is free-form).
 --   Section A: acknowledgement — an operator records that a person saw it, it is audited, it does not recover the
 --     alert, a non-operator is refused, and a recovered alert cannot be acknowledged.
--- net.http_post is replaced inside this transaction by a recorder, and net._http_response is created here: the local
--- shim has neither a response table nor a real sender, and nothing may leave the database from a test.
+-- 146's two egress seams (ops.alert_post, ops.alert_response) are substituted inside this transaction, so nothing
+-- leaves the database and nothing in the net or vault schemas is created or written — CI's postgres is not superuser
+-- and may not, while the local harness may, which is exactly how a test passes locally and fails in CI.
 -- ============================================================================
 BEGIN;
-SELECT plan(25);
+SELECT plan(26);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
   (coalesce(current_setting('request.jwt.claims',true),'{}')::jsonb || '{"aal":"aal2"}'::jsonb)::text, true); end $f$;
 
--- the recorder: every post lands in tap.posted instead of going anywhere
-CREATE TABLE tap.posted (id bigserial primary key, url text, headers jsonb, body jsonb);
+-- 146 keeps every touch of pg_net and Vault inside ops.alert_post / ops.alert_response, and this test substitutes
+-- exactly those two. Nothing here creates or writes anything in the net or vault schemas: CI's postgres is not
+-- superuser and may not (the local harness may, which is precisely how a test can pass locally and fail in CI).
+CREATE TABLE tap.posted (id bigserial primary key, body jsonb);
 CREATE TABLE tap.net_fail (on_off boolean);
-CREATE OR REPLACE FUNCTION net.http_post(url text, headers jsonb DEFAULT '{}'::jsonb, body jsonb DEFAULT '{}'::jsonb)
-RETURNS bigint LANGUAGE plpgsql AS $f$
+CREATE TABLE tap.no_url (on_off boolean);
+CREATE TABLE tap.resp (request_id bigint primary key, status integer, content text);
+CREATE OR REPLACE FUNCTION ops.alert_post(p_body jsonb)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $f$
 declare v_id bigint;
 begin
+  if exists (select 1 from tap.no_url where on_off) then
+    return null;                                   -- the functions base URL is not configured
+  end if;
   if exists (select 1 from tap.net_fail where on_off) then
     raise exception 'connection refused by the test';
   end if;
-  insert into tap.posted (url, headers, body) values (url, headers, body) returning id into v_id;
+  insert into tap.posted (body) values (p_body) returning id into v_id;
   return v_id;
 end $f$;
-CREATE TABLE net._http_response (id bigint primary key, status_code integer, content text);
-INSERT INTO vault.decrypted_secrets (name, decrypted_secret) VALUES ('project_url', 'https://example.test')
-  ON CONFLICT DO NOTHING;
+CREATE OR REPLACE FUNCTION ops.alert_response(p_request_id bigint)
+RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path = '' AS $f$
+  select jsonb_build_object('status', r.status, 'content', r.content) from tap.resp r where r.request_id = p_request_id
+$f$;
 
 CREATE FUNCTION tap._fire(p_key text, p_payload jsonb DEFAULT '{}'::jsonb) RETURNS void LANGUAGE sql AS $f$
   insert into ops.alert (alert_key, kind, state, payload, first_fired_at, last_fired_at)
@@ -63,13 +72,12 @@ SELECT ok((tap._a('t213:off')).queued_at IS NOT NULL AND (tap._a('t213:off')).no
           AND (tap._a('t213:off')).delivered_at IS NULL AND (tap._a('t213:off')).notify_attempts = 1,
   'Q2: the row says queued with a request id, and delivered_at stays NULL — a queue is not a delivery');
 SELECT is((SELECT count(*)::int FROM tap.posted), 1, 'Q3: exactly one post, to the recorder');
-SELECT ok((SELECT body ->> 'event' = 'ops_alert' AND url LIKE 'https://example.test/functions/v1/notify-report'
+SELECT ok((SELECT body ->> 'event' = 'ops_alert' AND body ->> 'alert_key' = 't213:off'
              FROM tap.posted ORDER BY id DESC LIMIT 1),
-  'Q4: it is the new ops_alert event, posted to notify-report');
+  'Q4: it is the new ops_alert event, carrying that alert''s key');
 SELECT is(tap._dispatch() ->> 'queued', '0', 'Q5: a second call does not re-queue what is already in flight');
 -- confirmation needs the edge's own accounting, not just a status
-INSERT INTO net._http_response (id, status_code, content)
-  SELECT (tap._a('t213:off')).notify_request_id, 200, '{"ok":true,"event":"ops_alert","attempted":2,"delivered":2}';
+INSERT INTO tap.resp SELECT (tap._a('t213:off')).notify_request_id, 200, '{"ok":true,"event":"ops_alert","attempted":2,"delivered":2}';
 SELECT ok((SELECT r ->> 'confirmed' = '1' FROM (SELECT tap._dispatch() AS r) x)
           AND (tap._a('t213:off')).delivered_at IS NOT NULL AND (tap._a('t213:off')).delivery_status = 200,
   'Q6: a 2xx recorded against the request id is what sets delivered_at');
@@ -79,8 +87,7 @@ SELECT is(tap._dispatch() ->> 'queued', '0', 'Q7: a delivered alert is never pos
 -- branch is deployed. A status alone would call that delivered.
 SELECT tap._fire('t213:200nodeliver');
 SELECT tap._dispatch();
-INSERT INTO net._http_response (id, status_code, content)
-  SELECT (tap._a('t213:200nodeliver')).notify_request_id, 200, '{"ok":true,"event":"ops_alert"}';
+INSERT INTO tap.resp SELECT (tap._a('t213:200nodeliver')).notify_request_id, 200, '{"ok":true,"event":"ops_alert"}';
 UPDATE ops.alert SET notify_attempts = 5 WHERE alert_key = 't213:200nodeliver';
 SELECT ok((tap._dispatch() ->> 'failed')::int >= 1
           AND (tap._a('t213:200nodeliver')).delivered_at IS NULL
@@ -90,7 +97,7 @@ SELECT ok((tap._dispatch() ->> 'failed')::int >= 1
 -- a 401 is a perfectly successful QUEUE and must not count as delivery
 SELECT tap._fire('t213:401');
 SELECT tap._dispatch();
-INSERT INTO net._http_response (id, status_code) SELECT (tap._a('t213:401')).notify_request_id, 401;
+INSERT INTO tap.resp SELECT (tap._a('t213:401')).notify_request_id, 401, '{"ok":false}';
 -- hold it at the cap so this call only reconciles: otherwise the same call re-posts and overwrites what is asserted
 UPDATE ops.alert SET notify_attempts = 5 WHERE alert_key = 't213:401';
 SELECT ok((SELECT r ->> 'failed' = '1' FROM (SELECT tap._dispatch() AS r) x)
@@ -123,6 +130,15 @@ SELECT ok((SELECT r ->> 'failed' = '1' AND r ->> 'queued' = '0' FROM (SELECT tap
           AND (tap._a('t213:raise')).delivered_at IS NULL,
   'Q12: a sender that raises is recorded on the row, and dispatch returns rather than failing its caller');
 DELETE FROM tap.net_fail;
+
+-- the functions base URL unset: nothing is posted, and it does not count as an attempt
+INSERT INTO tap.no_url VALUES (true);
+SELECT tap._fire('t213:nourl');
+SELECT tap._dispatch();
+SELECT ok((tap._a('t213:nourl')).queued_at IS NULL AND (tap._a('t213:nourl')).notify_attempts = 0
+          AND (tap._a('t213:nourl')).last_notify_error LIKE '%base URL%',
+  'Q13: with no functions base URL nothing is posted, no attempt is burned, and the row says why');
+DELETE FROM tap.no_url;
 
 -- ── Section L — the outbound body carries an allow-list only ────────────────
 SELECT tap._fire('t213:leak', jsonb_build_object(

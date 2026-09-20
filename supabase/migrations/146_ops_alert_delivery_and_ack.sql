@@ -22,10 +22,13 @@
 -- WHAT.
 --   * ops.alert gains queued_at, notify_request_id, delivered_at, delivery_status, last_notify_error,
 --     notify_attempts, acknowledged_at, acknowledged_by. An alert nobody was told about is now visibly undelivered.
---   * ops.dispatch_alerts(p_limit) (new). Each call first RECONCILES what it queued before (reading
---     net._http_response for the request id), then posts eligible alerts to the one working database→human path:
---     net.http_post to /functions/v1/notify-report, 133's pattern byte for byte (Vault project_url +
---     service_role_key), with a NEW event 'ops_alert'. It is:
+--   * ops.alert_post(body) and ops.alert_response(request_id) (new): the ONLY two places that touch pg_net and Vault.
+--     One auditable egress point — and the seam a test substitutes, because CI's postgres is not superuser and may
+--     not create or write anything in the net or vault schemas (the local harness can, which would have hidden this).
+--   * ops.dispatch_alerts(p_limit) (new). Each call first RECONCILES what it queued before (through
+--     ops.alert_response), then posts eligible alerts to the one working database→human path: net.http_post to
+--     /functions/v1/notify-report, 133's pattern byte for byte (Vault project_url + service_role_key), with a NEW
+--     event 'ops_alert'. It is:
 --       - OFF: ops.setting 'alert_delivery_enabled' is seeded false and checked for EVERY caller;
 --       - MINIMAL: the body carries an ALLOW-LIST — alert key, kind, counts, timestamps, and case_id / case_type /
 --         jobname when the payload has them. ops.alert.payload is free-form and is NEVER passed through, so a
@@ -80,6 +83,55 @@ alter table ops.alert
 
 insert into ops.setting (key, value) values ('alert_delivery_enabled', 'false'::jsonb) on conflict (key) do nothing;
 
+-- ── the only two places that touch the outside world ────────────────────────────────────────────────────────────
+-- Everything ops knows about pg_net and Vault lives in these two functions. That keeps the egress in one auditable
+-- place, and it is also what makes the behaviour testable without touching the `net` or `vault` schemas: CI's postgres
+-- is NOT superuser and may not create or write objects there, so a test substitutes THESE instead.
+create or replace function ops.alert_post(p_body jsonb)
+returns bigint language plpgsql security definer set search_path = ''
+as $ops$
+declare v_url text; v_req bigint;
+begin
+  select decrypted_secret into v_url from vault.decrypted_secrets
+   where name = 'project_url' order by created_at desc limit 1;
+  if v_url is null then
+    return null;                       -- the functions base URL is not configured: nothing can be posted
+  end if;
+  select net.http_post(
+    url     := v_url || '/functions/v1/notify-report',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || coalesce((select decrypted_secret from vault.decrypted_secrets
+                                               where name = 'service_role_key'
+                                               order by created_at desc limit 1), ''),
+      'Content-Type', 'application/json'),
+    body    := p_body) into v_req;
+  return v_req;
+end;
+$ops$;
+revoke all on function ops.alert_post(jsonb) from public, anon, authenticated, service_role;
+
+create or replace function ops.alert_response(p_request_id bigint)
+returns jsonb language plpgsql security definer set search_path = ''
+as $ops$
+declare v_status integer; v_content text;
+begin
+  if to_regclass('net._http_response') is null then
+    return null;                       -- no pg_net here: nothing can be confirmed, and that is not an error
+  end if;
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'net' and table_name = '_http_response' and column_name = 'content') then
+    execute 'select status_code, content from net._http_response where id = $1' into v_status, v_content using p_request_id;
+  else
+    execute 'select status_code from net._http_response where id = $1' into v_status using p_request_id;
+  end if;
+  if v_status is null then
+    return null;                       -- no answer recorded yet
+  end if;
+  return jsonb_build_object('status', v_status, 'content', v_content);
+end;
+$ops$;
+revoke all on function ops.alert_response(bigint) from public, anon, authenticated, service_role;
+
 -- ── send, then confirm ──────────────────────────────────────────────────────────────────────────────────────────
 create or replace function ops.dispatch_alerts(p_limit integer default 20)
 returns jsonb language plpgsql security definer set search_path = ''
@@ -92,14 +144,11 @@ declare
   v_conf     integer := 0;                          -- 2xx confirmed this call
   v_failed   integer := 0;
   v_gave     integer := 0;
-  v_url      text;
   v_req      bigint;
-  v_has_resp boolean := to_regclass('net._http_response') is not null;
-  v_has_body boolean := exists (select 1 from information_schema.columns
-                                 where table_schema = 'net' and table_name = '_http_response' and column_name = 'content');
+  v_resp     jsonb;
   v_status   integer;
-  v_body     text;
   v_deliv    integer;
+  v_posted   boolean;
 begin
   if not ops.setting_bool('alert_delivery_enabled', false) then
     -- for EVERY caller, as 145's switch is: applying the migration sends nothing
@@ -108,24 +157,19 @@ begin
   end if;
 
   -- (1) Reconcile what earlier calls queued. Only a 2xx recorded against the request id is a delivery.
-  if v_has_resp then
+  begin
     for r in
       select a.alert_key, a.notify_request_id, a.queued_at from ops.alert a
        where a.notify_request_id is not null and a.delivered_at is null
     loop
-      if v_has_body then
-        execute 'select status_code, content from net._http_response where id = $1'
-          into v_status, v_body using r.notify_request_id;
-      else
-        execute 'select status_code from net._http_response where id = $1' into v_status using r.notify_request_id;
-        v_body := null;
-      end if;
+      v_resp   := ops.alert_response(r.notify_request_id);
+      v_status := nullif(v_resp ->> 'status', '')::integer;
       -- notify-report answers 200 even for an event it does not know ("unknown event", and it answers 200 on its own
       -- errors too, so pg_net never retry-storms). A status alone would therefore call an UNDELIVERED alert delivered
       -- — including every post made before the ops_alert branch is deployed. Confirmation needs the edge's own
       -- accounting: delivered >= 1 for this event.
       begin
-        v_deliv := nullif(v_body::jsonb ->> 'delivered', '')::integer;
+        v_deliv := nullif((v_resp ->> 'content')::jsonb ->> 'delivered', '')::integer;
       exception when others then
         v_deliv := null;
       end;
@@ -153,15 +197,10 @@ begin
         v_failed := v_failed + 1;
       end if;
     end loop;
-  end if;
-
-  select decrypted_secret into v_url from vault.decrypted_secrets
-   where name = 'project_url' order by created_at desc limit 1;
-  if v_url is null then
-    -- the functions base URL is not configured: nothing can be posted, and that is not an error to raise
-    return jsonb_build_object('skipped', 'project_url_unset',
-                              'queued', 0, 'confirmed', v_conf, 'failed', v_failed, 'given_up', 0);
-  end if;
+  exception when others then
+    -- reconciliation must never fail a caller either; the next call tries again
+    null;
+  end;
 
   -- (2) Post the eligible ones: firing, not acknowledged, not delivered, nothing in flight.
   for r in
@@ -181,14 +220,7 @@ begin
     begin
       -- ALLOW-LIST ONLY. ops.alert.payload is free-form and is never passed through: a person's details must not
       -- leave the database because an alert happened to carry them (A, 2026-09-19; pinned by pgTAP 213).
-      select net.http_post(
-        url     := v_url || '/functions/v1/notify-report',
-        headers := jsonb_build_object(
-          'Authorization', 'Bearer ' || coalesce((select decrypted_secret from vault.decrypted_secrets
-                                                   where name = 'service_role_key'
-                                                   order by created_at desc limit 1), ''),
-          'Content-Type', 'application/json'),
-        body    := jsonb_strip_nulls(jsonb_build_object(
+      v_req := ops.alert_post(jsonb_strip_nulls(jsonb_build_object(
                      'event',          'ops_alert',
                      'alert_key',      r.alert_key,
                      'kind',           r.kind,
@@ -198,12 +230,20 @@ begin
                      'case_id',        r.payload ->> 'case_id',
                      'case_type',      r.payload ->> 'case_type',
                      'jobname',        r.payload ->> 'jobname',
-                     'sent_at',        now()))) into v_req;
-      -- QUEUED, not delivered: the response is reconciled on a later call.
-      update ops.alert set queued_at = now(), notify_request_id = v_req,
-                           notify_attempts = notify_attempts + 1, last_notify_error = null
-       where alert_key = r.alert_key;
-      v_sent := v_sent + 1;
+                     'sent_at',        now())));
+      if v_req is null then
+        -- the functions base URL is not configured: nothing was posted, and that is not an attempt
+        v_posted := false;
+        update ops.alert set last_notify_error = 'functions base URL (Vault project_url) is not configured'
+         where alert_key = r.alert_key;
+      else
+        -- QUEUED, not delivered: the response is reconciled on a later call.
+        v_posted := true;
+        update ops.alert set queued_at = now(), notify_request_id = v_req,
+                             notify_attempts = notify_attempts + 1, last_notify_error = null
+         where alert_key = r.alert_key;
+        v_sent := v_sent + 1;
+      end if;
     exception when others then
       update ops.alert set notify_attempts = notify_attempts + 1,
                            last_notify_error = left(sqlstate || ': ' || sqlerrm, 500)
@@ -213,7 +253,7 @@ begin
   end loop;
 
   return jsonb_build_object('queued', v_sent, 'confirmed', v_conf, 'failed', v_failed, 'given_up', v_gave,
-                            'max_attempts', c_max_attempts, 'response_table', v_has_resp);
+                            'max_attempts', c_max_attempts);
 end;
 $ops$;
 revoke all on function ops.dispatch_alerts(integer) from public, anon, authenticated, service_role;
