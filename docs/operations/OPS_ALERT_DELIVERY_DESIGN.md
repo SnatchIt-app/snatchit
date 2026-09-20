@@ -126,9 +126,13 @@ have been dropped.
   and D kept quoting it after the file became 36 assertions — while listing eight failing test names beside it, an
   inconsistency D should have caught. A re-ran the pre-fix control and got 8; D then re-ran it and got 8. A measured
   number belongs to the exact version of the artefact it was measured on.
-- Full pgTAP on a **fresh replay of the whole chain** (162 migrations): **5454/5454** all-pass. A's independent
-  replay reports **5455/5455** all-pass, and both agree 213 = 36/36. The one-assertion difference between the two
-  local worktrees is recorded, not explained: D has not established its cause. CI at this head is **5461**.
+- Full pgTAP on a **fresh replay of the whole chain** (162 migrations): **5455/5455** all-pass, which is A's
+  independent number exactly. Per file at this head: 210 = 25, 211 = 61, 212 = 25, 213 = 36, 182 = 45, every other
+  file equal to the gate's 5308. CI at this head is **5461** (the fixed +6 local↔CI delta).
+  D first reported 5454. That was the same stale artefact as the failure-count error below: the full-suite replay
+  had been run while 213 still had 35 assertions, so 5454 = 5455 − 1. A predicted the cause from the arithmetic
+  alone and told D to read the per-file line before recording it as unexplained; the line said `plan=36` on a
+  re-run and the total said 5455. **One stale artefact, two stale numbers, one fix.**
 - Rollback: restores 117's `alert_fire` to md5 `dfcb1956d3bf6bedb7b3359b80122c0d` exactly (the value on a build
   without 146), `ops.alert` 17 → 8 columns, 0 of the four new functions left.
 - **14 negative controls**, every kill set predicted in advance and matched on the first run, each failing a
