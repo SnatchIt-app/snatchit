@@ -19,6 +19,7 @@ import {
   type ApprovalDecision,
   type AuditRow,
   type CronJob,
+  type OpsAlert,
   type OpsJob,
   type Setting,
 } from "@/lib/types";
@@ -36,6 +37,7 @@ import { FilterField, FilterSelect } from "@/components/ui/FilterField";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { AuditTable } from "@/components/system/AuditTable";
 import { SummaryView } from "@/components/system/SummaryView";
+import { AlertAckForm } from "@/components/system/AlertAckForm";
 import { ReportFreshness } from "@/components/shell/Freshness";
 
 export const metadata: Metadata = { title: "System" };
@@ -54,6 +56,7 @@ const SETTING_HELP: Record<string, string> = {
   webhook_stuck_minutes: "Age of an unprocessed Stripe webhook that counts as stuck.",
   release_stuck_minutes: "Minutes after a recorded release without a Stripe Transfer before Release stuck fires.",
   approval_ttl_hours: "Hours before a pending second-founder approval expires.",
+  alert_delivery_enabled: "Gate for ops.dispatch_alerts (migration 146). While false, nothing is ever posted. Turning it TRUE still delivers nothing on its own: no schedule calls dispatch_alerts, so a caller has to be scheduled separately — that is the act that first sends anything to a person.",
 };
 
 export default async function SystemPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -185,29 +188,46 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
               {health.alerts.length === 0 ? (
                 <p className="text-dim">No alerts firing.</p>
               ) : (
-                <ul className="space-y-2">
+                <ul className="space-y-4">
                   {health.alerts.map((a, i) => {
                     const caseId = typeof a.payload?.case_id === "string" ? a.payload.case_id : null;
                     const title = typeof a.payload?.title === "string" ? a.payload.title : null;
+                    const seq = a.incident_seq ?? 1;
                     return (
-                      <li key={a.alert_key ?? i} className="flex flex-wrap items-baseline gap-2 border-l-2 border-warning pl-3 text-[13px]">
-                        <StatusBadge status={a.state} label={a.state ?? "firing"} />
-                        <span className="font-mono text-[12px] text-dim">{a.kind}</span>
-                        {caseId ? (
-                          <Link href={`/cases/${caseId}`} className="link">
-                            {title ?? a.alert_key}
-                          </Link>
-                        ) : (
-                          <span>{title ?? a.alert_key}</span>
-                        )}
-                        <span className="text-[11px] text-dim">
-                          first <TimeAgo value={a.first_fired_at} /> · last <TimeAgo value={a.last_fired_at} /> · ×{a.fire_count ?? 1}
-                        </span>
+                      <li key={a.alert_key ?? i} className="border-l-2 border-warning pl-3 text-[13px]">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <StatusBadge status={a.state} label={a.state ?? "firing"} />
+                          <span className="font-mono text-[12px] text-dim">{a.kind}</span>
+                          {caseId ? (
+                            <Link href={`/cases/${caseId}`} className="link">
+                              {title ?? a.alert_key}
+                            </Link>
+                          ) : (
+                            <span>{title ?? a.alert_key}</span>
+                          )}
+                          {seq > 1 ? <StatusBadge status="recurrence" label={`incident #${seq}`} variant="neutral" /> : null}
+                          <span className="text-[11px] text-dim">
+                            first <TimeAgo value={a.first_fired_at} /> · last <TimeAgo value={a.last_fired_at} /> · ×{a.fire_count ?? 1}
+                          </span>
+                        </div>
+                        <AlertDelivery alert={a} />
+                        {a.alert_key && !a.acknowledged_at ? (
+                          <div className="mt-2">
+                            <AlertAckForm alertKey={a.alert_key} incidentSeq={seq} revalidate="/system" />
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })}
                 </ul>
               )}
+              <p className="mt-4 border-t border-line-neutral pt-3 text-[11px] text-dim">
+                Nothing is scheduled to send these alerts. Migration 146 makes delivery possible and records it; no cron
+                entry calls <span className="font-mono">ops.dispatch_alerts</span>, so an alert reaches a person only
+                when someone opens this page — unless an owner both turns{" "}
+                <span className="font-mono">alert_delivery_enabled</span> on and schedules a caller. Acknowledging
+                records that a person saw THIS incident; it does not fix the condition, and it is not a delivery.
+              </p>
             </Panel>
           </>
         )}
@@ -407,6 +427,54 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
       </div>
     </div>
   );
+}
+
+/**
+ * What actually happened to this alert, in the database's own terms.
+ *
+ * QUEUED IS NOT DELIVERED (migration 146): pg_net returns a request id the
+ * moment a post is accepted, so `queued_at` means only that. `delivered_at` is
+ * set only when notify-report answered 2xx AND reported that it delivered
+ * something — a bare 200 is what it answers for an event it does not know.
+ * And a confirmed delivery still is not proof a person read it; only an
+ * acknowledgement says that, and only because someone pressed the button.
+ */
+function AlertDelivery({ alert }: { alert: OpsAlert }) {
+  if (alert.acknowledged_at) {
+    return (
+      <p className="mt-1 text-[11px] text-dim">
+        <span className="text-success">Acknowledged</span> <TimeAgo value={alert.acknowledged_at} />
+        {alert.acknowledged_by ? ` by ${shortId(alert.acknowledged_by)}` : ""} · still firing until the condition clears
+      </p>
+    );
+  }
+  const attempts = alert.notify_attempts ?? 0;
+  let delivery: React.ReactNode;
+  if (alert.delivered_at) {
+    delivery = (
+      <>
+        <span className="text-success">Delivered</span> <TimeAgo value={alert.delivered_at} />
+        {alert.delivery_status ? ` (HTTP ${alert.delivery_status})` : ""} — sent, not proof anyone read it
+      </>
+    );
+  } else if (alert.queued_at) {
+    delivery = (
+      <>
+        <span className="text-warning">Queued</span> <TimeAgo value={alert.queued_at} /> — accepted for sending, NOT yet confirmed delivered
+      </>
+    );
+  } else if (attempts > 0) {
+    delivery = (
+      <>
+        <span className="text-warning">Not delivered</span> after {attempts} attempt{attempts === 1 ? "" : "s"}
+        {alert.last_notify_error ? `: ${alert.last_notify_error}` : ""}
+        {attempts >= 5 ? " — no further attempts will be made" : ""}
+      </>
+    );
+  } else {
+    delivery = <>Nobody has been notified: nothing has been sent for this alert.</>;
+  }
+  return <p className="mt-1 text-[11px] text-dim">{delivery}</p>;
 }
 
 function SettingsList({ settings }: { settings: Setting[] }) {

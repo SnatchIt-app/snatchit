@@ -209,6 +209,8 @@ export const ACTION_TYPE_LABELS: Record<string, string> = {
   refund_execute: "Execute refund",
   job_retry: "Run job now",
   setting_set: "Change setting",
+  case_refund_classify: "Classify refund",
+  case_refund_obligation: "Record refund obligation",
 };
 
 export type Vocab =
