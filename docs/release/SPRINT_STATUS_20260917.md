@@ -1347,3 +1347,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - (2) Send an allow-listed payload only — never contact details or full payloads — pinned by a fixture containing an email and phone.
   - (3) State that enabling the setting still delivers nothing until scheduling is separately decided.
   - Item 4's authorisation is between D and the owner; A registered the numbers and reviewed the design only.
+- **146 / 213 built and reviewed (A PASS), 2026-09-19.** `admin/146-alert-delivery` @ `a9bf6423`, draft **PR #86**, stacked on chain `07a29403`; **CI green** after A added the AUTODEPLOY line (93 files / 5451). A's own replay: **5445/5445 ALL-PASS**, 213 26/26.
+  - All three of A's conditions are met, one better than asked: notify-report answers 200 for unknown events **and** its own errors, so a status-only rule would have marked every pre-deploy post delivered. Delivery now requires a 2xx **plus** `delivered >= 1`; a 401, an unaccounted 200 and a 15-minute silence all leave the alert eligible, capped at 5 attempts.
+  - The edge change is additive (new `ops_alert` branch; response shape changes for that event only).
+  - D's CI-only defect, disclosed: 213 first replaced `net.http_post`, which only the superuser harness allows. Egress now goes through two substitutable seams.
+  - Still inert: nothing schedules the dispatcher, the setting is seeded false, and no channel is activated.
