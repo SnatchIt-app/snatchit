@@ -21,7 +21,10 @@
 --
 -- WHAT.
 --   * ops.alert gains queued_at, notify_request_id, delivered_at, delivery_status, last_notify_error,
---     notify_attempts, acknowledged_at, acknowledged_by. An alert nobody was told about is now visibly undelivered.
+--     notify_attempts, acknowledged_at, acknowledged_by, incident_seq. An alert nobody was told about is now
+--     visibly undelivered, and a recurrence is visibly a new incident rather than more of the old one.
+--   * ops.alert_fire (117) is replaced so that the recovered→firing transition opens a NEW incident: see the
+--     section below. Nothing else about firing changes, and a repeat fire of a still-firing alert is untouched.
 --   * ops.alert_post(body) and ops.alert_response(request_id) (new): the ONLY two places that touch pg_net and Vault.
 --     One auditable egress point — and the seam a test substitutes, because CI's postgres is not superuser and may
 --     not create or write anything in the net or vault schemas (the local harness can, which would have hidden this).
@@ -56,9 +59,18 @@
 -- is answered 200 with no delivery count, which this migration records as "answered 200 but reported no delivery" —
 -- NOT delivered, and eligible again up to the attempt cap.
 --
--- ROLLBACK: supabase/rollbacks/146_ops_alert_delivery_and_ack_rollback.sql drops both functions, deletes the setting
--- row and drops the eight columns. Alert rows themselves are untouched; what is discarded is the delivery bookkeeping,
--- which the rollback says out loud.
+-- TWO DEFECTS FOUND IN REVIEW AND FIXED HERE (independent review, 2026-09-20; pgTAP 213 sections S and R, both of
+-- which fail against the first version of this file):
+--   1. QUEUE STARVATION. dispatch_alerts selected its batch and only then skipped alerts that had used up their
+--      attempts, so p_limit dead alerts older than a live one filled every slot and the live one was never posted.
+--      The cap is now part of the batch predicate and the dead ones are counted separately: still visible to an
+--      operator, no longer occupying a delivery slot.
+--   2. INCIDENT RECURRENCE. alert_fire reused the row without clearing the closed incident's delivery and
+--      acknowledgement, so a recurrence was ineligible for notification, inherited an acknowledgement given for a
+--      different incident, and could be marked delivered by a late response to the previous incident's request.
+-- ROLLBACK: supabase/rollbacks/146_ops_alert_delivery_and_ack_rollback.sql restores 117's ops.alert_fire, drops the
+-- three new functions, deletes the setting row and drops the nine columns. Alert rows themselves are untouched; what
+-- is discarded is the delivery bookkeeping and the incident counter, which the rollback says out loud.
 -- VERIFY (read-only): select value from ops.setting where key = 'alert_delivery_enabled';  -- false
 --   md5(pg_get_functiondef('ops.dispatch_alerts(integer)'::regprocedure)), md5 of ops.alert_ack(text,text).
 -- FAILURE BEHAVIOUR: one transaction; the column adds take a brief ACCESS EXCLUSIVE on ops.alert (a small table) with
@@ -79,9 +91,53 @@ alter table ops.alert
   add column if not exists notify_attempts   integer not null default 0,
   add column if not exists last_notify_error text,
   add column if not exists acknowledged_at   timestamptz,
-  add column if not exists acknowledged_by   uuid;
+  add column if not exists acknowledged_by   uuid,
+  add column if not exists incident_seq      integer not null default 1;  -- a recovery/re-fire opens a NEW incident
 
 insert into ops.setting (key, value) values ('alert_delivery_enabled', 'false'::jsonb) on conflict (key) do nothing;
+
+-- ── a recurrence is a NEW incident ──────────────────────────────────────────────────────────────────────────────
+-- 117's ops.alert_fire reused the row and reset nothing, which was harmless while an alert row carried nothing but
+-- "this is firing". Now that the row also carries delivery and acknowledgement, an alert that recovers and fires
+-- again would INHERIT both (reported by the independent review, 2026-09-20): dispatch_alerts excludes a row whose
+-- delivered_at or acknowledged_at is set, so the new incident would never be notified; the previous incident's
+-- attempts would still count against the cap; and a response to the CLOSED incident's request, arriving late, would
+-- be recorded against the new one. So the recovered→firing transition — and only that transition — opens a new
+-- incident and clears the delivery bookkeeping. A repeat fire of an alert that is STILL firing changes nothing of
+-- the kind: it is the same incident, and re-notifying every detector tick would be a storm.
+-- What a new incident discards is the previous incident's delivery bookkeeping. What survives is the ops.audit row
+-- that every ops.alert_ack writes — that, not the alert row, is the durable record that a person saw it.
+create or replace function ops.alert_fire(p_key text, p_kind text, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = ''
+as $ops$
+declare v_state text;
+begin
+  select state into v_state from ops.alert where alert_key = p_key for update;
+  if not found then
+    insert into ops.alert (alert_key, kind, state, payload)
+    values (p_key, p_kind, 'firing', coalesce(p_payload, '{}'::jsonb));
+    return jsonb_build_object('alert_key', p_key, 'fired', true, 'was', null);
+  end if;
+  if v_state = 'recovered' then
+    -- a NEW incident: a fresh first_fired_at, the next incident number, and nothing carried over from the closed one
+    update ops.alert
+       set state = 'firing', kind = p_kind, payload = coalesce(p_payload, payload),
+           last_fired_at = now(), fire_count = fire_count + 1, first_fired_at = now(), recovered_at = null,
+           incident_seq = incident_seq + 1,
+           queued_at = null, notify_request_id = null, delivered_at = null, delivery_status = null,
+           notify_attempts = 0, last_notify_error = null, acknowledged_at = null, acknowledged_by = null
+     where alert_key = p_key;
+  else
+    -- the same incident, seen again: only the counters move
+    update ops.alert
+       set state = 'firing', kind = p_kind, payload = coalesce(p_payload, payload),
+           last_fired_at = now(), fire_count = fire_count + 1, recovered_at = null
+     where alert_key = p_key;
+  end if;
+  return jsonb_build_object('alert_key', p_key, 'fired', v_state = 'recovered', 'was', v_state);
+end;
+$ops$;
+revoke all on function ops.alert_fire(text,text,jsonb) from public, anon, authenticated, service_role;
 
 -- ── the only two places that touch the outside world ────────────────────────────────────────────────────────────
 -- Everything ops knows about pg_net and Vault lives in these two functions. That keeps the egress in one auditable
@@ -202,21 +258,31 @@ begin
     null;
   end;
 
-  -- (2) Post the eligible ones: firing, not acknowledged, not delivered, nothing in flight.
+  -- (2) Alerts that have used up their attempts are COUNTED here, never carried into the batch. Selecting them and
+  -- then skipping them inside the loop (which is what this did) let a backlog of dead alerts fill every delivery
+  -- slot: with p_limit exhausted alerts older than a new one, the new one was never posted at all — it sat behind a
+  -- full batch for ever (reported by the independent review, 2026-09-20). They stay firing and keep their last
+  -- error, so an operator still sees them; what they no longer occupy is a delivery slot.
+  select count(*) into v_gave
+    from ops.alert a
+   where a.state = 'firing'
+     and a.acknowledged_at is null
+     and a.delivered_at is null
+     and a.notify_request_id is null
+     and a.notify_attempts >= c_max_attempts;
+
+  -- (3) Post the eligible ones: firing, not acknowledged, not delivered, nothing in flight, attempts left.
   for r in
-    select a.alert_key, a.kind, a.payload, a.first_fired_at, a.last_fired_at, a.fire_count, a.notify_attempts
+    select a.alert_key, a.kind, a.payload, a.first_fired_at, a.last_fired_at, a.fire_count, a.incident_seq
       from ops.alert a
      where a.state = 'firing'
        and a.acknowledged_at is null
        and a.delivered_at is null
        and a.notify_request_id is null
+       and a.notify_attempts < c_max_attempts
      order by a.first_fired_at, a.alert_key
      limit greatest(coalesce(p_limit, 20), 1)
   loop
-    if r.notify_attempts >= c_max_attempts then
-      v_gave := v_gave + 1;
-      continue;
-    end if;
     begin
       -- ALLOW-LIST ONLY. ops.alert.payload is free-form and is never passed through: a person's details must not
       -- leave the database because an alert happened to carry them (A, 2026-09-19; pinned by pgTAP 213).
@@ -225,6 +291,7 @@ begin
                      'alert_key',      r.alert_key,
                      'kind',           r.kind,
                      'fire_count',     r.fire_count,
+                     'incident_seq',   r.incident_seq,   -- so a recurrence is not read as a repeat of what was acked
                      'first_fired_at', r.first_fired_at,
                      'last_fired_at',  r.last_fired_at,
                      'case_id',        r.payload ->> 'case_id',
@@ -282,7 +349,7 @@ begin
                           jsonb_build_object('state', v_row.state, 'acknowledged_at', null),
                           jsonb_build_object('state', v_row.state, 'acknowledged_at', v_row.acknowledged_at),
                           'succeeded', null, null);
-  return jsonb_build_object('alert_key', v_row.alert_key, 'state', v_row.state,
+  return jsonb_build_object('alert_key', v_row.alert_key, 'state', v_row.state, 'incident_seq', v_row.incident_seq,
                             'acknowledged_at', v_row.acknowledged_at, 'acknowledged_by', v_row.acknowledged_by,
                             'queued_at', v_row.queued_at, 'delivered_at', v_row.delivered_at,
                             'notify_attempts', v_row.notify_attempts);

@@ -286,15 +286,22 @@ serve(async (req: Request) => {
                      : payload?.case_type != null ? `case ${String(payload.case_type)}`
                      : alertKey;
       const times    = payload?.first_fired_at != null ? ` since ${String(payload.first_fired_at)}` : '';
-      const summary  = `${kind}: ${where}${times} (fired ${payload?.fire_count ?? '?'}x)`;
+      // A recurrence is a NEW incident (146): the condition cleared and came back, so an acknowledgement given for
+      // the previous incident does not cover this one. Saying which incident this is keeps the recipient from
+      // reading a second notification as a duplicate of the one they already dealt with.
+      const seq      = Number(payload?.incident_seq ?? 1);
+      const incident = seq > 1 ? ` — incident #${seq}, the condition returned after recovering` : '';
+      const summary  = `${kind}: ${where}${times} (fired ${payload?.fire_count ?? '?'}x)${incident}`;
 
       for (const id of adminIds) {
-        await push(id, 'Operating Console alert', summary,
-          { type: 'ops_alert', alert_key: alertKey });
+        await push(id, seq > 1 ? 'Operating Console alert (recurrence)' : 'Operating Console alert', summary,
+          { type: 'ops_alert', alert_key: alertKey, incident_seq: String(seq) });
       }
       await mail(ADMIN_EMAIL, '[Snatch It] Operating Console alert',
         `An Operating Console alert is firing:\n\n${summary}\n\nalert_key: ${alertKey}\n` +
-        `Open the console's System page to see it, and acknowledge it there (ops.alert_ack) once someone is on it.`);
+        `Open the console's System page to see it, and acknowledge it there (ops.alert_ack) once someone is on it.` +
+        (seq > 1 ? `\n\nThis is incident #${seq} for this alert. An earlier incident may have been acknowledged; ` +
+                   `that acknowledgement does not cover this one.` : ''));
 
       await captureException('ops-alert', new Error('ops_alert: ' + summary));
 

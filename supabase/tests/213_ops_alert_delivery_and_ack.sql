@@ -8,12 +8,17 @@
 --     neither (the one that matters: ops.alert.payload is free-form).
 --   Section A: acknowledgement — an operator records that a person saw it, it is audited, it does not recover the
 --     alert, a non-operator is refused, and a recovered alert cannot be acknowledged.
+--   Section S: a backlog of alerts that have given up must not starve new ones — 25 exhausted alerts, older than
+--     everything else, still leave both new alerts queued, and stay visible without occupying a delivery slot.
+--   Section R: a recurrence is a new incident — fire, deliver, acknowledge, recover, fire again: it is eligible
+--     again, needs its own acknowledgement, a repeat fire of a still-firing alert resets nothing, and a late
+--     response to the CLOSED incident never confirms the new one.
 -- 146's two egress seams (ops.alert_post, ops.alert_response) are substituted inside this transaction, so nothing
 -- leaves the database and nothing in the net or vault schemas is created or written — CI's postgres is not superuser
 -- and may not, while the local harness may, which is exactly how a test passes locally and fails in CI.
 -- ============================================================================
 BEGIN;
-SELECT plan(26);
+SELECT plan(36);
 SELECT tap.seed_core();
 
 CREATE FUNCTION tap._aal2() RETURNS void LANGUAGE plpgsql AS $f$ begin perform set_config('request.jwt.claims',
@@ -178,6 +183,90 @@ SELECT throws_like($$SELECT ops.alert_ack('t213:stale', 'late')$$, '%nothing to 
 SELECT throws_like($$SELECT ops.alert_ack('t213:nope', 'x')$$, '%no alert%',
   'A6: an unknown alert key is refused');
 SELECT tap.logout();
+
+-- ── Section S — an exhausted backlog must not starve new alerts ─────────────
+-- Reported by the independent review (2026-09-20): the batch was selected BEFORE the attempt cap was applied, so
+-- p_limit alerts that had already given up filled every delivery slot and nothing new was ever posted. Park what
+-- the earlier sections left firing, so this section's arithmetic is its own.
+UPDATE ops.alert SET state = 'recovered', recovered_at = now() WHERE state = 'firing';
+-- 25 alerts that have used up their attempts, every one OLDER than anything new (the default limit is 20, so a
+-- batch that selects before applying the cap is filled entirely by these)
+INSERT INTO ops.alert (alert_key, kind, state, payload, first_fired_at, last_fired_at, notify_attempts, last_notify_error)
+SELECT 't213:dead' || g, 'p1_case', 'firing', '{}'::jsonb,
+       now() - interval '3 days' + (g || ' seconds')::interval, now() - interval '3 days',
+       5, 'HTTP 500 from notify-report'
+  FROM generate_series(1, 25) g;
+SELECT tap._fire('t213:new1');            -- first_fired_at is 5 minutes ago: newer than every exhausted alert
+SELECT tap._fire('t213:new2');
+SELECT ok((SELECT r ->> 'queued' = '2' AND (r ->> 'given_up')::int = 25 FROM (SELECT tap._dispatch() AS r) x),
+  'S1: 25 exhausted alerts older than the new ones do not consume the batch — both new alerts are queued');
+SELECT ok((tap._a('t213:new1')).notify_request_id IS NOT NULL AND (tap._a('t213:new2')).notify_request_id IS NOT NULL
+          AND (SELECT count(*)::int FROM tap.posted WHERE body ->> 'alert_key' IN ('t213:new1','t213:new2')) = 2,
+  'S2: …both were really posted, each under its own request id');
+SELECT ok((SELECT count(*)::int FROM tap.posted WHERE body ->> 'alert_key' LIKE 't213:dead%') = 0
+          AND (SELECT count(*)::int FROM ops.alert WHERE alert_key LIKE 't213:dead%' AND state = 'firing'
+                 AND notify_attempts = 5 AND last_notify_error = 'HTTP 500 from notify-report') = 25,
+  'S3: the exhausted alerts stay firing and keep their last error — visible to an operator, never posted again');
+
+-- ── Section R — a new incident is a new notification ────────────────────────
+-- Reported by the independent review (2026-09-20): ops.alert_fire reused the row without resetting the delivery and
+-- acknowledgement state of the incident that had already closed, so a recurrence was invisible to dispatch and
+-- inherited an acknowledgement given for something else.
+UPDATE ops.alert SET state = 'recovered', recovered_at = now() WHERE state = 'firing';
+SELECT ops.alert_fire('t213:recur', 'p1_case', jsonb_build_object('case_id', '99999999-8888-7777-6666-555555555555'));
+SELECT tap._dispatch();                                               -- incident 1 is queued
+INSERT INTO tap.resp SELECT (tap._a('t213:recur')).notify_request_id, 200,
+                            '{"ok":true,"event":"ops_alert","attempted":1,"delivered":1}';
+SELECT tap._dispatch();                                               -- …and confirmed delivered
+SELECT tap.login(tap.admin_user()); SELECT tap._aal2();
+SELECT ops.alert_ack('t213:recur', 'incident 1 seen');
+SELECT tap.logout();
+SELECT ops.alert_recover('t213:recur');                               -- the condition clears
+SELECT ops.alert_fire('t213:recur', 'p1_case', '{}'::jsonb);          -- …and comes back: a NEW incident
+SELECT ok((tap._a('t213:recur')).state = 'firing'
+          AND (tap._a('t213:recur')).delivered_at IS NULL AND (tap._a('t213:recur')).delivery_status IS NULL
+          AND (tap._a('t213:recur')).acknowledged_at IS NULL AND (tap._a('t213:recur')).acknowledged_by IS NULL
+          AND (tap._a('t213:recur')).notify_attempts = 0,
+  'R1: a recurrence does not inherit the previous incident''s delivery or acknowledgement');
+SELECT is(tap._dispatch() ->> 'queued', '1', 'R2: the new incident is eligible for notification');
+SELECT tap.login(tap.admin_user()); SELECT tap._aal2();
+SELECT ops.alert_ack('t213:recur', 'incident 2 seen');
+SELECT tap.logout();                                   -- ops.audit is not readable as the operator role
+SELECT ok((tap._a('t213:recur')).acknowledged_at IS NOT NULL
+          AND (SELECT count(*)::int FROM ops.audit
+                WHERE action = 'alert.acknowledged' AND subject_ref = 't213:recur') = 2,
+  'R3: the new incident needs its own acknowledgement, recorded separately from the first');
+-- the incident counter is read through to_jsonb so that this file still runs, and still demonstrates the defect,
+-- against a build where that column does not exist yet
+SELECT is(to_jsonb(tap._a('t213:recur')) ->> 'incident_seq', '2',
+  'R4: the row counts incidents, so a second notification is not mistaken for a repeat of the first');
+
+-- the mirror image, and the reason the reset is tied to recovery alone: an alert that is STILL firing and fires
+-- again is the SAME incident. Resetting there would re-notify on every detector tick.
+CREATE TABLE tap.recur_before AS SELECT * FROM ops.alert WHERE alert_key = 't213:recur';
+SELECT ops.alert_fire('t213:recur', 'p1_case', '{}'::jsonb);
+SELECT ok((tap._a('t213:recur')).acknowledged_at = (SELECT acknowledged_at FROM tap.recur_before)
+          AND (tap._a('t213:recur')).notify_attempts = (SELECT notify_attempts FROM tap.recur_before)
+          AND (tap._a('t213:recur')).notify_request_id IS NOT DISTINCT FROM (SELECT notify_request_id FROM tap.recur_before)
+          AND to_jsonb(tap._a('t213:recur')) ->> 'incident_seq' = '2'
+          AND (tap._a('t213:recur')).fire_count = (SELECT fire_count FROM tap.recur_before) + 1,
+  'R5: an alert that is still firing and fires again is the SAME incident — nothing is reset, so a detector tick is not a fresh notification');
+
+-- a response that belongs to the PREVIOUS incident must not confirm the new one
+UPDATE ops.alert SET state = 'recovered', recovered_at = now() WHERE state = 'firing';
+SELECT ops.alert_fire('t213:late', 'p1_case', '{}'::jsonb);
+SELECT tap._dispatch();                                               -- incident 1 queued; no answer yet
+CREATE TABLE tap.late_req AS SELECT (tap._a('t213:late')).notify_request_id AS id;
+SELECT ops.alert_recover('t213:late');
+SELECT ops.alert_fire('t213:late', 'p1_case', '{}'::jsonb);           -- incident 2 opens while incident 1 is in flight
+SELECT ok((tap._a('t213:late')).notify_request_id IS NULL AND (tap._a('t213:late')).queued_at IS NULL,
+  'R6: a new incident does not hold the previous incident''s in-flight request');
+INSERT INTO tap.resp SELECT id, 200, '{"ok":true,"event":"ops_alert","attempted":1,"delivered":1}' FROM tap.late_req;
+SELECT tap._dispatch();                                               -- the old request finally answers, with a delivery
+SELECT ok((tap._a('t213:late')).delivered_at IS NULL
+          AND (tap._a('t213:late')).notify_request_id IS NOT NULL
+          AND (tap._a('t213:late')).notify_request_id <> (SELECT id FROM tap.late_req),
+  'R7: the late 2xx for the OLD incident does not mark the new one delivered — it was posted again, under its own id');
 
 SELECT * FROM finish();
 ROLLBACK;
