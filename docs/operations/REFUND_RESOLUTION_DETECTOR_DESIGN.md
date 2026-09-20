@@ -153,7 +153,13 @@ exactly as before (211 C15–C17, and control M9b).
 2. R4 not duplicated (left to `reconciliation_mismatch`).
 3. `release_stuck` unchanged in v1: overlapping cases for refunded, confirmed or released transfers.
 4. p2 with no alert, versus p1 with an alert (the owner).
-5. The 10-minute window for expiry's own refund, and whether a production read of expiry run durations is wanted (the owner).
+5. ~~The 10-minute window for expiry's own refund~~ — **settled by the owner, 2026-09-20: the ten-minute
+   attribution heuristic is TRIAGE-ONLY. It may label a case ("recorded within 10 minutes of expiry, so the expiry
+   job probably issued it"), and it must NEVER suppress one.** An uncertain refund is surfaced for support, always.
+   That is what 144 does and what 211 section M pins; the window is a wording threshold in the summary, not a
+   detection threshold, so getting it wrong can only mis-label a case, never hide one. A production read of expiry
+   run durations would only sharpen the label, and is therefore no longer needed for correctness — it stays
+   available to the owner as a refinement, not a dependency.
 6. Turn-on order: the migration (setting off) → the console classification control → the owner turns the setting on.
 
 ## 9. Evidence limits
@@ -169,7 +175,9 @@ exactly as before (211 C15–C17, and control M9b).
   - **(2) The R2 re-review trigger** (§2.1, and the migration header).
 - **§8 decisions:**
   - A agreed 1–3: R3 = `refunded` + `buyer_confirmed`; R4 left to `reconciliation_mismatch`; `release_stuck` unchanged.
-  - 4–6 are owner items: p2 vs p1, the 10-minute window, and the turn-on order. The build uses p2.
+  - 4 and 6 are owner items: p2 vs p1, and the turn-on order. The build uses p2. Item 5 was settled on
+    2026-09-20: the ten-minute window is triage-only and never suppresses (see §8.5) — it is no longer a decision
+    the build is waiting on.
 - **Build details:**
   - The owner's switch gates `run_job` for every trigger, manual included.
   - The detector is in `run_all_detectors`' order, and reports "skipped" while the switch is off.
