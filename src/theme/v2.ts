@@ -111,12 +111,30 @@ export const radius = {
  * Oswald carries OUR voice: screen titles, section heads, brand moments. It is
  * uppercase and negatively tracked.
  *
- * Inter carries EVERYTHING ELSE, including all user-generated content. Event
- * titles, venue names and person names are Inter in sentence case, never Oswald
- * and never uppercased, because they arrive in mixed case, often run long, and
- * because a poster already contains display type: a second competing headline
- * reads as a mistake. Both first-party benchmarks set event titles at normal
- * weight for exactly this reason.
+ * AMENDED 2026-09-22 BY OWNER APPROVAL (V3 direction) — EVENT AND LISTING NAMES
+ * This rule previously read "event titles, venue names and person names are
+ * Inter in sentence case, never Oswald and never uppercased". The owner approved
+ * moving EVENT AND LISTING NAMES to Oswald_700Bold in MIXED CASE, in the
+ * capitalisation the seller typed. Nothing is uppercased, and the amendment is
+ * deliberately narrow.
+ *
+ * Why the original reason no longer decides it: names run long, and Oswald is
+ * measurably narrower at equal x-height — 16% at 17pt, so in the 192pt feed-row
+ * column a 66-character name keeps materially more of itself before truncating.
+ * The old worry, that a second competing headline reads as a mistake, is handled
+ * by keeping the display voice to ONE role per screen: the name.
+ *
+ * STILL INTER, UNCHANGED: prices, dates and times, venue names, person and
+ * seller names, instructions, body copy, labels, eyebrows and every other piece
+ * of user-generated or supporting text. Only the event/listing NAME moves.
+ *
+ * NOT YET IMPLEMENTED HERE. The display tokens below remain uppercase-only and
+ * screens still set names in `title` (Inter 600). The mixed-case display token
+ * lands with the V3 implementation, and its line height must be measured on a
+ * device first: MIN_LINE_HEIGHT_RATIO (src/theme/typography.ts) was derived for
+ * UPPERCASE Oswald — (capHeight 810 + usWinDescent 377) / 1000 = 1.187 em — and
+ * mixed case brings ascenders into the line box (win metrics give 1.702 em,
+ * hhea 1.482 em). Design package: docs/product-v3/V3_DESIGN_PACKAGE_FOR_C_20260922.md
  */
 export const font = {
   display: 'Oswald_700Bold',
