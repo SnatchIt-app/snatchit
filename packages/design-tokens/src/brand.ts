@@ -149,6 +149,20 @@ export const type = {
   displayLg: { family: font.display, size: 34, lineHeight: 32, letterSpacing: -0.7, uppercase: true },
   displayMd: { family: font.display, size: 26, lineHeight: 26, letterSpacing: -0.5, uppercase: true },
   displaySm: { family: font.display, size: 20, lineHeight: 22, letterSpacing: -0.2, uppercase: true },
+  /* ── V3 mixed-case NAME tokens (owner approval 2026-09-22) — event/listing names only ──
+   * PROVISIONAL LEADING — O-4 (docs/product-v3/V3_DESIGN_PACKAGE_FOR_C_20260922.md §2, §6).
+   * These line steps are B's drawn values. MIN_LINE_HEIGHT_RATIO (typography.ts) was derived
+   * for UPPERCASE Oswald and does not decide mixed case, where ascenders enter the line box
+   * (win metrics 1.702 em, hhea 1.482 em, measured Latin ink far below either). Which one a
+   * given iOS line box enforces is a DEVICE question: `mixedCaseName: true` makes textStyle()
+   * pass these through unraised, and the O-4 device measurement must confirm or correct them
+   * before any V3 build is called accepted. Row heights are computed from content, so they
+   * move with whatever the measurement finds. */
+  nameFeature: { family: font.display, size: 30, lineHeight: 35, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
+  nameDetail:  { family: font.display, size: 31, lineHeight: 36, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
+  nameOrder:   { family: font.display, size: 21, lineHeight: 25, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
+  nameRow:     { family: font.display, size: 17, lineHeight: 21, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
+  nameState:   { family: font.display, size: 26, lineHeight: 29, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
   /** Row titles and ALL user-generated names. */
   title: { family: font.bodySemi, size: 17, lineHeight: 22, letterSpacing: 0, uppercase: false },
   body: { family: font.body, size: 15, lineHeight: 22, letterSpacing: 0, uppercase: false },

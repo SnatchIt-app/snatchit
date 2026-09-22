@@ -125,3 +125,43 @@ describe('type resolver — the rest of the token travels', () => {
     for (const n of typography.EASING_BEZIER) expect(typeof n).toBe('number');
   });
 });
+
+describe('V3 mixed-case name tokens (owner approval 2026-09-22; leading PROVISIONAL — O-4)', () => {
+  const NAMES = {
+    nameFeature: { size: 30, lineHeight: 35 },
+    nameDetail:  { size: 31, lineHeight: 36 },
+    nameOrder:   { size: 21, lineHeight: 25 },
+    nameRow:     { size: 17, lineHeight: 21 },
+    nameState:   { size: 26, lineHeight: 29 },
+  } as const;
+
+  it('carries the five name tokens: Oswald, mixed case, +0.1 tracking, B\'s drawn line steps', async () => {
+    const { v2 } = await load();
+    for (const [k, want] of Object.entries(NAMES)) {
+      const t = v2.type[k as keyof typeof v2.type] as (typeof v2.type)[keyof typeof v2.type] & { mixedCaseName?: boolean };
+      expect(t.family, k).toBe(v2.font.display);
+      expect(t.size, k).toBe(want.size);
+      expect(t.lineHeight, k).toBe(want.lineHeight);
+      expect(t.letterSpacing, k).toBe(0.1);
+      expect(t.uppercase, k).toBe(false);
+      expect(t.mixedCaseName, k).toBe(true);
+    }
+  });
+
+  it('textStyle passes the drawn line steps through UNRAISED, and never uppercases a name', async () => {
+    // O-4: the uppercase cap-floor (MIN_LINE_HEIGHT_RATIO) was derived for caps-only Oswald and does not
+    // apply to these; the drawn steps stand until the device measurement confirms or corrects them.
+    const { typography, v2 } = await load();
+    for (const [k, want] of Object.entries(NAMES)) {
+      const style = typography.textStyle(k as Parameters<typeof typography.textStyle>[0]);
+      expect(style.lineHeight, k).toBe(want.lineHeight);
+      expect(style.textTransform, k).toBeUndefined();
+      expect(style.fontSize, k).toBe(want.size);
+    }
+    // Witness: the uppercase display floor is untouched — displayLg is still raised to 43 and uppercased.
+    const display = typography.textStyle('displayLg');
+    expect(display.lineHeight).toBe(43);
+    expect(display.textTransform).toBe('uppercase');
+    expect(v2.type.displayLg.uppercase).toBe(true);
+  });
+});

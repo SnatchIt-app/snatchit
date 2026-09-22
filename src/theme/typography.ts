@@ -84,7 +84,9 @@ export function textStyle(token: TypeToken): TextStyle {
   const style: TextStyle = {
     fontFamily: fontFamily(ROLE_FOR_FAMILY[t.family] ?? 'body'),
     fontSize: t.size,
-    lineHeight: safeLineHeight(t.size, t.lineHeight),
+    // O-4 (V3): the cap-derived floor governs UPPERCASE display only. A mixed-case name token
+    // carries B's drawn step unraised until the device measurement lands — see the token block.
+    lineHeight: 'mixedCaseName' in t && t.mixedCaseName ? t.lineHeight : safeLineHeight(t.size, t.lineHeight),
     letterSpacing: t.letterSpacing,
   };
   if (t.uppercase) style.textTransform = 'uppercase';
