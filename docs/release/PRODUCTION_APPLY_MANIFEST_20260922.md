@@ -5,10 +5,11 @@ covers applying the verified required migrations; every preflight item below mus
 single ordered list. Everything else (plan v3, registry) points here.
 
 ## 1. Source and versions
-- Release gate `release/production-gate-20260918` @ **`c836bc43`** (after the reviewed merges: #86 → #85 auto,
-  #83, #84, #81; #82 closed as landed). CI green at that head. Executable content identical to A's integration
+- Release gate `release/production-gate-20260918` @ **`5b255838`** (after the reviewed merges: #86 → #85 auto,
+  #83, #84, #81, #82 closed as landed; then #88 tests-only and #90 rollback-only). CI green at `c836bc43`, `56acf516`
+  and `4652cb55`; executable content (migrations, functions, app) unchanged since `c836bc43`. Executable content identical to A's integration
   proof `3da63d9b` (tsc 0, lint 0, vitest 127 files / 2498) — only docs/local scripts differ.
-- Migration files are the blobs at that head; the ledger rows to add are the 24 versions below.
+- Migration files are the blobs at that head (byte-identical to `c836bc43`'s); the ledger rows to add are the 24 versions below. #20's rollback is the #90 shape.
 
 ## 2. The 24 files, in apply order (pending-file order = numbered before timestamped)
 
