@@ -788,23 +788,33 @@ serve(async (req: Request) => {
     //      buyer request.
     try {
       const staleIso = new Date(Date.now() - 15 * 60_000).toISOString();
-      const { data: stuck } = await supabase
+      // Both predicates run IN THE QUERY, before the limit, because the batch is a scarce
+      // resource (v38 backport of the release-branch fix 36db0c36; independent review
+      // item 1, 2026-09-19):
+      //   - payments.status = 'succeeded' (an !inner embed): a transfer whose payment is
+      //     not succeeded can never be paid — payReleasedTransfer's own guard refuses it —
+      //     so it must not occupy one of the 20 slots. Selection only: that in-function
+      //     guard is untouched and remains the authority on whether money moves
+      //     (defence in depth).
+      //   - the 15-minute quiet period for buyer_confirmed rows, previously applied AFTER
+      //     the limit, where fresh confirmations consumed slots and shrank the batch.
+      const { data: stuck, error: stuckErr } = await supabase
         .from('transfers')
-        .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at')
+        .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at, payments!inner(status)')
         .in('status', ['auto_released', 'buyer_confirmed'])
+        .eq('payments.status', 'succeeded')
         .is('stripe_transfer_id', null)
         .is('payout_released_at', null)
         .is('disputed_at', null)
+        .or(`status.eq.auto_released,and(status.eq.buyer_confirmed,buyer_confirmed_at.lt.${staleIso})`)
         // Oldest first: without an ORDER BY, Postgres may return the same
         // 20 rows every sweep and starve the rest of the backlog.
         .order('created_at', { ascending: true })
-        .limit(20)
-        .then((res) => ({
-          ...res,
-          data: (res.data ?? []).filter((r: { status: string; buyer_confirmed_at: string | null }) =>
-            r.status === 'auto_released' ||
-            (r.buyer_confirmed_at !== null && r.buyer_confirmed_at < staleIso)),
-        }));
+        .limit(20);
+      if (stuckErr) {
+        console.error('enforce-transfer-expiry: Phase 2b stuck-release query failed:', stuckErr);
+        errorCount++;
+      }
 
       for (const s of stuck ?? []) {
         try {
