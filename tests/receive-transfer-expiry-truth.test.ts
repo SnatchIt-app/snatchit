@@ -299,9 +299,13 @@ describe('F-XFER-2 — the buyer is never told a window expired that nothing enf
     const send = readFileSync('app/transfer/send/[id].tsx', 'utf8');
     const receive = readFileSync('app/transfer/receive/[id].tsx', 'utf8');
 
+    // Updated 2026-09-19: the send screen now takes its window line from sellerWindowView (which carries
+    // TRANSFER_EXPIRY_COPY) — still one pinned source (owner's seller-window correction).
+    expect(receive, 'receive').toContain('TRANSFER_EXPIRY_COPY');
+    expect(send, 'send').toContain('sellerWindowView');
     for (const [name, src] of [['send', send], ['receive', receive]] as const) {
-      expect(src, name).toContain('TRANSFER_EXPIRY_COPY');
       expect(src, name).not.toContain("'Transfer window expired'");
+      expect(src, name).not.toContain('send now if you still can');
     }
     expect(TRANSFER_EXPIRY_COPY.buyer.toLowerCase()).not.toContain('expired');
   });

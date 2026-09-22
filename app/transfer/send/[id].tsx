@@ -24,10 +24,11 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
 import {
-  TRANSFER_EXPIRY_COPY,
   formatCountdown,
   sellerAlreadySent,
   sellerDeliveryMissing,
+  sellerWindowView,
+  transferReadOutcome,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { textStyle } from '@/src/theme/typography';
@@ -68,6 +69,11 @@ export default function TransferSendScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [expiryCountdown, setExpiryCountdown] = useState<string | null>(null);
+  // A server read landed after the device deadline (owner, 2026-09-19): before one does, the seller sees only neutral
+  // "checking" wording. It is never a guarantee: the order can still close at any time.
+  const [windowChecked, setWindowChecked] = useState(false);
+  const windowRecheckRef = useRef(false);
+  const windowFollowUpRef = useRef(false);
   const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
   const expiryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -96,10 +102,19 @@ export default function TransferSendScreen() {
       .eq('seller_id', userId)
       .single();
 
-    if (fetchErr || !data) {
-      setError(fetchErr && isNetworkError(fetchErr) ? '__offline__' : 'Transfer not found');
+    // A failed read is never "not found" (owner, 2026-09-19): only a row-less answer supports that.
+    const outcome = transferReadOutcome({
+      isNetwork: !!fetchErr && isNetworkError(fetchErr),
+      code: (fetchErr as { code?: string | null } | null)?.code,
+      hasRow: !!data,
+      failed: !!fetchErr,
+    });
+    if (outcome !== 'ok') {
+      setError(outcome);
     } else {
       setError('');
+      // Marked BEFORE the transfer is set, so no render sees a post-deadline row as unchecked (no redundant re-read).
+      if (formatCountdown((data as unknown as TransferData).expires_at) === 'Expired') setWindowChecked(true);
       setTransfer(data as unknown as TransferData);
     }
     if (!quiet) setLoading(false);
@@ -114,6 +129,24 @@ export default function TransferSendScreen() {
     expiryTimerRef.current = setInterval(() => setExpiryCountdown(formatCountdown(transfer.expires_at)), 60_000);
     return () => { if (expiryTimerRef.current) clearInterval(expiryTimerRef.current); };
   }, [transfer?.expires_at, transfer?.status]);
+
+  // The device clock passed the deadline while the screen was open: check the server once before saying more than
+  // "checking". The read changes nothing on the server; a failed read shows the screen's existing error state.
+  useEffect(() => {
+    if (transfer?.status !== 'pending' || expiryCountdown !== 'Expired' || windowChecked || windowRecheckRef.current) return;
+    windowRecheckRef.current = true;
+    void fetchTransfer(true);
+  }, [transfer?.status, expiryCountdown, windowChecked, fetchTransfer]);
+
+  // A (2026-09-19): the expiry job runs every 2 minutes, so a read at the deadline almost always still says pending.
+  // Once a post-deadline read says so, read ONE more time about 150 s later — at most two automatic reads per screen.
+  // Still no guarantee: the order can close at any time, and the wording says so.
+  useEffect(() => {
+    if (!windowChecked || transfer?.status !== 'pending' || windowFollowUpRef.current) return;
+    windowFollowUpRef.current = true;
+    const t = setTimeout(() => { void fetchTransfer(true); }, 150_000);
+    return () => clearTimeout(t);
+  }, [windowChecked, transfer?.status, fetchTransfer]);
 
   // Auto-release countdown (seller_sent — buyer review window)
   useEffect(() => {
@@ -246,6 +279,10 @@ export default function TransferSendScreen() {
   const alreadySent = transfer ? sellerAlreadySent(transfer.status) : false;
   const busy = submitting || evidenceUpload.busy;
   const buyerDeliveryMissing = transfer ? sellerDeliveryMissing(transfer) : false;
+  const windowView = transfer
+    ? sellerWindowView({ status: transfer.status, countdown: expiryCountdown, checkedSincePassed: windowChecked })
+    : ({ kind: 'none' } as const);
+  const orderClosed = windowView.kind === 'closed';
 
   function Header() {
     return (
@@ -265,10 +302,13 @@ export default function TransferSendScreen() {
     return (
       <View style={s.root}>
         <Header />
-        {error === '__offline__' ? (
+        {error === 'offline' ? (
           <ScreenState state="offline" onRetry={() => fetchTransfer()} />
+        ) : error === 'unavailable' ? (
+          // The read failed and said nothing about the order: the app's neutral error state, never "not found".
+          <ScreenState state="error" onRetry={() => fetchTransfer()} />
         ) : (
-          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>{error || 'Transfer not found'}</Text></View>
+          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>Transfer not found</Text></View>
         )}
       </View>
     );
@@ -285,9 +325,18 @@ export default function TransferSendScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
       >
-        {/* Buyer delivery target */}
+        {/* Server-confirmed expiry: don't transfer (owner, 2026-09-19) */}
+        {windowView.kind === 'closed' ? (
+          <StateBlock title={windowView.title} tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateSub]}>{windowView.body}</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* Buyer delivery target. The details themselves are unchanged: whether fulfilment details (phone/email) show
+            follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
+            "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={s.section}>
-          <Text style={[textStyle('micro'), s.sectionLabel]}>Send tickets to</Text>
+          <Text style={[textStyle('micro'), s.sectionLabel]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} /> : null}
           {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} /> : null}
           {buyerDeliveryMissing ? (
@@ -300,14 +349,14 @@ export default function TransferSendScreen() {
           ) : null}
         </View>
 
-        {!alreadySent ? (
+        {!alreadySent && !orderClosed ? (
           <PlatformInstructions platform={platform} role="seller" buyerEmail={transfer.delivery_email} buyerPhone={transfer.delivery_phone} />
         ) : null}
 
-        {expiryCountdown && transfer.status === 'pending' ? (
-          <View style={[s.countdown, expiryCountdown === 'Expired' && s.countdownExpired]}>
-            <Text style={[textStyle('bodySm'), s.countdownText, expiryCountdown === 'Expired' && s.countdownExpiredText]}>
-              {expiryCountdown === 'Expired' ? TRANSFER_EXPIRY_COPY.seller : `${expiryCountdown} to send`}
+        {windowView.kind === 'countdown' || windowView.kind === 'checking' || windowView.kind === 'last_checked_open' ? (
+          <View style={[s.countdown, windowView.kind !== 'countdown' && s.countdownExpired]}>
+            <Text style={[textStyle('bodySm'), s.countdownText, windowView.kind !== 'countdown' && s.countdownExpiredText]}>
+              {windowView.line}
             </Text>
           </View>
         ) : null}
@@ -403,8 +452,15 @@ export default function TransferSendScreen() {
 
         {/* AUTO_RELEASED */}
         {transfer.status === 'auto_released' ? (
-          <StateBlock title="Payout released" tone="success">
-            <Text style={[textStyle('bodySm'), s.stateText]}>The buyer review window passed without a dispute. Your payout has been released.</Text>
+          // The status is the release DECISION; `payout_released_at` is written only after the Stripe transfer
+          // succeeds, and the job can skip a payout and retry for ever. So the money claim waits for that field
+          // (owner, 2026-09-19) — the same gate buyer_confirmed already uses.
+          <StateBlock title={transfer.payout_released_at ? 'Payout released' : 'Review window passed'} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>
+              {transfer.payout_released_at
+                ? 'The buyer review window passed without a dispute. Your payout has been released.'
+                : 'The buyer review window passed without a dispute. Your payout has not been recorded as released yet. Contact support@snatchitapp.com if it does not arrive.'}
+            </Text>
           </StateBlock>
         ) : null}
 

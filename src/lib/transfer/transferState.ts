@@ -53,10 +53,17 @@ export function formatCountdown(ts: string | null, now: number = Date.now()): st
  *
  * Whether the window SHOULD be enforced server-side is the owner's, routed through A. This copy does not
  * anticipate that answer, and it must be revisited if enforcement arrives.
+ *
+ * Seller (owner, 2026-09-19): "Remove 'send now if you still can.' A phone-clock deadline alone must not encourage
+ * sending tickets or assert that a refund occurred." In production the expiry cron can expire the order and refund the
+ * buyer at any moment after the deadline (A, from main's edge source), so the seller is told only that the status is
+ * being checked, then what the last read said, never that sending is safe.
  */
 export const TRANSFER_EXPIRY_COPY = {
-  /** The seller's screen: they are the one who can still act. */
-  seller: 'Send window has passed — send now if you still can',
+  /** The seller's screen, device clock past the deadline, no server read since: neutral. */
+  seller: "Send window has passed — checking this order's status",
+  /** The seller's screen, still pending on a read taken after the deadline: no guarantee against a later expiry. */
+  sellerLastCheckedOpen: 'Send window has passed — this order was still open when last checked, but it can close at any time',
   /**
    * The buyer's screen. F-XFER-2-A: batch 1b gave both screens the seller's string, so the buyer was told to
    * "send now if you still can" — an action they cannot take and that is not theirs. The buyer's true
@@ -64,6 +71,64 @@ export const TRANSFER_EXPIRY_COPY = {
    */
   buyer: 'Send window has passed — the seller may still send',
 } as const;
+
+/**
+ * Server-confirmed closure (owner, 2026-09-19): "Where the server confirms cancellation, expiry or refund, clearly tell
+ * the seller not to transfer tickets for that order." Here only the transfer row's `expired` status (the expiry job only
+ * expires a pending transfer, so it was never marked sent). Never inferred from the device clock, and nothing is
+ * inferred from payment status: a recorded refund is held separately until the payment lifecycle is resolved (owner).
+ */
+export const SELLER_ORDER_CLOSED_COPY = {
+  expired: { title: 'Order expired', body: "This order expired before it was marked as sent. Don't transfer the tickets for this order." },
+} as const;
+
+export type SellerWindowView =
+  | { kind: 'none' }
+  | { kind: 'countdown'; line: string }
+  | { kind: 'checking'; line: string }
+  | { kind: 'last_checked_open'; line: string }
+  | { kind: 'closed'; title: string; body: string };
+
+/**
+ * What the seller's Send Transfer screen may say about the send window. The server fact first: an `expired` transfer
+ * closes the order whatever the device clock says. Otherwise the device clock only chooses between the countdown and
+ * neutral wording, and `checkedSincePassed` (a server read taken after the device deadline) chooses between
+ * "checking" and "still open when last checked". States past sending keep their own blocks.
+ */
+export function sellerWindowView(i: {
+  status: string;
+  countdown: string | null;
+  checkedSincePassed: boolean;
+}): SellerWindowView {
+  if (i.status === 'expired') return { kind: 'closed', ...SELLER_ORDER_CLOSED_COPY.expired };
+  if (i.status !== 'pending') return { kind: 'none' };
+  if (i.countdown == null) return { kind: 'none' };
+  if (i.countdown !== 'Expired') return { kind: 'countdown', line: `${i.countdown} to send` };
+  return i.checkedSincePassed
+    ? { kind: 'last_checked_open', line: TRANSFER_EXPIRY_COPY.sellerLastCheckedOpen }
+    : { kind: 'checking', line: TRANSFER_EXPIRY_COPY.seller };
+}
+
+/**
+ * What a transfer read may be CALLED when it does not return the row (owner, 2026-09-19): a failed read must not become
+ * a claim that the order does not exist. Only PostgREST's no-row answer (or a row-less success) supports "not found";
+ * every other failure is `unavailable`, which the screens show as the app's neutral error state.
+ */
+export type TransferReadOutcome = 'ok' | 'offline' | 'not_found' | 'unavailable';
+
+export function transferReadOutcome(i: {
+  isNetwork: boolean;
+  code?: string | null;
+  hasRow: boolean;
+  /** True when the read returned an error at all; a row-less success is still "no row". */
+  failed?: boolean;
+}): TransferReadOutcome {
+  if (i.isNetwork) return 'offline';
+  if (i.hasRow) return 'ok';
+  if (i.code === 'PGRST116') return 'not_found';
+  if (i.failed || (i.code != null && i.code !== '')) return 'unavailable';
+  return 'not_found';
+}
 
 /** The canonical badge label + tone for a status. Word carries the meaning. */
 export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
@@ -110,6 +175,20 @@ export function transferStatusCopy(status: string, role: TransferRole): { title:
     default:
       return { title: status.replace(/_/g, ' '), body: '' };
   }
+}
+
+/**
+ * The buyer's auto-release block (owner, 2026-09-19; A's review). `auto_released` is the release DECISION;
+ * `payout_released_at` is written only by `record_transfer_payout`, after the Stripe transfer succeeded. Without that
+ * field the screen says the window closed and the order is complete, and claims nothing about money reaching the
+ * seller. With it, the existing sentence stands.
+ */
+export function buyerAutoReleasedCopy(payoutReleasedAt: string | null | undefined): { title: string; body: string } {
+  if (payoutReleasedAt) return transferStatusCopy('auto_released', 'buyer');
+  return {
+    title: 'Review window closed',
+    body: 'The review window closed without a confirmation or a report from you. This order is complete.',
+  };
 }
 
 /** Seller side: the ticket is out the door (any state at/after sent). */
