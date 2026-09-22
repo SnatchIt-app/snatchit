@@ -73,7 +73,7 @@ PARITY (production already has the end state; apply aligns the ledger), `O` = OP
 | 18 | `146` alert delivery + ack | S | after 117 (last definer of `alert_fire`); switch seeded false; nothing scheduled | A PASS ×2 | apply |
 | 19 | `20260906100000` checkout reservation authority | R | RC unit; redefines `complete_auction_payment`, `mark_listing_sold`, `reserve_buy_now` | payments RC (PR #54 line) | apply |
 | 20 | `20260906110000` settle_verified_payment, get_unsettled_payments | R | precedes `20260916000000` | payments RC | apply |
-| 21 | `20260906120000` payout attempts, append-only refunds | R | client `setupDecision.ts`, RC edges | payments RC | apply |
+| 21 | `20260906120000` payout attempts, append-only refunds | R | **RC edges only** (`_shared`, `stripe-webhook`, `enforce-transfer-expiry`, `delete-account`). **Not the app:** the readiness plan §2a lists `setupDecision.ts` (`record_payment_refund`) as a client caller, but that name occurs only in a comment (C, verified by A: 0 non-comment hits under `src/`, `app/`) | payments RC | apply |
 | 22 | `20260906130000` deletion sweep live-rail obligations | R | RC unit | payments RC | apply |
 | 23 | `20260909000000` get_my_tickets | R | Tickets tab ships unconditionally | reviewed (go/no-go) | apply |
 | 24 | `20260916000000` processing sweep arm | R | after `20260906110000`; edge `enforce-transfer-expiry` (RC body) | D PASS; **applied on sandbox** | apply |
@@ -220,13 +220,29 @@ tooling beyond "escalate", C's held `hold/seller-refund-recorded` screen.
 | Console controls | ✓ | ✓ (own base) | — | — (never exercised against a live DB) |
 | 142 column | ✓ | ✓ (merged in the gate) | — | — |
 
-## 13. App-side dependencies (C, 2026-09-21; confirmation of §3's app rows requested from C)
+## 13. App-side dependencies (C confirmed 2026-09-21 by grep/diff at the heads; two corrections accepted, both verified by A)
 
-App delta vs Build 22 = exactly #81 ∪ #84, five files, disjoint; neither adds a database dependency (C's
-contract check: nothing under `ops.*` reaches a consumer screen). The candidate app's DB needs are the readiness
-plan's §2a rows: 128/129/131/135/136 (push + security notices), 140 (send screen reads jsonb), 142 (refund
-amount read), `20260906120000` (`record_payment_refund`), `20260909000000` (Tickets tab). Optional owner device
-check: D6 Send screen on the candidate (read-only). Held screen stays held (§11).
+- App delta vs Build 22 = exactly #81 ∪ #84, five files, disjoint. **#81 adds no read, rpc or invoke. #84 adds
+  exactly one column to an existing read** — `payout_released_at` on the buyer's transfers select
+  (`app/transfer/receive/[id].tsx`), a column production already has and Build 22's send screen already
+  selected — so **no new pending-migration dependency**, stated precisely rather than as "no read change".
+- **What the candidate app calls, and how it behaves against production's current schema** (object missing):
+  - **fail-SOFT by design (quiet degradation, no user-facing claim):** 128 `register_push_token` + the challenge
+    pair (missing → `rpc_missing` → legacy method); 129 `revoke_push_token` / `revoke_all_push_bindings`
+    (a failed revoke is reported; sign-out success never faked); 131 (no distinct app call — server-side
+    semantics of the 128 chain); 135 (the same challenge pair); 136 security-notice RPCs (missing → "no
+    notices").
+  - **fail-CLOSED with a visible neutral state:** 140 (`markSent.ts` accepts only `transitioned`/`already_sent`;
+    a pre-140 reply → "Not confirmed yet" + re-read, never success); **142** (`settledRead.ts` selects
+    `amount_refunded_cents`; absent → `payment_status_unknown`, "We couldn't check whether this has already been
+    paid", Pay withheld — **so until 142 is applied every candidate checkout shows that state: 142 must be applied
+    before the candidate reaches users**, which is the A′ order); `20260909000000` (Tickets tab; failure is its
+    own classified state, empty is success).
+  - **Not called:** `20260906120000` — `record_payment_refund` occurs only in a comment; the app's only relation
+    to it is indirect (until the server records amounts, refunds render `refund_unconfirmed`, the production
+    shape the owner device-passed as H1).
+- **Nothing from 143–146** is read by any consumer screen (checked against the #85 chain diff and #86).
+- Optional owner device check: D6 Send screen on the candidate (read-only). Held screen stays held (§11).
 
 ## 14. Historical notes (superseded, kept for the record)
 
