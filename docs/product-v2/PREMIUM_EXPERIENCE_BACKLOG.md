@@ -4996,7 +4996,10 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   create-connect-account status_only replies exactly the three status values old clients accept, unrecognised →
   keep-previous by design (fail-soft); delete-account `{}` legal, failures `{error}`. Limits: source-level at the
   named refs; deployed-equals-source is A's byte verification; gateway/auth runtime not exercised. **Installed-client
-  compatibility now covers direct RPCs and edge calls for both possible store builds.** No V3 content enters the
+  compatibility now covers direct RPCs and edge calls for both possible store builds.** A recorded it into
+  the release record with the evidence limits. **C's next production action (on A's ping, after the DB apply and the
+  ten edge deploys):** re-run the combined gates at `3da63d9b`'s app tree and confirm PRs #81/#84 still point at
+  `19b6fc2b`/`131017a5`. Nothing else pending before the window. No V3 content enters the
   production package.
 - **V3 review for B (owner-authorised, read-only):** implementation note written —
   `docs/product-v2/V3_APP_IMPLEMENTATION_NOTE_20260922.md` (display font facts incl. single Oswald weight, 1.25
