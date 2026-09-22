@@ -132,7 +132,10 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
 
     const shown = texts(host).join(' | ');
     expect(shown).not.toContain('Transfer window expired');
-    expect(shown).toContain(TRANSFER_EXPIRY_COPY.seller);
+    // Updated 2026-09-19 (owner's seller-window correction): the open read is a fresh server read taken after the
+    // device deadline, so the line is the neutral "last checked" one, and "send now" is gone.
+    expect(shown).toContain(TRANSFER_EXPIRY_COPY.sellerLastCheckedOpen);
+    expect(shown.toLowerCase()).not.toContain('send now');
   });
 
   it('X2: past the window, Mark as sent stays enabled — the server still accepts it', async () => {
@@ -167,9 +170,13 @@ describe('F-XFER-1 (client half) — the screen says what the server actually do
     // Positive anchor first: a blank render would satisfy two `not.toContain`s and prove nothing (D's review).
     // The screen's own heading is the anchor — an expired transfer renders no CTA and no countdown row, so
     // asserting one of those would be asserting the absence twice over.
-    expect(shown).toContain('Send tickets to');
+    // Updated 2026-09-19 (owner's seller-window correction): the anchor is now the expired order's "don't transfer"
+    // block. The delivery target ("Send tickets to") still shows on expired — its display follows the final
+    // fulfilment policy (owner), pinned in send-transfer-expired-window V14. Do not hide it from this comment.
+    expect(findElement(host.output, (el) => el.props.title === 'Order expired')).toBeDefined();
     expect(findElement(host.output, (el) => el.type === 'ScrollView')).toBeDefined();
     expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.seller);
+    expect(shown).not.toContain(TRANSFER_EXPIRY_COPY.sellerLastCheckedOpen);
     expect(shown).not.toContain('Transfer window expired');
   });
 
