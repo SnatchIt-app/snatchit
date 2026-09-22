@@ -1,4 +1,4 @@
-# Consolidated rollout plan — refund/payout safety package (A, 2026-09-20)
+# Consolidated rollout plan — refund/payout safety package (A, 2026-09-20; updated 2026-09-21)
 
 **Planning only.** Nothing here is authorised by this document: every merge, apply, deploy, schedule,
 switch flip and production read beyond existing authority is a separate owner act. Prepared under the
@@ -10,6 +10,7 @@ owner's 2026-09-20 instruction; verification below is local + CI only.
 |---|---|---|---|
 | Migrations 143–146 + rollbacks + pgTAP 210–213 + `notify-report` `ops_alert` branch | `admin/146-alert-delivery` @ `70a4f613` | #86 (draft) | implemented, A-reviewed, CI green |
 | Payout starvation fix (edge, `enforce-transfer-expiry` Phase 2b selection) | `fix/payout-retry-fairness` @ `36db0c36` | #83 (draft) | implemented, CI green |
+| **Payout fix, v38 backport** (deployable against production today) | `fix/payout-fairness-v38-backport` @ `f5e91e74` (base `main`) | #87 (draft) | implemented 2026-09-21: RED {F1,F3,F4,F6} on unfixed v38 → 6/6 GREEN on the real handler; full suite 6 files / 122; typecheck 0 |
 | Transfer screens (mobile client) | `fix/seller-deadline-copy` @ `131017a5` | #84 (draft) | implemented, CI green |
 | Operator console: classify / obligations / acknowledge / delivery truth | `admin/refund-classification-console` @ `3dab1614` | none yet (§4) | implemented, A boundary review PASS, push-CI green |
 | **Integration proof (this plan's evidence)** | `integration/refund-payout-round-v2` @ `e6ebd800` = `70a4f613` + `36db0c36` + `131017a5` | local only | replay RESET 0 · census 32\|108\|37\|38 · pgTAP **5455/5455** · typecheck 0 · vitest **126 files / 2485** |
@@ -56,6 +57,7 @@ Production's ledger is **135 rows, nothing from 121 on** (`PRODUCTION_READINESS_
   preview env does not point write-capable credentials at production; then D opens a **draft, do-not-merge PR**
   (head → `admin/operating-console`) as the review surface. The merge is step §5.4 and only then deploys.
   (CI itself already ran green on the push — CI runs on every non-main push — so the PR is for review, not signal.)
+- **Status 2026-09-21:** D asked to run the Vercel check and open the PR; not yet confirmed — if D cannot verify preview protection, this becomes an owner item and the PR stays unopened.
 
 ## 5. Rollout sequence (each numbered step separately owner-authorised)
 
@@ -109,7 +111,7 @@ settlement reconciliation, the 134 processing arm). Two routes:
      PostgREST probe re-run against the prod-shape DB; Deno type-check; draft do-not-merge PR, CI green.
   5. Owner deploys the function (v38 → v39); reads one sweep tick in the edge logs.
   6. Rollback: redeploy the recorded v38 source (byte-copy kept); no migration, no data.
-  A is ready to build Route B next under the existing implementation authorisation, unless you choose Route A only.
+  **Route B is built: PR #87 @ `f5e91e74`** (2026-09-21). Steps 1–4 above are done and recorded in the PR; steps 3 (backlog count), 5 and 6 remain owner acts. The release-merge conflict on this one file resolves by taking the RC side, which already contains the fix.
 
 ## 7. 144 "unclosable cases" — reconciled
 
@@ -162,6 +164,19 @@ Until then, R-cases are classified and resolved by support per the refund resolu
 | 145 job-not-running | ✓ | ✓ | — | — (live on apply, console-only) |
 | 146 alert delivery + ack | ✓ | ✓ | — | — (switch + schedule both absent) |
 | Payout starvation fix | ✓ | ✓ | — | — (production still starves payouts) |
+| Payout fix v38 backport (#87) | ✓ | ✓ (applies to deployed v38 directly) | — | — |
 | notify-report `ops_alert` | ✓ | ✓ | — | — |
 | Transfer screens (client) | ✓ | ✓ | — (rides next authorised app build) | — |
 | Operator console controls | ✓ | ✓ (own base) | — | — (and never exercised against a live DB) |
+
+## 12. App-side consolidation (C, 2026-09-21, verified by C on GitHub; recorded at C's backlog 3af30759)
+
+- App delta vs Build 22 (`05d85732`) = exactly **#81 ∪ #84, five files, disjoint**; no other branch in the
+  package changes app code. Both PRs double-PASSed (A + D), CI green, mergeable, no open review threads.
+- C re-confirmed every app invariant against the chain: nothing under `ops.*` reaches a consumer screen; the
+  obligation vocabulary never surfaces in the app; refund copy stays amount-gated; transfer reads fail closed.
+- **Optional owner verification (C's one proposed device check, read-only, no fixture writes):** on the
+  candidate build, open sandbox order D6's Send screen as the seller — expected: "Send window has passed —
+  checking this order's status", then the server-checked wording. Every other device-observable delta rests on
+  the automated evidence (RED-first tests; 31 mutants at #84, 18 at #81) and is stated as such.
+- C's held screen (`hold/seller-refund-recorded` @ `938423e0`) stays out, pending the partial-refund policy (§9).
