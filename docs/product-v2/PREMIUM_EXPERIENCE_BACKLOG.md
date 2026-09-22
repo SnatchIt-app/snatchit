@@ -4977,6 +4977,14 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   - **#87 effect confirmed benign:** at `e079fcc1`, `payout_released_at` is read at exactly three render sites (send
     buyer_confirmed / send auto_released / receive auto_released), copy/title/tone only; no enablement, navigation,
     countdown or read scheduling keys on it.
+  - **A's cross-verification (2026-09-22):** A's own combined build (`integration/refund-payout-round-v3` @ `3da63d9b`)
+    agrees — same five app files, tsc 0, lint 0, 127 files / 2498 (one extra harness file on A's side). Phone verdict
+    and compat statement stand as the record. **Build 13:** no tag on A's side either; which build the App Store serves
+    is an App Store Connect fact → on the owner's list as a question, not C's; if a commit is named, C runs the same
+    intersection. **The "strike rows already applied" caveat is closed:** A verified the production ledger directly
+    (135 rows, max numeric 120, nothing from 121 on), so every intersected row is genuinely pending. **A's report,
+    recorded:** the production stuck-payout set is empty today, so #87 releases nothing on deploy; A is deploying it
+    as preventive under the owner's authorisation. Nothing app-side changes.
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
