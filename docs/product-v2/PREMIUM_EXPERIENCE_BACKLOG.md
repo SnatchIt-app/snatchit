@@ -4954,7 +4954,11 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   failure = its own error state). 131/135: no distinct app calls (server semantics of the 128 chain). **CORRECTION to
   A's row:** the app never calls `record_payment_refund` — comment only (setupDecision.ts:38); without that migration
   every refund renders refund_unconfirmed, the device-passed H1 shape. 143–146: nothing (confirmed). Distinction sent:
-  128–136 fail SOFT (quiet, no claims); 140/142/tickets fail CLOSED (visible neutral states).
+  128–136 fail SOFT (quiet, no claims); 140/142/tickets fail CLOSED (visible neutral states). **A verified both
+  corrections independently** (0 non-comment record_payment_refund hits at `131017a5`) and folded them into rollout
+  plan v3: §3 now lists 20260906120000 as RC-edges-only, §13 states the one added column read and keeps the
+  fail-soft/fail-closed wording, and 142-before-candidate is a recorded sequencing constraint. C's part of the
+  refund/payout safety package is complete; the consolidated sheet goes to the owner after D's check.
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
