@@ -74,7 +74,17 @@ needs a targeted apply, never `db push`.
 - Forward-back-forward rollback battery on the same database: **PASS — §7.** Independence: D independently ran the
   143–146 quadrant (reverse application, identity md5s returning, history preserved) and cross-checks §7's identity
   values; the full 24-file reverse battery is A's run only unless D re-runs it (offered).
-- §3a. **Widened baseline (18 bodies) — production vs pre-apply world:** _recorded below when both reads complete_.
+- §3a. **Widened baseline (18 bodies / 19 rows) — production vs the production-order pre-apply world, 2026-09-22:
+  18 IDENTICAL** (incl. the three notify triggers 133 replaces and its rollback restores, `ops.action_dispatch` and
+  `ops.execute_action` at 118's bodies, `run_job`, `run_all_detectors`, `kernel.sweep_deletion_pending`,
+  `release_reservation`, `reserve_buy_now`, both `mark_transfer_sent` overloads); **ONE DIFFERENT:**
+  `public.cleanup_expired_reservations()` — production `ecc0afc0…` vs repo `95c21a0e…`. Read and diffed: the
+  bodies are the **same statements with different keyword casing** (BEGIN/PERFORM/UPDATE… vs lowercase) and a
+  trailing blank line; the `app.bypass_listing_guard` line is present in both. Nothing in production calls it
+  (no cron job, no deployed edge, zero recorded calls since the 2025-12-08 stats reset; 0 expired reservations).
+  Manifest #20 redefines it with the bypass kept; #20's rollback restores the lowercase body — semantically
+  identical to production's. **Benign; no change to the manifest.** D's item-3 finding is what made this read
+  cover the right set; a real hotfix would have surfaced exactly this way.
 
 ## 4. Why 125 and 126 are omitted
 - No pending file after 125 redefines `venue.sync_scan_device_manifest`; scanning is dark. Separable.
