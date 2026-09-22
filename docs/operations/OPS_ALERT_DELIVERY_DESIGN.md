@@ -34,7 +34,9 @@ because `notify.delivery_lease_interval` is unset by owner policy, and no `notif
 
 ## 2. What 146 actually built
 
-Everything is inert until an owner turns it on, and nothing is scheduled by the migration.
+Everything **in 146** is inert until an owner turns it on, and nothing is scheduled by the migration. That is a
+statement about 146 only — 145 has no switch and is live on apply by design. The full per-migration picture, and the
+eight conjunctive prerequisites before an alert reaches a person, are in `OPS_ALERT_ROLLOUT_PREREQUISITES.md`.
 
 1. **`ops.alert` gains nine columns:** `queued_at`, `notify_request_id`, `delivered_at`, `delivery_status`,
    `notify_attempts`, `last_notify_error`, `acknowledged_at`, `acknowledged_by`, `incident_seq`. An alert nobody was
