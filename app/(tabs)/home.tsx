@@ -65,6 +65,7 @@ import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
 import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, MyProfileRPC } from '@/src/types';
+import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
 
@@ -72,6 +73,9 @@ async function getUserNeighborhoods(): Promise<Set<string>> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Set();
   const { data } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
+  // V3: this read already carries the avatar — publish it for the dock's "You" item. Only a
+  // successful read publishes; a failure must never blank an already-correct photo.
+  if (data) setDockAvatar(user.id, data.avatar_path ?? data.avatar_url);
   return new Set(data?.preferred_neighborhoods ?? []);
 }
 

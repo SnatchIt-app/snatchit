@@ -23,6 +23,7 @@ import { Button, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 const AVATAR = 92;
 const RING = AVATAR + 8;
@@ -57,6 +58,7 @@ export default function EditProfileScreen() {
         setPhoneNumber(normalizeUSPhone(data.phone_number) ?? '');
         setBio(data.bio ?? '');
         setAvatarUrl(getAvatarUrl(data.avatar_path ?? data.avatar_url));
+        setDockAvatar(user.id, data.avatar_path ?? data.avatar_url);   // V3: publish for the dock
       }
       if (error) console.warn('[EditProfile] fetch error:', error.message);
       setPageLoading(false);
@@ -89,6 +91,7 @@ export default function EditProfileScreen() {
         return;
       }
       setAvatarUrl(result.publicUrl);
+      setDockAvatar(user.id, result.storagePath);   // V3: the dock updates without a restart
     } finally {
       avatarInFlight.current = false;
       setAvatarUploading(false);

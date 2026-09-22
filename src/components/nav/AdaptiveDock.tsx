@@ -27,15 +27,20 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Keyboard, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Animated, Keyboard, Platform, PixelRatio, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { Image } from 'expo-image';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useDockCollapsed, useDockExpander } from '@/src/components/nav/dockContext';
+import { useAuth } from '@/src/hooks/useAuth';
+import { getAvatarUrl } from '@/src/lib/avatarImage';
+import { dockAvatarPathFor, subscribeDockAvatar } from '@/src/lib/nav/dockAvatar';
 import { navItems, isCollapsingRoute } from '@/src/lib/nav/navItems';
 import { DOCK_GAP, DOCK_HEIGHT, DOCK_RADIUS, DOCK_SIDE_MARGIN } from '@/src/lib/nav/navInsets';
 import * as v2 from '@/src/theme/v2';
+import { textStyle } from '@/src/theme/typography';
 
 const ITEMS = navItems({ tickets: true }); // Home, Create, Bids, Tickets, Profile
 const ITEM_W = 66;
@@ -45,6 +50,8 @@ const COMPACT_W = ITEM_W + PAD * 2;               // derived — same object, co
 const ICON = 27;
 const ICON_ACTIVE = 28;
 const DURATION = 220;
+/** V3 (§4): every image state occupies this exact circle, so the dock can never reflow. */
+const AVATAR = 28;
 
 export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -121,6 +128,20 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
 
   const activeLabel = ITEMS[activeIndex]?.label ?? 'Navigation';
 
+  // V3 — the "You" item's photo (owner 2026-09-22). The signed-in user's avatar when the shared
+  // store holds one FOR THE CURRENT USER (dockAvatarUrlFor's owner guard: a previous account's
+  // entry answers null, so a stale photo cannot survive an account change); otherwise the person
+  // icon. A failed load falls back to the same icon — never a broken-image glyph. The dock never
+  // fetches: it only subscribes to what the profile screens already published.
+  const { user } = useAuth();
+  const [, setAvatarTick] = useState(0);
+  useEffect(() => subscribeDockAvatar(() => setAvatarTick((t) => t + 1)), []);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const youPath = dockAvatarPathFor(user?.id);
+  // The 28pt request (§4): never the full-size original for a 28pt circle.
+  const youUrl = youPath ? getAvatarUrl(youPath, { width: AVATAR, devicePixelRatio: PixelRatio.get() }) : null;
+  const youPhoto = youUrl != null && youUrl !== failedUrl ? youUrl : null;
+
   return (
     <Animated.View
       style={[styles.wrap, { height: insets.bottom + DOCK_GAP + DOCK_HEIGHT }, kbdStyle]}
@@ -147,8 +168,30 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
               >
                 {/* Selected inner capsule — the active-state treatment (never a red frame). */}
                 {isFocused ? <View style={styles.selected} /> : null}
-                <Animated.View style={isFocused ? undefined : { opacity: secondaryOpacity }}>
-                  <IconSymbol name={item.icon as never} size={isFocused ? ICON_ACTIVE : ICON} color={isFocused ? v2.text.primary : v2.text.muted} />
+                <Animated.View style={[styles.itemInner, isFocused ? undefined : { opacity: secondaryOpacity }]}>
+                  {item.key === 'profile' && youPhoto ? (
+                    // The ring is chrome — 1.6pt at 2.5pt outside the circle, selected only (§4);
+                    // the unselected wrapper keeps its footprint so the crop never shifts. All
+                    // image states share the exact 28pt circle, so the dock cannot reflow.
+                    <View testID={isFocused ? 'dock-you-ring' : undefined} style={isFocused ? styles.avatarRing : styles.avatarRingSpacer}>
+                      <View style={styles.avatarCircle}>
+                        <Image
+                          source={{ uri: youPhoto }}
+                          style={styles.avatarImage}
+                          contentFit="cover"
+                          onError={() => setFailedUrl(youPhoto)}
+                        />
+                        {/* Unselected: blended only 12% toward the dock fill — recognisable, never a smudge. */}
+                        {!isFocused ? <View testID="dock-you-dim" style={styles.avatarDim} pointerEvents="none" /> : null}
+                      </View>
+                    </View>
+                  ) : (
+                    <IconSymbol name={item.icon as never} size={isFocused ? ICON_ACTIVE : ICON} color={isFocused ? v2.text.primary : v2.text.muted} />
+                  )}
+                  {/* V3: visible labels, matching each item's accessible name exactly. */}
+                  <Text style={[textStyle('navLabel'), isFocused ? styles.labelActive : styles.label]} numberOfLines={1}>
+                    {item.label}
+                  </Text>
                 </Animated.View>
               </Pressable>
             );
@@ -194,6 +237,32 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row', height: DOCK_HEIGHT, alignItems: 'center' },
   item: { width: ITEM_W, height: DOCK_HEIGHT, alignItems: 'center', justifyContent: 'center' },
+  itemInner: { alignItems: 'center', justifyContent: 'center', gap: 2 },
+  label: { color: v2.text.muted },
+  labelActive: { color: v2.text.primary },
+  // V3 "You" — all four image states share this exact geometry, so nothing reflows (§4).
+  avatarCircle: {
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: v2.radius.pill,
+    overflow: 'hidden',
+    // The flat loading fill: visible until the image paints, no spinner, no animation.
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  avatarImage: { width: AVATAR, height: AVATAR },
+  avatarDim: {
+    ...StyleSheet.absoluteFillObject,
+    // 12% toward the dock fill — recognisable, never a smudge (§4).
+    backgroundColor: 'rgba(18,18,20,0.12)',
+  },
+  avatarRing: {
+    padding: 2.5,
+    borderWidth: 1.6,
+    borderColor: v2.text.primary,
+    borderRadius: v2.radius.pill,
+  },
+  // The unselected wrapper keeps the ring's footprint so selection cannot shift the crop.
+  avatarRingSpacer: { padding: 2.5, borderWidth: 1.6, borderColor: 'transparent', borderRadius: v2.radius.pill },
   // The lighter inner region that marks the active destination — proportional to
   // the larger dock so it still sits cleanly inside.
   selected: {

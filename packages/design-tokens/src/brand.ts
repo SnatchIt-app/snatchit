@@ -171,6 +171,8 @@ export const type = {
   label: { family: font.bodyBold, size: 12, lineHeight: 16, letterSpacing: 2.2, uppercase: true },
   /** Eyebrows and metadata keys. Decoration tier. */
   micro: { family: font.bodyMedium, size: 10, lineHeight: 14, letterSpacing: 3.0, uppercase: true },
+  /** V3: the dock's visible item labels (mixed case, small, quiet). */
+  navLabel: { family: font.bodyMedium, size: 11, lineHeight: 13, letterSpacing: 0.2, uppercase: false },
   /**
    * Prices. `fontVariant: ['tabular-nums']` must be applied at the Text, or digits
    * jitter as a live bid updates. Declaring the intent in a comment is not enough,

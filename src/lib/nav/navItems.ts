@@ -26,7 +26,9 @@ export interface NavItem {
 const HOME: NavItem = { key: 'home', route: 'home', label: 'Home', icon: 'house.fill' };
 const CREATE: NavItem = { key: 'create', route: 'create', label: 'Create', icon: 'plus.circle.fill' };
 const BIDS: NavItem = { key: 'bids', route: 'bids', label: 'Bids', icon: 'tag.fill' };
-const PROFILE: NavItem = { key: 'profile', route: 'profile', label: 'Profile', icon: 'person.fill' };
+// V3 (owner 2026-09-22, O-5): the visible label AND the accessible name are "You". The key, the
+// route and the destination are unchanged — this is the same tab.
+const PROFILE: NavItem = { key: 'profile', route: 'profile', label: 'You', icon: 'person.fill' };
 /**
  * Tickets = tickets I actually OWN (not bids). The icon reads as ownership, never
  * as scanning — no scanner/QR glyph. Held out of the default set until the

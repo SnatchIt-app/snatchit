@@ -35,6 +35,7 @@ import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
+import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 // ─── Types (data layer — unchanged) ─────────────────────────────────────────────
 
@@ -113,6 +114,8 @@ export default function ProfileScreen() {
       const p = profileData as Profile;
       setProfile(p);
       setAvatarUrl(getAvatarUrl(p.avatar_path ?? p.avatar_url));
+      // V3: publish for the dock's "You" item — this screen already holds the value; the dock never fetches.
+      setDockAvatar(user.id, p.avatar_path ?? p.avatar_url);
     }
 
     // 2. Active listings
@@ -207,6 +210,7 @@ export default function ProfileScreen() {
       if (dbError) { Alert.alert('Save failed', dbError.message); return; }
       setAvatarUrl(result.publicUrl);
       setProfile((prev) => (prev ? { ...prev, avatar_path: result.storagePath } : prev));
+      setDockAvatar(user.id, result.storagePath);   // V3: the dock updates without a restart
     } finally {
       avatarInFlight.current = false;
       setAvatarUploading(false);
