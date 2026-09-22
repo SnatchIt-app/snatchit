@@ -59,6 +59,13 @@ CREATE FUNCTION tap._a(p_key text) RETURNS ops.alert LANGUAGE sql AS $f$ select 
 CREATE FUNCTION tap._dispatch(p_limit integer DEFAULT 20) RETURNS jsonb LANGUAGE sql AS $f$
   select ops.dispatch_alerts(p_limit) $f$;
 
+-- ISOLATION (2026-09-22). CI runs with LIVE pg_cron, so a real detector tick can leave a firing ops.alert behind
+-- before this file starts — `job_failure:ops-detect-tick` is the one that bites. Section Q counts posts and queued
+-- alerts GLOBALLY, so a foreign firing alert makes "exactly one post" read 2 and the file fails on a coin flip
+-- (seen in CI 2026-09-22; the local harness cannot reproduce it, because its pg_cron is a shim that never ticks).
+-- Park whatever is already firing, so every count below is this test's own. Sections S and R already do this.
+UPDATE ops.alert SET state = 'recovered', recovered_at = now() WHERE state = 'firing';
+
 -- ── Section O — the switch ──────────────────────────────────────────────────
 SELECT is((SELECT value FROM ops.setting WHERE key = 'alert_delivery_enabled'), 'false'::jsonb,
   'O1: delivery is seeded OFF (a boolean, so an audited setting_set can flip it)');
