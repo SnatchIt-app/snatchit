@@ -4986,7 +4986,17 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   commit; the Aug-3 fixes changed none of them). Same classification as Build 9: return-shape-insensitive; compat
   rests on signature resolution + raise behaviour (A's pgTAP/E2E); no success on error. So the installed-client row
   closes identically whichever of 9/13 ASC serves. Limits: source at the named commit; the commit→store mapping is
-  EAS's record; edge response contracts not checked (offered if the manifest changes any). No V3 content enters the
+  EAS's record; edge response contracts not checked (offered if the manifest changes any). **Edge pass DONE
+  (2026-09-22, A's request):** Builds 9/13 have byte-identical edge shapes — 7 invoke sites, five edges. Against
+  A's deploy sources at tree `5b255838`: create-payment-intent parses exactly the three fields old clients send and
+  returns all six fields they read, every failure `{error}` → the checkout error UI (fail-closed; new group-claim /
+  total-mismatch rejections surface as alerts, never silent success); confirm-payment requires only
+  payment_intent_id — old clients read nothing (fail-soft; noted: 9/13 treat confirmation as best-effort
+  bookkeeping by design); confirm-and-release failures are `{error}` → the existing alerts, success fields unread;
+  create-connect-account status_only replies exactly the three status values old clients accept, unrecognised →
+  keep-previous by design (fail-soft); delete-account `{}` legal, failures `{error}`. Limits: source-level at the
+  named refs; deployed-equals-source is A's byte verification; gateway/auth runtime not exercised. **Installed-client
+  compatibility now covers direct RPCs and edge calls for both possible store builds.** No V3 content enters the
   production package.
 - **V3 review for B (owner-authorised, read-only):** implementation note written —
   `docs/product-v2/V3_APP_IMPLEMENTATION_NOTE_20260922.md` (display font facts incl. single Oswald weight, 1.25
