@@ -112,6 +112,29 @@ describe('actions — the Buy Now hierarchy', () => {
     expect(secondary).toBeNull();
   });
 
+  it('V3 (O-2): the bid CTA says what it does — it OPENS bid entry, it does not submit', () => {
+    // ListingDetailScreen routes place_bid to router.push('/bid/…') — nothing is submitted from
+    // the listing. So the label is "Place a bid", and the minimum travels as an informational
+    // sub-line, never as a price the button would submit.
+    const bidOnly = listingActions(input({ nextBidAllIn: '$104.50' }));
+    expect(bidOnly.primary.kind).toBe('place_bid');
+    expect(bidOnly.primary.label).toBe('Place a bid');
+    expect(bidOnly.primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(bidOnly.primary.label).not.toMatch(/\$/);
+
+    const both = listingActions(withBuyNow({ nextBidAllIn: '$104.50' }));
+    expect(both.secondary?.kind).toBe('place_bid');
+    expect(both.secondary?.label).toBe('Place a bid');
+    expect(both.secondary?.subLabel).toBe('minimum $104.50 all-in');
+
+    // No all-in supplied (e.g. closed, or the price is still loading): no number is invented.
+    expect(listingActions(input()).primary.subLabel).toBeUndefined();
+
+    // §5: Buy Now beside a live auction carries its truth — all-in, and it ends the auction.
+    expect(both.primary.kind).toBe('buy_now');
+    expect(both.primary.subLabel).toBe('all-in, ends the auction');
+  });
+
   it('never shows an auction price as the Buy Now price', () => {
     // No all-in string supplied means no number is invented for the label.
     const { primary } = listingActions(

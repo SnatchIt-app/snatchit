@@ -94,7 +94,11 @@ function view(host: HookHost): View {
   const screen = findElement(tree, (el) => el.type === 'ScreenState');
   if (screen) return { state: screen.props.state };
   if (findElement(tree, (el) => el.type === 'Spinner')) return 'loading';
-  if (buttonByLabel(tree, 'Place bid')) return { form: true, texts: textsOf(tree) };
+  // V3 (O-2): the submit label now carries the selected bid's all-in ("Place bid · $110.00 all-in"),
+  // so the form is detected by the label's verb, not an exact string.
+  if (findElement(tree, (el) => el.type === 'Button' && typeof el.props.label === 'string' && (el.props.label as string).startsWith('Place bid · '))) {
+    return { form: true, texts: textsOf(tree) };
+  }
   return BLANK;
 }
 

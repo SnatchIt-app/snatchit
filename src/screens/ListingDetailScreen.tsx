@@ -1116,6 +1116,9 @@ export default function ListingDetailScreen({ id }: Props) {
     isHighestBidder:   userHasBid && myMaxBid >= currentHighest,
     hasBid:            userHasBid,
     buyNowAllIn,
+    // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the panel's
+    // "Next bid from" line, and never shown once the auction is closed (detailState guards mode).
+    nextBidAllIn:      allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
   });
 
   // A frozen screen must not look live (CFT-504): say when the bids channel is
@@ -1293,6 +1296,9 @@ export default function ListingDetailScreen({ id }: Props) {
           />
         }
       >
+        {state.secondary?.subLabel ? (
+          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={1}>{state.secondary.subLabel}</Text>
+        ) : null}
         {state.secondary ? (
           <Button
             label={state.secondary.label}
@@ -1301,6 +1307,10 @@ export default function ListingDetailScreen({ id }: Props) {
             disabled={state.secondary.disabled}
             onPress={() => runAction(state.secondary!.kind)}
           />
+        ) : null}
+        {/* V3 (O-2): the sub-line is informational — a minimum, never the amount this button submits. */}
+        {state.primary.subLabel ? (
+          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={1}>{state.primary.subLabel}</Text>
         ) : null}
         <Button
           label={state.primary.label}
@@ -1326,6 +1336,7 @@ const s = StyleSheet.create({
     borderLeftWidth: 2, borderLeftColor: v2.status.warning, backgroundColor: v2.surface.surface,
   },
   liveNoticeText: { color: v2.status.warning },
+  ctaSubLabel: { color: v2.text.muted, textAlign: 'center' },
   safe: { flex: 1, backgroundColor: v2.surface.canvas },
 
   // The artwork runs under the status bar: the hero is the first thing on the

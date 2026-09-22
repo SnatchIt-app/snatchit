@@ -45,6 +45,12 @@ export interface ListingAction {
   label: string;
   /** Rendered, but not tappable: the state is worth showing, the action is not available. */
   disabled?: boolean;
+  /**
+   * V3 (O-2): an informational line under the control. For place_bid it carries the minimum
+   * ("minimum $104.50 all-in") — the button OPENS bid entry, so its label never names a price
+   * as if pressing it would submit that amount.
+   */
+  subLabel?: string;
 }
 
 /**
@@ -105,6 +111,8 @@ export interface DetailStateInput {
   hasBid: boolean;
   /** Preformatted, all-in. From `allInFromDollars`. Never computed here. */
   buyNowAllIn: string | null;
+  /** All-in of the minimum next bid, preformatted; null when closed or unknown. */
+  nextBidAllIn?: string | null;
 }
 
 export interface DetailState {
@@ -309,7 +317,14 @@ export function listingActions(input: DetailStateInput): {
     };
   }
 
-  const bid: ListingAction = { kind: 'place_bid', label: 'Place bid', disabled: reserving };
+  // V3 (O-2, owner 2026-09-22): the control opens bid entry — it submits nothing — so it reads
+  // "Place a bid" and the minimum is a sub-line, not a price on the button.
+  const bid: ListingAction = {
+    kind: 'place_bid',
+    label: 'Place a bid',
+    disabled: reserving,
+    ...(input.nextBidAllIn ? { subLabel: `minimum ${input.nextBidAllIn} all-in` } : {}),
+  };
 
   if (mode === 'auction_and_buy_now') {
     return {
@@ -317,6 +332,9 @@ export function listingActions(input: DetailStateInput): {
         kind: 'buy_now',
         label: input.buyNowAllIn ? `Buy now · ${input.buyNowAllIn}` : 'Buy now',
         disabled: reserving,
+        // §5 (V3): both facts a buyer needs beside a live auction — the price is all-in,
+        // and taking it ends the auction. True only in this mode.
+        subLabel: 'all-in, ends the auction',
       },
       secondary: bid,
     };

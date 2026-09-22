@@ -327,7 +327,10 @@ export default function PlaceBidScreen({ id }: Props) {
         }
       >
         <Button
-          label="Place bid"
+          // V3 (O-2): the submit control itself carries the amount it submits — the all-in of the
+          // buyer's SELECTED bid, the same figure as the breakdown's total. The listing CTA, by
+          // contrast, names only a minimum, because it submits nothing.
+          label={`Place bid · ${lines.total} all-in`}
           pendingLabel="Submitting bid…"
           onPress={handleConfirm}
           loading={submitting}
