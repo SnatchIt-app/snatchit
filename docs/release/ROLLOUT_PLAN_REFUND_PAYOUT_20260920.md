@@ -16,6 +16,7 @@ in §14 and labelled; every fact below was re-read today, not carried.
 | 4 | "both switches off restores pre-package behaviour" | **False.** 143 and 145 change behaviour on apply with **no switch**; 146's recurrence semantics and columns are live on apply. Each switch disables exactly one thing (§8) | 143/145/146 bodies; 115's `detectors_enabled` |
 | 5 | "Preview env vars have never been checked by anyone" | **Wrong.** They were enumerated and the privileged key removed on **2026-09-08** (D's deployment record). What is true: that check is 13 days old, and the Preview scope carries the **production Supabase URL + anon key**, so any reachable preview is a live production console for an authenticated operator — the risk is authenticated write access, not a secret key (§5) | `docs/admin-console/DEPLOYMENT_RECORD_2026-09-08.md` |
 | 6 | "merge of the console PR = production deploy" | **Not by itself.** A push/merge to `admin/operating-console` creates a deployment that Vercel **cancels unless the commit SHA equals the Ignored-Build-Step pin**. The actual release act is updating that pin (or `vercel deploy --prod` from a clean checkout) — an owner act in either form (§5) | deployment record, addendum 2 |
+| 8 | (v3 first draft) "`detectors_enabled=false` halts all detectors"; "Preview points at production" stated as fact | Global/per-job switches halt **scheduled** runs only; manual console runs bypass them (§8). The production-URL claim is an inference from variable names, now a checklist question (§5). Both from D's independent review of v3 | 117/144 `run_job` body; deployment record line 79 |
 | 7 | §6: "steps 1–4 done … steps 3, 5, 6 remain" (self-contradictory) | Done: 1 (historical byte-verification, 2026-09-19), 2, 4. **Outstanding: 3 (backlog count AND value), 5 (deploy), 6 (rollback readiness), and a fresh byte re-verification of deployed v38 at deploy time** (§7) | — |
 
 ## 1. Exact reviewed versions
@@ -117,10 +118,13 @@ current:** any dashboard reading — D's token is refused for the project scope 
 not evidence of today's setting.
 
 **What the risk actually is.** The console holds no privileged key (repo: `admin/src/lib/supabase/server.ts`
-uses the anon key + the operator's cookie). A preview therefore cannot act as service-role — but because the
-Preview scope points at the **production** Supabase project, **a reachable preview is a fully functional
-production console for anyone who can sign in as an operator** (role + aal2 gates still apply). Exposure, not
-key leakage, is what the settings govern.
+uses the anon key + the operator's cookie). A preview therefore cannot act as service-role — but the Preview scope carries
+`NEXT_PUBLIC_SUPABASE_URL` + anon key, and the record lists variable **names**, not values. That it points at the
+**production** project is a strong inference (one Supabase project exists; there is no console staging project;
+`ENV_LABEL` is only a label), **not a recorded reading** — checklist item 3 asks for the value. If it is
+production, **a reachable preview is a fully functional production console for anyone who can sign in as an
+operator** (role + aal2 gates still apply), and item 1 is load-bearing. Exposure, not key leakage, is what the
+settings govern.
 
 **Deployment trigger, corrected.** Vercel's production branch is `admin/operating-console`. A push or merge to it
 creates a production-target deployment that the **Ignored Build Step cancels unless the commit SHA equals the
@@ -129,14 +133,18 @@ updating the pinned SHA and redeploying, or `vercel deploy --prod` from a clean 
 commit** — an owner act in both forms.
 
 **Route:** the draft do-not-merge PR (head `3dab1614` → base `admin/operating-console`) is safe to open as a review
-surface once the checklist is clean; D opens it. **Owner checklist (Vercel → snatchit-admin,
+surface once the checklist is clean; D opens it with the header: *"DO NOT MERGE — review surface only. Merging
+does not itself deploy (canceled build unless the SHA matches the Ignored-Build-Step pin); the release act is the
+pin update or `vercel --prod`, both owner acts."* **Owner checklist (Vercel → snatchit-admin,
 `prj_o17cASVVqqyGKPUtiklJRvAMVgNB`), one pass:**
 1. Settings → Deployment Protection: previews require Vercel Authentication / SSO (`all_except_custom_domains`
    or stricter)?
 2. Settings → Environments → Preview: Branch Tracking still **disabled**?
 3. Settings → Environment Variables, Preview scope: still exactly `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_ENV_LABEL` — **no** service-role key,
-   **no** `ADMIN_SECRET*`? (Note the URL is production's; that is expected and is why item 1 matters.)
+   **no** `ADMIN_SECRET*`? **And read the value of `NEXT_PUBLIC_SUPABASE_URL`** (a public-class value): is it the
+   production project (`hqycwntpfoztoinemqns`)? If yes, item 1 is what keeps previews from being a live
+   production console.
 4. Settings → Build and Deployment → Ignored Build Step: which SHA is pinned? (Tells you whether a future merge
    could build.)
 
@@ -177,7 +185,7 @@ file later; the one predictable merge conflict resolves by taking the RC side, w
 |---|---|---|---|---|
 | 143 | **none** | — | bounded reads; "last run" = newest run | **rollback** (restores 116/117 verbatim — and the Disk IO reads with them) |
 | 144 | `refund_resolution_detector_enabled` (seeded false) | only the refund-resolution detector (every trigger, manual included → no cases) | the widened vocabulary; the closure guard on refund-resolution cases (inert until such cases exist); the classify/obligation action types | rollback = **DISABLE path** when history exists: bodies restored, detector dropped, vocabulary kept, **no case/event deleted**; re-apply recovers with history intact (battery B2) |
-| 145 | **none dedicated** | — | job-not-running detection on every tick. The global `detectors_enabled=false` (115) halts **all** detectors — blunt, not a 145 switch | **rollback** (restores 143's `detect_jobs`; cases kept — 145's open cases then auto-resolve as "condition no longer detected", which is history, not deletion) |
+| 145 | **none dedicated** | — | job-not-running detection on every scheduled tick. **No switch fully stops it:** the global `detectors_enabled=false` (115) and the per-job `job_state.enabled=false` halt **scheduled** runs only — `run_job` skips its rules when `p_trigger = 'manual'`, and the console's "Run job now" (`job_retry` → `run_job(…, 'manual')`) still runs 145's detection (D verified on a replay: cron → skipped `detectors_disabled`; manual → succeeded, scanned). Unlike 144's switch, which refuses manual too | **rollback** (restores 143's `detect_jobs`; cases kept — 145's open cases then auto-resolve as "condition no longer detected" (D executed this: row present with both events, alert recovered), which is history, not deletion — **though the closed case keeps its "not running" title, so post-rollback history reads as if the jobs recovered; they did not, the detector stopped looking**) |
 | 146 | `alert_delivery_enabled` (seeded false) | only `dispatch_alerts` (posting). Scheduling is a separate cron entry that must also not exist | the nine columns; `alert_fire`'s new-incident semantics (`incident_seq` bumps on recovered→firing); `alert_ack` RPC | rollback restores 117's `alert_fire`, drops the four functions and nine columns; **alert rows kept; delivery/acknowledgement bookkeeping and the incident counter are discarded** — `ops.audit` `alert.acknowledged` rows survive; copy them first if wanted |
 
 "Both switches off" therefore restores **only** case creation by the refund detector and alert posting. It does
