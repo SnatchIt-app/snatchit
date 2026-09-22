@@ -4980,7 +4980,13 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
 - **Production close-out (C, 2026-09-22):** A's final release source `integration/refund-payout-round-v3` @
   `3da63d9b` carries the five app files byte-identical to `e079fcc1` (each diffed); remaining diffs are docs/edges/
   migrations. Confirmation sent to A. Open: installed-client row closes when the owner names the App Store build
-  (Build 13 unattested — no tag/commit). Standing by for the release verification window. No V3 content enters the
+  (Build 13 unattested — no tag/commit). Standing by for the release verification window. **Build 13 CLOSED
+  (2026-09-22):** A supplied the EAS-recorded commit `3c67dfc9` (store build 13); C ran the same intersection —
+  identical 12 RPCs to Build 9, same nine intersections, all 14 call sites destructure only `error` (verified at the
+  commit; the Aug-3 fixes changed none of them). Same classification as Build 9: return-shape-insensitive; compat
+  rests on signature resolution + raise behaviour (A's pgTAP/E2E); no success on error. So the installed-client row
+  closes identically whichever of 9/13 ASC serves. Limits: source at the named commit; the commit→store mapping is
+  EAS's record; edge response contracts not checked (offered if the manifest changes any). No V3 content enters the
   production package.
 - **V3 review for B (owner-authorised, read-only):** implementation note written —
   `docs/product-v2/V3_APP_IMPLEMENTATION_NOTE_20260922.md` (display font facts incl. single Oswald weight, 1.25
