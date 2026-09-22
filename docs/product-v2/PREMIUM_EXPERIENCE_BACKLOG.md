@@ -4959,6 +4959,24 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   plan v3: §3 now lists 20260906120000 as RC-edges-only, §13 states the one added column read and keeps the
   fail-soft/fail-closed wording, and 142-before-candidate is a recorded sequencing constraint. C's part of the
   refund/payout safety package is complete; the consolidated sheet goes to the owner after D's check.
+- **Final combined app verification + compatibility statement (C, 2026-09-22; owner authorised executing the reviewed
+  release once prerequisites pass; sent to A):**
+  - **Combined tree PASS:** `local/verify-combined-20260922` = `e191cbfa` + `19b6fc2b` + `131017a5` → `e079fcc1`, both
+    merges conflict-free; app diff vs gate exactly the five files (+204 −29); each byte-identical to its PR head.
+    Gates alone at `e079fcc1`: tsc 0; lint 0/29; vitest **126 files / 2492 tests**. The branch stays local as the record.
+  - **Installed-app compatibility (per build, by source at the refs):** Build 9 (tag) calls 12 RPCs, nine intersecting
+    pending-set redefinitions — every call site destructures only `error`, so Build 9 is return-shape-insensitive;
+    its compat rests on signature resolution and raise behaviour (server properties, A's pgTAP/E2E). Build 22's only
+    shape-sensitive calls are the fail-closed/fail-soft designed ones (markSent {transitioned, already_sent} — pre-140
+    void → "Not confirmed yet", never success; push chain rpc_missing → legacy; 136 missing → "no notices";
+    get_my_tickets failure → its own error state). Build 13 has no tag — not attested; A to name a commit if it can be
+    live. Which rows are actually pending = A's ledger call; the intersection covers the full set.
+  - **Phone verdict: NOT materially necessary.** Nothing ships to devices; the only device-observable question (a real
+    Mark-as-sent submission against the new 140 body) is a write the owner has declined outside authorised fixtures
+    and is already determined by source + A's E2E. The D6 wording check remains optional, cosmetic.
+  - **#87 effect confirmed benign:** at `e079fcc1`, `payout_released_at` is read at exactly three render sites (send
+    buyer_confirmed / send auto_released / receive auto_released), copy/title/tone only; no enablement, navigation,
+    countdown or read scheduling keys on it.
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
