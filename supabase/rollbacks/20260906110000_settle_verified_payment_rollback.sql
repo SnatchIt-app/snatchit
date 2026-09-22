@@ -18,8 +18,19 @@
 --   select proname from pg_proc where pronamespace='public'::regnamespace
 --     and proname in ('settle_verified_payment','get_unsettled_payments');
 --     -- expect 0 rows
---   select md5(prosrc) from pg_proc where oid = 'public.cleanup_expired_reservations()'::regprocedure;
---     -- must equal the md5 of the 000 body on a fresh replay stopped at 092
+--   select md5(prosrc), md5(pg_get_functiondef(oid)) from pg_proc where oid = 'public.cleanup_expired_reservations()'::regprocedure;
+--     -- must equal the 000 body's values (a fresh replay of the repo chain gives them; pg_get_functiondef md5
+--     -- 95c21a0eb07946e6663a13885cb959b6). This rollback restores the REPO body everywhere, by design.
+--     -- CHECK BOTH HASHES — prosrc is the body text only and is identical across SECURITY DEFINER/INVOKER and any
+--     -- search_path change (demonstrated by D, 2026-09-22: an INVOKER variant of this exact body has prosrc md5
+--     -- 113cebf6…, the same as production's); only pg_get_functiondef detects those. This function's whole point is
+--     -- SECURITY DEFINER bypassing the listing guard, so prosrc alone proves nothing about what matters.
+--     -- NOTE (production, 2026-09-22 — manifest §3a): before this migration production carried the SAME statements
+--     -- with uppercase keywords (pg_get_functiondef md5 ecc0afc0cfc3b4521ed8cbe87cad93e8, prosrc md5
+--     -- 113cebf6671591c540cf2e54fa45ca0b; capture: docs/release/captures/cleanup_expired_reservations_production_20260922.sql).
+--     -- After this rollback on production the function is therefore semantically identical to its pre-apply body
+--     -- but hashes as the repo body, not the capture. That is pre-existing casing drift, not something this
+--     -- rollback creates; a byte-exact restoration on production is an OPTIONAL manifest-only step, never this file.
 --   supabase/tests/121_settlement.sql must FAIL (functions missing); every
 --   other file is unchanged.
 -- ============================================================================
