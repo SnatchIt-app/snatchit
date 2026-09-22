@@ -56,7 +56,7 @@ import {
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
 import { hapticSuccess } from '@/src/lib/feedback/haptics';
-import { fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel } from '@/src/lib/checkout/holdState';
+import { ESCROW_NOTE_COPY, fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel, showEscrowNote } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
 import { decideCheckoutSetup, decideRevalidation, type RefundState } from '@/src/lib/checkout/setupDecision';
@@ -142,6 +142,10 @@ export default function CheckoutScreen() {
   // F-CHK-READERR: the settled-payment lookup failed, so whether the buyer already paid is unknown. Pay is withheld
   // and the only action re-runs the check (setup), until a read succeeds.
   const [statusUnknown, setStatusUnknown] = useState(false);
+  // The payment lookup itself failed (not the reservation's): hides the escrow line (owner, 2026-09-19).
+  const [paymentStatusUnknown, setPaymentStatusUnknown] = useState(false);
+  // The reservation lookup failed: also hides the escrow line until a listing read succeeds (owner, 2026-09-19).
+  const [reservationStatusUnknown, setReservationStatusUnknown] = useState(false);
   // A payment result is being reconciled with the server (A-04).
   const [checking, setChecking] = useState(false);
   // CFT-306: the settlement record after the charge is a step of its own.
@@ -229,6 +233,8 @@ export default function CheckoutScreen() {
               // read; a failure throws, so setup stops before the hold and any intent.
               const read = await readSettledPayments(supabase, lid, bid);
               if ('error' in read) throw new SettledReadError(read.error);
+              // The payment status is established again only now, so the escrow line stays hidden during a re-check.
+              setPaymentStatusUnknown(false);
               return read.rows;
             },
             fetchListing: async (lid) => {
@@ -237,6 +243,7 @@ export default function CheckoutScreen() {
                 .select('status, reserved_by, reserved_until')
                 .eq('id', lid)
                 .single();
+              if (!error) setReservationStatusUnknown(false);
               return error ? null : data;
             },
             createIntent: () =>
@@ -257,6 +264,7 @@ export default function CheckoutScreen() {
           // succeeds.
           reportCheckoutFailure('payment-status', decision.detail);
           setStatusUnknown(true);
+          setPaymentStatusUnknown(true);
           setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
           return;
         }
@@ -276,6 +284,7 @@ export default function CheckoutScreen() {
           // The hold may still be live, so claim nothing about it. Owner (2026-09-19): the same unknown state as
           // re-validation's — "Check again" re-runs this check; no Pay until a check succeeds.
           setStatusUnknown(true);
+          setReservationStatusUnknown(true);
           setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
           return;
         }
@@ -608,6 +617,7 @@ export default function CheckoutScreen() {
       reportCheckoutFailure('payment-status', outcome.detail);
       setPaymentReady(false);
       setStatusUnknown(true);
+      setPaymentStatusUnknown(true);
       setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
       return 'unknown';
     }
@@ -618,6 +628,7 @@ export default function CheckoutScreen() {
       reportCheckoutFailure('reservation-check', outcome.detail);
       setPaymentReady(false);
       setStatusUnknown(true);
+      setReservationStatusUnknown(true);
       setPaymentError(RESERVATION_UNVERIFIABLE_COPY);
       return 'unknown';
     }
@@ -887,9 +898,9 @@ export default function CheckoutScreen() {
           )}
         </View>
 
-        <Text style={[textStyle('bodySm'), s.trust]}>
-          Payment is held until your ticket reaches you. Secured by Stripe.
-        </Text>
+        {showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable }) ? (
+          <Text style={[textStyle('bodySm'), s.trust]}>{ESCROW_NOTE_COPY}</Text>
+        ) : null}
 
         <View style={{ height: 120 }} />
       </ScrollView>
