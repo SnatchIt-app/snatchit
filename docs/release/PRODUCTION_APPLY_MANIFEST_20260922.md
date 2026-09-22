@@ -114,7 +114,15 @@ cause — the stand-in `cron.job` row carries the database name it was scheduled
 `createdb -T` artefact, not a rollback residue (the first-forward database passes 132 11/11).
 
 ## 8. After the apply (separate acts, in order)
-Edge deploys of the RC functions (`enforce-transfer-expiry` supersedes v39; `notify-report` gains `ops_alert`;
-`stripe-webhook`, `create-payment-intent`, `confirm-payment`, `confirm-and-release`, `delete-account`, `send-push` as
-reviewed) → console release (owner: Ignored-Build-Step pin or `vercel --prod`) → verification window → recipient
-verification → detector flip → dispatcher schedule + delivery flip. None of these is part of this manifest.
+**Edge deploy set — measured 2026-09-22 by byte comparison of every deployed bundle (CLI download, verified
+byte-faithful: the pre-deploy v38 download equals `origin/main` exactly) against the gate, per function's own import
+closure:** 10 functions change and are deployed after the DB apply — `enforce-transfer-expiry` (RC body, supersedes
+v39; also `_shared/payouts.ts`, `_shared/payout-logic.ts`), `confirm-and-release` (same shared files),
+`stripe-webhook`, `create-payment-intent`, `confirm-payment`, `create-connect-account`, `delete-account`,
+`notify-report` (gains `ops_alert`), `notify-transfer`, `send-push`. **Unchanged, not redeployed:**
+`auto-finalize-auctions`, and B's `credential-sign`, `door-manifest`, `door-session` (byte-identical to the gate — no
+B change rides). **In the gate but not deployed and out of scope:** `connect-onboarding`, `ops-refund-execute`,
+`payout-execute`, `primary-checkout`, `refund-execute`. Each deploy is preceded by an exact-source diff review
+(deployed source fetched via the platform API, as for v38) → console release (owner: Ignored-Build-Step pin or
+`vercel --prod`) → verification window → recipient verification → detector flip → dispatcher schedule + delivery
+flip. None of these is part of this manifest.
