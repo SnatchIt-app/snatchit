@@ -365,31 +365,45 @@ CREATE TEMP TABLE t210_dj ON COMMIT DROP AS SELECT t210_old.capture(false) AS ol
 -- Amended 2026-09-19 (migration 145): 145 makes detect_jobs report ACTIVE jobs that are NOT RUNNING as well, so the
 -- three equivalence assertions below now compare the part 145 does not change — the failing-job class — and the new
 -- class is asserted in pgTAP 212. Everything 143 itself changed is still pinned here.
-SELECT ok((SELECT (new_c -> 'ret') - 'scanned' - 'opened' = (old_c -> 'ret') - 'scanned' - 'opened'
+-- ISOLATION (2026-09-22): the counts in `ret` are GLOBAL — they include real cron jobs such as ops-detect-tick,
+-- which in CI (live pg_cron, unlike the local shim) can fire and be swept between these two snapshots and move
+-- `resolved`. So B4 compares the SHAPE (the key set, which is what it always claimed to check) and the scanned
+-- floor, not the perturbable counts; B5/B6 below carry the content check, scoped to this fixture's own jobs.
+SELECT ok((SELECT (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(new_c -> 'ret') k)
+                = (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(old_c -> 'ret') k)
+                  AND (new_c #>> '{ret,cron_run_details_available}')
+                      IS NOT DISTINCT FROM (old_c #>> '{ret,cron_run_details_available}')
                   AND (new_c #>> '{ret,scanned}')::int >= (old_c #>> '{ret,scanned}')::int FROM t210_dj),
   'B4: detect_jobs returns the applied body''s shape and never scans fewer jobs (145 adds the not-running class)');
 -- Nothing the applied body found is lost, and whatever 145 still calls "failing" keeps the applied body's exact text.
 -- (Some jobs the applied body called failing are now reported as not running instead — that is 145's point, and 212
 -- pins which is which.)
 SELECT ok((SELECT (SELECT coalesce(array_agg(o ->> 'key' ORDER BY o ->> 'key'), '{}')
-                     FROM jsonb_array_elements(old_c -> 'cases') o)
+                     FROM jsonb_array_elements(old_c -> 'cases') o WHERE o ->> 'ref' LIKE 't210-%')
                   <@ (SELECT coalesce(array_agg(n ->> 'key' ORDER BY n ->> 'key'), '{}')
-                        FROM jsonb_array_elements(new_c -> 'cases') n)
+                        FROM jsonb_array_elements(new_c -> 'cases') n WHERE n ->> 'ref' LIKE 't210-%')
              FROM t210_dj)
       AND (SELECT coalesce(bool_and(n = o), true)
              FROM t210_dj, jsonb_array_elements(new_c -> 'cases') n
              JOIN LATERAL (SELECT o FROM t210_dj d2, jsonb_array_elements(d2.old_c -> 'cases') o
                             WHERE o ->> 'key' = n ->> 'key') j ON true
-            WHERE n ->> 'title' NOT LIKE '%is not running%'),
+            WHERE n ->> 'ref' LIKE 't210-%' AND n ->> 'title' NOT LIKE '%is not running%'),
   'B5: every case the applied body opened is still opened, and each one 145 still calls failing has its exact text');
 SELECT is((SELECT jsonb_agg(jsonb_set(x, '{payload}', (x -> 'payload') - 'not_running' - 'last_run') ORDER BY x ->> 'key')
              FROM t210_dj, jsonb_array_elements(new_c -> 'alerts') x
-            WHERE (x ->> 'key') IN (SELECT y ->> 'key' FROM t210_dj, jsonb_array_elements(old_c -> 'alerts') y)),
-          (SELECT jsonb_agg(x ORDER BY x ->> 'key') FROM t210_dj, jsonb_array_elements(old_c -> 'alerts') x),
+            WHERE (x ->> 'key') LIKE 'job_failure:t210-%'
+              AND (x ->> 'key') IN (SELECT y ->> 'key' FROM t210_dj, jsonb_array_elements(old_c -> 'alerts') y)),
+          (SELECT jsonb_agg(x ORDER BY x ->> 'key') FROM t210_dj, jsonb_array_elements(old_c -> 'alerts') x
+            WHERE (x ->> 'key') LIKE 'job_failure:t210-%'),
   'B6: those jobs'' alerts are the applied body''s, with the same payloads (145 only adds not_running/last_run)');
+-- B7 also guards the t210-% scoping added to B5/B6: jsonb_agg over an empty set is NULL, and is(NULL, NULL)
+-- passes, so if that prefix ever stopped matching, B6 would go vacuously green. Assert the compared alert set is
+-- non-empty here, where the plan already has an assertion for exactly this job.
 SELECT ok((SELECT array_agg(x ->> 'ref') FROM t210_dj, jsonb_array_elements(new_c -> 'cases') x)
-          @> array['t210-last2','t210-stale','t210-hung30','t210-e7in','t210-inv7','t210-rank5'],
-  'B7 (witness): the comparison is not vacuous — the fixture''s failing jobs are flagged');
+          @> array['t210-last2','t210-stale','t210-hung30','t210-e7in','t210-inv7','t210-rank5']
+      AND (SELECT count(*) FROM t210_dj, jsonb_array_elements(old_c -> 'alerts') x
+            WHERE (x ->> 'key') LIKE 'job_failure:t210-%') > 0,
+  'B7 (witness): the comparison is not vacuous — the fixture''s failing jobs are flagged and their alerts are compared');
 
 -- ── Section C — job_health against a brute-force oracle ──────────────────────────────────────────────────────
 CREATE TEMP TABLE t210_items ON COMMIT DROP AS
