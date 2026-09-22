@@ -9,9 +9,22 @@
 #   B3  145 rolled back                                -> 143's exact detect_jobs body returns
 #   B4  146 rolled back                                -> 117's exact alert_fire body returns, columns gone, alert rows kept
 # usage: rollback_battery_143_146.sh <base-db-that-has-the-full-chain>
+#
+# NOT VACUOUS, and we know because it has been run wrong: A copied this file out of the repo tree,
+# ROOT resolved somewhere without supabase/rollbacks, the rollbacks silently never applied, and the
+# battery failed 8 of 21 on exactly the state assertions. That is the negative control for the whole
+# script — with nothing rolled back, it refuses to report success. The guard below turns that
+# particular misuse into an instant, legible refusal instead of eight puzzling failures.
 set -u
 export LC_ALL=C PGHOST=${PGHOST:-127.0.0.1} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-postgres}
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; BASE="$1"; RC=0
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"; BASE="${1:-}"; RC=0
+[ -n "$BASE" ] || { echo "usage: $(basename "$0") <base-db-that-has-the-full-chain>"; exit 2; }
+for f in supabase/rollbacks/144_ops_refund_resolution_detector_rollback.sql \
+         supabase/rollbacks/145_ops_job_not_running_detection_rollback.sql \
+         supabase/rollbacks/146_ops_alert_delivery_and_ack_rollback.sql \
+         supabase/migrations/144_ops_refund_resolution_detector.sql; do
+  [ -f "$ROOT/$f" ] || { echo "REFUSING: $ROOT/$f not found — run this from inside the repo tree, not a copy."; exit 2; }
+done
 q() { psql -X -qtA -d "$1" -c "$2" 2>&1; }
 ok() { if [ "$2" = "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 (got [$2] want [$3])"; RC=1; fi; }
 fresh() { dropdb --if-exists "$1" >/dev/null 2>&1; createdb -T "$BASE" "$1" || { echo "createdb failed"; exit 1; }; }
