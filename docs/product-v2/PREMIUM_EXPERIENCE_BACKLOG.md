@@ -4939,6 +4939,12 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   legacy receive form — client-testable; (4) the confirm step precedes intent creation in BOTH buy_now and
   pay-after-win, and no success is shown before the server records the destination; (5) copy states routing, not
   delivery promises. Stage 3 needs a build; nothing started, kept out of the safety package.
+- **A's acknowledgement (2026-09-21):** status recorded into the release proposal as sent; the D6 check goes to the
+  owner as OPTIONAL, framed as C framed it; B's stage-3 criteria preserved; gated surfaces route to A. **New and
+  C-verified on GitHub:** PR #87 `fix/payout-fairness-v38-backport` @ `f5e91e74`, draft DO-NOT-MERGE against `main` —
+  the payout-starvation fix ported onto the DEPLOYED expiry source; files are the edge function plus two test files,
+  **zero app files**, so the Build-22 app-delta statement (exactly #81 ∪ #84, five files) is unchanged. #83 is no
+  longer the only payout-fix vehicle. The consolidated proposal goes to the owner from A.
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
