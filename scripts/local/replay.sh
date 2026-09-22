@@ -1,6 +1,6 @@
 #!/bin/bash
 # LOCAL-ONLY fresh replay of the migration chain onto a plain PostgreSQL 17
-# cluster: scaffolding shim first (scripts/local/replay_shim.sql — see its
+# cluster: scaffolding shim + its fidelity supplements first (scripts/local/replay_shim.sql — see its
 # header for exactly why it exists), then every supabase/migrations/*.sql in
 # version order, then the CI-only privilege bootstrap. CI does NOT use this:
 # CI's `supabase start` on the real Supabase local stack is the authoritative
@@ -11,6 +11,13 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MIG="$ROOT/supabase/migrations"; DB="$1"; ERR="${REPLAY_ERR:-/tmp/${DB}_replay.err}"; : > "$ERR"
 dropdb --if-exists "$DB"; createdb "$DB"
 psql -q -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/scripts/local/replay_shim.sql" >/dev/null 2>>"$ERR" || { echo "SHIM FAILED"; tail -5 "$ERR"; exit 1; }
+# The fidelity supplements are NOT optional: without them this path dies at 131
+# with "relation auth.sessions does not exist". They were added 2026-09-15 for
+# the bootstrap and the production-order rehearsal, and this third caller was
+# missed — it cost D a run and A a production-order rehearsal on 2026-09-22.
+# Idempotent (every statement IF NOT EXISTS / guarded), so applying them here is
+# safe however the database was built.
+psql -q -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/scripts/local/replay_shim_supplements.sql" >/dev/null 2>>"$ERR" || { echo "SUPPLEMENTS FAILED"; tail -5 "$ERR"; exit 1; }
 n=0
 for f in $(ls "$MIG"/*.sql | LC_ALL=C sort); do
   base=$(basename "$f")

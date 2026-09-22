@@ -5,6 +5,10 @@
  * pattern as enforce-transfer-expiry) when:
  *   • a row is inserted into public.reports            → event 'report_created'
  *   • a transfer flips to 'disputed'                   → event 'dispute_opened'
+ *   • an Operating Console alert is dispatched          → event 'ops_alert'
+ *     (migration 146, ops.dispatch_alerts — allow-listed body only, and the
+ *     response carries attempted/delivered so the DB can tell a real delivery
+ *     from this handler's unconditional 200)
  *   • the KMS signing-key invariant monitor alerts      → event 'signing_invariant_alert'
  *     (migration 099, kernel.check_signing_key_invariants — same pg_net +
  *     Vault service_role_key auth, dark until signing.monitor_enabled=true)
@@ -268,11 +272,48 @@ serve(async (req: Request) => {
 
       await captureException('signing-monitor', new Error('signing_invariant_alert: ' + summary));
 
+    } else if (event === 'ops_alert') {
+      // Migration 146. The Operating Console's alerts had no delivery path at all: ops.alert rows were visible only
+      // to an operator who opened the console. The DB sends an ALLOW-LISTED body — alert key, kind, counts,
+      // timestamps and case_id/case_type/jobname — never ops.alert.payload itself, so no customer detail arrives
+      // here to be forwarded. Admin push fan-out + ADMIN_EMAIL + Sentry, the same shape as the signing alert.
+      // No delivery claim for this event (claimKey stays null above, deliberately): the database is the deduper here.
+      // ops.dispatch_alerts posts an alert once and re-posts only while the delivery is unconfirmed, capped at five
+      // attempts. A claim keyed on the alert would suppress exactly those retries, which are the point.
+      const alertKey = payload?.alert_key != null ? String(payload.alert_key) : '(unknown alert)';
+      const kind     = payload?.kind != null ? String(payload.kind) : 'alert';
+      const where    = payload?.jobname != null ? `job ${String(payload.jobname)}`
+                     : payload?.case_type != null ? `case ${String(payload.case_type)}`
+                     : alertKey;
+      const times    = payload?.first_fired_at != null ? ` since ${String(payload.first_fired_at)}` : '';
+      // A recurrence is a NEW incident (146): the condition cleared and came back, so an acknowledgement given for
+      // the previous incident does not cover this one. Saying which incident this is keeps the recipient from
+      // reading a second notification as a duplicate of the one they already dealt with.
+      const seq      = Number(payload?.incident_seq ?? 1);
+      const incident = seq > 1 ? ` — incident #${seq}, the condition returned after recovering` : '';
+      const summary  = `${kind}: ${where}${times} (fired ${payload?.fire_count ?? '?'}x)${incident}`;
+
+      for (const id of adminIds) {
+        await push(id, seq > 1 ? 'Operating Console alert (recurrence)' : 'Operating Console alert', summary,
+          { type: 'ops_alert', alert_key: alertKey, incident_seq: String(seq) });
+      }
+      await mail(ADMIN_EMAIL, '[Snatch It] Operating Console alert',
+        `An Operating Console alert is firing:\n\n${summary}\n\nalert_key: ${alertKey}\n` +
+        `Open the console's System page to see it, and acknowledge it there (ops.alert_ack) once someone is on it.` +
+        (seq > 1 ? `\n\nThis is incident #${seq} for this alert. An earlier incident may have been acknowledged; ` +
+                   `that acknowledgement does not cover this one.` : ''));
+
+      await captureException('ops-alert', new Error('ops_alert: ' + summary));
+
     } else {
       console.warn('notify-report: unknown event', event);
     }
 
-    return new Response(JSON.stringify({ ok: true, event }), {
+    // ops_alert ONLY: the database treats "2xx" as delivered only when this accounting says something was delivered,
+    // because this handler answers 200 for unknown events and for its own errors (see the catch below). Every other
+    // event's response body is unchanged (migration 146; D, 2026-09-19).
+    return new Response(JSON.stringify(event === 'ops_alert' ? { ok: true, event, attempted, delivered }
+                                                             : { ok: true, event }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   } catch (err) {
