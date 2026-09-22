@@ -8,7 +8,7 @@ owner's 2026-09-20 instruction; verification below is local + CI only.
 
 | Piece | Branch @ head | PR | State |
 |---|---|---|---|
-| Migrations 143–146 + rollbacks + pgTAP 210–213 + `notify-report` `ops_alert` branch | `admin/146-alert-delivery` @ `70a4f613` | #86 (draft) | implemented, A-reviewed, CI green |
+| Migrations 143–146 + rollbacks + pgTAP 210–213 + `notify-report` `ops_alert` branch | `admin/146-alert-delivery` @ `ec4f0600` (migration content unchanged since the reviewed `cf804036`; later commits are docs + one local battery script, each verified docs/script-only by A) | #86 (draft) | implemented, A-reviewed, CI green |
 | Payout starvation fix (edge, `enforce-transfer-expiry` Phase 2b selection) | `fix/payout-retry-fairness` @ `36db0c36` | #83 (draft) | implemented, CI green |
 | **Payout fix, v38 backport** (deployable against production today) | `fix/payout-fairness-v38-backport` @ `f5e91e74` (base `main`) | #87 (draft) | implemented 2026-09-21: RED {F1,F3,F4,F6} on unfixed v38 → 6/6 GREEN on the real handler; full suite 6 files / 122; typecheck 0 |
 | Transfer screens (mobile client) | `fix/seller-deadline-copy` @ `131017a5` | #84 (draft) | implemented, CI green |
@@ -73,8 +73,10 @@ Production's ledger is **135 rows, nothing from 121 on** (`PRODUCTION_READINESS_
 
 0. **Pre-checks (read-only, existing authority class):** fresh AUTODEPLOY-1 dashboard check on merge day;
    production md5 check that `ops.job_health`/`ops.detect_jobs`/`ops.alert_fire` bodies equal 116/117 (the
-   registry carries the expected values); read `actions_enabled`'s production value; read `ADMIN_EMAIL` on the
-   deployed function config. The Stripe webhook dashboard check (§1 of the refund plan) remains open — it
+   registry carries the expected values); read `actions_enabled`'s production value; read the deployed
+   notify-report's channel config — `EMAIL_ENABLED` (defaults false!), `RESEND_API_KEY` presence (never the
+   value) and `ADMIN_EMAIL` — and count `public.admin_users` rows with working push tokens (a production read
+   needing its own authorisation). The Stripe webhook dashboard check (§1 of the refund plan) remains open — it
    affects how much R2/R4 detection is worth, not the mechanics below.
 1. **Repo merges into the gate** (§2). Effect: none outside the repo.
 2. **Database apply** of the pending chain through 146 in ledger order, per the readiness plan's method
@@ -95,8 +97,17 @@ Production's ledger is **135 rows, nothing from 121 on** (`PRODUCTION_READINESS_
 6. **Activation — separate authorisations, one at a time, in this order:**
    a. `refund_resolution_detector_enabled=true` (audited `setting_set`) — R1–R4 cases start opening, with a
       **named assignee** agreed before the flip (closure requires classification + settled obligations).
-   b. `alert_delivery_enabled=true` **and** schedule `ops.dispatch_alerts` (new cron entry — a schedule change,
-      owner-gated). Recommended: every 5 minutes, `p_limit` 20 (§8).
+   b. **Recipient prerequisite first (D's finding, 2026-09-21, verified by A in the notify-report source):**
+      `delivered` increments only on a SUCCEEDED push or a SENT email; `EMAIL_ENABLED` defaults **false**, and
+      an email skipped because it is off counts as nothing. So with email off and no working admin push token,
+      every alert posts, gets a 200, reports `delivered: 0`, burns its five attempts and goes quiet — visible
+      only in the delivery column. 146 behaves exactly as designed there; the ROLLOUT must therefore verify a
+      working channel **before** the flip: (a) `public.admin_users` rows whose users have working push tokens,
+      **or** (b) `EMAIL_ENABLED='true'` + `RESEND_API_KEY` set + correct `ADMIN_EMAIL`. Recipients are a
+      prerequisite in their own right, not a detail of the schedule. Full conjunctive list: D's
+      `docs/operations/OPS_ALERT_ROLLOUT_PREREQUISITES.md`.
+      Then `alert_delivery_enabled=true` **and** schedule `ops.dispatch_alerts` (new cron entry — a schedule
+      change, owner-gated). Recommended: every 5 minutes, `p_limit` 20 (§8).
 
 ## 6. Payout fix against production's current database — exact prerequisites
 
@@ -156,6 +167,13 @@ Until then, R-cases are classified and resolved by support per the refund resolu
 ## 10. History preservation, rollback and disable
 
 - **Disable before rollback, always:** both switches off restores pre-package behaviour without touching data.
+- **Disable/recovery battery (new, 2026-09-21):** `scripts/local/rollback_battery_143_146.sh` (D) asserts the
+  state AFTER each rollback — 144 on a used database takes the DISABLE path with every case, event, note and
+  classification surviving, and re-applying 144 restores the detector with history intact; 145/146 restore the
+  exact prior bodies with rows kept. **ALL PASS on D's fresh replay and independently on A's own
+  integration-replay copy.** (A's first run failed 8 of 21 by invoking the script outside its tree — the
+  rollbacks were unreachable — which doubles as the battery's negative control: it fails loudly when rollbacks
+  do not apply.)
 - 143 rollback: restores 116/117 bodies verbatim (md5-verified). 145: restores 143's `detect_jobs`; cases kept.
 - 144 rollback: **never deletes case history** — with any refund-resolution history present it runs as a
   DISABLE (bodies restored, detector dropped, vocabulary kept because the rows need it).
