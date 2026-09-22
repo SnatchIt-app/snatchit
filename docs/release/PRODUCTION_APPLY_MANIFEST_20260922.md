@@ -61,15 +61,20 @@ needs a targeted apply, never `db push`.
   v39 — none of these is redefined by the set); `check_rate_limit(…)`, `claim/complete/fail_stripe_webhook_event`,
   `freeze_transfer_for_dispute`, `mark_transfer_reversed` (unchanged). `mark_transfer_sent` becomes `jsonb` (140): no
   deployed edge calls it; the installed app never reads its return (C, Build 9 line-by-line; Build 22 fail-closed).
-  The only pending redefinitions of edge-called functions are in `20260906100000/110000/130000`, all
-  signature-preserving.
+  **Correction (D's verification, 2026-09-22):** the pending redefinitions of edge-called functions are in
+  `127` (`public.release_reservation(p_listing_id uuid, p_user_id uuid) → void`, identical to the applied 0590
+  signature — 127's header builds on 0590) **and** `20260906100000/110000/130000`; all signature-preserving. The
+  earlier enumeration omitted 127; the conclusion (window signature-safe) stands.
 - **pgTAP on the production-order database: 5339 / 5347 pass.** The 8 failures are exactly the assertions in
   **184 (2) and 186 (6) that carry "(126)" in their names**; applying 126 to a copy makes 184 90/90, 186 27/27 and
   193 65/65 pass. So the evidence set for this manifest excludes 184, 186 (126-coupled), 189 (121), 190 (125),
   193 (126); every other file passes.
 - Switches after apply: `refund_resolution_detector_enabled=false`, `alert_delivery_enabled=false`,
   `detectors_enabled=true`, `actions_enabled=true` (the last two equal production today).
-- Forward-back-forward rollback battery on the same database: **PASS — §7.**
+- Forward-back-forward rollback battery on the same database: **PASS — §7.** Independence: D independently ran the
+  143–146 quadrant (reverse application, identity md5s returning, history preserved) and cross-checks §7's identity
+  values; the full 24-file reverse battery is A's run only unless D re-runs it (offered).
+- §3a. **Widened baseline (18 bodies) — production vs pre-apply world:** _recorded below when both reads complete_.
 
 ## 4. Why 125 and 126 are omitted
 - No pending file after 125 redefines `venue.sync_scan_device_manifest`; scanning is dark. Separable.
@@ -77,11 +82,19 @@ needs a targeted apply, never `db push`.
   none of 126's objects. `20260906120000`'s only match is a `rollback_archive` table name. The live console runs
   against production's pre-126 bodies today. Separable at the database level; the coupling is test-only (§3).
 - Owner decision D-1 is therefore not needed for this release; 126 remains B/D's optional track.
+- **Stated for the owner (D):** this release ships the refund-resolution *detector* without 126's refund
+  *exactness* — the console's refund figures do not become more exact with it. Not a regression; a scope statement.
 
 ## 5. Preflight (the day of the apply; each a read unless marked)
 1. Owner's fresh AUTODEPLOY-1 dashboard confirmation (gate → nothing merges to `main` in this manifest anyway).
 2. Ledger read = exactly the 135 rows, max numeric 120, 0 rows ≥ 121 (✓ 2026-09-22).
-3. Body hashes of the seven baseline functions equal §3's values (✓ 2026-09-22; re-read on the day).
+3. **Body hashes of all 18 pre-existing bodies the 24 files redefine** equal the production-order pre-apply world's
+   (D's enumeration of every CREATE [OR REPLACE] FUNCTION across the 24 filtered to pre-121 definitions): the seven
+   in §3 plus `kernel.sweep_deletion_pending`, `ops.action_dispatch`, `ops.execute_action`, `ops.run_all_detectors`,
+   `ops.run_job`, `public.cleanup_expired_reservations`, `public.notify_bid_placed`, `public.notify_moderation_event`,
+   `public.notify_transfer_event`, `public.release_reservation`, `public.reserve_buy_now`. The three notify triggers
+   are the ones 133 replaces and its rollback restores byte-for-byte — a production body that differs from the
+   rehearsal's would make that rollback restore the wrong body. Result of the widened read: see §3a.
 4. **Vault ceremony (owner/credential action):** insert `project_url` = `https://hqycwntpfoztoinemqns.supabase.co`
    into Vault; then **read it back and assert string equality with that exact host** before file #9 — the purge guard
    in 133 keys on it (D). `service_role_key` is present in production's Vault (✓ names read 2026-09-22), so 133's own
