@@ -89,7 +89,10 @@ needs a targeted apply, never `db push`.
 5. `net.http_request_queue` row count (0 on 2026-09-22): 133's purge deletes production-host rows; confirm none are
    legitimately pending.
 6. Fresh backup exists (owner).
-7. Reviewer sign-offs on record: 133 — D (behaviour preservation, measured diffs) + A; B's invariant set not reopened.
+7. **Edge secrets preflight (✓ 2026-09-22, witnessed — 3–10 env names per function):** every secret the 10 gate
+   functions read exists in production's secret names, except two read with defaults: `EMAIL_ENABLED` (absent =
+   email off; owner item) and `EXPO_PUSH_URL` (absent = Expo's default endpoint). No deploy blocker.
+8. Reviewer sign-offs on record: 133 — D (behaviour preservation, measured diffs) + A; B's invariant set not reopened.
    127/128/130/131/132/135/139/140 — D passes on record; 143–146 — A ×2; 142 — A; RC unit — payments RC review line.
 
 ## 6. Apply method (per file, the sandbox-window method)
@@ -122,7 +125,11 @@ v39; also `_shared/payouts.ts`, `_shared/payout-logic.ts`), `confirm-and-release
 `notify-report` (gains `ops_alert`), `notify-transfer`, `send-push`. **Unchanged, not redeployed:**
 `auto-finalize-auctions`, and B's `credential-sign`, `door-manifest`, `door-session` (byte-identical to the gate — no
 B change rides). **In the gate but not deployed and out of scope:** `connect-onboarding`, `ops-refund-execute`,
-`payout-execute`, `primary-checkout`, `refund-execute`. Each deploy is preceded by an exact-source diff review
-(deployed source fetched via the platform API, as for v38) → console release (owner: Ignored-Build-Step pin or
+`payout-execute`, `primary-checkout`, `refund-execute`. Deployed→gate diffs are generated (A's scratchpad `edge_diffs/`, sizes: enforce-transfer-expiry +1094/−304,
+confirm-and-release +633/−353, create-payment-intent +680/−42, stripe-webhook +393/−331, send-push +203/−2,
+notify-report +170/−20, confirm-payment +142/−118, delete-account +86/−17, create-connect-account and
+notify-transfer +2/−2). The gate's edge tree equals the reviewed candidate `e191cbfa` plus exactly the two changes
+reviewed this round (#83's Phase 2b hunk, #86's `notify-report` `ops_alert` branch) — see §8 check. Each deploy is
+preceded by an exact-source confirmation against the platform API (as for v38) → console release (owner: Ignored-Build-Step pin or
 `vercel --prod`) → verification window → recipient verification → detector flip → dispatcher schedule + delivery
 flip. None of these is part of this manifest.
