@@ -13,7 +13,7 @@ owner's 2026-09-20 instruction; verification below is local + CI only.
 | **Payout fix, v38 backport** (deployable against production today) | `fix/payout-fairness-v38-backport` @ `f5e91e74` (base `main`) | #87 (draft) | implemented 2026-09-21: RED {F1,F3,F4,F6} on unfixed v38 → 6/6 GREEN on the real handler; full suite 6 files / 122; typecheck 0 |
 | Transfer screens (mobile client) | `fix/seller-deadline-copy` @ `131017a5` | #84 (draft) | implemented, CI green |
 | Operator console: classify / obligations / acknowledge / delivery truth | `admin/refund-classification-console` @ `3dab1614` | none yet (§4) | implemented, A boundary review PASS, push-CI green |
-| **Integration proof (this plan's evidence)** | `integration/refund-payout-round-v2` @ `e6ebd800` = `70a4f613` + `36db0c36` + `131017a5` | local only | replay RESET 0 · census 32\|108\|37\|38 · pgTAP **5455/5455** · typecheck 0 · vitest **126 files / 2485** |
+| **Integration proof (this plan's evidence)** | `integration/refund-payout-round-v2` @ `e6ebd800` = `70a4f613` + `36db0c36` + `131017a5` | local only | A: replay RESET 0 · census 32\|108\|37\|38 · pgTAP **5455/5455** · typecheck 0 · vitest **126 files / 2485**. **Independently re-verified by D (2026-09-21):** migrations/rollbacks/notify-report blob-identical to the reviewed heads, last-definer function md5s intact (incl. `alert_fire` `d42f697b`), both switches seed false, D's own fresh replay **5455/5455** |
 
 **Not in this package:** PR #81 (independent client fix, same lanes below apply), 138 (parked), 142 /
 `amount_refunded_cents` (parked on the partial-refund policy, §9), C's `hold/seller-refund-recorded` screen (same).
@@ -57,7 +57,17 @@ Production's ledger is **135 rows, nothing from 121 on** (`PRODUCTION_READINESS_
   preview env does not point write-capable credentials at production; then D opens a **draft, do-not-merge PR**
   (head → `admin/operating-console`) as the review surface. The merge is step §5.4 and only then deploys.
   (CI itself already ran green on the push — CI runs on every non-main push — so the PR is for review, not signal.)
-- **Status 2026-09-21:** D asked to run the Vercel check and open the PR; not yet confirmed — if D cannot verify preview protection, this becomes an owner item and the PR stays unopened.
+- **Status 2026-09-21, final: the console PR stays unopened — the Vercel check is an OWNER item.** D's API token
+  is refused for the project scope (403 on `get_project`/`filter_project_envs` for `snatchit-admin`,
+  `prj_o17cASVVqqyGKPUtiklJRvAMVgNB`), and D correctly declined to substitute inference for the dashboard
+  (AUTODEPLOY-1's own rule). What D holds, at its real strength: pushing `3dab1614` created **no**
+  snatchit-admin deployment (current, empirical); D's 2026-09-08 deployment record says Preview branch-tracking
+  was disabled and SSO protection `all_except_custom_domains` (12 days stale); the Preview-scope env vars have
+  **never been checked by anyone**. **Owner's one-minute check — Vercel → snatchit-admin → Settings:**
+  (1) Deployment Protection: Vercel Authentication ON for Preview? (2) Environments → Preview: Branch Tracking
+  still disabled? (3) Environment Variables, Preview scope: anything write-capable pointing at the production
+  Supabase project? Only (3) makes a preview dangerous on its own; (1)/(2) govern exposure. After a clean check,
+  D opens the draft PR.
 
 ## 5. Rollout sequence (each numbered step separately owner-authorised)
 
