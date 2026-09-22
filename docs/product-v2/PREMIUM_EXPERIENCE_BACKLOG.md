@@ -4902,6 +4902,43 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
       `apply_auto_release` sets only the status; `record_transfer_payout` writes `payout_released_at` after the Stripe
       transfer succeeds) and the disclosed control corrections (NM5 survivor; DM3/NM8/NM9 incomplete predictions).
       **CI green (C checked on GitHub): every check SUCCESS, Supabase Preview SKIPPED.** **No merge, build, deploy, DB mutation or payment action.**
+- **Consolidated app status (C, 2026-09-21; sent to A for the integrated release proposal):**
+  - **Verified on GitHub:** #81 draft OPEN @ `19b6fc2b`, #84 draft OPEN @ `131017a5`, both base
+    `release/production-gate-20260918` (@ `e191cbfa`, unmoved), MERGEABLE, every CI check SUCCESS (Supabase Preview
+    SKIPPED), no review threads beyond bots. Peer reviews (A payment boundary, D behaviour) stand at exactly these
+    heads. Nothing unresolved; no new commits made.
+  - **Contract check vs A/D's refund-resolution chain (#85, 143+144+145 @ `07a29403`):** the chain writes only `ops.*`
+    (its public.reports / seller_risk_scores statements are pre-existing dispatch actions re-created in function
+    bodies); no write to payments, transfers or listings, and the app reads no `ops.*` surface — so the obligations
+    (payout_owed / remainder_refund_owed / reversal_decision) never reach a consumer screen. App sweep re-confirmed:
+    refund copy gated on recorded amounts (#78), escrow line gated (#81), transfer reads and payout claims gated
+    (#84), Tickets fails closed (empty=success, error distinct, offline classified), ListingDetail splits error from
+    not-found. **Pre-existing, out of scope, recorded only:** `app/listing/edit/[id].tsx:76` alerts "Listing not
+    found" on any edit-screen read error (seller edit flow; no refund/cancel/release claim).
+  - **Held branch:** `hold/seller-refund-recorded` still local-only @ `938423e0`; in no PR; refund-recorded restriction
+    still dependent on A/D safeguards (144's classification is detection-side only).
+  - **App delta vs Build 22 (`05d85732`), exact:** gate `e191cbfa` adds NO app code (3 supabase files). Combined
+    candidate app diff = #81 ∪ #84, disjoint files: #81 holdState.ts +16, CheckoutNative.tsx +19/−4; #84
+    receive +31/−6ish, send +84/−?, transferState.ts +83/−1 (5 app files total; no other app change).
+  - **Phone-evidence limits + the one cheap targeted check:** device-observable differences are (i) the escrow line's
+    absence in unknown states, (ii) the seller deadline wording, (iii) expired-order block/heading, (iv) failed-read
+    neutral error, (v) both auto-released wordings. Only (ii) is checkable without new fixtures or fault injection:
+    sandbox D6 (`92ee5156`) is pending with `expires_at` past and never expires there (cron 401), so opening its Send
+    screen as the seller on the candidate build should show "Send window has passed — checking this order's status"
+    then "…still open when last checked…" — read-only, existing fixture. (iii)–(v) need fixture writes; (i) needs a
+    reserved-listing fixture plus offline; (iv) needs fault injection. Proposed to A as the only targeted check;
+    everything else rests on automated evidence, stated as such.
+- **B's saved-delivery-preference spec (stage 3 = C's lane) — feasibility review (C, 2026-09-21; no implementation):**
+  FEASIBLE as staged in A's §5a. Settings defaults, the required confirm step (bid sheet / checkout / pay-after-win),
+  "Tickets go to" + Change, pending-only Change on receive, provider-limited chips, legacy form keyed off the absence
+  of a copied destination — all fit existing patterns; the destination read is authoritative-state (gated to A) and
+  `createPaymentIntent` changes touch `src/lib/payments.ts` (gated). **Acceptance criteria the spec should add:**
+  (1) failure paths — a failed defaults/destination read ASKS AGAIN (fail closed: never skips confirmation, never
+  blocks with a false claim, never claims a destination exists); (2) the new app bids only through the transactional
+  entry point once stage 3 ships (pin the call, with a mutant); (3) old-app orders (no destination row) keep the
+  legacy receive form — client-testable; (4) the confirm step precedes intent creation in BOTH buy_now and
+  pay-after-win, and no success is shown before the server records the destination; (5) copy states routing, not
+  delivery promises. Stage 3 needs a build; nothing started, kept out of the safety package.
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
