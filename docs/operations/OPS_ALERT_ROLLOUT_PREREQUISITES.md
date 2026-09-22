@@ -141,13 +141,18 @@ fresh replay of all 162 migrations):
 
 Both verified on a fresh replay, 2026-09-21.
 
-1. **The global detector switch is not a full stop for 145.** `detectors_enabled = false` halts the *scheduled*
-   path — `ops.run_job('jobs','cron')` returns `skipped / detectors_disabled` — but a **manual** trigger still
-   runs it: `ops.run_job('jobs','manual')` succeeds and scans. The console exposes exactly that, because 144's
-   `job_retry` arm executes `ops.run_job(name, 'manual')` and the System page has the control. So one "Run job
-   now" click reopens job-not-running cases on a system an owner believes is stopped. Contrast 144's dedicated
-   switch, which refuses manual as well (`run_job('refund_resolution','manual')` → `refund_resolution_disabled`,
-   pinned by 211 G3). **To stop 145 completely, roll it back; there is no switch that does it.**
+1. **No switch stops 145 against a manual run.** `detectors_enabled = false` halts the *scheduled* path —
+   `ops.run_job('jobs','cron')` returns `skipped / detectors_disabled` — but a **manual** trigger still runs it:
+   `ops.run_job('jobs','manual')` succeeds and scans. The mechanism is in 117's `run_job`, and it is broader than
+   the global switch: **all three** skip rules sit inside `if p_trigger <> 'manual' then` —
+   `detectors_enabled` (global), `job_state.enabled` (**the per-job disable**) and `backoff_until`. So disabling
+   the `jobs` detector individually does not stop a manual run either (refinement contributed by A, verified here
+   against 117 lines 1001–1009). The console exposes exactly this: 144's `job_retry` arm executes
+   `ops.run_job(name, 'manual')` and the System page has the control, so one "Run job now" click reopens
+   job-not-running cases on a system an owner believes is stopped. Contrast 144's **dedicated** switch, which is
+   checked inside the detector itself and therefore refuses manual too
+   (`run_job('refund_resolution','manual')` → `refund_resolution_disabled`, pinned by 211 G3).
+   **To stop 145 completely, roll it back; no switch does it.**
 2. **After a 145 rollback its open cases auto-resolve, and the history reads misleadingly.** 143's restored body
    no longer detects a stalled job, so the sweep closes the case with `auto: condition no longer detected`. The
    row and its events survive — history, not deletion, and it works only because 145 reuses the `job_failure`
