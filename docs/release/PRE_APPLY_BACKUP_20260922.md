@@ -40,8 +40,9 @@ snapshot. Restore comparison asserts **exact equality against the snapshot inven
   already applied every http cron and notify trigger goes silent. §6 step 2 exists for this (D's finding).
 
 ## 4. Restore test (local vanilla PostgreSQL 17.11 + harness shims; never production) — PASS, 23:29:33–23:29:38Z
-- Checksums: 19/20 OK on the first pass; the miss was `backup_…log`, still being written when the sums were taken;
-  final sums regenerated afterwards (`SHA256SUMS_…_final.txt`, all OK).
+- Checksums: 19/20 OK on the first pass; the miss was `backup_…log`, still being written when the sums were taken.
+  **Re-verified, not explained away:** the sums were regenerated after the log closed
+  (`SHA256SUMS_20260922T232735Z_final.txt`, 30 entries) and re-checked — all 30 matched.
 - Bootstrap shims rc=0; `pg_restore` of the full dump: **1 error — `schema "public" already exists`** (pg_dump ≥15 emits
   `CREATE SCHEMA public`; the target already has it; benign). rc=1 is that error only.
 - **Row counts: 120/120 tables identical to the snapshot inventory, 52,699 = 52,699 rows.** **Function definitions:
