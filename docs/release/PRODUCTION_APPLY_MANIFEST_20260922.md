@@ -69,7 +69,7 @@ needs a targeted apply, never `db push`.
   193 (126); every other file passes.
 - Switches after apply: `refund_resolution_detector_enabled=false`, `alert_delivery_enabled=false`,
   `detectors_enabled=true`, `actions_enabled=true` (the last two equal production today).
-- Forward-back-forward rollback battery on the same database: **see §7 (result recorded when the run completes)**.
+- Forward-back-forward rollback battery on the same database: **PASS — §7.**
 
 ## 4. Why 125 and 126 are omitted
 - No pending file after 125 redefines `venue.sync_scan_device_manifest`; scanning is dark. Separable.
@@ -103,7 +103,15 @@ legacy edges for the window until the RC functions deploy (§3 shows the window 
 ## 7. Rollback / disable
 Per-file rollbacks restore the applied prior bodies (143 → 116/117 verbatim; 145 → 143's `detect_jobs`; 146 → 117's
 `alert_fire`, 9 columns dropped, alert rows kept, delivery/ack bookkeeping lost; 144 → disable path when history
-exists, no case deleted). Battery result: _pending — recorded here on completion_.
+exists, no case deleted). **Forward-back-forward battery (2026-09-22, copy of the production-order database):**
+all 24 rollbacks applied in reverse order (24/24); afterwards every baseline identity returned **exactly** to
+production's pre-apply values (the seven body hashes, both `mark_transfer_sent` overloads → `void`, `ops.alert` 8
+columns, `amount_refunded_cents` absent); the second forward apply (24/24) reproduced the first apply's identities
+exactly (143 `da349c0b…`, 145 `37574d2c…`, 146 `d42f697b…`, 133 `480d42fd…`, jsonb overloads, 17 columns). pgTAP on the
+re-applied database 5228/5230: the 2 failures are `132_replay_parity` D-5/8 and D-5/9, whose assertion text shows the
+cause — the stand-in `cron.job` row carries the database name it was scheduled under (the template source
+`prodorder3_rehears`) while the test expects the current database's name; command bytes and md5 identical. A
+`createdb -T` artefact, not a rollback residue (the first-forward database passes 132 11/11).
 
 ## 8. After the apply (separate acts, in order)
 Edge deploys of the RC functions (`enforce-transfer-expiry` supersedes v39; `notify-report` gains `ops_alert`;
