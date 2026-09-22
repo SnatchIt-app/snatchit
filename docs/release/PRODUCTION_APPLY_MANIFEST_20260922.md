@@ -83,7 +83,7 @@ needs a targeted apply, never `db push`.
   trailing blank line; the `app.bypass_listing_guard` line is present in both. Nothing in production calls it
   (no cron job, no deployed edge, zero recorded calls since the 2025-12-08 stats reset; 0 expired reservations).
   Manifest #20 redefines it with the bypass kept; #20's rollback restores the lowercase body — semantically
-  identical to production's. **Benign; no change to the manifest.** D's item-3 finding is what made this read
+  identical to production's. **Benign for behaviour; one rollback amended:** #20's rollback embedded the repo's 000 text and verified itself against the 000 hash, so on production it would install a casing variant and pass. Amended on `fix/20260906110000-rollback-restores-production-body` @ `29128acf` (draft PR https://github.com/SnatchIt-app/snatchit/pull/90, D verification pending): it now embeds production's captured text and asserts production's md5s; proven on a copy (def `ecc0afc0…`, prosrc `113cebf6…`). D's item-3 finding is what made this read
   cover the right set; a real hotfix would have surfaced exactly this way.
 
 ## 4. Why 125 and 126 are omitted
