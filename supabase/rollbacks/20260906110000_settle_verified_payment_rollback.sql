@@ -2,9 +2,8 @@
 -- ROLLBACK for 20260906110000_settle_verified_payment.sql
 --
 -- Drops the two Package 2 functions and restores cleanup_expired_reservations
--- exactly as PRODUCTION had it before this migration (text captured from
--- production 2026-09-22 with pg_get_functiondef — not the repo's 000 text,
--- which is the same body in lowercase; see the capture note below). Grants on cleanup_expired_
+-- exactly as migration 000_baseline_schema.sql defined it (text copied
+-- verbatim from that file — not retyped). Grants on cleanup_expired_
 -- reservations are unchanged by the forward migration and by this rollback
 -- (063/067 posture: service_role only).
 --
@@ -20,11 +19,14 @@
 --     and proname in ('settle_verified_payment','get_unsettled_payments');
 --     -- expect 0 rows
 --   select md5(prosrc), md5(pg_get_functiondef(oid)) from pg_proc where oid = 'public.cleanup_expired_reservations()'::regprocedure;
---     -- must equal production's pre-apply values captured 2026-09-22:
---     --   md5(prosrc)              = 113cebf6671591c540cf2e54fa45ca0b   (261 chars)
---     --   md5(pg_get_functiondef)  = ecc0afc0cfc3b4521ed8cbe87cad93e8
---     -- (the repo's 000 text gives 95c21a0eb07946e6663a13885cb959b6 — a casing variant; that value is WRONG for
---     --  production and must never be the thing this verification is satisfied by)
+--     -- must equal the 000 body's values (a fresh replay of the repo chain gives them; pg_get_functiondef md5
+--     -- 95c21a0eb07946e6663a13885cb959b6). This rollback restores the REPO body everywhere, by design.
+--     -- NOTE (production, 2026-09-22 — manifest §3a): before this migration production carried the SAME statements
+--     -- with uppercase keywords (pg_get_functiondef md5 ecc0afc0cfc3b4521ed8cbe87cad93e8, prosrc md5
+--     -- 113cebf6671591c540cf2e54fa45ca0b; capture: docs/release/captures/cleanup_expired_reservations_production_20260922.sql).
+--     -- After this rollback on production the function is therefore semantically identical to its pre-apply body
+--     -- but hashes as the repo body, not the capture. That is pre-existing casing drift, not something this
+--     -- rollback creates; a byte-exact restoration on production is an OPTIONAL manifest-only step, never this file.
 --   supabase/tests/121_settlement.sql must FAIL (functions missing); every
 --   other file is unchanged.
 -- ============================================================================
@@ -54,27 +56,22 @@ END $gate$;
 DROP FUNCTION IF EXISTS public.settle_verified_payment(text, text, integer, text, boolean, integer, text, text, jsonb, text);
 DROP FUNCTION IF EXISTS public.get_unsettled_payments(integer);
 
--- PRODUCTION'S APPLIED BODY, captured 2026-09-22 with pg_get_functiondef (A, owner-authorised read). It is 000's
--- statements with uppercase keywords: production's copy differs from the repo's 000 text in casing only (verified by
--- direct diff; guard line, WHERE, columns, SECURITY DEFINER and search_path identical). A rollback restores the APPLIED
--- body, so this is the text that goes back — not the repo's reconstruction. Capture on record:
--- docs/release/captures/cleanup_expired_reservations_production_20260922.sql
-CREATE OR REPLACE FUNCTION public.cleanup_expired_reservations()
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-BEGIN
-  PERFORM set_config('app.bypass_listing_guard', 'on', true);
-  UPDATE public.listings
-     SET status         = 'active',
-         reserved_by    = NULL,
-         reserved_until = NULL
-   WHERE status = 'reserved'
-     AND reserved_until <= now();
-END;
-$function$;
+create or replace function public.cleanup_expired_reservations()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform set_config('app.bypass_listing_guard', 'on', true);
+  update public.listings
+     set status         = 'active',
+         reserved_by    = null,
+         reserved_until = null
+   where status = 'reserved'
+     and reserved_until <= now();
+end;
+$$;
 
 REVOKE EXECUTE ON FUNCTION public.cleanup_expired_reservations() FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.cleanup_expired_reservations() TO service_role;
