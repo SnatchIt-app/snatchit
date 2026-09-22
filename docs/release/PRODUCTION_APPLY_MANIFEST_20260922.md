@@ -83,7 +83,16 @@ needs a targeted apply, never `db push`.
   trailing blank line; the `app.bypass_listing_guard` line is present in both. Nothing in production calls it
   (no cron job, no deployed edge, zero recorded calls since the 2025-12-08 stats reset; 0 expired reservations).
   Manifest #20 redefines it with the bypass kept; #20's rollback restores the lowercase body — semantically
-  identical to production's. **Benign for behaviour; one rollback amended:** #20's rollback embedded the repo's 000 text and verified itself against the 000 hash, so on production it would install a casing variant and pass. Amended on `fix/20260906110000-rollback-restores-production-body` @ `29128acf` (draft PR https://github.com/SnatchIt-app/snatchit/pull/90, D verification pending): it now embeds production's captured text and asserts production's md5s; proven on a copy (def `ecc0afc0…`, prosrc `113cebf6…`). D's item-3 finding is what made this read
+  identical to production's. **Benign for behaviour; #20's rollback made truthful, not environment-specific:** the rollback embedded the repo's 000
+  text and *verified itself against the 000 hash*, so a production rollback would install a casing variant and pass its
+  own check. A first amendment embedded production's captured text — **withdrawn on D's objection** (a shared rollback
+  carrying one environment's bytes installs a body every other environment never had, breaks exact identity checks on
+  the rehearsal database, and CI never executes rollbacks). Final shape, PR #90 @ `0d445a70` (D verification pending):
+  the 000 body stays; the verification states the 000 values it expects, records production's pre-apply casing variant
+  and hashes (capture kept at `docs/release/captures/…_20260922.sql`), and says a production rollback leaves a
+  semantically identical body that hashes as the repo body. **Optional, production-only, manifest step (owner's choice;
+  default: not run):** if #20's rollback is ever executed on production and byte-exact restoration is wanted, run the
+  captured statement from that file afterwards. D's item-3 finding is what made this read
   cover the right set; a real hotfix would have surfaced exactly this way.
 
 ## 4. Why 125 and 126 are omitted
@@ -120,7 +129,19 @@ needs a targeted apply, never `db push`.
 
 ## 6. Apply method (per file, the sandbox-window method)
 Targeted apply = the file + its ledger row, never `db push`; read back per file: the ledger row, md5 of each new or
-redefined body, grants vs `expected_grants.txt`, census. **Stop on the first non-matching read-back.** Effects that
+redefined body, grants vs `expected_grants.txt`, census. **Stop on the first non-matching read-back.**
+**Pre-committed post-apply reference (D, fresh LC_ALL=C replay of gate `56acf516`, sent BEFORE any production read —
+`md5(pg_get_functiondef)`):** `kernel.check_signing_key_invariants()` `480d42fd…` · `kernel.sweep_deletion_pending(integer)`
+`d7217537…` · `ops.action_dispatch(ops.action)` `a1b6c7f6…` · `ops.alert_fire(text,text,jsonb)` `d42f697b…` ·
+`ops.detect_jobs()` `37574d2c…` · `ops.execute_action(…)` `e59c1584…` · `ops.job_health()` `da349c0b…` ·
+`ops.run_all_detectors()` `d42b1260…` · `ops.run_job(text,text)` `916408cb…` · `public.cleanup_expired_reservations()`
+`0271dca2…` · `public.complete_auction_payment(uuid,uuid)` `2d157aef…` · `public.mark_listing_sold(uuid,uuid)` `e03bae57…` ·
+`public.notify_bid_placed()` `c67f22fc…` · `public.notify_moderation_event()` `0dfa7ad1…` · `public.notify_transfer_event()`
+`3546027f…` · `public.release_reservation(uuid,uuid)` `083b70d7…` · `public.reserve_buy_now(uuid,uuid,integer)` `5e01af4e…` ·
+`public.mark_transfer_sent(uuid,uuid,text)` `d9addfdb…` · `public.mark_transfer_sent(uuid,uuid)` `f7a46322…`. Caveats (D):
+the three 133 bodies read the Vault URL at run time, so their definition hashes are environment-independent and
+**must** match; check the `(uuid,uuid)` overload exists before comparing (140 recreates both → jsonb). A's production-
+order run agrees on every value it computed (143/145/146/133/RC bodies, both jsonb overloads). Effects that
 begin at apply time, by design: 143 (bounded reads; "last run" = newest run), **145 (job-not-running detection on
 the next scheduled tick — and a manual "Run job now" bypasses `detectors_enabled`, `job_state.enabled` and backoff
 alike)**, 144/146 vocabulary/columns (inert while their switches are off). The RC bodies change under the deployed
