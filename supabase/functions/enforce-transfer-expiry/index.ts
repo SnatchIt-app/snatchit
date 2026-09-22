@@ -1157,23 +1157,35 @@ serve(async (req: Request) => {
       }
 
       // a) + b)
-      const { data: stuck } = await supabase
+      // FAIRNESS (independent review, owner item 1, 2026-09-19). Both predicates below are
+      // applied IN THE QUERY, before the 20-row limit, because the batch is a scarce
+      // resource:
+      //   * `payments.status = succeeded` — a payment that is not succeeded (a refunded one,
+      //     including the partial-refund shape of F-PAYOUT-PARTIAL-1) can NEVER be paid:
+      //     claim_payout_attempt refuses PAYMENT_NOT_SUCCEEDED and opens no attempt row, so
+      //     such a transfer never leaves this set. Selected, it would hold a slot for ever
+      //     and starve payable rows — silently, because the refusal is an expected state.
+      //     This is SELECTION only: the protocol's own eligibility refusal below is
+      //     unchanged and remains the authority on whether money may move.
+      //   * the 15-minute quiet period for `buyer_confirmed` rows — previously applied
+      //     AFTER the limit, so fresh confirmations consumed slots and shrank the batch.
+      // Oldest first: without an ORDER BY, Postgres may return the same
+      // 20 rows every sweep and starve the rest of the backlog.
+      const { data: stuck, error: stuckErr } = await supabase
         .from('transfers')
-        .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at')
+        .select('id, payment_id, listing_id, seller_id, buyer_id, status, buyer_confirmed_at, payments!inner(status)')
         .in('status', ['auto_released', 'buyer_confirmed'])
+        .eq('payments.status', 'succeeded')
         .is('stripe_transfer_id', null)
         .is('payout_released_at', null)
         .is('disputed_at', null)
-        // Oldest first: without an ORDER BY, Postgres may return the same
-        // 20 rows every sweep and starve the rest of the backlog.
+        .or(`status.eq.auto_released,and(status.eq.buyer_confirmed,buyer_confirmed_at.lt.${staleIso})`)
         .order('created_at', { ascending: true })
-        .limit(20)
-        .then((res) => ({
-          ...res,
-          data: (res.data ?? []).filter((r: { status: string; buyer_confirmed_at: string | null }) =>
-            r.status === 'auto_released' ||
-            (r.buyer_confirmed_at !== null && r.buyer_confirmed_at < staleIso)),
-        }));
+        .limit(20);
+      if (stuckErr) {
+        console.error('enforce-transfer-expiry: Phase 2b stuck-release query failed:', stuckErr);
+        errorCount++;
+      }
 
       for (const s of stuck ?? []) await sweepOne(s);
     } catch (err) {
