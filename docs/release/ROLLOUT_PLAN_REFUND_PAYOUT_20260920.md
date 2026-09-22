@@ -252,6 +252,17 @@ tooling beyond "escalate", C's held `hold/seller-refund-recorded` screen.
 - **Nothing from 143–146** is read by any consumer screen (checked against the #85 chain diff and #86).
 - Optional owner device check: D6 Send screen on the candidate (read-only). Held screen stays held (§11).
 
+## 13a. Ops hygiene notes (not release steps)
+
+- **Clean up chain-replay database copies as you go.** Both A and D filled the machine's disk this round (D: ~50
+  full-chain copies; A: finished scratch worktrees + node_modules); local Postgres dropped into recovery once.
+  No evidence database was lost, but the tool harness itself blocked on ENOSPC.
+- **Back-to-back pushes to one branch can collide on port 54322 in CI** and produce a red check that is pure
+  infrastructure (seen at `3f579975`: `supabase start` "address already in use", retried, then **"no TAP output
+  captured — the suite did not run"**, exit 1, egress gate failed closed). The tell is that line: if the suite
+  did not run it is not a test failure; re-running settles it (green on first retry, no code change, confirmed
+  by D and A). A red check that *ran* the suite is a different thing and never gets this treatment.
+
 ## 14. Historical notes (superseded, kept for the record)
 
 - v1 §3 recommended "rides the readiness plan's pending chain" without listing that chain's own unfinished
