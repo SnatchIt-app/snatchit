@@ -21,6 +21,10 @@
 --   select md5(prosrc), md5(pg_get_functiondef(oid)) from pg_proc where oid = 'public.cleanup_expired_reservations()'::regprocedure;
 --     -- must equal the 000 body's values (a fresh replay of the repo chain gives them; pg_get_functiondef md5
 --     -- 95c21a0eb07946e6663a13885cb959b6). This rollback restores the REPO body everywhere, by design.
+--     -- CHECK BOTH HASHES — prosrc is the body text only and is identical across SECURITY DEFINER/INVOKER and any
+--     -- search_path change (demonstrated by D, 2026-09-22: an INVOKER variant of this exact body has prosrc md5
+--     -- 113cebf6…, the same as production's); only pg_get_functiondef detects those. This function's whole point is
+--     -- SECURITY DEFINER bypassing the listing guard, so prosrc alone proves nothing about what matters.
 --     -- NOTE (production, 2026-09-22 — manifest §3a): before this migration production carried the SAME statements
 --     -- with uppercase keywords (pg_get_functiondef md5 ecc0afc0cfc3b4521ed8cbe87cad93e8, prosrc md5
 --     -- 113cebf6671591c540cf2e54fa45ca0b; capture: docs/release/captures/cleanup_expired_reservations_production_20260922.sql).
