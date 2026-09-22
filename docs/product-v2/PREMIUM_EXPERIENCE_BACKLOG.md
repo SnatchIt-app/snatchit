@@ -4945,6 +4945,16 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   the payout-starvation fix ported onto the DEPLOYED expiry source; files are the edge function plus two test files,
   **zero app files**, so the Build-22 app-delta statement (exactly #81 ∪ #84, five files) is unchanged. #83 is no
   longer the only payout-fix vehicle. The consolidated proposal goes to the owner from A.
+- **§13 app-dependency confirmation to A (C, 2026-09-21; rollout plan v3 `9c552c73`):** verified by grep/diff at the
+  candidate heads. #81 adds no DB surface; #84 adds one column read (`payout_released_at`, existing production column,
+  receive `[id].tsx:119`). Rows confirmed called: 128 chain (registration.ts; missing → 'rpc_missing' → legacy, quiet),
+  129 (signOut.ts:72–75; revoke outcome honest), 136 (useSecurityNotices.ts; missing = "no notices"), 140
+  (markSent.ts:61; non-{transitioned,already_sent} → 'unconfirmed', never success), 142 column (settledRead.ts:42;
+  absent → payment_status_unknown on EVERY checkout — 142 must precede user exposure), get_my_tickets (tickets tab;
+  failure = its own error state). 131/135: no distinct app calls (server semantics of the 128 chain). **CORRECTION to
+  A's row:** the app never calls `record_payment_refund` — comment only (setupDecision.ts:38); without that migration
+  every refund renders refund_unconfirmed, the device-passed H1 shape. 143–146: nothing (confirmed). Distinction sent:
+  128–136 fail SOFT (quiet, no claims); 140/142/tickets fail CLOSED (visible neutral states).
   - **For the owner (D, wording):** on an expired order, "Order expired … Don't transfer the tickets" sits directly
         above the heading **"Send tickets to"** and the buyer's email. The details stay (owner's ruling), but the heading
         is an instruction that contradicts the block. Option: a neutral heading on the closed state only (e.g. "Buyer's
