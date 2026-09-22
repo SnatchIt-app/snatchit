@@ -87,7 +87,7 @@ needs a targeted apply, never `db push`.
   text and *verified itself against the 000 hash*, so a production rollback would install a casing variant and pass its
   own check. A first amendment embedded production's captured text — **withdrawn on D's objection** (a shared rollback
   carrying one environment's bytes installs a body every other environment never had, breaks exact identity checks on
-  the rehearsal database, and CI never executes rollbacks). Final shape, PR #90 @ `0d445a70` (D verification pending):
+  the rehearsal database, and CI never executes rollbacks). Final shape, PR #90 @ `4652cb55` (D PASS at `0d445a70`; the last commit is comment-only — the CHECK-BOTH-HASHES warning, non-comment lines identical):
   the 000 body stays; the verification states the 000 values it expects, records production's pre-apply casing variant
   and hashes (capture kept at `docs/release/captures/…_20260922.sql`), and says a production rollback leaves a
   semantically identical body that hashes as the repo body. **Optional, production-only, manifest step (owner's choice;
