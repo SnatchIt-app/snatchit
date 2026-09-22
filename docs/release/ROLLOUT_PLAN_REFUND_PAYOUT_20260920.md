@@ -221,12 +221,13 @@ tooling beyond "escalate", C's held `hold/seller-refund-recorded` screen.
 
 | Piece | Implemented | Integrated | Deployed | Operational |
 |---|---|---|---|---|
-| 143 / 144 / 145 / 146 | ✓ | ✓ (`e6ebd800`, two independent runs) | — | — (145 would be live on apply; 144/146 switch-gated) |
-| Payout fix (RC) / v38 backport #87 | ✓ | ✓ | — | — (production still starves payouts) |
-| notify-report `ops_alert` | ✓ | ✓ | — | — |
-| App (#81, #84) | ✓ | ✓ | — (rides the app build; needs 142/140/20260909 applied first) | — |
-| Console controls | ✓ | ✓ (own base) | — | — (never exercised against a live DB) |
-| 142 column | ✓ | ✓ (merged in the gate) | — | — |
+| 143 / 144 / 145 / 146 | ✓ | ✓ **merged in the gate `c836bc43`** (2026-09-22); prod-order rehearsal + FBF battery PASS | — (manifest `PRODUCTION_APPLY_MANIFEST_20260922.md`, preflight pending) | — |
+| Payout fix — **v38 backport #87** | ✓ | ✓ | **DEPLOYED 2026-09-22: `enforce-transfer-expiry` v39** (`bff961a3…`) | **verified**: 15 scheduled sweeps succeeded, errors 0; releases nothing today (stuck set 0) — preventive |
+| Payout fix (RC, #83) | ✓ | ✓ merged in the gate | — (edge deploy after the DB apply) | — |
+| notify-report `ops_alert` | ✓ | ✓ merged in the gate | — | — |
+| App (#81, #84) | ✓ | ✓ merged in the gate; C final verification PASS | — (rides the app build; needs 142/140/20260909 applied first) | — |
+| Console controls | ✓ | ✓ (own base) | — (draft PR pending D; release act = owner) | — (never exercised against a live DB) |
+| 142 column | ✓ | ✓ (in the gate) | — (manifest #14) | — |
 
 ## 13. App-side dependencies (C confirmed 2026-09-21 by grep/diff at the heads; two corrections accepted, both verified by A)
 
