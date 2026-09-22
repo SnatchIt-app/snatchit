@@ -4977,6 +4977,19 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   - **#87 effect confirmed benign:** at `e079fcc1`, `payout_released_at` is read at exactly three render sites (send
     buyer_confirmed / send auto_released / receive auto_released), copy/title/tone only; no enablement, navigation,
     countdown or read scheduling keys on it.
+- **Production close-out (C, 2026-09-22):** A's final release source `integration/refund-payout-round-v3` @
+  `3da63d9b` carries the five app files byte-identical to `e079fcc1` (each diffed); remaining diffs are docs/edges/
+  migrations. Confirmation sent to A. Open: installed-client row closes when the owner names the App Store build
+  (Build 13 unattested — no tag/commit). Standing by for the release verification window. No V3 content enters the
+  production package.
+- **V3 review for B (owner-authorised, read-only):** implementation note written —
+  `docs/product-v2/V3_APP_IMPLEMENTATION_NOTE_20260922.md` (display font facts incl. single Oswald weight, 1.25
+  line floor, 1.3 scale cap, system-face fallback; You-tab design contract on AdaptiveDock/navItems; photo
+  lifecycle criteria incl. the `store.userId === session.user.id` render guard; three canonical failure states for
+  wording review — B's wording draft not found in the repos, requested; excluded search counts NOT supported today
+  (WHERE-side exclusion + limit 40) — omit or propose a capability; four price labels with their two numeric bases).
+  Bounded implementation plan included; **no app code changes until the owner approves the visual package**; C
+  reviews B's final mockups against the note's acceptance lines.
   - **A's cross-verification (2026-09-22):** A's own combined build (`integration/refund-payout-round-v3` @ `3da63d9b`)
     agrees — same five app files, tsc 0, lint 0, 127 files / 2498 (one extra harness file on A's side). Phone verdict
     and compat statement stand as the record. **Build 13:** no tag on A's side either; which build the App Store serves
