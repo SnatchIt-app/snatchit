@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `e2c564ce` (updated by C, 2026-09-22)
+### ② Implemented on C's branch — `v3/midnight-app` @ `debb1b98` (updated by C, 2026-09-23)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -76,8 +76,52 @@ the "Tonight"/"This week" section headings (NOT drawn — grouping rule undefine
 the "Any date" chip (NOT built — semantics undefined) · which single-filter clear actions the empty state
 offers (only Clear price filter, the drawn case) · the loading skeleton still has the V2 grid shape.
 
-**Everything else in Packages 1–6 is implemented nowhere** — next in flow order: listing hero + §5 listing
-price block, bid entry / checkout restyle (pkg2), then pkg3.
+**Stage 3, landed 2026-09-23 (commits `57419079`, `dd839e28`, `debb1b98`):**
+
+- **Three owner rulings closed:** Create → **"Sell"** (same key/route/behaviour) · **Buy now stays primary**
+  beside bidding · **quantity-aware buy-now verb** ("Buy both now · $132.00", "Buy all N now", plain for one
+  or unknown — no count invented). `detailState` gained `listing.quantity`.
+- **Listing detail:** identity (dated line + name via NameText) over the curve-scrimmed `LISTING_HERO_V3`
+  hero — nothing transactional joins it; provenance kept, stacked above the date line; neighborhood moved to
+  the details table; Delivery gains the platform display name. The §5 panel (one all-in price ·
+  "2 × GA tickets / sold together" · "all-in · 6 bids · 2h 14m left", amber only under 15m) says nothing
+  about the buyer's total; the "If you bid the minimum" breakdown (money-module rows) says nothing about the
+  market; the §5 commitment sentence renders wherever a bid can be placed — saying "starting bid" at zero
+  bids. Buy-now amount lives only on its CTA.
+- **Bid entry (pkg2):** listing restated (display-voice name, shared dated line, whole-listing quantity);
+  both compare columns all-in with "· $100 bid + fee" beneath; **the headline is now the total** ("your
+  total if you win"), the stepper carries the bid and says so. **Correction to pkg2's record:** card ③ was
+  tagged EXISTS but the shipped headline was the raw BID (`fmt$(selectedBid)`), verified in source — the
+  behaviour is V3 work, now implemented. Select list widened by four columns on the same authorized row.
+- Evidence at `debb1b98`: tsc 0 · lint 0 errors/29 warnings · vitest **135 files / 2586 tests** run alone ·
+  controls **9/9 (rulings + listing)** and **5/5 (bid entry)** killed — two first-run survivors/label
+  corrections disclosed in the commit messages (L6 defence-in-depth pin added red-green; N1 killed by a
+  superset of the prediction).
+
+**Held for the checkout slice (next):** pkg2 checkout boards — the screen borders the gated payment modules
+(`payControl`/`setupDecision`/`holdState` are A-review surface), so it gets its own pass with A flagged on
+any contact. **Order screen:** per the owner 2026-09-23, the redesign proceeds on LIVE data and truthful
+existing error behaviour only — persistent cached-order presentation stays out of scope unless separately
+authorized; the auto-release sentence still waits on O-1/B-4.
+
+### Review requested from B (2026-09-23) — implemented screens vs the frozen package
+
+Home, Search, Listing detail and Bid entry are ready for B's review on `v3/midnight-app` @ `debb1b98`.
+Differences from the boards, classified — nothing was quietly omitted:
+
+| Difference | Class | What B decides |
+|---|---|---|
+| "Tonight" / "This week" home headings not drawn | **unfinished design** — no grouping rule in any package text | supply the rule (incl. the no-event-today case); C implements |
+| "Any date" search chip not built | **unfinished design** — semantics undefined | define (picker? preset?) or drop |
+| Same-day boundary between "2h 14m left" and "Ends Sat 20:30" | **C inference** from four mockup data points | confirm or correct |
+| Empty state offers only "Clear price filter" + "Clear all" | **C conservatism** — the drawn case; per-filter rule unstated | state the rule for other active filters |
+| Divider ink = `border.overArt` | **C conservatism** — §3 names no ink | confirm or name the value |
+| Loading skeleton still the V2 grid shape | **unfinished implementation** — no §3 skeleton drawn | draw or waive |
+| Feed rows drop the V2 alt-price line (buy-now beside bid) | **intentional per mockup** — single price per row | confirm |
+| Panel no longer prints the buy-now price block | **intentional per mockup + ruling** — the CTA owns the amount | confirm |
+| Listing CTA hierarchy: Buy now primary (mockup drew bid-primary) | **owner ruling 2026-09-23** — overrides the board | note in the package |
+| Bid-entry headline = total | **package ③ tag corrected** — was EXISTS, is V3 work, now done | amend the card |
+| Provenance badge position (above the date line on the hero) | **C placement** — boards omit the badge | confirm or place |
 
 ### C rulings on the freeze findings (2026-09-22, verified independently at `v3/midnight-app`)
 
