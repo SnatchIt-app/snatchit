@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `31819593`
+### ② Implemented on C's branch — `v3/midnight-app` @ `e2c564ce` (updated by C, 2026-09-22)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -51,7 +51,55 @@ described-only.**
 Type-rule amendment (comment-only, both mirrors) · five mixed-case name tokens (leading provisional) · bid CTAs
 O-2 · the "You" profile photo O-5 · truthful reporting, failed-read copy and the scrim curve O-3.
 
-**Everything else in Packages 1–6 is implemented nowhere.**
+**Stage 2, landed by C after consuming the freeze (commits `3e66068a`, `05489dfb`, `85855607`, `e2c564ce`):**
+
+- **§3 geometry as formulas** (`featureMetrics.ts`), the §5 row vocabulary (`feedRowState.ts` — the amber
+  rule, "no bids yet", locale-independent dates), and **the measured scrim curve RENDERING** — as a 15-stop
+  CSS gradient through RN 0.81 `experimental_backgroundImage`, the mechanism the V2 scrims already use.
+  **No native module is needed; expo-linear-gradient was never added.** SlotSpec gains `scrim:'curve'` +
+  `heightFor(width)`; slots `HOME_FEATURE_V3`, `LISTING_HERO_V3`, `FEED_ROW_ART` carry the package geometry
+  (`LISTING_HERO_V3` awaits its screen).
+- **Home = feature + §3 rows** (first LIVE listing only is featured; sold/ended never), content-driven
+  heights, clearance + inset divider; the V2 data layer byte-untouched (guard suite green).
+- **Search** = §3 rows + `2 listings · Soonest first` header + three real-column chips (GA · Under $150
+  judged on the ALL-IN through the money module · Mobile transfer) + the exact §5 filtered empty state with
+  Clear price filter / Clear all. No excluded count exists anywhere.
+- Evidence at `e2c564ce`: tsc 0 · lint 0 errors/29 warnings (baseline) · vitest **133 files / 2568 tests**
+  run alone · **16/16 deliberate-bug controls killed as predicted** (one first-run survivor, B15, exposed a
+  comment-satisfied source pin; strengthened, red-green re-verified, disclosed).
+- **Dead-route question answered:** `(tabs)/index` is a pure `<Redirect>` to home (no surface);
+  `(tabs)/explore` is ALIVE — it is Search, pushed from Home's header. Neither is dead code to remove.
+
+**Flagged for B (mockup-only, no spec text — implemented conservatively, B to confirm or correct):**
+same-day boundary between "2h 14m left" and "Ends Sat 20:30" · divider ink (reused `border.overArt`) ·
+the "Tonight"/"This week" section headings (NOT drawn — grouping rule undefined; home renders unlabelled) ·
+the "Any date" chip (NOT built — semantics undefined) · which single-filter clear actions the empty state
+offers (only Clear price filter, the drawn case) · the loading skeleton still has the V2 grid shape.
+
+**Everything else in Packages 1–6 is implemented nowhere** — next in flow order: listing hero + §5 listing
+price block, bid entry / checkout restyle (pkg2), then pkg3.
+
+### C rulings on the freeze findings (2026-09-22, verified independently at `v3/midnight-app`)
+
+Verified on C's branch before ruling: **23 `Alert.alert` call sites**, the 24th variant at the branching
+cancel body, the `More actions` platform split with the **computed** `destructiveButtonIndex`, 5 alerts in
+`my-listings.tsx`, and F-27's shape (the reservation failure branch returns before `fetchData()`).
+
+- **F-25 — DEFERRED, not restyled.** The copy divergence is real, but the structural difference (one
+  branching control vs two guarded entries) is a product decision and even the string unification is consent
+  language. No unification lands with the restyle; a unified copy sheet goes to B's copy backlog for a
+  proposal the owner can approve.
+- **F-26 — PRESERVE.** The platform split and computed destructive index stay exactly as shipped; no custom
+  sheet, in V3 or later, without a separate decision.
+- **F-27 — EXCLUDED from restyling.** A refetch-on-race-lost is a behaviour change (retries/refresh), drawn
+  PROPOSED and staying proposed. Restyled dialogs must claim nothing about refresh; none currently does.
+
+### C's source-level answers to B-5 (the rest stays with A's evidence table)
+
+`auto_release_at` exists (`008_auto_release.sql`), is covered by the **whole-table**
+`GRANT SELECT ON public.transfers TO authenticated` (`0550:267`) under the buyer's row policy, and is simply
+absent from the buyer's select list — showing it is client-only work, no new capability. Whether it MAY be
+shown, what it means per state, and its staleness after an extension are A's cells (asked 2026-09-22).
 
 ### ③ Awaiting A/C validation
 
