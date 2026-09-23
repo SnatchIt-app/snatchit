@@ -66,7 +66,7 @@ SELECT is((SELECT count(*)::int FROM public.get_unsettled_payments(50) WHERE pay
 SELECT is((SELECT count(*)::int FROM public.get_unsettled_payments(50) WHERE payment_id = tap._id214(11)), 0,
   'A3: repeated run — still not selected (no re-selection loop)');
 
--- A4: a genuinely unsettled payment with no marker must still be listed and settle.
+-- A4: a genuinely unsettled payment with no marker must still be listed (selection only; settlement is the edge's).
 SELECT is((SELECT kind FROM public.get_unsettled_payments(50) WHERE payment_id = tap._id214(12)), 'paid_unsettled',
   'A4: a valid eligible payment (no marker) is still listed as paid_unsettled');
 
