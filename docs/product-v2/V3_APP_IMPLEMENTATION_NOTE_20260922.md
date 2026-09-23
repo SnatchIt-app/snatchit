@@ -181,3 +181,33 @@ only (no cached-order presentation without separate authorization); F-25/F-27 st
 preserved. **Next slice:** checkout restyle (pkg2) — borders gated payControl/setupDecision/holdState, so
 its own pass with A flagged on any contact; then pkg3. Gradient rendering on device = D-2-adjacent check
 (tests pin the math only, per owner's note).
+
+---
+
+# V3 de-duplication direction — bid/listing/rows/checkout corrected (C, 2026-09-23)
+
+**Owner direction:** each fact once, app-wide; amount on an action OR beside it; no control-explaining
+sentences; earlier approvals/pins of repeated wording overridden. **Branch @ `d8d7be1a`** (one commit).
+
+**Bid entry rebuilt to the directed shape** (supersedes the day's earlier two-column build): identity +
+qty · market price once ("Current/Starting bid · $110 all-in") · labelled editable bid (stepper focus,
+"Minimum $105") · fee once · total beside the plain "Place bid" button ("If you win / $115.50"). Payment
+sentence corrected after verifying the winner's path (pay_now → winner checkout → payControl's Pay; nothing
+charges automatically): "Nothing is charged now. If you win, you'll pay this total at checkout to complete
+the purchase." — the shipped "Only charged if you win the auction." implied an auto-charge and is gone.
+**Listing:** commitment sentence number-free (panel + CTA sub-label carry them); breakdown each number once;
+live fee note dropped (sold view keeps its only fee sentence). **Rows:** sold rows say "Sold" once.
+**Checkout:** the total-restating sentence under the breakdown removed — zero gated-file contact (diff vs
+e079fcc1 gated surface: still only round 1's signOut.ts +5, flagged).
+
+**Evidence:** tsc 0 · lint 0/29 · vitest 135 files / 2587 run alone · lean controls 3/3 as predicted
+(button-amount revert · auto-charge revert · total-beside-action removal); obsolete pins updated in place,
+behavioural checks retained (F-BID-1 8/8, CFT-205 single-flight untouched).
+
+**Inventory sweep:** Home/Search already one-fact-per-row; transfers/create/my-listings/tickets/settings
+grep-audited — no same-state money repeats; checkout success sentence vs ESCROW_NOTE_COPY render in
+different payment states (#81 gating untouched; boundary re-checked in the checkout slice with A).
+Per-screen copy de-dup continues as each restyle slice lands. **Phone-dimension review: rendered evidence is
+NOT producible on this machine** (simulator blocker stands); layouts are content-driven with no fixed row
+heights and keyboard paths unchanged in source — actual-dimension/large-text/keyboard checks remain D-3/D-4/
+D-5 device items. Matrix updated + pushed (`9b21e403`).
