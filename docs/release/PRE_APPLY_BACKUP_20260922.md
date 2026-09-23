@@ -71,7 +71,7 @@ benign `public` schema notice), re-apply manifest files applied after 23:27:37Z 
 vault.decrypted_secrets where name='project_url'` → exactly one row, true). 3. Reload the application schemas from the
 logical dump (Tier B command). 4. Reconcile managed deltas from the side exports if non-empty (today: empty):
 `delta_auth_users_…csv`, `delta_auth_identities_…csv`, `storage_objects_meta_…csv` (metadata only — file contents live
-in object storage and are outside every database backup). 5. Re-apply manifest files applied after 23:27:37Z.
+in object storage and are outside every database backup). 5. Re-apply manifest files applied after 23:27:37Z. **5a. Managed-schema writes the application dump cannot carry (D's finding, 2026-09-23 01:55Z):** after any restore that pairs the post-release application dump with the pre-release physical backup, re-execute file #7 (131)'s two `CREATE TRIGGER` statements — `trg_push_bindings_on_password_change ON auth.users` and `trg_push_bindings_on_sessions_gone ON auth.sessions` (their `kernel.*` functions are in the dump; without the triggers, password changes and session revocations silently stop invalidating push bindings) — and file #9 (133)'s five `cron.unschedule`/`cron.schedule` pairs (otherwise the physical backup reinstates the pre-release job definitions and silently reverts the base-URL fix). Both failures are silent on restore; neither is data loss.
 6. §7 checks.
 
 ## 7. Post-recovery checks
