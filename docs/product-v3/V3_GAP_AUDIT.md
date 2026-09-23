@@ -3,9 +3,13 @@
 **B · 2026-09-22.** Reconciled against the repository at release source `5b255838` and C's branch
 `v3/midnight-app` @ `31819593`.
 
-> **The redesign is NOT complete.** Five packages are delivered and committed, but **two consumer surfaces are
-> still undesigned**, three transfer cells are blocked on A and C, and **nothing at all has been verified on a
-> device**. Those categories are listed here in full rather than folded into a completion claim.
+> **UPDATED 2026-09-22 after Package 6 (`c5c7282e`).** The two undesigned surfaces — the Bids tab and the
+> listing-detail role/action matrix with its 17 dialogs — **are now designed**, as are the seven
+> written-but-undrawn settings surfaces, the error boundary, the outbid notice and the status banner.
+>
+> **What remains is not design work.** Three transfer cells are blocked on A and C, five items await A/C
+> validation, and **nothing at all has been verified on a device**. Those categories are listed here in full
+> rather than folded into a completion claim.
 
 ---
 
@@ -28,13 +32,13 @@
 | `settings/legal`, `settings/privacy` | long static documents; type scale and collapsible sections come from Package 1 |
 | `checkout/index` | the entry route into `checkout/[id]`; no separate surface |
 
-**These seven are not "hidden behind a pattern" — each has its states, copy and rules written down in its
-package — but none has a rendered image, and that is a gap, not a completion.**
+**All seven are now rendered** on `pkg6-settings-surfaces.png`, with their real fields, limits and copy.
+None is described-only.
 
-| ⛔ Undesigned — substantive (2) | Consequence |
+| ✅ Closed by Package 6 (`c5c7282e`) | Artifact |
 |---|---|
-| **`(tabs)/bids.tsx` — the Bids tab** | A **primary destination in the dock** with no V3 design. It shows the buyer's bid history and routes into transfers. `BidCard.tsx` and `src/lib/bids/**` were inventoried but never drawn. **This is the largest single gap.** |
-| **`listing/[id]` — the `ActionKind` × role dialog matrix** | The listing base screen is approved, but the screen carries **23 `Alert.alert` dialogs** and a role/state action machine (`detailState` → `ActionKind`) that was deferred from Package 2 into Package 4 and then not completed. Every other flow's dialogs are drawn; this one's are not. |
+| **`(tabs)/bids.tsx` — the Bids tab** | `pkg6-bids-{clean,active,past,empty,refresh_failed}.png` — two segments, ten row states, urgency inside 60 minutes, inline failed refresh |
+| **`listing/[id]` — the role/action matrix and its dialogs** | `pkg6-listing-action-matrix.png` (11 resolution branches, 12 status kinds) and `pkg6-listing-dialogs.png` (all 17 distinct dialogs with trigger and recovery) |
 
 | Out of scope, stated (4) | Reason |
 |---|---|
@@ -42,9 +46,9 @@ package — but none has a rendered image, and that is a gap, not a completion.*
 | `(tabs)/index`, `(tabs)/explore` | hidden via `href: null`; reachable only by `router.push`. **C to confirm whether they are dead** |
 | `app/_layout.tsx`, `(tabs)/_layout.tsx`, `(auth)/_layout.tsx` | layout shells, no visual surface of their own |
 
-**Also undrawn:** `src/components/ErrorBoundary.tsx` (the last-resort crash screen),
-`listing/OutbidToast.tsx` and `listing/ListingStatusBanner.tsx`. All three are inventoried in the matrix and
-none has an artifact.
+**Also closed:** `ErrorBoundary`, `OutbidToast` and `ListingStatusBanner` are on `pkg6-system-surfaces.png`,
+which also carries the corrected account of the outbid notice — an **existing shipping component**, not a
+proposal, and the reason my earlier "no toast anywhere" was too broad.
 
 ---
 
@@ -121,10 +125,11 @@ the date that decides whether their payment leaves) · **F-21** (raw PostgREST t
 
 ## 6 · What "complete" would require
 
-1. Design and draw **the Bids tab** and **the listing-detail dialog matrix**.
-2. Render the seven written-but-undrawn settings surfaces, plus the error boundary, outbid toast and status banner.
-3. A and C resolve **B-1…B-5**; B writes the copy from those facts.
-4. C implements and **device-verifies D-1…D-8**.
-5. C reviews the handoff for implementation gaps — the owner's stated condition, not yet done.
+1. ~~Design and draw the Bids tab and the listing-detail dialog matrix.~~ **Done — Package 6.**
+2. ~~Render the seven settings surfaces, the error boundary, outbid notice and status banner.~~ **Done — Package 6.**
+3. A and C resolve **B-1…B-5**; B writes the copy from those facts. **Outstanding.**
+4. C implements and **device-verifies D-1…D-8**. **Outstanding — nothing is verified.**
+5. C reviews the handoff for implementation gaps — the owner's stated condition. **Outstanding.**
 
-**Until all five are true, this redesign is not complete, and this audit is the list of what is missing.**
+**Design coverage is complete: no existing consumer surface is omitted or described without a visual
+treatment.** The redesign itself is not complete until 3, 4 and 5 are true.

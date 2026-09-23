@@ -32,6 +32,7 @@ forwarding.
 | **3** | **Selling, creation, editing, listing management** | `V3_PACKAGE_3_SELLING_FOR_C.md` | `pkg3-create-{clean,annotated,invalid}.png`, `pkg3-my-listings-{clean,annotated,empty}.png`, `pkg3-selling-dialogs.png` | `6cb26a4d` | ✅ ready to implement |
 | **4** | **Orders, transfers, disputes, support** | `V3_PACKAGE_4_TRANSFERS_SUPPORT_FOR_C.md` | `pkg4-send-{clean,pending,seller_sent,expired}.png`, `pkg4-transfer-matrix.png`, `pkg4-dispute-support.png` | `63d252c4` | ✅ ready; 3 cells blocked on A/C |
 | **5** | **Tickets, profile, settings, auth, security notice** | `V3_PACKAGE_5_ACCOUNT_FOR_C.md` | `pkg5-auth.png`, `pkg5-tickets-profile.png`, `pkg5-settings-account.png` | `965c46ad` | ✅ ready to implement |
+| **6** | **Completion: Bids tab, listing role/action matrix + 17 dialogs, 7 settings surfaces, system surfaces** | `V3_PACKAGE_6_COMPLETION_FOR_C.md` | `pkg6-bids-*.png`, `pkg6-listing-action-matrix.png`, `pkg6-listing-dialogs.png`, `pkg6-settings-surfaces.png`, `pkg6-system-surfaces.png` | `c5c7282e` | ✅ ready to implement |
 | — | **GAP AUDIT — read this before claiming completion** | `V3_GAP_AUDIT.md` | — | `01822004` | ⛔ **2 surfaces undesigned, 5 blocked, 8 device checks outstanding** |
 
 ## Two distinctions that travel with every package
@@ -62,9 +63,7 @@ All five packages are delivered. **What remains is in `V3_GAP_AUDIT.md`:**
 
 | | Outstanding | Owner |
 |---|---|---|
-| ⛔ | **The Bids tab** — a primary dock destination with no V3 design | B |
-| ⛔ | **The listing-detail `ActionKind` × role dialog matrix** — 23 dialogs, deferred and not completed | B |
-| ⬜ | Seven settings surfaces specified in writing but not drawn; error boundary, outbid toast, status banner | B |
+| ✅ | The Bids tab, the listing role/action matrix, all 17 listing dialogs, the seven settings surfaces, error boundary, outbid notice, status banner | **done — Package 6 `c5c7282e`** |
 | 🚫 | `expired` / `reversed` state blocks (3 cells) and the release wording | A, then B |
 | 🚫 | The buyer review-deadline field | C |
 | 🔍 | Eight device checks — **nothing is device-verified** | C |

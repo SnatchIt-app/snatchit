@@ -18,6 +18,61 @@ role-conditional states below are where the screens actually live.
 
 ---
 
+## Reconciliation — every surface, in four states (2026-09-22, after Package 6)
+
+Reconciled against the repository at release source `5b255838` and C's branch `v3/midnight-app` @ `31819593`.
+The four states are independent: a surface can be designed and not implemented, or implemented and not
+verified.
+
+### ① Designed and ready for implementation — 36 of 36 route files accounted for
+
+Every consumer route now has a rendered treatment or a stated out-of-scope reason. **Nothing is
+described-only.**
+
+| Surface | Artifact |
+|---|---|
+| Home, Search, Listing detail, Order/Receive | `midnight-*` (owner-approved) |
+| Foundations, components, four state screens, dock, profile photo | `pkg1-*`, `compare-*` |
+| Bid entry, Checkout, all 10 pay-control states, hold-lost, refund kinds | `pkg2-*` |
+| Create (+ validation), My listings (+ empty), 22 selling dialogs, picker no-results | `pkg3-*` |
+| Send transfer (pending / sent / expired), 7×2 transfer matrix, dispute, report, support | `pkg4-*` |
+| Auth (3 sign-in + 4 signup steps), Tickets, Profile, public profile, Settings hub, Notifications, security notice | `pkg5-*` |
+| **Bids tab (4 states)**, **listing role/action matrix**, **all 17 listing dialogs**, **7 settings surfaces**, error boundary, outbid notice, status banner | `pkg6-*` |
+
+**Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
+`href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
+
+### ② Implemented on C's branch — `v3/midnight-app` @ `31819593`
+
+> **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
+> production.
+
+Type-rule amendment (comment-only, both mirrors) · five mixed-case name tokens (leading provisional) · bid CTAs
+O-2 · the "You" profile photo O-5 · truthful reporting, failed-read copy and the scrim curve O-3.
+
+**Everything else in Packages 1–6 is implemented nowhere.**
+
+### ③ Awaiting A/C validation
+
+| # | Item | Owner |
+|---|---|---|
+| B-1 | `expired` — buyer state block | A → B |
+| B-2 | `reversed` — buyer state block (incl. the status noun) | A → B |
+| B-3 | `reversed` — seller state block (**F-17c**) | A → B |
+| B-4 | The order screen's automatic-release sentence (**O-1**) | A + C |
+| B-5 | The buyer review-deadline field (**F-22**) | C |
+| — | 22 functional findings labelled ① | C (client), A (money) |
+
+### ④ Awaiting device verification — **nothing is verified**
+
+D-1 mixed-case leading · D-2 contrast over real seller artwork · D-3 enlarged text · D-4 narrowest width ·
+D-5 keyboard behaviour · D-6 avatar across account switch · D-7 whether `expired`/`reversed` are reachable ·
+D-8 whether the Tickets RPC migration is applied.
+
+**No build, no simulator, no production read. Every artifact is a static image.**
+
+---
+
 ## Package status
 
 | # | Package | Scope | Status |
