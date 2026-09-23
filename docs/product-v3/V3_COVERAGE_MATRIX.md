@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `debb1b98` (updated by C, 2026-09-23)
+### ② Implemented on C's branch — `v3/midnight-app` @ `d8d7be1a` (updated by C, 2026-09-23)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -103,6 +103,21 @@ offers (only Clear price filter, the drawn case) · the loading skeleton still h
 any contact. **Order screen:** per the owner 2026-09-23, the redesign proceeds on LIVE data and truthful
 existing error behaviour only — persistent cached-order presentation stays out of scope unless separately
 authorized; the auto-release sentence still waits on O-1/B-4.
+
+### De-duplication direction (owner 2026-09-23) — supersedes repeated copy on the boards
+
+**Every screen states each fact once.** An amount lives on an action OR immediately beside it, never
+both; no sentence explains an obvious control; a fee/total is not restated in prose under the rows that
+itemise it. Earlier mockup approvals and test pins of repeated wording do not override this. Landed at
+`d8d7be1a`: bid entry rebuilt to the directed shape (market price once · labelled editable bid ·
+fee once · total beside the plain "Place bid" button · truthful payment sentence — the winner pays at
+checkout; "Only charged if you win the auction." implied an automatic charge and is gone, verified
+against the pay_now → checkout → payControl path); the listing commitment sentence drops its numbers;
+the breakdown states each number once; sold rows say "Sold" once; checkout's total-restating sentence
+removed (zero gated-file contact). Home/Search audited: already one fact per row. Remaining inventory
+(transfers, create, my-listings, tickets, settings, dialogs, banners) grep-audited with no same-state
+money repeats found; per-screen copy de-dup applies as each restyle slice lands. **B: reviews and any
+new boards apply this rule; routine wording is resolved between B and C without waiting for redraws.**
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
