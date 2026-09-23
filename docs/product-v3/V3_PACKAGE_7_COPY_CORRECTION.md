@@ -113,7 +113,51 @@ Also on that file: remove the `compareSub` all-in captions, the `bigAmount`/`ste
 
 ---
 
-## 4 · Remaining surfaces — in progress
+## 4 · Listing detail and checkout — delivered (increment 2)
 
-Delivered incrementally; each with a before/after and a ledger. See §5 of this document as it grows, and the
-handoff index for the commit of each increment.
+**Artifacts:** `pkg7-listing-checkout-comparison.png` · `pkg7-listing-after.png` ·
+`pkg7-listing-after-annotated.png` · `pkg7-checkout-after.png`.
+
+### Listing detail — 5 lines removed, `$104.50` from 4 appearances to 1
+
+| Removed | Why |
+|---|---|
+| *"IF YOU BID THE MINIMUM $104.50"* header | A total for a bid the buyer has not chosen yet |
+| Breakdown: *Tickets $95.00* · *Service fee $9.50* · *Your total if you win $104.50* | Three rows pricing an imagined bid. The bid screen owns that arithmetic, and the fee is itemised there and again at checkout — both **before** any commitment |
+| *"The current bid is $99.00; the lowest you can place is $104.50 all-in."* | Both figures were already on the screen: one in the panel, one on the button |
+| *"all-in,"* on the Buy now line | The panel caption says it once; *"ends the auction"* is the consequence that earns the line |
+
+**Kept:** *"A bid is a commitment. If you win, you come back to pay."* — the part no control can show, now the
+same sentence as the bid screen.
+
+**Added — a coverage gap, not a decoration.** `BidActivity.tsx` has always rendered on this screen and **my
+earlier boards never drew it**. The removed breakdown did not leave a hole; bid activity is what occupies that
+space in the app. It is now drawn with its shipped shape: *"Bid activity"*, then name / time / amount rows with
+**LEADING** on the top bid, and *"No bids yet · Be the first to bid on this one."* when empty.
+
+| Figure | Where it now lives | Before |
+|---|---|---|
+| `$99.00` current bid | the price panel | 2× |
+| `$104.50` minimum | under `Place a bid` | 4× |
+| `$132.00` buy now | on the Buy now control | 1×, unchanged |
+
+### Checkout — 1 duplicate figure removed
+
+`$132.00` appeared **three times inside one 86pt band**: the breakdown total, the sticky `TOTAL` kicker, and
+the button. **The kicker is deleted.** The breakdown stays — that is arithmetic, not repetition, and it is the
+only place a Buy Now fee is itemised. `Pay $132.00` is untouched.
+
+### The rule this settles
+
+> **A control's label names an amount when pressing it moves that amount.**
+
+`Pay $132.00` charges, so it names it — and `payControl.ts` is on C's gated surface, so leaving it alone also
+means **no gated file changes**. `Place bid` does not charge, so the total sits beside it instead. The escrow
+sentence stays: it is a consequence, not narration.
+
+---
+
+## 5 · Remaining surfaces — in progress
+
+Delivered incrementally; each with a before/after and a ledger, each its own commit in
+`V3_HANDOFF_INDEX.md`.
