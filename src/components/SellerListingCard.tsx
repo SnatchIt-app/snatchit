@@ -19,6 +19,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { Badge, Tappable } from '@/src/components/ui';
+import { NameText } from '@/src/components/NameText';
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import {
   canCancelListing,
@@ -85,7 +86,7 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
 
       <View style={s.content}>
         <View style={s.titleRow}>
-          <Text style={[textStyle('title'), s.event]} numberOfLines={1}>{listing.event_name}</Text>
+          <NameText token="nameRow" maxLines={1} style={s.event}>{listing.event_name}</NameText>
           {isVerifiedSeller != null ? <VerifiedSellerBadge isVerified={isVerifiedSeller} /> : null}
         </View>
 

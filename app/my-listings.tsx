@@ -265,10 +265,13 @@ export default function MyListingsScreen() {
                   : filter === 'ended' ? 'No ended auctions'
                   : 'Nothing sold yet'
               }
+              // §2: each empty means something different, so each gets its own sentence.
               body={
-                filter === 'all' ? 'Tap the Create tab to list your first ticket.'
+                filter === 'all' ? 'Tap the Sell tab to list your first ticket.'
+                  : filter === 'active' ? 'Nothing of yours is live right now.'
                   : filter === 'needs_action' ? 'No tickets waiting to be sent.'
-                  : 'Nothing here yet.'
+                  : filter === 'ended' ? 'Auctions that closed without a sale land here.'
+                  : 'Completed sales land here.'
               }
               action={filter === 'all' ? { label: 'Create a listing', onPress: () => router.push('/(tabs)/create') } : undefined}
             />

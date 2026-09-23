@@ -698,7 +698,7 @@ export default function CreateListingScreen() {
             onChange={setStartingBid}
             error={submitted ? errors.startingBid : undefined}
             helper={summary.valid && (!buyNowEnabled || buyNowPriceNum <= 0)
-              ? `You get ${summary.sellerNet} · buyers pay ${summary.buyerAllInLabel}`
+              ? `Buyers pay ${summary.buyerAllInLabel}`
               : undefined}
           />
 
@@ -729,7 +729,7 @@ export default function CreateListingScreen() {
               onChange={setBuyNowPrice}
               error={submitted ? errors.buyNowPrice : undefined}
               helper={summary.valid && buyNowPriceNum > 0
-                ? `You get ${summary.sellerNet} · buyers pay ${summary.buyerAllInLabel}`
+                ? `Buyers pay ${summary.buyerAllInLabel}`
                 : undefined}
             />
           ) : null}
@@ -850,13 +850,22 @@ export default function CreateListingScreen() {
         style={{ marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset }), paddingBottom: v2.space.md }}
         left={
           <View>
-            <Text style={[textStyle('micro'), sx.stickyKicker]}>{summary.valid ? proceedsKicker(quantity) : 'Set a price'}</Text>
             {summary.valid ? (
-              <Text style={[textStyle('price'), sx.stickyValue]} numberOfLines={1}>
-                {summary.sellerNet}
+              <>
+                <Text style={[textStyle('micro'), sx.stickyKicker]}>{proceedsKicker(quantity)}</Text>
+                <Text style={[textStyle('price'), sx.stickyValue]} numberOfLines={1}>
+                  {summary.sellerNet}
+                </Text>
+                {/* The one fee clause: the seller net's basis, beside the figure being decided. */}
+                <Text style={[textStyle('micro'), sx.stickyHint]} numberOfLines={1}>after the seller fee</Text>
+              </>
+            ) : submitted ? (
+              // §1: one validation summary, at the action, only after a submit found failures.
+              <Text style={[textStyle('bodySm'), sx.stickySummary]} numberOfLines={2}>
+                Fix the highlighted fields before listing.
               </Text>
             ) : (
-              <Text style={[textStyle('bodySm'), sx.stickyHint]} numberOfLines={1}>after the seller fee</Text>
+              <Text style={[textStyle('micro'), sx.stickyKicker]}>Set a price</Text>
             )}
           </View>
         }
@@ -1096,6 +1105,7 @@ const sx = StyleSheet.create({
   stickyKicker: { color: v2.text.muted },
   stickyValue: { color: v2.text.primary, marginTop: 2 },
   stickyHint: { color: v2.text.muted, marginTop: 2 },
+  stickySummary: { color: v2.status.error },
 
   sheetList: { marginTop: v2.space.sm, maxHeight: 380 },
   sheetGroup: { color: v2.text.faint, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
