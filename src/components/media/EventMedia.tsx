@@ -37,7 +37,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName } from '@/src/lib/media/slots';
+import { scrimBackgroundImage } from '@/src/lib/design/scrim';
+import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName, type SlotSpec } from '@/src/lib/media/slots';
 import { resolveImage, type MediaAsset } from '@/src/lib/media/url';
 import { fontFamily } from '@/src/theme/fonts';
 import * as v2 from '@/src/theme/v2';
@@ -107,7 +108,8 @@ function EventMediaImpl({
   decorative = false,
   children,
 }: EventMediaProps) {
-  const spec = MEDIA_SLOTS[slot];
+  // Widened to the spec type: the literal slot table omits optional fields like `heightFor`.
+  const spec: SlotSpec = MEDIA_SLOTS[slot];
 
   // Fluid frames measure themselves. Nothing is requested until the real width is
   // known, because requesting the slot's nominal width and then laying out at a
@@ -148,7 +150,8 @@ function EventMediaImpl({
   }
 
   const boxWidth = resolvedWidth as number;
-  const boxHeight = Math.round(boxWidth / spec.aspectRatio);
+  // §3 heights are formulas of the real width; a slot that carries one wins over its ratio.
+  const boxHeight = Math.round(spec.heightFor ? spec.heightFor(boxWidth) : boxWidth / spec.aspectRatio);
 
   const resolved = resolveImage(asset, slot, {
     breakpoint,
@@ -247,7 +250,11 @@ function EventMediaImpl({
         <View
           style={[
             styles.scrimBase,
-            spec.scrim === 'strong' ? styles.scrimStrong : styles.scrimBottom,
+            spec.scrim === 'curve'
+              ? styles.scrimCurve
+              : spec.scrim === 'strong'
+                ? styles.scrimStrong
+                : styles.scrimBottom,
           ]}
           pointerEvents="none"
         />
@@ -311,5 +318,14 @@ const styles = StyleSheet.create({
     top: '35%',
     experimental_backgroundImage:
       'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.88) 100%)',
+  },
+  /*
+   * The V3 measured curve (owner 2026-09-22; package §3): full image height, a 0.20 floor by 30%
+   * of the height so glyph TOPS never sit on raw image, 0.97 at the baseline. The seven contrast
+   * bands B measured (worst 5.17:1) hold only with this exact curve — do not swap in a flat band.
+   */
+  scrimCurve: {
+    top: 0,
+    experimental_backgroundImage: scrimBackgroundImage(),
   },
 });

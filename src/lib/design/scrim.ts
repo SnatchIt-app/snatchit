@@ -10,10 +10,10 @@
  *   t < 0.30 : 0.20 × smoothstep(t / 0.30)          — eases in, so there is no visible seam
  *   t ≥ 0.30 : 0.20 + 0.77 × (t − 0.30) / 0.70      — linear to 0.97 at the baseline
  *
- * NOT WIRED YET: rendering this needs a gradient primitive (expo-linear-gradient), which is not in
- * the bundle — adding it is a native-module change that needs the next authorised build. The curve
- * lands here first so the values are pinned and reviewable; the hero applies it in the V3 screen
- * stage that ships with that build.
+ * RENDERING: React Native 0.81's `experimental_backgroundImage` draws CSS gradients with no
+ * native module — it is what EventMedia's existing V2 scrims already use. `scrimBackgroundImage`
+ * below emits this curve as that CSS string; slots with `scrim: 'curve'` apply it. (An earlier
+ * note here said expo-linear-gradient was required; it is not, and it is not installed.)
  */
 
 function smoothstep(x: number): number {
@@ -39,4 +39,16 @@ export function scrimStops(count = 15): { position: number; color: string }[] {
     stops.push({ position: t, color: `rgba(0,0,0,${scrimAlpha(t).toFixed(4)})` });
   }
   return stops;
+}
+
+/**
+ * The curve as a `linear-gradient(...)` string for `experimental_backgroundImage`, spanning the
+ * FULL image height — the 0.20 floor by t = 0.30 is the whole point, so this must never be
+ * applied to a partial-height band the way the V2 scrims are.
+ */
+export function scrimBackgroundImage(count = 15): string {
+  const stops = scrimStops(count)
+    .map((s) => `${s.color} ${+(s.position * 100).toFixed(2)}%`)
+    .join(', ');
+  return `linear-gradient(to bottom, ${stops})`;
 }

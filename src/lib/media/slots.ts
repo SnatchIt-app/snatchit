@@ -21,6 +21,7 @@
  * Evidence and rationale: `docs/product-v2/EVENT_MEDIA_SYSTEM.md`.
  */
 
+import { featureHeight, heroHeight, ROW_ART, ROW_ART_RADIUS } from '@/src/lib/design/featureMetrics';
 import * as v2 from '@/src/theme/v2';
 
 /**
@@ -54,12 +55,25 @@ export interface SlotSpec {
   layoutWidth: { mobile: number; tablet: number; web: number };
   /** Default fill behaviour when the asset does not declare one. */
   defaultFit: FitMode;
-  /** Corner radius. The brand is square; this is 0 everywhere by design. */
+  /**
+   * Corner radius. The V2 brand rule was 0 everywhere; the V3 package (owner 2026-09-22, §3)
+   * rounds exactly one shape — the 62pt feed-row thumbnail — to 8. Everything else stays square.
+   */
   radius: number;
-  /** Whether text is placed over this image, which forces a scrim. */
-  scrim: 'none' | 'bottom' | 'strong';
+  /**
+   * Whether text is placed over this image, which forces a scrim. `curve` is the V3 measured
+   * curve (src/lib/design/scrim.ts): a 0.20 floor by 30% of the height, 0.97 at the baseline,
+   * spanning the FULL image height — unlike the V2 partial bands.
+   */
+  scrim: 'none' | 'bottom' | 'strong' | 'curve';
   /** Whether the slot should be preloaded. Only true where it is the LCP element. */
   preload: boolean;
+  /**
+   * §3 heights are FORMULAS of the real width, not ratios. When present this wins over
+   * `aspectRatio` for the final frame; the ratio then only shapes the one pre-measure frame a
+   * fluid consumer shows before its width is known (drift ≤ 1pt at phone widths).
+   */
+  heightFor?: (width: number) => number;
 }
 
 export const MEDIA_SLOTS = {
@@ -143,6 +157,35 @@ export const MEDIA_SLOTS = {
     layoutWidth: { mobile: 44, tablet: 48, web: 56 },
     defaultFit: 'cover',
     radius: v2.radius.none,
+    scrim: 'none',
+    preload: false,
+  },
+  /** V3 home feature: full-bleed, height (w − 40) × 0.49 + 34, the curve scrim under its text. */
+  HOME_FEATURE_V3: {
+    aspectRatio: 1.9,   // pre-measure approximation of the formula at phone widths
+    layoutWidth: { mobile: 390, tablet: 768, web: 1080 },
+    defaultFit: 'cover',
+    radius: v2.radius.none,
+    scrim: 'curve',
+    preload: true,
+    heightFor: featureHeight,
+  },
+  /** V3 listing hero: full-bleed, height w × 0.62 + 24, the curve scrim under date/name/price. */
+  LISTING_HERO_V3: {
+    aspectRatio: 1.47,   // pre-measure approximation of the formula at phone widths
+    layoutWidth: { mobile: 390, tablet: 768, web: 560 },
+    defaultFit: 'cover',
+    radius: v2.radius.none,
+    scrim: 'curve',
+    preload: true,
+    heightFor: heroHeight,
+  },
+  /** V3 feed/search row artwork: 62 × 62 at radius 8. Text sits BESIDE it, so no scrim. */
+  FEED_ROW_ART: {
+    aspectRatio: v2.ratio.square,
+    layoutWidth: { mobile: ROW_ART, tablet: ROW_ART, web: ROW_ART },
+    defaultFit: 'cover',
+    radius: ROW_ART_RADIUS,
     scrim: 'none',
     preload: false,
   },
