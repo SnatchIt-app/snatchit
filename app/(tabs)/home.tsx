@@ -17,6 +17,13 @@
  *  - The header hardcoded `paddingTop: 56`. It reads the real safe-area inset.
  *  - The floating "List Tickets" button is gone: Create is a tab, and the button
  *    was a second route to the same screen.
+ *
+ * V3 (owner 2026-09-22; B's package §3). Presentation only, again: the two-up grid becomes one
+ * full-bleed FEATURE (the first live listing, name over the curve-scrimmed artwork) above
+ * single-column ROWS — 62pt artwork, name in the display voice, all-in price right-aligned,
+ * content-driven heights. The data layer is still byte-for-byte the V2 one. The mockups' section
+ * headings ("Tonight" / "This week") are NOT drawn: their grouping rule has no spec text yet and
+ * is flagged for B; a heading the data can't guarantee would be a small lie.
  */
 
 import { router } from 'expo-router';
@@ -57,11 +64,12 @@ import {
   type QuickChip,
 } from '@/src/lib/home/filterModel';
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
-import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
+import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
+import { HomeFeature } from '@/src/components/discovery/HomeFeature';
 import { HomeHeader } from '@/src/components/discovery/HomeHeader';
-import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
+import { cardPresentation } from '@/src/lib/listing/cardState';
 import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, MyProfileRPC } from '@/src/types';
@@ -110,15 +118,8 @@ function coverPath(listing: Listing): string | null {
       || null;
 }
 
-/** "Sat, Oct 17 · 10:00 PM" */
-function whenLabel(date: string, time: string): string {
-  const d = new Date(`${date}T${time}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  }).replace(/,([^,]*)$/, ' ·$1');
-}
+// V3: date formatting for rows/feature lives in src/lib/listing/feedRowState.ts, inside the
+// components, so home and search cannot drift apart.
 
 export default function HomeScreen() {
   // Adaptive dock: feed scroll direction in, and give the list bottom clearance
@@ -450,8 +451,9 @@ export default function HomeScreen() {
       <FlatList
         data={loading ? [] : filteredListings}
         keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={s.column}
+        // §3: 1px divider, inset to the row gutter, drawn 10pt above the next row's top. The
+        // clearance ABOVE it is the rows' own ROW_META_CLEARANCE — content-driven, never a height.
+        ItemSeparatorComponent={() => <View style={s.divider} />}
         // Constant top inset for the bar: the feed's layout never changes while
         // scrolling, which is what keeps the gesture smooth and interruptible.
         contentContainerStyle={[s.list, { paddingTop: filterBarHeight, paddingBottom: dockClearance }]}
@@ -499,38 +501,46 @@ export default function HomeScreen() {
             <EmptyState title={emptyCopy.title} body={emptyCopy.body} />
           )
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const presentation = cardPresentation(item, now);
           // All-in, through the one money helper. No arithmetic here.
           const priceAllIn = allInFromDollars(presentation.priceDollars);
-          return (
-            <DiscoveryCard
-              eventName={item.event_name}
-              venue={item.venue}
-              whenLabel={whenLabel(item.event_date, item.event_time)}
-              coverPath={coverPath(item)}
-              presentation={presentation}
-              priceAllIn={priceAllIn}
-              altAllIn={presentation.altDollars != null ? allInFromDollars(presentation.altDollars) : null}
-              countdown={presentation.showsCountdown ? countdownLabel(item.ends_at, now) : null}
-              onPress={() => {
-                // Display-only handoff so the detail screen paints this card's
-                // content on its first frame. The route is unchanged, and the
-                // fresh row still gates every action there.
-                stageCardHandoff(item.id, {
-                  coverPath: coverPath(item),
-                  eventName: item.event_name,
-                  venue: item.venue,
-                  eventDate: item.event_date,
-                  eventTime: item.event_time,
-                  neighborhood: item.neighborhood,
-                  priceLabel: presentation.priceLabel,
-                  priceAllIn,
-                });
-                router.push(`/listing/${item.id}`);
-              }}
-            />
-          );
+          const shared = {
+            eventName: item.event_name,
+            venue: item.venue,
+            eventDate: item.event_date,
+            eventTime: item.event_time,
+            quantity: item.quantity,
+            ticketType: item.ticket_type,
+            coverPath: coverPath(item),
+            presentation,
+            bidCount: item.bid_count ?? null,
+            priceAllIn,
+            endsAt: item.ends_at,
+            nowMs: now,
+            onPress: () => {
+              // Display-only handoff so the detail screen paints this card's
+              // content on its first frame. The route is unchanged, and the
+              // fresh row still gates every action there.
+              stageCardHandoff(item.id, {
+                coverPath: coverPath(item),
+                eventName: item.event_name,
+                venue: item.venue,
+                eventDate: item.event_date,
+                eventTime: item.event_time,
+                neighborhood: item.neighborhood,
+                priceLabel: presentation.priceLabel,
+                priceAllIn,
+              });
+              router.push(`/listing/${item.id}`);
+            },
+          };
+          // The first LIVE listing is the full-bleed feature. Sold/ended datasets (and a feed
+          // whose first row is no longer buyable) get plain rows: a feature is a spotlight, and
+          // a spotlight on something that cannot be bought reads as an offer.
+          const featured =
+            index === 0 && presentation.status !== 'sold' && presentation.status !== 'ended';
+          return featured ? <HomeFeature {...shared} /> : <FeedRow {...shared} />;
         }}
       />
 
@@ -628,9 +638,13 @@ const s = StyleSheet.create({
   },
   // The tab bar sits over the last row; this keeps it reachable.
   list: { paddingBottom: 96 },
-  column: {
-    paddingHorizontal: v2.space.lg,
-    gap: v2.space.lg,
-    marginBottom: v2.space.xl,
+  // §3 divider: 1px, inset to the 20pt row gutter, with the 10pt gap to the next row's top.
+  // Ink: the neutral over-art hairline white — the only non-red border token. The exact divider
+  // ink is not in §3's text; flagged for B's review of the implemented screen.
+  divider: {
+    height: 1,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: v2.border.overArt,
   },
 });

@@ -63,7 +63,9 @@ vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({ Chip: 'Chip', EmptyState: 'EmptyState' }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => ({ onScroll: () => {}, expand: () => {} }) }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/components/discovery/DiscoveryCard', () => ({ DiscoveryCard: 'DiscoveryCard' }));
+// V3: home renders the feature + rows now; both are presentation-only and mocked flat here.
+vi.mock('@/src/components/discovery/FeedRow', () => ({ FeedRow: 'FeedRow' }));
+vi.mock('@/src/components/discovery/HomeFeature', () => ({ HomeFeature: 'HomeFeature' }));
 vi.mock('@/src/components/discovery/DiscoveryGridSkeleton', () => ({ DiscoveryGridSkeleton: 'DiscoveryGridSkeleton' }));
 vi.mock('@/src/components/discovery/FilterSheet', () => ({ FilterSheet: 'FilterSheet' }));
 vi.mock('@/src/components/discovery/HomeHeader', () => ({ HomeHeader: 'HomeHeader' }));
