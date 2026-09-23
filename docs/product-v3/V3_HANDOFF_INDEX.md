@@ -17,8 +17,8 @@ forwarding.
 | — | Approved visual direction | `V3_ROUND3_TYPOGRAPHY_NAV_AND_APPROVAL_20260922.md` | `mockups-v3/midnight-{home,search,listing,order}-{clean,annotated}.png`, 5 state images, 2 comparison sheets | `404744a7` | ✅ owner-approved 2026-09-22 |
 | — | First handoff to C | `V3_DESIGN_PACKAGE_FOR_C_20260922.md`, `HANDOFF_NOTE_TO_C_20260922.md` | — | `404744a7`, `d420a28f` | ✅ consumed — O-2, O-3, O-5 implemented on `v3/midnight-app` |
 | **1** | **Shared foundations, navigation, reusable states** | `V3_PACKAGE_1_FOUNDATIONS_FOR_C.md` | `pkg1-foundations.png`, `pkg1-components.png`, `pkg1-states.png` | `d6a757ab` | ✅ ready to implement |
-| — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | `d6a757ab`, baseline corrected in `d2d2b7f8` | 🟡 living document |
-| — | **Findings reconciliation** | `V3_FINDINGS_RECONCILED.md` | — | `d2d2b7f8` | ✅ **supersedes the findings table in the matrix** |
+| — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | `d6a757ab`, baseline corrected in `a538e53b` | 🟡 living document |
+| — | **Findings reconciliation** | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b` | ✅ **supersedes the findings table in the matrix** |
 
 ## Remaining packages
 
