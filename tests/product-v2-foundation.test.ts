@@ -92,8 +92,9 @@ describe('media slots', () => {
     }
   });
 
-  it('is square everywhere, because radius 0 is the brand', () => {
-    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(0);
+  it('is square everywhere — with the ONE drawn V3 exception, the 62pt row thumb at radius 8', () => {
+    // V3 §3 (owner 2026-09-22) rounds exactly one shape. Anything else growing a radius is a defect.
+    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(n === 'FEED_ROW_ART' ? 8 : 0);
   });
 
   it('puts a scrim behind every slot that carries text over artwork', () => {

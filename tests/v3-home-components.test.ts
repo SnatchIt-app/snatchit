@@ -119,9 +119,13 @@ describe('slot system — V3 slots carry the §3 geometry and the curve', () => 
 
   it('SL4: EventMedia consumes both — the curve string and the heightFor override (source pin)', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync('src/components/media/EventMedia.tsx', 'utf8');
+    // Comments stripped: B15 survived the first run because a COMMENT contained the word
+    // "heightFor" and satisfied the bare regex while the code no longer called it.
+    const src = readFileSync('src/components/media/EventMedia.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(src).toContain('scrimBackgroundImage(');
-    expect(src).toMatch(/heightFor/);
+    expect(src).toContain('spec.heightFor(boxWidth)');
     expect(src).toMatch(/scrim === 'curve'/);
   });
 });
@@ -159,7 +163,11 @@ describe('FeedRow — the §3 row', () => {
     const clock = byText(host, 'Ending in 11m');
     expect(clock).toBeDefined();
     const styles = JSON.stringify(clock?.props.style);
+    expect(styles).toMatch(/FFB020/i);                // §5: amber, positively — not merely "some color"
     expect(styles).not.toMatch(/FF1A1A/i);            // never the brand red
+    // And the calm clock never wears the amber.
+    const calm = await mountRow();
+    expect(JSON.stringify(byText(calm, '3h 0m left')?.props.style)).not.toMatch(/FFB020/i);
   });
 
   it('FR5: a sold row says "Sold" in place of a clock, and its caption owns the claim', async () => {
@@ -232,5 +240,22 @@ describe('HomeFeature — the §3 full-bleed feature', () => {
     expect(src).not.toMatch(/supabase|rpc\(|fetch\(/);
     expect(src).not.toMatch(/height: \d/);
     expect(src).toContain('FEATURE_NAME_BLOCK_BOTTOM');
+  });
+});
+
+describe('home wiring — feature + rows (source pins; behaviour is the load-state suite\'s)', () => {
+  it('HW1: the first LIVE listing is the feature; sold/ended never is; rows carry the §3 divider', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/(tabs)/home.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toMatch(/index === 0 &&\s*presentation\.status !== 'sold' && presentation\.status !== 'ended'/);
+    expect(src).toContain('<HomeFeature {...shared} />');
+    expect(src).toContain('<FeedRow {...shared} />');
+    expect(src).toContain('ItemSeparatorComponent');
+    expect(src).not.toContain('numColumns={2}');
+    expect(src).not.toContain('DiscoveryCard');
+    // The mockups' section headings are flagged, not drawn: no unbacked "Tonight"/"This week".
+    expect(src).not.toMatch(/'Tonight'|'This week'/);
   });
 });
