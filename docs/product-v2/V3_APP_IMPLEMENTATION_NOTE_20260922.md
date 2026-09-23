@@ -253,3 +253,7 @@ setupDecision/holdState diffs EMPTY; listingSummary.ts +ticket_type (display-onl
 Board ④ ("Paying with" method row) recorded PROPOSED: requires Stripe FlowController = payment-flow
 change, A's call. Evidence: tsc 0 · lint 0/29 · 2594/136 alone · controls 3/3 (K3 superset disclosed).
 Matrix pushed 51e97db8. Next: pkg3 (Create/My listings/edit + payout setup screens) under the same rules.
+
+**A ack (2026-09-23):** listingSummary touch queued with diff-stat acceptance; "Paying with"/FlowController
+logged as payments-flow work, stop-and-ask class, assessed only after the window closes; nothing V3 in the
+release record. Both picked up after the 2026-09-24 05:23Z monitor run + owner window close.
