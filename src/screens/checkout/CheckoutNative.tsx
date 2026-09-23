@@ -41,16 +41,16 @@ import {
 import * as Sentry from '@sentry/react-native';
 
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
-import { EventMedia } from '@/src/components/media/EventMedia';
+import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import {
+  labelCarriesAmount,
   LISTING_SUMMARY_COLUMNS,
   mapListingSummary,
   reservedUntilMs,
-  ticketCountLabel,
   type ListingSummary,
   type ListingSummaryRow,
 } from '@/src/lib/checkout/listingSummary';
@@ -714,14 +714,12 @@ export default function CheckoutScreen() {
   const cover     = display?.cover ?? null;
   const showName  = display?.eventName ?? eventName;
   const showVenue = display?.venue ?? venue;
-  const whenLabel = display?.date ? fmtWhen(display.date, display.time) : '';
 
   // The total is always the server figure once loaded; the client estimate is a
   // placeholder before createPaymentIntent returns. Neither is computed here.
   const totalCents   = serverBreakdown ? serverBreakdown.total : acceptedTotalCents;
   const ticketCents  = serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount);
   const feeCents     = serverBreakdown ? serverBreakdown.buyerFee : acceptedTotalCents - dollarsToCents(bidAmount);
-  const ticketCount  = ticketCountLabel(display?.quantity ?? null);
 
   // -- Settlement outcome UI ------------------------------------------------
   // One screen, three faces. Only `completed` is allowed to say the purchase is
@@ -736,7 +734,12 @@ export default function CheckoutScreen() {
           cover={cover}
           eventName={showName}
           venue={showVenue}
-          whenLabel={whenLabel}
+          identity={{
+            eventDate: display?.date || null,
+            eventTime: display?.time || null,
+            quantity: display?.quantity ?? null,
+            ticketType: display?.ticketType ?? null,
+          }}
         />
       </View>
     );
@@ -750,7 +753,12 @@ export default function CheckoutScreen() {
           cover={cover}
           eventName={showName}
           venue={showVenue}
-          whenLabel={whenLabel}
+          identity={{
+            eventDate: display?.date || null,
+            eventTime: display?.time || null,
+            quantity: display?.quantity ?? null,
+            ticketType: display?.ticketType ?? null,
+          }}
           isBuyNow={isBuyNow}
           transferId={postPurchaseTransferId}
           purchaseKey={listingId}
@@ -801,22 +809,15 @@ export default function CheckoutScreen() {
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
         {/* What you are buying */}
-        <View style={s.orderRow}>
-          <EventMedia
-            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
-            slot="CHECKOUT_THUMBNAIL"
-            title={showName}
-            width={72}
-            decorative
-          />
-          <View style={s.orderText}>
-            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{showName}</Text>
-            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{showVenue}</Text>
-            {whenLabel ? (
-              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
-            ) : null}
-          </View>
-        </View>
+        <OrderIdentity
+          cover={cover}
+          name={showName}
+          venue={showVenue}
+          eventDate={display?.date || null}
+          eventTime={display?.time || null}
+          quantity={display?.quantity ?? null}
+          ticketType={display?.ticketType ?? null}
+        />
 
         {/* Reservation countdown (Buy Now) */}
         {isBuyNow && reservationMsLeft != null && !holdLost ? (
@@ -835,7 +836,8 @@ export default function CheckoutScreen() {
         {/* Price breakdown — the one screen where itemising is correct. Every
             number is the server figure once loaded. */}
         <View style={s.breakdown}>
-          <Row label={isBuyNow ? (ticketCount ?? 'Ticket') : 'Winning bid'} value={formatCents(ticketCents)} />
+          {/* De-dup: the identity line above owns the count; this row is the money item. */}
+          <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(ticketCents)} />
           <Row label="Service fee" value={formatCents(feeCents)} />
           <View style={s.hairline} />
           <View style={s.totalRow}>
@@ -904,9 +906,13 @@ export default function CheckoutScreen() {
 
       {/* Sticky pay bar */}
       <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        <View style={s.barPrice}>
-          <PriceDisplay size="sticky" label="Total" amount={formatCents(totalCents)} showTotal={false} />
-        </View>
+        {!priceChange && !labelCarriesAmount(pay.label) ? (
+          <View style={s.barPrice}>
+            {/* De-dup: shown only while the pay control's label states no amount; once the
+                button reads "Pay $132.00" (or "Accept $…"), the action carries the figure. */}
+            <PriceDisplay size="sticky" label="Total" amount={formatCents(totalCents)} showTotal={false} />
+          </View>
+        ) : null}
         {priceChange ? (
           <Button
             label={`Accept ${formatCents(priceChange.nextCents)}`}
@@ -938,10 +944,11 @@ export default function CheckoutScreen() {
 // was made, never processing, cancellation, bank timing or the order's status.
 // The only control is "Back to home" — no retry, no way back to the listing.
 function RefundView({
-  state, cover, eventName, venue, whenLabel,
+  state, cover, eventName, venue, identity,
 }: {
   state: RefundState;
-  cover: string | null; eventName: string; venue: string; whenLabel: string;
+  cover: string | null; eventName: string; venue: string;
+  identity: { eventDate: string | null; eventTime: string | null; quantity: number | null; ticketType: string | null };
 }) {
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -953,20 +960,15 @@ function RefundView({
         <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{view.kicker}</Text>
         <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{view.title}</Text>
         <View style={s.confirmCard}>
-          <EventMedia
-            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
-            slot="CHECKOUT_THUMBNAIL"
-            title={eventName}
-            width={72}
-            decorative
+          <OrderIdentity
+            cover={cover}
+            name={eventName}
+            venue={venue}
+            eventDate={identity.eventDate}
+            eventTime={identity.eventTime}
+            quantity={identity.quantity}
+            ticketType={identity.ticketType}
           />
-          <View style={s.orderText}>
-            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{eventName}</Text>
-            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{venue}</Text>
-            {whenLabel ? (
-              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
-            ) : null}
-          </View>
         </View>
         <Text style={[textStyle('body'), s.confirmNote]}>{view.body}</Text>
       </View>
@@ -1004,10 +1006,11 @@ const celebratedPurchases = new Set<string>();
 // one allowed to claim the purchase is done; `pending` and `failed` take their
 // words from SETTLEMENT_COPY so this screen and the alert cannot diverge.
 function ConfirmationView({
-  outcome, cover, eventName, venue, whenLabel, isBuyNow, transferId, purchaseKey,
+  outcome, cover, eventName, venue, identity, isBuyNow, transferId, purchaseKey,
 }: {
   outcome: SettlementOutcome;
-  cover: string | null; eventName: string; venue: string; whenLabel: string;
+  cover: string | null; eventName: string; venue: string;
+  identity: { eventDate: string | null; eventTime: string | null; quantity: number | null; ticketType: string | null };
   isBuyNow: boolean; transferId: string | null;
   /** Identifies the purchase (the listing) so the success haptic fires once. */
   purchaseKey: string;
@@ -1047,20 +1050,15 @@ function ConfirmationView({
         </Text>
 
         <View style={s.confirmCard}>
-          <EventMedia
-            asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
-            slot="CHECKOUT_THUMBNAIL"
-            title={eventName}
-            width={72}
-            decorative
+          <OrderIdentity
+            cover={cover}
+            name={eventName}
+            venue={venue}
+            eventDate={identity.eventDate}
+            eventTime={identity.eventTime}
+            quantity={identity.quantity}
+            ticketType={identity.ticketType}
           />
-          <View style={s.orderText}>
-            <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{eventName}</Text>
-            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{venue}</Text>
-            {whenLabel ? (
-              <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>{whenLabel}</Text>
-            ) : null}
-          </View>
         </View>
 
         <Text style={[textStyle('body'), s.confirmNote]}>
@@ -1091,14 +1089,7 @@ function ConfirmationView({
 
 // -- Helpers ----------------------------------------------------------------
 
-function fmtWhen(date: string, time: string): string {
-  const d = new Date(`${date}T${time || '00:00:00'}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  }).replace(/,([^,]*)$/, ' ·$1');
-}
+// V3: identity dates render through feedRowState's shared format inside OrderIdentity.
 
 
 // --- Styles ----------------------------------------------------------------

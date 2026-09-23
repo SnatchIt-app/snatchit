@@ -28,7 +28,9 @@
 
 /** Exactly the columns the summary needs; every one verified to exist. */
 export const LISTING_SUMMARY_COLUMNS =
-  'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity';
+  // V3 (owner 2026-09-23): + ticket_type for the identity line's "2 × GA". Same authorized
+  // row, display only. Flagged to A: this file hosts checkout's summary read.
+  'cover_image_path, event_name, venue, event_date, event_time, reserved_until, quantity, ticket_type';
 
 export type ListingSummaryRow = {
   cover_image_path?: string | null;
@@ -41,6 +43,7 @@ export type ListingSummaryRow = {
   reserved_until?: string | null;
   /** Tickets in the listing. The price covers all of them (whole-listing pricing). */
   quantity?: number | null;
+  ticket_type?: string | null;
 };
 
 export type ListingSummary = {
@@ -52,6 +55,8 @@ export type ListingSummary = {
   time: string;
   /** Null when unknown; the screen then shows no ticket count. */
   quantity: number | null;
+  /** Null when unknown; the identity line then counts plain "tickets". */
+  ticketType: string | null;
 };
 
 /** '' and '   ' are absences, not values — a blank must not reach the renderer. */
@@ -78,6 +83,7 @@ export function mapListingSummary(
     date: present(r.event_date) ?? '',
     time: present(r.event_time) ?? '',
     quantity: typeof r.quantity === 'number' && Number.isFinite(r.quantity) && r.quantity > 0 ? Math.floor(r.quantity) : null,
+    ticketType: present(r.ticket_type),
   };
 }
 
@@ -101,4 +107,12 @@ export function reservedUntilMs(row: ListingSummaryRow | null | undefined): numb
 export function ticketCountLabel(quantity: number | null): string | null {
   if (quantity == null) return null;
   return `${quantity} ${quantity === 1 ? 'ticket' : 'tickets'}`;
+}
+
+/**
+ * De-dup rule (owner 2026-09-23): the sticky Total renders only when the pay control's own
+ * label does not already state an amount — on the action or beside it, never both.
+ */
+export function labelCarriesAmount(label: string): boolean {
+  return /\$\d/.test(label);
 }

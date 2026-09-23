@@ -28,7 +28,8 @@ describe('the summary select asks only for columns that exist', () => {
 
   it('asks for every field the summary and the countdown need', () => {
     expect(COLUMNS.sort()).toEqual(
-      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'quantity', 'reserved_until', 'venue'],
+      // V3 (owner 2026-09-23): + ticket_type for the identity line. Same authorized row.
+      ['cover_image_path', 'event_date', 'event_name', 'event_time', 'quantity', 'reserved_until', 'ticket_type', 'venue'],
     );
   });
 
@@ -54,6 +55,7 @@ describe('mapping a row to what the screen shows', () => {
       date: '2026-10-01',
       time: '19:30',
       quantity: null,
+      ticketType: null,
     });
   });
 
@@ -94,7 +96,7 @@ describe('mapping a row to what the screen shows', () => {
 
   it('survives a missing row entirely', () => {
     expect(mapListingSummary(null, fallback)).toEqual({
-      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null,
+      cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null, ticketType: null,
     });
   });
 });
