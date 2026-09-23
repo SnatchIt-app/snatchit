@@ -218,3 +218,16 @@ All three were found by mapping the listing-detail dialog set line by line again
 **F-25 and F-26 are for C to rule on, not for the redesign to resolve.** Unifying F-25's copy is a behaviour
 change and the structural difference is a product decision. F-27's fix is drawn as **PROPOSED** on
 `pkg6-listing-dialogs.png` and is not represented as existing behaviour anywhere.
+
+---
+
+## One finding added during the copy correction (2026-09-23)
+
+| # | Label | Finding | Role / state | Observable consequence | Evidence @ `5b255838` |
+|---|---|---|---|---|---|
+| **F-28** | **①** | **The seller is told "marked as sent" four times in two seconds** | seller · `seller_sent` | Tapping *Mark as sent* raises `Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.")`. Dismissing it reveals a screen carrying the badge **"Marked sent"** *and* a `StateBlock` titled **"Marked as sent"** whose body — *"Waiting for the buyer to confirm they received the tickets."* — restates the alert's second sentence. Four statements of one fact, in two wordings, within one interaction | `send/[id].tsx:185`, `:403`; `transferState.ts:137` (badge `Marked sent`), `:162` (block `Marked as sent`) |
+
+**Package 7 removes the `StateBlock` title in the design** and keeps its body, so the badge carries the status
+once. **That is a change to shipped copy in `transferState.ts:162`, and `StateBlock` may require a title
+prop — C confirms both before implementing.** The alert at `:185` is left alone here: whether a confirmation
+alert should fire at all after a visible state change is a behaviour question, not a copy one.

@@ -1,6 +1,9 @@
-# V3 handoff index — FINAL. C consumes from here.
+# V3 handoff index — C consumes from here.
 
-**Status: the design package is frozen as the implementation reference (2026-09-22).**
+**Status: the freeze was REOPENED by the owner on 2026-09-23 for an app-wide copy and hierarchy correction
+(Package 7).** Ordinary copy simplification is authorised across all six packages without further approval.
+Package 7 is **authoritative over the earlier packages wherever they conflict**, including the requirement to
+repeat amounts in button labels.
 B's role from here is **targeted design support and review of implemented screens** — no further broad
 exploration, no new packages. Ask B for a specific surface, a correction, or a review of what C has built.
 
@@ -23,6 +26,7 @@ Re-pin both if either ref moves; every ① label is measured against these two c
 
 | Order | Document | Why |
 |---|---|---|
+| 0 | **`V3_PACKAGE_7_COPY_CORRECTION.md`** | The app-wide copy correction. **Read first — it overrides earlier package text wherever that text caused clutter.** §9 lists what C must change in code already written |
 | 1 | **`V3_FREEZE_RECONCILIATION_20260922.md`** | The two corrections made at the freeze. **Read before the packages** — it supersedes the dialog count and the colour rule in Package 6 |
 | 2 | `V3_COVERAGE_MATRIX.md` §"Reconciliation" | Every surface in four independent states |
 | 3 | `V3_PACKAGE_1…6_*_FOR_C.md` | The work itself, in flow order |
@@ -44,6 +48,7 @@ Re-pin both if either ref moves; every ① label is measured against these two c
 | **5** | Tickets, profile, settings, auth, security notice | `V3_PACKAGE_5_ACCOUNT_FOR_C.md` | `pkg5-auth.png`, `pkg5-tickets-profile.png`, `pkg5-settings-account.png` | `965c46ad` | ✅ ready |
 | **6** | Completion: Bids tab, role/action matrix, listing dialogs, 7 settings surfaces, system surfaces | `V3_PACKAGE_6_COMPLETION_FOR_C.md` | `pkg6-bids-*`, `pkg6-listing-action-matrix.png`, `pkg6-listing-dialogs.png`, `pkg6-settings-surfaces.png`, `pkg6-system-surfaces.png` | `c5c7282e` | ✅ ready — **superseded in two places by the freeze reconciliation** |
 | **FREEZE** | **Dialog-count and colour-semantics reconciliation** | **`V3_FREEZE_RECONCILIATION_20260922.md`** | `pkg6-listing-dialogs.png` and `pkg6-listing-action-matrix.png` **re-rendered** | **`77a122b4`** | ✅ **authoritative over Package 6 §2 and §3** |
+| **7** | **Copy and hierarchy correction (app-wide)** | `V3_PACKAGE_7_COPY_CORRECTION.md` | `pkg7-bid-comparison.png`, `pkg7-listing-checkout-comparison.png`, `pkg7-order-comparison.png`, `pkg7-selling-comparison.png`, + after/annotated sheets | `14a6c3e6` (bid) · `03dbc240` (listing+checkout) · `659465ba` (order) · `b24ad197` (create+send) · this commit (search + sweep) | ✅ **authoritative over packages 1–6 on copy** |
 | — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | reconciled `074776d0`, freeze update `77a122b4` | 🟡 living |
 | — | Findings register | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b`, + F-25/F-26/F-27 in `77a122b4` | ✅ supersedes the matrix's own findings table |
 | — | **GAP AUDIT — read before claiming completion** | `V3_GAP_AUDIT.md` | — | `01822004`, `074776d0`, `c641c3c4`, `77a122b4` | ⛔ **3 cells blocked · 5 awaiting A/C · 8 device checks · nothing verified** |
@@ -75,7 +80,10 @@ Re-pin both if either ref moves; every ① label is measured against these two c
 
 ## What C acts on now
 
-1. **Implement Packages 1–6 in flow order**, reading the freeze reconciliation first. Implement **complete
+0. **Apply Package 7 §9 to code already written** — the bid screen's button label and its removed lines, the
+   listing breakdown, the checkout kicker, the create review card. **O-2 is withdrawn**: it was my direction,
+   C implemented it faithfully, and the owner has ruled against it. Nothing C built was wrong at the time.
+1. **Implement Packages 1–6 in flow order**, reading Package 7 and then the freeze reconciliation first. Implement **complete
    flows** — dialogs, validation, errors and recovery — not only the main screens.
 2. **Preserve, explicitly:** payment-state ordering in `payControl.ts` · repeated-tap protection (the
    single-flight lock, not a state guard) · reservation rules · role restrictions · truthful unknown-result

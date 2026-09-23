@@ -193,7 +193,87 @@ while the state is unknown.
 
 ---
 
-## 6 · Remaining surfaces — in progress
+## 6 · Search — delivered (increment 5)
 
-Delivered incrementally; each with a before/after and a ledger, each its own commit in
-`V3_HANDOFF_INDEX.md`.
+**Artifacts:** `pkg7-search-before.png` · `pkg7-search-after.png`.
+
+| Removed | Replaced with |
+|---|---|
+| *"Clear a filter to widen the search, or edit the words above."* | **"Try the venue name, or a shorter word."** |
+
+The two controls directly beneath it are **Clear price filter** and **Clear all**, and the search field is
+directly above. The sentence narrated all three. What replaces it is the shipped `STATE_COPY.noMatch` body —
+advice the controls cannot give.
+
+---
+
+## 7 · The full sweep — every inventoried surface, checked
+
+| Surface | Verdict |
+|---|---|
+| Bid entry | **Revised** — increment 1 |
+| Listing detail · Checkout | **Revised** — increment 2 |
+| Your order (loaded + unreachable) | **Revised** — increment 3 |
+| Create listing · Send transfer | **Revised** — increment 4 |
+| Search no-match | **Revised** — increment 5 |
+| Home / discovery feed | **Checked, deliberate keep** — see §8 |
+| My listings, 5 filters and 5 empty states | **No change** — each empty sentence says something different; only *All* offers an action |
+| Bids tab, 10 row states | **No change** — the word is the state, the hint is the action; neither restates the other |
+| Transfer matrix · dispute · report | **No change** — shipped copy verbatim, and every sentence is a consequence or a limit |
+| Auth: 3 sign-in surfaces, 4 signup steps, reset | **No change** — see §8 on *"We text you a 6-digit code."* |
+| Tickets · profile · public profile | **No change** — the uncertainty sentences (*"This is not a record of zero sales."*) are protected by rule 4 |
+| Settings hub, notifications, 7 sub-surfaces | **No change** — shipped labels; the one wired toggle's failure sentence states what happened and what to do |
+| All 23 listing dialogs + 22 selling dialogs | **No change** — shipped copy verbatim. Rewriting dialog copy is not a simplification pass; F-7 and F-25 are the defects to rule on |
+| State screens (offline / error / noMatch / empty) | **No change** — `STATE_COPY`, shipped, and each states an uncertainty or a recovery |
+| Error boundary · outbid notice · status banner | **No change** |
+
+### Where the clutter actually came from — measured, not asserted
+
+Sixteen strings were removed or replaced across the five increments. **Fourteen do not exist in the release
+source at all** — they were introduced by my own V3 layer. Verified by `git grep` at `5b255838`.
+
+**Only two touch shipped copy**, and both are flagged for C rather than assumed:
+
+| Shipped string | Change | Why |
+|---|---|---|
+| *"Only charged if you win the auction."* (`PlaceBidScreen.tsx:316`) | → *"You're not charged now. If you win, you'll come back to pay."* | Winning does not charge anyone. The owner ruled the old sentence must not imply automatic charging |
+| `StateBlock title="Marked as sent"` (`transferState.ts:162`) | title removed, body kept | The badge already reads *"Marked sent"*. **F-28** — and `StateBlock` may require a title prop, so **C confirms before implementing** |
+
+**The app's own copy was mostly already lean. My V3 revision of it was not.**
+
+---
+
+## 8 · Genuine unresolved decisions
+
+Three, stated plainly rather than buried:
+
+**8.1 · "all-in" on every feed row — kept, against rule 2.**
+The caption repeats on every row of home and search. Consolidating it into one header line would remove
+4–5 repetitions from the busiest screen. **I kept it**: it labels the *unit* of a price, like a currency
+symbol, and dropping it risks the exact misreading the all-in direction exists to prevent. Rule 4 outranks
+rule 2. **If the owner prefers the header form, it is a two-line change** — say so and I will make it.
+
+**8.2 · "We text you a 6-digit code. Your number is how you sign in from now on." — kept.**
+Shipped. The first sentence arguably narrates what *Continue* does, but it sets expectations **before** the
+user hands over a phone number, and the second is a real consequence. Cutting either weakens a step where the
+user is giving something up.
+
+**8.3 · "you'll confirm on the next step" — deleted, and it is a judgement call.**
+Under *"I have my tickets"* on the order screen. It predicted the next screen rather than describing the
+control, which is the narration class rule 1 names — but it also reassured a buyer that the tap is not final.
+The next screen's own confirmation carries that. **Recorded here because reasonable people would disagree.**
+
+---
+
+## 9 · What C must change in already-implemented code
+
+| File on `v3/midnight-app` | Change |
+|---|---|
+| `PlaceBidScreen.tsx` | `label={`Place bid · ${lines.total} all-in`}` → **`label="Place bid"`**. Sticky kicker *"If you win"* → **"Total if you win"**. Remove the `compareSub` all-in captions, the total headline + `stepHint`, the *"Lowest you can place is…"* line, the *"Steps raise your bid…"* line, and the breakdown's bid and total rows. Replace the charge sentence. **`lines.bid` / `lines.fee` / `lines.total` are untouched — no money maths changes** |
+| Listing detail | Remove the *"if you bid the minimum"* breakdown; shorten the commitment sentence; drop *"all-in,"* from the Buy now line. **Draw `BidActivity` where the breakdown was — it already renders there** |
+| Checkout | Remove the sticky `TOTAL` kicker. **`payControl.ts` is untouched** — `Pay {total}` stays, so no gated file changes |
+| Create listing | Delete the review card; inline panel shows the buyer side only; keep *"after the seller fee"* |
+| `transferState.ts:162` | Remove the `StateBlock` title, keep the body — **confirm `StateBlock` allows a title-less block first** |
+
+**O-2 is withdrawn.** It was my direction, C implemented it faithfully, and the owner has now ruled against
+it. Nothing C built was wrong at the time.
