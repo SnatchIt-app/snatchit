@@ -110,3 +110,49 @@ Out of scope until separately specified: photo removal UI, V3 fonts/search/prici
 
 **Mockup review:** I review B's final mockups against the ACCEPTANCE lines above before recommending
 implementation.
+
+---
+
+# V3 stage 2 — freeze consumed, home + search implemented (C, 2026-09-22, later session)
+
+**Frozen reference:** `design/frontend-audit-20260917` @ `c95dae33` (freeze commit `77a122b4`), read in
+order: freeze reconciliation → coverage matrix → packages → findings → gap audit. My matrix update with the
+evidence below: `36105e30` on the same branch (pushed).
+
+**Branch:** `v3/midnight-app` @ **`e2c564ce`** — commits this session: `3e66068a` (§3 formulas +
+`feedRowState` vocabulary + the curve scrim RENDERING — a 15-stop CSS gradient via RN 0.81
+`experimental_backgroundImage`, the mechanism EventMedia's V2 scrims already use; **no native module; the
+expo-linear-gradient plan is retired, never committed**) · `05489dfb` (home = first-LIVE-listing feature +
+§3 rows, V2 data layer byte-untouched) · `85855607` (search: `N listings · Soonest first`, GA / Under $150
+(all-in, through money) / Mobile transfer chips, exact §5 filtered empty state) · `e2c564ce` (V2 pins
+re-pointed with labels; control-gap strengthening).
+
+**Evidence at `e2c564ce`:** tsc 0 · lint 0 errors/29 warnings (baseline) · vitest 133 files / 2568 tests,
+run alone · 16/16 deliberate-bug controls killed as predicted (`scratchpad/v3_stage2_mutants.py`; first run
+15/16 — B15 survived because a COMMENT containing "heightFor" satisfied SL4's bare regex while the mutated
+code no longer called it; pin comment-stripped and re-verified red→green; disclosed in `e2c564ce`).
+
+**Independent verification of the freeze mapping, on my branch:** 23 `Alert.alert` call sites · the 24th
+variant at the branching cancel body · `More actions` = Android Alert / iOS `ActionSheetIOS` with COMPUTED
+`destructiveButtonIndex` · `my-listings.tsx` 5 alerts · F-27 confirmed (the reservation failure branch
+returns before `fetchData()`; refetch only after success) · buy-now = reserve RPC → refetch → navigate
+(reservation before navigation, no charge).
+
+**Rulings (recorded in the matrix):** F-25 deferred (copy unification is consent language + a structural
+product decision — proposal to B's copy backlog, owner approves) · F-26 preserve the platform split ·
+F-27 excluded from restyling (stays PROPOSED; no restyled dialog claims a refresh).
+
+**B-5 client half:** `auto_release_at` exists (008), whole-table `GRANT SELECT ... TO authenticated`
+(0550:267) under the buyer row policy, absent only from the select list → showing it is client-only. Its
+meaning per state / staleness after extension → A's evidence table (requested; A queued it behind the
+production release window, answering against the RC-deployed sources).
+
+**Flagged for B (implemented conservatively):** same-day clock boundary ("2h 14m left" vs "Ends Sat
+20:30") · divider ink (border.overArt) · "Tonight"/"This week" headings NOT drawn (no grouping rule) ·
+"Any date" chip NOT built · single-clear actions limited to Clear price filter · skeleton keeps V2 grid
+shape. Still open for the owner: Create→"Sell", bid-primary hierarchy, "Buy both now".
+
+**Held/blocked:** order screen (B-4/O-1 + no caching) · three transfer cells B-1/B-2/B-3 (A first) ·
+review-deadline display (B-5, A's half). **Next slices:** listing hero + §5 price block (LISTING_HERO_V3
+slot ready), bid entry/checkout restyle (pkg2), then pkg3. **Device checks:** D-1…D-8 per
+`V3_GAP_AUDIT.md` — canonical list; local simulator blocker unchanged (8 GB free vs ~20 GB).
