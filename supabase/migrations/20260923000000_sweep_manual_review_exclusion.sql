@@ -26,6 +26,23 @@
 -- Every other predicate, the return signature, grants (service_role EXECUTE
 -- only), census and expected_grants are unchanged. Rollback restores the
 -- 20260916000000 body verbatim (md5-proven).
+--
+-- WHY THE MATCH IS EXACT (not LIKE 'unfulfillable%'): the producer chain
+-- writes 'unfulfillable:listing' / 'unfulfillable:one_success_per_listing'
+-- (settle_verified_payment, guarded per literal) and the edge relabels the
+-- row to 'unfulfillable:manual_review' best-effort. A row the relabel has not
+-- reached is still sweep work — review_unfulfillable selects it (priority 1)
+-- and its handler retries the relabel; the producer's guard suppresses a
+-- second insert while it is unresolved, so that path cannot grow. A LIKE
+-- exclusion would silence review_unfulfillable for every candidate (each one
+-- carries such a row) and stop the refund path.
+--
+-- NOT ADDRESSED HERE (a separate defect): settle_listing_for_payment rules a
+-- paid-out sale 'unfulfillable' when the listing's status was reverted from
+-- 'sold' — its status = 'sold' early return is skipped and the
+-- auction_status = 'cancelled' branch fires. That is a disposition defect;
+-- the incident row's instance was repaired by a data correction. 147 is
+-- selection only, and neither repair is evidence for the other.
 -- Verification: supabase/tests/214_sweep_manual_review_exclusion.sql
 -- Rollback:     supabase/rollbacks/20260923000000_sweep_manual_review_exclusion_rollback.sql
 -- =============================================================================
