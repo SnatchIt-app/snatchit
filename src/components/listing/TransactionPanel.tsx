@@ -1,25 +1,23 @@
 /**
  * src/components/listing/TransactionPanel.tsx — price, clock, and what is on offer.
  *
- * THE ONE THING THIS SCREEN HAS TO GET RIGHT. The old layout put the current bid
- * and the countdown in a single grey card and left Buy Now to be discovered as a
- * grey outlined button in the sticky bar, weaker than the red Place Bid beside
- * it. Instant purchase was the strongest offer on the listing and looked like the
- * afterthought.
+ * V3 (owner 2026-09-22; §5 + the freeze reconciliation §2). Two different numbers, never
+ * merged: the PANEL states what the listing stands at now — one all-in price, the ticket
+ * count it buys, the bid count and the clock — and says nothing about the buyer's total. The
+ * BREAKDOWN below it belongs to the bid being offered ("If you bid the minimum"), every row
+ * preformatted by the caller through the one money module. The buy-now amount lives on its own
+ * CTA in the sticky bar (which keeps Buy Now primary — the owner reaffirmed the hierarchy);
+ * printing it here as well made the panel a second, competing statement of the offer.
  *
- * Here both offers are stated as prices, with Buy Now first when it exists,
- * because that is the decision the user is making: pay this and it is yours, or
- * bid this and wait.
- *
- * EVERY AMOUNT IS ALL-IN AND PREFORMATTED BY THE CALLER. This component does no
- * arithmetic. `PriceDisplay` renders it, which is the canonical primitive and
- * guarantees the amount never wraps and the digits never jitter.
+ * EVERY AMOUNT IS ALL-IN AND PREFORMATTED BY THE CALLER. This component does no arithmetic.
+ * "Current bid" is never claimed with zero bids, and a dead clock is simply absent.
  */
 
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { usePulseOnChange } from '@/src/hooks/usePulseOnChange';
+import { bidCountText } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { TransactionMode } from '@/src/lib/listing/detailState';
@@ -28,25 +26,31 @@ export interface TransactionPanelProps {
   mode: TransactionMode;
   /** All-in, preformatted. The live price of the auction. */
   currentAllIn: string;
-  /** All-in, preformatted. Present only when Buy Now is on offer. */
-  buyNowAllIn?: string | null;
-  /** All-in, preformatted. What the next bid has to clear. */
+  /** All-in, preformatted. What the next bid has to clear — the breakdown's total. */
   nextBidAllIn?: string | null;
-  /** Already-formatted countdown, or null when there is no clock left to run. */
-  countdown: string | null;
+  /** Preformatted breakdown rows for the minimum bid. Null hides the block. */
+  minBidBase?: string | null;
+  minBidFee?: string | null;
+  /** The §5 clock forms, built by the caller from the server's ends_at. Null = no clock. */
+  clock: { text: string; urgent: boolean } | null;
   /** Sold listings show what it went for, not what it is worth. */
   soldAllIn?: string | null;
   bidCount: number;
+  quantity: number;
+  ticketType: string;
 }
 
 export function TransactionPanel({
   mode,
   currentAllIn,
-  buyNowAllIn,
   nextBidAllIn,
-  countdown,
+  minBidBase,
+  minBidFee,
+  clock,
   soldAllIn,
   bidCount,
+  quantity,
+  ticketType,
 }: TransactionPanelProps) {
   const closed = mode === 'closed';
   // A new bid moves the amount in place: a brief dip-and-return, never a
@@ -64,57 +68,65 @@ export function TransactionPanel({
     );
   }
 
+  const subLine = `all-in · ${bidCountText(bidCount)}${clock ? ` · ${clock.text}` : ''}`;
+  const showBreakdown = !closed && nextBidAllIn != null && minBidBase != null && minBidFee != null;
+
   return (
     <View style={styles.wrap}>
-      {/* Buy Now leads when it exists. It is the stronger offer. */}
-      {buyNowAllIn ? (
-        <View style={styles.primaryPrice}>
-          <PriceDisplay size="detail" label="Buy now" amount={buyNowAllIn} />
-          <Text style={[textStyle('bodySm'), styles.note]}>
-            Yours immediately. No waiting for the auction.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={[styles.bidRow, buyNowAllIn ? styles.bidRowSecondary : null]}>
-        <View style={styles.bidPrice}>
-          <Animated.View style={{ opacity: pulse.opacity }}>
+      {/* The panel card: what the listing stands at NOW. Nothing about the buyer's total. */}
+      <View style={styles.card}>
+        <View style={styles.cardRow}>
+          <Animated.View style={[styles.cardPrice, { opacity: pulse.opacity }]}>
             <PriceDisplay
-              size={buyNowAllIn ? 'sticky' : 'detail'}
-              label={
-                closed ? 'Final bid' : bidCount > 0 ? 'Current bid' : 'Starting bid'
-              }
+              size="detail"
+              label={closed ? 'Final bid' : bidCount > 0 ? 'Current bid' : 'Starting bid'}
               amount={currentAllIn}
               muted={closed}
             />
           </Animated.View>
-          {nextBidAllIn && !closed ? (
-            <Text style={[textStyle('bodySm'), styles.note]}>
-              Next bid from {nextBidAllIn}
+          <View style={styles.qtyCol}>
+            <Text style={[textStyle('label'), styles.qty]} numberOfLines={1}>
+              {`${quantity} × ${ticketType} ticket${quantity === 1 ? '' : 's'}`}
             </Text>
-          ) : null}
-        </View>
-
-        {countdown ? (
-          <View style={styles.clock}>
-            <Text style={[textStyle('micro'), styles.clockLabel]}>Time left</Text>
-            <Text
-              style={[textStyle('price'), styles.clockValue]}
-              numberOfLines={1}
-              // The countdown updates every second; announcing each tick would
-              // make the screen unusable with a reader.
-              accessibilityLiveRegion="none"
-            >
-              {countdown}
-            </Text>
+            {quantity > 1 ? (
+              // Whole-listing pricing is the product promise; two tickets are one purchase.
+              <Text style={[textStyle('bodySm'), styles.qtyNote]}>sold together</Text>
+            ) : null}
           </View>
-        ) : null}
+        </View>
+        <Text
+          style={[textStyle('bodySm'), clock?.urgent ? styles.subLineUrgent : styles.subLine]}
+          numberOfLines={1}
+        >
+          {subLine}
+        </Text>
       </View>
 
+      {/* The breakdown belongs to the BID BEING OFFERED — the buyer's would-be total. */}
+      {showBreakdown ? (
+        <View style={styles.breakdown}>
+          <View style={styles.bRow}>
+            <Text style={[textStyle('micro'), styles.bEyebrow]}>If you bid the minimum</Text>
+            <Text style={[textStyle('price'), styles.bTotalTop]} numberOfLines={1}>{nextBidAllIn}</Text>
+          </View>
+          <View style={styles.bRow}>
+            <Text style={[textStyle('bodySm'), styles.bLabel]}>{`Tickets (${quantity} × ${ticketType})`}</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidBase}</Text>
+          </View>
+          <View style={styles.bRow}>
+            <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee (10%)</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidFee}</Text>
+          </View>
+          <View style={[styles.bRow, styles.bTotalRow]}>
+            <Text style={[textStyle('label'), styles.bLabel]}>Your total if you win</Text>
+            <Text style={[textStyle('price'), styles.bTotal]} numberOfLines={1}>{nextBidAllIn}</Text>
+          </View>
+        </View>
+      ) : null}
+
       {/*
-        The fee is stated once, in a sentence, and not as an accounting table.
-        Every price above already includes it, which is the product's promise and
-        the reason the number never grows at checkout.
+        The fee is also stated once as a sentence: every price on this screen already includes
+        it, which is the product's promise and the reason the number never grows at checkout.
       */}
       <Text style={[textStyle('bodySm'), styles.note]}>
         All prices include the 10% service fee.
@@ -129,23 +141,40 @@ const styles = StyleSheet.create({
     paddingVertical: v2.space.lg,
     gap: v2.space.md,
   },
-  primaryPrice: { gap: 2 },
-  bidRow: {
+  card: {
+    backgroundColor: v2.surface.surface,
+    padding: v2.space.lg,
+    gap: v2.space.sm,
+  },
+  cardRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: v2.space.md,
   },
-  // When Buy Now is present the bid sits under a hairline, one step down the
-  // hierarchy. Separation by line and size, never by a second card.
-  bidRowSecondary: {
+  cardPrice: { flexShrink: 1, minWidth: 0 },
+  qtyCol: { alignItems: 'flex-end', flexShrink: 0 },
+  qty: { color: v2.text.primary },
+  qtyNote: { color: v2.text.muted },
+  subLine: { color: v2.text.secondary },
+  // §5: amber only for a real sub-15-minute close; the caller's clock carries that decision.
+  subLineUrgent: { color: v2.status.warning },
+  breakdown: { gap: v2.space.xs },
+  bRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: v2.space.md,
+  },
+  bEyebrow: { color: v2.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
+  bTotalTop: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  bLabel: { color: v2.text.secondary },
+  bValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  bTotalRow: {
     borderTopWidth: 1,
     borderTopColor: v2.border.default,
-    paddingTop: v2.space.md,
+    paddingTop: v2.space.xs,
   },
-  bidPrice: { flex: 1, minWidth: 0, gap: 2 },
-  clock: { alignItems: 'flex-end', flexShrink: 0 },
-  clockLabel: { color: v2.text.muted },
-  clockValue: { color: v2.text.primary },
+  bTotal: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
   note: { color: v2.text.muted },
 });

@@ -485,19 +485,26 @@ export default function FoundationPreview() {
           <TransactionPanel
             mode="auction_and_buy_now"
             currentAllIn="$44"
-            buyNowAllIn="$66"
             nextBidAllIn="$49.50"
-            countdown="02:14:08"
+            minBidBase="$45.00"
+            minBidFee="$4.50"
+            clock={{ text: '2h 14m left', urgent: false }}
             bidCount={7}
+            quantity={2}
+            ticketType="GA"
           />
           <TransactionPanel
             mode="auction_only"
             currentAllIn="$44"
             nextBidAllIn="$49.50"
-            countdown="00:04:12"
+            minBidBase="$45.00"
+            minBidFee="$4.50"
+            clock={{ text: 'Ending in 4m', urgent: true }}
             bidCount={0}
+            quantity={1}
+            ticketType="GA"
           />
-          <TransactionPanel mode="closed" currentAllIn="$44" countdown={null} soldAllIn="$66" bidCount={7} />
+          <TransactionPanel mode="closed" currentAllIn="$44" clock={null} soldAllIn="$66" bidCount={7} quantity={2} ticketType="GA" />
         </Section>
 
         <Section title="Listing detail: artwork edge cases">

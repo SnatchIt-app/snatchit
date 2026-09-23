@@ -42,12 +42,16 @@ export interface RowMetaInput {
  * The two §3 metadata lines: "Sat 26 Sep · 22:00 · The Foundry" and "2 × GA · 11 bids".
  * Zero bids is "no bids yet" — a count of zero is a claim shaped like activity.
  */
+/** "no bids yet" / "1 bid" / "6 bids" — a count of zero is a claim shaped like activity. */
+export function bidCountText(bidCount: number | null | undefined): string {
+  const bids = bidCount ?? 0;
+  return bids === 0 ? 'no bids yet' : bids === 1 ? '1 bid' : `${bids} bids`;
+}
+
 export function rowMeta(input: RowMetaInput): { meta1: string; meta2: string } {
-  const bids = input.bidCount ?? 0;
-  const bidText = bids === 0 ? 'no bids yet' : bids === 1 ? '1 bid' : `${bids} bids`;
   return {
     meta1: `${rowWhenLabel(input.eventDate, input.eventTime)} · ${input.venue}`,
-    meta2: `${input.quantity} × ${input.ticketType} · ${bidText}`,
+    meta2: `${input.quantity} × ${input.ticketType} · ${bidCountText(input.bidCount)}`,
   };
 }
 

@@ -53,7 +53,9 @@ import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { allInFromDollars, allInLabel, baseFromDollars, buyerFeeFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { clockLabel } from '@/src/lib/listing/feedRowState';
+import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
@@ -65,7 +67,7 @@ import { OutbidToast } from '@/src/components/listing/OutbidToast';
 import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { LISTING_READ_FAILED_COPY, bidCommitmentCopy, detailState, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -96,41 +98,11 @@ function fmtCountdownMs(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function useAuctionCountdown(endsAt: string | null): string {
-  const [label, setLabel] = useState('');
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// V3: the panel clock is clockLabel(listing.ends_at, now) — the §5 forms, driven by the
+// screen's existing one-second ticker. The old hh:mm:ss hook went with its only consumer.
 
-  useEffect(() => {
-    if (!endsAt) return;
-    function tick() {
-      const diff = new Date(endsAt!).getTime() - Date.now();
-      if (diff <= 0) {
-        setLabel('Ended');
-        if (timerRef.current) clearInterval(timerRef.current);
-        return;
-      }
-      const h   = Math.floor(diff / 3_600_000);
-      const m   = Math.floor((diff % 3_600_000) / 60_000);
-      const sec = Math.floor((diff % 60_000) / 1_000);
-      if (h > 23) setLabel(`${Math.floor(h / 24)}d ${h % 24}h left`);
-      else        setLabel(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`);
-    }
-    tick();
-    timerRef.current = setInterval(tick, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [endsAt]);
-
-  return label;
-}
-
-function fmtDate(date: string, time: string): string {
-  const d = new Date(`${date}T${time}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
+// V3: the hero builds its own dated line through feedRowState, so home, search and the
+// listing agree on the format; the local formatter went with it.
 
 function timeAgo(iso: string): string {
   const sec = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -289,8 +261,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const lostNotifSentRef  = useRef(false);
 
   // ── Countdown ──────────────────────────────────────────────────────────────
-  const countdown = useAuctionCountdown(listing?.ends_at ?? null);
-  const ended     = listing ? new Date(listing.ends_at) <= new Date() : false;
+  const ended = listing ? new Date(listing.ends_at) <= new Date() : false;
 
   // ── Result at zero (CFT-501) ───────────────────────────────────────────────
   // This device's clock ran out; the server decides. Re-read the row on the
@@ -1020,8 +991,8 @@ export default function ListingDetailScreen({ id }: Props) {
           asset={{ path: handoff.coverPath, contract: 'legacy', bucket: 'auction-media' }}
           eventName={handoff.eventName}
           venue={handoff.venue}
-          whenLabel={fmtDate(handoff.eventDate, handoff.eventTime)}
-          neighborhood={handoff.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          eventDate={handoff.eventDate}
+          eventTime={handoff.eventTime}
           onBack={() => router.back()}
         />
         <View style={s.scrollTail} />
@@ -1146,11 +1117,28 @@ export default function ListingDetailScreen({ id }: Props) {
   const soldAllIn = isSold ? allInFromDollars(finalSoldPrice(listing)) : null;
   const currentAllIn = allInFromDollars(currentHighest);
   const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  // §5 breakdown rows for "If you bid the minimum" — same base, through the one money module.
+  const minBidBase = baseFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBidFee = buyerFeeFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+
+  // "Mobile transfer · DICE": the platform's display name from the existing instruction table.
+  // 'other' adds nothing — "· Other" is noise, not information.
+  const platformName =
+    listing.ticket_platform && listing.ticket_platform !== 'other'
+      ? PLATFORM_INSTRUCTIONS[listing.ticket_platform]?.displayName
+      : null;
 
   const detailRows: DetailRow[] = [
     { label: 'Type', value: ticketLabel },
     { label: 'Quantity', value: `${listing.quantity} ${listing.quantity === 1 ? 'ticket' : 'tickets'}` },
-    { label: 'Delivery', value: transferLabel },
+    { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },
+    // V3: the hero no longer carries the neighborhood; it moves here rather than vanishing.
+    ...(listing.neighborhood
+      ? [{
+          label: 'Neighborhood',
+          value: listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase()),
+        }]
+      : []),
     {
       label: 'Category',
       value: (listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
@@ -1218,16 +1206,15 @@ export default function ListingDetailScreen({ id }: Props) {
         <ListingHero
           asset={{
             path: coverPath,
-            // Legacy assets were cropped destructively to 16:9 before upload, so
-            // they are fitted against a blurred copy of themselves rather than
-            // re-cropped into the portrait frame. No black bars, no lost lineup.
+            // Legacy assets were cropped destructively to 16:9 before upload; the V3 hero slot
+            // covers its formula-height frame and the curve scrim keeps the identity legible.
             contract: 'legacy',
             bucket: 'auction-media',
           }}
           eventName={listing.event_name}
           venue={listing.venue}
-          whenLabel={fmtDate(listing.event_date, listing.event_time)}
-          neighborhood={listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          eventDate={listing.event_date}
+          eventTime={listing.event_time}
           onBack={() => router.back()}
           onOverflow={openListingActions}
         />
@@ -1258,11 +1245,16 @@ export default function ListingDetailScreen({ id }: Props) {
         <TransactionPanel
           mode={state.mode}
           currentAllIn={currentAllIn}
-          buyNowAllIn={state.mode === 'auction_and_buy_now' ? buyNowAllIn : null}
           nextBidAllIn={state.mode === 'closed' ? null : nextBidAllIn}
-          countdown={state.mode === 'closed' ? null : (countdown || null)}
+          minBidBase={state.mode === 'closed' ? null : minBidBase}
+          minBidFee={state.mode === 'closed' ? null : minBidFee}
+          // §5 clock forms, from the server's ends_at. Display only: the live/ended DECISION
+          // stays with detailState, exactly as before.
+          clock={state.mode === 'closed' ? null : clockLabel(listing.ends_at, now)}
           soldAllIn={soldAllIn}
           bidCount={listing.bid_count ?? 0}
+          quantity={listing.quantity}
+          ticketType={listing.ticket_type}
         />
 
         {sellerProfile ? (
@@ -1284,6 +1276,17 @@ export default function ListingDetailScreen({ id }: Props) {
             viewerId={user?.id}
             highlightTop={!isSold && !auctionEnded && !ended}
           />
+        ) : null}
+
+        {/* §5: the commitment sentence, wherever a bid can actually be placed from here. */}
+        {state.primary.kind === 'place_bid' || state.secondary?.kind === 'place_bid' ? (
+          <Text style={[textStyle('bodySm'), s.commitment]}>
+            {bidCommitmentCopy({
+              currentAllIn,
+              nextBidAllIn,
+              bidCount: listing.bid_count ?? 0,
+            })}
+          </Text>
         ) : null}
 
         <View style={s.scrollTail} />
@@ -1351,6 +1354,8 @@ const s = StyleSheet.create({
   // screen and a safe-area gap above it would frame it like a card.
   scroll: { paddingBottom: v2.space.xxxl },
   scrollTail: { height: 96 },
+  // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
+  commitment: { color: v2.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
   statusWrap: { marginTop: v2.space.lg },
   refreshRow: {
