@@ -32,7 +32,7 @@ forwarding.
 | **3** | **Selling, creation, editing, listing management** | `V3_PACKAGE_3_SELLING_FOR_C.md` | `pkg3-create-{clean,annotated,invalid}.png`, `pkg3-my-listings-{clean,annotated,empty}.png`, `pkg3-selling-dialogs.png` | `6cb26a4d` | ✅ ready to implement |
 | **4** | **Orders, transfers, disputes, support** | `V3_PACKAGE_4_TRANSFERS_SUPPORT_FOR_C.md` | `pkg4-send-{clean,pending,seller_sent,expired}.png`, `pkg4-transfer-matrix.png`, `pkg4-dispute-support.png` | `63d252c4` | ✅ ready; 3 cells blocked on A/C |
 | **5** | **Tickets, profile, settings, auth, security notice** | `V3_PACKAGE_5_ACCOUNT_FOR_C.md` | `pkg5-auth.png`, `pkg5-tickets-profile.png`, `pkg5-settings-account.png` | `965c46ad` | ✅ ready to implement |
-| — | **GAP AUDIT — read this before claiming completion** | `V3_GAP_AUDIT.md` | — | see below | ⛔ **2 surfaces undesigned, 5 blocked, 8 device checks outstanding** |
+| — | **GAP AUDIT — read this before claiming completion** | `V3_GAP_AUDIT.md` | — | `01822004` | ⛔ **2 surfaces undesigned, 5 blocked, 8 device checks outstanding** |
 
 ## Two distinctions that travel with every package
 
