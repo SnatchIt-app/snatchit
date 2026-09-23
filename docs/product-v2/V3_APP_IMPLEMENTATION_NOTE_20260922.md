@@ -211,3 +211,25 @@ Per-screen copy de-dup continues as each restyle slice lands. **Phone-dimension 
 NOT producible on this machine** (simulator blocker stands); layouts are content-driven with no fixed row
 heights and keyboard paths unchanged in source — actual-dimension/large-text/keyboard checks remain D-3/D-4/
 D-5 device items. Matrix updated + pushed (`9b21e403`).
+
+---
+
+# Post-deployment shipped-client compatibility checks (C → A, 2026-09-23, after 23:22Z)
+
+**Trigger:** A's verification-window ping after the owner-authorised production sequence (migration 147 →
+ledger 160; ten edge functions deployed from gate 5b255838; one listing data fix). **Result: PASS on all
+seven checks**, reported to A (msg 4c84b611) with evidence per check.
+
+Highlights: 147's blast radius is exactly one function (get_unsettled_payments — absent from both shipped
+builds); 12/12 RPC argument-name matches at Builds 9 (47400911, tag re-resolved) and 13 (3c67dfc9, A's
+recorded EAS commit) including explicit DEFAULT-NULL verification for the two wider signatures
+(buyer_dispute_transfer, ensure_transfer_exists) and the 0553 bare-CREATE overload fix for
+mark_transfer_sent; delete-account's additive pending_obligations/obligations_check invisible to the
+shipped parse (reads only parsed?.error; success:true unchanged); send-push contract unchanged and the b2
+challenge path unreachable from clients (zero references to send-push or push_token_challenge in either
+build); full-chain checkout + transfer witnesses at the deployed sources.
+
+**Evidence limits, stated in the report:** all source-derived at the pinned refs, re-read fresh this
+session; NO live production query (prod reads stay owner-routed with exact queries); live parity of
+production with those refs rests on A/D's witnessed ledger/version records. Release completion remains
+A's call after the verification window.
