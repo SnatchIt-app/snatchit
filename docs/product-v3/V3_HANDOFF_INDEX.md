@@ -27,7 +27,7 @@ forwarding.
 | **1** | **Shared foundations, navigation, reusable states** | `V3_PACKAGE_1_FOUNDATIONS_FOR_C.md` | `pkg1-foundations.png`, `pkg1-components.png`, `pkg1-states.png` | `d6a757ab` | ✅ ready to implement |
 | — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | `d6a757ab`, baseline corrected in `a538e53b` | 🟡 living document |
 | — | **Findings reconciliation** | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b` | ✅ **supersedes the findings table in the matrix**; copy corrected per owner 2026-09-22 |
-| **2** | **Discovery → bidding → checkout** | `V3_PACKAGE_2_BIDDING_CHECKOUT_FOR_C.md` | `pkg2-bid-entry-{clean,annotated,submitting}.png`, `pkg2-checkout-{clean,annotated}.png`, `pkg2-checkout-states.png` | see below | ✅ ready to implement |
+| **2** | **Discovery → bidding → checkout** | `V3_PACKAGE_2_BIDDING_CHECKOUT_FOR_C.md` | `pkg2-bid-entry-{clean,annotated,submitting}.png`, `pkg2-checkout-{clean,annotated}.png`, `pkg2-checkout-states.png` | `01fe02ed` | ✅ ready to implement |
 
 ## Remaining packages
 
