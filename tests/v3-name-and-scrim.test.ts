@@ -70,3 +70,15 @@ describe('scrimAlpha — the approved curve, floor first', () => {
     expect(stops[stops.length - 1].color).toBe('rgba(0,0,0,0.9700)');
   });
 });
+
+describe('row clearance (§3)', () => {
+  it('R1: the feed row keeps ROW_META_CLEARANCE under its metadata, from the shared constant (source pin)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const card = readFileSync('src/components/discovery/DiscoveryCard.tsx', 'utf8');
+    expect(card).toContain('paddingBottom: ROW_META_CLEARANCE');
+    const metrics = readFileSync('src/lib/design/rowMetrics.ts', 'utf8');
+    expect(metrics).toContain('export const ROW_META_CLEARANCE = 12;');
+    expect(card).not.toMatch(/height: \d+/);   // content-driven: no hard-coded row height
+  });
+});
+
