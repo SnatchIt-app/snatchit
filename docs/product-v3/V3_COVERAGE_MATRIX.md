@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `dd410da4` (updated by C, 2026-09-23)
+### ② Implemented on C's branch — `v3/midnight-app` @ `646361f8` (updated by C, 2026-09-23)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -129,6 +129,17 @@ ticket_type (display-only, FLAGGED to A). **Board ④ "Paying with" row NOT impl
 needs Stripe FlowController (a payment-flow change, A's call), not a restyle. Checkout joins the
 B-review set. Evidence: tsc 0 · lint 0/29 · 2594 tests/136 files · controls 3/3 (K3 by a disclosed
 prediction superset).
+
+### Selling slice landed (`646361f8`, 2026-09-23)
+
+pkg3 §1–§2 under the de-dup rule: five distinct my-listings empty sentences (action only on All; the
+stale "Create tab" wording fixed to "Sell"), seller rows in the display voice, and Create's money sides
+once each — buyer side on the active price field's helper, seller net + the one fee clause at the sticky
+(whose fee clause previously rendered in the INVALID branch), plus the §1 submit summary at the action.
+Six status words, dimmed cancelled row, review-card gating, upload copy and all 22 dialogs untouched;
+F-1…F-8 remain findings (F-5's picker state stays PROPOSED). Payout screens (§4) verified against
+source: shipped copy + never-regress probe already conform; no edits. My listings and Create join the
+B-review set. Evidence: tsc 0 · lint 0/29 · 2599/137 alone · controls 2/2.
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
