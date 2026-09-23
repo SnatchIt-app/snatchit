@@ -4,8 +4,11 @@
 is not complete until every row here is designed and handed off, or explicitly blocked with a reason, and C has
 reviewed the handoff for implementation gaps.
 
-**Repository baseline:** worktree `/Users/josetascon/snatchit-audit`, design target **Build 22 (`05d85732`) +
-PR #81 + PR #84**.
+**Repository baseline — CORRECTED 2026-09-22.** Design target is the release source
+**`5b255838`** (*"Merge #90 into the release gate"*, on `release/production-gate-20260918`), not the earlier
+"Build 22 + #81 + #84" line. C's implementation branch is **`v3/midnight-app` @ `31819593`**.
+My first inventory was read from an older worktree and two findings were wrong because of it — see
+`V3_FINDINGS_RECONCILED.md`, which supersedes the findings table at the bottom of this file.
 
 **Inventory counted from the tree:** **36 route files** under `app/`, **50 component files**, **~110
 `Alert.alert` dialogs across 20 files**. A route list alone misses most of the surface — the dialogs, sheets and
@@ -135,7 +138,8 @@ for either role** — see F-17, the most serious gap found in this inventory.
 | Confirm — success + 8 server errors | `:192-221` | server strings shown verbatim, incl. "This order is under review." | ⬜ | C + A | — |
 | Dispute — confirm + 2 outcomes | `:228-258` | "This will freeze the transfer and notify support." | ⬜ | C | — |
 | buyer_confirmed / auto_released / disputed | `:426-444` | auto_released: **"The review window closed without a confirmation or a report from you, so payment went to the seller."** | ⬜ | C + A | — |
-| **`expired` / `reversed`** | — | **NOTHING RENDERS** | 🚫 **blocked on F-17** | C + A | needs product copy that does not exist yet |
+| **`expired` — seller** | `transferState.ts:98-110` → `send/[id].tsx:283` | **"Order expired" / "This order expired before it was marked as sent. Don't transfer the tickets for this order."** — server fact first | ⬜ design the block | C | none — copy exists |
+| **`expired` / `reversed` — buyer** | no branch in `receive/[id].tsx` | **nothing renders**; badge falls to a lowercase `default:` label | 🚫 **blocked on F-17b** | C + A | neutral copy drafted for review; a refund sentence needs payment evidence |
 
 ### Tickets, report, support
 
@@ -235,7 +239,13 @@ resend email confirmation, account data export, session/device list, language or
 banner on Settings, and any "complete your profile" prompt. Also absent: draft saving in Create, a toast system,
 and a no-results state in either Create picker sheet.
 
-## Functional findings — NOT visual work, raised separately
+## Functional findings — SUPERSEDED
+
+> **This table is superseded by `V3_FINDINGS_RECONCILED.md`**, which re-reads every finding against the
+> release source `5b255838` and C's branch `v3/midnight-app`, labels each ①–⑤, and corrects F-17 and F-19.
+> It is kept here only as the original record.
+
+## Functional findings — original record, NOT visual work
 
 Found while inventorying. **These are defects in the current app, not redesign items.** They are listed so they
 are not silently "fixed" by a redesign or silently lost. C and A own triage.
