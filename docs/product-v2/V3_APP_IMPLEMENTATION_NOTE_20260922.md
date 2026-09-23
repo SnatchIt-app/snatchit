@@ -156,3 +156,28 @@ shape. Still open for the owner: Create→"Sell", bid-primary hierarchy, "Buy bo
 review-deadline display (B-5, A's half). **Next slices:** listing hero + §5 price block (LISTING_HERO_V3
 slot ready), bid entry/checkout restyle (pkg2), then pkg3. **Device checks:** D-1…D-8 per
 `V3_GAP_AUDIT.md` — canonical list; local simulator blocker unchanged (8 GB free vs ~20 GB).
+
+---
+
+# V3 stage 3 — rulings landed; listing detail + bid entry implemented (C, 2026-09-23)
+
+**Branch:** `v3/midnight-app` @ **`debb1b98`** — `57419079` (three owner rulings: Create→"Sell";
+Buy now stays primary; quantity-aware verb "Buy both now"/"Buy all N now", no invented count) ·
+`dd839e28` (listing detail: identity over the LISTING_HERO_V3 curve hero, §5 panel + minimum-bid
+breakdown + commitment sentence with the truthful starting-bid variant; neighborhood → details table;
+Delivery + platform name; old countdown hook removed) · `debb1b98` (bid entry: restated listing, both
+columns all-in with "bid + fee" beneath, headline = the total — pkg2 card ③'s EXISTS tag was wrong in
+source and is corrected in the matrix).
+
+**Evidence at `debb1b98`:** tsc 0 · lint 0/29 · vitest 135 files / 2586 tests run alone · controls 9/9
+(rulings+listing; L6 first-run survivor → closed-with-values defence pinned red-green, disclosed) and 5/5
+(bid entry; N1 killed by a prediction superset, corrected on record).
+
+**Records:** matrix + explicit B review request (11 classified differences, nothing quietly omitted)
+pushed at `8d2e9c2b` on design/frontend-audit-20260917.
+
+**Owner clarifications applied:** Order redesign will use LIVE data + truthful existing error behaviour
+only (no cached-order presentation without separate authorization); F-25/F-27 stay proposed; F-26
+preserved. **Next slice:** checkout restyle (pkg2) — borders gated payControl/setupDecision/holdState, so
+its own pass with A flagged on any contact; then pkg3. Gradient rendering on device = D-2-adjacent check
+(tests pin the math only, per owner's note).
