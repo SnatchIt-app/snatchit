@@ -157,7 +157,43 @@ sentence stays: it is a consequence, not narration.
 
 ---
 
-## 5 · Remaining surfaces — in progress
+## 5 · Your order — delivered (increment 3)
+
+**Artifacts:** `pkg7-order-comparison.png` · `pkg7-order-after-ready.png` ·
+`pkg7-order-after-unreachable.png` · `pkg7-order-after-annotated.png`.
+
+### Loaded — 5 lines removed
+
+| Removed | Why |
+|---|---|
+| Panel heading *"The seller reported sending your tickets"* | Word for word the progress step directly above it. The panel keeps only the instruction — *"Accept the transfer in DICE, then confirm here."* — which nothing else carries |
+| *"14:32 · screenshot attached by the seller"* in that panel | Time and attribution both live on the **Seller's screenshot** row. `14:32` was on this screen 3×; now twice — once as a progress step, once on the attachment it describes |
+| *"by Sun 09:12"* under the **Your confirmation** step | The date moved to the sentence that says what happens when it passes. The step reads **"pending"** |
+| *"where your tickets should be sent"* | Narrates the label above it |
+| *"you'll confirm on the next step"* | **A judgement call, recorded as such** — see §7 |
+
+**Kept verbatim:** *"Confirm when you have the tickets. If you don't confirm or report a problem by Sun 09:12,
+payment is released to the seller automatically."* **This financial wording is still not approved (O-1 / B-4).**
+Copy simplification does not touch it.
+
+### Server unreachable — 4 lines removed, `14:36` from 5 appearances to 1
+
+The owner's ruling was to **shorten the explanation while preserving the uncertainty and the
+saved-information timestamp**. Both survive.
+
+| Removed | Why |
+|---|---|
+| *"at 14:36"* in the panel body | The block header states the time once |
+| *"as of 14:36"* on three rows | Five timestamps for one block, under a header that already governs every row |
+| *"We'll show the current state when we can reach our server again."* | Narrates what **Try again** does |
+
+**Kept:** the full uncertainty statement, *"…may be out of date — including the deadline."*, **"Deadline
+shown"** rather than "Deadline" so the date is never authoritative, and the withdrawal of the confirm action
+while the state is unknown.
+
+---
+
+## 6 · Remaining surfaces — in progress
 
 Delivered incrementally; each with a before/after and a ledger, each its own commit in
 `V3_HANDOFF_INDEX.md`.
