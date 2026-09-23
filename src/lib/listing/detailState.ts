@@ -106,6 +106,8 @@ export interface DetailStateInput {
     reserved_by: string | null;
     winner_user_id?: string | null;
     bid_count?: number | null;
+    /** Ticket count, for the quantity-aware buy-now verb. Absent → no count is invented. */
+    quantity?: number | null;
   };
   userId?: string;
   /** The auction clock has passed `ends_at`. */
@@ -339,10 +341,15 @@ export function listingActions(input: DetailStateInput): {
   };
 
   if (mode === 'auction_and_buy_now') {
+    // V3 (owner ruling 2026-09-22): the verb counts the tickets, so the price reads as the
+    // WHOLE-LISTING total it is — "Buy both now" for two, "Buy all N now" beyond that. An
+    // unknown quantity invents no count, and Buy Now stays primary beside bidding (reaffirmed).
+    const qty = listing.quantity ?? null;
+    const verb = qty === 2 ? 'Buy both now' : qty != null && qty >= 3 ? `Buy all ${qty} now` : 'Buy now';
     return {
       primary: {
         kind: 'buy_now',
-        label: input.buyNowAllIn ? `Buy now · ${input.buyNowAllIn}` : 'Buy now',
+        label: input.buyNowAllIn ? `${verb} · ${input.buyNowAllIn}` : verb,
         disabled: reserving,
         // §5 (V3): both facts a buyer needs beside a live auction — the price is all-in,
         // and taking it ends the auction. True only in this mode.

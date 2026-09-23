@@ -135,6 +135,28 @@ describe('actions — the Buy Now hierarchy', () => {
     expect(both.primary.subLabel).toBe('all-in, ends the auction');
   });
 
+  it('V3 (owner ruling 2026-09-22): the buy-now verb counts the tickets — the price is the WHOLE listing', () => {
+    // "Buy both now" for two; other quantities named accurately; one ticket needs no counting.
+    const two = listingActions(withBuyNow({ listing: { quantity: 2 } }));
+    expect(two.primary.label).toBe('Buy both now · $66');
+    const three = listingActions(withBuyNow({ listing: { quantity: 3 } }));
+    expect(three.primary.label).toBe('Buy all 3 now · $66');
+    const one = listingActions(withBuyNow({ listing: { quantity: 1 } }));
+    expect(one.primary.label).toBe('Buy now · $66');
+    // Quantity unknown to the caller: no count is invented.
+    expect(listingActions(withBuyNow()).primary.label).toBe('Buy now · $66');
+    // The whole-listing identification also survives a missing price string. (Built via input():
+    // withBuyNow force-sets buyNowAllIn after its overrides.)
+    const priceless = listingActions(input({
+      listing: { buy_now_enabled: true, buy_now_price: 60, quantity: 2 },
+      buyNowAllIn: null,
+    }));
+    expect(priceless.primary.label).toBe('Buy both now');
+    // Buy Now stays PRIMARY beside bidding — the owner reaffirmed the hierarchy.
+    expect(two.primary.kind).toBe('buy_now');
+    expect(two.secondary?.kind).toBe('place_bid');
+  });
+
   it('never shows an auction price as the Buy Now price', () => {
     // No all-in string supplied means no number is invented for the label.
     const { primary } = listingActions(

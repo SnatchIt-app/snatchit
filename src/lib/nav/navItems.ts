@@ -24,7 +24,9 @@ export interface NavItem {
 }
 
 const HOME: NavItem = { key: 'home', route: 'home', label: 'Home', icon: 'house.fill' };
-const CREATE: NavItem = { key: 'create', route: 'create', label: 'Create', icon: 'plus.circle.fill' };
+// V3 (owner ruling 2026-09-22): labelled "Sell" — the verb for what the screen does. The key,
+// the route, the destination and the behaviour are unchanged.
+const CREATE: NavItem = { key: 'create', route: 'create', label: 'Sell', icon: 'plus.circle.fill' };
 const BIDS: NavItem = { key: 'bids', route: 'bids', label: 'Bids', icon: 'tag.fill' };
 // V3 (owner 2026-09-22, O-5): the visible label AND the accessible name are "You". The key, the
 // route and the destination are unchanged — this is the same tab.

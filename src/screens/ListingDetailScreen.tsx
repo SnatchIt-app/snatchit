@@ -1113,6 +1113,7 @@ export default function ListingDetailScreen({ id }: Props) {
       reserved_by:     listing.reserved_by,
       winner_user_id:  listing.winner_user_id,
       bid_count:       listing.bid_count,
+      quantity:        listing.quantity,
     },
     userId:            user?.id,
     clockEnded:        ended,

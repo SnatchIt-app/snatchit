@@ -105,8 +105,10 @@ describe('labels and accessibility (O-5; acceptance 12)', () => {
   it('Y1: every destination shows its label; the profile item is "You" — visible AND accessible — and selection is announced', async () => {
     const host = await mountDock(4);   // profile focused
     const shown = texts(host);
-    for (const label of ['Home', 'Create', 'Bids', 'Tickets', 'You']) expect(shown).toContain(label);
+    // V3 (owner ruling 2026-09-22): Create is labelled "Sell" — same destination, same behaviour.
+    for (const label of ['Home', 'Sell', 'Bids', 'Tickets', 'You']) expect(shown).toContain(label);
     expect(shown).not.toContain('Profile');
+    expect(shown).not.toContain('Create');
     const tab = youTab(host);
     expect(tab).toBeDefined();
     expect(tab?.props.accessibilityState).toEqual({ selected: true });
