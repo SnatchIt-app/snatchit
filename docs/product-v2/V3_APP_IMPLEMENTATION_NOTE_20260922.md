@@ -257,3 +257,16 @@ Matrix pushed 51e97db8. Next: pkg3 (Create/My listings/edit + payout setup scree
 **A ack (2026-09-23):** listingSummary touch queued with diff-stat acceptance; "Paying with"/FlowController
 logged as payments-flow work, stop-and-ask class, assessed only after the window closes; nothing V3 in the
 release record. Both picked up after the 2026-09-24 05:23Z monitor run + owner window close.
+
+---
+
+# V3 selling slice (C, 2026-09-23) — `646361f8`
+
+pkg3 §1–§2: my-listings five distinct empties (Sell-rename consistency fix included; action only on All);
+seller rows in display voice; Create money sides once each (buyer side inline per active value; seller net
++ fee clause at the sticky — clause had been in the invalid branch); §1 submit summary at the action.
+Untouched: 22 dialogs, six status words, review-card gate, upload limits/copy, payout probe semantics,
+F-1…F-8 (F-5 PROPOSED). Evidence: tsc 0 · lint 0/29 · 2599/137 alone · controls 2/2. Matrix pushed.
+Remaining pkg3 items: edit-listing screen restyle rides the same components (no spec deltas found beyond
+findings); payout screens conform as shipped. Next: pkg4 non-blocked cells + pkg5/pkg6 sweeps, order
+screen still on A (O-1/B-4), transfer cells B-1/2/3 on A.
