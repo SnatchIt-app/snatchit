@@ -120,6 +120,8 @@ money. Keep them exactly as they are.
 ## 5 · Still open for this package
 
 - **O-1** — the automatic-release wording (order screen, Package 4), A + C.
-- **Listing-detail dialog set** — the `ActionKind` × role matrix and its 23 alerts is the remaining piece of
-  the discovery flow; it moves with Package 4's transfer work because the actions overlap.
+- ~~**Listing-detail dialog set** — the `ActionKind` × role matrix and its 23 alerts is the remaining piece of
+  the discovery flow.~~ **Delivered** in Package 6 and corrected at the freeze: the matrix is
+  `pkg6-listing-action-matrix.png`, and all **23 call sites / 24 copy variants** are on
+  `pkg6-listing-dialogs.png`. See `V3_FREEZE_RECONCILIATION_20260922.md`.
 - Nothing in this package waits on A: every sentence used here already ships.

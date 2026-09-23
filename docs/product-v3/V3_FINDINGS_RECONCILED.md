@@ -200,3 +200,21 @@ the payout are separate, which the release source already respects by gating the
 **Proposed wording, for the same review:** *"Your confirmation is needed by {date}"* with, beneath it, *"After
 that the review window closes."* — and nothing about payout timing. If the field is unavailable the row is
 omitted entirely; no placeholder date, no "soon".
+
+---
+
+## Three findings added during the freeze reconciliation (2026-09-22)
+
+All three were found by mapping the listing-detail dialog set line by line against
+`src/screens/ListingDetailScreen.tsx` @ `5b255838`. Full derivation:
+`V3_FREEZE_RECONCILIATION_20260922.md`.
+
+| # | Label | Finding | Role / state | Observable consequence | Evidence @ `5b255838` |
+|---|---|---|---|---|---|
+| **F-25** | **①** | **Two screens carry divergent copies of the same three destructive dialogs** | seller · delete / cancel | `my-listings.tsx` and `ListingDetailScreen.tsx` both delete and cancel a listing with different titles (`Delete listing` vs `Delete listing?`), different bodies (*"This listing has bids and cannot be deleted."* vs *"…activity already exists. Cancel it instead."*), and different button casing (`Keep listing` vs `Keep Listing`). The structures differ too: my-listings has **one** control that branches on `bid_count`, listing detail has **two** guarded menu entries | `my-listings.tsx:122,161,166` (5 alerts) vs `ListingDetailScreen.tsx:824,830,871` (23 alerts) |
+| **F-26** | **①** | **`More actions` is an `Alert` on Android and an `ActionSheetIOS` on iOS** | any viewer | One control, two menus (owner vs everyone else) and two platform renderings. Deliberate, not a defect — recorded so a restyle does not "unify" it into a single custom sheet and lose the native destructive-index behaviour. `destructiveButtonIndex` is **computed** (last destructive entry), which a previous revision had hardcoded to `2` — correct for only one of the two menus | `ListingDetailScreen.tsx:933-963`; the comment at `:940` records the earlier hardcoded-index bug |
+| **F-27** | **①** | **No listing-detail failure path refetches** | buyer · race-lost states | `fetchData()` runs on mount (L420), focus (L426), Retry (L1055), pull-to-refresh (L1235) and after a **successful** reservation (L786). After *Not available*, *Currently reserved* (both), *Already sold* or *Already cancelled*, the alert dismisses to a screen still showing the stale state that caused it — **still offering the action it just refused**. The buyer can tap Buy now repeatedly and be refused each time with no visible change | 5 `fetchData` call sites, none on a failure branch; `reserveAndCheckout` L761-789 |
+
+**F-25 and F-26 are for C to rule on, not for the redesign to resolve.** Unifying F-25's copy is a behaviour
+change and the structural difference is a product decision. F-27's fix is drawn as **PROPOSED** on
+`pkg6-listing-dialogs.png` and is not represented as existing behaviour anywhere.

@@ -18,7 +18,7 @@ role-conditional states below are where the screens actually live.
 
 ---
 
-## Reconciliation — every surface, in four states (2026-09-22, after Package 6)
+## Reconciliation — every surface, in four states (2026-09-22, after Package 6 and the freeze reconciliation)
 
 Reconciled against the repository at release source `5b255838` and C's branch `v3/midnight-app` @ `31819593`.
 The four states are independent: a surface can be designed and not implemented, or implemented and not
@@ -37,7 +37,8 @@ described-only.**
 | Create (+ validation), My listings (+ empty), 22 selling dialogs, picker no-results | `pkg3-*` |
 | Send transfer (pending / sent / expired), 7×2 transfer matrix, dispute, report, support | `pkg4-*` |
 | Auth (3 sign-in + 4 signup steps), Tickets, Profile, public profile, Settings hub, Notifications, security notice | `pkg5-*` |
-| **Bids tab (4 states)**, **listing role/action matrix**, **all 17 listing dialogs**, **7 settings surfaces**, error boundary, outbid notice, status banner | `pkg6-*` |
+| **Bids tab (4 states)**, **listing role/action matrix**, **all 23 listing dialog call sites / 24 copy variants**, **7 settings surfaces**, error boundary, outbid notice, status banner | `pkg6-*` |
+| **Freeze reconciliation** — the 23→17 map with a disposition per dialog, and the corrected red rule | `V3_FREEZE_RECONCILIATION_20260922.md`; boards re-rendered |
 
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
@@ -61,7 +62,7 @@ O-2 · the "You" profile photo O-5 · truthful reporting, failed-read copy and t
 | B-3 | `reversed` — seller state block (**F-17c**) | A → B |
 | B-4 | The order screen's automatic-release sentence (**O-1**) | A + C |
 | B-5 | The buyer review-deadline field (**F-22**) | C |
-| — | 22 functional findings labelled ① | C (client), A (money) |
+| — | 25 functional findings labelled ① (F-25, F-26, F-27 added at the freeze) | C (client), A (money) |
 
 ### ④ Awaiting device verification — **nothing is verified**
 
@@ -117,11 +118,11 @@ D-8 whether the Tickets RPC migration is applied.
 |---|---|---|---|---|---|---|
 | Home / discovery | `app/(tabs)/home.tsx` | signed-in, dock Home | all-in prices via `DiscoveryCard.priceAllIn` | ✅ approved | C | — |
 | Search + filters | `app/(tabs)/home.tsx`, `FilterSheet.tsx` | header search entry | filters are real `listings` columns; **no count of excluded listings exists** | ✅ approved | C | — |
-| Listing detail | `src/screens/ListingDetailScreen.tsx` | `/listing/{id}` | `detailState` → `ActionKind`; **23 `Alert.alert` dialogs** | 🟡 base approved; **dialog set not yet designed** | C | needs the full `ActionKind` × role matrix |
+| Listing detail | `src/screens/ListingDetailScreen.tsx` | `/listing/{id}` | `detailState` → `ActionKind`; **23 `Alert.alert` call sites → 24 copy variants** | ✅ `pkg6-listing-action-matrix`, `pkg6-listing-dialogs` — 11 branches, 12 status kinds, all 24 variants | C | **F-25 / F-26 / F-27** for C to rule on |
 | Bid entry | `src/screens/PlaceBidScreen.tsx`, `app/bid/[id].tsx` | `router.push('/bid/{id}')` from the listing CTA | the listing CTA opens this screen; it does not submit | ✅ `pkg2-bid-entry-*` | C | **O-2 closed** — `Place bid · {total} all-in` already on `v3/midnight-app` |
 | Checkout | `src/screens/checkout/CheckoutNative.tsx`, `app/checkout/[id].tsx` | buy-now / winner pay | 10 pay-control states, 3 hold-lost reasons, 3 refund kinds — all shipped copy, kept verbatim | ✅ `pkg2-checkout-*` | C | none — every sentence already ships |
-| Outbid toast | `src/components/listing/OutbidToast.tsx` | live bid overtaken | — | ⬜ | C | — |
-| Listing status banner | `src/components/listing/ListingStatusBanner.tsx` | reserved / ended / cancelled | — | ⬜ | C | — |
+| Outbid toast | `src/components/listing/OutbidToast.tsx` | live bid overtaken | **existing shipping component**, imported by `ListingDetailScreen` alone; `pointerEvents="none"`, below the header, reduce-motion aware | ✅ `pkg6-system-surfaces` | C | — |
+| Listing status banner | `src/components/listing/ListingStatusBanner.tsx` | reserved / ended / cancelled | 12 status kinds across 5 tones; the word carries the meaning | ✅ `pkg6-system-surfaces` | C | — |
 
 ---
 

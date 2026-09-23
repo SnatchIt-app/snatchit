@@ -3,9 +3,16 @@
 **B · 2026-09-22.** Reconciled against the repository at release source `5b255838` and C's branch
 `v3/midnight-app` @ `31819593`.
 
-> **UPDATED 2026-09-22 after Package 6 (`c5c7282e`).** The two undesigned surfaces — the Bids tab and the
-> listing-detail role/action matrix with its 17 dialogs — **are now designed**, as are the seven
-> written-but-undrawn settings surfaces, the error boundary, the outbid notice and the status banner.
+> **UPDATED 2026-09-22 after Package 6 (`c5c7282e`) and the freeze reconciliation.** The two undesigned
+> surfaces — the Bids tab and the listing-detail role/action matrix with its dialogs — **are now designed**, as
+> are the seven written-but-undrawn settings surfaces, the error boundary, the outbid notice and the status
+> banner.
+>
+> **The freeze reconciliation corrected two things Package 6 got wrong.** The dialog set was drawn as "17
+> distinct dialogs"; the file has **23 call sites rendering 24 copy variants**, and six were missing — not
+> consolidated, absent. All six are restored. And the action-colour rule said the four red actions "commit or
+> move money"; **none of them charges anything**. Both corrections, with a per-dialog disposition, are in
+> `V3_FREEZE_RECONCILIATION_20260922.md`. Three findings came out of it: **F-25, F-26, F-27**.
 >
 > **What remains is not design work.** Three transfer cells are blocked on A and C, five items await A/C
 > validation, and **nothing at all has been verified on a device**. Those categories are listed here in full
@@ -38,7 +45,7 @@ None is described-only.
 | ✅ Closed by Package 6 (`c5c7282e`) | Artifact |
 |---|---|
 | **`(tabs)/bids.tsx` — the Bids tab** | `pkg6-bids-{clean,active,past,empty,refresh_failed}.png` — two segments, ten row states, urgency inside 60 minutes, inline failed refresh |
-| **`listing/[id]` — the role/action matrix and its dialogs** | `pkg6-listing-action-matrix.png` (11 resolution branches, 12 status kinds) and `pkg6-listing-dialogs.png` (all 17 distinct dialogs with trigger and recovery) |
+| **`listing/[id]` — the role/action matrix and its dialogs** | `pkg6-listing-action-matrix.png` (11 resolution branches, 12 status kinds) and `pkg6-listing-dialogs.png` (**all 23 call sites / 24 copy variants**, each with its source line, trigger and recovery) |
 
 | Out of scope, stated (4) | Reason |
 |---|---|
@@ -113,13 +120,18 @@ established on a device against the release source, by C.
 
 ## 5 · Functional findings still open
 
-**24 findings, all ① present in the release source** except **F-17a and F-19 (② already fixed)** and **F-6,
-F-16 (⑤ unverified)**. **None is ③** — F-17b, F-17c, F-18, F-21 and F-22 were measured on C's branch too and
+**27 findings, all ① present in the release source** except **F-17a and F-19 (② already fixed)** and **F-6,
+F-16 (⑤ unverified)**. **F-25, F-26 and F-27 were added at the freeze reconciliation.** **None is ③** — F-17b, F-17c, F-18, F-21 and F-22 were measured on C's branch too and
 are present there as well. **None is fixed by any design package.**
 
 The four most consequential: **F-17b/c** (expired and reversed render nothing) · **F-22** (the buyer never sees
 the date that decides whether their payment leaves) · **F-21** (raw PostgREST text reaches the buyer) ·
 **F-23** (`send-push` ignores notification preferences).
+
+Added at the freeze: **F-25** (my-listings and listing detail carry divergent copies of the same three
+destructive dialogs) · **F-26** (`More actions` is an Alert on Android and an ActionSheetIOS on iOS —
+deliberate, recorded so a restyle does not unify it away) · **F-27** (no listing-detail failure path refetches,
+so a race-lost dialog dismisses to a screen still offering what it just refused).
 
 ---
 
