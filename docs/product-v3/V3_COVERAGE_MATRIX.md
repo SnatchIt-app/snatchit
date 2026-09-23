@@ -23,7 +23,7 @@ role-conditional states below are where the screens actually live.
 | # | Package | Scope | Status |
 |---|---|---|---|
 | 1 | Shared foundations, navigation, reusable states | tokens, components, the four state screens, dock | 🟡 **delivered this round** |
-| 2 | Discovery → bidding → checkout | Home, Search, Listing, Bid entry, Checkout, payment outcomes | ⬜ Home/Search/Listing already approved; bid entry + checkout outstanding |
+| 2 | Discovery → bidding → checkout | Home, Search, Listing, Bid entry, Checkout, payment outcomes | ✅ **delivered** — listing-detail dialog set deferred into Package 4 |
 | 3 | Selling and listing management | Create, My listings, Edit, payout setup/return/refresh | ⬜ inventory complete, design outstanding |
 | 4 | Orders, transfers and support | Send, Receive, report/dispute, support | ⬜ Order/Receive approved; Send + dispute outstanding |
 | 5 | Tickets, account, settings, auth, remaining routes | Tickets, Profile, 10 settings routes, auth, security notice | ⬜ inventory in progress |
@@ -63,8 +63,8 @@ role-conditional states below are where the screens actually live.
 | Home / discovery | `app/(tabs)/home.tsx` | signed-in, dock Home | all-in prices via `DiscoveryCard.priceAllIn` | ✅ approved | C | — |
 | Search + filters | `app/(tabs)/home.tsx`, `FilterSheet.tsx` | header search entry | filters are real `listings` columns; **no count of excluded listings exists** | ✅ approved | C | — |
 | Listing detail | `src/screens/ListingDetailScreen.tsx` | `/listing/{id}` | `detailState` → `ActionKind`; **23 `Alert.alert` dialogs** | 🟡 base approved; **dialog set not yet designed** | C | needs the full `ActionKind` × role matrix |
-| Bid entry | `src/screens/PlaceBidScreen.tsx`, `app/bid/[id].tsx` | `router.push('/bid/{id}')` from the listing CTA | **the listing CTA opens this screen; it does not submit** | ⬜ | C | **O-2**: the submit control must carry the selected bid and its fee-inclusive total |
-| Checkout | `src/screens/checkout/CheckoutNative.tsx`, `app/checkout/[id].tsx` | buy-now / winner pay | payment outcomes, reservation and hold rules — protected | ⬜ | C + A | financial wording review |
+| Bid entry | `src/screens/PlaceBidScreen.tsx`, `app/bid/[id].tsx` | `router.push('/bid/{id}')` from the listing CTA | the listing CTA opens this screen; it does not submit | ✅ `pkg2-bid-entry-*` | C | **O-2 closed** — `Place bid · {total} all-in` already on `v3/midnight-app` |
+| Checkout | `src/screens/checkout/CheckoutNative.tsx`, `app/checkout/[id].tsx` | buy-now / winner pay | 10 pay-control states, 3 hold-lost reasons, 3 refund kinds — all shipped copy, kept verbatim | ✅ `pkg2-checkout-*` | C | none — every sentence already ships |
 | Outbid toast | `src/components/listing/OutbidToast.tsx` | live bid overtaken | — | ⬜ | C | — |
 | Listing status banner | `src/components/listing/ListingStatusBanner.tsx` | reserved / ended / cancelled | — | ⬜ | C | — |
 

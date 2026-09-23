@@ -127,27 +127,75 @@ F-17b's two statuses are reachable in practice.
 
 ---
 
-## Proposed neutral copy for the verified missing state — FOR COPY REVIEW, NOT APPROVED
+## Proposed copy for the verified missing buyer state — FOR REVIEW, NOT APPROVED
 
-For **F-17b** only, and written to the `buyerAutoReleasedCopy` template: it states what the order did, never
-what the money did, because status alone is not payment evidence.
+**Superseded 2026-09-22 by owner correction.** My first draft said *"If you were charged, any refund is handled
+automatically"*. That is withdrawn: it promises a process that is **not established for every affected order**,
+and the existing partial-refund findings make the assumption unsafe. Nothing below describes a refund
+mechanism, a timeline or an outcome.
 
-> **`expired`, buyer**
-> Title: **"Order closed"**
-> Body: **"This order closed before the seller marked the tickets as sent. If you were charged, any refund is
-> handled automatically — check your payment method or contact support if you don't see it."**
+**The four rules this copy follows**
 
-> **`reversed`, buyer**
-> Title: **"Order reversed"**
-> Body: **"This order was reversed. If you were charged, any refund is handled automatically — check your
-> payment method or contact support if you don't see it."**
+1. State only what the **verified transfer status** establishes.
+2. Treat **refund status and refund amount as separate facts**, neither of which this screen holds.
+3. Where payment information is unavailable, **say it cannot be confirmed here**.
+4. Offer an **existing, usable support route** — no invented timeline, no resolution promise.
 
-**Deliberately not said:** "you have been refunded", "your full refund has been issued", any amount, and any
-date. A refund sentence may only appear when a payment fact supports it — the same rule
-`buyerAutoReleasedCopy` already applies to payouts. **If A can supply a refund field on the transfer read, the
-copy should be split the same way: a definite sentence when the field is present, this neutral one when it is
-not.** Until A rules, the neutral form stands and the design is marked blocked rather than shipped.
+### `expired`, buyer
 
-The badge for both statuses should use the words already written in the unused `TransferStatusBadge`
-("Transfer Expired", "Payment Reversed") rather than a lowercase `default:` label — that is a copy fix, not a
-new capability.
+> **Order closed**
+> This order closed before the seller marked the tickets as sent.
+> We can't confirm payment or refund status here.
+> **[ Get help ]** → `/settings/support` (the shipped Help & support route)
+
+### `reversed`, buyer — the noun itself is blocked
+
+> **{status noun — pending A}**
+> This order was reversed.
+> We can't confirm payment or refund status here.
+> **[ Get help ]** → `/settings/support`
+
+**"Payment Reversed" is not adopted.** The unused `TransferStatusBadge` contains that label, but an unrendered
+string is not a product decision and it makes a payment claim the screen cannot support. The badge word and the
+block title both wait on A's definition of what `reversed` means. Until then the design carries a placeholder,
+not a guess.
+
+**Deliberately absent:** "you have been refunded", "your full refund has been issued", "any refund is handled
+automatically", any amount, any date, and any statement about what will happen next.
+
+**What would change this:** if A confirms a refund fact is readable on the transfer, the block splits the way
+`buyerAutoReleasedCopy` already splits the payout sentence — a definite sentence when the fact is present, this
+neutral one when it is not. **Refund status and amount are two separate facts and neither may be inferred from
+the other**, so a present status with an absent amount still gets the neutral sentence.
+
+### Reviews this copy depends on
+
+- **A** — what `expired` and `reversed` actually mean for an order, whether any refund fact is readable on the
+  transfer row, and whether the two statuses can carry different payment outcomes.
+- **C** — the render path, which statuses are reachable, what data the buyer screen already holds, and whether
+  `/settings/support` is the right destination for this entry point.
+
+---
+
+## The buyer's review deadline — worth designing, dependencies named (F-22)
+
+The owner has asked for this to be designed rather than only reported. The design belongs to Package 4
+(Orders, transfers and support); what is settled here is the honesty contract it must satisfy.
+
+**It is not a payout guarantee.** The deadline is the point after which the buyer's window to confirm or report
+closes. It must never be phrased as a promise that a payout completes at that moment — the release decision and
+the payout are separate, which the release source already respects by gating the money sentence on
+`payout_released_at`.
+
+**C must verify, before any of this is implemented:**
+
+| # | Question |
+|---|---|
+| 1 | **The authoritative field.** `auto_release_at` is absent from the buyer's select list today. Is it the right field, and is it readable by the buyer under RLS? |
+| 2 | **Applicable states.** Which statuses may show it at all — presumably `seller_sent` only, given F-19 restricted the *seller's* window countdown to `pending` |
+| 3 | **Missing-value behaviour.** What the block shows when the field is null or unreadable. It must degrade to saying nothing rather than to a computed or assumed date |
+| 4 | **Refresh behaviour.** Whether the value is re-read on focus and after a confirm/dispute attempt, and what a stale value may claim |
+
+**Proposed wording, for the same review:** *"Your confirmation is needed by {date}"* with, beneath it, *"After
+that the review window closes."* — and nothing about payout timing. If the field is unavailable the row is
+omitted entirely; no placeholder date, no "soon".
