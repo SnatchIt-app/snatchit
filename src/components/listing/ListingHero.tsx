@@ -87,7 +87,8 @@ export function ListingHero({
       </EventMedia>
 
       <View style={styles.identity}>
-        <Text style={[textStyle('title'), styles.title]} accessibilityRole="header">
+        {/* V3 (owner 2026-09-22): the name in the display voice, mixed case (nameDetail). */}
+        <Text style={[textStyle('nameDetail'), styles.title]} accessibilityRole="header">
           {eventName}
         </Text>
         <Text style={[textStyle('body'), styles.venue]} numberOfLines={2}>

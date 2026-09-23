@@ -61,7 +61,8 @@ export function StateView({ kind, title, body, action, style, testID }: StateVie
           <IconSymbol name={glyph} size={26} color={kind === 'error' ? v2.status.warning : v2.text.secondary} />
         </View>
       ) : null}
-      <Text style={[textStyle('displaySm'), styles.title]} accessibilityRole="header">{resolvedTitle}</Text>
+      {/* V3 §2: the empty/error heading joins the mixed-case display voice (nameState). */}
+      <Text style={[textStyle('nameState'), styles.title]} accessibilityRole="header">{resolvedTitle}</Text>
       {resolvedBody ? <Text style={[textStyle('body'), styles.body]}>{resolvedBody}</Text> : null}
       {action ? (
         <Button

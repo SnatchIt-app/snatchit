@@ -39,7 +39,7 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
-import { formatCountdown, buyerAutoReleasedCopy, buyerNeedsDelivery, transferReadOutcome, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
+import { formatCountdown, buyerAutoReleasedCopy, buyerNeedsDelivery, REPORT_PROBLEM_UNCONFIRMED, transferReadOutcome, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -275,8 +275,17 @@ export default function TransferReceiveScreen() {
               try {
                 const { error: rpcErr } = await supabase.rpc('buyer_dispute_transfer', { p_transfer_id: id });
                 if (rpcErr) {
-                  Alert.alert("Couldn't submit dispute", 'Please try again in a moment. If the problem persists, contact support.');
                   console.warn('[receive] buyer_dispute_transfer error:', rpcErr.message);
+                  // V3 O-3: a network failure is a SUBMITTED action with an UNKNOWN result — the request
+                  // can still land after we give up. Re-read first: a server answer beats any guess.
+                  if (isNetworkError(rpcErr)) {
+                    const fresh = await fetchTransfer({ quiet: true });
+                    if (fresh?.status === 'disputed') return;   // it WAS received; the screen now shows it
+                    Alert.alert(REPORT_PROBLEM_UNCONFIRMED.title, REPORT_PROBLEM_UNCONFIRMED.body);
+                    return;
+                  }
+                  // The server ANSWERED and refused: this one genuinely was not recorded.
+                  Alert.alert("Couldn't submit the report", 'The server rejected it. Please try again in a moment; if the problem persists, contact support.');
                   return;
                 }
                 setTransfer((prev) => (prev ? { ...prev, status: 'disputed' } : prev));

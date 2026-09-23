@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
+import { LISTING_READ_FAILED_COPY,
   detailState,
   listingActions,
   listingStatus,
@@ -408,3 +408,25 @@ describe('listing detail — shipped-source guards', () => {
     }
   });
 });
+
+describe('V3 §5 — the failed-read copy claims nothing it cannot know', () => {
+  it('says the read failed and that nothing left this screen; never anything about server state', () => {
+    expect(LISTING_READ_FAILED_COPY.title).toBe("We couldn't load this listing");
+    expect(LISTING_READ_FAILED_COPY.body).toBe(
+      "Nothing was sent from this screen — we couldn't read the listing. Check your connection and try again.",
+    );
+    expect(LISTING_READ_FAILED_COPY.retry).toBe('Try again');
+    const all = `${LISTING_READ_FAILED_COPY.title} ${LISTING_READ_FAILED_COPY.body}`.toLowerCase();
+    expect(all).not.toMatch(/your bid|unchanged|reserved|refund|charged|sold|released/);
+  });
+
+  it('the screen renders it on a non-network failure, with Try again wired to the read (source pins)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(src).toContain('title={LISTING_READ_FAILED_COPY.title}');
+    expect(src).toContain('body={LISTING_READ_FAILED_COPY.body}');
+    expect(src).toContain('label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData()');
+    expect(src).toContain('<ScreenState state="offline"');   // offline keeps its own state
+  });
+});
+

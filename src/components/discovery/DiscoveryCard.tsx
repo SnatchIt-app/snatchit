@@ -20,6 +20,8 @@ import { EventMedia } from '@/src/components/media/EventMedia';
 import { Badge, usePressScale } from '@/src/components/ui';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { textStyle } from '@/src/theme/typography';
+import { NameText } from '@/src/components/NameText';
+import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import * as v2 from '@/src/theme/v2';
 
 export interface DiscoveryCardProps {
@@ -95,11 +97,12 @@ function DiscoveryCardImpl({
         </View>
 
         <View style={styles.body}>
-          {/* Inter, sentence case, two lines. Not Oswald: this is the venue's
-              content, not Snatch It's voice. */}
-          <Text style={[textStyle('title'), styles.title]} numberOfLines={2}>
+          {/* V3 (owner 2026-09-22): the NAME is the one display voice on the row —
+              Oswald_700Bold in the seller's own capitalisation, two lines, cut on a
+              word boundary. Everything else on the card stays Inter. */}
+          <NameText token="nameRow" maxLines={2} style={styles.title}>
             {eventName}
-          </Text>
+          </NameText>
           <Text style={[textStyle('bodySm'), styles.meta]} numberOfLines={1}>
             {venue}
           </Text>
@@ -152,7 +155,9 @@ const styles = StyleSheet.create({
   // still buyable.
   dimmed: { opacity: 0.55 },
   badge: { position: 'absolute', left: v2.space.sm, bottom: v2.space.sm },
-  body: { paddingTop: v2.space.sm, gap: 2 },
+  // V3 §3: the row grows with its contents, and the last metadata line keeps ≥ ROW_META_CLEARANCE
+  // of clear space before whatever follows — never crowding a divider. No height is hard-coded.
+  body: { paddingTop: v2.space.sm, gap: 2, paddingBottom: ROW_META_CLEARANCE },
   title: { color: v2.text.primary },
   meta: { color: v2.text.muted },
   priceRow: { marginTop: v2.space.xs },

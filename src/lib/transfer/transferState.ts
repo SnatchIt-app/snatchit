@@ -208,6 +208,18 @@ export const CONFIRM_RECEIPT_DIALOG = {
   confirm: 'Confirm and release payment',
 } as const;
 
+/**
+ * V3 O-3 (owner 2026-09-22): what "Report a problem" may say when the SEND fails on the network.
+ * A dropped connection is a submitted-action-with-unknown-result, never proof the report was not
+ * received — the request can still land after the client gives up. The screen re-reads first; only
+ * if the server still shows no report does it say this. "Reporting again is safe" is server truth:
+ * buyer_dispute_transfer returns success on an already-disputed transfer (0550, idempotent branch).
+ */
+export const REPORT_PROBLEM_UNCONFIRMED = {
+  title: "We couldn't confirm your report was received",
+  body: 'Your connection dropped while it was being sent. If this order is not marked as reported after a refresh, report it again — sending it twice is safe.',
+} as const;
+
 type DeliveryLike = { status: string; delivery_email: string | null; delivery_phone: string | null };
 
 /**

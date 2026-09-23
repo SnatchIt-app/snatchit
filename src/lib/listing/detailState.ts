@@ -40,6 +40,18 @@ export type ActionKind =
   | 'view_dispute'
   | 'unavailable';
 
+/**
+ * V3 §5 (owner 2026-09-22): what a FAILED listing read may say. "Nothing was sent from this
+ * screen" is source truth: on a failed load the screen has run no RPC, no reservation and no bid —
+ * the exit-release asks only about a listing it actually holds. It says nothing about server state
+ * (never "your bid is unchanged"), because a failed read establishes nothing out there.
+ */
+export const LISTING_READ_FAILED_COPY = {
+  title: "We couldn't load this listing",
+  body: "Nothing was sent from this screen — we couldn't read the listing. Check your connection and try again.",
+  retry: 'Try again',
+} as const;
+
 export interface ListingAction {
   kind: ActionKind;
   label: string;

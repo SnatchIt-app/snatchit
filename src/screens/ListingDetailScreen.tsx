@@ -57,7 +57,7 @@ import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
-import { Button, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+import { StateView, Button, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
 import { BidActivity } from '@/src/components/listing/BidActivity';
 import { ListingHero } from '@/src/components/listing/ListingHero';
 import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
@@ -65,7 +65,7 @@ import { OutbidToast } from '@/src/components/listing/OutbidToast';
 import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -1046,14 +1046,21 @@ export default function ListingDetailScreen({ id }: Props) {
   );
 
   if (error) return (
-    // A raw fetch failure gets the dedicated offline / server-error screen.
-    // "Listing not found" (data null) stays its own state below: a listing that
+    // A raw fetch failure: offline keeps the dedicated offline screen; any other failure carries
+    // the V3 §5 copy — the read failed, nothing left this screen, and nothing is claimed about
+    // server state. "Listing not found" (data null) stays its own state below: a listing that
     // was deleted is not a connection problem, and saying so wastes a retry.
     <View style={s.centered}>
-      <ScreenState
-        state={isNetworkError(error) ? 'offline' : 'error'}
-        onRetry={() => fetchData()}
-      />
+      {isNetworkError(error) ? (
+        <ScreenState state="offline" onRetry={() => fetchData()} />
+      ) : (
+        <StateView
+          kind="error"
+          title={LISTING_READ_FAILED_COPY.title}
+          body={LISTING_READ_FAILED_COPY.body}
+          action={{ label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData() }}
+        />
+      )}
     </View>
   );
 
