@@ -40,7 +40,9 @@ import {
   stepUp,
 } from '@/src/lib/bid/bidEntry';
 import { hapticConfirm } from '@/src/lib/feedback/haptics';
-import { formatDollars } from '@/src/lib/money';
+import { rowMeta } from '@/src/lib/listing/feedRowState';
+import { allInFromDollars, formatDollars } from '@/src/lib/money';
+import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/components/ui';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
@@ -87,7 +89,10 @@ export default function PlaceBidScreen({ id }: Props) {
     try {
       const { data, error } = await supabase
         .from('listings')
-        .select('current_bid, starting_bid, event_name, venue, ends_at')
+        // V3: the header restates the listing (date, venue, whole-listing quantity) and the
+        // market column needs the bid count to avoid claiming a "current bid" nobody placed.
+        // Same authorized row, same policy — only the column list widened.
+        .select('current_bid, starting_bid, event_name, venue, ends_at, event_date, event_time, quantity, ticket_type, bid_count')
         .eq('id', id)
         .single();
       if (error || !data) {
@@ -228,31 +233,62 @@ export default function PlaceBidScreen({ id }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* V3 (pkg2 ①): the listing is RESTATED, not re-sold — the name in the display voice,
+            the dated line home and search also use, and the quantity, because the bid buys the
+            whole listing. */}
         {listing?.event_name ? (
-          <Text style={[textStyle('title'), s.eventName]} numberOfLines={2}>{listing.event_name}</Text>
+          <NameText token="nameOrder" maxLines={2} style={s.eventName}>{listing.event_name}</NameText>
         ) : null}
-        {listing?.venue ? (
-          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>{listing.venue}</Text>
+        {listing?.venue && listing?.event_date ? (
+          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>
+            {rowMeta({
+              eventDate: listing.event_date, eventTime: listing.event_time ?? '',
+              venue: listing.venue, quantity: listing.quantity ?? 1,
+              ticketType: listing.ticket_type ?? '', bidCount: listing.bid_count,
+            }).meta1}
+          </Text>
+        ) : null}
+        {listing?.quantity && listing?.ticket_type ? (
+          <Text style={[textStyle('bodySm'), s.venue]} numberOfLines={1}>
+            {`${listing.quantity} × ${listing.ticket_type}${listing.quantity > 1 ? ' · sold together' : ''}`}
+          </Text>
         ) : null}
 
-        {/* ── Current vs your bid ───────────────────────────── */}
+        {/* ── Current vs your bid (pkg2 ②): BOTH columns all-in, each carrying the bid it is
+            built from, so no figure on this screen ever means two different things. ── */}
         <View style={s.compare}>
           <View style={s.compareSide}>
-            <Text style={[textStyle('micro'), s.compareLabel]}>Current bid</Text>
-            <Text style={[textStyle('price'), s.compareAmt]} numberOfLines={1}>{fmt$(listing?.current_bid ?? 0)}</Text>
+            <Text style={[textStyle('micro'), s.compareLabel]}>
+              {(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'}
+            </Text>
+            <Text style={[textStyle('price'), s.compareAmt]} numberOfLines={1}>
+              {allInFromDollars(listing?.current_bid ?? 0)}
+            </Text>
+            <Text style={[textStyle('micro'), s.compareSub]} numberOfLines={1}>
+              {`all-in · ${fmt$(listing?.current_bid ?? 0)} bid + fee`}
+            </Text>
           </View>
           <View style={s.compareDivider} />
           <View style={s.compareSide}>
             <Text style={[textStyle('micro'), s.compareLabel]}>Your bid</Text>
-            <Text style={[textStyle('price'), s.compareAmt, s.compareYours]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
+            <Text style={[textStyle('price'), s.compareAmt, s.compareYours]} numberOfLines={1}>
+              {lines.total}
+            </Text>
+            <Text style={[textStyle('micro'), s.compareSub]} numberOfLines={1}>
+              {`all-in · ${fmt$(selectedBid)} bid + fee`}
+            </Text>
           </View>
         </View>
 
-        {/* ── Amount (the focus) ────────────────────────────── */}
+        {/* ── Amount (the focus) ─────────────────────────────
+            pkg2 ③, corrected against source (the ③ card said this already existed; the shipped
+            headline was the BID): the big figure is always what the buyer WOULD PAY, and the
+            stepper beneath moves the bid it is built from. */}
         <View style={s.amountBlock}>
-          <Text style={s.bigAmount} accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}>{fmt$(selectedBid)}</Text>
+          <Text style={s.bigAmount} accessibilityLabel={`Your total if you win ${lines.total}`}>{lines.total}</Text>
+          <Text style={[textStyle('bodySm'), s.stepHint]}>your total if you win</Text>
           <Text style={[textStyle('bodySm'), s.stepHint]}>
-            +{fmt$(MIN_INCREMENT)} per step · min {fmt$(minimumBid)}
+            {`Lowest you can place is ${allInFromDollars(minimumBid)} all-in`}
           </Text>
 
           {/* Stepper and quick-add keys carry the product's press response
@@ -269,7 +305,10 @@ export default function PlaceBidScreen({ id }: Props) {
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
             </Tappable>
-            <Text style={[textStyle('price'), s.stepVal]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
+            <View style={s.stepMid}>
+              <Text style={[textStyle('price'), s.stepVal]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
+              <Text style={[textStyle('micro'), s.stepValCaption]}>your bid</Text>
+            </View>
             <Tappable
               style={s.stepBtn}
               onPress={increase}
@@ -296,6 +335,12 @@ export default function PlaceBidScreen({ id }: Props) {
               </Tappable>
             ))}
           </View>
+
+          {/* pkg2 ③: the steps move the BID; the fee and the headline total follow. Said
+              plainly, so a $5 step that lifts the total by $5.50 is never a surprise. */}
+          <Text style={[textStyle('bodySm'), s.stepHint]}>
+            Steps raise your bid. The fee and your total follow.
+          </Text>
         </View>
 
         {/* ── Breakdown ─────────────────────────────────────── */}
@@ -373,6 +418,7 @@ const s = StyleSheet.create({
   compareLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
   compareAmt: { color: v2.text.primary },
   compareYours: { color: v2.brand.red },
+  compareSub: { color: v2.text.muted, marginTop: 2 },
 
   amountBlock: { alignItems: 'center', marginTop: v2.space.xxl },
   bigAmount: {
@@ -392,7 +438,9 @@ const s = StyleSheet.create({
   },
   stepBtnOff: { opacity: 0.35 },
   stepGlyph: { color: v2.text.primary, fontSize: 26, lineHeight: 30 },
-  stepVal: { flex: 1, textAlign: 'center', color: v2.text.primary },
+  stepVal: { textAlign: 'center', color: v2.text.primary },
+  stepMid: { flex: 1, alignItems: 'center', gap: 2 },
+  stepValCaption: { color: v2.text.muted },
 
   quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
   quickWrap: { flex: 1 },
