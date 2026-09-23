@@ -29,14 +29,45 @@ forwarding.
 | — | **Findings reconciliation** | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b` | ✅ **supersedes the findings table in the matrix**; copy corrected per owner 2026-09-22 |
 | **2** | **Discovery → bidding → checkout** | `V3_PACKAGE_2_BIDDING_CHECKOUT_FOR_C.md` | `pkg2-bid-entry-{clean,annotated,submitting}.png`, `pkg2-checkout-{clean,annotated}.png`, `pkg2-checkout-states.png` | `01fe02ed` | ✅ ready to implement |
 
+| **3** | **Selling, creation, editing, listing management** | `V3_PACKAGE_3_SELLING_FOR_C.md` | `pkg3-create-{clean,annotated,invalid}.png`, `pkg3-my-listings-{clean,annotated,empty}.png`, `pkg3-selling-dialogs.png` | `6cb26a4d` | ✅ ready to implement |
+| **4** | **Orders, transfers, disputes, support** | `V3_PACKAGE_4_TRANSFERS_SUPPORT_FOR_C.md` | `pkg4-send-{clean,pending,seller_sent,expired}.png`, `pkg4-transfer-matrix.png`, `pkg4-dispute-support.png` | `63d252c4` | ✅ ready; 3 cells blocked on A/C |
+| **5** | **Tickets, profile, settings, auth, security notice** | `V3_PACKAGE_5_ACCOUNT_FOR_C.md` | `pkg5-auth.png`, `pkg5-tickets-profile.png`, `pkg5-settings-account.png` | `965c46ad` | ✅ ready to implement |
+| — | **GAP AUDIT — read this before claiming completion** | `V3_GAP_AUDIT.md` | — | see below | ⛔ **2 surfaces undesigned, 5 blocked, 8 device checks outstanding** |
+
+## Two distinctions that travel with every package
+
+1. **"Implemented on C's branch" does not mean shipped or deployed.** `v3/midnight-app` is isolated: not in the
+   release source, not in a build, not in production.
+2. **Displaying a partial refund does not mean the system automatically resolves partial-refund obligations.**
+   Refund status and refund amount are separate facts, and neither may be inferred from a transfer status.
+
+## Package 2 — what C must verify about the restyled pay control
+
+The six progress states were restyled from red primaries to neutral status lines. C verifies that the restyle
+preserves, unchanged:
+
+- the **payment-state ordering** in `payControl.ts` (a lost hold outranks a ready payment; an unknown payment
+  status outranks both);
+- **repeated-tap protection** — the single-flight lock and the disabled/loading gating;
+- **retry behaviour** for `Check again` and `Try again`;
+- **accessible status announcements** — `accessibilityState={{ disabled, busy }}` and the pending label being
+  what a screen reader hears.
+
+**Every existing pay-control state has an explicit design mapping on `pkg2-checkout-states.png`. None may
+disappear during restyling.**
+
 ## Remaining packages
 
-| # | Package | Scope | Status |
-|---|---|---|---|
-| 2 | *(moved to completed)* | listing-detail dialog set deferred into Package 4 — the actions overlap | 🟡 partial |
-| 3 | Selling and listing management | Create (5 sections, 3 pickers, 8 alerts), My listings, Edit, payout setup/return/refresh | ⬜ inventory complete |
-| 4 | Orders, transfers and support | Send transfer, report/dispute, support, the blocked `expired`/`reversed` buyer states | ⬜ inventory complete |
-| 5 | Tickets, account, settings, auth | Tickets, Profile, 10 settings routes, auth, security notice, error boundary | ⬜ inventory complete |
+All five packages are delivered. **What remains is in `V3_GAP_AUDIT.md`:**
+
+| | Outstanding | Owner |
+|---|---|---|
+| ⛔ | **The Bids tab** — a primary dock destination with no V3 design | B |
+| ⛔ | **The listing-detail `ActionKind` × role dialog matrix** — 23 dialogs, deferred and not completed | B |
+| ⬜ | Seven settings surfaces specified in writing but not drawn; error boundary, outbid toast, status banner | B |
+| 🚫 | `expired` / `reversed` state blocks (3 cells) and the release wording | A, then B |
+| 🚫 | The buyer review-deadline field | C |
+| 🔍 | Eight device checks — **nothing is device-verified** | C |
 
 ---
 
