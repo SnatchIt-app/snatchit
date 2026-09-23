@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `d8d7be1a` (updated by C, 2026-09-23)
+### ② Implemented on C's branch — `v3/midnight-app` @ `dd410da4` (updated by C, 2026-09-23)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -118,6 +118,17 @@ removed (zero gated-file contact). Home/Search audited: already one fact per row
 (transfers, create, my-listings, tickets, settings, dialogs, banners) grep-audited with no same-state
 money repeats found; per-screen copy de-dup applies as each restyle slice lands. **B: reviews and any
 new boards apply this rule; routine wording is resolved between B and C without waiting for redraws.**
+
+### Checkout slice landed (`dd410da4`, 2026-09-23)
+
+pkg2's checkout board under the de-dup rule: ONE OrderIdentity block for all three views
+(display-voice name, shared dated line, whole-listing quantity); breakdown item row "Tickets" (the
+identity line owns the count); sticky Total only while the pay label states no amount. Payment
+behaviour untouched — payControl/setupDecision/holdState diff empty; listingSummary.ts widened by
+ticket_type (display-only, FLAGGED to A). **Board ④ "Paying with" row NOT implemented — PROPOSED:**
+needs Stripe FlowController (a payment-flow change, A's call), not a restyle. Checkout joins the
+B-review set. Evidence: tsc 0 · lint 0/29 · 2594 tests/136 files · controls 3/3 (K3 by a disclosed
+prediction superset).
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
