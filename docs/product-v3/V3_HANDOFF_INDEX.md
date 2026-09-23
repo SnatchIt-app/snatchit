@@ -43,10 +43,10 @@ Re-pin both if either ref moves; every ① label is measured against these two c
 | **4** | Orders, transfers, disputes, support | `V3_PACKAGE_4_TRANSFERS_SUPPORT_FOR_C.md` | `pkg4-send-*`, `pkg4-transfer-matrix.png`, `pkg4-dispute-support.png` | `63d252c4` | ✅ ready; 3 cells blocked |
 | **5** | Tickets, profile, settings, auth, security notice | `V3_PACKAGE_5_ACCOUNT_FOR_C.md` | `pkg5-auth.png`, `pkg5-tickets-profile.png`, `pkg5-settings-account.png` | `965c46ad` | ✅ ready |
 | **6** | Completion: Bids tab, role/action matrix, listing dialogs, 7 settings surfaces, system surfaces | `V3_PACKAGE_6_COMPLETION_FOR_C.md` | `pkg6-bids-*`, `pkg6-listing-action-matrix.png`, `pkg6-listing-dialogs.png`, `pkg6-settings-surfaces.png`, `pkg6-system-surfaces.png` | `c5c7282e` | ✅ ready — **superseded in two places by the freeze reconciliation** |
-| **FREEZE** | **Dialog-count and colour-semantics reconciliation** | **`V3_FREEZE_RECONCILIATION_20260922.md`** | `pkg6-listing-dialogs.png` and `pkg6-listing-action-matrix.png` **re-rendered** | *this commit* | ✅ **authoritative over Package 6 §2 and §3** |
-| — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | reconciled `074776d0`, freeze update in this commit | 🟡 living |
-| — | Findings register | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b`, + F-25/F-26/F-27 in this commit | ✅ supersedes the matrix's own findings table |
-| — | **GAP AUDIT — read before claiming completion** | `V3_GAP_AUDIT.md` | — | `01822004`, `074776d0`, `c641c3c4`, + this commit | ⛔ **3 cells blocked · 5 awaiting A/C · 8 device checks · nothing verified** |
+| **FREEZE** | **Dialog-count and colour-semantics reconciliation** | **`V3_FREEZE_RECONCILIATION_20260922.md`** | `pkg6-listing-dialogs.png` and `pkg6-listing-action-matrix.png` **re-rendered** | **`77a122b4`** | ✅ **authoritative over Package 6 §2 and §3** |
+| — | Coverage matrix (living) | `V3_COVERAGE_MATRIX.md` | — | reconciled `074776d0`, freeze update `77a122b4` | 🟡 living |
+| — | Findings register | `V3_FINDINGS_RECONCILED.md` | — | `a538e53b`, + F-25/F-26/F-27 in `77a122b4` | ✅ supersedes the matrix's own findings table |
+| — | **GAP AUDIT — read before claiming completion** | `V3_GAP_AUDIT.md` | — | `01822004`, `074776d0`, `c641c3c4`, `77a122b4` | ⛔ **3 cells blocked · 5 awaiting A/C · 8 device checks · nothing verified** |
 
 ---
 
