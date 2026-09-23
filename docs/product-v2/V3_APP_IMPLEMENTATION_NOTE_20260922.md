@@ -240,3 +240,16 @@ A's call after the verification window.
 byte-equal after comment stripping), so the blast-radius derivation and PASS carry unchanged. A confirms
 window item 1 (this gate) closed; remaining item = the 05:23Z signing-monitor run; release not-complete
 until then; nothing further runs against production without the owner.
+
+---
+
+# V3 checkout slice (C, 2026-09-23) — `dd410da4`
+
+One OrderIdentity block across all three checkout views (display voice, shared dated line,
+"2 × GA · sold together"); breakdown row "Tickets" (identity owns the count); sticky Total gated on
+labelCarriesAmount(pay.label) — the action or beside it, never both. Untouched: payControl label,
+escrow-note #81 gating, A-02 flow, hold countdown, refund/settlement views. Gated surface: payControl/
+setupDecision/holdState diffs EMPTY; listingSummary.ts +ticket_type (display-only) — flagged to A.
+Board ④ ("Paying with" method row) recorded PROPOSED: requires Stripe FlowController = payment-flow
+change, A's call. Evidence: tsc 0 · lint 0/29 · 2594/136 alone · controls 3/3 (K3 superset disclosed).
+Matrix pushed 51e97db8. Next: pkg3 (Create/My listings/edit + payout setup screens) under the same rules.
