@@ -15,7 +15,7 @@
 
 ## 1 · Route coverage — 36 route files
 
-| Designed with drawn artifacts (23) | Package |
+| Designed with drawn artifacts | Package |
 |---|---|
 | `(tabs)/home`, `(tabs)/create`, `(tabs)/tickets`, `(tabs)/profile` | 2, 3, 5 |
 | `listing/[id]`, `bid/[id]`, `checkout/[id]` | 2 |
@@ -23,7 +23,7 @@
 | `transfer/send/[id]`, `transfer/receive/[id]`, `report/[type]/[id]`, `settings/support` | 4 |
 | `(auth)/login`, `(auth)/signup`, `(auth)/reset-password`, `profile/[id]`, `settings/index`, `settings/notifications` | 5 |
 
-| Covered in writing, no drawn screen (7) | Why |
+| Drawn in Package 6 — previously written-only (7) | What the earlier packages specified |
 |---|---|
 | `settings/edit-profile` | form fields, validation strings and avatar states specified in Package 5 §3; reuses the Input and MediaUpload patterns from Packages 1 and 3 |
 | `settings/verify-phone` | three states specified; reuses the auth code-entry pattern already drawn |
@@ -70,7 +70,7 @@ partial-refund obligations** — those are separate facts and no screen conflate
 
 ## 3 · Unimplemented — designed but not built anywhere
 
-Everything in Packages 1–5 is **design only**. What exists in code today is limited to what C has landed on
+Everything in Packages 1–6 is **design only**. What exists in code today is limited to what C has landed on
 `v3/midnight-app`:
 
 | Implemented on C's branch | Status |
@@ -86,7 +86,7 @@ Everything in Packages 1–5 is **design only**. What exists in code today is li
 
 **Not implemented anywhere:** every token amendment (A-1 neutral hairlines, A-2 mixed-case sentence headings,
 A-3 `radius.media` / `radius.chrome`), every component restyle, all four state screens, the inline failure
-banner, and every screen in Packages 2–5.
+banner, and every screen in Packages 2–6.
 
 ---
 
