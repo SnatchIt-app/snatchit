@@ -17,7 +17,7 @@ import { usePressScale } from '@/src/components/ui';
 import { ROW_ART, ROW_ART_GAP, ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
-import { clockLabel, priceCaption, rowMeta } from '@/src/lib/listing/feedRowState';
+import { clockLabel, rowMeta } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
@@ -58,10 +58,10 @@ function FeedRowImpl({
   const meta = rowMeta({ eventDate, eventTime, venue, quantity, ticketType, bidCount });
   const dimmed = presentation.status === 'sold' || presentation.status === 'ended';
 
-  // A live offer's price is captioned "all-in" alone, as the mockups draw it — a number with a
-  // promise, not a claim about its source. A sold or ended row must own the claim instead:
-  // "sold for, all-in", never a bare price that reads as buyable.
-  const caption = dimmed ? priceCaption(presentation.priceLabel) : 'all-in';
+  // Every price is captioned "all-in" — its basis, once. On a sold or ended row the CLAIM
+  // lives in the status line below (plus the dimmed treatment); repeating it in the caption
+  // said the same thing twice in one column (de-dup, owner 2026-09-23).
+  const caption = 'all-in';
 
   // Third price-column line: a live clock when cardState says one is worth showing, else the
   // status word. `clockLabel` returns null for a dead clock, so nothing here counts down past 0.

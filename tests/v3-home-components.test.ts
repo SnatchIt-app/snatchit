@@ -170,11 +170,14 @@ describe('FeedRow — the §3 row', () => {
     expect(JSON.stringify(byText(calm, '3h 0m left')?.props.style)).not.toMatch(/FFB020/i);
   });
 
-  it('FR5: a sold row says "Sold" in place of a clock, and its caption owns the claim', async () => {
+  it('FR5: a sold row says "Sold" ONCE — the status line carries the claim, the caption stays the price basis', async () => {
+    // De-dup (owner 2026-09-23): "Sold" + "sold for, all-in" said the same thing twice in one
+    // column. The status word (with the dimmed treatment) is the claim; "all-in" labels the
+    // number's basis, exactly as on live rows.
     const host = await mountRow({ status: 'sold', winning_bid_amount: 120 });
     expect(byText(host, 'Sold')).toBeDefined();
-    expect(byText(host, 'sold for, all-in')).toBeDefined();
-    expect(byText(host, 'all-in')).toBeUndefined();   // never the bare live caption on a sold row
+    expect(byText(host, 'all-in')).toBeDefined();
+    expect(byText(host, 'sold for, all-in')).toBeUndefined();
   });
 
   it('FR6: artwork goes through EventMedia at the row slot and the row width', async () => {

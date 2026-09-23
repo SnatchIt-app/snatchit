@@ -29,7 +29,7 @@ vi.mock('@/src/hooks/usePulseOnChange', () => ({ usePulseOnChange: () => ({ opac
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
 
-import { bidCommitmentCopy } from '@/src/lib/listing/detailState';
+import { BID_COMMITMENT_COPY } from '@/src/lib/listing/detailState';
 import { findElement, HookHost } from './helpers/nav-stack-harness';
 
 const byText = (host: HookHost, text: string) =>
@@ -80,17 +80,15 @@ async function mountHero(over: Record<string, unknown> = {}) {
 
 beforeEach(() => { vi.resetModules(); });
 
-describe('bidCommitmentCopy — the §5 sentence, corrected, and never a false "current bid"', () => {
-  it('LP1: with bids, the exact approved sentence; with none, the truthful starting-bid variant', () => {
-    expect(bidCommitmentCopy({ currentAllIn: '$99.00', nextBidAllIn: '$104.50', bidCount: 6 })).toBe(
-      "A bid is a commitment. The current bid is $99.00; the lowest you can place is $104.50 all-in. " +
-      "If you win, you'll pay your own bid to complete the purchase.",
+describe('the commitment sentence — de-duplicated (owner 2026-09-23)', () => {
+  it('LP1: one sentence, no repeated numbers, and never an automatic-charge claim', () => {
+    // The panel states the market price and the CTA sub-label states the minimum; the sentence
+    // repeats neither. It carries only what nothing else on the screen says.
+    expect(BID_COMMITMENT_COPY).toBe(
+      "A bid is a commitment. If you win, you'll pay your own bid at checkout to complete the purchase.",
     );
-    const none = bidCommitmentCopy({ currentAllIn: '$99.00', nextBidAllIn: '$104.50', bidCount: 0 });
-    expect(none).toContain('The starting bid is $99.00');
-    expect(none).not.toContain('current bid');
-    // The corrected copy never claims an automatic charge.
-    expect(none.toLowerCase()).not.toContain('charged automatically');
+    expect(BID_COMMITMENT_COPY).not.toMatch(/\$/);
+    expect(BID_COMMITMENT_COPY.toLowerCase()).not.toContain('charged automatically');
   });
 });
 
@@ -102,7 +100,6 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(host, '2 × GA tickets')).toBeDefined();
     expect(byText(host, 'sold together')).toBeDefined();
     expect(byText(host, 'all-in · 6 bids · 2h 14m left')).toBeDefined();
-    expect(byText(host, '$104.50')).toBeDefined();          // the breakdown headline — separate block
   });
 
   it('LP3: one ticket is singular and NOT "sold together"; zero bids is "Starting bid" and "no bids yet"', async () => {
@@ -114,14 +111,29 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(host, 'all-in · no bids yet · 2h 14m left')).toBeDefined();
   });
 
-  it('LP4: the minimum-bid breakdown, preformatted rows only — and absent when there is no next bid', async () => {
+  it('LP4: the minimum-bid breakdown, each number ONCE — and absent when there is no next bid', async () => {
     const host = await mountPanel();
     expect(byText(host, 'If you bid the minimum')).toBeDefined();
-    expect(byText(host, 'Tickets (2 × GA)')).toBeDefined();
+    // De-dup (owner 2026-09-23): "Tickets" — the quantity is already stated in the panel above;
+    // and the total appears exactly once, on its own row, not also as a headline.
+    expect(byText(host, 'Tickets')).toBeDefined();
+    expect(byText(host, 'Tickets (2 × GA)')).toBeUndefined();
     expect(byText(host, '$95.00')).toBeDefined();
     expect(byText(host, 'Service fee (10%)')).toBeDefined();
     expect(byText(host, '$9.50')).toBeDefined();
     expect(byText(host, 'Your total if you win')).toBeDefined();
+    const totals: string[] = [];
+    const walk = (node: unknown) => {
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      const el = node as { type?: unknown; props?: { children?: unknown } } | null;
+      if (!el || typeof el !== 'object' || !('props' in el) || !el.props) return;
+      if (el.props.children === '$104.50') totals.push('$104.50');
+      walk(el.props.children);
+    };
+    walk(host.output);
+    expect(totals).toHaveLength(1);
+    // The fee is named in the breakdown; the old trailing fee sentence is gone from live views.
+    expect(byText(host, 'All prices include the 10% service fee.')).toBeUndefined();
 
     const closed = await mountPanel({ mode: 'closed', nextBidAllIn: null, minBidBase: null, minBidFee: null, clock: null });
     expect(byText(closed, 'If you bid the minimum')).toBeUndefined();
@@ -135,10 +147,12 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(closedWithValues, 'Your total if you win')).toBeUndefined();
   });
 
-  it('LP5: sold shows what it went for, and no bid arithmetic at all', async () => {
+  it('LP5: sold shows what it went for, no bid arithmetic — and keeps its one fee sentence', async () => {
     const host = await mountPanel({ soldAllIn: '$99.00' });
     expect(priceDisplay(host, 'Sold for')).toBeDefined();
     expect(byText(host, 'If you bid the minimum')).toBeUndefined();
+    // With no breakdown on a sold view, this sentence is the only place the fee is explained.
+    expect(byText(host, 'Price includes the 10% service fee.')).toBeDefined();
   });
 
   it('LP6: the buy-now amount lives on its CTA — the panel no longer prints it', async () => {
@@ -188,7 +202,7 @@ describe('screen wiring (source pins)', () => {
     const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src).toContain('bidCommitmentCopy(');
+    expect(src).toContain('BID_COMMITMENT_COPY');
     expect(src).toContain("label: 'Neighborhood'");
     expect(src).toContain('PLATFORM_INSTRUCTIONS[');
     expect(src).toContain('minBidBase');

@@ -363,24 +363,14 @@ export function listingActions(input: DetailStateInput): {
 }
 
 /**
- * The §5 commitment sentence (freeze reconciliation §2: corrected copy — no "charged
- * automatically"; the winner pays after the auction ends, and both numbers are named in one
- * sentence so neither can be read as the other). With zero bids the sentence says "starting
- * bid": "current bid" is a claim that someone has bid, the same rule the cards follow.
+ * The commitment sentence, de-duplicated (owner 2026-09-23, superseding the §5 draft's
+ * number-carrying version): the panel already states the market price and the CTA sub-label
+ * already states the minimum, so this sentence repeats neither. It says only what nothing
+ * else on the screen says — the commitment, and the verified payment path (the winner pays at
+ * checkout; nothing charges automatically).
  */
-export function bidCommitmentCopy(i: {
-  currentAllIn: string;
-  nextBidAllIn: string;
-  bidCount: number;
-}): string {
-  const standing = i.bidCount > 0
-    ? `The current bid is ${i.currentAllIn}`
-    : `The starting bid is ${i.currentAllIn}`;
-  return (
-    `A bid is a commitment. ${standing}; the lowest you can place is ${i.nextBidAllIn} all-in. ` +
-    `If you win, you'll pay your own bid to complete the purchase.`
-  );
-}
+export const BID_COMMITMENT_COPY =
+  "A bid is a commitment. If you win, you'll pay your own bid at checkout to complete the purchase.";
 
 export function detailState(input: DetailStateInput): DetailState {
   const role = viewerRole(input);

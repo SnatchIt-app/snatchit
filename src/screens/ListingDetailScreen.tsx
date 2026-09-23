@@ -67,7 +67,7 @@ import { OutbidToast } from '@/src/components/listing/OutbidToast';
 import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { LISTING_READ_FAILED_COPY, bidCommitmentCopy, detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -1278,15 +1278,10 @@ export default function ListingDetailScreen({ id }: Props) {
           />
         ) : null}
 
-        {/* §5: the commitment sentence, wherever a bid can actually be placed from here. */}
+        {/* The commitment sentence, wherever a bid can actually be placed from here. De-dup:
+            it carries no numbers — the panel and the CTA sub-label already do. */}
         {state.primary.kind === 'place_bid' || state.secondary?.kind === 'place_bid' ? (
-          <Text style={[textStyle('bodySm'), s.commitment]}>
-            {bidCommitmentCopy({
-              currentAllIn,
-              nextBidAllIn,
-              bidCount: listing.bid_count ?? 0,
-            })}
-          </Text>
+          <Text style={[textStyle('bodySm'), s.commitment]}>{BID_COMMITMENT_COPY}</Text>
         ) : null}
 
         <View style={s.scrollTail} />

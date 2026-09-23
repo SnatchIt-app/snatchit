@@ -254,42 +254,15 @@ export default function PlaceBidScreen({ id }: Props) {
           </Text>
         ) : null}
 
-        {/* ── Current vs your bid (pkg2 ②): BOTH columns all-in, each carrying the bid it is
-            built from, so no figure on this screen ever means two different things. ── */}
-        <View style={s.compare}>
-          <View style={s.compareSide}>
-            <Text style={[textStyle('micro'), s.compareLabel]}>
-              {(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'}
-            </Text>
-            <Text style={[textStyle('price'), s.compareAmt]} numberOfLines={1}>
-              {allInFromDollars(listing?.current_bid ?? 0)}
-            </Text>
-            <Text style={[textStyle('micro'), s.compareSub]} numberOfLines={1}>
-              {`all-in · ${fmt$(listing?.current_bid ?? 0)} bid + fee`}
-            </Text>
-          </View>
-          <View style={s.compareDivider} />
-          <View style={s.compareSide}>
-            <Text style={[textStyle('micro'), s.compareLabel]}>Your bid</Text>
-            <Text style={[textStyle('price'), s.compareAmt, s.compareYours]} numberOfLines={1}>
-              {lines.total}
-            </Text>
-            <Text style={[textStyle('micro'), s.compareSub]} numberOfLines={1}>
-              {`all-in · ${fmt$(selectedBid)} bid + fee`}
-            </Text>
-          </View>
-        </View>
+        {/* De-dup (owner 2026-09-23): each fact once. The market price is ONE line; the buyer's
+            total appears exactly once, beside the Place bid action in the sticky bar. */}
+        <Text style={[textStyle('bodySm'), s.marketLine]} numberOfLines={1}>
+          {`${(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'} · ${allInFromDollars(listing?.current_bid ?? 0)} all-in`}
+        </Text>
 
-        {/* ── Amount (the focus) ─────────────────────────────
-            pkg2 ③, corrected against source (the ③ card said this already existed; the shipped
-            headline was the BID): the big figure is always what the buyer WOULD PAY, and the
-            stepper beneath moves the bid it is built from. */}
+        {/* ── The editable bid (the focus), clearly labelled ── */}
         <View style={s.amountBlock}>
-          <Text style={s.bigAmount} accessibilityLabel={`Your total if you win ${lines.total}`}>{lines.total}</Text>
-          <Text style={[textStyle('bodySm'), s.stepHint]}>your total if you win</Text>
-          <Text style={[textStyle('bodySm'), s.stepHint]}>
-            {`Lowest you can place is ${allInFromDollars(minimumBid)} all-in`}
-          </Text>
+          <Text style={[textStyle('label'), s.bidLabel]}>Your bid</Text>
 
           {/* Stepper and quick-add keys carry the product's press response
               (CFT-201): they are Tappable, not bare Pressables. */}
@@ -305,10 +278,13 @@ export default function PlaceBidScreen({ id }: Props) {
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
             </Tappable>
-            <View style={s.stepMid}>
-              <Text style={[textStyle('price'), s.stepVal]} numberOfLines={1}>{fmt$(selectedBid)}</Text>
-              <Text style={[textStyle('micro'), s.stepValCaption]}>your bid</Text>
-            </View>
+            <Text
+              style={s.bigAmount}
+              numberOfLines={1}
+              accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}
+            >
+              {fmt$(selectedBid)}
+            </Text>
             <Tappable
               style={s.stepBtn}
               onPress={increase}
@@ -336,29 +312,23 @@ export default function PlaceBidScreen({ id }: Props) {
             ))}
           </View>
 
-          {/* pkg2 ③: the steps move the BID; the fee and the headline total follow. Said
-              plainly, so a $5 step that lifts the total by $5.50 is never a surprise. */}
-          <Text style={[textStyle('bodySm'), s.stepHint]}>
-            Steps raise your bid. The fee and your total follow.
-          </Text>
+          {/* Minimum guidance at the point of entry — validation says the rest. */}
+          <Text style={[textStyle('bodySm'), s.stepHint]}>{`Minimum ${fmt$(minimumBid)}`}</Text>
         </View>
 
-        {/* ── Breakdown ─────────────────────────────────────── */}
+        {/* ── The fee, once; and the one payment sentence ─────
+            Verified in source: nothing charges on a win. The winner's route is pay_now →
+            winner checkout → payControl's Pay — the only control that moves the buyer's
+            money. The old "Only charged if you win the auction." implied an automatic
+            charge and is gone (owner 2026-09-23). */}
         <View style={s.breakdown}>
           <View style={s.breakRow}>
-            <Text style={[textStyle('body'), s.breakLabel]}>Your bid</Text>
-            <Text style={[textStyle('body'), s.breakVal]}>{lines.bid}</Text>
-          </View>
-          <View style={s.breakRow}>
-            <Text style={[textStyle('body'), s.breakLabel]}>Service fee ({Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)</Text>
+            <Text style={[textStyle('body'), s.breakLabel]}>{`Service fee (${Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)`}</Text>
             <Text style={[textStyle('body'), s.breakVal]}>{lines.fee}</Text>
           </View>
-          <View style={s.breakDivider} />
-          <View style={s.breakRow}>
-            <Text style={[textStyle('title'), s.breakTotalLabel]}>You pay if you win</Text>
-            <Text style={[textStyle('price'), s.breakTotalVal]} numberOfLines={1}>{lines.total} total</Text>
-          </View>
-          <Text style={[textStyle('bodySm'), s.breakNote]}>Only charged if you win the auction.</Text>
+          <Text style={[textStyle('bodySm'), s.breakNote]}>
+            Nothing is charged now. If you win, you&apos;ll pay this total at checkout to complete the purchase.
+          </Text>
         </View>
       </ScrollView>
 
@@ -372,10 +342,10 @@ export default function PlaceBidScreen({ id }: Props) {
         }
       >
         <Button
-          // V3 (O-2): the submit control itself carries the amount it submits — the all-in of the
-          // buyer's SELECTED bid, the same figure as the breakdown's total. The listing CTA, by
-          // contrast, names only a minimum, because it submits nothing.
-          label={`Place bid · ${lines.total} all-in`}
+          // De-dup (owner 2026-09-23): the total appears BESIDE the action — the sticky bar's
+          // "If you win {total}" — so the button is the plain verb. An amount lives on an
+          // action or immediately beside it, never both.
+          label="Place bid"
           pendingLabel="Submitting bid…"
           onPress={handleConfirm}
           loading={submitting}
@@ -407,21 +377,14 @@ const s = StyleSheet.create({
   eventName: { color: v2.text.primary },
   venue: { color: v2.text.muted, marginTop: 2 },
 
-  compare: {
-    flexDirection: 'row',
-    marginTop: v2.space.xl,
-    borderWidth: 1,
-    borderColor: v2.border.default,
-  },
-  compareSide: { flex: 1, alignItems: 'center', paddingVertical: v2.space.lg },
-  compareDivider: { width: 1, backgroundColor: v2.border.default },
-  compareLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
-  compareAmt: { color: v2.text.primary },
-  compareYours: { color: v2.brand.red },
-  compareSub: { color: v2.text.muted, marginTop: 2 },
+  // De-dup: the market price is one quiet line; the buyer's own bid is the focus below it.
+  marketLine: { color: v2.text.muted, marginTop: v2.space.md },
 
   amountBlock: { alignItems: 'center', marginTop: v2.space.xxl },
+  bidLabel: { color: v2.text.secondary, alignSelf: 'flex-start' },
   bigAmount: {
+    flex: 1,
+    textAlign: 'center',
     fontFamily: v2.font.bodyBold,
     fontSize: 56,
     lineHeight: 64,
@@ -438,9 +401,6 @@ const s = StyleSheet.create({
   },
   stepBtnOff: { opacity: 0.35 },
   stepGlyph: { color: v2.text.primary, fontSize: 26, lineHeight: 30 },
-  stepVal: { textAlign: 'center', color: v2.text.primary },
-  stepMid: { flex: 1, alignItems: 'center', gap: 2 },
-  stepValCaption: { color: v2.text.muted },
 
   quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
   quickWrap: { flex: 1 },
@@ -461,9 +421,6 @@ const s = StyleSheet.create({
   breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.sm },
   breakLabel: { color: v2.text.secondary },
   breakVal: { color: v2.text.primary },
-  breakDivider: { height: 1, backgroundColor: v2.border.default, marginVertical: v2.space.sm },
-  breakTotalLabel: { color: v2.text.primary },
-  breakTotalVal: { color: v2.brand.red },
   breakNote: { color: v2.text.muted, marginTop: v2.space.sm },
 
   stickyKicker: { color: v2.text.muted },

@@ -94,9 +94,9 @@ function view(host: HookHost): View {
   const screen = findElement(tree, (el) => el.type === 'ScreenState');
   if (screen) return { state: screen.props.state };
   if (findElement(tree, (el) => el.type === 'Spinner')) return 'loading';
-  // V3 (O-2): the submit label now carries the selected bid's all-in ("Place bid · $110.00 all-in"),
-  // so the form is detected by the label's verb, not an exact string.
-  if (findElement(tree, (el) => el.type === 'Button' && typeof el.props.label === 'string' && (el.props.label as string).startsWith('Place bid · '))) {
+  // V3 de-dup (owner 2026-09-23): the total sits BESIDE the action, so the submit label is the
+  // plain verb again.
+  if (findElement(tree, (el) => el.type === 'Button' && el.props.label === 'Place bid')) {
     return { form: true, texts: textsOf(tree) };
   }
   return BLANK;
@@ -173,7 +173,9 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     expect(view(host)).toHaveProperty('form', true);
     const joined = screenText(host.output);
     expect(joined).toContain('Sandbox L6');
-    expect(joined).toContain('$100');   // the current bid the server reported
+    // V3 de-dup: the market price appears once, all-in (100 -> $110). Still the SERVER's
+    // number, never an invented floor - which is what this regression guard exists to prove.
+    expect(joined).toContain('$110 all-in');
     expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
     expect(joined).not.toContain('$0');
   });

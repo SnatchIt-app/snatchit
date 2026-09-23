@@ -844,11 +844,8 @@ export default function CheckoutScreen() {
               {formatCents(totalCents)}
             </Text>
           </View>
-          <Text style={[textStyle('bodySm'), s.meta]}>
-            {ticketCount && isBuyNow
-              ? `The total covers all ${ticketCount} and includes the service fee.`
-              : 'The service fee is included in this total.'}
-          </Text>
+          {/* De-dup (owner 2026-09-23): the rows above already itemise the tickets and the
+              service fee into this total - a sentence restating them said everything twice. */}
         </View>
 
         {/* Payment method state */}

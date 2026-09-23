@@ -1,11 +1,14 @@
 /**
- * V3 bid entry (Package 2, pkg2-bid-entry): the listing is RESTATED, both compare columns are
- * all-in with the bid they are built from beneath, and the HEADLINE is the total the buyer
- * would pay — the stepper moves the bid, and the screen says so.
+ * V3 bid entry — the DE-DUPLICATED screen (owner direction 2026-09-23, superseding the pkg2
+ * board's repetitions and this suite's earlier pins):
  *
- * Correction to the package's ③ "EXISTS" tag, verified in source before this change: the big
- * figure was `fmt$(selectedBid)` — the BID, not the total. Making the headline the total is V3
- * work, recorded as such.
+ *   identity + quantity · the market price ONCE · one clearly-labelled editable bid ·
+ *   the service fee ONCE · the final total beside the "Place bid" button — and nowhere else.
+ *
+ * No duplicate central total, no repeated proposed-bid summary, at most one "all-in" label,
+ * no sentence explaining that the stepper steps. The payment explanation is the verified
+ * truth: nothing charges automatically — the winner pays through checkout (runAction
+ * 'pay_now' → winner checkout → payControl's Pay, the only charging control in the app).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,23 +70,25 @@ async function mount(l: Record<string, unknown>) {
 
 const byText = (host: HookHost, text: string) =>
   findElement(host.output, (el) => el.type === 'Text' && el.props.children === text);
-const allTexts = (host: HookHost): string[] => {
+const collect = (node: unknown, out: string[]) => {
+  if (Array.isArray(node)) { node.forEach((n) => collect(n, out)); return; }
+  const el = node as Element | null;
+  if (!el || typeof el !== 'object' || !('props' in el)) return;
+  if (typeof el.props.children === 'string') out.push(el.props.children);
+  collect(el.props.children, out);
+};
+const allTexts = (host: HookHost): string[] => { const out: string[] = []; collect(host.output, out); return out; };
+const stickyTexts = (host: HookHost): string[] => {
+  const bar = findElement(host.output, (el) => el.type === 'StickyBar');
   const out: string[] = [];
-  const walk = (node: unknown) => {
-    if (Array.isArray(node)) { node.forEach(walk); return; }
-    const el = node as Element | null;
-    if (!el || typeof el !== 'object' || !('props' in el)) return;
-    if (typeof el.props.children === 'string') out.push(el.props.children);
-    walk(el.props.children);
-  };
-  walk(host.output);
+  collect(bar?.props.left, out);
   return out;
 };
 
 beforeEach(() => { vi.resetModules(); });
 
-describe('V3 bid entry — the listing is restated, not re-sold', () => {
-  it('BE1: name in the display voice, the dated line, and the whole-listing quantity', async () => {
+describe('V3 bid entry — each fact exactly once', () => {
+  it('BE1: identity and quantity — name in the display voice, the dated line, the whole-listing count', async () => {
     const host = await mount(listing());
     const name = findElement(host.output, (el) => (el.props as { token?: string }).token === 'nameOrder');
     expect(name?.props.children).toBe('Neon Choir');
@@ -96,50 +101,54 @@ describe('V3 bid entry — the listing is restated, not re-sold', () => {
     expect(byText(host, '1 × GA')).toBeDefined();
     expect(byText(host, '1 × GA · sold together')).toBeUndefined();
   });
-});
 
-describe('V3 bid entry — both columns all-in, each showing the bid beneath it', () => {
-  it('BE3: current and your-bid columns are all-in, each stating its own bid + fee', async () => {
+  it('BE3: the market price ONCE — one line, all-in, and no comparison columns', async () => {
     const host = await mount(listing());
-    // Whole-dollar amounts render centless — the one money formatter's canonical form.
-    expect(byText(host, '$110')).toBeDefined();                       // current: 100 all-in
-    expect(byText(host, 'all-in · $100 bid + fee')).toBeDefined();
-    expect(byText(host, 'all-in · $105 bid + fee')).toBeDefined();    // yours: floor bid 105
-    expect(byText(host, 'Current bid')).toBeDefined();
-    // The your-bid COLUMN carries the all-in too: the figure appears exactly twice in child
-    // text — headline and your column (the sticky total rides a prop, not children) — so a
-    // column reverted to the raw bid cannot hide.
-    expect(allTexts(host).filter((t) => t === '$115.50')).toHaveLength(2);
+    expect(byText(host, 'Current bid · $110 all-in')).toBeDefined();
+    // The old two-column layout and its sub-lines are gone.
+    expect(byText(host, 'all-in · $100 bid + fee')).toBeUndefined();
+    expect(byText(host, 'all-in · $105 bid + fee')).toBeUndefined();
+    // At most one "all-in" on the whole screen (the market line).
+    expect(allTexts(host).filter((t) => /all-in/.test(t))).toHaveLength(1);
   });
 
-  it('BE4: with zero bids the market column says "Starting bid" — never a current bid nobody placed', async () => {
+  it('BE4: with zero bids the market line says "Starting bid" — never a current bid nobody placed', async () => {
     const host = await mount(listing({ bid_count: 0 }));
-    expect(byText(host, 'Starting bid')).toBeDefined();
-    expect(byText(host, 'Current bid')).toBeUndefined();
+    expect(byText(host, 'Starting bid · $110 all-in')).toBeDefined();
+    expect(allTexts(host).some((t) => t.startsWith('Current bid'))).toBe(false);
   });
-});
 
-describe('V3 bid entry — the headline is the total; the stepper moves the bid', () => {
-  it('BE5: the big figure is what the buyer would pay; the bid sits in the stepper, labelled', async () => {
+  it('BE5: one labelled editable bid, minimum guidance at the point of entry, and NO central total', async () => {
     const host = await mount(listing());
-    const texts = allTexts(host);
-    // Headline: the all-in total of the floor bid (105 → $115.50), captioned as the total —
-    // witnessed on the headline ELEMENT itself, since the same figure appears elsewhere.
-    const headline = findElement(host.output, (el) =>
-      String(el.props.accessibilityLabel ?? '').startsWith('Your total if you win'));
-    expect(headline?.props.children).toBe('$115.50');
-    expect(texts).toContain('your total if you win');
-    expect(texts).toContain('Lowest you can place is $115.50 all-in');
-    // The stepper carries the BID it moves, and says so.
-    expect(texts).toContain('$105');
-    expect(texts).toContain('your bid');
-    expect(texts).toContain('Steps raise your bid. The fee and your total follow.');
+    expect(byText(host, 'Your bid')).toBeDefined();
+    const stepVal = findElement(host.output, (el) =>
+      String(el.props.accessibilityLabel ?? '').startsWith('Your bid '));
+    expect(stepVal?.props.children).toBe('$105');
+    expect(byText(host, 'Minimum $105')).toBeDefined();
+    // The total lives beside the action and nowhere in the scroll content.
+    expect(allTexts(host).filter((t) => t === '$115.50')).toHaveLength(0);
+    expect(allTexts(host).some((t) => t.includes('your total if you win'))).toBe(false);
+    expect(allTexts(host).some((t) => t.startsWith('Steps raise your bid'))).toBe(false);
+    expect(allTexts(host).some((t) => t.startsWith('Lowest you can place'))).toBe(false);
   });
 
-  it('BE6: the submit control still carries the amount it submits (O-2, regression)', async () => {
+  it('BE6: the fee ONCE, and one truthful payment sentence — the winner pays at checkout', async () => {
+    const host = await mount(listing());
+    expect(byText(host, 'Service fee (10%)')).toBeDefined();
+    expect(byText(host, '$10.50')).toBeDefined();
+    expect(byText(host,
+      "Nothing is charged now. If you win, you'll pay this total at checkout to complete the purchase.",
+    )).toBeDefined();
+    // The old sentence implied an automatic charge on winning; the winner in fact returns to pay.
+    expect(allTexts(host).some((t) => t.includes('Only charged if you win'))).toBe(false);
+  });
+
+  it('BE7: the final total sits BESIDE the plain "Place bid" action — on it or beside it, never both', async () => {
     const host = await mount(listing());
     const btn = findElement(host.output, (el) => el.type === 'Button' && typeof el.props.label === 'string');
-    expect(btn?.props.label).toBe('Place bid · $115.50 all-in');
-    expect(byText(host, 'Only charged if you win the auction.')).toBeDefined();
+    expect(btn?.props.label).toBe('Place bid');
+    const beside = stickyTexts(host);
+    expect(beside).toContain('If you win');
+    expect(beside).toContain('$115.50');
   });
 });

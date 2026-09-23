@@ -102,15 +102,15 @@ export function TransactionPanel({
         </Text>
       </View>
 
-      {/* The breakdown belongs to the BID BEING OFFERED — the buyer's would-be total. */}
+      {/* The breakdown belongs to the BID BEING OFFERED — the buyer's would-be total. De-dup
+          (owner 2026-09-23): each number once. The quantity is stated in the panel above, so
+          the row is "Tickets"; the total appears only on its own row; and the fee row IS the
+          fee explanation — no trailing sentence repeats it. */}
       {showBreakdown ? (
         <View style={styles.breakdown}>
+          <Text style={[textStyle('micro'), styles.bEyebrow]}>If you bid the minimum</Text>
           <View style={styles.bRow}>
-            <Text style={[textStyle('micro'), styles.bEyebrow]}>If you bid the minimum</Text>
-            <Text style={[textStyle('price'), styles.bTotalTop]} numberOfLines={1}>{nextBidAllIn}</Text>
-          </View>
-          <View style={styles.bRow}>
-            <Text style={[textStyle('bodySm'), styles.bLabel]}>{`Tickets (${quantity} × ${ticketType})`}</Text>
+            <Text style={[textStyle('bodySm'), styles.bLabel]}>Tickets</Text>
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidBase}</Text>
           </View>
           <View style={styles.bRow}>
@@ -123,14 +123,6 @@ export function TransactionPanel({
           </View>
         </View>
       ) : null}
-
-      {/*
-        The fee is also stated once as a sentence: every price on this screen already includes
-        it, which is the product's promise and the reason the number never grows at checkout.
-      */}
-      <Text style={[textStyle('bodySm'), styles.note]}>
-        All prices include the 10% service fee.
-      </Text>
     </View>
   );
 }
@@ -167,7 +159,6 @@ const styles = StyleSheet.create({
     gap: v2.space.md,
   },
   bEyebrow: { color: v2.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
-  bTotalTop: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
   bLabel: { color: v2.text.secondary },
   bValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
   bTotalRow: {
