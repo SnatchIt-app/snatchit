@@ -102,8 +102,13 @@ Every component keeps its shipped behavioural contract. **Only radius and the di
 | **Spinner** | announces "busy"; static under Reduce Motion |
 | **Sheet** | dismissible by scrim tap and Android back, not only by a glyph; pads the home indicator; the footer is a row and each action is wrapped so a `block` button cannot push its sibling off-screen |
 
-**Do not build a toast system.** There is none in the app; every transient message is a native `Alert` or an
-inline `<Text accessibilityRole="alert">`. Designs follow that.
+**Do not build a general toast system** — corrected 2026-09-22. There is **no general toast or snackbar
+system**: no queue, no global API, no reusable `show()` call. Every transient message in auth, settings and
+selling is a native `Alert` or an inline `<Text accessibilityRole="alert">`.
+
+**There is exactly one screen-local animated notice:** `src/components/listing/OutbidToast.tsx`, an existing
+shipping component imported by `ListingDetailScreen` alone. My earlier "no toast anywhere" was too broad; the
+accurate statement is above. Its spec is on `pkg6-system-surfaces.png`.
 
 ---
 

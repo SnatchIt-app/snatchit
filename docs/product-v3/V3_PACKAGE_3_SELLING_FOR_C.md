@@ -79,7 +79,7 @@ Loading is four skeleton rows; offline and error use `ScreenState` with auto-ret
 - the destructive choice is **`status.error` text, never a filled red block**, and never the rightmost default;
 - the safe choice keeps its own words — *"Keep listing"*, *"Keep editing"* — so a tap is a decision, not a dismissal;
 - **a gate offers the route that clears it**: Verify phone · Set Up Now · Open Settings. A gate with no exit is a dead end;
-- copy is the shipped string, styled as the OS dialog, because **the app has no toast anywhere**.
+- copy is the shipped string, styled as the OS dialog. **Selling has no toast**: the only animated notice in the app is `OutbidToast`, which belongs to listing detail (see `pkg6-system-surfaces.png`).
 
 **The picker sheet's missing state is designed and marked PROPOSED.** Today a non-matching search renders an
 empty scroll view in both Create pickers (**F-5**). The design reuses the shipped `noMatch` state rather than
