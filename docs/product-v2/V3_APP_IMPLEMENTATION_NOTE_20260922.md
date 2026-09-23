@@ -233,3 +233,10 @@ build); full-chain checkout + transfer witnesses at the deployed sources.
 session; NO live production query (prod reads stay owner-routed with exact queries); live parity of
 production with those refs rests on A/D's witnessed ledger/version records. Release completion remains
 A's call after the verification window.
+
+**Provenance correction (2026-09-23, verified locally):** the APPLIED 147 blob is from `2bf67af9`
+(PR #91 head), not `a77d2b8d`. Verified myself, not taken on trust: non-comment text of
+20260923000000_sweep_manual_review_exclusion.sql is identical between the two commits (69 = 69 lines,
+byte-equal after comment stripping), so the blast-radius derivation and PASS carry unchanged. A confirms
+window item 1 (this gate) closed; remaining item = the 05:23Z signing-monitor run; release not-complete
+until then; nothing further runs against production without the owner.
