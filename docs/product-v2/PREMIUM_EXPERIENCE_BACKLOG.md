@@ -5009,6 +5009,36 @@ behaviour. Coordinate publication as a draft PR after review. No merge, database
   (WHERE-side exclusion + limit 40) — omit or propose a capability; four price labels with their two numeric bases).
   Bounded implementation plan included; **no app code changes until the owner approves the visual package**; C
   reviews B's final mockups against the note's acceptance lines.
+- **V3 IMPLEMENTATION — round 1 landed (owner-authorised 2026-09-22; branch `v3/midnight-app` off `e079fcc1`, local, six
+  commits `6892e7fa..31819593`):**
+  1. B's comment-only type-rule amendment carried; parity test green (B could not run it).
+  2. Five mixed-case `name*` tokens + `navLabel`, both mirrors; `textStyle` passes `mixedCaseName` tokens UNRAISED —
+     **leading PROVISIONAL pending O-4 device measurement** (tokens say so).
+  3. Bid CTAs (O-2, resolved against source): listing = "Place a bid" + sub-line "minimum {all-in} all-in" (opens
+     entry, submits nothing); Buy Now beside a live auction carries "all-in, ends the auction"; bid entry's submit =
+     "Place bid · {all-in of the SELECTED bid} all-in" (same figure as the breakdown).
+  4. "You" item: dependency-free dockAvatar store (owner guard = render-time; publishers are profile/edit-profile/Home
+     which already hold the value; Home publishes on success only); sign-out clears post-success (**signOut.ts touched —
+     GATED, to A**); AdaptiveDock renders the photo at a shared 28pt circle in all four states, ring 1.6pt selected,
+     12% dim unselected, visible labels all five, label+accessible name "You" (O-5).
+  5. O-3: a failed report SEND re-reads first; 'disputed' on re-read is the answer; otherwise "We couldn't confirm your
+     report was received…" (idempotent-retry claim source-backed, 0550:12); server refusal stays "not recorded".
+     DISCLOSED: this screen change predated its tests; discrimination via controls V8–V10.
+  6. §5 listing failed-read copy (exact strings; "Nothing was sent from this screen" is source truth) + Try again.
+  7. NameText word-boundary ellipsis (pure fn; RED caught a real boundary bug); applied to rows (nameRow), hero name
+     (nameDetail), state headings (nameState); ROW_META_CLEARANCE = 12; scrim curve module pinned (NOT wired: needs
+     expo-linear-gradient, a native module → next authorised build).
+  - **Evidence:** tsc 0; lint 0/29; vitest **130 files / 2526 tests** run alone; controls **15/15 killed as predicted**
+    (V7/V14 key-truncation label corrections recorded; harness scratchpad/v3_mutants.py).
+  - **Flagged, NOT implemented (mockup-only, no spec text):** Create→"Sell" rename; bid-primary CTA hierarchy (reverses
+    a locked V2 decision); "Buy both now" quantity wording. Order screen NOT built (O-1 + unauthorised order caching).
+  - **STAGE 2 (needs approvals/build):** home feature+row layout rebuild; hero price-over-artwork + the
+    expo-linear-gradient dependency; search result header/empty-state filter actions; the order screen after O-1.
+- **V3 device/phone checks required (screenshots BLOCKED locally — 8 GB free vs ~20 GB for the iOS platform, no
+  simulator runtimes; needs the phone or an owner-authorised EAS sandbox build):** O-4 leading measurement (descenders,
+  accents, long names, 1.3× text) → then confirm/correct the name tokens; acceptance 3/4/5/6 (truncation, row growth +
+  clearance at max text, no clipped glyphs, smallest width); 7–11 (dock states, real sign-out/account switch); 13
+  (contrast on real uploads — after the hero stage); 24 (the four screens vs mockups-v3/*-clean.png).
   - **A's cross-verification (2026-09-22):** A's own combined build (`integration/refund-payout-round-v3` @ `3da63d9b`)
     agrees — same five app files, tsc 0, lint 0, 127 files / 2498 (one extra harness file on A's side). Phone verdict
     and compat statement stand as the record. **Build 13:** no tag on A's side either; which build the App Store serves
