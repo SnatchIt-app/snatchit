@@ -59,8 +59,10 @@ composition, spacing, component shape, colour roles, artwork and fallback treatm
 behaviour. They do **not** establish anything that depends on the native runtime, and I will not claim iOS
 parity from them. Specifically **still requiring native capture**:
 
-- Font rendering — **web falls back to a serif**; Oswald and Inter are not loaded here, so **no font family,
-  weight, case or wrapping finding may be made from a web capture**.
+- **Native text rendering.** The bundled Oswald and Inter **do load and render in this harness** (verified —
+  see modification 2), so family, case, size, weight and wrapping comparisons are valid here. What is still
+  unverified is how the same faces **rasterise on iOS**: hinting, sub-pixel positioning, the real line-box
+  metrics for condensed Oswald, and Dynamic Type. Those need a native capture.
 - Safe-area insets, the real status bar, and the home indicator.
 - Keyboard appearance and avoidance, and native dialogs / action sheets.
 - Dynamic Type at the iOS accessibility sizes.
