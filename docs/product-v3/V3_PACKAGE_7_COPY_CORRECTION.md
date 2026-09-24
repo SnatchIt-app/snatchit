@@ -287,14 +287,18 @@ without a modal, which is a device judgement and not a static-image one.
 All 23 listing and 22 selling dialogs re-read. **Most title/body pairs are not repetition** — a native
 `Alert` takes a short title and a sentence, and the title heading its own body is the platform convention.
 
-**Four are genuine (F-29)**, where the body restates the title and offers no recovery. **One is fixed now:**
+**Four are genuine (F-29)**, where the body restates the title and offers no recovery.
 
-> **"Buy Now unavailable"** / ~~*"This listing does not have Buy Now enabled."*~~ → **"You can place a bid instead."**
+> **WITHDRAWN 2026-09-23.** I proposed *"You can place a bid instead."* for **"Buy Now unavailable"**,
+> reasoning that `buy_now_enabled: false` means auction-only. **Checked against full action eligibility, it
+> does not hold.** The Buy Now guard at `:766` fires *before* the ended/sold guard at `:768`, so the dialog
+> can appear on a listing that has ended — and on a `continue_reservation` tap after a seller disables Buy
+> Now, where `listingActions` offers no secondary at all. **Offering an action the screen does not have is
+> worse than the echo it replaced.**
 
-Safe because `buy_now_enabled: false` means the listing is auction-only and the dialog only fires from a buy
-path on a live listing. **The other three are blocked on F-27** — their honest recovery is *"this screen is
-out of date"*, and no failure path refetches, so offering a refresh would describe behaviour that does not
-exist. They keep their shipped copy until F-27 is resolved.
+**All four keep their shipped copy.** The recovery is only correct when gated on `listingActions` yielding a
+real `place_bid` for this viewer — a conditional body, which is **a logic change, not a copy change**, and it
+belongs with F-27's functional recovery work. **Owner: C.**
 
 **Destructive confirmations keep every word.** A CONFIRM dialog is the authorisation; shortening consent copy
 is not simplification.

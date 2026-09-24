@@ -264,3 +264,34 @@ shipped copy; a speculative rewrite would be inventing a remedy.
 Cancel it instead."*, *"…You can unblock from Settings → Blocked Users."*, *"Use Cancel from My Listings if
 you need to remove it."*) are doing exactly what the four above fail to do. The destructive confirmations keep
 every word — a CONFIRM dialog is the authorisation, and shortening consent copy is not simplification.
+
+### F-29 — the "place a bid instead" recovery is WITHDRAWN as a copy-only change (2026-09-23)
+
+The owner directed that the suggested recovery be verified against **full action eligibility, not just
+`buy_now_enabled`**. It does not survive that check.
+
+**The guard order in `reserveAndCheckout` is the problem.** `ListingDetailScreen.tsx`:
+
+```
+:766  buy-now unavailable   ← the dialog
+:768  ended || isSold       ← AFTER it
+```
+
+The Buy Now check fires **before** the ended/sold check, so the dialog can appear on a listing where bidding
+is not available. Two reachable cases:
+
+1. **Stale state.** The listing loaded while live and ended before the tap. The dialog fires; `place_bid` is
+   not on offer, because `listingActions` resolves that listing to a disabled `unavailable`.
+2. **`continue_reservation`.** A buyer holding a Buy Now reservation taps *Finish checkout*; the seller has
+   since disabled Buy Now. `handleBuyNow` runs, the dialog fires — and `listingActions` returns
+   `continue_reservation` as primary **with no secondary**, so there is no bid action on the screen at all.
+
+**Offering an action the screen does not have is worse than the echo it was replacing.** The body reverts to
+the shipped string.
+
+**The recovery is only correct when gated on the resolver itself** — the body may say *"You can place a bid
+instead."* only when `listingActions` actually yields a `place_bid` action for this viewer. That is a
+conditional body, which makes it **a logic change, not a copy change**, and it belongs with the functional
+recovery work alongside **F-27** rather than in the copy pass. **Owner: C.**
+
+All four F-29 dialogs therefore keep their shipped copy for now.
