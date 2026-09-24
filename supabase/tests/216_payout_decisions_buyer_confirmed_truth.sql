@@ -14,8 +14,15 @@
 -- through the real functions: confirm_transfer_received (as the buyer),
 -- buyer_dispute_transfer + resolve_transfer_dispute (seller-win),
 -- apply_auto_release, freeze_transfer_for_dispute, claim_payout_attempt,
--- record_transfer_payout (the legacy recorder, to reach DUPLICATE_TRANSFER),
 -- record_payout_attempt_result and flag_payout_reversal_required.
+-- DUPLICATE_TRANSFER is a CONTRACT TEST OF A DEFENSIVE BRANCH, not a reproduction
+-- of a production-reachable state: it uses record_transfer_payout, which has no
+-- live caller in deployed edge code (service_role only). In deployed code the
+-- state needs the in-flight race that the attempt protocol (ALREADY_RELEASED,
+-- reconcile) exists to prevent; DUPLICATE_TRANSFER is its last-resort detector.
+-- Every writer of status 'buyer_confirmed' (002, 0550: with buyer_confirmed_at;
+-- 065: seller-win, without) means a status-only row is a seller-win or a direct
+-- write, so recording false there is exact, not conservative.
 -- The edge writers a1/a2 (confirm-and-release) are covered by vitest
 -- tests/payout-decisions-buyer-confirmed.test.ts.
 -- ============================================================================
@@ -87,9 +94,10 @@ CREATE FUNCTION pg_temp.claim(p_t uuid) RETURNS uuid LANGUAGE sql AS $$
   SELECT attempt_id FROM public.claim_payout_attempt(p_t, 'test');
 $$;
 
--- a3 via DUPLICATE_TRANSFER: an attempt is open when the legacy recorder writes a
--- different Stripe transfer onto the row; the attempt's own result then cannot be
--- recorded on the row → reversal_required + a manual_review decision
+-- a3 via DUPLICATE_TRANSFER (defensive-branch contract, see header): an attempt is
+-- open when the legacy recorder writes a different Stripe transfer onto the row; the
+-- attempt's own result then cannot be recorded on it → reversal_required + a
+-- manual_review decision
 CREATE FUNCTION pg_temp.duplicate(p_t uuid, p_tag text) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_a uuid := pg_temp.claim(p_t);
 BEGIN

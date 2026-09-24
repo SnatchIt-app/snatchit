@@ -339,7 +339,11 @@ serve(async (req: Request) => {
     // (buyer_confirmed_at). The "already confirmed" path above also admits a
     // seller-win resolution (065: status buyer_confirmed, buyer_confirmed_at
     // NULL) and an auto-released row, so the status is never evidence of it
-    // (F-CR-148-SHARED follow-up, writers a1/a2).
+    // (F-CR-148-SHARED follow-up, writers a1/a2). ONE basis code, deliberately:
+    // the buyer's own confirmation is the primary basis when it exists, so a
+    // confirmed row later resolved seller-win reports BUYER_CONFIRMED; the
+    // resolution stays on the transfer row. dispute_open stays a literal false
+    // at both writes below: §5 has already answered 409 for any disputed_at.
     const buyerConfirmed = Boolean(transfer.buyer_confirmed_at);
     const basisCode = buyerConfirmed ? 'BUYER_CONFIRMED'
       : transfer.dispute_resolution === 'resolved_seller_paid' ? 'DISPUTE_RESOLVED_SELLER'
