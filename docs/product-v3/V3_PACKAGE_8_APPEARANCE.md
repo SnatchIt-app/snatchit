@@ -144,3 +144,43 @@ does not paint · real artwork.**
 `StyleSheet.create` that captured the first one**. Static styles resolve once. C verifies that **every
 mounted screen responds when System changes**, that explicit overrides persist across restart, and that
 **startup does not flash the wrong appearance** before the stored choice is read.
+
+---
+
+## 7 · F-30 closed (2026-09-23)
+
+**`brand.redPressed` = `#FF4C4C`** — black label **6.39:1**, fill **6.06:1** on Midnight and **3.29:1** on
+Daylight. Opaque, so both appearances measure identically. Rest `#FF1A1A` with a black label, the 0.98 press
+scale and `disabled: { opacity: 0.4 }` are all unchanged. Full derivation and the rejected alternatives:
+`V3_FINDINGS_RECONCILED.md` → F-30, and `pkg8-f30-pressed-primary.png`.
+
+**And a correction inside the correction:** the 3.57:1 I first reported was a **token nothing renders**.
+`brand.redPressed` has zero importers; `Button.tsx:78` sets the fill unconditionally. F-30 was latent, not
+live, and is relabelled ④.
+
+---
+
+## 8 · Five core surfaces in both appearances
+
+**Artifact:** `pkg8-inventory-both.png` — Home, Search, Listing detail, Checkout, Your order, each as a
+dark/light pair. Same layout, same words, same hierarchy; only token values differ.
+
+### A hard-coded colour the render caught
+
+Checkout's card chip was `fill: (38,40,46)` with `text.primary` on top — a literal that looked right on
+Midnight and rendered a **dark block with near-black text** on Daylight. It is now surface-derived
+(`surface.plate` + `border.control`, label `text.secondary`).
+
+**This is the exact failure mode to expect in implementation**, and it is why a second token value is not
+sufficient on its own: the literal was never a token, so nothing about adding a scheme would have found it.
+**Every hard-coded colour has to be hunted, not inherited.**
+
+---
+
+## 9 · Where the inventory stands
+
+| Designed in both appearances | Designed dark only — light pending |
+|---|---|
+| Bid entry · Appearance setting · Home · Search · Listing detail · Checkout · Your order | Create · My listings · Send/receive transfer · Bids tab · Auth (7 surfaces) · Tickets · Profile · Settings hub + 7 sub-surfaces · Dispute/report · 45 dialogs · 4 state screens · Error boundary · Outbid notice · Status banner |
+
+**The token set is complete**, so the remaining surfaces are re-renders against it, not new decisions.

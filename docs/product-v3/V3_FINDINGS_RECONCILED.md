@@ -298,16 +298,40 @@ All four F-29 dialogs therefore keep their shipped copy for now.
 
 ---
 
-## F-30 — the primary button's pressed label fails 4.5:1 (2026-09-23)
+## F-30 — the pressed primary. CORRECTED, then CLOSED (2026-09-23)
 
-| # | Label | Finding | Observable consequence | Evidence |
-|---|---|---|---|---|
-| **F-30** | **①** | **Pressed primary: black label on `#CC0000` is 3.57:1** | The Button label is `textStyle('label')` = **12pt bold**, which is **not** large text, so 4.5:1 applies. At rest, black on `#FF1A1A` is 5.41:1 and passes. Under the finger, `brand.redPressed` darkens the fill and the label drops to **3.57:1** | `Button.tsx:125,144` (`textStyle('label')`); `v2.ts` `brand.redPressed` `#CC0000`; computed |
+### The correction: I measured a token, not a rendered state
 
-**This predates light mode and fails in Midnight too** — deriving Daylight only surfaced it. Transient, but
-1.4.3 has no exemption for transient states (the exemption is for *inactive* controls, which a pressed button
-is not).
+| # | Label | Finding |
+|---|---|---|
+| **F-30** | **④ latent** | `brand.redPressed: '#CC0000'` (`v2.ts:61`) has **zero importers**. `Button.tsx:78` sets `backgroundColor: v2.brand.red` **unconditionally** — there is no pressed fill. The shipped press feedback is `usePressScale` — scale to 0.98, no bounce (`press.ts`). **So black-on-`#CC0000` at 3.57:1 is not observable anywhere today.** |
 
-**Options, none of which I am taking unilaterally on a shipped brand token:** lighten the pressed fill
-instead of darkening it; swap the label colour on press; or carry press feedback with opacity or scale rather
-than a fill change. **A and C decide.**
+I reported it as a live failure in both appearances. It is not: it is a **latent value waiting to be adopted
+at 3.57:1**. Relabelled from ① to ④.
+
+### The closure — measured, and chosen within the existing authorisation
+
+> **`brand.redPressed` = `#FF4C4C`** (opaque token, not an overlay and not an opacity)
+
+| | Black label (4.5:1) | vs Midnight (3:1) | vs Daylight (3:1) |
+|---|---|---|---|
+| Rest `#FF1A1A` — unchanged | **5.41:1** | 5.14:1 | 3.88:1 |
+| ~~`#CC0000`~~ | ~~3.57:1~~ | 3.39:1 | 5.89:1 |
+| **`#FF4C4C`** | **6.39:1** | **6.06:1** | **3.29:1** |
+
+**Rejected, with the numbers:**
+
+- **Darken** — the darkest passing red is `#E80E0E` at **exactly 4.50:1**. No margin; one rounding and it
+  fails again.
+- **Black overlay** — only 8% passes (4.68:1), and 8% is barely visible. 10% → 4.50, 15% → 4.08, 20% → 3.69.
+- **Opacity on the control** — **rejected on principle.** Opacity blends toward the *canvas*, so the same
+  press is darker on Midnight and lighter on Daylight: different contrast per appearance, which is exactly
+  what was to be avoided. It also collides with `disabled: { opacity: 0.4 }`, leaving pressed and disabled
+  differing only by degree.
+
+**Why lightening is right here:** the fill is the **second** cue — the 0.98 press scale already ships and
+costs no contrast. Pressed **brightens** while disabled **fades**, so the two can never be confused. The token
+is stored opaque, so no compositing happens at render and the numbers above are the rendered numbers.
+
+**Unchanged:** rest `#FF1A1A` with a black label · `usePressScale` · `disabled: { opacity: 0.4 }`.
+**C confirms on a device that the press is perceptible at speed.** Artifact: `pkg8-f30-pressed-primary.png`.
