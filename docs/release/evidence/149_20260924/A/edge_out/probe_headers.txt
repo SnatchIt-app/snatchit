@@ -4,7 +4,7 @@ content-type: text/plain;charset=UTF-8
 cf-ray: a4048dd05b91b3df-MIA
 cf-cache-status: DYNAMIC
 access-control-allow-origin: https://snatchitapp.com
-set-cookie: __cf_bm=huh2o1gWsddzcy6U75seexcl.tAr_2BWpV2HhKSmk2Q-1790281899.5719917-1.0.1.1-vKlVi4l4xPVrmw74DpOjb8GnxdqoQsWi7E_o0oAHrtrJY3Plom2mUuQ6xCNOyb3ZJoIkFjkQEm1KoGWEkE9MDDTIHn4NA6gRBnCHZa_zS4j7pcUZKvLQbLC9HiVkyRIr; HttpOnly; SameSite=None; Secure; Path=/; Domain=supabase.co; Expires=Thu, 24 Sep 2026 21:01:39 GMT
+set-cookie: __cf_bm=<redacted>; HttpOnly; SameSite=None; Secure; Path=/; Domain=supabase.co; Expires=Thu, 24 Sep 2026 21:01:39 GMT
 server: cloudflare
 strict-transport-security: max-age=31536000; includeSubDomains; preload
 vary: Accept-Encoding

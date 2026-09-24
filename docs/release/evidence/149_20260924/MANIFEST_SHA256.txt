@@ -17,7 +17,7 @@ e41fd1f83843e719351ffc494c55f8c4c255b8edaafb0e0e0344f16d9248fa23  ./A/edge_out/c
 21cd0a09f7372eb81b438233ff1b7258c5c888aa483d48faf14f5ef759e8a000  ./A/edge_out/confirm-and-release_pre_download/supabase/functions/_shared/stripe.ts
 7982d356682e82dbf2509aa2181477363829baba55ee4e1fbb86a114af0945d7  ./A/edge_out/confirm-and-release_pre_download/supabase/functions/confirm-and-release/index.ts
 2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df  ./A/edge_out/probe_body.txt
-89c260df78ef79f0a64ae8e9b9bd5a58759a2b9f24e087c7beda59e1e914d8a2  ./A/edge_out/probe_headers.txt
+0a94dd4211da995b0356ef903a62523903696527455343f4757f6c080d1daaf0  ./A/edge_out/probe_headers.txt
 528eb22f75e298efbdacafe0a7009da8e5ab225dfbb8a1a55da5a303bd795beb  ./A/exec_predictions.txt
 9955f5d9090e6243c975676d420720ba6605c5472b06f70f93141b28b4192a41  ./A/out/00_grants.txt
 1a88b04d0364a68a0c9dd3177841f8607359732eeff9b4378f1ca6101fa4b67c  ./A/out/00_readback.json
@@ -55,4 +55,4 @@ a241e4dcebb8587509b0427e6898c87810c4b9487361a74f6e751d99548deec6  ./D/w0.json
 0b814478d12465fa63cf109ae2bd2e01005f9fd53f4019edfb5a5512e949d6c4  ./D/w2.json
 ccb02dff8fbce738ff1c1ee0379c56c09a27888ba5eca1ed8bdfb3680673e8ea  ./D/w2.sql
 44824d9c00a3d0e8f9100b55023bb2e6e3d9183c7856929068ec444e836119fd  ./D/w2_fns.json
-5c2566e3700aa38f84f572496b78f664ca3b217fe397c812ddbbba3a1b28fbba  ./MANIFEST_SHA256.txt
+40768e81b2309ee324e66ec3f68d485265ed8f4cacc2334d7403013ab87fc60c  ./REDACTIONS.txt
