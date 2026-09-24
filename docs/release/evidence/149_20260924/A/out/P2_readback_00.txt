@@ -1,0 +1,11 @@
+### MODE=PRODUCTION target=hqycwntpfoztoinemqns
+== 00 pre-apply baseline read-back ==
+  ledger: <no row>
+  ledger_rows: 161
+  census: tables=32 functions=108 policies=37 triggers=38
+  switch: detectors_enabled=true
+  switch: refund_resolution_detector_enabled=false
+  switch: alert_delivery_enabled=false
+  ops_alert_cols: 17
+  now: 2026-09-24 20:30:12.362187+00
+  grant_rows: 69

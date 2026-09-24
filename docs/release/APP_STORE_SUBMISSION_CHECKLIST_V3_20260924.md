@@ -45,9 +45,9 @@ unknown.
 
 **What it does not cover:**
 - **The V3 binary.** Production rows record the environment, not the build.
-- **The server code deployed 2026-09-23:** `create-payment-intent` v48, `confirm-payment` v37, `confirm-and-release`
-  v37, `enforce-transfer-expiry` v40, `stripe-webhook` v42. No live payment has run through them; the newest payment
-  of any kind is 2026-09-03 [D-PROD].
+- **The server code deployed 2026-09-23/24:** `create-payment-intent` v48, `confirm-payment` v37,
+  `confirm-and-release` **v38** (2026-09-24 20:31Z, #93), `enforce-transfer-expiry` **v41** (2026-09-24 16:57Z, #92),
+  `stripe-webhook` v42. No live payment has run through them; the newest payment of any kind is 2026-09-03 [D-PROD].
 - **The current secret values.** Deploys do not change secrets, but nothing re-verified them after 2026-08-04.
 - **The August transactions are not verification of the new binary or the new server code.**
 
@@ -72,10 +72,16 @@ unknown.
 | V6 | **Bounded non-charging production check**, proposed and not requested yet | On the TestFlight candidate as the reviewer buyer: open one review listing's checkout, see the PaymentSheet (also V4), leave without paying. Then the owner cancels that one live PaymentIntent (the §6 step of the fixture sheet, in live mode). Proves, with no charge: the server key is live and of the build's account, because the row has `stripe_livemode` true and the PI is in the live dashboard; `create-payment-intent` v48 in production; webhook delivery, signature and handler v42, because `payment_intent.canceled` moves the row to `failed`. **Writes:** 1 hold for 10 minutes, 1 live PI, 1 payments row, `rate_limits` | owner, then A reads back | no |
 | V6a | **Preferred instrument for the webhook half** (D's proposal, 2026-09-24): the owner cancels, in the live Dashboard, one **existing** stale pending live PaymentIntent. Cheapest candidate: the **$2.20** pending payment of 2026-08-06; the others are $88 (auction, 2026-08-05) and **$330 (2026-09-03, on listing `c8d04339-bb33-4bf3-945d-d23d7dd269ca`, the only reviewable listing)** [D-PROD: 3 pending live payments, 11 pending in all]. Proves, with **no new intent and no charge**: the live endpoint subscribes to and delivers `payment_intent.canceled`, the signing secret matches, and handler v42 moves the row `pending → failed`. It also removes stale state. **It does not prove the current `STRIPE_SECRET_KEY`**: the webhook's cancel branch makes no Stripe API call [SRC gate `stripe-webhook:391-458`], so V2 or the V6 checkout is still needed for the key. Precondition: O2 shows the subscription | owner, then A reads back | no |
 
-**Residual gap that only a real transaction closes, with the exact bounded proposal.**
-- **Not provable without money:** settlement (`payment_intent.succeeded` → settlement → transfer row) on v42/v48; an
-  Apple Pay authorisation; refund recording on the new code (`charge.refunded` handler); the payout executor deployed
-  2026-09-23, which has never run in production; the post-purchase notifications.
+**Residual gap: what one live $2.20 purchase would and would not exercise (an option only; not authorised).**
+- **It would exercise:**
+  - settlement (`payment_intent.succeeded` → transfer row) on `stripe-webhook` v42 and `create-payment-intent` v48;
+  - an Apple Pay authorisation, if Apple Pay is used;
+  - the `charge.refunded` write-back after a full refund from the Dashboard;
+  - the post-purchase notifications.
+- **It would leave untested:**
+  - the payout executor (there is no seller payout; the transfer reverses);
+  - the 149 audit writers a1–a4 and the 148 hold refusal (the seller-win and dispute paths);
+  - partial refunds.
 - **Proposal, for a later owner decision:** one live purchase on the candidate by the reviewer buyer of one review
   listing at the lowest Buy Now price: $2 + $0.20 fee = **$2.20**. Then:
   - verify settlement and the transfer row;
@@ -187,8 +193,11 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 - **P5 — refunds of App Review purchases.** Decide whether to commit to refunding any purchase a reviewer completes,
   and who does it.
 - **P6 — seller-win disputes.** The fix is PR #92. **R1 executed 2026-09-24: apply 16:55:40Z, deploy 16:57:01Z, run
-  check PASS 17:03:42Z** (package §13). A seller-win resolution now has a payout path that respects holds and manual
-  review (E-4/E-5): the seller's notice is written at once, and about 15 min later the sweep pays if nothing holds it.
+  check PASS 17:03:42Z** (package §13). **By source and tests, not observed in production** (pgTAP 215/216, vitest
+  SW-*/BC-*; production had 0 seller-win rows and 0 payout attempts at D's W2, 20:32Z): a seller-win resolution has a
+  payout path that respects holds and manual review (E-4/E-5). The seller's notice is written at once, and about 15 min
+  later the sweep pays if nothing holds it. Since 149 and `confirm-and-release` v38 (20:31Z), its audit records state
+  the actual buyer confirmation (#93 package §12).
   Resolving any of the 5 open disputes remains the owner's decision; R1 did not authorise it. The first seller-win
   resolution will probably be the first production run of the attempt-based payout executor, so tell A beforehand and
   the outcome can be read back (a separately authorised read). (Superseded: "until R1 executes, do not resolve".)
@@ -232,7 +241,7 @@ planned for the device session; Build 24 replaces it (below).
   unchanged.
 - **New since the last revision.**
   - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92**, head `e73553d2` (all 9 checks green; pgTAP Files=95 /
-    Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **Applied and deployed to production 2026-09-24 (R1); source not merged.**
+    Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **Applied and deployed to production 2026-09-24 (R1); source merged into the gate 2026-09-24 18:12:19Z as `374103c0`.**
   - Build 23 still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`) and shows
     "Received" on three surfaces. C's fix is on `v3/midnight-app` (`ca27d282`, `aee15697`, `404bce38`), all A PASS. It is
     **in Build 24, not in Build 23**. The sandbox path still cannot reach a seller-win row.
@@ -258,13 +267,13 @@ names no exact label, the step says so.
 | G6 | **Review inventory**, per `REVIEW_INVENTORY_PLAN_V3_20260924.md`: three listings the owner creates **in the app** as the demo seller after G2 (R-BUY-1/2 at $2 → $2.20, R-BID at $1, 48 h each, re-created at about 40 h if review hasn't started). Decide the $300 listing `c8d04339…` ((a) cancel it and its $330 intent, or (b) leave it) and **P5** (auto-expiry refund vs manual Dashboard refund of any reviewer purchase) | the two decisions; later, "created" | the review-notes navigation; no reviewer lands on a $330 charge |
 | G7 | **Reviewer access.** Both passwords are burned (`HISTORY_EXPOSURE_MEMO.md`). **After G2**, on the production candidate: Login → "Use email instead" → email → **Forgot password?** → open the link in that Gmail inbox on the same phone → set a new password (the reset screen signs out all devices). Do this for `snatchitreviewbuyer@gmail.com` and `snatchitreviewseller@gmail.com`, and keep the new passwords only in your password manager. Then App Store Connect → Apps → Snatch It → the version → **App Review Information** → **Sign-in required** → User name / Password (buyer) → **Save**. A sandbox build cannot do this, because the link targets `snatchit://` and a sandbox build talks to the sandbox project | "rotated ×2; sign-in OK ×2" | review-notes credentials |
 | G9 | **Policies P1** (review times) **and P3** (removal/suspension): the app states both today | the chosen promise, or "remove" | C aligns the in-app copy; the review-notes safety line |
-| G10 | Rule on D's production reads for the App Store claims: ratify, or record them as unauthorised-source | the ruling | which figures the checklist may cite |
+| G10 | Rule on D's production reads that this checklist cites as **[D-PROD]** (for example the `stripe_livemode` split and the newest-payment date): ratify, or record them as an unauthorised source. **Still open:** the owner's 2026-09-24 rulings cover D's *witness* reads for the #92 (`05c4f5fa`) and 149 (`dddb93a7`) packages; the #92 ruling's record says it "grants no further production reads"; no ruling on these review reads is recorded | the ruling | which figures the checklist may cite |
 
 ### B. Required operational gates before release (not App Store review items)
 
 | # | What | Bring back | Unblocks |
 |---|---|---|---|
-| R1 | **PR #92 production execution: EXECUTED 2026-09-24** (apply 16:55:40Z, deploy v41 16:57:01Z, run check PASS 17:03:42Z; package §13). Merging #92 into the gate (§8 (C)) is separate and not authorised | done: (A)+(B) at `05c4f5fa`. Open: (C) | seller-win payouts with holds respected; a truthful seller notice (server side live) |
+| R1 | **PR #92 production execution: EXECUTED 2026-09-24** (apply 16:55:40Z, deploy v41 16:57:01Z, run check PASS 17:03:42Z; package §13). **#92 merged into the gate 18:12:19Z (`374103c0`), #93 at 18:15:58Z (`037092f0`); 149 + `confirm-and-release` v38 executed 20:31Z** (#93 package §12; A and D PASS) | done: (A)+(B) at `05c4f5fa`; the merge (C); A-149 at `dddb93a7` | seller-win payouts with holds respected; a truthful seller notice (server side live) |
 | R2 | Policies **P2** (who handles disputes and reports), **P4** (refund policy), **P5** (App Review purchase refunds; also G6), **P6** (when to resolve the 5 open disputes; R1 done) | decisions | the operating process behind the promises |
 | R3 | **Twilio auto-recharge:** `console.twilio.com/us1/billing/manage-billing/billing-overview` → **Enable auto recharge** → Auto Recharge "Enabled" → **Recharge Balance To** / **When Balance Falls Below** (minimum trigger $10) → Select Payment Method → **Save** (today: OFF). The help article is tagged "legacy Console", so use the direct URL | on/off, amounts | signup OTPs keep working when the balance runs out |
 
@@ -286,7 +295,11 @@ names no exact label, the step says so.
 - H1: redact the plaintext password in `docs/product/LAUNCH_PLAN.md` (lines 623, 624, 665, 670, 776, 777) in a docs-only
   PR. It stays in git history, so treat it as burned too. A can prepare the PR on request.
 - H2: about 60 stale local `*_rehears` / `snatchit_*` databases (D's note; about 11 GiB free).
-- H3: F-CR-148-SHARED: fix `payoutDeferred` before **any** future `confirm-and-release` deploy from a tree containing #92.
+- H3: ~~F-CR-148-SHARED~~ **CLOSED 2026-09-24.** The closure rests on **two** source changes, both at `037092f0` and both in the v38 bundle. That bundle was byte-verified 5/5 by A and independently by D's own download (W2); `confirm-and-release` v38 was deployed at 20:31:30Z.
+  - **#92's `_shared/payouts.ts:319`** (`e2205bbb`) adds `PAYOUT_HELD` and `PAYOUT_UNDER_REVIEW` to `PAYOUT_NOT_ELIGIBLE_REASONS`, so a held seller-win reaches `not_eligible` → `payoutDeferred` instead of `db_error`.
+  - **#93's `confirm-and-release/index.ts:347-348`** (`buyerConfirmed = Boolean(buyer_confirmed_at)`, `basisCode`), **`:381`/`:383`** (`payoutDeferred`) and **`:425`/`:435`** (the release audit) make the rows it writes truthful.
+  - #93 did not touch `payouts.ts` (D, E and A each verified this).
+  - These paths are not yet exercised in production.
 - H4: the synthetic ops case `650e7344` awaits a console dismissal.
 
 **Prepared by A without these answers:** the draft review notes, the fixture sheet, PR #92 and its production package,

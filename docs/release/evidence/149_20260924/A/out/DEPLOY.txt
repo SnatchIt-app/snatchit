@@ -1,0 +1,11 @@
+### MODE=PRODUCTION target=hqycwntpfoztoinemqns
+== confirm-and-release before: version/ezbr/verify_jwt = 37 3b033bb880a1c03b273b499b9931358f1267b9d5a4bb197bb63292fbf03b574c True
+== pre-deploy source vs gate 5b255838: 5 files, 0 mismatches => the rollback target is the running code
+== deploy cmd: supabase functions deploy confirm-and-release --project-ref hqycwntpfoztoinemqns --use-api --workdir /private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/gate149 
+Uploading asset (confirm-and-release): supabase/functions/_shared/sentry.ts
+{"project_ref":"hqycwntpfoztoinemqns","functions":["confirm-and-release"],"dashboard_url":"https://supabase.com/dashboard/project/hqycwntpfoztoinemqns/functions","message":"Deployed Functions."}
+A new version of Supabase CLI is available: v2.117.0 (currently installed v2.115.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
+== confirm-and-release after:  version/ezbr/verify_jwt/updated = 38 f4b61150095460e3f926f495a3b4bc95120b2a3b9f08a8f2a84bdeea00773d19 True 1790281880378
+== deployed-source comparison vs 037092f0: 5 files checked, 0 mismatches => PASS
+== deploy completed at 2026-09-24T20:31:30Z; next: V-3 boot probe (probe_149.sh) if authorised; no cron exercises this function

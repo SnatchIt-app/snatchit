@@ -1,0 +1,3 @@
+### MODE=PRODUCTION PROBE (one OPTIONS request, no writes) target=hqycwntpfoztoinemqns
+== probe 2026-09-24T20:31:39Z: http=200 body=ok allow-methods=POST, OPTIONS
+== V-3 BOOT PROBE: PASS

@@ -1,0 +1,10 @@
+149 + confirm-and-release production execution — predictions registered BEFORE any step (owner authorisation A-149 + B-149 + V-3, package dddb93a7; frozen FROZEN_SHA256.txt 8305d966…, 16/16 verified):
+P1 deploy_149.sh confirm-and-release --dry: before = version 37, verify_jwt True; pre-download 5 files (index.ts + payout-logic, payouts, sentry, stripe) vs 5b255838 blobs: 0 mismatches.
+P2 apply_one_149.sh 00: ledger_rows 161, no 149 row; census 32/108/37/38; 69 grant rows; switches detectors_enabled=true, refund_resolution_detector_enabled=false, alert_delivery_enabled=false. out/00_grants.txt written.
+P3 (01 prestate, and again inside the apply): all 11 STOP keys equal expected (ledger 0/161/20260924000000; a3 f8ffef47/6a8372b4; a4 e26a538c/d86c2b36; both bindings; claim148 ce30b56c; notify148 ff103b3e). Info predicted: a3/a4 ACL {postgres=X/postgres,service_role=X/postgres} owner=postgres; payout_attempts 0; seller_win_rows 0; dispute_resolutions 0; open disputes 5; payout_decisions count NOT predicted (never read).
+  Contingency registered in advance: if ONLY a defn pin mismatches while prosrc + binding match, STOP (no apply) and report a probable pg_get_functiondef rendering difference — the frozen expectation is NOT edited.
+APPLY 01: anchor ok; request sha256 f1bb04892663ae4e… (= rehearsed); HTTP 201; 149 POST-APPLY ASSERTION PASS (12 row needs + stmt_md5 7e4d3b2d + claim148 + notify148 + grants identical to 00); ledger 162.
+DEPLOY deploy_149.sh confirm-and-release: before-version 37 guard passes; pre-download 0 mismatches; deploy rc 0; after = version 38, verify_jwt True (ezbr not predicted); post-download 5/5 vs 037092f0, no unexpected _shared file => PASS.
+V-3 probe_149.sh: HTTP 200, body "ok", Access-Control-Allow-Methods "POST, OPTIONS" => PASS.
+ROLLBACK: not needed.
+SIDE EFFECTS: no data row written; no Stripe call; no notification; no payout/payment path invoked. Only 2 function bodies, 1 ledger row, 1 function version change. No other function deployed, no other migration, main untouched.

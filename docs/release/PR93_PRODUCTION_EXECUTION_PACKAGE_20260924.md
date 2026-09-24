@@ -297,3 +297,9 @@ texts, sent to a local database.
   - (4) the 4 `payout_decisions` rows were counted, never inspected.
 - **Method note (D):** the replay-derived defn pins are now measured true against production for both functions at 148
   and again at 149 (n=2).
+
+**Raw outputs, archived in the repository** (the session scratchpads don't last): `docs/release/evidence/149_20260924/`.
+- `A/`: `out/`, `edge_out/`, `exec_predictions.txt`, `FROZEN_SHA256.txt` and both rehearsal prediction files.
+- `D/`: D's `dwit149`, with `D_EXPECTATIONS_149.txt` `10942503…`, `w0`/`w2` `.sql`/`.json`/`_fns.json`,
+  `D_WITNESS_RECORD_149.md` `18fc60ec…` and `cr_download`. D's hashes were verified equal to D's report.
+- `MANIFEST_SHA256.txt` covers every file. Before copying, a secret-pattern scan matched no file.

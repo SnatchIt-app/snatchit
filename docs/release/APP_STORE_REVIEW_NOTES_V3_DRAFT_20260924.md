@@ -55,7 +55,7 @@ HOW TO REACH CHECKOUT (buyer account):
 3. Tap "Buy now · ⟨V5: all-in amount⟩".
 4. On the Checkout screen, tap "Pay ⟨amount⟩". The Stripe payment sheet opens⟨ — after V4: with Apple Pay on supported devices, merchant identifier merchant.com.snatchit⟩; card entry is always available. This is the app's only payment surface.
 
-You can open the payment sheet and inspect it without completing a charge. Payments run on live Stripe keys. ⟨P5: the owner's commitment about purchases completed during review, if any.⟩
+You can open the payment sheet and inspect it without completing a charge. ⟨Live-key sentence withheld until the server-key proof is re-established (secret digests compared, or a live webhook delivery): no server-key proof exists since 2026-08-04.⟩ ⟨P5: the owner's commitment about purchases completed during review, if any.⟩
 
 PAYMENTS AND DATA: Stripe, Inc. provides payment processing and Stripe Connect Express seller onboarding (identity verification) and seller payouts. Card numbers, bank details and seller identity data are collected and stored by Stripe, never by Snatch It. The buyer pays at checkout; the seller is paid through Stripe Connect only after the buyer confirms receipt, or after a review window with no report. Snatch It is not affiliated with Ticketmaster, AXS, DICE, SeatGeek, Eventbrite, or any other ticketing platform; after a sale, the ticket transfer happens on the issuing platform.
 

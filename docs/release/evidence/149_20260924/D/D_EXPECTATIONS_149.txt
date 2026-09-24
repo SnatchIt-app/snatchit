@@ -1,0 +1,77 @@
+D's expectations for the 149 + confirm-and-release execution (package dddb93a7, FROZEN 8305d966…),
+registered BEFORE A's P1 and BLIND to A's exec_predictions.txt (A sent only its sha256, 528eb22f…).
+Authorisation: owner, in D's session, 2026-09-24 — independent read-only production witness of P1–P3
+and the apply/deploy/verification results, including direct production reads. No writes; no calls that
+exercise payment, payout, refund or dispute behaviour; the OPTIONS probe is A's step — D will not call
+any /functions/v1/* endpoint.
+
+PROVENANCE TAGS: [D-file] derived by D from source with D's own extractor · [D-read] D's own prior
+production read (17:03:51Z / 17:04:53Z / fns.json GET) · [A-pin] A's locally-derived pin, not
+independently derived by D — D's production read MEASURES it · [pkg] the frozen script's assertion.
+
+READ PLAN (coordinated with A): W0 pre-execution baseline (one SQL read + one functions GET), run in
+parallel with A's P1–P3, GATE: A holds the apply ('01') until D confirms W0 PASS. W2 after the deploy
+and A's probe: full witness (DB defs + ledger, deployed source download + version, invariants, GitHub
+refs). W1 (between apply and deploy) only if W0 or A's own gates surface something.
+
+== W0 — expected PRODUCTION starting state ==
+ledger_total 161; ledger_max 20260924000000; no 20260924120000 row                       [D-read]
+148 row intact: 20260924000000 | seller_win_dispute_payout_and_notice |
+  by=claude-a/owner-authorised-148 | stmts=1 | stmt_md5 4eb38855e9eb2dcbbdb45a13b50beeff [D-read]
+a3 record_payout_attempt_result(uuid,text,text,jsonb):
+  prosrc 6a8372b4ee470d7a6ab9c1e0754765da                                               [D-file]
+  defn   f8ffef4710c572154adc374c3e06bce8                                               [A-pin]
+  binding args=p_attempt_id uuid, p_stripe_transfer_id text, p_outcome text, p_error jsonb
+  | result=jsonb | secdef=true | cfg=search_path=public                                 [D-file]
+a4 flag_payout_reversal_required(uuid,text,jsonb):
+  prosrc d86c2b36f40c83835624bbacee716d38                                               [D-file]
+  defn   e26a538c4e82ede00c5fe6d7085238b5                                               [A-pin]
+  binding args=p_transfer_id uuid, p_reason_code text, p_evidence jsonb
+  | result=jsonb | secdef=true | cfg=search_path=public                                 [D-file]
+claim148 prosrc ce30b56ca038ae0c4de2c88770870561; notify148 prosrc
+  ff103b3e98faa04f9bd64996a90b27ab                                                      [D-file+D-read]
+census tables=32 functions=108 policies=37 triggers=38                                  [D-read]
+switches alert_delivery_enabled=false · refund_resolution_detector_enabled=false ·
+  detectors_enabled=true                                                               [D-read]
+functions GET: 14 total, versions exactly D's 17:03Z baseline (fns.json), in particular
+  confirm-and-release v37 verify_jwt True ACTIVE; enforce-transfer-expiry v41           [D-read]
+INFO, not STOP (drift to be named and decomposed, never normalised): payout_attempts 0,
+  dispute_resolutions 0, seller_win_rows 0, open_disputes 5, a3/a4 acl
+  {postgres=X/postgres,service_role=X/postgres} owner=postgres.
+
+== W2 — expected state after apply + deploy ==
+ledger_total 162; ledger_max 20260924120000; row 20260924120000 |
+  payout_decisions_buyer_confirmed_truth | by=claude-a/owner-authorised-149 | stmts=1;
+  stmt_md5 7e4d3b2d347c1cedf63e554dd6358569  (D's anchor, computed from ref 037092f0)   [D-file]
+a3 prosrc 62f747287fa1c47d7bea06b686426ae3; a4 prosrc 03ea4589c46624b72fa4d48e466ac977  [D-file]
+a3 defn 255e9022cd3ef39a20835ae18cc4196e; a4 defn 0d692f3262b234fed9c492a8204b5d01      [A-pin]
+bindings, secdef=true, search_path=public unchanged (CREATE OR REPLACE, same signature) [D-file]
+EXECUTE both: anon=false authenticated=false service_role=true; ACLs byte-unchanged     [pkg]
+claim148/notify148 prosrc unchanged; 148 ledger row untouched                           [D-file]
+census unchanged 32/108/37/38 (149 = two CREATE OR REPLACE, no other statement, no
+  top-level DML — D re-checked the migration text)                                      [D-file]
+grants matrix identical pre/post; switches unchanged                                    [pkg]
+edge: confirm-and-release v38, verify_jwt True, ACTIVE, updated_at ≈ deploy time; the
+  OTHER 13 functions at exactly the W0 versions — enforce-transfer-expiry stays v41     [D-read/pkg]
+deployed source (D's own download): exactly 5 files — index.ts + _shared/{sentry,
+  payouts,payout-logic,stripe}.ts (closure D derived from imports) — each sha256 equal
+  to its blob at 037092f0; payout-policy.ts correctly ABSENT                            [D-file]
+GitHub: main still eadd456ae4e77d93da18101eef62648ae4ab5354; gate tip still 037092f0;
+  no deployment objects created on either                                               [D-read]
+probe (A's step): expected PASS = http 200 + body ok + Allow-Methods 'POST, OPTIONS';
+  INCONCLUSIVE (exit 4) is not a rollback trigger. D witnesses A's recorded output only,
+  and never calls the endpoint.                                                          [pkg]
+
+== STOP conditions (any one → STOP with the precise mismatch) ==
+S1 any ledger value above differing, pre or post — incl. stmt_md5 ≠ 7e4d3b2d…
+S2 a3/a4 prosrc differing from the [D-file] values, pre or post
+S3 any binding / secdef / search_path change
+S4 census or grants delta, or either function's EXECUTE widening
+S5 any switch flipped (above all alert_delivery_enabled=true)
+S6 any function other than confirm-and-release changing version; or confirm-and-release
+   not (v38, verify_jwt True, ACTIVE) after the deploy
+S7 any deployed-source file ≠ its 037092f0 blob, a missing file, or an extra _shared file
+S8 main or the gate tip moved, or a deployment object created
+NOT an automatic STOP: a defn [A-pin] mismatch while prosrc AND binding match — that is a
+rendering-difference hypothesis first (runbook §7 note); D reports the precise values and holds
+for re-derivation. It IS a stop for A's script; D's job is then the precise mismatch, promptly.

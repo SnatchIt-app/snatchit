@@ -1,0 +1,9 @@
+149 rehearsal — predictions registered 2026-09-24 before any rehearsal step (DB a149_rh_rehears: pre-149 chain + 161-row stand-in ledger, max 20260924000000):
+R1 prestate (LOCALDB, "01 prestate"): all 11 STOP keys equal; PASS; exit 0; nothing applied.
+R2 apply ("01"): anchor ok; prestate PASS; request 201; POST assertion 9/9 PASS; ledger 162; grants_delta none vs 00.
+R3 negative control (prestate on the applied DB): FAIL on exactly ledger_row_count(1), ledger_total(162), a3_defn, a3_prosrc, a4_defn, a4_prosrc; exit 3.
+R4 rollback (LOCALDB rollback_149.sh): rb-prestate PASS; request 201; read-back: no 149 row, ledger 161, a3/a4 prosrc 6a8372b4/d86c2b36 and defn f8ffef47/e26a538c.
+R5 rollback negative control (rollback again): STOP at rb-prestate (ledger_row_count 0, pre-149 hashes); exit 3.
+R6 partial-rollback resume: re-apply, then run ONLY the rollback file (no ledger delete) → rollback_149.sh STOPs (bodies pre-149, ledger row 1) → "ledger-only" deletes the row → ledger 161.
+R7 re-apply: POST 9/9 PASS with identical hashes; pgTAP 216 26/26, 122 74/74, 215 43/43 on the re-applied DB.
+R8 DRY production assembly: request text byte-identical to the rehearsal's 01_apply.sql (same sha256).

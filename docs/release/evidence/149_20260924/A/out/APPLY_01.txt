@@ -1,0 +1,56 @@
+### MODE=PRODUCTION target=hqycwntpfoztoinemqns
+  anchor ok: md5=7e4d3b2d347c1cedf63e554dd6358569 bytes=9904 (D's list = local blob)
+  prestate ledger_row_count: 0 (expected 0)
+  prestate ledger_total: 161 (expected 161)
+  prestate ledger_max: 20260924000000 (expected 20260924000000)
+  prestate a3_defn_md5: f8ffef4710c572154adc374c3e06bce8 (expected f8ffef4710c572154adc374c3e06bce8)
+  prestate a3_prosrc_md5: 6a8372b4ee470d7a6ab9c1e0754765da (expected 6a8372b4ee470d7a6ab9c1e0754765da)
+  prestate a4_defn_md5: e26a538c4e82ede00c5fe6d7085238b5 (expected e26a538c4e82ede00c5fe6d7085238b5)
+  prestate a4_prosrc_md5: d86c2b36f40c83835624bbacee716d38 (expected d86c2b36f40c83835624bbacee716d38)
+  prestate a3_binding: args=p_attempt_id uuid, p_stripe_transfer_id text, p_outcome text, p_error jsonb | result=jsonb | secdef=true | cfg=search_path=public (expected args=p_attempt_id uuid, p_stripe_transfer_id text, p_outcome text, p_error jsonb | result=jsonb | secdef=true | cfg=search_path=public)
+  prestate a4_binding: args=p_transfer_id uuid, p_reason_code text, p_evidence jsonb | result=jsonb | secdef=true | cfg=search_path=public (expected args=p_transfer_id uuid, p_reason_code text, p_evidence jsonb | result=jsonb | secdef=true | cfg=search_path=public)
+  prestate claim148_prosrc_md5: ce30b56ca038ae0c4de2c88770870561 (expected ce30b56ca038ae0c4de2c88770870561)
+  prestate notify148_prosrc_md5: ff103b3e98faa04f9bd64996a90b27ab (expected ff103b3e98faa04f9bd64996a90b27ab)
+  prestate info_a3_acl: {postgres=X/postgres,service_role=X/postgres} owner=postgres
+  prestate info_a4_acl: {postgres=X/postgres,service_role=X/postgres} owner=postgres
+  prestate info_dispute_resolutions: 0
+  prestate info_open_disputes: 5
+  prestate info_payout_attempts: 0
+  prestate info_payout_decisions: 4
+  prestate info_seller_win_rows: 0
+  149 PRESTATE: PASS
+== 01 APPLY 20260924120000_payout_decisions_buyer_confirmed_truth.sql (version=20260924120000 name=payout_decisions_buyer_confirmed_truth sha256=ce4440cad2a19611) 2026-09-24T20:31:03Z ==
+  http=201 response=[]
+  ledger: 20260924120000 | payout_decisions_buyer_confirmed_truth | created_by=claude-a/owner-authorised-149 | stmts=1
+  ledger_rows: 162
+  fn: public.record_payout_attempt_result(p_attempt_id uuid, p_stripe_transfer_id text, p_outcome text, p_error jsonb) md5=255e9022cd3ef39a20835ae18cc4196e secdef=true cfg=search_path=public
+  fn: public.flag_payout_reversal_required(p_transfer_id uuid, p_reason_code text, p_evidence jsonb) md5=0d692f3262b234fed9c492a8204b5d01 secdef=true cfg=search_path=public
+  fn_prosrc: public.record_payout_attempt_result prosrc_md5=62f747287fa1c47d7bea06b686426ae3
+  fn_prosrc: public.flag_payout_reversal_required prosrc_md5=03ea4589c46624b72fa4d48e466ac977
+  fn_grants: public.record_payout_attempt_result anon=false authenticated=false service_role=true
+  fn_grants: public.flag_payout_reversal_required anon=false authenticated=false service_role=true
+  census: tables=32 functions=108 policies=37 triggers=38
+  switch: detectors_enabled=true
+  switch: refund_resolution_detector_enabled=false
+  switch: alert_delivery_enabled=false
+  ops_alert_cols: 17
+  now: 2026-09-24 20:31:04.993018+00
+  grant_rows: 69
+  grants_delta: none
+  POST ok      20260924120000 | payout_decisions_buyer_confirmed_truth | created_by=claude-a/owner-authorised-149 | stmts=1
+  POST ok      162
+  POST ok      public.record_payout_attempt_result(p_attempt_id uuid, p_stripe_transfer_id text, p_outcome text, p_error jsonb) md5=255e9022cd3ef39a20835ae18cc4196e secdef=true cfg=search_path=public
+  POST ok      public.flag_payout_reversal_required(p_transfer_id uuid, p_reason_code text, p_evidence jsonb) md5=0d692f3262b234fed9c492a8204b5d01 secdef=true cfg=search_path=public
+  POST ok      public.record_payout_attempt_result prosrc_md5=62f747287fa1c47d7bea06b686426ae3
+  POST ok      public.flag_payout_reversal_required prosrc_md5=03ea4589c46624b72fa4d48e466ac977
+  POST ok      public.record_payout_attempt_result anon=false authenticated=false service_role=true
+  POST ok      public.flag_payout_reversal_required anon=false authenticated=false service_role=true
+  POST ok      tables=32 functions=108 policies=37 triggers=38
+  POST ok      detectors_enabled=true
+  POST ok      refund_resolution_detector_enabled=false
+  POST ok      alert_delivery_enabled=false
+  POST ok      stmt_md5=7e4d3b2d347c1cedf63e554dd6358569
+  POST ok      claim148_prosrc_md5=ce30b56ca038ae0c4de2c88770870561
+  POST ok      notify148_prosrc_md5=ff103b3e98faa04f9bd64996a90b27ab
+  POST ok      grants matrix identical to P2 (00)
+  149 POST-APPLY ASSERTION: PASS

@@ -1,0 +1,8 @@
+Uploading asset (confirm-and-release): supabase/functions/confirm-and-release/index.ts
+Uploading asset (confirm-and-release): supabase/functions/_shared/payouts.ts
+Uploading asset (confirm-and-release): supabase/functions/_shared/payout-logic.ts
+Uploading asset (confirm-and-release): supabase/functions/_shared/stripe.ts
+Uploading asset (confirm-and-release): supabase/functions/_shared/sentry.ts
+{"project_ref":"hqycwntpfoztoinemqns","functions":["confirm-and-release"],"dashboard_url":"https://supabase.com/dashboard/project/hqycwntpfoztoinemqns/functions","message":"Deployed Functions."}
+A new version of Supabase CLI is available: v2.117.0 (currently installed v2.115.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

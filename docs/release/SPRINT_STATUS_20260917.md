@@ -1838,7 +1838,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **`confirm-and-release` v38 at 20:31:30Z:** byte-verified 5/5 against `037092f0`.
   - **V-3 probe PASS** at 20:31:39Z.
   - payout_decisions 4 and payout_attempts 0 before, as the baseline.
-  - Nothing else changed. Evidence limit: the changed paths are not yet exercised in production. D's W2 is pending.
+  - Nothing else changed. Evidence limit: the changed paths are not yet exercised in production. D's W2 is pending
+    (superseded: **W2 PASS at 20:32:18Z**, entry below).
   - Output sha256: 01_apply.sql `f1bb0489`, APPLY_01.txt `fe12a490`, 01_readback.json `379057cb`,
     01_post149.json `93754f7a`, 00/01_grants `9955f5d9`, DEPLOY.txt `55f4de8d`, PROBE.txt `b593dde7`,
     P1 `97efdb5b`, P3 `df14974c`.

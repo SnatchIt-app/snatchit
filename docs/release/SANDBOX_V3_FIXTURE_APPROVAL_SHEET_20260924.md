@@ -14,6 +14,12 @@
 > as the primary route; see `REVIEW_INVENTORY_PLAN_V3_20260924.md` §5.
 > **Not gated by this approval:** installing Build 24, and the appearance and navigation checks that need no fixture write.
 >
+> **Resume conditions (A, 2026-09-24 ~20:45Z; nothing new is asked of the owner):**
+> - a replacement build that the owner has visually accepted;
+> - the owner's **"go"**;
+> - A's §4 preflight re-run.
+> The approval text above names **Build 24 (`404bce38`)**, so the owner's "go" must name the replacement build (its
+> commit) explicitly. D1 variant B (reopening a listing job 1 has ended) is part of the approved D1 setup, not cleanup.
 > **PAUSED by the owner, 2026-09-24 ~16:45Z: Build 24 failed visual acceptance.** B and C are correcting the
 > implementation against the approved V3 mockups. **No D1–D6 step ran.** A's read-only sandbox check at 16:43:56Z
 > (ledger 144, signing keys 0, so the sandbox) found:

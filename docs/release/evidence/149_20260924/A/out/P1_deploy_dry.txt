@@ -1,0 +1,5 @@
+### MODE=PRODUCTION READ-ONLY (--dry) target=hqycwntpfoztoinemqns
+== confirm-and-release before: version/ezbr/verify_jwt = 37 3b033bb880a1c03b273b499b9931358f1267b9d5a4bb197bb63292fbf03b574c True
+== pre-deploy source vs gate 5b255838: 5 files, 0 mismatches => the rollback target is the running code
+== deploy cmd: supabase functions deploy confirm-and-release --project-ref hqycwntpfoztoinemqns --use-api --workdir /private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/gate149 
+(dry run, not deploying)

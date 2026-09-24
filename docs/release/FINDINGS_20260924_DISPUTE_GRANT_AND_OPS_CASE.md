@@ -178,7 +178,7 @@ resolution fires both.
   | `admin_release_held_payout`, `039:304`, redefined `0551:94` (the latest definer) | omitted, so the default `false` applies (`039:88`) | unreachable: `0551:88` returns false unless `status = 'seller_sent'` |
 
   **The fix scope a1–a4 is complete.** **FIXED IN PRODUCTION 2026-09-24 20:31Z:** migration 149 applied and `confirm-and-release` v38 deployed from gate `037092f0` (#93 package §12). Existing audit rows are not rewritten. **Fix drafted: SnatchIt-app/snatchit#93** (head `9fb450eb`, registry 149 and
-  pgTAP 216, plus the `confirm-and-release` edge change). Draft only; nothing is applied or deployed.
+  pgTAP 216, plus the `confirm-and-release` edge change). (Superseded: "draft only". Merged as `037092f0`; executed in production 20:31Z.)
   - a3 and a4 already have `buyer_confirmed_at` in `v_t`.
   - a1 and a2 also need the column **added to §5's select** (`5b255838:233` does not select it). Swapping the literal
     alone is not enough (D).
@@ -209,10 +209,10 @@ list be trusted where they differ.
 
 | # | Class | Where | Status |
 |---|---|---|---|
-| a1 | (a) false record | `confirm-and-release` `payoutDeferred` (`:345-379`) → `payout_decisions` `BUYER_CONFIRMED` / `buyer_confirmed true` | unfixed. **Reachable on the live v37 today, given a seller-win row** (corrected 2026-09-24 after D; the earlier "reachable only via a redeploy" was wrong): any refusal v37 already recognises → `not_eligible` → `payoutDeferred`. F-CR-148-SHARED adds two more routes (see its correction) |
-| a2 | (a) false record | `confirm-and-release` `:401-421`: the `release` audit row on a buyer-called payout of a seller-win, reason `BUYER_CONFIRMED`, `buyer_confirmed true` | unfixed; predates #92; direct API call only (current clients offer confirm only on `seller_sent`) |
-| a3 | (a) false record | `record_payout_attempt_result` (`20260906120000:823`): the `reversal_required` decision sets `buyer_confirmed := status='buyer_confirmed'` | unfixed |
-| a4 | (a) false record | `flag_payout_reversal_required` (`20260906120000:894`): the same expression | unfixed |
+| a1 | (a) false record | `confirm-and-release` `payoutDeferred` (`:345-379`) → `payout_decisions` `BUYER_CONFIRMED` / `buyer_confirmed true` | **FIXED 2026-09-24 20:31Z** (149 + `confirm-and-release` v38; #93 package §12). History: unfixed. **Reachable on the live v37 today, given a seller-win row** (corrected 2026-09-24 after D; the earlier "reachable only via a redeploy" was wrong): any refusal v37 already recognises → `not_eligible` → `payoutDeferred`. F-CR-148-SHARED adds two more routes (see its correction) |
+| a2 | (a) false record | `confirm-and-release` `:401-421`: the `release` audit row on a buyer-called payout of a seller-win, reason `BUYER_CONFIRMED`, `buyer_confirmed true` | **FIXED 2026-09-24 20:31Z** (149 + `confirm-and-release` v38; #93 package §12). History: unfixed; predates #92; direct API call only (current clients offer confirm only on `seller_sent`) |
+| a3 | (a) false record | `record_payout_attempt_result` (`20260906120000:823`): the `reversal_required` decision sets `buyer_confirmed := status='buyer_confirmed'` | **FIXED 2026-09-24 20:31Z** (149 + `confirm-and-release` v38; #93 package §12). History: unfixed |
+| a4 | (a) false record | `flag_payout_reversal_required` (`20260906120000:894`): the same expression | **FIXED 2026-09-24 20:31Z** (149 + `confirm-and-release` v38; #93 package §12). History: unfixed |
 | a5 | (a) operator label | admin `src/lib/format.ts:78` "Buyer confirmed", shown on orders list, detail, marketplace, money and filter | unfixed (D's lane) |
 | a6 | (a) operator label | admin `orders/[paymentId]/page.tsx:539-542` shows the stored `buyer_confirmed` flag, which is false only because a1–a4 wrote it | unfixed (D's lane) |
 | a7 | (a) user copy | web `TransferStatusBadge.tsx:8` "Transfer Complete", `purchases/page.tsx:28-30` "Confirmed", `BuyerTransferPanel.tsx:195-196` "Transfer complete. Enjoy the show." | unfixed. The web equivalent of C's mobile fix; the web is a private preview (Vercel builds ignored) |

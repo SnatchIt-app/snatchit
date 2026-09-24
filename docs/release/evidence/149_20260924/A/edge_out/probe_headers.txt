@@ -1,0 +1,29 @@
+HTTP/2 200 
+date: Thu, 24 Sep 2026 20:31:39 GMT
+content-type: text/plain;charset=UTF-8
+cf-ray: a4048dd05b91b3df-MIA
+cf-cache-status: DYNAMIC
+access-control-allow-origin: https://snatchitapp.com
+set-cookie: __cf_bm=huh2o1gWsddzcy6U75seexcl.tAr_2BWpV2HhKSmk2Q-1790281899.5719917-1.0.1.1-vKlVi4l4xPVrmw74DpOjb8GnxdqoQsWi7E_o0oAHrtrJY3Plom2mUuQ6xCNOyb3ZJoIkFjkQEm1KoGWEkE9MDDTIHn4NA6gRBnCHZa_zS4j7pcUZKvLQbLC9HiVkyRIr; HttpOnly; SameSite=None; Secure; Path=/; Domain=supabase.co; Expires=Thu, 24 Sep 2026 21:01:39 GMT
+server: cloudflare
+strict-transport-security: max-age=31536000; includeSubDomains; preload
+vary: Accept-Encoding
+access-control-allow-headers: authorization, x-client-info, apikey, content-type
+access-control-allow-methods: POST, OPTIONS
+endpoint-load-metrics: application_utilization:8,named_metrics.queue_depth:8
+referrer-policy: strict-origin-when-cross-origin
+sb-gateway-version: 1
+sb-jwt-alg: HS256
+sb-jwt-iss: supabase
+sb-project-ref: hqycwntpfoztoinemqns
+sb-request-id: 01a0d51d-de3d-7410-9fe7-8468b73b5f27
+x-content-type-options: nosniff
+x-deno-execution-id: eed1998d-d948-41cc-8ea1-f2cc10c79655
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: DENY
+x-permitted-cross-domain-policies: none
+x-sb-edge-region: us-east-1
+x-served-by: supabase-edge-runtime
+alt-svc: h3=":443"; ma=86400
+

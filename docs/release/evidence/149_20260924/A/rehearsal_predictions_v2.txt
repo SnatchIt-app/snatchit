@@ -1,0 +1,11 @@
+149 rehearsal v2 (after D's review, 2026-09-24) — predictions registered before any v2 step.
+DB a149_rh2_rehears: pre-149 chain + 161-row stand-in ledger (max 20260924000000). out_local cleared first.
+Changes under test: POST gains stmt_md5 (=7e4d3b2d…), claim148/notify148 prosrc (ce30b56c/ff103b3e), three switches, and grants 00==01; probe gains PASS/INCONCLUSIVE/FAIL (not runnable locally).
+V2-R0 "00": ledger 161, 69 grant rows, out_local/00_grants.txt written.
+V2-R1 "01 prestate": 11/11 PASS; nothing applied.
+V2-R2 "01": 201; POST 15 checks all ok (12 row needs + 3 extra) + grants identical to 00 -> 149 POST-APPLY ASSERTION: PASS; request sha256 f1bb04892663ae4e (unchanged).
+V2-N1 comparator control: copy of apply_one_149.sh with the stmt_md5 expectation set to 32 zeros, applied on a second fresh DB a149_rh3_rehears (00 run first) -> POST FAIL on exactly stmt_md5; everything else ok.
+V2-N2 grants-baseline control: on a third fresh DB a149_rh4_rehears, apply WITHOUT running "00" first (out_local/00_grants.txt absent) -> POST FAIL on exactly grants_baseline.
+V2-R4 rollback on a149_rh2: PASS; ledger 161; a3/a4 prosrc 6a8372b4/d86c2b36.
+V2-R7 re-apply on a149_rh2: POST PASS (all 15 + grants); pgTAP 216 26/26.
+V2-R8 DRY production assembly: byte-identical to the rehearsed request (f1bb0489…).
