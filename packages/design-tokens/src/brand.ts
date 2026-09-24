@@ -116,6 +116,14 @@ export const status = {
    * has always drawn; Daylight grades its own, because this one is 2.28:1 on white (AP18).
    */
   info: '#60A5FA',
+  /**
+   * The LEADING chip on Bid activity (pkg8-listing boards, sampled 2026-09-24): a soft dark-green
+   * fill carrying the bright success ink. B drew the SAME pair on the Midnight and Daylight
+   * boards — the chip is self-contained, so it does not flip with the scheme; Daylight's palette
+   * restates both values rather than inheriting its own darker success green.
+   */
+  successSoft: '#103A22',
+  onSuccessSoft: '#3DDC84',
 } as const;
 
 /**
@@ -149,6 +157,19 @@ export const space = {
  */
 export const radius = {
   none: 0,
+  /**
+   * V3 (owner 2026-09-24, on the pkg8 boards). The V2 rule above was measured from
+   * snatchitapp.com and held for V2; the approved V3 boards round controls, media and
+   * panels, so the scale gains real values rather than screens inventing their own.
+   * `none` stays: a V3 surface that is still square (the bid summary panel) says so.
+   *   sm  — inline chips, inputs, small media
+   *   md  — steppers, quick-add keys, cards  (the 62pt row thumbnail keeps B's drawn 8)
+   *   lg  — hero artwork, sheets, large panels
+   *   pill — actions, avatars, status dots
+   */
+  sm: 10,
+  md: 14,
+  lg: 20,
   pill: 9999,
 } as const;
 
@@ -212,10 +233,23 @@ export const type = {
   nameState:   { family: font.display, size: 26, lineHeight: 29, letterSpacing: 0.1, uppercase: false, mixedCaseName: true },
   /** Row titles and ALL user-generated names. */
   title: { family: font.bodySemi, size: 17, lineHeight: 22, letterSpacing: 0, uppercase: false },
+  /**
+   * V3 SCREEN TITLE (owner 2026-09-24). The pkg8 boards head a pushed screen with a
+   * centred, sentence-case, bold SANS title — "Place bid" — not the uppercase Oswald
+   * `displaySm` the V2 headers used. Oswald keeps the brand moments and event names.
+   */
+  screenTitle: { family: font.bodyBold, size: 19, lineHeight: 24, letterSpacing: -0.2, uppercase: false },
   body: { family: font.body, size: 15, lineHeight: 22, letterSpacing: 0, uppercase: false },
   bodySm: { family: font.body, size: 13, lineHeight: 18, letterSpacing: 0, uppercase: false },
   /** Buttons, tabs, chips. */
   label: { family: font.bodyBold, size: 12, lineHeight: 16, letterSpacing: 2.2, uppercase: true },
+  /**
+   * V3 ACTION LABEL (owner 2026-09-24). Every action on the approved pkg8 boards is
+   * sentence case and untracked — "Place bid", "+$25", "Buy now" — not the uppercase,
+   * 2.2-tracked `label`. `label` stays for eyebrows and tabs, which the boards keep
+   * uppercase; buttons and keys move here.
+   */
+  action: { family: font.bodyBold, size: 16, lineHeight: 20, letterSpacing: 0, uppercase: false },
   /** Eyebrows and metadata keys. Decoration tier. */
   micro: { family: font.bodyMedium, size: 10, lineHeight: 14, letterSpacing: 3.0, uppercase: true },
   /** V3: the dock's visible item labels (mixed case, small, quiet). */

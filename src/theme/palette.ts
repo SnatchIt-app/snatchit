@@ -99,6 +99,9 @@ export const light: Palette = {
     info: '#1B5FB8',
     /** White on Daylight's dark status fills: 6.07:1 on error, 6.28:1 on warning, 5.44:1 on success. */
     onFill: '#FFFFFF',
+    /** Invariant with Midnight — B drew the same chip on both boards (pkg8-listing). */
+    successSoft: '#103A22',
+    onSuccessSoft: '#3DDC84',
   },
   // Light glass: the dock floats as a near-white material with a dark hairline; the selected
   // capsule and the avatar dim blend toward the dock fill, as on Midnight, in the other direction.

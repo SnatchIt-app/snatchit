@@ -18,6 +18,7 @@ import {
   dollarsToCents,
   formatCents,
   formatDollars,
+  formatCentsV3,
 } from '@/src/lib/money';
 
 /** The floor a new bid must clear: the current bid plus one increment. */
@@ -60,6 +61,22 @@ export interface BidPriceLines {
  * arithmetic of its own, so it can never drift from what checkout actually
  * charges.
  */
+/**
+ * V3 presentation of the SAME three amounts (owner 2026-09-24). Identical integer-cent
+ * arithmetic — `dollarsToCents`, `buyerFeeCents`, `buyerTotalCents` — formatted with cents
+ * shown, because the approved boards show "$95.00 / $9.50 / $104.50". Nothing about what is
+ * submitted, rounded or stored changes; `bidPriceLines` is retained unchanged for the
+ * surfaces that have not moved to V3.
+ */
+export function bidPriceLinesV3(selectedDollars: number): BidPriceLines {
+  const cents = dollarsToCents(selectedDollars);
+  return {
+    bid: formatCentsV3(cents),
+    fee: formatCentsV3(buyerFeeCents(cents)),
+    total: formatCentsV3(buyerTotalCents(cents)),
+  };
+}
+
 export function bidPriceLines(selectedDollars: number): BidPriceLines {
   const cents = dollarsToCents(selectedDollars);
   return {

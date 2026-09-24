@@ -80,6 +80,37 @@ export function formatDollars(dollars: number): string {
   return `${sign}${formatCents(cents)}`;
 }
 
+/**
+ * V3 DISPLAY ONLY — always two decimals, e.g. 11000 → "$110.00", 9500 → "$95.00".
+ *
+ * The approved V3 boards (owner 2026-09-24) show every money amount with cents, including
+ * whole dollars, where `formatCents` trims ".00". This is a PRESENTATION change and nothing
+ * else: it takes the same integer cents the existing calculation produced, and it is never
+ * used to compute, round, submit, or store an amount. The bid the app sends is still the
+ * whole-dollar number the stepper chose; the fee and total are still `buyerFeeCents` /
+ * `buyerTotalCents` over integer cents. Only the string differs.
+ */
+export function formatCentsV3(cents: number): string {
+  if (!Number.isFinite(cents)) return '—';
+  const sign = cents < 0 ? '−' : '';
+  return `${sign}$${(Math.abs(cents) / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/** The dollars-in / two-decimals-out pair of `formatCentsV3`. Display only, as above. */
+export function formatDollarsV3(dollars: number): string {
+  if (!Number.isFinite(dollars)) return '—';
+  const cents = Math.round(Math.abs(dollars) * 100);
+  return `${dollars < 0 && cents > 0 ? '−' : ''}${formatCentsV3(cents)}`;
+}
+
+/** V3 display of the all-in buyer price, e.g. 100 → "$110.00". Same cents math, cents shown. */
+export function allInFromDollarsV3(baseDollars: number): string {
+  return formatCentsV3(buyerTotalCents(dollarsToCents(baseDollars)));
+}
+
 /** All-in buyer price from a whole-dollar base, e.g. 100 → "$110". */
 export function allInFromDollars(baseDollars: number): string {
   return formatCents(buyerTotalCents(dollarsToCents(baseDollars)));

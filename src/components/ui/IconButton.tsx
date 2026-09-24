@@ -24,7 +24,9 @@ import { usePressScale } from './press';
 export type IconGlyph = 'back' | 'close' | 'more' | 'search' | 'filter';
 
 const GLYPH: Record<IconGlyph, string> = {
-  back: '←',
+  // V3 (owner 2026-09-24): the approved boards draw back as a CHEVRON in a circular
+  // chip, not the V2 left arrow on bare canvas.
+  back: '\u2039',
   close: '✕',
   more: '⋯',
   // Typographic, not emoji: these inherit the brand face and colour. An emoji
@@ -41,6 +43,11 @@ export interface IconButtonProps {
   disabled?: boolean;
   /** Over artwork, where the glyph needs a dark plate to stay legible. */
   onArt?: boolean;
+  /**
+   * V3: a filled circular chip behind the glyph, as the pkg8 boards draw the back
+   * control on a plain screen. `onArt` already supplies its own darker plate.
+   */
+  chip?: boolean;
   style?: ViewStyle;
   testID?: string;
 }
@@ -51,6 +58,7 @@ export function IconButton({
   accessibilityLabel,
   disabled = false,
   onArt = false,
+  chip = false,
   style,
   testID,
 }: IconButtonProps) {
@@ -64,7 +72,7 @@ export function IconButton({
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         disabled={disabled}
-        style={[styles.base, onArt && styles.onArt, disabled && styles.disabled, style]}
+        style={[styles.base, chip && styles.chip, onArt && styles.onArt, disabled && styles.disabled, style]}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityState={{ disabled }}
@@ -83,11 +91,13 @@ function makeStyles(p: Palette) {
     height: MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: v2.radius.none,
+    // V3: every icon control on the approved boards is a circle.
+    borderRadius: v2.radius.pill,
   },
+  chip: { backgroundColor: p.surface.surface },
   // A transparent control over a photograph is invisible half the time.
   onArt: { backgroundColor: 'rgba(0,0,0,0.55)' },
   disabled: { opacity: 0.4 },
-  glyph: { color: p.text.primary, fontSize: 22, lineHeight: 26 },
+  glyph: { color: p.text.primary, fontSize: 28, lineHeight: 32 },
   });
 }

@@ -10,7 +10,10 @@
  *  - Destructive is a DIFFERENT red (`status.error`) and is never a filled block,
  *    so a delete can never look like a purchase. In the legacy theme they were
  *    the same colour, which is a usability defect rather than a style choice.
- *  - Radius 0. There is no pill button in this brand.
+ *  - V3 (owner 2026-09-24, pkg8 boards): the action is a PILL with a sentence-case
+ *    label. The V2 rule this replaced — "Radius 0, there is no pill button in this
+ *    brand", with an uppercase 2.2-tracked label — was measured from the V2 web
+ *    system and is superseded by the approved boards. Black-on-red is unchanged.
  *  - There is no filled secondary. Secondary is a hairline and a white label.
  */
 
@@ -130,7 +133,7 @@ export function Button({
             row takes its place at the same (or the wider) width. */}
         <Text
           style={[
-            textStyle('label'),
+            textStyle('action'),
             { color: labelColor },
             loading && styles.hidden,
             showPending && styles.ghost,
@@ -149,7 +152,7 @@ export function Button({
           >
             {showPending ? <Spinner color={labelColor} label={pendingLabel} /> : null}
             <Text
-              style={[textStyle('label'), { color: labelColor }]}
+              style={[textStyle('action'), { color: labelColor }]}
               numberOfLines={1}
               maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
             >
@@ -172,7 +175,7 @@ export function Button({
 function makeStyles(p: Palette) {
   return StyleSheet.create({
   base: {
-    borderRadius: v2.radius.none,
+    borderRadius: v2.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: v2.space.lg,
