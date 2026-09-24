@@ -10,9 +10,12 @@
  * for a Sign out row that must read as destructive without a red block.
  */
 
+import { useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { usePressScale } from '@/src/components/ui';
 
@@ -40,8 +43,10 @@ export function SettingsRow({
   disabled = false,
   testID,
 }: SettingsRowProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale(!disabled && !!onPress);
-  const titleColor = tone === 'destructive' ? v2.status.error : v2.text.primary;
+  const titleColor = tone === 'destructive' ? palette.status.error : palette.text.primary;
 
   return (
     <Animated.View style={press.style}>
@@ -71,7 +76,8 @@ export function SettingsRow({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     minHeight: 56,
     flexDirection: 'row',
@@ -79,10 +85,11 @@ const styles = StyleSheet.create({
     gap: v2.space.md,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
   textCol: { flex: 1, minWidth: 0 },
-  description: { color: v2.text.muted, marginTop: 2 },
-  value: { color: v2.text.muted, flexShrink: 1, textAlign: 'right' },
-  chevron: { color: v2.text.faint, fontSize: 22 },
-});
+  description: { color: p.text.muted, marginTop: 2 },
+  value: { color: p.text.muted, flexShrink: 1, textAlign: 'right' },
+  chevron: { color: p.text.faint, fontSize: 22 },
+  });
+}

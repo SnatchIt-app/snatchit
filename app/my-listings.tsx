@@ -21,6 +21,8 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -32,6 +34,8 @@ type TransferInfo = { transferId: string; status: string };
 
 export default function MyListingsScreen() {
   const { session } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const userId = session?.user.id ?? '';
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
@@ -255,7 +259,7 @@ export default function MyListingsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
           ListEmptyComponent={
             <EmptyState
               title={
@@ -300,15 +304,16 @@ export default function MyListingsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   filters: { gap: v2.space.sm, paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md },
@@ -316,4 +321,5 @@ const s = StyleSheet.create({
   list: { paddingHorizontal: v2.space.lg, paddingBottom: 96, paddingTop: v2.space.sm },
   skelRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.sm },
   skelBody: { flex: 1, justifyContent: 'center' },
-});
+  });
+}

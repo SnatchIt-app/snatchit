@@ -39,12 +39,16 @@ import { classifyTicketsError, groupByEvent, splitByTimeClass, type EventGroup }
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 import { phaseAfterError, shouldShowLoading } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 type Phase = 'loading' | 'ready' | 'error';
 interface Section { title: string; emphasis: 'upcoming' | 'past'; data: EventGroup[] }
 
 export default function TicketsScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll } = useDockScroll('tickets');
@@ -159,7 +163,7 @@ export default function TicketsScreen() {
           scrollEventThrottle={16}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />
           }
           renderSectionHeader={({ section }) => (
             <Text style={[textStyle('label'), s.sectionHeader]} accessibilityRole="header">
@@ -175,8 +179,9 @@ export default function TicketsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   header: {
     paddingHorizontal: v2.space.lg,
     paddingBottom: v2.space.md,
@@ -184,11 +189,14 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'space-between',
   },
-  title: { color: v2.text.primary },
-  devToggle: { color: v2.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
+  title: { color: p.text.primary },
+  devToggle: { color: p.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
   // Owner-ruled caveat for fixture rows: high-contrast, full-width, not dismissable.
-  sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: v2.status.warning, borderRadius: v2.radius.none },
-  sampleLabelText: { color: v2.text.inverse, fontWeight: '700', textAlign: 'center' },
+  sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: p.status.warning, borderRadius: v2.radius.none },
+  // The ink contrasts the FILL, not the canvas: Daylight's warning is a dark brown, so black on
+  // it is 3.35:1. The canvas colour is the value that inverts with the fill in both appearances.
+  sampleLabelText: { color: p.surface.canvas, fontWeight: '700', textAlign: 'center' },
   list: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm },
-  sectionHeader: { color: v2.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
-});
+  sectionHeader: { color: p.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
+  });
+}

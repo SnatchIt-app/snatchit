@@ -7,7 +7,7 @@
  * the old screen declared two chip styles in one file.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Chip, Input, Sheet, SheetAction } from '@/src/components/ui';
@@ -15,6 +15,8 @@ import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
 import { NEIGHBORHOODS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CHIP_GROUPS, type QuickChip } from '@/src/lib/home/filterModel';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface FilterValues {
@@ -50,6 +52,8 @@ function toggle(set: Set<string>, key: string): Set<string> {
 }
 
 export function FilterSheet({ visible, value, onApply, onClose, focus }: FilterSheetProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const scrollRef = useRef<ScrollView>(null);
   const priceYRef = useRef(0);
   const [chip, setChip] = useState<QuickChip>(value.chip);
@@ -193,11 +197,13 @@ export function FilterSheet({ visible, value, onApply, onClose, focus }: FilterS
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   scroll: { maxHeight: 460 },
-  label: { color: v2.text.muted, marginTop: v2.space.md, marginBottom: v2.space.sm },
+  label: { color: p.text.muted, marginTop: v2.space.md, marginBottom: v2.space.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm },
   priceRow: { flexDirection: 'row', gap: v2.space.lg },
   priceField: { flex: 1 },
-  note: { color: v2.text.muted, marginTop: v2.space.sm },
-});
+  note: { color: p.text.muted, marginTop: v2.space.sm },
+  });
+}

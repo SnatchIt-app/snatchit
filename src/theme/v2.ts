@@ -100,6 +100,11 @@ export const status = {
   success: '#3DDC84',
   warning: '#FFB020',
   error: '#FF4D4D',
+  /**
+   * Informational, not a verdict: the Verified Seller mark. Midnight keeps the blue that badge
+   * has always drawn; Daylight grades its own, because this one is 2.28:1 on white (AP18).
+   */
+  info: '#60A5FA',
 } as const;
 
 /**

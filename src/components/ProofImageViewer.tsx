@@ -14,7 +14,7 @@
  *   • back gesture / hardware back (onRequestClose) closes the viewer
  *   • portrait and landscape images both fit via resizeMode="contain"
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -28,7 +28,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { fontSize, radius, spacing } from '@/src/theme';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 
 interface Props {
   /** Signed URL of the proof image. null/undefined = viewer hidden. */
@@ -40,6 +42,10 @@ const DOUBLE_TAP_MS = 300;
 const ZOOM_SCALE = 2.5;
 
 export function ProofImageViewer({ uri, onClose }: Props) {
+  // A lightbox: every one of these sits on the viewer's own black backdrop, over the photograph,
+  // so it reads from the onArt group — deliberately the same in both appearances.
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { width, height } = useWindowDimensions();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [retryKey, setRetryKey] = useState(0);
@@ -147,7 +153,7 @@ export function ProofImageViewer({ uri, onClose }: Props) {
 
         {phase === 'loading' && !!uri && (
           <View style={s.loadingOverlay} pointerEvents="none">
-            <ActivityIndicator color={colors.text} size="large" />
+            <ActivityIndicator color={palette.onArt.primary} size="large" />
           </View>
         )}
 
@@ -167,7 +173,8 @@ export function ProofImageViewer({ uri, onClose }: Props) {
   );
 }
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   backdrop:   { flex: 1, backgroundColor: '#000' },
   zoomScroll: { flex: 1 },
   center:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
@@ -196,13 +203,14 @@ const s = StyleSheet.create({
   },
   closeText: { color: '#fff', fontSize: fontSize.lg, fontWeight: '600' },
 
-  errorText: { color: colors.textMuted, fontSize: fontSize.md },
+  errorText: { color: p.onArt.muted, fontSize: fontSize.md },
   retryBtn: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: p.border.overArt,
   },
-  retryText: { color: colors.text, fontSize: fontSize.md, fontWeight: '600' },
+  retryText: { color: p.onArt.primary, fontSize: fontSize.md, fontWeight: '600' },
 });
+}

@@ -9,7 +9,7 @@
  * that admits it could not load.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
@@ -18,6 +18,8 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { Button, EmptyState, Spinner } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 type Row = {
@@ -27,6 +29,8 @@ type Row = {
 };
 
 export default function BlockedUsersScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [rows, setRows] = useState<Row[]>([]);
@@ -112,7 +116,7 @@ export default function BlockedUsersScreen() {
     <View style={s.root}>
       <SettingsHeader title="Blocked users" />
       {loading ? (
-        <View style={s.center}><Spinner color={v2.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : loadFailed && rows.length === 0 ? (
         <View style={s.center}>
           <Text style={[textStyle('title'), s.failTitle]}>Couldn&apos;t load your block list</Text>
@@ -127,7 +131,7 @@ export default function BlockedUsersScreen() {
           data={[]}
           keyExtractor={(_, i) => String(i)}
           renderItem={() => null}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
           ListEmptyComponent={
             <EmptyState
               title="No one blocked"
@@ -140,7 +144,7 @@ export default function BlockedUsersScreen() {
           contentContainerStyle={s.list}
           data={rows}
           keyExtractor={(r) => r.blocked_id}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
           renderItem={({ item }) => {
             const name = item.blocked?.display_name?.trim() || 'Blocked user';
             return (
@@ -159,17 +163,19 @@ export default function BlockedUsersScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: v2.space.md, padding: v2.space.xl },
-  failTitle: { color: v2.text.primary, textAlign: 'center' },
-  failBody: { color: v2.text.muted, textAlign: 'center', maxWidth: 320 },
+  failTitle: { color: p.text.primary, textAlign: 'center' },
+  failBody: { color: p.text.muted, textAlign: 'center', maxWidth: 320 },
   retry: { minWidth: 160 },
 
   list: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm, paddingBottom: v2.space.xxxl },
   grow: { flexGrow: 1 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.md, borderBottomWidth: 1, borderBottomColor: v2.border.default },
+  row: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.md, borderBottomWidth: 1, borderBottomColor: p.border.default },
   rowText: { flex: 1, minWidth: 0 },
-  name: { color: v2.text.primary },
-  meta: { color: v2.text.muted, marginTop: 2 },
-});
+  name: { color: p.text.primary },
+  meta: { color: p.text.muted, marginTop: 2 },
+  });
+}

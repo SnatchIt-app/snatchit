@@ -18,7 +18,7 @@
  */
 
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -27,6 +27,8 @@ import { formatPhoneDisplay, isValidUSPhone, normalizeUSPhone, PHONE_DISPLAY_MAX
 import { Badge, Button, Input } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 const RESEND_COOLDOWN_S = 30;
@@ -34,6 +36,8 @@ const RESEND_COOLDOWN_S = 30;
 type Step = 'enter_phone' | 'enter_code' | 'verified';
 
 export default function VerifyPhoneScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
 
   const [step, setStep] = useState<Step>('enter_phone');
@@ -198,13 +202,15 @@ export default function VerifyPhoneScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   flex: { flex: 1 },
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl, gap: v2.space.md },
-  title: { color: v2.text.primary, marginTop: v2.space.sm },
-  subtitle: { color: v2.text.secondary },
+  title: { color: p.text.primary, marginTop: v2.space.sm },
+  subtitle: { color: p.text.secondary },
   field: { marginTop: v2.space.sm },
-  error: { color: v2.status.error },
+  error: { color: p.status.error },
   cta: { marginTop: v2.space.sm },
-});
+  });
+}

@@ -14,14 +14,16 @@
  * Phase A — migration 011
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   PLATFORM_INSTRUCTIONS,
   interpolateStep,
 } from '@/src/lib/platformInstructions';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { fontSize, radius, spacing } from '@/src/theme';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import type { TicketPlatform } from '@/src/types';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -41,6 +43,8 @@ export default function PlatformInstructions({
   buyerEmail,
   buyerPhone,
 }: PlatformInstructionsProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [tipsExpanded, setTipsExpanded] = useState(false);
 
   const instruction = PLATFORM_INSTRUCTIONS[platform];
@@ -117,7 +121,8 @@ export default function PlatformInstructions({
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   container: {
     marginBottom: spacing.md,
   },
@@ -136,23 +141,23 @@ const s = StyleSheet.create({
     flex: 1,
   },
   title: {
-    color: colors.text,
+    color: p.text.primary,
     fontSize: fontSize.md,
     fontWeight: '700',
   },
   time: {
-    color: colors.textMuted,
+    color: p.text.muted,
     fontSize: fontSize.xs,
     marginTop: 2,
   },
 
   // Steps
   stepsCard: {
-    backgroundColor: colors.bgCard,
+    backgroundColor: p.surface.surface,
     borderRadius: radius.md,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: p.border.default,
   },
   stepRow: {
     flexDirection: 'row',
@@ -163,20 +168,20 @@ const s = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: colors.primarySoft,
+    backgroundColor: p.brand.redSoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.sm,
     marginTop: 1,
   },
   stepNumberText: {
-    color: colors.primary,
+    color: p.brand.red,
     fontSize: fontSize.xs,
     fontWeight: '700',
   },
   stepText: {
     flex: 1,
-    color: colors.text,
+    color: p.text.primary,
     fontSize: fontSize.sm,
     lineHeight: 20,
   },
@@ -186,12 +191,12 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(251,191,36,0.10)',
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.warning,
+    borderColor: p.status.warning,
     padding: spacing.sm,
     marginTop: spacing.sm,
   },
   warningText: {
-    color: colors.warning,
+    color: p.status.warning,
     fontSize: fontSize.xs,
     lineHeight: 18,
     marginBottom: 4,
@@ -205,7 +210,7 @@ const s = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   tipsToggleText: {
-    color: colors.textMuted,
+    color: p.text.muted,
     fontSize: fontSize.sm,
     fontWeight: '600',
   },
@@ -214,9 +219,10 @@ const s = StyleSheet.create({
     paddingLeft: spacing.sm,
   },
   tipText: {
-    color: colors.textMuted,
+    color: p.text.muted,
     fontSize: fontSize.xs,
     lineHeight: 18,
     marginBottom: 4,
   },
 });
+}

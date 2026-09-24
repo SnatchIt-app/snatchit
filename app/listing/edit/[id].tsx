@@ -14,7 +14,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
@@ -25,6 +25,8 @@ import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChang
 import { findBannedContent } from '@/src/lib/sell/sellState';
 import { Button, Chip, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, TicketPlatform } from '@/src/types';
 
@@ -39,6 +41,8 @@ const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
 
 export default function EditListingScreen() {
   const { user } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const params = useLocalSearchParams<{ id: string }>();
   const listingId = params.id ?? '';
@@ -135,7 +139,7 @@ export default function EditListingScreen() {
   }
 
   if (loading || !listing) {
-    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
   return (
@@ -166,15 +170,15 @@ export default function EditListingScreen() {
           style={[
             textStyle('body') as TextStyle,
             s.multiline,
-            { borderBottomColor: restrictionsFocused ? v2.brand.red : v2.border.strong },
+            { borderBottomColor: restrictionsFocused ? palette.brand.red : palette.border.strong },
           ]}
           value={restrictions}
           onChangeText={setRestrictions}
           onFocus={() => setRestrictionsFocused(true)}
           onBlur={() => setRestrictionsFocused(false)}
           placeholder="e.g. 21+, no re-entry, dress code"
-          placeholderTextColor={v2.text.faint}
-          selectionColor={v2.brand.red}
+          placeholderTextColor={palette.text.faint}
+          selectionColor={palette.brand.red}
           multiline
           numberOfLines={3}
           maxLength={500}
@@ -189,25 +193,27 @@ export default function EditListingScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { alignItems: 'center', justifyContent: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  helper: { color: v2.text.muted, marginBottom: v2.space.xl },
+  helper: { color: p.text.muted, marginBottom: v2.space.xl },
   gap: { marginTop: v2.space.lg },
-  groupLabel: { color: v2.text.muted, marginTop: v2.space.xl, marginBottom: v2.space.sm },
+  groupLabel: { color: p.text.muted, marginTop: v2.space.xl, marginBottom: v2.space.sm },
   chipRow: { gap: v2.space.sm, paddingRight: v2.space.lg },
   multiline: {
-    minHeight: 76, color: v2.text.primary, borderBottomWidth: 1,
+    minHeight: 76, color: p.text.primary, borderBottomWidth: 1,
     paddingVertical: v2.space.sm, textAlignVertical: 'top',
   },
-});
+  });
+}

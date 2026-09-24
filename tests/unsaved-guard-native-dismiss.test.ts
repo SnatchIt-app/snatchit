@@ -43,6 +43,15 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@react-navigation/native', async () => await import('@react-navigation/core'));
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Alert: {
     alert: (title: string, message?: string, buttons?: { text?: string; style?: string; onPress?: () => void }[]) => {

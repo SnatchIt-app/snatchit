@@ -40,6 +40,8 @@ import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { BidCard } from '@/src/components/bids/BidCard';
 import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, needsAction, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 // ─── Types (data layer — unchanged) ────────────────────────────────────────────
@@ -106,6 +108,8 @@ function whenLabel(iso: string | undefined): string {
 
 export default function BidsScreen() {
   const { session } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const userId = session?.user.id ?? '';
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
@@ -345,7 +349,7 @@ export default function BidsScreen() {
           onScroll={onDockScroll}
           scrollEventThrottle={16}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />
           }
           ListHeaderComponent={
             loadError && bids.length > 0 ? (
@@ -420,10 +424,11 @@ function toInput(row: BidRow) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   header: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
-  title: { color: v2.text.primary },
+  title: { color: p.text.primary },
   segments: {
     flexDirection: 'row',
     gap: v2.space.sm,
@@ -438,8 +443,9 @@ const s = StyleSheet.create({
     gap: v2.space.sm,
     paddingBottom: v2.space.md,
   },
-  noticeText: { color: v2.text.muted, flexShrink: 1 },
-  noticeAction: { color: v2.brand.red },
+  noticeText: { color: p.text.muted, flexShrink: 1 },
+  noticeAction: { color: p.brand.red },
   skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
   skeletonBody: { flex: 1, justifyContent: 'center' },
-});
+  });
+}

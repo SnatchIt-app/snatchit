@@ -20,7 +20,7 @@
  */
 
 import { Link, router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -42,10 +42,14 @@ import {
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { formatPhoneDisplay, normalizeUSPhone, PHONE_DISPLAY_MAXLENGTH } from '@/src/utils/phone';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 
 export default function LoginScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [method, setMethod] = useState<SignInMethod>(DEFAULT_SIGN_IN_METHOD);
 
   // Phone path
@@ -304,19 +308,21 @@ export default function LoginScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  title: { color: v2.text.primary, marginBottom: v2.space.xl },
-  subtitle: { color: v2.text.secondary, marginBottom: v2.space.lg },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  title: { color: p.text.primary, marginBottom: v2.space.xl },
+  subtitle: { color: p.text.secondary, marginBottom: v2.space.lg },
   fields: { gap: v2.space.lg },
   forgot: { alignSelf: 'flex-end', marginTop: v2.space.md },
-  forgotText: { color: v2.text.muted },
-  error: { color: v2.status.error, marginTop: v2.space.md },
-  notice: { color: v2.status.warning, marginBottom: v2.space.md },
+  forgotText: { color: p.text.muted },
+  error: { color: p.status.error, marginTop: v2.space.md },
+  notice: { color: p.status.warning, marginBottom: v2.space.md },
   cta: { marginTop: v2.space.xl },
   secondaryCta: { marginTop: v2.space.lg },
   alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
-  altText: { color: v2.text.muted },
+  altText: { color: p.text.muted },
   link: { alignItems: 'center', marginTop: v2.space.lg },
-  linkText: { color: v2.text.muted },
-  linkAccent: { color: v2.brand.red },
-});
+  linkText: { color: p.text.muted },
+  linkAccent: { color: p.brand.red },
+  });
+}

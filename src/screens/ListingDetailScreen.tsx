@@ -33,7 +33,7 @@
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   Alert,
@@ -71,6 +71,8 @@ import { offersBid, BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, detailState, 
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -139,6 +141,9 @@ export default function ListingDetailScreen({ id }: Props) {
   // Sticky-bar stacking is decided by StickyBar itself, from the live window
   // width against a threshold derived from the layout. This screen no longer
   // carries a device breakpoint.
+
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
   // authLoading is true until the stored session has been resolved once.
@@ -1339,21 +1344,22 @@ export default function ListingDetailScreen({ id }: Props) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   liveNotice: {
     paddingVertical: v2.space.sm, paddingHorizontal: v2.space.lg,
-    borderLeftWidth: 2, borderLeftColor: v2.status.warning, backgroundColor: v2.surface.surface,
+    borderLeftWidth: 2, borderLeftColor: p.status.warning, backgroundColor: p.surface.surface,
   },
-  liveNoticeText: { color: v2.status.warning },
-  ctaSubLabel: { color: v2.text.muted, textAlign: 'center' },
-  safe: { flex: 1, backgroundColor: v2.surface.canvas },
+  liveNoticeText: { color: p.status.warning },
+  ctaSubLabel: { color: p.text.muted, textAlign: 'center' },
+  safe: { flex: 1, backgroundColor: p.surface.canvas },
 
   // The artwork runs under the status bar: the hero is the first thing on the
   // screen and a safe-area gap above it would frame it like a card.
   scroll: { paddingBottom: v2.space.xxxl },
   scrollTail: { height: 96 },
   // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
-  commitment: { color: v2.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
+  commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
   statusWrap: { marginTop: v2.space.lg },
   refreshRow: {
@@ -1361,15 +1367,16 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: v2.space.lg,
   },
-  refreshText: { color: v2.brand.red },
+  refreshText: { color: p.brand.red },
 
   centered: {
     flex: 1,
-    backgroundColor: v2.surface.canvas,
+    backgroundColor: p.surface.canvas,
     alignItems: 'center',
     justifyContent: 'center',
     gap: v2.space.md,
     paddingHorizontal: v2.space.xl,
   },
-  errText: { color: v2.text.secondary, textAlign: 'center' },
-});
+  errText: { color: p.text.secondary, textAlign: 'center' },
+  });
+}

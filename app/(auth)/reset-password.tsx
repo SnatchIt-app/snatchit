@@ -8,7 +8,7 @@
  */
 
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -17,10 +17,14 @@ import { Button, Input } from '@/src/components/ui';
 import { friendlyAuthError, validateReset } from '@/src/lib/auth/authForms';
 import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 
 export default function ResetPasswordScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -88,8 +92,10 @@ export default function ResetPasswordScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  title: { color: v2.text.primary, marginBottom: v2.space.xl },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  title: { color: p.text.primary, marginBottom: v2.space.xl },
   fields: { gap: v2.space.lg },
   cta: { marginTop: v2.space.xl },
-});
+  });
+}

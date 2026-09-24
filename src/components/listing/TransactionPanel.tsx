@@ -14,12 +14,15 @@
  * "Current bid" is never claimed with zero bids, and a dead clock is simply absent.
  */
 
+import { useMemo } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { usePulseOnChange } from '@/src/hooks/usePulseOnChange';
 import { bidCountText } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { TransactionMode } from '@/src/lib/listing/detailState';
 
@@ -53,6 +56,8 @@ export function TransactionPanel({
   quantity,
   ticketType,
 }: TransactionPanelProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const closed = mode === 'closed';
   // A new bid moves the amount in place: a brief dip-and-return, never a
   // rebuild of the panel (CFT-502). Under Reduce Motion the value just changes.
@@ -124,14 +129,15 @@ export function TransactionPanel({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: {
     paddingHorizontal: v2.space.lg,
     paddingVertical: v2.space.lg,
     gap: v2.space.md,
   },
   card: {
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
     padding: v2.space.lg,
     gap: v2.space.sm,
   },
@@ -143,11 +149,11 @@ const styles = StyleSheet.create({
   },
   cardPrice: { flexShrink: 1, minWidth: 0 },
   qtyCol: { alignItems: 'flex-end', flexShrink: 0 },
-  qty: { color: v2.text.primary },
-  qtyNote: { color: v2.text.muted },
-  subLine: { color: v2.text.secondary },
+  qty: { color: p.text.primary },
+  qtyNote: { color: p.text.muted },
+  subLine: { color: p.text.secondary },
   // §5: amber only for a real sub-15-minute close; the caller's clock carries that decision.
-  subLineUrgent: { color: v2.status.warning },
+  subLineUrgent: { color: p.status.warning },
   breakdown: { gap: v2.space.xs },
   bRow: {
     flexDirection: 'row',
@@ -155,8 +161,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: v2.space.md,
   },
-  bEyebrow: { color: v2.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
-  bLabel: { color: v2.text.secondary },
-  bValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  note: { color: v2.text.muted },
-});
+  bEyebrow: { color: p.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
+  bLabel: { color: p.text.secondary },
+  bValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  note: { color: p.text.muted },
+  });
+}

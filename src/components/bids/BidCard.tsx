@@ -11,7 +11,7 @@
  * component does no arithmetic.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -19,6 +19,8 @@ import { Badge, usePressScale } from '@/src/components/ui';
 import type { BidPresentation, BidTone } from '@/src/lib/bids/bidState';
 import { needsAction } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface BidCardProps {
@@ -42,6 +44,8 @@ const TONE: Record<BidTone, 'neutral' | 'success' | 'warning' | 'danger'> = {
 function BidCardImpl({
   eventName, venue, whenLabel, coverPath, presentation, priceAllIn, secondaryAllIn, urgencyLabel, onPress,
 }: BidCardProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
   const act = needsAction(presentation.status);
   const dimmed = presentation.group === 'past';
@@ -113,8 +117,9 @@ function BidCardImpl({
 
 export const BidCard = memo(BidCardImpl);
 
-const styles = StyleSheet.create({
-  urgency: { color: v2.status.warning, marginTop: 2 },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  urgency: { color: p.status.warning, marginTop: 2 },
   wrap: { marginBottom: v2.space.md },
   row: {
     flexDirection: 'row',
@@ -122,18 +127,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
   dimmed: { opacity: 0.55 },
   body: { flex: 1, minWidth: 0, gap: 3 },
   badgeRow: { flexDirection: 'row' },
-  name: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  name: { color: p.text.primary },
+  meta: { color: p.text.muted },
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: v2.space.sm, marginTop: 2 },
-  priceLabel: { color: v2.text.muted },
-  price: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  allIn: { color: v2.text.muted },
-  secondary: { color: v2.text.muted },
-  action: { color: v2.brand.red, marginTop: 2 },
-  chevron: { color: v2.text.muted, fontSize: 22, lineHeight: 24 },
-});
+  priceLabel: { color: p.text.muted },
+  price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  allIn: { color: p.text.muted },
+  secondary: { color: p.text.muted },
+  action: { color: p.brand.red, marginTop: 2 },
+  chevron: { color: p.text.muted, fontSize: 22, lineHeight: 24 },
+  });
+}

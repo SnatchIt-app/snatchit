@@ -281,6 +281,23 @@ describe('reconciliation with B (owner 2026-09-24) — one pressed value, B\'s D
   });
 });
 
+describe('status.info — the verification blue, graded for Daylight', () => {
+  it('AP18: both mirrors keep Midnight\'s existing blue and Light gets one that clears 4.5:1 on canvas and surface', async () => {
+    const mirror = await import('../packages/design-tokens/src/brand');
+    // Midnight is unchanged by this addition: #60A5FA is the value the Verified Seller badge has
+    // always drawn, promoted from a literal into the one place colours are allowed to live.
+    expect(v2.status.info).toBe('#60A5FA');
+    expect(mirror.status.info).toBe('#60A5FA');
+    // Daylight cannot reuse it: #60A5FA on white is 2.28:1, which is not text.
+    expect(contrast('#60A5FA', '#FFFFFF')).toBeLessThan(3);
+    for (const p of [dark, light]) {
+      for (const bg of [p.surface.canvas, p.surface.surface]) {
+        expect(contrast(p.status.info, bg)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
 describe('A-1 — neutral hairlines, approved (owner 2026-09-22, restated 2026-09-24)', () => {
   it('AP17: Midnight dividers are the approved neutral #28292D, the stronger rule is the graded control edge, no red-tinted hairline survives in either mirror; the canvas stays #000000', async () => {
     const mirror = await import('../packages/design-tokens/src/brand');

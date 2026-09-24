@@ -13,6 +13,7 @@
  * not a decision), stacked above the date line so nothing collides.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
@@ -23,6 +24,8 @@ import { FEATURE_GUTTER, HERO_DATE_BOTTOM, HERO_NAME_GAP } from '@/src/lib/desig
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 import type { MediaAsset } from '@/src/lib/media/url';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface ListingHeroProps {
@@ -51,6 +54,8 @@ export function ListingHero({
   onBack,
   onOverflow,
 }: ListingHeroProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // The artwork runs under the status bar on purpose — a safe-area gap above it
   // would frame the image like a card. The CONTROLS still have to clear the
   // notch, so the inset is applied to them rather than to the frame.
@@ -94,7 +99,8 @@ export function ListingHero({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   controls: {
     position: 'absolute',
     left: v2.space.sm,
@@ -111,6 +117,7 @@ const styles = StyleSheet.create({
     paddingBottom: CONTENT_BOTTOM,
   },
   badge: { alignSelf: 'flex-start', marginBottom: v2.space.sm },
-  when: { color: v2.text.secondary, marginBottom: HERO_NAME_GAP - v2.space.xs },
-  title: { color: v2.text.primary },
-});
+  when: { color: p.onArt.secondary, marginBottom: HERO_NAME_GAP - v2.space.xs },
+  title: { color: p.onArt.primary },
+  });
+}

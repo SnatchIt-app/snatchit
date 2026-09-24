@@ -16,7 +16,7 @@
 
 import { router } from 'expo-router';
 import { Alert, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
@@ -24,6 +24,8 @@ import { Button, IconButton } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
@@ -40,6 +42,8 @@ type SettingsRoute = | '/_dev/transfer-states' | '/settings/edit-profile'
   | '/settings/appearance';
 
 export default function SettingsScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
 
@@ -367,33 +371,35 @@ export default function SettingsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
   probeBanner: {
     marginTop: v2.space.lg, padding: v2.space.md,
-    borderWidth: 1, borderColor: v2.border.strong,
+    borderWidth: 1, borderColor: p.border.strong,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md,
   },
-  probeText: { color: v2.text.secondary, flex: 1 },
-  retry: { color: v2.brand.red },
+  probeText: { color: p.text.secondary, flex: 1 },
+  retry: { color: p.brand.red },
 
   pendingBanner: {
     marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
-    backgroundColor: v2.surface.surface, borderWidth: 1, borderColor: v2.brand.red,
+    backgroundColor: p.surface.surface, borderWidth: 1, borderColor: p.brand.red,
   },
-  pendingTitle: { color: v2.text.primary },
-  pendingBody: { color: v2.text.secondary, marginBottom: v2.space.xs },
+  pendingTitle: { color: p.text.primary },
+  pendingBody: { color: p.text.secondary, marginBottom: v2.space.xs },
 
   actions: { marginTop: v2.space.xxl, gap: v2.space.md },
-});
+  });
+}

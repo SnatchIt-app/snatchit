@@ -192,8 +192,8 @@ describe('Visual discipline (CFT-207) and press response on the seller card (CFT
     }
   });
   it('countdowns use tabular digits', () => {
-    expect(read('src/components/listing/ListingStatusBanner.tsx')).toContain("detail: { color: v2.text.secondary, fontVariant: ['tabular-nums'] }");
-    expect(read('app/transfer/receive/[id].tsx')).toContain("countdownText: { color: v2.status.warning, fontVariant: ['tabular-nums'] }");
+    expect(read('src/components/listing/ListingStatusBanner.tsx')).toContain("detail: { color: p.text.secondary, fontVariant: ['tabular-nums'] }");
+    expect(read('app/transfer/receive/[id].tsx')).toContain("countdownText: { color: p.status.warning, fontVariant: ['tabular-nums'] }");
   });
   it('the seller card and its row actions are Tappable, not bare Pressables', () => {
     const card = stripComments(read('src/components/SellerListingCard.tsx'));

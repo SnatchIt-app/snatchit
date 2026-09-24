@@ -7,12 +7,14 @@
  */
 
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 const FAQ = [
@@ -36,7 +38,7 @@ function openEmail() {
   Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Snatch It Support Request`).catch(() => {});
 }
 
-function FaqItem({ q, a }: { q: string; a: string }) {
+function FaqItem({ q, a, s }: { q: string; a: string; s: ReturnType<typeof makeStyles> }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={s.faqItem}>
@@ -50,6 +52,8 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 }
 
 export default function SupportScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={s.root}>
       <SettingsHeader title="Support" />
@@ -68,7 +72,7 @@ export default function SupportScreen() {
 
         <AccountSection title="Common questions">
           {FAQ.map((item) => (
-            <FaqItem key={item.q} q={item.q} a={item.a} />
+            <FaqItem key={item.q} q={item.q} a={item.a} s={s} />
           ))}
         </AccountSection>
 
@@ -78,19 +82,21 @@ export default function SupportScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
-  title: { color: v2.text.primary, marginBottom: v2.space.xs },
-  description: { color: v2.text.secondary, marginBottom: v2.space.sm },
-  body: { color: v2.text.muted, paddingVertical: v2.space.sm },
+  title: { color: p.text.primary, marginBottom: v2.space.xs },
+  description: { color: p.text.secondary, marginBottom: v2.space.sm },
+  body: { color: p.text.muted, paddingVertical: v2.space.sm },
   emailBtn: { alignSelf: 'flex-start', marginTop: v2.space.sm },
 
-  faqItem: { borderBottomWidth: 1, borderBottomColor: v2.border.default, paddingVertical: v2.space.md },
+  faqItem: { borderBottomWidth: 1, borderBottomColor: p.border.default, paddingVertical: v2.space.md },
   faqHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: v2.space.sm },
-  faqQ: { flex: 1, color: v2.text.primary },
-  faqChevron: { color: v2.brand.red, fontSize: 20, lineHeight: 22 },
-  faqA: { color: v2.text.muted, marginTop: v2.space.sm },
+  faqQ: { flex: 1, color: p.text.primary },
+  faqChevron: { color: p.brand.red, fontSize: 20, lineHeight: 22 },
+  faqA: { color: p.text.muted, marginTop: v2.space.sm },
 
   pad: { height: v2.space.xxxl },
-});
+  });
+}

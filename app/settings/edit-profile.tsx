@@ -22,6 +22,8 @@ import { digitsOnly, formatPhoneDisplay, isValidUSPhone, normalizeUSPhone, PHONE
 import { Button, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
@@ -34,6 +36,8 @@ function getInitials(name: string): string {
 }
 
 export default function EditProfileScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
 
   const [pageLoading, setPageLoading] = useState(true);
@@ -140,7 +144,7 @@ export default function EditProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Edit profile" />
-        <View style={s.center}><Spinner color={v2.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }
@@ -161,7 +165,7 @@ export default function EditProfileScreen() {
             ) : (
               <View style={s.avatarFallback}><Text style={s.avatarInitials}>{getInitials(displayName)}</Text></View>
             )}
-            {avatarUploading ? <View style={s.avatarOverlay}><Spinner color={v2.text.primary} /></View> : null}
+            {avatarUploading ? <View style={s.avatarOverlay}><Spinner color={palette.text.primary} /></View> : null}
           </Pressable>
           <Pressable onPress={handleAvatarPress} disabled={avatarUploading} hitSlop={8}>
             <Text style={[textStyle('label'), s.changePhoto]}>{avatarUploading ? 'Uploading' : 'Change photo'}</Text>
@@ -198,14 +202,14 @@ export default function EditProfileScreen() {
               <Text style={[textStyle('bodySm'), bio.trim().length > 200 ? s.countOver : s.count]}>{bio.trim().length}/200</Text>
             </View>
             <TextInput
-              style={[textStyle('body') as TextStyle, s.bio, { borderBottomColor: submitted && errors.bio ? v2.status.error : bioFocused ? v2.brand.red : v2.border.strong }]}
+              style={[textStyle('body') as TextStyle, s.bio, { borderBottomColor: submitted && errors.bio ? palette.status.error : bioFocused ? palette.brand.red : palette.border.strong }]}
               placeholder="Tell others about yourself"
-              placeholderTextColor={v2.text.faint}
+              placeholderTextColor={palette.text.faint}
               value={bio}
               onChangeText={setBio}
               onFocus={() => setBioFocused(true)}
               onBlur={() => setBioFocused(false)}
-              selectionColor={v2.brand.red}
+              selectionColor={palette.brand.red}
               multiline
               numberOfLines={4}
               maxLength={200}
@@ -227,8 +231,9 @@ export default function EditProfileScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
@@ -236,20 +241,21 @@ const s = StyleSheet.create({
   avatarSection: { alignItems: 'center', marginBottom: v2.space.xl, gap: v2.space.sm },
   avatarRing: {
     width: RING, height: RING, borderRadius: RING / 2,
-    borderWidth: 1, borderColor: v2.brand.red, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: p.brand.red, alignItems: 'center', justifyContent: 'center',
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
-  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: v2.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: v2.brand.red },
+  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.red },
   avatarOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: RING / 2, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
-  changePhoto: { color: v2.brand.red },
+  changePhoto: { color: p.brand.red },
 
   fields: { gap: v2.space.lg },
   bioLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.xs },
-  bioLabel: { color: v2.text.muted },
-  count: { color: v2.text.faint, fontVariant: ['tabular-nums'] },
-  countOver: { color: v2.status.error, fontVariant: ['tabular-nums'] },
-  bio: { minHeight: 96, color: v2.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
-  fieldError: { color: v2.status.error, marginTop: v2.space.xs },
-  validation: { color: v2.status.error, textAlign: 'center' },
-});
+  bioLabel: { color: p.text.muted },
+  count: { color: p.text.faint, fontVariant: ['tabular-nums'] },
+  countOver: { color: p.status.error, fontVariant: ['tabular-nums'] },
+  bio: { minHeight: 96, color: p.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
+  fieldError: { color: p.status.error, marginTop: v2.space.xs },
+  validation: { color: p.status.error, textAlign: 'center' },
+  });
+}

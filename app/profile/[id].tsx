@@ -13,7 +13,7 @@
 
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -26,8 +26,12 @@ import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { deriveReputation, reputationTone } from '@/src/lib/profile/reputation';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, ProfileTrustStats } from '@/src/types';
+
+type Styles = ReturnType<typeof makeStyles>;
 
 type PublicProfile = {
   id: string;
@@ -50,7 +54,7 @@ function memberSince(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-function ActiveListingRow({ listing }: { listing: Listing }) {
+function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {
   return (
     <Pressable style={s.listingRow} onPress={() => router.push(`/listing/${listing.id}`)} accessibilityRole="button" accessibilityLabel={listing.event_name}>
       <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" width={64} title={listing.event_name} decorative />
@@ -68,7 +72,7 @@ function ActiveListingRow({ listing }: { listing: Listing }) {
   );
 }
 
-function TrustRow({ label, value, emphasize, last }: { label: string; value: string; emphasize?: boolean; last?: boolean }) {
+function TrustRow({ label, value, emphasize, last, s }: { label: string; value: string; emphasize?: boolean; last?: boolean; s: Styles }) {
   return (
     <View style={[s.trustRow, !last && s.trustRowBorder]}>
       <Text style={[textStyle('body'), s.trustRowLabel]}>{label}</Text>
@@ -78,6 +82,8 @@ function TrustRow({ label, value, emphasize, last }: { label: string; value: str
 }
 
 export default function PublicProfileScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const sellerId = id ?? '';
@@ -177,7 +183,7 @@ export default function PublicProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Profile" />
-        <View style={s.centered}><Spinner color={v2.brand.red} /></View>
+        <View style={s.centered}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }
@@ -251,12 +257,12 @@ export default function PublicProfileScreen() {
                 </View>
               </View>
               <View style={s.trustRows}>
-                <TrustRow label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} />
-                <TrustRow label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} />
-                <TrustRow label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} />
-                <TrustRow label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} />
-                <TrustRow label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} />
-                <TrustRow label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last />
+                <TrustRow label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} s={s} />
+                <TrustRow label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} s={s} />
+                <TrustRow label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} s={s} />
+                <TrustRow label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} s={s} />
+                <TrustRow label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} s={s} />
+                <TrustRow label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last s={s} />
               </View>
             </>
           )}
@@ -267,7 +273,7 @@ export default function PublicProfileScreen() {
           {activeListings.length === 0 ? (
             <Text style={[textStyle('bodySm'), s.emptyListings]}>No active listings right now.</Text>
           ) : (
-            <View style={s.listings}>{activeListings.map((l) => <ActiveListingRow key={l.id} listing={l} />)}</View>
+            <View style={s.listings}>{activeListings.map((l) => <ActiveListingRow key={l.id} listing={l} s={s} />)}</View>
           )}
         </AccountSection>
 
@@ -286,8 +292,9 @@ export default function PublicProfileScreen() {
 const AVATAR = 88;
 const RING = AVATAR + 8;
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: v2.space.xl, gap: v2.space.md },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
@@ -295,48 +302,49 @@ const s = StyleSheet.create({
   identity: { alignItems: 'center', paddingTop: v2.space.xl },
   avatarRing: {
     width: RING, height: RING, borderRadius: RING / 2,
-    borderWidth: 1, borderColor: v2.brand.red, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: p.brand.red, alignItems: 'center', justifyContent: 'center',
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
-  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: v2.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: v2.brand.red },
-  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: v2.text.primary, marginTop: v2.space.md, textAlign: 'center' },
+  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: p.brand.red },
+  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.text.primary, marginTop: v2.space.md, textAlign: 'center' },
   badgeWrap: { marginTop: v2.space.sm },
-  bio: { color: v2.text.muted, textAlign: 'center', marginTop: v2.space.md },
+  bio: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.md },
 
   unavailable: { paddingVertical: v2.space.md, gap: v2.space.sm, alignItems: 'flex-start' },
-  unavailableTitle: { color: v2.text.primary },
-  unavailableBody: { color: v2.text.muted },
+  unavailableTitle: { color: p.text.primary },
+  unavailableBody: { color: p.text.muted },
   retry: { minWidth: 140, marginTop: v2.space.xs },
 
   hero: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.lg, paddingVertical: v2.space.md },
   heroLeft: { flex: 1 },
-  heroLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
-  heroValue: { fontFamily: v2.font.bodyBold, fontSize: 34, color: v2.text.primary, letterSpacing: -0.5 },
-  heroSub: { color: v2.text.muted, marginTop: 2 },
+  heroLabel: { color: p.text.muted, marginBottom: v2.space.xs },
+  heroValue: { fontFamily: v2.font.bodyBold, fontSize: 34, color: p.text.primary, letterSpacing: -0.5 },
+  heroSub: { color: p.text.muted, marginTop: 2 },
   heroRight: { alignItems: 'flex-end', gap: v2.space.xs, maxWidth: 150 },
-  heroBlurb: { color: v2.text.muted, textAlign: 'right' },
+  heroBlurb: { color: p.text.muted, textAlign: 'right' },
 
-  trustRows: { borderTopWidth: 1, borderTopColor: v2.border.default },
+  trustRows: { borderTopWidth: 1, borderTopColor: p.border.default },
   trustRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: v2.space.md },
-  trustRowBorder: { borderBottomWidth: 1, borderBottomColor: v2.border.default },
-  trustRowLabel: { color: v2.text.muted },
-  trustRowValue: { color: v2.text.primary },
-  trustRowValueEmphasize: { color: v2.status.error },
+  trustRowBorder: { borderBottomWidth: 1, borderBottomColor: p.border.default },
+  trustRowLabel: { color: p.text.muted },
+  trustRowValue: { color: p.text.primary },
+  trustRowValueEmphasize: { color: p.status.error },
 
   listings: { gap: v2.space.sm },
-  listingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface, padding: v2.space.md },
+  listingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface, padding: v2.space.md },
   listingInfo: { flex: 1, minWidth: 0 },
-  listingName: { color: v2.text.primary },
-  listingVenue: { color: v2.text.muted, marginTop: 2 },
+  listingName: { color: p.text.primary },
+  listingVenue: { color: p.text.muted, marginTop: 2 },
   listingRight: { alignItems: 'flex-end' },
-  listingBidLabel: { color: v2.text.muted },
-  listingBid: { color: v2.text.primary, marginTop: 1 },
-  emptyListings: { color: v2.text.muted, paddingVertical: v2.space.md },
+  listingBidLabel: { color: p.text.muted },
+  listingBid: { color: p.text.primary, marginTop: 1 },
+  emptyListings: { color: p.text.muted, paddingVertical: v2.space.md },
 
   actions: { marginTop: v2.space.xxl, gap: v2.space.md },
 
-  blockedTitle: { color: v2.text.primary, textAlign: 'center' },
-  blockedBody: { color: v2.text.muted, textAlign: 'center', maxWidth: 320 },
+  blockedTitle: { color: p.text.primary, textAlign: 'center' },
+  blockedBody: { color: p.text.muted, textAlign: 'center', maxWidth: 320 },
   unblock: { minWidth: 160, marginTop: v2.space.sm },
-});
+  });
+}

@@ -31,7 +31,7 @@
  */
 
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -58,6 +58,8 @@ import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
@@ -74,7 +76,7 @@ function sanitize(term: string): string {
  * A failed query over results that are still valid. Inline, above the rows, with
  * the same two states ScreenState distinguishes. Never carries server text.
  */
-function SearchFailureNotice({ kind, onRetry }: { kind: 'offline' | 'error'; onRetry: () => void }) {
+function SearchFailureNotice({ s, kind, onRetry }: { s: Styles; kind: 'offline' | 'error'; onRetry: () => void }) {
   return (
     <View style={s.notice} accessibilityRole="alert">
       <Text style={[textStyle('bodySm'), s.noticeText]}>
@@ -90,6 +92,8 @@ function SearchFailureNotice({ kind, onRetry }: { kind: 'offline' | 'error'; onR
 }
 
 export default function SearchScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { blockedIds } = useBlockedUserIds();
@@ -217,7 +221,7 @@ export default function SearchScreen() {
           ListHeaderComponent={
             <>
               {failure === 'inline' && loadError ? (
-                <SearchFailureNotice kind={loadError} onRetry={() => runSearch(query)} />
+                <SearchFailureNotice s={s} kind={loadError} onRetry={() => runSearch(query)} />
               ) : null}
               {shown.length > 0 ? (
                 // "2 listings · Soonest first": a count of what is ON SCREEN, and a sort label
@@ -302,8 +306,11 @@ export default function SearchScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+type Styles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -325,7 +332,7 @@ const s = StyleSheet.create({
     height: 1,
     marginHorizontal: 20,
     marginBottom: 10,
-    backgroundColor: v2.border.overArt,
+    backgroundColor: p.border.overArt,
   },
   resultsHeader: {
     flexDirection: 'row',
@@ -334,15 +341,15 @@ const s = StyleSheet.create({
     paddingHorizontal: v2.space.lg,
     paddingBottom: v2.space.md,
   },
-  resultsCount: { color: v2.text.primary },
-  resultsSort: { color: v2.text.muted },
+  resultsCount: { color: p.text.primary },
+  resultsSort: { color: p.text.muted },
   // §5 empty state: the heading wraps inside the column, left on the same 20pt gutter.
   emptyWrap: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl, gap: v2.space.sm },
-  emptyTitle: { color: v2.text.primary },
-  emptyBody: { color: v2.text.muted },
+  emptyTitle: { color: p.text.primary },
+  emptyBody: { color: p.text.muted },
   emptyActions: { flexDirection: 'row', gap: v2.space.sm, paddingTop: v2.space.lg },
   hint: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
-  hintText: { color: v2.text.muted },
+  hintText: { color: p.text.muted },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -351,6 +358,7 @@ const s = StyleSheet.create({
     paddingHorizontal: v2.space.lg,
     paddingBottom: v2.space.md,
   },
-  noticeText: { color: v2.text.muted, flexShrink: 1 },
-  noticeAction: { color: v2.brand.red },
-});
+  noticeText: { color: p.text.muted, flexShrink: 1 },
+  noticeAction: { color: p.brand.red },
+  });
+}

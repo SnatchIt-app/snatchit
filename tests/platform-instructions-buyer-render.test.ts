@@ -18,6 +18,15 @@ import type { TicketPlatform } from '@/src/types';
 import { HookHost } from './helpers/nav-stack-harness';
 import { screenText } from './helpers/screen-view';
 
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Pressable: 'Pressable', Text: 'Text', View: 'View', StyleSheet: { create: <T,>(s: T) => s },
 }));

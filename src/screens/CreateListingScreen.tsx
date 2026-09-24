@@ -55,6 +55,8 @@ import {
   proceedsKicker,
 } from '@/src/lib/sell/sellState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { NEIGHBORHOOD_GROUPS, NEIGHBORHOOD_LABELS } from '@/src/constants/neighborhoods';
 import { CATEGORIES, CATEGORY_LABELS } from '@/src/constants/categories';
@@ -115,8 +117,15 @@ function toDateStr(d: Date) { return d.toISOString().split('T')[0]; }
 function toTimeStr(d: Date) { return d.toTimeString().split(' ')[0]; }
 
 // ─── Presentational building blocks (V2) ────────────────────────────────────────
+//
+// These sit outside the screen function, so the resolved styles (and, where a colour
+// is applied inline, the palette) are handed to them as props — never read from
+// module scope, and never through a hook outside a component.
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** The screen's resolved stylesheet, built by makeStyles() from the live palette. */
+type SellStyles = ReturnType<typeof makeStyles>;
+
+function Section({ title, children, sx }: { title: string; children: React.ReactNode; sx: SellStyles }) {
   return (
     <View style={sx.section}>
       <View style={sx.sectionHead}>
@@ -137,19 +146,23 @@ function SelectRow({
   placeholder,
   error,
   onPress,
+  sx,
+  p,
 }: {
   label: string;
   value: string | null;
   placeholder: string;
   error?: string;
   onPress: () => void;
+  sx: SellStyles;
+  p: Palette;
 }) {
   return (
     <View style={sx.field}>
       <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
       <Pressable
         onPress={onPress}
-        style={[sx.selectRow, { borderBottomColor: error ? v2.status.error : v2.border.strong }]}
+        style={[sx.selectRow, { borderBottomColor: error ? p.status.error : p.border.strong }]}
         accessibilityRole="button"
         accessibilityLabel={`${label}. ${value ?? placeholder}`}
       >
@@ -172,15 +185,19 @@ function MoneyField({
   onChange,
   error,
   helper,
+  sx,
+  p,
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
   error?: string;
   helper?: string;
+  sx: SellStyles;
+  p: Palette;
 }) {
   const [focused, setFocused] = useState(false);
-  const underline = error ? v2.status.error : focused ? v2.brand.red : v2.border.strong;
+  const underline = error ? p.status.error : focused ? p.brand.red : p.border.strong;
   return (
     <View style={sx.field}>
       <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
@@ -194,8 +211,8 @@ function MoneyField({
           onBlur={() => setFocused(false)}
           keyboardType="number-pad"
           placeholder="0"
-          placeholderTextColor={v2.text.faint}
-          selectionColor={v2.brand.red}
+          placeholderTextColor={p.text.faint}
+          selectionColor={p.brand.red}
           accessibilityLabel={label}
           accessibilityHint={error ?? helper}
         />
@@ -215,11 +232,15 @@ function MultilineField({
   value,
   onChange,
   placeholder,
+  sx,
+  p,
 }: {
   label: string;
   value: string;
   onChange: (t: string) => void;
   placeholder: string;
+  sx: SellStyles;
+  p: Palette;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -229,15 +250,15 @@ function MultilineField({
         style={[
           textStyle('body') as TextStyle,
           sx.multiline,
-          { borderBottomColor: focused ? v2.brand.red : v2.border.strong },
+          { borderBottomColor: focused ? p.brand.red : p.border.strong },
         ]}
         value={value}
         onChangeText={onChange}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
-        placeholderTextColor={v2.text.faint}
-        selectionColor={v2.brand.red}
+        placeholderTextColor={p.text.faint}
+        selectionColor={p.brand.red}
         multiline
         numberOfLines={3}
         accessibilityLabel={label}
@@ -246,7 +267,7 @@ function MultilineField({
   );
 }
 
-function ChipRow({ children }: { children: React.ReactNode }) {
+function ChipRow({ children, sx }: { children: React.ReactNode; sx: SellStyles }) {
   return (
     <ScrollView
       horizontal
@@ -259,11 +280,11 @@ function ChipRow({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FieldLabel({ text }: { text: string }) {
+function FieldLabel({ text, sx }: { text: string; sx: SellStyles }) {
   return <Text style={[textStyle('micro'), sx.groupLabel]}>{text}</Text>;
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value, sx }: { label: string; value: string; sx: SellStyles }) {
   return (
     <View style={sx.reviewRow}>
       <Text style={[textStyle('bodySm'), sx.reviewKey]}>{label}</Text>
@@ -276,6 +297,8 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 
 export default function CreateListingScreen() {
   const { user } = useAuth();
+  const { palette } = useTheme();
+  const sx = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   // Lift the List ticket CTA above the floating dock: its own surface, clear gap —
   // but not while a keyboard is up (F-SELL-1): the dock hides then, and the lift
@@ -585,7 +608,7 @@ export default function CreateListingScreen() {
         scrollEventThrottle={16}
       >
         {/* ── EVENT ─────────────────────────────────────────── */}
-        <Section title="Event">
+        <Section title="Event" sx={sx}>
           <Input
             label="Event name"
             placeholder="e.g. Weekend pool party"
@@ -608,27 +631,29 @@ export default function CreateListingScreen() {
             placeholder="Select area or venue"
             error={submitted ? errors.neighborhood : undefined}
             onPress={() => setNeighborhoodOpen(true)}
+            sx={sx}
+            p={palette}
           />
           <View style={sx.dateRow}>
             <View style={sx.dateCol}>
-              <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} />
+              <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} sx={sx} p={palette} />
             </View>
             <View style={sx.dateCol}>
-              <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} />
+              <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
             </View>
           </View>
         </Section>
 
         {/* ── TICKET ────────────────────────────────────────── */}
-        <Section title="Ticket">
-          <FieldLabel text="Category" />
-          <ChipRow>
+        <Section title="Ticket" sx={sx}>
+          <FieldLabel text="Category" sx={sx} />
+          <ChipRow sx={sx}>
             {CATEGORIES.map((c) => (
               <Chip key={c} label={CATEGORY_LABELS[c]} selected={category === c} onPress={() => setCategory(c)} />
             ))}
           </ChipRow>
 
-          <FieldLabel text="Ticket type" />
+          <FieldLabel text="Ticket type" sx={sx} />
           <View style={sx.inlineChips}>
             {TICKET_TYPES.map((t) => (
               <Chip key={t} label={t} selected={ticketType === t} onPress={() => setTicketType(t)} />
@@ -638,7 +663,7 @@ export default function CreateListingScreen() {
             <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.ticketType}</Text>
           ) : null}
 
-          <FieldLabel text="Quantity" />
+          <FieldLabel text="Quantity" sx={sx} />
           <View style={sx.stepper}>
             <Pressable
               style={[sx.stepBtn, quantity <= 1 && sx.stepDisabled]}
@@ -662,7 +687,7 @@ export default function CreateListingScreen() {
             </Pressable>
           </View>
 
-          <FieldLabel text="Transfer method" />
+          <FieldLabel text="Transfer method" sx={sx} />
           <View style={sx.inlineChips}>
             {TRANSFER_METHODS.map(({ value, label }) => (
               <Chip key={value} label={label} selected={transferMethod === value} onPress={() => setTransferMethod(value)} />
@@ -677,6 +702,8 @@ export default function CreateListingScreen() {
             value={platformLabel}
             placeholder="Select platform"
             onPress={() => setPlatformOpen(true)}
+            sx={sx}
+            p={palette}
           />
 
           <MultilineField
@@ -684,11 +711,13 @@ export default function CreateListingScreen() {
             value={restrictions}
             onChange={setRestrictions}
             placeholder="e.g. 21+, no re-entry, dress code"
+            sx={sx}
+            p={palette}
           />
         </Section>
 
         {/* ── SELLING METHOD + PRICE ────────────────────────── */}
-        <Section title="Selling method">
+        <Section title="Selling method" sx={sx}>
           <Text style={[textStyle('bodySm'), sx.blurb]}>{sellingMethodBlurb(buyNowEnabled)}</Text>
 
           <MoneyField
@@ -699,6 +728,8 @@ export default function CreateListingScreen() {
             helper={summary.valid && (!buyNowEnabled || buyNowPriceNum <= 0)
               ? `Buyers pay ${summary.buyerAllInLabel}`
               : undefined}
+            sx={sx}
+            p={palette}
           />
 
           <Pressable
@@ -715,9 +746,9 @@ export default function CreateListingScreen() {
             <Switch
               value={buyNowEnabled}
               onValueChange={(v) => { setBuyNowEnabled(v); if (!v) setBuyNowPrice(''); }}
-              trackColor={{ false: v2.border.strong, true: v2.brand.red }}
-              thumbColor={v2.text.primary}
-              ios_backgroundColor={v2.border.strong}
+              trackColor={{ false: palette.border.strong, true: palette.brand.red }}
+              thumbColor={palette.text.primary}
+              ios_backgroundColor={palette.border.strong}
             />
           </Pressable>
 
@@ -730,11 +761,13 @@ export default function CreateListingScreen() {
               helper={summary.valid && buyNowPriceNum > 0
                 ? `Buyers pay ${summary.buyerAllInLabel}`
                 : undefined}
+              sx={sx}
+              p={palette}
             />
           ) : null}
 
-          <FieldLabel text="Auction duration" />
-          <ChipRow>
+          <FieldLabel text="Auction duration" sx={sx} />
+          <ChipRow sx={sx}>
             {DURATION_OPTIONS.map((h) => (
               <Chip
                 key={h}
@@ -750,7 +783,7 @@ export default function CreateListingScreen() {
         </Section>
 
         {/* ── PHOTOS ────────────────────────────────────────── */}
-        <Section title="Photos">
+        <Section title="Photos" sx={sx}>
           <MediaUpload
             variant="cover"
             localUri={coverUpload.localUri}
@@ -787,7 +820,7 @@ export default function CreateListingScreen() {
         </Section>
 
         {/* ── CONFIRM ───────────────────────────────────────── */}
-        <Section title="Confirm">
+        <Section title="Confirm" sx={sx}>
           <Pressable
             style={sx.commitRow}
             onPress={() => setSellerCommitmentAccepted((v) => !v)}
@@ -812,9 +845,9 @@ export default function CreateListingScreen() {
               (buyer side on the price field, seller net at the sticky), so they are not repeated. */}
           {summary.valid ? (
             <View style={sx.reviewCard}>
-              <ReviewRow label="Event" value={eventName.trim() || '—'} />
-              <ReviewRow label="Tickets" value={ticketType ? `${quantity} × ${ticketType}` : `${quantity}`} />
-              <ReviewRow label="Selling" value={buyNowEnabled ? 'Auction + Buy Now' : 'Auction'} />
+              <ReviewRow label="Event" value={eventName.trim() || '—'} sx={sx} />
+              <ReviewRow label="Tickets" value={ticketType ? `${quantity} × ${ticketType}` : `${quantity}`} sx={sx} />
+              <ReviewRow label="Selling" value={buyNowEnabled ? 'Auction + Buy Now' : 'Auction'} sx={sx} />
             </View>
           ) : null}
 
@@ -973,7 +1006,7 @@ export default function CreateListingScreen() {
             value={pickerMode === 'date' ? eventDate : eventTime}
             mode={pickerMode}
             display="spinner"
-            textColor={v2.text.primary}
+            textColor={palette.text.primary}
             onChange={onPickerChange}
             minimumDate={pickerMode === 'date' ? new Date() : undefined}
           />
@@ -1004,25 +1037,26 @@ export default function CreateListingScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const sx = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
   header: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
-  pageTitle: { color: v2.text.primary },
+  pageTitle: { color: p.text.primary },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
   section: { marginTop: v2.space.xl },
   sectionHead: { marginBottom: v2.space.lg },
-  sectionRule: { height: 1, backgroundColor: v2.border.default, marginBottom: v2.space.md },
-  sectionTitle: { color: v2.text.primary },
+  sectionRule: { height: 1, backgroundColor: p.border.default, marginBottom: v2.space.md },
+  sectionTitle: { color: p.text.primary },
   sectionBody: { gap: v2.space.lg },
 
   field: { alignSelf: 'stretch' },
-  fieldLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
-  fieldError: { color: v2.status.error, marginTop: v2.space.xs },
-  fieldHelper: { color: v2.text.muted, marginTop: v2.space.xs },
-  groupLabel: { color: v2.text.muted, marginBottom: v2.space.sm },
+  fieldLabel: { color: p.text.muted, marginBottom: v2.space.xs },
+  fieldError: { color: p.status.error, marginTop: v2.space.xs },
+  fieldHelper: { color: p.text.muted, marginTop: v2.space.xs },
+  groupLabel: { color: p.text.muted, marginBottom: v2.space.sm },
 
   selectRow: {
     minHeight: 50,
@@ -1032,20 +1066,20 @@ const sx = StyleSheet.create({
     borderBottomWidth: 1,
     paddingVertical: v2.space.sm,
   },
-  selectValue: { color: v2.text.primary, flex: 1 },
-  selectPlaceholder: { color: v2.text.faint, flex: 1 },
-  chevron: { color: v2.text.muted, fontSize: 22, marginLeft: v2.space.sm },
+  selectValue: { color: p.text.primary, flex: 1 },
+  selectPlaceholder: { color: p.text.faint, flex: 1 },
+  chevron: { color: p.text.muted, fontSize: 22, marginLeft: v2.space.sm },
 
   dateRow: { flexDirection: 'row', gap: v2.space.lg },
   dateCol: { flex: 1 },
 
   moneyRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingVertical: v2.space.sm },
-  moneyPrefix: { color: v2.text.muted, marginRight: v2.space.xs },
-  moneyInput: { flex: 1, color: v2.text.primary, padding: 0 },
+  moneyPrefix: { color: p.text.muted, marginRight: v2.space.xs },
+  moneyInput: { flex: 1, color: p.text.primary, padding: 0 },
 
   multiline: {
     minHeight: 76,
-    color: v2.text.primary,
+    color: p.text.primary,
     borderBottomWidth: 1,
     paddingVertical: v2.space.sm,
     textAlignVertical: 'top',
@@ -1057,69 +1091,72 @@ const sx = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xl },
   stepBtn: {
     width: 44, height: 44,
-    borderWidth: 1, borderColor: v2.border.strong,
+    borderWidth: 1, borderColor: p.border.strong,
     alignItems: 'center', justifyContent: 'center',
   },
   stepDisabled: { opacity: 0.35 },
-  stepGlyph: { color: v2.text.primary, fontSize: 24, lineHeight: 28 },
-  stepVal: { color: v2.text.primary, minWidth: 32, textAlign: 'center' },
+  stepGlyph: { color: p.text.primary, fontSize: 24, lineHeight: 28 },
+  stepVal: { color: p.text.primary, minWidth: 32, textAlign: 'center' },
 
-  blurb: { color: v2.text.secondary },
+  blurb: { color: p.text.secondary },
 
   toggleRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: v2.border.default,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: p.border.default,
     paddingVertical: v2.space.md,
   },
   toggleText: { flex: 1, marginRight: v2.space.md },
-  toggleTitle: { color: v2.text.primary },
-  toggleHint: { color: v2.text.muted, marginTop: 2 },
+  toggleTitle: { color: p.text.primary },
+  toggleHint: { color: p.text.muted, marginTop: 2 },
 
   commitRow: { flexDirection: 'row', alignItems: 'flex-start' },
   checkbox: {
     width: 22, height: 22,
-    borderWidth: 2, borderColor: v2.border.strong,
+    borderWidth: 2, borderColor: p.border.strong,
     alignItems: 'center', justifyContent: 'center',
     marginRight: v2.space.sm, marginTop: 1,
   },
-  checkboxOn: { backgroundColor: v2.brand.red, borderColor: v2.brand.red },
-  checkMark: { color: v2.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
-  commitText: { flex: 1, color: v2.text.secondary },
+  checkboxOn: { backgroundColor: p.brand.red, borderColor: p.brand.red },
+  checkMark: { color: p.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  commitText: { flex: 1, color: p.text.secondary },
 
   reviewCard: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.md, gap: v2.space.sm, marginTop: v2.space.md,
   },
   reviewRow: { flexDirection: 'row', justifyContent: 'space-between', gap: v2.space.md },
-  reviewKey: { color: v2.text.muted },
-  reviewVal: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
+  reviewKey: { color: p.text.muted },
+  reviewVal: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
   riskBanner: { padding: v2.space.md, marginTop: v2.space.md, borderWidth: 1 },
-  riskBannerMedium:   { backgroundColor: '#332B00', borderColor: '#665500' },
-  riskBannerHigh:     { backgroundColor: '#331A00', borderColor: '#663300' },
-  riskBannerCritical: { backgroundColor: '#330000', borderColor: '#660000' },
-  riskBannerText: { color: '#FFDDBB' },
+  // Graded by severity and translucent by design: a tint composites over the Midnight canvas and
+  // the Daylight canvas alike, where the old opaque browns were dark-only (AM5 classifies them).
+  riskBannerMedium:   { backgroundColor: 'rgba(255,176,32,0.12)', borderColor: 'rgba(255,176,32,0.45)' },
+  riskBannerHigh:     { backgroundColor: 'rgba(255,120,32,0.12)', borderColor: 'rgba(255,120,32,0.45)' },
+  riskBannerCritical: { backgroundColor: 'rgba(255,77,77,0.12)',  borderColor: 'rgba(255,77,77,0.45)' },
+  riskBannerText: { color: p.text.primary },
 
-  validationMsg: { color: v2.status.error, textAlign: 'center', marginTop: v2.space.md },
+  validationMsg: { color: p.status.error, textAlign: 'center', marginTop: v2.space.md },
 
-  stickyKicker: { color: v2.text.muted },
-  stickyValue: { color: v2.text.primary, marginTop: 2 },
-  stickyHint: { color: v2.text.muted, marginTop: 2 },
-  stickySummary: { color: v2.status.error },
+  stickyKicker: { color: p.text.muted },
+  stickyValue: { color: p.text.primary, marginTop: 2 },
+  stickyHint: { color: p.text.muted, marginTop: 2 },
+  stickySummary: { color: p.status.error },
 
   sheetList: { marginTop: v2.space.sm, maxHeight: 380 },
-  sheetGroup: { color: v2.text.faint, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
+  sheetGroup: { color: p.text.faint, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
   sheetRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     minHeight: 48, paddingVertical: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  sheetRowOn: { backgroundColor: v2.brand.redSoft },
-  sheetRowText: { color: v2.text.primary },
-  sheetRowTextOn: { color: v2.brand.red },
-  sheetCheck: { color: v2.brand.red, fontSize: 16, fontWeight: '700' },
+  sheetRowOn: { backgroundColor: p.brand.redSoft },
+  sheetRowText: { color: p.text.primary },
+  sheetRowTextOn: { color: p.brand.red },
+  sheetCheck: { color: p.brand.red, fontSize: 16, fontWeight: '700' },
 
-  riskModalBody: { color: v2.text.secondary },
+  riskModalBody: { color: p.text.secondary },
   riskModalActions: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },
   riskModalBtn: { flex: 1 },
-});
+  });
+}

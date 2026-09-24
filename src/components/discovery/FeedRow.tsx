@@ -8,7 +8,7 @@
  * price is and whether a clock exists; feedRowState formats the §5 words; this file does neither.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -19,7 +19,8 @@ import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, rowMeta } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
-import * as v2 from '@/src/theme/v2';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 
 export interface FeedRowProps {
   eventName: string;
@@ -54,6 +55,8 @@ function FeedRowImpl({
   nowMs,
   onPress,
 }: FeedRowProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
   const meta = rowMeta({ eventDate, eventTime, venue, quantity, ticketType, bidCount });
   const dimmed = presentation.status === 'sold' || presentation.status === 'ended';
@@ -130,7 +133,8 @@ function FeedRowImpl({
 
 export const FeedRow = memo(FeedRowImpl);
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -141,14 +145,15 @@ const s = StyleSheet.create({
   // Content-driven height: the clearance under the LAST metadata line is the §3 rule, pinned to
   // the shared constant. Nothing in this sheet sets a row height.
   text: { flex: 1, paddingBottom: ROW_META_CLEARANCE },
-  title: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  title: { color: p.text.primary },
+  meta: { color: p.text.muted },
   metaFirst: { marginTop: 4 },
   price: { alignItems: 'flex-end' },
-  priceValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  priceDimmed: { color: v2.text.secondary },
-  caption: { color: v2.text.muted },
-  clock: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
+  priceValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  priceDimmed: { color: p.text.secondary },
+  caption: { color: p.text.muted },
+  clock: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
   // §5: amber, and ONLY under 15 minutes — feedRowState owns the threshold. Never brand red.
-  clockUrgent: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
-});
+  clockUrgent: { color: p.status.warning, fontVariant: ['tabular-nums'] },
+  });
+}

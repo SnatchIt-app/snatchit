@@ -71,6 +71,8 @@ import { HomeFeature } from '@/src/components/discovery/HomeFeature';
 import { HomeHeader } from '@/src/components/discovery/HomeHeader';
 import { cardPresentation } from '@/src/lib/listing/cardState';
 import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, MyProfileRPC } from '@/src/types';
 import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
@@ -122,6 +124,8 @@ function coverPath(listing: Listing): string | null {
 // components, so home and search cannot drift apart.
 
 export default function HomeScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   // Adaptive dock: feed scroll direction in, and give the list bottom clearance
   // so its last row is not hidden behind the floating dock.
   const { onScroll: onHomeScroll, expand } = useDockScroll('home');
@@ -471,7 +475,7 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={v2.brand.red}
+            tintColor={palette.brand.red}
           />
         }
         ListHeaderComponent={
@@ -601,7 +605,8 @@ export default function HomeScreen() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -609,9 +614,9 @@ const s = StyleSheet.create({
     gap: v2.space.sm,
     paddingBottom: v2.space.md,
   },
-  noticeText: { color: v2.text.muted, flexShrink: 1 },
-  noticeAction: { color: v2.brand.red },
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
+  noticeText: { color: p.text.muted, flexShrink: 1 },
+  noticeAction: { color: p.brand.red },
+  container: { flex: 1, backgroundColor: p.surface.canvas },
   // Holds the feed and the overlay bar; clips the bar as it slides up so it
   // never rides over the brand header.
   feed: { flex: 1, overflow: 'hidden' },
@@ -621,7 +626,7 @@ const s = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: v2.surface.canvas,
+    backgroundColor: p.surface.canvas,
   },
   quickRow: {
     flexDirection: 'row',
@@ -645,6 +650,7 @@ const s = StyleSheet.create({
     height: 1,
     marginHorizontal: 20,
     marginBottom: 10,
-    backgroundColor: v2.border.overArt,
+    backgroundColor: p.border.overArt,
   },
-});
+  });
+}

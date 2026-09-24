@@ -11,23 +11,30 @@
  * WORD. A user who cannot distinguish the tones still reads "Sold" or "You won".
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { ListingStatus, StatusTone } from '@/src/lib/listing/detailState';
 
-const TONE: Record<StatusTone, string> = {
-  brand: v2.brand.red,
-  success: v2.status.success,
-  warning: v2.status.warning,
-  danger: v2.status.error,
-  neutral: v2.text.muted,
-};
+function toneColors(p: Palette): Record<StatusTone, string> {
+  return {
+    brand: p.brand.red,
+    success: p.status.success,
+    warning: p.status.warning,
+    danger: p.status.error,
+    neutral: p.text.muted,
+  };
+}
 
 export function ListingStatusBanner({ status }: { status: ListingStatus | null }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   if (!status) return null;
-  const color = TONE[status.tone];
+  const color = toneColors(palette)[status.tone];
 
   return (
     <View
@@ -48,15 +55,17 @@ export function ListingStatusBanner({ status }: { status: ListingStatus | null }
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     paddingVertical: v2.space.md,
     paddingHorizontal: v2.space.lg,
     // A 2pt edge instead of a filled block: the status informs, it does not
     // shout, and it never competes with the artwork below it.
     borderLeftWidth: 2,
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
     gap: 2,
   },
-  detail: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
-});
+  detail: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
+  });
+}

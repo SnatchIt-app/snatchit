@@ -11,12 +11,14 @@
  * vocabulary); state is never color-only — every badge carries its word.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/src/components/ui';
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import {
   eventDateLabel,
@@ -41,7 +43,7 @@ function groupA11yLabel(g: EventGroup): string {
   return `${head}. ${g.rows.map(rowA11yLabel).join('. ')}`;
 }
 
-function StateRow({ row, quiet }: { row: MyTicketGroup; quiet?: boolean }) {
+function StateRow({ s, row, quiet }: { s: Styles; row: MyTicketGroup; quiet?: boolean }) {
   return (
     <View style={s.row} accessible accessibilityLabel={rowA11yLabel(row)}>
       <Text style={[textStyle('body'), quiet ? s.rowTextQuiet : s.rowText]} numberOfLines={1}>
@@ -64,6 +66,8 @@ export const TicketEventGroup = memo(function TicketEventGroup({
   group: EventGroup;
   emphasis: 'upcoming' | 'past';
 }) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const asset = { path: group.artwork_ref, bucket: 'event-media' as const, contract: 'v2' as const };
   const dateLine = eventDateLabel(group.starts_at);
 
@@ -79,7 +83,7 @@ export const TicketEventGroup = memo(function TicketEventGroup({
           <Text style={[textStyle('bodySm'), s.metaQuiet]} numberOfLines={1}>{group.venue_name}</Text>
           <View style={s.pastRows}>
             {group.rows.map((r, i) => (
-              <StateRow key={`${r.ticket_type_id}:${r.ownership_status}:${r.fulfillment_status}:${i}`} row={r} quiet />
+              <StateRow key={`${r.ticket_type_id}:${r.ownership_status}:${r.fulfillment_status}:${i}`} s={s} row={r} quiet />
             ))}
           </View>
         </View>
@@ -98,7 +102,7 @@ export const TicketEventGroup = memo(function TicketEventGroup({
         </Text>
         <View style={s.rows}>
           {group.rows.map((r, i) => (
-            <StateRow key={`${r.ticket_type_id}:${r.ownership_status}:${r.fulfillment_status}:${i}`} row={r} />
+            <StateRow key={`${r.ticket_type_id}:${r.ownership_status}:${r.fulfillment_status}:${i}`} s={s} row={r} />
           ))}
         </View>
       </View>
@@ -106,22 +110,25 @@ export const TicketEventGroup = memo(function TicketEventGroup({
   );
 });
 
-const s = StyleSheet.create({
+type Styles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   // Upcoming — artwork-led card.
   card: {
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
     borderWidth: 1,
-    borderColor: v2.border.default,
+    borderColor: p.border.default,
     marginBottom: v2.space.lg,
   },
   body: { padding: v2.space.lg, gap: v2.space.xs },
-  title: { color: v2.text.primary },
-  meta: { color: v2.text.secondary },
+  title: { color: p.text.primary },
+  meta: { color: p.text.secondary },
   rows: { marginTop: v2.space.md, gap: v2.space.sm },
 
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md, minHeight: 32 },
-  rowText: { color: v2.text.primary, flexShrink: 1 },
-  rowTextQuiet: { color: v2.text.secondary, flexShrink: 1 },
+  rowText: { color: p.text.primary, flexShrink: 1 },
+  rowTextQuiet: { color: p.text.secondary, flexShrink: 1 },
   badges: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xs, flexShrink: 0 },
 
   // Past — quieter row.
@@ -130,12 +137,13 @@ const s = StyleSheet.create({
     gap: v2.space.md,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
     opacity: 0.92,
   },
   pastThumb: { width: 64, height: 64, overflow: 'hidden' },
   pastBody: { flex: 1, gap: 2 },
-  pastTitle: { color: v2.text.primary },
-  metaQuiet: { color: v2.text.muted },
+  pastTitle: { color: p.text.primary },
+  metaQuiet: { color: p.text.muted },
   pastRows: { marginTop: v2.space.xs, gap: v2.space.xs },
-});
+  });
+}

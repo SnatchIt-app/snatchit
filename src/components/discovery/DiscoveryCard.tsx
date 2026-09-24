@@ -13,7 +13,7 @@
  * also how the old "Bid now" label stopped appearing on Buy Now listings.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -22,6 +22,8 @@ import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { textStyle } from '@/src/theme/typography';
 import { NameText } from '@/src/components/NameText';
 import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface DiscoveryCardProps {
@@ -58,6 +60,8 @@ function DiscoveryCardImpl({
   countdown,
   onPress,
 }: DiscoveryCardProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
   const dimmed = presentation.status === 'sold' || presentation.status === 'ended';
 
@@ -149,7 +153,8 @@ function DiscoveryCardImpl({
 
 export const DiscoveryCard = memo(DiscoveryCardImpl);
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { flex: 1 },
   // Sold and ended listings stay in the feed but stop competing with what is
   // still buyable.
@@ -158,16 +163,17 @@ const styles = StyleSheet.create({
   // V3 §3: the row grows with its contents, and the last metadata line keeps ≥ ROW_META_CLEARANCE
   // of clear space before whatever follows — never crowding a divider. No height is hard-coded.
   body: { paddingTop: v2.space.sm, gap: 2, paddingBottom: ROW_META_CLEARANCE },
-  title: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  title: { color: p.text.primary },
+  meta: { color: p.text.muted },
   priceRow: { marginTop: v2.space.xs },
-  priceLabel: { color: v2.text.muted },
-  price: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  priceDimmed: { color: v2.text.secondary },
+  priceLabel: { color: p.text.muted },
+  price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  priceDimmed: { color: p.text.secondary },
   // "all in" rides on the same line, smaller and quieter, so the number keeps
   // the hierarchy while the promise stays visible.
-  allIn: { color: v2.text.muted },
-  alt: { color: v2.text.muted },
-  clock: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
-  clockUrgent: { color: v2.status.error },
-});
+  allIn: { color: p.text.muted },
+  alt: { color: p.text.muted },
+  clock: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
+  clockUrgent: { color: p.status.error },
+  });
+}

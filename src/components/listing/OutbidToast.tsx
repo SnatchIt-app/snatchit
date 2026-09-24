@@ -12,17 +12,21 @@
  * overshoot, and under reduce motion it simply appears and disappears.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { EASING_BEZIER, textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 const [x1, y1, x2, y2] = EASING_BEZIER;
 
 export function OutbidToast({ visible, message }: { visible: boolean; message: string }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const reduceMotion = useReducedMotion();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
@@ -62,7 +66,8 @@ export function OutbidToast({ visible, message }: { visible: boolean; message: s
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   toast: {
     position: 'absolute',
     top: 0,
@@ -71,8 +76,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     paddingVertical: v2.space.sm,
     paddingHorizontal: v2.space.lg,
-    backgroundColor: v2.status.error,
+    backgroundColor: p.status.error,
     alignItems: 'center',
   },
-  text: { color: v2.text.inverse },
-});
+  text: { color: p.text.inverse },
+  });
+}

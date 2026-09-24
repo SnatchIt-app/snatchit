@@ -25,6 +25,8 @@ export const ON_ART = {
   primary: '#FFFFFF',
   secondary: 'rgba(255,255,255,0.78)',
   muted: 'rgba(255,255,255,0.62)',
+  /** Urgency over artwork (a closing clock on a flyer): the Midnight amber, kept in both. */
+  urgent: '#FFB020',
 } as const;
 
 export interface Palette {
@@ -89,6 +91,8 @@ export const light: Palette = {
     success: '#0B7A3C',
     warning: '#8A5400',
     error: '#C41414',
+    /** Solved on the plate like the others: 6.30:1 on the canvas, 5.62:1 on the surface. */
+    info: '#1B5FB8',
   },
   // Light glass: the dock floats as a near-white material with a dark hairline; the selected
   // capsule and the avatar dim blend toward the dock fill, as on Midnight, in the other direction.

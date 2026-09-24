@@ -28,7 +28,7 @@
  */
 
 import { Link, router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -60,10 +60,14 @@ import { AuthScreen } from '@/src/components/auth/AuthScreen';
 import { GenderSelect } from '@/src/components/auth/GenderSelect';
 import { formatPhoneDisplay, normalizeUSPhone, PHONE_DISPLAY_MAXLENGTH } from '@/src/utils/phone';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 
 export default function SignUpScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [step, setStep] = useState<SignupStep>('account');
 
   const [email, setEmail] = useState('');
@@ -413,27 +417,29 @@ export default function SignUpScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  progress: { color: v2.text.muted, marginBottom: v2.space.sm },
-  title: { color: v2.text.primary, marginBottom: v2.space.xl },
-  subtitle: { color: v2.text.secondary, marginBottom: v2.space.lg, marginTop: -v2.space.md },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  progress: { color: p.text.muted, marginBottom: v2.space.sm },
+  title: { color: p.text.primary, marginBottom: v2.space.xl },
+  subtitle: { color: p.text.secondary, marginBottom: v2.space.lg, marginTop: -v2.space.md },
   fields: { gap: v2.space.lg },
-  error: { color: v2.status.error, marginTop: v2.space.md },
-  success: { color: v2.status.success, marginTop: v2.space.md },
+  error: { color: p.status.error, marginTop: v2.space.md },
+  success: { color: p.status.success, marginTop: v2.space.md },
   ageRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: v2.space.lg },
   checkbox: {
-    width: 22, height: 22, borderWidth: 2, borderColor: v2.border.strong,
+    width: 22, height: 22, borderWidth: 2, borderColor: p.border.strong,
     alignItems: 'center', justifyContent: 'center', marginRight: v2.space.sm,
   },
-  checkboxOn: { backgroundColor: v2.brand.red, borderColor: v2.brand.red },
-  checkMark: { color: v2.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
-  ageText: { flex: 1, color: v2.text.secondary },
-  legal: { color: v2.text.muted, marginTop: v2.space.sm, marginBottom: v2.space.xs },
-  legalLink: { color: v2.brand.red, textDecorationLine: 'underline' },
+  checkboxOn: { backgroundColor: p.brand.red, borderColor: p.brand.red },
+  checkMark: { color: p.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  ageText: { flex: 1, color: p.text.secondary },
+  legal: { color: p.text.muted, marginTop: v2.space.sm, marginBottom: v2.space.xs },
+  legalLink: { color: p.brand.red, textDecorationLine: 'underline' },
   cta: { marginTop: v2.space.lg },
   alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
-  altText: { color: v2.text.muted },
+  altText: { color: p.text.muted },
   link: { alignItems: 'center', marginTop: v2.space.lg },
-  linkText: { color: v2.text.muted },
-  linkAccent: { color: v2.brand.red },
-});
+  linkText: { color: p.text.muted },
+  linkAccent: { color: p.brand.red },
+  });
+}

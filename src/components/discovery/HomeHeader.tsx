@@ -7,7 +7,8 @@
  *
  * Brand mark: the official white "SN" monogram, `brand/sn-logo-white.png`,
  * rendered directly on the black header — no plate, no border, no container, and
- * no tint, because the asset is already white on transparent. It replaces the
+ * tinted to the primary ink, because the asset is white on transparent and a
+ * white monogram is invisible on Daylight's white canvas. It replaces the
  * "Snatch It" wordmark (owner request). This is a navigation brand mark, not a
  * hero graphic, so it is sized to sit on the header line with the search control.
  *
@@ -22,12 +23,15 @@
  * switchable it updates from MIAMI to the selected city with no header change.
  */
 
+import { useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { IconButton } from '@/src/components/ui';
 import { useCurrentMarket } from '@/src/lib/market/currentMarket';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 // The official SN mark. Intrinsic 1024×371; the aspect ratio is pinned in the
@@ -37,6 +41,8 @@ const SN_MARK_RATIO = 1024 / 371;
 const SN_MARK_HEIGHT = 24;
 
 export function HomeHeader({ onSearch }: { onSearch: () => void }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // The real inset, not a guessed 56. Every tab screen in this app hardcoded it.
   const topPad = useTopInset();
   const market = useCurrentMarket();
@@ -70,14 +76,15 @@ export function HomeHeader({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   header: {
     paddingHorizontal: v2.space.lg,
     paddingBottom: v2.space.md,
   },
   // Full width + centred: exact screen centring for the mark.
   markRow: { alignItems: 'center' },
-  mark: { height: SN_MARK_HEIGHT, aspectRatio: SN_MARK_RATIO },
+  mark: { height: SN_MARK_HEIGHT, aspectRatio: SN_MARK_RATIO, tintColor: p.text.primary },
   // The market label keeps its previous 4pt offset under the mark.
   metaRow: {
     marginTop: 4,
@@ -85,5 +92,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  place: { color: v2.brand.red },
-});
+  place: { color: p.brand.red },
+  });
+}

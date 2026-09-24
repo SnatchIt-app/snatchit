@@ -15,6 +15,7 @@
  * failed), the slot-sized derivative and the recycling key a raw Image never had.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -32,6 +33,8 @@ import {
 } from '@/src/lib/listing/sellerListing';
 import { formatDollars } from '@/src/lib/money';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
@@ -58,6 +61,8 @@ function titleCase(s: string | null | undefined): string {
 }
 
 export default function SellerListingCard({ listing, onPress, onDelete, onEdit, isVerifiedSeller, needsTicketSend, busy }: Props) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const badge = sellerBadge(listing);
   const cancelled = badge === 'cancelled';
   const canEdit = canEditListing(listing);
@@ -140,13 +145,14 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
   );
 }
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   card: {
     flexDirection: 'row',
     gap: v2.space.md,
     borderWidth: 1,
-    borderColor: v2.border.default,
-    backgroundColor: v2.surface.surface,
+    borderColor: p.border.default,
+    backgroundColor: p.surface.surface,
     padding: v2.space.md,
     marginBottom: v2.space.sm,
   },
@@ -154,21 +160,22 @@ const s = StyleSheet.create({
 
   content: { flex: 1, minWidth: 0, justifyContent: 'center', gap: v2.space.xs },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xs },
-  event: { color: v2.text.primary, flexShrink: 1 },
-  venue: { color: v2.text.muted },
+  event: { color: p.text.primary, flexShrink: 1 },
+  venue: { color: p.text.muted },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm, flexWrap: 'wrap' },
-  meta: { color: v2.text.muted },
+  meta: { color: p.text.muted },
 
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.sm },
   bottomLeft: { flexShrink: 1, minWidth: 0 },
-  dim: { color: v2.text.faint },
-  urgent: { color: v2.status.error },
-  ok: { color: v2.status.success },
-  action: { color: v2.status.warning },
+  dim: { color: p.text.faint },
+  urgent: { color: p.status.error },
+  ok: { color: p.status.success },
+  action: { color: p.status.warning },
 
   actions: { flexDirection: 'row', gap: v2.space.md },
-  edit: { color: v2.brand.red },
-  delete: { color: v2.status.error },
-  cancel: { color: v2.status.warning },
-});
+  edit: { color: p.brand.red },
+  delete: { color: p.status.error },
+  cancel: { color: p.status.warning },
+  });
+}

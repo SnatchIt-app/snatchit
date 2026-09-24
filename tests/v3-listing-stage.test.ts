@@ -11,6 +11,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => { (globalThis as Record<string, unknown>).__DEV__ = false; });
 
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Animated: { View: 'Animated.View' },
   Pressable: 'Pressable', Text: 'Text', View: 'View',

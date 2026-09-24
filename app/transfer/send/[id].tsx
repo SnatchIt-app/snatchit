@@ -10,7 +10,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -33,6 +33,8 @@ import {
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -57,6 +59,8 @@ type TransferData = {
 
 export default function TransferSendScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -301,7 +305,7 @@ export default function TransferSendScreen() {
   }
 
   if (loading) {
-    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
   if (error || !transfer) {
@@ -329,7 +333,7 @@ export default function TransferSendScreen() {
         contentContainerStyle={s.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
       >
         {/* Server-confirmed expiry: don't transfer (owner, 2026-09-19) */}
         {windowView.kind === 'closed' ? <SellerClosedBlock title={windowView.title} body={windowView.body} /> : null}
@@ -344,8 +348,8 @@ export default function TransferSendScreen() {
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
         <View style={s.section}>
           <Text style={[textStyle('micro'), s.sectionLabel]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
-          {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} /> : null}
-          {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} /> : null}
+          {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} s={s} /> : null}
+          {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} s={s} /> : null}
           {buyerDeliveryMissing ? (
             <View style={s.warnBox}>
               <Text style={[textStyle('bodySm'), s.warnTitle]}>Delivery info not yet provided</Text>
@@ -374,9 +378,9 @@ export default function TransferSendScreen() {
             <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
             <Badge label={meta.label} tone={meta.tone} />
           </View>
-          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} />
-          <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} />
-          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} />
+          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} s={s} />
+          <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
+          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
         </View>
 
         {/* PENDING — upload + mark sent */}
@@ -479,7 +483,7 @@ export default function TransferSendScreen() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, s }: { label: string; value: string; s: TransferStyles }) {
   return (
     <View style={s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
@@ -488,52 +492,56 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+type TransferStyles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  errorText: { color: v2.status.error },
+  errorText: { color: p.status.error },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
   section: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.md, marginBottom: v2.space.md,
   },
-  sectionLabel: { color: v2.text.muted, marginBottom: v2.space.sm },
+  sectionLabel: { color: p.text.muted, marginBottom: v2.space.sm },
   detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
-  rowLabel: { color: v2.text.muted },
-  rowValue: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
+  rowLabel: { color: p.text.muted },
+  rowValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  warnBox: { marginTop: v2.space.sm, borderWidth: 1, borderColor: v2.status.error, padding: v2.space.sm },
-  warnTitle: { color: v2.status.error, marginBottom: v2.space.xs },
-  warnText: { color: v2.text.muted },
+  warnBox: { marginTop: v2.space.sm, borderWidth: 1, borderColor: p.status.error, padding: v2.space.sm },
+  warnTitle: { color: p.status.error, marginBottom: v2.space.xs },
+  warnText: { color: p.text.muted },
 
-  countdown: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
-  countdownExpired: { borderColor: v2.status.error },
-  countdownText: { color: v2.status.warning },
-  countdownExpiredText: { color: v2.status.error },
+  countdown: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
+  countdownExpired: { borderColor: p.status.error },
+  countdownText: { color: p.status.warning },
+  countdownExpiredText: { color: p.status.error },
 
   block: { marginBottom: v2.space.md },
-  hint: { color: v2.text.muted, marginBottom: v2.space.sm },
-  confirmNote: { color: v2.text.secondary, marginTop: v2.space.md },
-  blockedText: { color: v2.status.error, marginTop: v2.space.sm },
+  hint: { color: p.text.muted, marginBottom: v2.space.sm },
+  confirmNote: { color: p.text.secondary, marginTop: v2.space.md },
+  blockedText: { color: p.status.error, marginTop: v2.space.sm },
   cta: { marginTop: v2.space.md },
 
   stateBlock: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
   },
-  stateText: { color: v2.text.secondary },
-  stateSub: { color: v2.text.muted, marginTop: v2.space.xs },
-  stateWarn: { color: v2.status.warning, marginTop: v2.space.sm },
+  stateText: { color: p.text.secondary },
+  stateSub: { color: p.text.muted, marginTop: v2.space.xs },
+  stateWarn: { color: p.status.warning, marginTop: v2.space.sm },
 });
+}

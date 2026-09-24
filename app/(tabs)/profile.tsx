@@ -14,7 +14,7 @@
 
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -34,6 +34,8 @@ import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
@@ -80,6 +82,8 @@ const PAYOUT_COPY: Record<PayoutStatus, { title: string; state: string; tone: 's
 
 export default function ProfileScreen() {
   const { user } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { onScroll: onDockScroll, expand: expandDock } = useDockScroll('profile');
@@ -228,7 +232,7 @@ export default function ProfileScreen() {
   if (pageLoading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={v2.brand.red} />
+        <Spinner color={palette.brand.red} />
       </View>
     );
   }
@@ -263,7 +267,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={onDockScroll}
         scrollEventThrottle={16}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
       >
         {/* ── Identity ──────────────────────────────────────── */}
         <View style={s.identity}>
@@ -276,7 +280,7 @@ export default function ProfileScreen() {
               </View>
             )}
             {avatarUploading ? (
-              <View style={s.avatarOverlay}><Spinner color={v2.text.primary} /></View>
+              <View style={s.avatarOverlay}><Spinner color={palette.text.primary} /></View>
             ) : (
               <View style={s.avatarEditBadge}><Text style={s.avatarEditGlyph}>{'✎'}</Text></View>
             )}
@@ -296,12 +300,12 @@ export default function ProfileScreen() {
         {/* ── Seller ────────────────────────────────────────── */}
         <AccountSection title="Seller">
           <View style={s.stats}>
-            <Stat label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
+            <Stat s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
             <View style={s.statDivider} />
-            <Stat label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
+            <Stat s={s} label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
             <View style={s.statDivider} />
             {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
-            <Stat label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
+            <Stat s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
           </View>
           <SettingsRow
             label="My listings"
@@ -330,7 +334,7 @@ export default function ProfileScreen() {
   );
 }
 
-function Stat({ label, value, onPress }: { label: string; value: string; onPress?: () => void }) {
+function Stat({ s, label, value, onPress }: { s: Styles; label: string; value: string; onPress?: () => void }) {
   const body = (
     <View style={s.stat}>
       <Text style={[textStyle('price'), s.statValue]} numberOfLines={1}>{value}</Text>
@@ -350,32 +354,35 @@ function Stat({ label, value, onPress }: { label: string; value: string; onPress
 const AVATAR = 92;
 const RING = AVATAR + 8;
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+type Styles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { alignItems: 'center', justifyContent: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
-  headerAction: { color: v2.brand.red },
+  headerTitle: { color: p.text.primary },
+  headerAction: { color: p.brand.red },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
   identity: { alignItems: 'center', paddingTop: v2.space.xl, paddingBottom: v2.space.lg },
   avatarRing: {
     width: RING, height: RING, borderRadius: RING / 2,
-    borderWidth: 1, borderColor: v2.brand.red,
+    borderWidth: 1, borderColor: p.brand.red,
     alignItems: 'center', justifyContent: 'center', marginBottom: v2.space.md,
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
   avatarFallback: {
     width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2,
-    backgroundColor: v2.brand.redSoft, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center',
   },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: v2.brand.red },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.red },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject, borderRadius: RING / 2,
     backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center',
@@ -383,21 +390,22 @@ const s = StyleSheet.create({
   avatarEditBadge: {
     position: 'absolute', bottom: 0, right: 4,
     width: 26, height: 26, borderRadius: 13,
-    backgroundColor: v2.brand.red, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: v2.surface.canvas,
+    backgroundColor: p.brand.red, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: p.surface.canvas,
   },
-  avatarEditGlyph: { color: v2.text.inverse, fontSize: 13, fontWeight: '700', lineHeight: 15 },
+  avatarEditGlyph: { color: p.text.inverse, fontSize: 13, fontWeight: '700', lineHeight: 15 },
 
-  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: v2.text.primary, textAlign: 'center' },
-  phone: { color: v2.text.muted, marginTop: v2.space.xs },
+  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.text.primary, textAlign: 'center' },
+  phone: { color: p.text.muted, marginTop: v2.space.xs },
   badges: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },
 
   stats: { flexDirection: 'row', alignItems: 'stretch', paddingVertical: v2.space.md },
   statPressable: { flex: 1 },
   stat: { flex: 1, alignItems: 'center', gap: v2.space.xs },
-  statValue: { color: v2.text.primary },
-  statLabel: { color: v2.text.muted },
-  statDivider: { width: 1, backgroundColor: v2.border.default, marginVertical: v2.space.xs },
+  statValue: { color: p.text.primary },
+  statLabel: { color: p.text.muted },
+  statDivider: { width: 1, backgroundColor: p.border.default, marginVertical: v2.space.xs },
 
   signOut: { marginTop: v2.space.xxl },
-});
+  });
+}

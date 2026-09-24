@@ -22,6 +22,8 @@ import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChang
 import { Button } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { ReportReason, ReportTargetType } from '@/src/types';
 
@@ -35,6 +37,8 @@ const REASONS: { value: ReportReason; label: string; appliesTo: ReportTargetType
 ];
 
 export default function ReportScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
   const params = useLocalSearchParams<{ type: string; id: string }>();
   const targetType = (params.type === 'user' ? 'user' : 'listing') as ReportTargetType;
@@ -110,14 +114,14 @@ export default function ReportScreen() {
 
           <Text style={[textStyle('micro'), s.sectionLabel]}>Additional details (optional)</Text>
           <TextInput
-            style={[textStyle('body') as TextStyle, s.notes, { borderBottomColor: notesFocused ? v2.brand.red : v2.border.strong }]}
+            style={[textStyle('body') as TextStyle, s.notes, { borderBottomColor: notesFocused ? palette.brand.red : palette.border.strong }]}
             placeholder="Anything else our team should know?"
-            placeholderTextColor={v2.text.faint}
+            placeholderTextColor={palette.text.faint}
             value={notes}
             onChangeText={setNotes}
             onFocus={() => setNotesFocused(true)}
             onBlur={() => setNotesFocused(false)}
-            selectionColor={v2.brand.red}
+            selectionColor={palette.brand.red}
             multiline
             maxLength={1000}
             accessibilityLabel="Additional details"
@@ -135,23 +139,25 @@ export default function ReportScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   flex: { flex: 1 },
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  lead: { color: v2.text.secondary, marginBottom: v2.space.lg },
-  sectionLabel: { color: v2.text.muted, marginTop: v2.space.lg, marginBottom: v2.space.sm },
+  lead: { color: p.text.secondary, marginBottom: v2.space.lg },
+  sectionLabel: { color: p.text.muted, marginTop: v2.space.lg, marginBottom: v2.space.sm },
 
-  reasons: { borderTopWidth: 1, borderTopColor: v2.border.default },
-  reasonRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, minHeight: 52, paddingVertical: v2.space.sm, borderBottomWidth: 1, borderBottomColor: v2.border.default },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: v2.border.strong, alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: v2.brand.red },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: v2.brand.red },
-  reasonLabel: { flex: 1, color: v2.text.primary },
+  reasons: { borderTopWidth: 1, borderTopColor: p.border.default },
+  reasonRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, minHeight: 52, paddingVertical: v2.space.sm, borderBottomWidth: 1, borderBottomColor: p.border.default },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: p.border.strong, alignItems: 'center', justifyContent: 'center' },
+  radioOn: { borderColor: p.brand.red },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: p.brand.red },
+  reasonLabel: { flex: 1, color: p.text.primary },
 
-  notes: { minHeight: 96, color: v2.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
-  charCount: { color: v2.text.faint, alignSelf: 'flex-end', marginTop: v2.space.xs, fontVariant: ['tabular-nums'] },
+  notes: { minHeight: 96, color: p.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
+  charCount: { color: p.text.faint, alignSelf: 'flex-end', marginTop: v2.space.xs, fontVariant: ['tabular-nums'] },
 
   submit: { marginTop: v2.space.xl },
-  fineprint: { color: v2.text.muted, textAlign: 'center', marginTop: v2.space.lg },
-});
+  fineprint: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.lg },
+  });
+}

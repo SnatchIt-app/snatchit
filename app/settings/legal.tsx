@@ -4,15 +4,19 @@
  */
 
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
+
+type Styles = ReturnType<typeof makeStyles>;
 
 // ─── Section component ────────────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, s }: { title: string; children: React.ReactNode; s: Styles }) {
   return (
     <View style={s.section}>
       <Text style={s.sectionTitle}>{title}</Text>
@@ -21,11 +25,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Body({ children }: { children: string }) {
+function Body({ children, s }: { children: string; s: Styles }) {
   return <Text style={s.body}>{children}</Text>;
 }
 
-function Bullet({ children }: { children: string }) {
+function Bullet({ children, s }: { children: string; s: Styles }) {
   return (
     <View style={s.bulletRow}>
       <Text style={s.bulletDot}>·</Text>
@@ -37,6 +41,8 @@ function Bullet({ children }: { children: string }) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function LegalScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [fullTermsOpen, setFullTermsOpen] = useState(false);
 
   return (
@@ -53,8 +59,8 @@ export default function LegalScreen() {
         <Text style={s.effectiveDate}>Effective Date: March 20, 2026</Text>
 
         {/* 1. About */}
-        <Section title="About Snatch It">
-          <Body>
+        <Section s={s} title="About Snatch It">
+          <Body s={s}>
             Snatch It is a technology marketplace platform operated by JDT LLC that connects
             independent ticket sellers with buyers. Snatch It is not a party to any transaction
             between users and does not act as a broker, agent, escrow service, or ticket vendor.
@@ -63,33 +69,33 @@ export default function LegalScreen() {
         </Section>
 
         {/* 2. Terms of Use */}
-        <Section title="Terms of Use">
-          <Body>By using the platform, you agree to the following:</Body>
-          <Bullet>
+        <Section s={s} title="Terms of Use">
+          <Body s={s}>By using the platform, you agree to the following:</Body>
+          <Bullet s={s}>
             Sellers are solely responsible for the accuracy of their listings and the validity
             and authenticity of all tickets offered.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             Buyers are solely responsible for reviewing listing details before purchasing or
             bidding, and for confirming receipt of tickets.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             Transactions are conducted directly between buyers and sellers. Once payment is
             processed and confirmed, transactions are final.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             All payments are processed by third-party payment providers (currently Stripe).
             Snatch It does not store payment card details. Under our protected payment flow,
             payment funds are held by Stripe on Snatch It&apos;s behalf until the buyer confirms
             receipt of the ticket (or the auto-release window expires), at which point the
             seller&apos;s net payout is released.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             A 10% service fee is added to the buyer&apos;s total at checkout, and a 10%
             marketplace fee is deducted from the seller&apos;s payout. Snatch It reserves
             the right to modify fee structures with reasonable notice.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             Chargebacks and refunds: if a buyer disputes a charge through their
             bank, or if a refund is issued after a payout has been released to
             the seller, Stripe may debit the disputed or refunded amount from
@@ -100,27 +106,27 @@ export default function LegalScreen() {
             applicable IRS reporting threshold; Stripe files this directly with
             the IRS on the seller&apos;s behalf.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             Use of the platform is at your own risk. Snatch It does not guarantee the
             validity, authenticity, or transferability of any ticket listed.
           </Bullet>
-          <Bullet>
+          <Bullet s={s}>
             You must be at least 18 years of age and have the legal capacity to enter
             binding contracts to use this platform.
           </Bullet>
         </Section>
 
         {/* 3. Privacy & Data */}
-        <Section title="Privacy & Data">
-          <Body>
+        <Section s={s} title="Privacy & Data">
+          <Body s={s}>
             Your use of the platform is also governed by our Privacy Policy. By using Snatch It,
             you consent to the collection, use, and disclosure of your information as described
             therein. Your information may be used to:
           </Body>
-          <Bullet>Operate and maintain the platform and your account.</Bullet>
-          <Bullet>Process transactions and facilitate communication between users.</Bullet>
-          <Bullet>Provide customer support and respond to inquiries.</Bullet>
-          <Bullet>Improve the platform and develop new features.</Bullet>
+          <Bullet s={s}>Operate and maintain the platform and your account.</Bullet>
+          <Bullet s={s}>Process transactions and facilitate communication between users.</Bullet>
+          <Bullet s={s}>Provide customer support and respond to inquiries.</Bullet>
+          <Bullet s={s}>Improve the platform and develop new features.</Bullet>
           <Pressable
             style={s.privacyLink}
             onPress={() => router.push('/settings/privacy')}
@@ -132,12 +138,12 @@ export default function LegalScreen() {
         </Section>
 
         {/* 4. Contact */}
-        <Section title="Contact">
-          <Body>
+        <Section s={s} title="Contact">
+          <Body s={s}>
             For legal inquiries, dispute resolution, or questions about these terms, contact us at:
           </Body>
           <Text style={s.contactEmail}>support@snatchitapp.com</Text>
-          <Body>
+          <Body s={s}>
             Before initiating any formal dispute, you agree to first contact us at this address
             and attempt to resolve the matter informally for at least 30 days.
           </Body>
@@ -311,44 +317,46 @@ export default function LegalScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  safe:         { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  safe:         { flex: 1, backgroundColor: p.surface.canvas },
 
   scroll:       { flex: 1 },
   content:      { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
   pageTitle:    { fontFamily: v2.font.display, fontSize: 26, lineHeight: 33, letterSpacing: -0.5,
-                  textTransform: 'uppercase', color: v2.text.primary, marginBottom: v2.space.xs },
-  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+                  textTransform: 'uppercase', color: p.text.primary, marginBottom: v2.space.xs },
+  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
                   marginBottom: v2.space.lg },
 
   section:      { marginBottom: v2.space.lg },
   sectionTitle: { fontFamily: v2.font.bodyMedium, fontSize: 10, lineHeight: 14, letterSpacing: 3,
-                  textTransform: 'uppercase', color: v2.text.muted, marginBottom: v2.space.sm },
-  body:         { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary,
+                  textTransform: 'uppercase', color: p.text.muted, marginBottom: v2.space.sm },
+  body:         { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary,
                   marginBottom: v2.space.sm },
 
   bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
-  bulletDot:    { color: v2.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
-  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.secondary },
+  bulletDot:    { color: p.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
+  bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary },
 
-  contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+  contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                   marginBottom: v2.space.sm },
 
   fullTermsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chevron:         { color: v2.brand.red, fontSize: 20 },
-  fullTermsBody:   { marginTop: v2.space.sm, backgroundColor: v2.surface.surface, padding: v2.space.md,
-                     borderWidth: 1, borderColor: v2.border.default },
-  ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: v2.text.primary,
+  chevron:         { color: p.brand.red, fontSize: 20 },
+  fullTermsBody:   { marginTop: v2.space.sm, backgroundColor: p.surface.surface, padding: v2.space.md,
+                     borderWidth: 1, borderColor: p.border.default },
+  ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                      marginTop: v2.space.md, marginBottom: v2.space.xs },
-  ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: v2.text.muted },
-  ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: v2.text.faint,
+  ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.muted },
+  ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
                      marginTop: v2.space.lg, textAlign: 'center' },
 
-  privacyLink:     { borderWidth: 1, borderColor: v2.border.strong, paddingVertical: v2.space.md,
+  privacyLink:     { borderWidth: 1, borderColor: p.border.strong, paddingVertical: v2.space.md,
                      paddingHorizontal: v2.space.md, alignItems: 'center', marginTop: v2.space.sm },
   privacyLinkText: { fontFamily: v2.font.bodyBold, fontSize: 12, letterSpacing: 2.2,
-                     textTransform: 'uppercase', color: v2.brand.red },
+                     textTransform: 'uppercase', color: p.brand.red },
 
   bottomPad:    { height: v2.space.xxxl },
-});
+  });
+}

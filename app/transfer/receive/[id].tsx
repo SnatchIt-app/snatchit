@@ -25,7 +25,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -63,6 +63,8 @@ import {
   type HandoffState,
 } from '@/src/lib/transfer/providerHandoff';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -88,6 +90,8 @@ type TransferData = {
 
 export default function TransferReceiveScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -367,7 +371,7 @@ export default function TransferReceiveScreen() {
   }
 
   if (loading) {
-    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
   if (error || !transfer) {
@@ -441,11 +445,11 @@ export default function TransferReceiveScreen() {
             <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
             <Badge label={meta.label} tone={meta.tone} />
           </View>
-          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} />
-          <Row label="Seller" value={transfer.seller?.display_name || 'Unknown'} />
-          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} />
-          {transfer.delivery_email ? <Row label="Delivery email" value={transfer.delivery_email} /> : null}
-          {transfer.delivery_phone ? <Row label="Delivery phone" value={transfer.delivery_phone} /> : null}
+          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} s={s} />
+          <Row label="Seller" value={transfer.seller?.display_name || 'Unknown'} s={s} />
+          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
+          {transfer.delivery_email ? <Row label="Delivery email" value={transfer.delivery_email} s={s} /> : null}
+          {transfer.delivery_phone ? <Row label="Delivery phone" value={transfer.delivery_phone} s={s} /> : null}
         </View>
 
         {/* PENDING */}
@@ -551,7 +555,7 @@ export default function TransferReceiveScreen() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, s }: { label: string; value: string; s: TransferStyles }) {
   return (
     <View style={s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
@@ -560,59 +564,63 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+type TransferStyles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  errorText: { color: v2.status.error },
+  errorText: { color: p.status.error },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },
 
   section: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.md, marginBottom: v2.space.md,
   },
-  sectionLabel: { color: v2.text.muted, marginBottom: v2.space.sm },
+  sectionLabel: { color: p.text.muted, marginBottom: v2.space.sm },
   detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
-  rowLabel: { color: v2.text.muted },
-  rowValue: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
+  rowLabel: { color: p.text.muted },
+  rowValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  gate: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.md, marginBottom: v2.space.md },
-  gateText: { color: v2.status.warning },
+  gate: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.md, marginBottom: v2.space.md },
+  gateText: { color: p.status.warning },
 
-  countdown: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
-  countdownExpired: { borderColor: v2.status.error },
-  countdownText: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
-  countdownExpiredText: { color: v2.status.error },
+  countdown: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, alignItems: 'center', marginBottom: v2.space.md },
+  countdownExpired: { borderColor: p.status.error },
+  countdownText: { color: p.status.warning, fontVariant: ['tabular-nums'] },
+  countdownExpiredText: { color: p.status.error },
 
   proofBlock: { marginBottom: v2.space.md },
-  proofImage: { width: '100%', height: 220, backgroundColor: v2.surface.surface, marginTop: v2.space.xs },
-  hint: { color: v2.text.muted, marginTop: v2.space.xs },
+  proofImage: { width: '100%', height: 220, backgroundColor: p.surface.surface, marginTop: v2.space.xs },
+  hint: { color: p.text.muted, marginTop: v2.space.xs },
 
-  confirmPrompt: { borderWidth: 1, borderColor: v2.status.warning, padding: v2.space.sm, marginBottom: v2.space.md },
+  confirmPrompt: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, marginBottom: v2.space.md },
   confirmPromptHighlight: { borderWidth: 2 },
-  claimTitle: { color: v2.text.primary },
+  claimTitle: { color: p.text.primary },
   openProvider: { marginBottom: v2.space.md },
-  arrival: { borderWidth: 1, borderColor: v2.brand.red, backgroundColor: v2.brand.redSoft, padding: v2.space.md, marginBottom: v2.space.md, gap: v2.space.xs },
-  arrivalTitle: { color: v2.text.primary },
+  arrival: { borderWidth: 1, borderColor: p.brand.red, backgroundColor: p.brand.redSoft, padding: v2.space.md, marginBottom: v2.space.md, gap: v2.space.xs },
+  arrivalTitle: { color: p.text.primary },
   arrivalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm, marginTop: v2.space.sm },
-  confirmPromptText: { color: v2.status.warning },
+  confirmPromptText: { color: p.status.warning },
   cta: { marginTop: v2.space.xs },
   disputeCta: { marginTop: v2.space.sm },
 
   stateBlock: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
   },
-  stateText: { color: v2.text.secondary },
+  stateText: { color: p.text.secondary },
 });
+}

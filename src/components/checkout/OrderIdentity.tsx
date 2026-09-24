@@ -9,12 +9,15 @@
  * it). Missing pieces degrade to what is known: no invented dates, counts or types.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface OrderIdentityProps {
@@ -37,6 +40,8 @@ export function OrderIdentity({
   quantity,
   ticketType,
 }: OrderIdentityProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const dated = eventDate ? rowWhenLabel(eventDate, eventTime ?? '') : '';
   const whenWhere = dated && venue ? `${dated} · ${venue}` : dated || venue || '';
 
@@ -70,9 +75,11 @@ export function OrderIdentity({
   );
 }
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: { flexDirection: 'row', gap: v2.space.md, alignItems: 'flex-start' },
   text: { flex: 1, minWidth: 0, gap: 2 },
-  name: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  name: { color: p.text.primary },
+  meta: { color: p.text.muted },
 });
+}

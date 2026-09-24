@@ -7,11 +7,14 @@
  */
 
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { IconButton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface SettingsHeaderProps {
@@ -21,6 +24,8 @@ export interface SettingsHeaderProps {
 }
 
 export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
   return (
@@ -34,7 +39,8 @@ export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -42,8 +48,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: v2.space.md,
     paddingBottom: v2.space.sm,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
-  title: { color: v2.text.primary, flex: 1, textAlign: 'center', marginHorizontal: v2.space.sm },
+  title: { color: p.text.primary, flex: 1, textAlign: 'center', marginHorizontal: v2.space.sm },
   spacer: { width: 44 },
-});
+  });
+}

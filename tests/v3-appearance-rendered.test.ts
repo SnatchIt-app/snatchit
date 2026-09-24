@@ -212,3 +212,54 @@ describe('Sheet — the grabber identifies the sheet as draggable in both appear
     }
   });
 });
+
+// ── Where a key-for-key rename is the WRONG answer ──────────────────────────────────────────────
+/**
+ * Three surfaces the migration's own metric cannot judge, found while converting the tab group.
+ * Each one renamed cleanly and was still wrong in Light, because the token it named was never the
+ * token it meant. Counting static accesses would have called all three done (owner 2026-09-24:
+ * "Zero static-token counts alone do not prove correct rendering").
+ */
+describe('over-artwork and on-fill inks — the cases a pure rename gets wrong', () => {
+  it('RD8: the over-artwork vocabulary is one set of inks for BOTH appearances, and HomeFeature draws from it alone', async () => {
+    // Text inside EventMedia sits on the photograph and its scrim, not on the canvas. Light's
+    // near-black title (#0B0C0E) over a dark flyer is the defect; onArt is the group that exists
+    // for this, deliberately identical in both appearances.
+    expect(light.onArt).toEqual(dark.onArt);
+    expect(dark.onArt.urgent).toBe('#FFB020');   // the Midnight amber, kept over artwork
+    const src = await stripped('src/components/discovery/HomeFeature.tsx');
+    const styles = src.slice(src.indexOf('function makeStyles'));
+    expect(styles).toMatch(/color: p\.onArt\.primary/);
+    expect(styles).toMatch(/color: p\.onArt\.urgent/);
+    // Nothing in the overlay may take a canvas-side ink.
+    expect(styles).not.toMatch(/color: p\.text\./);
+    expect(styles).not.toMatch(/color: p\.status\./);
+
+    // The listing hero's identity lines are the same case: B's measured 15.91 / 5.94 for that band
+    // are white-on-artwork figures, which only hold if the ink is artwork-side.
+    const hero = await stripped('src/components/listing/ListingHero.tsx');
+    const heroStyles = hero.slice(hero.indexOf('function makeStyles'));
+    expect(heroStyles).toMatch(/when: \{ color: p\.onArt\.secondary/);
+    expect(heroStyles).toMatch(/title: \{ color: p\.onArt\.primary/);
+  });
+
+  it('RD9: the ink on a saturated status fill contrasts with the FILL, not with the canvas — in both appearances', async () => {
+    // The sample-data caveat is black on amber in Midnight, which is right, and was black on
+    // #8A5400 in Daylight, which is 3.35:1. The contrasting ink is the canvas colour.
+    const src = await stripped('app/(tabs)/tickets.tsx');
+    expect(src).toMatch(/sampleLabelText: \{ color: p\.surface\.canvas/);
+    for (const [scheme, p] of palettes) {
+      expect(contrast(p.surface.canvas, p.status.warning), `${scheme} caveat ink on fill`)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('RD10: the brand mark is tinted, so a white monogram is not invisible on a white canvas', async () => {
+    const src = await stripped('src/components/discovery/HomeHeader.tsx');
+    expect(src).toMatch(/tintColor: p\.text\.primary/);
+    for (const [scheme, p] of palettes) {
+      expect(contrast(p.text.primary, p.surface.canvas), `${scheme} mark on canvas`)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});

@@ -13,7 +13,7 @@
  */
 
 import * as Notifications from 'expo-notifications';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AccessibilityInfo, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -26,6 +26,8 @@ import { Button, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { NotificationPreferences } from '@/src/types';
 import { PREF_TOGGLES, visibleToggles, WIRED_PREF_KEYS, type PrefKey } from '@/src/lib/settings/notificationPrefs';
@@ -35,6 +37,8 @@ import { PREF_TOGGLES, visibleToggles, WIRED_PREF_KEYS, type PrefKey } from '@/s
 const TOGGLES = visibleToggles(PREF_TOGGLES, WIRED_PREF_KEYS);
 
 export default function NotificationsScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
   const userId = user?.id;
 
@@ -120,7 +124,7 @@ export default function NotificationsScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Notifications" />
-        <View style={s.center}><Spinner color={v2.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }
@@ -142,8 +146,8 @@ export default function NotificationsScreen() {
       <SettingsHeader title="Notifications" />
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {permissionGranted !== null ? (
-          <View style={[s.permBanner, { borderColor: permissionGranted ? v2.status.success : v2.status.error }]} accessibilityRole="alert">
-            <View style={[s.dot, { backgroundColor: permissionGranted ? v2.status.success : v2.status.error }]} />
+          <View style={[s.permBanner, { borderColor: permissionGranted ? palette.status.success : palette.status.error }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: permissionGranted ? palette.status.success : palette.status.error }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>
                 {permissionGranted ? 'Notifications are enabled' : 'Notifications are disabled in your device settings'}
@@ -158,7 +162,7 @@ export default function NotificationsScreen() {
         ) : null}
 
         {challenge && (challenge.phase === 'awaiting_push' || challenge.phase === 'confirming') ? (
-          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
+          <View style={[s.permBanner, { borderColor: palette.status.warning }]} accessibilityRole="alert">
             <Spinner />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.pending}</Text>
@@ -167,8 +171,8 @@ export default function NotificationsScreen() {
         ) : null}
 
         {challenge && challenge.phase === 'awaiting_code' ? (
-          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
-            <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
+          <View style={[s.permBanner, { borderColor: palette.status.warning }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: palette.status.warning }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.codePrompt}</Text>
               {challenge.lastError === 'stale_nonce' ? (
@@ -185,7 +189,7 @@ export default function NotificationsScreen() {
                 autoComplete="one-time-code"
                 maxLength={6}
                 placeholder="6-digit code"
-                placeholderTextColor={v2.text.faint}
+                placeholderTextColor={palette.text.faint}
                 style={s.codeInput}
                 accessibilityLabel="Verification code"
                 onSubmitEditing={handleSubmitCode}
@@ -196,8 +200,8 @@ export default function NotificationsScreen() {
         ) : null}
 
         {challenge && challenge.phase === 'failed' ? (
-          <View style={[s.permBanner, { borderColor: v2.status.error }]} accessibilityRole="alert">
-            <View style={[s.dot, { backgroundColor: v2.status.error }]} />
+          <View style={[s.permBanner, { borderColor: palette.status.error }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: palette.status.error }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{CHALLENGE_COPY.failed[challenge.kind]}</Text>
               <Pressable onPress={requestRegistrationRetry} style={s.openSettings} hitSlop={8} accessibilityRole="button" accessibilityLabel="Try again">
@@ -208,8 +212,8 @@ export default function NotificationsScreen() {
         ) : null}
 
         {remedy ? (
-          <View style={[s.permBanner, { borderColor: v2.status.warning }]} accessibilityRole="alert">
-            <View style={[s.dot, { backgroundColor: v2.status.warning }]} />
+          <View style={[s.permBanner, { borderColor: palette.status.warning }]} accessibilityRole="alert">
+            <View style={[s.dot, { backgroundColor: palette.status.warning }]} />
             <View style={s.permBody}>
               <Text style={[textStyle('bodySm'), s.permText]}>{remedy}</Text>
               {registration.state === 'failed' ? (
@@ -231,9 +235,9 @@ export default function NotificationsScreen() {
               <Switch
                 value={prefs[item.key] as boolean}
                 onValueChange={(val) => handleToggle(item.key, val)}
-                trackColor={{ false: v2.border.strong, true: v2.brand.red }}
-                thumbColor={v2.text.primary}
-                ios_backgroundColor={v2.border.strong}
+                trackColor={{ false: palette.border.strong, true: palette.brand.red }}
+                thumbColor={palette.text.primary}
+                ios_backgroundColor={palette.border.strong}
                 accessibilityLabel={item.label}
               />
             </View>
@@ -247,10 +251,11 @@ export default function NotificationsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: v2.space.md, padding: v2.space.xl },
-  errorText: { color: v2.status.error, textAlign: 'center' },
+  errorText: { color: p.status.error, textAlign: 'center' },
   retry: { minWidth: 160 },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
@@ -258,17 +263,18 @@ const s = StyleSheet.create({
   permBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.sm, borderWidth: 1, padding: v2.space.md, marginTop: v2.space.lg },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
   permBody: { flex: 1 },
-  permText: { color: v2.text.primary },
+  permText: { color: p.text.primary },
   openSettings: { marginTop: v2.space.sm, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-  openSettingsText: { color: v2.brand.red },
+  openSettingsText: { color: p.brand.red },
 
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md, paddingVertical: v2.space.md, borderBottomWidth: 1, borderBottomColor: v2.border.default },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md, paddingVertical: v2.space.md, borderBottomWidth: 1, borderBottomColor: p.border.default },
   rowText: { flex: 1 },
-  rowLabel: { color: v2.text.primary },
-  rowDesc: { color: v2.text.muted, marginTop: 2 },
-  notice: { color: v2.status.error, marginTop: v2.space.md },
+  rowLabel: { color: p.text.primary },
+  rowDesc: { color: p.text.muted, marginTop: 2 },
+  notice: { color: p.status.error, marginTop: v2.space.md },
   codeInput: {
-    marginTop: v2.space.sm, minHeight: 44, borderWidth: 1, borderColor: v2.border.strong,
-    paddingHorizontal: v2.space.md, color: v2.text.primary, fontSize: 20, letterSpacing: 6,
+    marginTop: v2.space.sm, minHeight: 44, borderWidth: 1, borderColor: p.border.strong,
+    paddingHorizontal: v2.space.md, color: p.text.primary, fontSize: 20, letterSpacing: 6,
   },
-});
+  });
+}

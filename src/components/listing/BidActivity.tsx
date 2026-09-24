@@ -10,10 +10,13 @@
  * business being shown to the other bidders and is not fetched.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Bid } from '@/src/types';
 
@@ -30,6 +33,8 @@ export interface BidActivityProps {
 }
 
 export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }: BidActivityProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={styles.wrap}>
       <Text style={[textStyle('displaySm'), styles.head]} accessibilityRole="header">
@@ -78,22 +83,24 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
-  head: { color: v2.text.primary, marginBottom: v2.space.sm },
+  head: { color: p.text.primary, marginBottom: v2.space.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: v2.space.md,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
   last: { borderBottomWidth: 0 },
   who: { flex: 1, minWidth: 0 },
-  name: { color: v2.text.primary },
-  time: { color: v2.text.muted },
-  leading: { color: v2.brand.red },
-  amount: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
-  amountTop: { color: v2.text.primary },
-});
+  name: { color: p.text.primary },
+  time: { color: p.text.muted },
+  leading: { color: p.brand.red },
+  amount: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
+  amountTop: { color: p.text.primary },
+  });
+}

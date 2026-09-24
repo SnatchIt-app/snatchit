@@ -16,7 +16,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -44,6 +44,8 @@ import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import {
   LISTING_SUMMARY_COLUMNS,
@@ -78,6 +80,8 @@ function reportCheckoutFailure(stage: CheckoutStage, detail: string) {
 
 export default function CheckoutScreen() {
   const { user, loading: authLoading } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -841,8 +845,8 @@ export default function CheckoutScreen() {
         {serverBreakdown && !priceChange ? (
           <View style={s.breakdown}>
             {/* De-dup: the identity line above owns the count; this row is the money item. */}
-            <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(serverBreakdown.amount)} />
-            <Row label="Service fee" value={formatCents(serverBreakdown.buyerFee)} />
+            <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(serverBreakdown.amount)} s={s} />
+            <Row label="Service fee" value={formatCents(serverBreakdown.buyerFee)} s={s} />
             <View style={s.hairline} />
             <View style={s.totalRow}>
               <Text style={[textStyle('label'), s.totalLabel]}>Total</Text>
@@ -958,6 +962,8 @@ function RefundView({
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const view = refundViewModel(state.kind, state.refundedCents);
   return (
     <View style={s.confirmWrap}>
@@ -992,7 +998,7 @@ function RefundView({
 
 // -- Sub-components ----------------------------------------------------------
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, s }: { label: string; value: string; s: CheckoutStyles }) {
   return (
     <View style={s.row} accessible accessibilityLabel={`${label}: ${value}`}>
       <Text style={[textStyle('body'), s.rowLabel]}>{label}</Text>
@@ -1023,6 +1029,8 @@ function ConfirmationView({
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const copy = SETTLEMENT_COPY[outcome];
   const completed = outcome === 'completed';
   // The one distinctive haptic (CFT-202), only for the face that is allowed to
@@ -1099,8 +1107,11 @@ function ConfirmationView({
 
 // --- Styles ----------------------------------------------------------------
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: v2.surface.canvas },
+type CheckoutStyles = ReturnType<typeof makeStyles>;
+
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: p.surface.canvas },
 
   topBar: {
     flexDirection: 'row',
@@ -1109,47 +1120,47 @@ const s = StyleSheet.create({
     paddingHorizontal: v2.space.sm,
     paddingBottom: v2.space.sm,
   },
-  topTitle: { color: v2.text.primary },
+  topTitle: { color: p.text.primary },
   topSpacer: { width: 44 },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
   orderRow: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
   orderText: { flex: 1, minWidth: 0, gap: 2 },
-  eventName: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  eventName: { color: p.text.primary },
+  meta: { color: p.text.muted },
 
   holdRow: { marginTop: v2.space.lg },
   // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).
-  hold: { color: v2.status.warning, fontVariant: ['tabular-nums'] },
-  holdExpired: { color: v2.status.error },
+  hold: { color: p.status.warning, fontVariant: ['tabular-nums'] },
+  holdExpired: { color: p.status.error },
 
   breakdown: {
     marginTop: v2.space.xl,
     borderTopWidth: 1,
-    borderTopColor: v2.border.default,
+    borderTopColor: p.border.default,
     paddingTop: v2.space.md,
     gap: v2.space.sm,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
-  rowLabel: { color: v2.text.muted },
-  rowValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  hairline: { height: 1, backgroundColor: v2.border.default, marginVertical: v2.space.xs },
+  rowLabel: { color: p.text.muted },
+  rowValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  hairline: { height: 1, backgroundColor: p.border.default, marginVertical: v2.space.xs },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  totalLabel: { color: v2.text.primary },
-  totalValue: { color: v2.text.primary },
+  totalLabel: { color: p.text.primary },
+  totalValue: { color: p.text.primary },
 
   payState: {
     marginTop: v2.space.xl,
     borderTopWidth: 1,
-    borderTopColor: v2.border.default,
+    borderTopColor: p.border.default,
     paddingTop: v2.space.md,
   },
   payStateRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
-  payStateText: { color: v2.text.secondary },
-  payError: { color: v2.status.error },
+  payStateText: { color: p.text.secondary },
+  payError: { color: p.status.error },
 
-  trust: { color: v2.text.muted, marginTop: v2.space.lg },
+  trust: { color: p.text.muted, marginTop: v2.space.lg },
 
   bar: {
     flexDirection: 'row',
@@ -1158,19 +1169,19 @@ const s = StyleSheet.create({
     paddingHorizontal: v2.space.lg,
     paddingTop: v2.space.md,
     borderTopWidth: 1,
-    borderTopColor: v2.border.strong,
-    backgroundColor: v2.surface.surface,
+    borderTopColor: p.border.strong,
+    backgroundColor: p.surface.surface,
   },
   barPrice: { flex: 1, minWidth: 0 },
 
   // Confirmation
-  confirmWrap: { flex: 1, backgroundColor: v2.surface.canvas },
+  confirmWrap: { flex: 1, backgroundColor: p.surface.canvas },
   confirmBody: { flex: 1, paddingHorizontal: v2.space.lg, gap: v2.space.md },
-  confirmKicker: { color: v2.status.success },
+  confirmKicker: { color: p.status.success },
   // Same kicker, three readings: settled / not landed yet / unfulfillable.
-  confirmKickerPending: { color: v2.status.warning },
-  confirmKickerFailed:  { color: v2.status.error },
-  confirmTitle: { color: v2.text.primary },
+  confirmKickerPending: { color: p.status.warning },
+  confirmKickerFailed:  { color: p.status.error },
+  confirmTitle: { color: p.text.primary },
   confirmCard: {
     flexDirection: 'row',
     gap: v2.space.md,
@@ -1178,8 +1189,9 @@ const s = StyleSheet.create({
     marginTop: v2.space.md,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: v2.border.default,
+    borderColor: p.border.default,
     paddingVertical: v2.space.md,
   },
-  confirmNote: { color: v2.text.secondary, marginTop: v2.space.md },
+  confirmNote: { color: p.text.secondary, marginTop: v2.space.md },
 });
+}

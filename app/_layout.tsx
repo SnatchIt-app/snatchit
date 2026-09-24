@@ -36,7 +36,6 @@ import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
 // pulls in no native-only siblings. Spinner's own deps are all platform-safe.
 import { Spinner } from '@/src/components/ui/Spinner';
-import * as v2 from '@/src/theme/v2';
 import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
@@ -195,13 +194,7 @@ function RootLayout() {
       </Stack>
       ) : null}
 
-      {(loading || !fontsReady) && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <View style={styles.splash}>
-            <Spinner size="large" color={v2.brand.red} label="Loading Snatch It" />
-          </View>
-        </View>
-      )}
+      {(loading || !fontsReady) && <SplashOverlay />}
 
       {/* Environment pairing failure: a non-dismissible blocker. Rendered last so
           it covers everything, and it captures touches (no pointerEvents="none")
@@ -239,6 +232,22 @@ export default wrapRootComponent(RootLayout);
  * SANDBOX_BADGE_EXTRA, which screen headers add through useTopInset()
  * (F-SELL-1: the seller form's heading sat under it on build 17).
  */
+/**
+ * The in-app splash held over the navigator while auth resolves. It is a child of
+ * ThemedShell, so it mounts only after the stored appearance choice is read — which is why
+ * it can read the palette and never shows a Midnight canvas to someone in Light.
+ */
+function SplashOverlay() {
+  const { palette } = useTheme();
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[styles.splash, { backgroundColor: palette.surface.canvas }]}>
+        <Spinner size="large" color={palette.brand.red} label="Loading Snatch It" />
+      </View>
+    </View>
+  );
+}
+
 function SandboxBadge() {
   const insets = useSafeAreaInsets();
   return (
@@ -272,9 +281,10 @@ const styles = StyleSheet.create({
   },
   // Line height + the 6 pt below it = SANDBOX_BADGE_EXTRA, which headers add (useTopInset).
   sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, lineHeight: SANDBOX_BADGE_EXTRA - 6, fontWeight: '700', letterSpacing: 1 },
+  // The canvas comes from the resolved palette at render (SplashOverlay); everything
+  // else about the overlay is appearance-independent.
   splash: {
     flex: 1,
-    backgroundColor: v2.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -9,7 +9,7 @@
  * feedRowState vocabulary speaks, this file draws.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -24,6 +24,8 @@ import {
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, featureMetaLine, priceCaption, rowMeta } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface HomeFeatureProps {
@@ -59,6 +61,8 @@ function HomeFeatureImpl({
   nowMs,
   onPress,
 }: HomeFeatureProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
 
   // "19:30 · Lantern Room" only when the event is genuinely today; the full dated line otherwise.
@@ -117,7 +121,8 @@ function HomeFeatureImpl({
 
 export const HomeFeature = memo(HomeFeatureImpl);
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   // Bottom-anchored per §3: the name block's bottom lands FEATURE_NAME_BLOCK_BOTTOM above the
   // image bottom because the two 17pt meta lines and this padding sit under it. All arithmetic
   // lives in featureMetrics; the slot's formula sets the frame, so no height appears here.
@@ -133,11 +138,12 @@ const s = StyleSheet.create({
     gap: v2.space.md,
   },
   textCol: { flex: 1 },
-  title: { color: v2.text.primary },
-  meta: { color: v2.text.secondary, lineHeight: FEATURE_META_LINE },
+  title: { color: p.onArt.primary },
+  meta: { color: p.onArt.secondary, lineHeight: FEATURE_META_LINE },
   metaFirst: { marginTop: FEATURE_META1_BELOW_NAME },
-  metaUrgent: { color: v2.status.warning, lineHeight: FEATURE_META_LINE },
+  metaUrgent: { color: p.onArt.urgent, lineHeight: FEATURE_META_LINE },
   priceCol: { alignItems: 'flex-end' },
-  priceValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  caption: { color: v2.text.secondary },
-});
+  priceValue: { color: p.onArt.primary, fontVariant: ['tabular-nums'] },
+  caption: { color: p.onArt.secondary },
+  });
+}

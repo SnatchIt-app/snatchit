@@ -7,9 +7,12 @@
  * brand separates with a line and vertical rhythm, not a container.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface AccountSectionProps {
@@ -19,6 +22,8 @@ export interface AccountSectionProps {
 }
 
 export function AccountSection({ title, children, style }: AccountSectionProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={[styles.wrap, style]}>
       <Text style={[textStyle('micro'), styles.label]}>{title}</Text>
@@ -27,11 +32,13 @@ export function AccountSection({ title, children, style }: AccountSectionProps) 
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { marginTop: v2.space.xl },
-  label: { color: v2.text.muted, marginBottom: v2.space.sm },
+  label: { color: p.text.muted, marginBottom: v2.space.sm },
   group: {
     borderTopWidth: 1,
-    borderTopColor: v2.border.default,
+    borderTopColor: p.border.default,
   },
-});
+  });
+}
