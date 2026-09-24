@@ -27,8 +27,7 @@ import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
-type SettingsRoute =
-  | '/settings/edit-profile'
+type SettingsRoute = | '/settings/edit-profile'
   | '/settings/notifications'
   | '/settings/payout-setup'
   | '/settings/verify-phone'
@@ -36,7 +35,8 @@ type SettingsRoute =
   | '/settings/support'
   | '/settings/legal'
   | '/settings/privacy'
-  | '/settings/blocked-users';
+  | '/settings/blocked-users'
+  | '/settings/appearance';
 
 export default function SettingsScreen() {
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -332,6 +332,7 @@ export default function SettingsScreen() {
         {/* ── Preferences ───────────────────────────────────── */}
         <AccountSection title="Preferences">
           <SettingsRow label="Your scene" description="Neighborhoods you follow" onPress={() => nav('/settings/preferences')} />
+          <SettingsRow label="Appearance" description="System, light or dark" onPress={() => nav('/settings/appearance')} />
         </AccountSection>
 
         {/* ── Safety ────────────────────────────────────────── */}

@@ -55,6 +55,11 @@ vi.mock('@/src/components/ui', () => ({
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticConfirm: () => {} }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
+
 // v2 tokens are pure values — the real module, so the screen's styles resolve exactly as they ship.
 vi.mock('@/src/lib/supabase', () => {
   const chain = () => {

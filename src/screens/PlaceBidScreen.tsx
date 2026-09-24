@@ -21,7 +21,7 @@
  */
 
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -46,6 +46,8 @@ import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
@@ -65,6 +67,9 @@ export default function PlaceBidScreen({ id }: Props) {
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
   const insets = useSafeAreaInsets();
+  // Appearance: every colour on this screen comes from the resolved palette (light or dark).
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -209,7 +214,7 @@ export default function PlaceBidScreen({ id }: Props) {
   if (loading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={v2.brand.red} />
+        <Spinner color={palette.brand.red} />
       </View>
     );
   }
@@ -367,8 +372,9 @@ export default function PlaceBidScreen({ id }: Props) {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { alignItems: 'center', justifyContent: 'center' },
 
   header: {
@@ -378,68 +384,69 @@ const s = StyleSheet.create({
     paddingHorizontal: v2.space.md,
     paddingBottom: v2.space.sm,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  eventName: { color: v2.text.primary },
-  venue: { color: v2.text.muted, marginTop: 2 },
+  eventName: { color: p.text.primary },
+  venue: { color: p.text.muted, marginTop: 2 },
 
   // De-dup: the market price is one quiet line; the buyer's own bid is the focus below it.
-  marketLine: { color: v2.text.muted, marginTop: v2.space.md },
+  marketLine: { color: p.text.muted, marginTop: v2.space.md },
 
   amountBlock: { alignItems: 'center', marginTop: v2.space.xxl },
-  bidLabel: { color: v2.text.secondary, alignSelf: 'flex-start' },
+  bidLabel: { color: p.text.secondary, alignSelf: 'flex-start' },
   bigAmount: {
     flex: 1,
     textAlign: 'center',
     fontFamily: v2.font.bodyBold,
     fontSize: 56,
     lineHeight: 64,
-    color: v2.brand.red,
+    color: p.brand.red,
     fontVariant: ['tabular-nums'],
   },
-  stepHint: { color: v2.text.muted, marginTop: v2.space.xs, marginBottom: v2.space.lg },
+  stepHint: { color: p.text.muted, marginTop: v2.space.xs, marginBottom: v2.space.lg },
 
   stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, alignSelf: 'stretch' },
   stepBtn: {
     width: 52, height: 52,
-    borderWidth: 1, borderColor: v2.border.strong,
+    borderWidth: 1, borderColor: p.border.strong,
     alignItems: 'center', justifyContent: 'center',
   },
   stepBtnOff: { opacity: 0.35 },
-  stepGlyph: { color: v2.text.primary, fontSize: 26, lineHeight: 30 },
+  stepGlyph: { color: p.text.primary, fontSize: 26, lineHeight: 30 },
 
   quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
   quickWrap: { flex: 1 },
   quick: {
     minHeight: 40, paddingVertical: v2.space.xs,
-    borderWidth: 1, borderColor: v2.brand.red,
-    backgroundColor: v2.brand.redSoft,
+    borderWidth: 1, borderColor: p.brand.red,
+    backgroundColor: p.brand.redSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  quickText: { color: v2.brand.red },
+  quickText: { color: p.brand.red },
 
-  breakNote: { color: v2.text.muted, marginTop: v2.space.xl },
+  breakNote: { color: p.text.muted, marginTop: v2.space.xl },
 
   // The footer: the summary directly above the action, no gap, no second amount.
   footer: {
     paddingHorizontal: v2.space.lg,
     paddingTop: v2.space.md,
     gap: v2.space.md,
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
     borderTopWidth: 1,
-    borderTopColor: v2.border.strong,
+    borderTopColor: p.border.strong,
   },
   summary: { gap: v2.space.xs },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
-  summaryLabel: { color: v2.text.secondary },
-  summaryValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  summaryLabel: { color: p.text.secondary },
+  summaryValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   // Total is the strongest row: heavier label, the price face, a hairline above.
-  summaryTotalRow: { borderTopWidth: 1, borderTopColor: v2.border.default, paddingTop: v2.space.xs, marginTop: 2 },
-  summaryTotalLabel: { color: v2.text.primary },
-  summaryTotalValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: p.border.default, paddingTop: v2.space.xs, marginTop: 2 },
+  summaryTotalLabel: { color: p.text.primary },
+  summaryTotalValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
 
 });
+}

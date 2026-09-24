@@ -15,10 +15,11 @@
 // by luck — build 14 crashed at cold launch when that luck ran out.
 import 'react-native-get-random-values';
 
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -50,6 +51,34 @@ import {
 export const unstable_settings = {
   anchor: '(tabs)',
 };
+
+/**
+ * Appearance (owner 2026-09-23): the navigation theme and the status bar follow the resolved
+ * scheme — System by default, or the user's explicit Light/Dark — instead of a hard-coded dark.
+ */
+function ThemedShell({ children }: { children: ReactNode }) {
+  const { scheme, palette } = useTheme();
+  const navTheme = useMemo(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: palette.brand.red,
+        background: palette.surface.canvas,
+        card: palette.surface.surface,
+        text: palette.text.primary,
+        border: palette.border.default,
+      },
+    };
+  }, [scheme, palette]);
+  return (
+    <ThemeProvider value={navTheme}>
+      {children}
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
 
 function RootLayout() {
   const { session, loading } = useAuth();
@@ -124,7 +153,8 @@ function RootLayout() {
     <ErrorBoundary>
     <AppShell>
     <SafeAreaProvider>
-    <ThemeProvider value={DarkTheme}>
+    <AppearanceProvider>
+    <ThemedShell>
       {fontsReady ? (
       <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />
@@ -180,8 +210,8 @@ function RootLayout() {
       {/* Unmistakable label so a sandbox build is never mistaken for production. */}
       {IS_SANDBOX_BUILD ? <SandboxBadge /> : null}
 
-      <StatusBar style="light" />
-    </ThemeProvider>
+    </ThemedShell>
+    </AppearanceProvider>
     </SafeAreaProvider>
     </AppShell>
     </ErrorBoundary>
