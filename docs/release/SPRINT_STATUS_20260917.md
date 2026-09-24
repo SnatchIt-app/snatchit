@@ -1476,3 +1476,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Hash naming reconciled by D:** md5(prosrc) = `06ef87b3…` and md5(pg_get_functiondef) = `705953d5…`. Both are correct, both unchanged, and they are different strings. From now on every function hash in these records names its metric.
   - Gate CI green, recorded above.
 - **F-DISPUTE-SELLERWIN-1 written up with a bounded fix proposal** in `FINDINGS_20260924_DISPUTE_GRANT_AND_OPS_CASE.md`: a selection-only edge change, plus a false "Buyer confirmed receipt" notification on the same transition. **Not implemented**, because payouts are an owner stop-and-ask area. Owner decision.
+- **V3 sandbox preview BUILD 23 FINISHED (C's report; EAS not read by A).**
+  - EAS `65cb7633-0eca-4314-b135-fd9c90db8214`, iOS preview, internal, SDK 54, commit `9c6c9bf4e6f9c201efe1fe760d2bf6ae12175d7f`, sandbox `ofaidukbieeekqaboscm`.
+  - A verified: the commit is on `v3/midnight-app`; the gated payment surface against `e079fcc1` is `signOut.ts` +5 only; `eas.json`, `app.json` and `envGuard.ts` are unchanged since `2619b9e1`.
+  - **Not installed, not launched:** the fixture sheet's §0 gate holds, with 1 of its 5 conditions met.
+  - **Artifact and branch drift, recorded:** the branch head is `24b021a3`, one commit past the build. It restores the brand red for the Spinner arc in Light (a graphic at the 3:1 bar, not text); C reports both colours clear 3:1. **Device evidence from build 23 applies to `9c6c9bf4`, not to the branch head.** C stopped changing the branch after the build.
+  - C parked two items rather than applying them: `text.faint` below 4.5:1 in both appearances, and B's N-2/N-3 design calls.
