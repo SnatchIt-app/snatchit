@@ -311,8 +311,28 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
   - Clean run: PASS; rollback `626db799…`; 215 43/43; request `c91cec23…`.
   - `apply_one_148.sh` is now **`0d882f7ec8c9eeeedd0beaf9e804c4e1513f88595515b244af3219fcaeb9bcf4`** (116 changed lines,
     diff `14666f18…`), superseding `3d74a714…`.
-  - R0 artefacts frozen: `r0_read.sh` `698db470…`, `r0_narrow.sql` `7f523d03…`, `r0_wide.sql` `a71be896…`, references
-    `0aae1d1d…` / `0ef5ac38…`.
+  - R0 artefacts frozen first as `698db470…` and friends. They are **superseded after D's review of R0**:
+    - D verified the queries read only `pg_proc` / `pg_namespace` (zero write verbs, against a working control).
+    - **D's finding:** pinning each function with `to_regprocedure(<exact signature>)` means a changed argument TYPE
+      order (the swapped `p_outcome` / `p_actor_id` case) returns NULL, so it would print "ABSENT IN PRODUCTION": a
+      wrong, alarming label.
+    - D also noted that A's first self-test fed the comparator a tampered reference. That proved the comparator, not
+      that the query delivers the case.
+    - **Fix:** each row also lists every function of that name, independent of signature. The comparator now
+      distinguishes NO FUNCTION OF THIS NAME, EXISTS AT A DIFFERENT SIGNATURE (with the list), and a field-by-field
+      comparison.
+    - **Tested end to end through the real query** on a local copy:
+      - E2E-1: unchanged → 12/12 IDENTICAL;
+      - E2E-2: writer re-created with the swapped order and the old signature dropped → "EXISTS AT A DIFFERENT
+        SIGNATURE: …(p_transfer_id uuid, p_actor_id uuid, p_outcome text, …)";
+      - E2E-3: writer dropped → "NO FUNCTION OF THIS NAME".
+    - The references were regenerated from `a_sw_base_rehears`. The `CONFIRM_REF` gate is on line 7, before the
+      token read on line 12.
+    - **Now frozen:** `r0_read.sh` `f477c324…`, `r0_narrow.sql` `bfb7524c…`, `r0_wide.sql`
+      `bdd205c9…`, references `8e0a23d1…` / `191482dc…`.
+    - P3 in the apply script uses the same exact-signature casts. A changed signature there makes the P3 query error:
+      HTTP ≠ 201, "PRESTATE HTTP", exit 3, nothing applied. That is safe and loud, but it does not explain itself,
+      which is one more reason to run R0 first.
 - **Adopted from D:** the mode gate, the rollback-order reasoning, the §8 split, and the binding contract.
 
 **Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats

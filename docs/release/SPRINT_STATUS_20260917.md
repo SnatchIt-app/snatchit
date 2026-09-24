@@ -1582,3 +1582,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - R0-narrow and R0-wide definitions-only reads are prepared and frozen (comparator self-tested), for the owner to
     choose separately.
   - Apply script `0d882f7e…`. The production request is unchanged (`c91cec23…`).
+- **R0 reviewed by D; one fix applied (A, ~16:30Z).**
+  - D verified R0 is read-only: `pg_proc` / `pg_namespace` only, zero write verbs, against a working control.
+  - **D's finding:** exact-signature pinning would mislabel a changed argument-type order as "ABSENT". A's
+    comparator-only self-test had not exercised the query path.
+  - **Fix:** a by-name overload listing, giving three states.
+  - **Tested end to end through the real query:** identical; re-created with a swapped order → "EXISTS AT A DIFFERENT
+    SIGNATURE"; dropped → "NO FUNCTION OF THIS NAME".
+  - R0 is re-frozen, and the package records it.
