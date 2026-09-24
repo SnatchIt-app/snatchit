@@ -1594,3 +1594,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - R0 is now a mandatory prerequisite of (A), because P3's exact-signature casts would fail opaquely without it (D).
   - Unreviewed by D, as recorded in §11: §10, the regenerated diffs beyond `CONFIRM_REF` and P3, rehearsals 4–5, the
     E2E-1 to E2E-3 results, and `deploy --dry`.
+- **R0-wide RUN (owner-authorised, 16:33:35–39Z, one definitions-only read, HTTP 201).** All predictions P-a–P-d held,
+  including production unchanged since 09-23 (12/12).
+  - 11/12 functions are logically identical (comments or keyword case only), including #92's writer pair and all
+    payment-path functions.
+  - 1 real difference: `handle_new_user`. The repo baseline is the incomplete side (F-BASELINE-HANDLE-NEW-USER-1); it is
+    unrelated to #92.
+  - **#92 premise holds.** P3 as frozen would have stopped on the writers' comment-stripped prosrc, so it is re-pinned
+    to production's `b7f11225…` / `c5ab888d…`.
+  - Rehearsal 6 used production's exact writer functions (defn equal): P3 PASS → POST PASS, and **215 43/43 on
+    production's writer code**. The repo-body copy now stops.
+  - With D for review.

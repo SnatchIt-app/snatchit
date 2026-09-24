@@ -179,3 +179,24 @@ list be trusted where they differ.
   These are not known to be wrong. They rest on an assumption this finding puts in question.
 - **Resolution path:** R0-wide (package §8), one definitions-only production read, compared by `r0_read.sh`, then a
   ranked diff. Expect some drift to be benign, and rank it so that it does not bury the one that matters.
+
+### F-PROD-REPO-DRIFT-1 — RESOLVED by R0-wide (2026-09-24 16:33Z; owner-authorised definitions-only read)
+
+- 11 of 12 are **logically identical** to the repo.
+  - Comments only (8): `resolve_transfer_dispute`, `admin_resolve_dispute`, `record_transfer_payout`,
+    `claim_/complete_/fail_stripe_webhook_event`, `finalize_auction`, `validate_and_apply_bid`.
+  - Keyword case and comments (3): `auto_finalize_expired_auctions`, `guard_listing_identity_columns`,
+    `handle_new_user_notification_prefs`.
+  - The production bodies were applied through a route that dropped comments or re-cased keywords. The route used since
+    2026-09-22 preserves both.
+- **The provisional source-only conclusions stand:** the writer shape, `record_transfer_payout`, the webhook claim
+  functions and `finalize_auction`.
+- **One real difference, F-BASELINE-HANDLE-NEW-USER-1.** Production's `handle_new_user` inserts `full_name`,
+  `display_name` and `avatar_url` from `raw_user_meta_data`. The repo's only definition, `000_baseline_schema.sql:21`,
+  inserts `id` only. 041's own comments ("avatar_url is set once, server-side, by handle_new_user()") describe the
+  production behaviour, so the baseline reconstruction is incomplete; production is not wrong.
+  - **Impact:** fresh replays, CI and local rehearsal DBs create profiles without those three fields, so any test that
+    depends on them passes or fails for a reason production does not share.
+  - **Not a production change, and not #92's concern.** The fix is a repo-side decision (a numbered migration
+    restating production's body, applied as a verified no-op), for the owner and A later.
+

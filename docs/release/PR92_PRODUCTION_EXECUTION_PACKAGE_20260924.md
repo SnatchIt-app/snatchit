@@ -59,7 +59,7 @@ row that lies to the operator". This is finding **F-CR-148-SHARED**. `payoutDefe
 |---|---|---|
 | P1 | `deploy_148.sh enforce-transfer-expiry --dry` | `before` version **40**, `verify_jwt` True. The deployed source, downloaded, is byte-equal to the gate `5b255838` blobs (index + 5 shared). Proves the rollback target is the running code |
 | P2 | `apply_one_148.sh 00` (baseline read-back) | recorded, including census, grants matrix and switches; the comparison base for the post read-back |
-| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer is the repo's**. Its logic: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Its binding contract, which prosrc cannot see (D): ordered args, result type and `SECURITY DEFINER` for both. Informational, as an attribute-level delta: defn md5, config (`search_path`), owner, volatility for both. Config is informational because a qualifier-aware scan of both repo bodies finds every non-built-in reference schema-qualified (the wrapper calls `public.resolve_transfer_dispute`), so search_path cannot change what either body resolves; prosrc equality guarantees production runs those bodies; dispute_resolutions, open disputes, payout_attempts, both ACLs |
+| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built. **Writer values re-pinned to production after R0 (§12)** | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer is the repo's**. Its logic, pinned to **production's** bodies as read by R0: `resolve_transfer_dispute` prosrc md5 `b7f11225…` and `admin_resolve_dispute` prosrc md5 `c5ab888d…`. These are the repo's `19161d7a…` / `4548b9ee…` with their comments stripped (§12). Its binding contract, which prosrc cannot see (D): ordered args, result type and `SECURITY DEFINER` for both. Informational, as an attribute-level delta: defn md5, config (`search_path`), owner, volatility for both. Config is informational because a qualifier-aware scan of both repo bodies finds every non-built-in reference schema-qualified (the wrapper calls `public.resolve_transfer_dispute`), so search_path cannot change what either body resolves; prosrc equality guarantees production runs those bodies; dispute_resolutions, open disputes, payout_attempts, both ACLs |
 
 **Why the writer check exists:** 148 keys on the exact row shape that `resolve_transfer_dispute` writes (status
 `buyer_confirmed`, `buyer_confirmed_at` NULL, `dispute_resolution 'resolved_seller_paid'`). The defect analysis was
@@ -367,4 +367,51 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
 - D's five (b4, a8, b1, b2, a1) are all in the list. D missed a3 and a4, although both lines were in D's own grep output.
   D takes a5 and a6. a6 displays a flag that a1–a4 corrupt, so fixing the writers fixes a6; a5, the label mapping, is
   independently wrong.
+
+## 12. R0-wide result (owner-authorised, run 2026-09-24 16:33:35–16:33:39Z) and the re-pin it requires
+
+**Run:**
+- One `POST` of the frozen `r0_wide.sql` (hash-verified before the run), HTTP 201. Catalog only.
+- Output `out/r0_wide/prod.json`, sha256 `8e7320c66fd2d2d3…`.
+- The predictions (`r0_predictions.txt`, sha256 `95773192…`) were registered at 16:33:29Z, before the read.
+  - **P-a:** held.
+  - **P-b:** held. All 12 are present at their exact signature, and arguments, result, security, config, owner and
+    volatility are identical to the repo's for all 12.
+  - **P-c:** held, 12/12. Every production defn md5 starts with its 2026-09-23 capture prefix, so nothing changed since.
+  - **P-d:** held. All 12 differ in prosrc and defn only.
+  - **P-e**, which was not predicted: **every difference is in the body text.**
+
+**Classification.** Comments were stripped outside single-quoted literals, keywords lower-cased outside literals, and
+whitespace collapsed. The only `"` in any body is inside a comment, and the only `$` is inside a string literal, so the
+normalisation is sound here.
+
+| Function | Class | Bears on #92? |
+|---|---|---|
+| `resolve_transfer_dispute` | comments only: 3 comment blocks absent in production | **yes, the premise.** Logic identical, so the seller-win shape (status `buyer_confirmed`, `buyer_confirmed_at` untouched, `resolved_seller_paid`) holds in production |
+| `admin_resolve_dispute` | comments only: one trailing comment | **yes, the premise.** Logic identical |
+| `record_transfer_payout`, `claim_stripe_webhook_event`, `complete_stripe_webhook_event`, `fail_stripe_webhook_event`, `finalize_auction`, `validate_and_apply_bid` | comments only | no. The source-only reasoning about them stands |
+| `auto_finalize_expired_auctions`, `guard_listing_identity_columns`, `handle_new_user_notification_prefs` | keyword case and comments only | no |
+| **`handle_new_user`** | **LOGIC DIFFERS**: production also writes `full_name`, `display_name`, `avatar_url` from `raw_user_meta_data` into `profiles`; the repo baseline (`000:21`) writes `id` only. Migration 041's comments describe the production behaviour, so the **repo baseline is the incomplete side** | no. It affects fresh replays, CI and local DBs, not production |
+
+**Consequence for #92.**
+- The premise holds.
+- **But P3 as frozen at `df5300eb` would have STOPPED**, because it pinned the repo's commented prosrc, which production
+  has never carried.
+- The apply route does not strip comments. 147's production prosrc `06ef87b3…` has its comments, as the local replay
+  does, and the 09-22 claim defn `d3cd9fdd…` equals the local commented body. So 148's post values stay reachable.
+- **Re-pin:** P3 now expects production's `b7f1122599aacaa73b9af9d9592160fc` / `c5ab888d3ad5751dc9a60f8d134ef48c`.
+
+**Rehearsal 6, the strongest so far:**
+- Production's two writer bodies were installed into a fresh copy (`rehearsal_install_prod_writers.sql`). The local full
+  defn md5 then **equals production's**: `7d18f1d80991e78d1dfea9e8ad7bb209` / `9f70196ff6ab54700740cdd338bea8d5`.
+- P3 PASS → apply → POST PASS.
+- **pgTAP 215, which calls `public.resolve_transfer_dispute` directly for seller-win, buyer-win and partial outcomes:
+  43/43 on production's writer code.**
+- Re-run refused (exit 3); rollback `626db799…` → 160 rows; re-apply → PASS; the production request is still `c91cec23…`.
+- Negative control: a copy carrying the repo's commented bodies now STOPS at P3.
+- The DB was dropped afterwards.
+- **`apply_one_148.sh` is now `8cbd950d40842e6eb9df383dd4e463bac8917729e30022b6db4e0a641a245b15`** (diff `8b780a4f…`). Rollback, deploy and runcheck are unchanged.
+
+**F-PROD-REPO-DRIFT-1** is resolved as benign for 11 of 12. The one logic difference is a repo-baseline gap, recorded
+separately. D's review of the R0 result and the re-pin is recorded below when it arrives.
 
