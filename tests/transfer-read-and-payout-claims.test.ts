@@ -227,11 +227,22 @@ describe('the seller is told a payout moved only when the payout itself was reco
   it('P3 (regression): buyer_confirmed keeps its existing gate on the same field', async () => {
     h.transfer = transfer({ status: 'buyer_confirmed', payout_released_at: new Date().toISOString() });
     expect(texts(await mount('send'))).toContain(RELEASED);
+    // RETARGETED for the unreleased side (A's ruling on dd81fb97, owner 16:51Z point 1): this
+    // fixture has NO buyer_confirmed_at, so it is an OPERATOR decision — and "being processed"
+    // was the defect there, promising motion when nothing is processing. The operator path now
+    // reads the pending state; the GENUINE confirmation (buyer_confirmed_at set) keeps its
+    // existing sentence under the prior ruling, asserted separately below.
     vi.resetModules();
     h.transfer = transfer({ status: 'buyer_confirmed', payout_released_at: null });
     const shown = texts(await mount('send'));
     expect(shown).not.toContain(RELEASED);
-    expect(shown).toContain('Your payout is being processed');
+    expect(shown).not.toContain('Your payout is being processed');
+    expect(shown).toContain('Payout pending.');
+    vi.resetModules();
+    h.transfer = transfer({ status: 'buyer_confirmed', payout_released_at: null, buyer_confirmed_at: new Date().toISOString() });
+    const confirmed = texts(await mount('send'));
+    expect(confirmed).not.toContain(RELEASED);
+    expect(confirmed).toContain('Your payout is being processed');
   });
 
   it('B1 (witness): the buyer, auto_released WITH payout_released_at — the existing money sentence stands', async () => {
