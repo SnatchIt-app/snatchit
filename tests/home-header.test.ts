@@ -78,14 +78,37 @@ describe('Home — shipped-source guards', () => {
     // B's H1 at 911f65fd: "the filter-chip row is not in the approved Home composition at all."
     expect([...home.matchAll(/<Chip\s+label="([^"]+)"/g)].map((m) => m[1])).toEqual([]);
     expect(home).not.toContain('quickRow');
-    // The control lives in the header component, beside search, and Home supplies its state.
-    expect(header).toMatch(/label="Filters"/);
+    /*
+     * The owner's acceptance terms (2026-09-24): always visible, visually quiet, the count when
+     * applicable, and — their caution — "a search glyph must not unexpectedly become a Filters
+     * action". So the header carries TWO controls of equal weight with DIFFERENT marks: the magnifier
+     * opens Search, the filter mark opens the sheet in place. Neither is a bordered pill.
+     */
+    expect(header).toMatch(/glyph="filter"/);
+    expect(header).toMatch(/glyph="search"/);
+    expect(header).not.toMatch(/<Chip/);
+    // Always rendered — the entry point is never hidden, whether or not filters are active.
+    expect(header).not.toMatch(/filterCount > 0 \? \(?\s*<IconButton/);
+    // The count rides on the control, and the spoken name carries it too.
+    expect(header).toMatch(/count=\{filterCount/);
+    expect(header).toMatch(/accessibilityLabel=\{filterCount > 0 \? `Filters, \$\{filterCount\} active` : 'Filters'\}/);
     expect(home).toMatch(/<HomeHeader[\s\S]*?onFilters=\{/);
     expect(home).toMatch(/<HomeHeader[\s\S]*?filterCount=\{/);
     // Nothing floats over the feed any more, and the feed carries no inset for a bar.
     expect(home).not.toContain('filterBarHeight');
     expect(home).not.toContain('Animated.View');
     expect(home).not.toContain("position: 'absolute'");
+  });
+
+  it('H1c: the two marks are distinct, and each says what it opens', () => {
+    const icon = read('src/components/ui/IconButton.tsx');
+    const glyphs = Object.fromEntries([...icon.matchAll(/^\s{2}(\w+): ('[^']*'|"[^"]*"),/gm)].map((m) => [m[1], m[2]]));
+    expect(glyphs.search, 'the search mark').toBeDefined();
+    expect(glyphs.filter, 'the filter mark').toBeDefined();
+    expect(glyphs.filter).not.toBe(glyphs.search);
+    // Search leaves for the Search screen; Filters opens the sheet where the user already is.
+    expect(home).toMatch(/onSearch=\{\(\) => router\.push\('\/\(tabs\)\/explore'\)\}/);
+    expect(home).toMatch(/onFilters=\{\(\) => setModalOpen\(true\)\}/);
   });
 
   it('H1b: the composition the board draws is what remains — header, then headings and rows', () => {

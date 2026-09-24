@@ -11,7 +11,7 @@
  * both, which is why the product's current emoji chrome looks pasted on.
  */
 
-import { Animated, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { useMemo } from 'react';
 
 import { MIN_TOUCH_TARGET } from '@/src/theme/typography';
@@ -48,6 +48,13 @@ export interface IconButtonProps {
    * control on a plain screen. `onArt` already supplies its own darker plate.
    */
   chip?: boolean;
+  /**
+   * A quantity the control is currently carrying — the number of active filters, say. Drawn as a
+   * small quiet pill on the glyph's shoulder, and ONLY when it is greater than zero: the control
+   * stays visible and identical at zero, because hiding or re-marking it would remove the only entry
+   * point to what it opens. The spoken name is the caller's job; it must include the number.
+   */
+  count?: number;
   style?: ViewStyle;
   testID?: string;
 }
@@ -59,6 +66,7 @@ export function IconButton({
   disabled = false,
   onArt = false,
   chip = false,
+  count,
   style,
   testID,
 }: IconButtonProps) {
@@ -79,6 +87,13 @@ export function IconButton({
         testID={testID}
       >
         <Text style={[styles.glyph, onArt && styles.glyphOnArt]}>{GLYPH[glyph]}</Text>
+        {count != null && count > 0 ? (
+          // Decorative: the number is already in the control's spoken name, so a screen reader
+          // meeting it twice would be reading the same fact twice.
+          <View style={styles.count} accessibilityElementsHidden importantForAccessibility="no">
+            <Text style={styles.countLabel} numberOfLines={1}>{count}</Text>
+          </View>
+        ) : null}
       </Pressable>
     </Animated.View>
   );
@@ -106,5 +121,23 @@ function makeStyles(p: Palette) {
    * dark in both appearances, so the ink on it has to be too.
    */
   glyphOnArt: { color: p.onArt.primary },
+  /**
+   * The count, in the V3 selected-chip treatment: the primary ink filled, the label in the canvas.
+   * Quiet on purpose — it reports a state, it does not ask for attention, so it is not the brand red
+   * a warning would use.
+   */
+  count: {
+    position: 'absolute',
+    top: 4,
+    right: 2,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: v2.radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: p.text.primary,
+  },
+  countLabel: { color: p.surface.canvas, fontSize: 11, lineHeight: 14, fontWeight: '600' },
   });
 }

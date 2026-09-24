@@ -32,14 +32,22 @@
  * lived in the sheet it opens, and `your_scene` and price joined it there. It carries the count of
  * every active filter, so a filtered feed can never look unfiltered.
  *
- * Why a Chip and not a fourth glyph: the count and the selected state are what the control has to
- * say, and Chip already says both. A bare icon would need a badge invented for it.
+ * THE ARRANGEMENT (the owner's acceptance terms, 2026-09-24): "an always-visible, visually quiet
+ * Filters icon beside the separate Search control… show the active-filter count when applicable… do
+ * not hide the only filter entry point when no filters are active", with the caution that "a search
+ * glyph must not unexpectedly become a Filters action".
+ *
+ * So: two controls of equal weight on the header's right, with DIFFERENT marks and different
+ * destinations — the magnifier LEAVES for the Search screen; the filter mark opens the sheet in
+ * place, over the feed the shopper is already reading. Neither is a bordered pill. The filter mark
+ * carries a small count when filters are applied and speaks the number in its name; at zero it is
+ * the same control, undecorated, so the entry point never disappears.
  */
 
 import { useMemo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 
-import { Chip, IconButton } from '@/src/components/ui';
+import { IconButton } from '@/src/components/ui';
 import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { useTheme } from '@/src/theme/appearance';
@@ -68,7 +76,7 @@ export function HomeHeader({
   onSearch: () => void;
   /** Opens the filter sheet. Omitted by any caller that has no filters to offer. */
   onFilters?: () => void;
-  /** How many filters are currently applied; drives the count and the selected state. */
+  /** How many filters are currently applied. Drawn on the control only when it is above zero. */
   filterCount?: number;
 }) {
   const { palette } = useTheme();
@@ -90,12 +98,11 @@ export function HomeHeader({
         />
         <View style={styles.controls}>
           {onFilters ? (
-            <Chip
-              label="Filters"
-              // The number is the whole point of the count: "Filters 2" states that the feed is
-              // narrowed without opening anything. Zero says it with the unselected state instead.
-              count={filterCount > 0 ? filterCount : undefined}
-              selected={filterCount > 0}
+            <IconButton
+              glyph="filter"
+              // Spoken with the number, because the badge is decorative: "Filters, 2 active".
+              accessibilityLabel={filterCount > 0 ? `Filters, ${filterCount} active` : 'Filters'}
+              count={filterCount}
               onPress={onFilters}
             />
           ) : null}
