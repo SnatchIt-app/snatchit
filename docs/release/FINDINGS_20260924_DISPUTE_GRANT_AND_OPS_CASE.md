@@ -32,3 +32,45 @@ The three "present but inert" features (native dispute wiring; b2 push challenge
 - **PFA-31 park = a third, independent reason the native dispute feature does nothing**, separate from the missing edge import (nothing imports native-dispute.ts) and from the notify-exposure question (irrelevant to it): native dispute RESOLUTION is parked fail-closed until a dual-control mechanism exists (DISPUTE_DUAL_CONTROL). Recorded in the inert list.
 - Open-case composition at 02:29Z (D): 19 = 5 dispute_open + 8 paid_unsettled + 3 report_review + 2 refund_pending + 1 synthetic probe (650e7344). `ops-detect-tick` runs `run_all_detectors` every 5 minutes over 13 named detectors, none of which emits type `manual`.
 - Rule applied: an edge function must never call resolve_dispute_native with the service key; it forwards the operator's own JWT (EA-1, as delete-account does).
+
+## F-DISPUTE-SELLERWIN-1 — a seller-win dispute resolution has no payout path (A, 2026-09-24; source-verified at gate `5b255838`; D confirmed the anchors independently)
+
+**Object.**
+- `public.resolve_transfer_dispute` (065:119-129) with outcome `seller_win` sets status `'buyer_confirmed'`, clears
+  `disputed_at`, sets `dispute_resolution='resolved_seller_paid'`, and leaves `buyer_confirmed_at` NULL.
+
+**Why no payout follows.**
+- **Selection:** the payout sweep (`enforce-transfer-expiry` Phase 2b, gate :1180-1182; the same filter is on main
+  :804-806) takes status `'buyer_confirmed'` only with `buyer_confirmed_at` older than 15 minutes, so a NULL never
+  matches.
+- **Console:** `ops.execute_action` `payout_release` (144:813) accepts only `seller_sent`.
+- **The protocol would allow it:** `claim_payout_attempt` (20260906120000, lines 56-60) accepts `'buyer_confirmed'`,
+  explicitly allows `dispute_resolution='resolved_seller_paid'`, and needs no `buyer_confirmed_at`. The defect is
+  **selection only**.
+
+**Practical consequence.**
+- The seller is never paid for a dispute they won. The money stays on the platform; it is not lost.
+- An ops `release_stuck` case is expected to surface it.
+- **Affected today: 0 rows**, because no dispute has ever been resolved (`dispute_resolutions` 0 rows), while **5
+  disputes are open** [D's production read]. The first seller-win resolution will hit it.
+
+**Second defect on the same transition, from the trace.**
+- `notify_transfer_state_inbox` (058) fires on any change of status to `'buyer_confirmed'`. It gives the seller an
+  in-app "Buyer confirmed receipt — The buyer confirmed they received the tickets" row.
+- After a seller-win resolution that statement is false; the buyer disputed.
+- Only the web app reads those rows today.
+
+**Bounded fix — proposed, NOT implemented.** Payouts are a stop-and-ask area, and the fix needs an edge deploy.
+1. **Selection, in the edge function:** add a third disjunct to the Phase 2b filter, `and(status.eq.buyer_confirmed,
+   dispute_resolution.eq.resolved_seller_paid, dispute_resolved_at.lt.<stale>)`. The 15-minute quiet period then
+   applies to the resolution time, and `claim_payout_attempt` stays the only authority on eligibility.
+   - Tests: a seller-win row is selected after 15 minutes and not before; a buyer-win row is never selected.
+   - Negative control: remove the disjunct, and the seller-win test must fail.
+2. **Notification, in a migration:** in `notify_transfer_state_inbox`, skip the `transfer_confirmed` row when
+   `NEW.dispute_resolution = 'resolved_seller_paid'`, and emit a truthful "dispute resolved in your favour" row
+   instead, or none.
+3. **Optional, console:** let `payout_release` accept status `'buyer_confirmed'` with `resolved_seller_paid`, as a
+   manual path.
+
+**Owner decisions:** whether to implement 1 (and 2, 3); interim handling of any seller-win resolution before the fix
+ships (checklist P6).

@@ -1468,3 +1468,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
 
   No setting was changed, and nothing was deployed or merged to main. D's independent post-merge verification is pending.
 - **Gate CI after the #91 merge: GREEN.** Run 35960357963 (push, `release/production-gate-20260918`, head `aadf996e`), completed 05:34:32Z, conclusion success. All 5 jobs passed: Web build; Migrations apply cleanly (fresh DB); Typecheck / Lint / Unit tests; Admin console; Deno type-check.
+- **D: POST-MERGE VERIFIED (own reads ~05:33:52Z) — the release window is CLOSED on both sides.**
+  - Source: gate tip `aadf996e` with parents `5b255838` / `2bf67af9`, exactly the commits reviewed; blob `0898a84f`, sha256 `c0907584…`; exactly 3 files changed.
+  - **`git merge-base --is-ancestor aadf996e origin/main` is false:** `main` does not contain the merge. That was proved by ancestry, not by a matching sha.
+  - Production: ledger 160, one 147 row; standing set unmoved.
+  - Vercel asymmetry exactly as predicted from the owner's dashboard read: snatchit-web has one CANCELED preview record; snatchit-admin has **no record at all**, its newest still 2026-09-08, and the query demonstrably sees records.
+  - **Hash naming reconciled by D:** md5(prosrc) = `06ef87b3…` and md5(pg_get_functiondef) = `705953d5…`. Both are correct, both unchanged, and they are different strings. From now on every function hash in these records names its metric.
+  - Gate CI green, recorded above.
+- **F-DISPUTE-SELLERWIN-1 written up with a bounded fix proposal** in `FINDINGS_20260924_DISPUTE_GRANT_AND_OPS_CASE.md`: a selection-only edge change, plus a false "Buyer confirmed receipt" notification on the same transition. **Not implemented**, because payouts are an owner stop-and-ask area. Owner decision.
