@@ -39,7 +39,23 @@ import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
-import { formatCountdown, buyerAutoReleasedCopy, buyerNeedsDelivery, REPORT_PROBLEM_UNCONFIRMED, transferReadOutcome, transferStatusCopy, transferStatusMeta, TRANSFER_EXPIRY_COPY, CONFIRM_RECEIPT_DIALOG } from '@/src/lib/transfer/transferState';
+import {
+  formatCountdown,
+  buyerAutoReleasedCopy,
+  buyerNeedsDelivery,
+  REPORT_PROBLEM_UNCONFIRMED,
+  transferReadOutcome,
+  transferStatusCopy,
+  transferStatusMeta,
+  TRANSFER_EXPIRY_COPY,
+  CONFIRM_RECEIPT_DIALOG,
+  BUYER_ORDER_CLOSED_COPY,
+  buyerReviewDeadlineLine,
+  REFUND_DUE_POLICY,
+  REFUND_PENDING_LINE,
+  refundLine,
+  type PaymentRefundFacts,
+} from '@/src/lib/transfer/transferState';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -54,12 +70,17 @@ import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { readSettledPayments } from '@/src/lib/checkout/settledRead';
 
 type TransferData = {
   id: string;
+  /** For the buyer's own settled-payment read (the refund fact lives on `payments`, not here). */
+  listing_id: string | null;
   status: string;
   transfer_method: TransferMethod;
   expires_at: string | null;
+  /** The buyer's review window (A's table 2e). Shown only when the server gives it — never assumed. */
+  auto_release_at: string | null;
   /** Written only after the Stripe payout transfer succeeded; gates the buyer's money sentence. */
   payout_released_at: string | null;
   delivery_email: string | null;
@@ -77,6 +98,29 @@ export default function TransferReceiveScreen() {
   const topPad = useTopInset();
 
   const [transfer, setTransfer] = useState<TransferData | null>(null);
+
+  // The RECORDED REFUND is a fact on the buyer's own payment row (RLS: buyer_id = auth.uid()), read
+  // through the one settled-payments read and only for the closed states that can carry one. A read
+  // that fails establishes nothing — the screen then says a refund will show when confirmed.
+  const [refundFacts, setRefundFacts] = useState<PaymentRefundFacts | null>(null);
+  const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed';
+  useEffect(() => {
+    let alive = true;
+    const listingId = transfer?.listing_id ?? null;
+    if (!closedForRefund || !listingId || !userId) { setRefundFacts(null); return; }
+    void readSettledPayments(supabase, listingId, userId).then((read) => {
+      if (!alive || !('rows' in read)) return;
+      const rows = read.rows;
+      const withRefund = rows.find((r) => r.refunded_at != null || (r.amount_refunded_cents ?? 0) > 0) ?? rows[0] ?? null;
+      setRefundFacts(withRefund ? {
+        status: withRefund.status,
+        amount_refunded_cents: withRefund.amount_refunded_cents ?? null,
+        refunded_at: withRefund.refunded_at ?? null,
+        total: withRefund.total ?? null,
+      } : null);
+    });
+    return () => { alive = false; };
+  }, [closedForRefund, transfer?.listing_id, transfer?.status, userId]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -118,7 +162,7 @@ export default function TransferReceiveScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, status, transfer_method, expires_at, payout_released_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
       )
@@ -346,7 +390,10 @@ export default function TransferReceiveScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status);
+  const meta = transferStatusMeta(transfer.status, 'buyer');
+
+  const refund = refundLine(refundFacts);
+  const reviewDeadline = transfer.status === 'seller_sent' ? buyerReviewDeadlineLine(transfer.auto_release_at) : null;
 
   return (
     <View style={s.root}>
@@ -423,6 +470,11 @@ export default function TransferReceiveScreen() {
             <View style={s.stateBlock}>
               <Text style={[textStyle('title'), s.claimTitle]}>{transferStatusCopy('seller_sent', 'buyer').title}</Text>
               <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('seller_sent', 'buyer').body}</Text>
+              {reviewDeadline ? (
+                // A's table 2e / B-5: the server's auto_release_at is the buyer's review window; the
+                // release decision runs then. Omitted entirely when the server does not give it.
+                <Text style={[textStyle('bodySm'), s.stateText]}>{reviewDeadline}</Text>
+              ) : null}
             </View>
 
             {arrivalPrompt ? (
@@ -477,6 +529,21 @@ export default function TransferReceiveScreen() {
         ) : null}
 
         {/* CONFIRMED — the buyer's own statement of possession */}
+        {/* EXPIRED / REVERSED — the buyer's cells (A's table 2a/2c). The ORDER fact from the status;
+            the REFUND fact only from the payment row; nothing about the seller's payout event. */}
+        {transfer.status === 'expired' ? (
+          <StateBlock title={BUYER_ORDER_CLOSED_COPY.expired.title} tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateText]}>{BUYER_ORDER_CLOSED_COPY.expired.body}</Text>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{refund ?? REFUND_DUE_POLICY}</Text>
+          </StateBlock>
+        ) : null}
+        {transfer.status === 'reversed' ? (
+          <StateBlock title={BUYER_ORDER_CLOSED_COPY.reversed.title} tone="neutral">
+            <Text style={[textStyle('bodySm'), s.stateText]}>{BUYER_ORDER_CLOSED_COPY.reversed.body}</Text>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{refund ?? REFUND_PENDING_LINE}</Text>
+          </StateBlock>
+        ) : null}
+
         {transfer.status === 'buyer_confirmed' ? (
           <StateBlock title={transferStatusCopy('buyer_confirmed', 'buyer').title} tone="success">
             <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('buyer_confirmed', 'buyer').body}</Text>

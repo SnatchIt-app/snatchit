@@ -30,6 +30,9 @@ import {
   sellerWindowView,
   transferReadOutcome,
   transferStatusMeta,
+  SELLER_NO_PAYOUT_LINE,
+  SELLER_REVERSED_COPY,
+  sellerReleaseLine,
 } from '@/src/lib/transfer/transferState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -317,7 +320,7 @@ export default function TransferSendScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status);
+  const meta = transferStatusMeta(transfer.status, 'seller');
 
   return (
     <View style={s.root}>
@@ -332,6 +335,17 @@ export default function TransferSendScreen() {
         {windowView.kind === 'closed' ? (
           <StateBlock title={windowView.title} tone="warning">
             <Text style={[textStyle('bodySm'), s.stateSub]}>{windowView.body}</Text>
+            {/* A's table 2b: no payout ever moved for an expired order; the buyer's refund is theirs. */}
+            <Text style={[textStyle('bodySm'), s.stateSub]}>{SELLER_NO_PAYOUT_LINE}</Text>
+          </StateBlock>
+        ) : null}
+
+        {/* REVERSED — checked BEFORE any payout claim (A's precedence: reversed > payout_released_at;
+            the row keeps payout_released_at/stripe_transfer_id as history and would otherwise read as
+            paid out). No amount is stored, so none is shown. */}
+        {transfer.status === 'reversed' ? (
+          <StateBlock title={SELLER_REVERSED_COPY.title} tone="warning">
+            <Text style={[textStyle('bodySm'), s.stateText]}>{SELLER_REVERSED_COPY.body}</Text>
           </StateBlock>
         ) : null}
 
@@ -406,7 +420,9 @@ export default function TransferSendScreen() {
           <StateBlock title="Marked as sent" tone="neutral">
             <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm they received the tickets.</Text>
             {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' ? (
-              <Text style={[textStyle('bodySm'), s.stateSub]}>Buyer review window: {releaseCountdown}. Your payout releases once it clears review, sooner if the buyer confirms.</Text>
+              // A's table 2e: at auto_release_at the payout policy DECIDES (auto-release, hold, or
+              // review); the line names that time and claims no payout.
+              <Text style={[textStyle('bodySm'), s.stateSub]}>{sellerReleaseLine(transfer.auto_release_at)}</Text>
             ) : null}
             {transfer.payout_review_status == null && releaseCountdown === 'Expired' ? (
               <Text style={[textStyle('bodySm'), s.stateSub]}>The buyer review window has passed. Payout pending, it releases automatically once it clears review.</Text>

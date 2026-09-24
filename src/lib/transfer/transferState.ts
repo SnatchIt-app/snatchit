@@ -1,3 +1,5 @@
+import { formatCents } from '@/src/lib/money';
+import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 /**
  * src/lib/transfer/transferState.ts — the shared, tested core of the transfer
  * flow (buyer receive + seller send).
@@ -131,13 +133,20 @@ export function transferReadOutcome(i: {
 }
 
 /** The canonical badge label + tone for a status. Word carries the meaning. */
-export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
+export function transferStatusMeta(status: string, role: TransferRole = 'buyer'): { label: string; tone: TransferTone } {
   switch (status) {
     case 'pending':         return { label: 'Pending',     tone: 'neutral' };
     case 'seller_sent':     return { label: 'Marked sent', tone: 'neutral' };
     case 'buyer_confirmed': return { label: 'Received',    tone: 'success' };
     case 'auto_released':   return { label: 'Released',    tone: 'success' };
     case 'disputed':        return { label: 'Issue',       tone: 'warning' };
+    // A's table (2026-09-24): `expired` is the one server fact that permits the word.
+    case 'expired':         return { label: 'Expired',     tone: 'neutral' };
+    // `reversed` is the SELLER's payout event (Stripe transfer.reversed → mark_transfer_reversed).
+    // It is never a buyer-facing money fact, so the buyer's word is neutral.
+    case 'reversed':        return role === 'seller'
+      ? { label: 'Payout reversed', tone: 'warning' }
+      : { label: 'Closed',          tone: 'neutral' };
     default:                return { label: status.replace(/_/g, ' '), tone: 'neutral' };
   }
 }
@@ -234,4 +243,80 @@ export function buyerNeedsDelivery(t: DeliveryLike): boolean {
 /** Seller side: the buyer has not provided delivery info yet, so sending is blocked. */
 export function sellerDeliveryMissing(t: Pick<DeliveryLike, 'delivery_email' | 'delivery_phone'>): boolean {
   return !t.delivery_email && !t.delivery_phone;
+}
+
+// ─── The order/transfer cells (A's PAYMENT_STATE_WORDING_TABLE_20260924 @ fbbe0440) ────────────
+//
+// Three facts, three columns, never derived from one another: ORDER = transfers.status; RECORDED
+// REFUND = payments.{amount_refunded_cents, refunded_at, status}; CONFIRMED PAYOUT =
+// transfers.payout_released_at. Precedence: reversed > payout_released_at; disputed > any deadline;
+// a NULL amount > the word "refunded"; a server timestamp > the device clock.
+
+/** What the ORDER status alone establishes for the buyer — nothing about money. */
+export const BUYER_ORDER_CLOSED_COPY = {
+  expired: { title: 'Order expired', body: "The seller didn't send the tickets in time." },
+  reversed: { title: 'Order closed', body: 'This order is closed.' },
+} as const;
+
+/** A stated policy on `expired`, not an asserted fact: the refund shows when the payment row does. */
+export const REFUND_DUE_POLICY = "A refund is due; it will show here once it's confirmed.";
+/** The transfer row is readable but the payment row carries no refund yet. */
+export const REFUND_PENDING_LINE = "We'll update this when a refund is confirmed.";
+
+export const SELLER_REVERSED_COPY = {
+  title: 'Payout reversed',
+  body: "This order's payout was reversed after a dispute or operator review.",
+} as const;
+/** No payout ever moved for an expired order (Phase 1 runs on pending rows). */
+export const SELLER_NO_PAYOUT_LINE = 'No payout for this order.';
+
+export interface PaymentRefundFacts {
+  status: string | null;
+  amount_refunded_cents: number | null;
+  refunded_at: string | null;
+  total: number | null;
+}
+
+/**
+ * The recorded refund, from the payment row alone. "Refunded $X" only when the amount is known AND
+ * equals the total; a partial states both figures; a date or status without an amount is "Refund
+ * recorded" — never "in full", never a figure; nothing recorded is null (the caller decides between
+ * the policy line and the pending line).
+ */
+export function refundLine(p: PaymentRefundFacts | null | undefined): string | null {
+  if (!p) return null;
+  const amount = p.amount_refunded_cents;
+  const total = p.total;
+  const recorded = p.status === 'refunded' || p.refunded_at != null;
+  if (amount != null && amount > 0) {
+    if (total != null && total > 0 && amount === total) return `Refunded ${formatCents(amount)}`;
+    if (total != null && total > 0 && amount < total) return `Partly refunded ${formatCents(amount)} of ${formatCents(total)}`;
+    return 'Refund recorded';
+  }
+  return recorded ? 'Refund recorded' : null;
+}
+
+/** A server timestamp in the shared row format, local time; null when unparseable. */
+function localDateTime(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return rowWhenLabel(
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  );
+}
+
+/** The buyer's review window, from the server's auto_release_at — or nothing. Never a payout claim. */
+export function buyerReviewDeadlineLine(autoReleaseAt: string | null | undefined): string | null {
+  if (!autoReleaseAt) return null;
+  const when = localDateTime(autoReleaseAt);
+  return when ? `Confirm you received the tickets, or report a problem, before ${when}.` : null;
+}
+
+/** The seller's line names the release DECISION time (039 decides at auto_release_at) — not a payout. */
+export function sellerReleaseLine(autoReleaseAt: string | null | undefined): string | null {
+  if (!autoReleaseAt) return null;
+  const when = localDateTime(autoReleaseAt);
+  return when ? `Release decision at ${when}.` : null;
 }
