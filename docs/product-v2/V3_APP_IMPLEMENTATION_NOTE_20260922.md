@@ -351,3 +351,5 @@ reversed fallback made strictly conditional. Cells + deadline DONE on the mappin
 review of the five states pending. **B's checkout amount condition: PENDING A's lifecycle review** —
 the nearby total stays removed; the route estimate is never promoted (nothing to change until A rules).
 Evidence: tsc 0 · lint 0/29 · full run 2628/2628 (139 files), inspected before the commit message.
+
+**A verified 6f116c8e from source (2026-09-24):** sellerHoldLine branches, select + call, conditional fallback, gated surface unchanged; cells + deadline recorded done pending B's visual review.
