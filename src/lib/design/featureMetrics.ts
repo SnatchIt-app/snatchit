@@ -8,12 +8,26 @@
  * (see ROW_META_CLEARANCE in rowMetrics.ts for the clearance half of that rule).
  */
 
+import * as v2 from '@/src/theme/v2';
+
 /** Left/right gutter for the feature's overlaid text and the §3 row inset. */
 export const FEATURE_GUTTER = 20;
 export const ROW_GUTTER = 20;
 
-/** §3 feed/search row artwork: 62 × 62, radius 8. */
+/**
+ * §3 feed/search row artwork: 62 × 62.
+ *
+ * RADIUS — owner 2026-09-24. §3 drew this thumbnail at 8 and the pkg8 home boards render it at
+ * 8 (measured: a 16px arc on the 2× board). The owner's V3 radius scale, ratified the same day
+ * and written into `v2.radius`, assigns "row thumbnails" to `md`, and the owner's finding on the
+ * implemented Home is that the thumbnails must read as ROUNDED, not square. The scale is the
+ * later instruction and it is the one the rest of V3 is built from, so the thumbnail takes the
+ * token rather than the drawn 8 — one source, not a screen-local number.
+ */
 export const ROW_ART = 62;
+// The 62pt row thumb keeps B's DRAWN 8 (V3 §3): the pkg8 boards MEASURE 8 (a 16px arc at 2×),
+// which agrees with the drawn value and outranks the radius scale's generic `md` — the mapping
+// briefly applied here on 2026-09-24 before the board was measured. Rounded, and exactly as drawn.
 export const ROW_ART_RADIUS = 8;
 /** Text column starts at x = 94 with a 20pt gutter and 62pt artwork → a 12pt gap. */
 export const ROW_ART_GAP = 12;

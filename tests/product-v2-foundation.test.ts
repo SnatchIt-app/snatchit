@@ -40,6 +40,9 @@ import {
   priceLadder,
 } from '../src/lib/pricing/allIn';
 import { inventoryKindOf, provenanceLabel, provenanceSortWeight } from '../src/lib/pricing/provenance';
+// The approved V3 radii are read as TOKENS, so this suite cannot pass against a number a screen
+// invented — it can only pass against the scale the owner ratified.
+import * as v2 from '../src/theme/v2';
 
 beforeAll(() => {
   process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
@@ -93,9 +96,45 @@ describe('media slots', () => {
     }
   });
 
-  it('is square everywhere — with the ONE drawn V3 exception, the 62pt row thumb at radius 8', () => {
-    // V3 §3 (owner 2026-09-22) rounds exactly one shape. Anything else growing a radius is a defect.
-    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(n === 'FEED_ROW_ART' ? 8 : 0);
+  it('carries the approved V3 radius per slot — the row thumb is ROUNDED, the rest are square', () => {
+    /*
+     * RETARGETED, not relaxed (owner 2026-09-24).
+     *
+     * This assertion used to read `n === 'FEED_ROW_ART' ? 8 : 0`, which encoded two rules that no
+     * longer hold: the V2 "radius 0 everywhere" law, and §3's drawn 8 for the one exception. The
+     * owner's 2026-09-24 instruction supersedes both — the pkg8 boards round controls, media and
+     * panels, the V3 radius scale in `v2.radius` assigns "row thumbnails" to `md`, and the owner's
+     * finding on the implemented Home is that the row thumbnails must read as ROUNDED, not square.
+     *
+     * So the rule is now a per-slot table of APPROVED values rather than a blanket zero. A slot
+     * that grows a radius which is not written here is still a defect — the table is exhaustive
+     * (the `names` sweep below proves no slot escapes it), and every value is a `v2.radius` token,
+     * never a screen-local number.
+     */
+    const APPROVED: Record<MediaSlotName, number> = {
+      // The 62pt feed/search row thumbnail — B's DRAWN 8 (V3 §3), which the pkg8 boards measure
+      // exactly (16px arc at 2×). The scale's `md` was applied here for a few hours on
+      // 2026-09-24 until the board was measured; the drawn value wins over a generic token.
+      FEED_ROW_ART: 8,
+      // Full-bleed artwork reaches all four screen edges; a radius there would show canvas in the
+      // corners, and the boards draw both of these square.
+      HOME_FEATURE_V3: v2.radius.none,
+      LISTING_HERO_V3: v2.radius.none,
+      // Not on the V3 home/listing boards. They keep the V2 square until a board rounds them.
+      DISCOVERY_CARD: v2.radius.none,
+      FEATURED_EVENT: v2.radius.none,
+      EVENT_HERO: v2.radius.none,
+      EVENT_GALLERY: v2.radius.none,
+      VENUE_HERO: v2.radius.none,
+      CHECKOUT_THUMBNAIL: v2.radius.none,
+      TICKET_ART: v2.radius.none,
+      SEARCH_RESULT: v2.radius.none,
+      DASHBOARD_THUMBNAIL: v2.radius.none,
+      PROMOTER_SHARE: v2.radius.none,
+    };
+    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(APPROVED[n]);
+    // The row thumbnail is genuinely rounded, not square-by-another-name.
+    expect(MEDIA_SLOTS.FEED_ROW_ART.radius).toBeGreaterThan(0);
   });
 
   it('puts a scrim behind every slot that carries text over artwork', () => {

@@ -35,7 +35,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { allInFromDollars } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
@@ -267,7 +267,7 @@ export default function SearchScreen() {
           }
           renderItem={({ item }) => {
             const presentation = cardPresentation(item, now);
-            const priceAllIn = allInFromDollars(presentation.priceDollars);
+            const priceAllIn = allInFromDollarsV3(presentation.priceDollars);
             return (
               <FeedRow
                 eventName={item.event_name}

@@ -194,13 +194,25 @@ describe('Home — shipped-source guards', () => {
     expect(home).not.toContain('reduceDockScroll');
   });
 
-  it('SN mark stays centred to the screen and there is one market label', () => {
-    expect(header).toContain('markRow: { alignItems: \'center\' }');
-    expect(header).toContain('useCurrentMarket');
+  it('V3: the SN mark is LEFT-ALIGNED on one line with search, and no market label is drawn', () => {
+    /*
+     * RETARGETED (owner 2026-09-24). This used to pin the mark CENTRED to the screen on its own
+     * line with the market label and search below it. The owner's finding on the implemented Home
+     * is that this V2 centred-logo composition had been retained instead of the approved V3 header
+     * drawn on `pkg8-home-dark.png`: one line, the SN mark left-aligned to the gutter, the search
+     * control right. The pin follows the approved board.
+     */
+    expect(header).toContain("flexDirection: 'row'");
+    expect(header).toContain("justifyContent: 'space-between'");
+    expect(header).not.toContain('markRow');
+    // No second line, and no market label on it. The market module itself is untouched.
+    expect(header).not.toContain('useCurrentMarket');
+    expect(header).not.toContain('metaRow');
     expect(header).not.toMatch(/['"]Miami['"]/);
     expect(home).not.toMatch(/['"]Miami['"]/);
-    expect(header).toContain("textStyle('micro')");
-    expect(header).toContain('place: { color: p.brand.redText }');
+    // The mark is still the official asset, tinted so it survives Daylight's white canvas.
+    expect(header).toContain("require('@/brand/sn-logo-white.png')");
+    expect(header).toContain('tintColor: p.text.primary');
   });
 
   it('search preserved on Home, not a primary destination', () => {

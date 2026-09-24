@@ -1,7 +1,10 @@
 /**
  * src/components/discovery/FeedRow.tsx — the §3 feed/search row (owner 2026-09-22; V3 package).
  *
- * 62×62 artwork at radius 8 on the left, the name in the display voice beside it, the all-in
+ * 62×62 artwork at the approved thumbnail radius on the left (`ROW_ART_RADIUS`, B's drawn 8
+ * since the owner's 2026-09-24 finding that row thumbnails must read as ROUNDED, not square —
+ * the value lives in featureMetrics and reaches the artwork through the FEED_ROW_ART slot, never
+ * from this file), the name in the display voice beside it, the all-in
  * price right-aligned. The row GROWS with its contents: no height is hard-coded anywhere here,
  * and the last metadata line keeps ROW_META_CLEARANCE of clear space before whatever is drawn
  * below (the list's own divider). Same truth rules as DiscoveryCard: cardState decides what the

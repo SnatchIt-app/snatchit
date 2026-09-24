@@ -22,6 +22,8 @@ import {
   ROW_GUTTER,
 } from '@/src/lib/design/featureMetrics';
 import { scrimBackgroundImage } from '@/src/lib/design/scrim';
+// The thumbnail radius is read as the ratified TOKEN, not as a number this suite copied.
+import * as v2 from '@/src/theme/v2';
 import {
   clockLabel,
   featureMetaLine,
@@ -50,7 +52,12 @@ describe('featureMetrics — §3 formulas, never constants', () => {
     expect(HERO_DATE_BOTTOM).toBe(78);
     expect(HERO_NAME_GAP).toBe(19);
     expect(ROW_ART).toBe(62);
+    // RE-SETTLED after measurement (2026-09-24, second pass). §3 drew this thumbnail at 8 AND
+    // the pkg8 boards measure 8 (a 16px arc at 2×). The brief mistake was mapping "row
+    // thumbnails" onto the new scale's `md` — that mapping was C's brief, not an owner ruling,
+    // and the approved image outranks it. Rounded, and exactly as drawn: 8.
     expect(ROW_ART_RADIUS).toBe(8);
+    expect(ROW_ART_RADIUS).toBeGreaterThan(v2.radius.none);
     expect(ROW_GUTTER).toBe(20);
   });
 });

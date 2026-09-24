@@ -93,7 +93,12 @@ describe('F3 — every server blocker kind has a label', () => {
 describe('CFT-604 — loading, failed, empty and filtered are distinct on every tab', () => {
   it('Home: nothing empty during load; failure is a ScreenState; filters get "No matches"', () => {
     const home = stripComments(read('app/(tabs)/home.tsx'));
-    expect(home).toContain('data={loading ? [] : filteredListings}');
+    // RETARGETED (owner 2026-09-24): the V3 boards' section headings mean the feed now renders
+    // `ordered` — the SAME rows, regrouped by event date in src/lib/home/sections.ts, never
+    // filtered. What CFT-604 is about is unchanged and still pinned: while `loading`, the list is
+    // empty so only the empty slot below can speak.
+    expect(home).toContain('data={loading ? [] : ordered}');
+    expect(home).toContain('groupByEventDate(filteredListings');
     // F-HOME-1 widened this contract: the two lazy filter datasets carry their own load state, so the
     // empty slot now answers to them BEFORE the main feed's loadError. Same rule, one more reader.
     expect(home).toMatch(/ListEmptyComponent=\{\s*loading \|\| datasetBusy \? null :/);

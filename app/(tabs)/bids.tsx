@@ -29,7 +29,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import { getCoverImageUrl } from '@/src/lib/coverImage';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
@@ -393,8 +393,8 @@ export default function BidsScreen() {
                 whenLabel={whenLabel(item.listing?.ends_at)}
                 coverPath={coverPath(item)}
                 presentation={p}
-                priceAllIn={allInFromDollars(p.priceDollars)}
-                secondaryAllIn={p.secondaryDollars != null ? allInFromDollars(p.secondaryDollars) : null}
+                priceAllIn={allInFromDollarsV3(p.priceDollars)}
+                secondaryAllIn={p.secondaryDollars != null ? allInFromDollarsV3(p.secondaryDollars) : null}
                 urgencyLabel={p.endingSoon ? endingSoonLabel(p.endsAtMs) : null}
                 onPress={() => router.push(target as never)}
               />

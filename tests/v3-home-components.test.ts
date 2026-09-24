@@ -267,7 +267,53 @@ describe('home wiring — feature + rows (source pins; behaviour is the load-sta
     expect(src).toContain('ItemSeparatorComponent');
     expect(src).not.toContain('numColumns={2}');
     expect(src).not.toContain('DiscoveryCard');
-    // The mockups' section headings are flagged, not drawn: no unbacked "Tonight"/"This week".
-    expect(src).not.toMatch(/'Tonight'|'This week'/);
+    /*
+     * RETARGETED (owner 2026-09-24). This used to assert the screen contained no "Tonight" /
+     * "This week" at all, because at the time their grouping rule was written nowhere and an
+     * unbacked heading is a claim the data cannot meet. The owner's finding is that the boards'
+     * section headings ARE part of the approved Home, so the rule now exists as one pure function
+     * and the pin moves to the property that actually matters: the screen may not name a section
+     * itself. Every heading it draws comes from `src/lib/home/sections.ts`.
+     */
+    expect(src).not.toMatch(/'Tonight'|'This week'|"Tonight"|"This week"/);
+    expect(src).toContain('groupByEventDate');
+    expect(src).toContain('headingFor.get(item.id)');
+  });
+
+  it('HW2: the section rule is total, stable, and never names a bucket it cannot back', async () => {
+    const { groupByEventDate, sectionFor } = await import('@/src/lib/home/sections');
+    const now = Date.parse('2026-09-24T18:00:00');
+    const at = (days: number) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    expect(sectionFor(at(0), now)).toBe('tonight');
+    expect(sectionFor(at(1), now)).toBe('week');
+    expect(sectionFor(at(7), now)).toBe('week');
+    expect(sectionFor(at(8), now)).toBe('later');
+    // A past event — every row of the Recently sold and Ended datasets — is NOT given a heading.
+    expect(sectionFor(at(-1), now)).toBe('undated');
+    expect(sectionFor('not-a-date', now)).toBe('undated');
+
+    const rows = [
+      { id: 'a', event_date: at(9) },
+      { id: 'b', event_date: at(0) },
+      { id: 'c', event_date: at(-3) },
+      { id: 'd', event_date: at(3) },
+      { id: 'e', event_date: at(10) },
+    ];
+    const sections = groupByEventDate(rows, (r) => r.event_date, now);
+    // Total: nothing is filtered away by grouping.
+    expect(sections.flatMap((s) => s.items).map((r) => r.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+    // Ordered soonest first, with the unnameable bucket last and unlabelled.
+    expect(sections.map((s) => [s.key, s.label])).toEqual([
+      ['tonight', 'Tonight'],
+      ['week', 'This week'],
+      ['later', 'Later'],
+      ['undated', null],
+    ]);
+    // Stable: 'a' arrived before 'e', and stays before it inside their section.
+    expect(sections[2].items.map((r) => r.id)).toEqual(['a', 'e']);
   });
 });

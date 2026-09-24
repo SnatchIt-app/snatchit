@@ -27,8 +27,17 @@ describe('auth brand mark', () => {
     expect(mark).not.toMatch(/justifyContent: 'space-between'|marginLeft:|left:/);
   });
 
-  it('uses the same construction as the approved Home header', () => {
-    expect(read('src/components/discovery/HomeHeader.tsx')).toContain("markRow: { alignItems: 'center' }");
+  it('stays centred on auth even though Home no longer is', () => {
+    /*
+     * RETARGETED (owner 2026-09-24). This used to prove the auth mark shared its construction with
+     * Home's, back when Home centred the mark too. The V3 boards left-align Home's mark on a line
+     * with the search control, so the two compositions have deliberately parted: auth keeps the
+     * centred mark (its own boards still draw it that way), Home does not. The auth rule is pinned
+     * on the auth component above; here we only prove Home has genuinely stopped centring, so this
+     * test can never pass by both of them silently drifting back together.
+     */
+    expect(read('src/components/discovery/HomeHeader.tsx')).not.toContain("markRow: { alignItems: 'center' }");
+    expect(mark).toContain("row: { alignItems: 'center'");
   });
 
   it('keeps the official asset and its size/ratio', () => {

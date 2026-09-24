@@ -56,8 +56,15 @@ export interface SlotSpec {
   /** Default fill behaviour when the asset does not declare one. */
   defaultFit: FitMode;
   /**
-   * Corner radius. The V2 brand rule was 0 everywhere; the V3 package (owner 2026-09-22, §3)
-   * rounds exactly one shape — the 62pt feed-row thumbnail — to 8. Everything else stays square.
+   * Corner radius, always a `v2.radius` token.
+   *
+   * The V2 brand rule was 0 everywhere. V3 (owner 2026-09-24) replaces that blanket zero with a
+   * scale, and on these slots it rounds exactly one shape: the 62pt feed-row thumbnail, at
+   * `radius.md` — the scale's "row thumbnails" — because the owner's finding on the implemented
+   * Home is that the thumbnails must read as ROUNDED, not square. Everything else here stays
+   * square, including the two full-bleed V3 slots, whose artwork reaches all four screen edges and
+   * would show canvas in the corners if it were rounded. The approved value per slot is pinned in
+   * tests/product-v2-foundation.test.ts.
    */
   radius: number;
   /**
@@ -180,7 +187,7 @@ export const MEDIA_SLOTS = {
     preload: true,
     heightFor: heroHeight,
   },
-  /** V3 feed/search row artwork: 62 × 62 at radius 8. Text sits BESIDE it, so no scrim. */
+  /** V3 feed/search row artwork: 62 × 62 at the approved thumbnail radius. Text sits BESIDE it, so no scrim. */
   FEED_ROW_ART: {
     aspectRatio: v2.ratio.square,
     layoutWidth: { mobile: ROW_ART, tablet: ROW_ART, web: ROW_ART },

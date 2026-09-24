@@ -189,7 +189,7 @@ describe('bids screen — shipped-source guards', () => {
   });
 
   it('formats money through the one helper and does no arithmetic', () => {
-    expect(screen).toContain('allInFromDollars(');
+    expect(screen).toContain('allInFromDollarsV3(');
     expect(card).not.toMatch(/lib\/money/);      // card takes preformatted strings
     expect(card).not.toMatch(/\* 100|\/ 100/);
   });

@@ -21,9 +21,20 @@
  * V3 (owner 2026-09-22; B's package §3). Presentation only, again: the two-up grid becomes one
  * full-bleed FEATURE (the first live listing, name over the curve-scrimmed artwork) above
  * single-column ROWS — 62pt artwork, name in the display voice, all-in price right-aligned,
- * content-driven heights. The data layer is still byte-for-byte the V2 one. The mockups' section
- * headings ("Tonight" / "This week") are NOT drawn: their grouping rule has no spec text yet and
- * is flagged for B; a heading the data can't guarantee would be a small lie.
+ * content-driven heights. The data layer is still byte-for-byte the V2 one.
+ *
+ * V3 SECTION HEADINGS (owner 2026-09-24, on the pkg8 home boards). The previous revision left the
+ * boards' "Tonight" / "This week" headings UNDRAWN because their grouping rule was not written
+ * anywhere, and a heading the data cannot guarantee is a small lie. The rule is now written — one
+ * pure function in `src/lib/home/sections.ts` — so the headings are drawn from it and from
+ * nothing else. The feed is REGROUPED by that rule (soonest first, order preserved inside each
+ * section); no row is added, removed or filtered by it, and a bucket that cannot be honestly named
+ * — anything already past, which is every row of the Recently sold and Ended datasets — is drawn
+ * with no heading at all rather than borrowing the one above it.
+ *
+ * Still presentation only. Every read, the realtime channel, the blocked-seller filtering, the
+ * neighbourhood sort, the lazy sold/ended loads, their F-HOME-1 load states and the one-second
+ * ticker are untouched.
  */
 
 import { router } from 'expo-router';
@@ -32,7 +43,7 @@ import { Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, 
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
-import { allInFromDollars } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
@@ -54,6 +65,8 @@ import {
   reduceFilterBarScroll,
   type FilterBarState,
 } from '@/src/lib/home/filterBarMachine';
+import { groupByEventDate } from '@/src/lib/home/sections';
+import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import {
   DEFAULT_FILTERS,
   activeFilterCount,
@@ -123,7 +136,17 @@ function coverPath(listing: Listing): string | null {
 // V3: date formatting for rows/feature lives in src/lib/listing/feedRowState.ts, inside the
 // components, so home and search cannot drift apart.
 
-export default function HomeScreen() {
+export interface HomeScreenProps {
+  /**
+   * Render harness seam ONLY (`app/_dev/v3-home.tsx`). When present it stands in for the feed's
+   * network read and for the realtime subscription, and for nothing else: every filter, sort,
+   * section, countdown and piece of copy below still runs exactly as it does in the app. Never
+   * passed by a route.
+   */
+  fixture?: Listing[];
+}
+
+export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   // Adaptive dock: feed scroll direction in, and give the list bottom clearance
@@ -213,6 +236,8 @@ export default function HomeScreen() {
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchListings() {
+    // The harness seam, and the only thing it replaces: the read. Nothing below this line changes.
+    if (fixture) { setAllListings(fixture); setLoadError(null); return; }
     neighborhoodPrefs.current = await getUserNeighborhoods();
 
     const baseQuery = supabase
@@ -300,6 +325,7 @@ export default function HomeScreen() {
 
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (fixture) return; // harness: no server, no subscription
     const channel = supabase
       .channel('home-listings-feed')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'listings' },
@@ -387,6 +413,34 @@ export default function HomeScreen() {
     return result;
   }, [allListings, soldListings, endedListings, filters, now]);
 
+  // ── Sections (V3) ─────────────────────────────────────────────────────────
+  // The bucket an event falls in changes once a DAY, not once a second, so the grouping is keyed
+  // to local midnight rather than to the ticker — otherwise every countdown tick would rebuild
+  // the whole feed. `sectionFor` normalises to the same midnight, so this is the exact basis.
+  const todayStart = useMemo(() => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, [now]);
+
+  const { ordered, headingFor, dividerAfter } = useMemo(() => {
+    const sections = groupByEventDate(filteredListings, (l) => l.event_date, todayStart);
+    const flat = sections.flatMap((s) => s.items);
+    // A heading belongs to the FIRST row of its section. A section whose bucket cannot be named
+    // (anything already past — the whole of the sold and ended datasets) gets none.
+    const heading = new Map<string, string>();
+    for (const s of sections) {
+      if (s.label && s.items.length > 0) heading.set(s.items[0].id, s.label);
+    }
+    // The §3 divider separates rows INSIDE a section. Where a heading follows, the heading and its
+    // own rule are the break, and the board draws no second hairline above it.
+    const divider = new Set<string>();
+    for (let i = 0; i < flat.length - 1; i += 1) {
+      if (!heading.has(flat[i + 1].id)) divider.add(flat[i].id);
+    }
+    return { ordered: flat, headingFor: heading, dividerAfter: divider };
+  }, [filteredListings, todayStart]);
+
   // ── Chip tap ──────────────────────────────────────────────────────────────
   function onChipTap(key: QuickChip) {
     const nextChip = key === filters.chip ? 'all' : key;
@@ -453,11 +507,14 @@ export default function HomeScreen() {
           header. */}
       <View style={s.feed}>
       <FlatList
-        data={loading ? [] : filteredListings}
+        data={loading ? [] : ordered}
         keyExtractor={(item) => item.id}
         // §3: 1px divider, inset to the row gutter, drawn 10pt above the next row's top. The
         // clearance ABOVE it is the rows' own ROW_META_CLEARANCE — content-driven, never a height.
-        ItemSeparatorComponent={() => <View style={s.divider} />}
+        // It is suppressed immediately before a section heading, which carries its own rule.
+        ItemSeparatorComponent={({ leadingItem }: { leadingItem?: Listing }) =>
+          leadingItem && !dividerAfter.has(leadingItem.id) ? null : <View style={s.divider} />
+        }
         // Constant top inset for the bar: the feed's layout never changes while
         // scrolling, which is what keeps the gesture smooth and interruptible.
         contentContainerStyle={[s.list, { paddingTop: filterBarHeight, paddingBottom: dockClearance }]}
@@ -508,7 +565,9 @@ export default function HomeScreen() {
         renderItem={({ item, index }) => {
           const presentation = cardPresentation(item, now);
           // All-in, through the one money helper. No arithmetic here.
-          const priceAllIn = allInFromDollars(presentation.priceDollars);
+          // V3 (pkg8-home boards): displayed money carries cents — $132.00, not $132. Display
+          // only; the underlying dollars and every calculation are unchanged.
+          const priceAllIn = allInFromDollarsV3(presentation.priceDollars);
           const shared = {
             eventName: item.event_name,
             venue: item.venue,
@@ -544,7 +603,24 @@ export default function HomeScreen() {
           // a spotlight on something that cannot be bought reads as an offer.
           const featured =
             index === 0 && presentation.status !== 'sold' && presentation.status !== 'ended';
-          return featured ? <HomeFeature {...shared} /> : <FeedRow {...shared} />;
+          const body = featured ? <HomeFeature {...shared} /> : <FeedRow {...shared} />;
+          // The heading is drawn ABOVE the first item of its section — over the feature on the
+          // board, over the first row of every section after it. `headingFor` is the only source.
+          const heading = headingFor.get(item.id);
+          if (!heading) return body;
+          return (
+            <View>
+              <Text
+                style={[textStyle('label'), s.sectionLabel]}
+                accessibilityRole="header"
+                numberOfLines={1}
+              >
+                {heading}
+              </Text>
+              <View style={s.sectionRule} />
+              {body}
+            </View>
+          );
         }}
       />
 
@@ -644,13 +720,35 @@ function makeStyles(p: Palette) {
   // The tab bar sits over the last row; this keeps it reachable.
   list: { paddingBottom: 96 },
   // §3 divider: 1px, inset to the 20pt row gutter, with the 10pt gap to the next row's top.
-  // Ink: the neutral over-art hairline white — the only non-red border token. The exact divider
-  // ink is not in §3's text; flagged for B's review of the implemented screen.
+  // INK, settled: the pkg8 home boards draw it as `border.default` in both appearances — #28292D
+  // on Midnight and #DFE0E4 on Daylight, sampled off the boards at 2×. It used to be the over-art
+  // hairline white, which renders #1A1A1A on Midnight and was flagged as unsettled.
   divider: {
     height: 1,
-    marginHorizontal: 20,
+    marginHorizontal: ROW_GUTTER,
     marginBottom: 10,
-    backgroundColor: p.border.overArt,
+    backgroundColor: p.border.default,
+  },
+  /**
+   * V3 section heading (owner 2026-09-24, pkg8 boards): sentence case, bold, quiet — 12pt on the
+   * board, in the secondary ink, barely tracked. It is `label`'s face and size with `label`'s
+   * uppercase and its 2.2 tracking turned OFF, because no token yet carries this exact voice;
+   * a `sectionLabel` token belongs in the scale and is requested of C.
+   */
+  sectionLabel: {
+    color: p.text.secondary,
+    textTransform: 'none',
+    letterSpacing: 0.3,
+    paddingHorizontal: ROW_GUTTER,
+    marginTop: v2.space.md,
+  },
+  /** The board's hairline under the heading: same ink and inset as the row divider. */
+  sectionRule: {
+    height: 1,
+    marginHorizontal: ROW_GUTTER,
+    marginTop: v2.space.xs,
+    marginBottom: v2.space.sm,
+    backgroundColor: p.border.default,
   },
   });
 }
