@@ -413,3 +413,34 @@ carry the reversed boards on real data; expired/held stay gallery-only with the 
 RC17); static imports whitelisted (TG8); tested Settings entry through the real screen (SG1/SG2; RC18).
 Evidence at 2619b9e1: tsc 0 · lint 0/29 · **full vitest alone 143 files, 2660/2660 clean** (load average 5).
 Branch head for the build pin, when the §5 gates are met: `2619b9e1` (v3/midnight-app).
+
+**Appearance migration COMPLETE — `4d1e4b3d`, then `9c6c9bf4` (2026-09-24).** The 53-file list above is done:
+**0 consumer files** read Midnight-only colour tokens now. AM1 scans the whole tree and AM2 pins that the only
+exempt paths are the palette definition and the dev-only foundation screen, so the count cannot be gamed by
+adding an exception. The "Light-appearance exception" in the build gate is withdrawn — the candidate carries
+complete System/Light/Dark.
+
+**Four defect classes the token count could not see** (each passed a static scan and still rendered wrong in
+Light): three transfer-flow components were never on v2 and still imported the pre-v2 `colors` module
+(`DeliveryInfoForm`, `PlatformInstructions`, `ProofImageViewer` — reachable from receive, two from send; AM4
+forbids it now) · text over artwork renamed to canvas inks (`HomeFeature`, `ListingHero` → `onArt`, which
+gained `urgent`) · the ink on a saturated status fill must flip with the scheme (B's F-31: black is 6.42:1 on
+Midnight's `#FF4D4D` and 3.46:1 on Daylight's `#C41414` → `status.onFill`) · the brand red as text in 30 files
+(B's F-32: 3.88:1 on white is a fill, not text → `brand.redText`, `#FF1A1A` on Midnight and `#D31212` on
+Daylight; RD13 forbids the regression). Also closed: F-33, F-34, N-1, N-4, N-5. New tokens are additive and
+Midnight-preserving; both mirrors carry them and the parity test holds.
+
+Evidence at `9c6c9bf4` (alone, load 4.16, no peer vitest): **144 files, 2675/2675** · tsc 0 · lint 0/29 ·
+**three mutants each killed by exactly the predicted gate** (AM1 / RD8 / AM4), clean baseline, digest-verified
+restore. Gated payment surface still `signOut.ts +5` only vs `e079fcc1`.
+
+**Preserved failures:** 104 tests across 13 files failed on the migrated tree at load 4.2 with no peer — NOT
+contention: migrated components call `useTheme()` and those suites mocked `react-native` without
+`useColorScheme`; fixed with the appearance boundary mock and two pins retired with the change they defended.
+A mutant harness first reported three survivors — the harness's failure-name regex was wrong, not the gates.
+And I reverted the whole working tree with a `git stash` probe inside a lint command; recovered from the stash
+and re-verified everything after recovery.
+
+**Build created (the one authorised):** `65cb7633-0eca-4314-b135-fd9c90db8214` — iOS `preview`, internal,
+build number 23, commit `9c6c9bf4`, sandbox `ofaidukbieeekqaboscm`. Device evidence: **none yet**; D-1…D-9 wait
+on the owner's D1–D6 approval (A's sheet, revision 2, `7dae4815`, NOT approved).
