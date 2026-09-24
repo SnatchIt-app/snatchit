@@ -1,5 +1,9 @@
 # V3 appearance coverage — the one current matrix
 
+> **SUPERSEDED for the counts by `V3_REVIEW_OF_C_2619b9e1.md` §3**, measured at C's current commit
+> `2619b9e1`: **17 palette-only · 1 partial · 44 unmigrated · 4 literal-only** (consumer-reachable).
+> A-1…A-5 are **closed**. The method below still stands.
+
 **B · 2026-09-24.** Measured on **C `v3/midnight-app` @ `016087ea`**, across `src/screens`,
 `src/components`, `app`. **Supersedes the 55/15/2 figures I gave on 2026-09-24 — those counted *imports*.**
 
