@@ -71,6 +71,15 @@ Nothing visual changes on your captured screens; no capture needs retaking for t
 
 ## Deliberate deviations from the boards — need a ruling, not a fix
 
+0. **pkg8-send's payout paragraphs — A has now RULED on their truth (2026-09-24); owner/B decide
+   adoption.** The shipped, A-ruled sentences stay. A's verdicts on the board's own copy:
+   "Buyer review window: 2d 4h." is a device-clock countdown — if shown, it must be the server
+   deadline as a date ("Buyer review window ends Fri 24 Oct, 19:30"), never remaining time.
+   "Your payout releases once it clears review, sooner if the buyer confirms." is NOT supportable
+   as written (039 risk holds, manual review and seller onboarding can all intervene; the
+   confirmation clause is only directionally true). "If the buyer reports an issue, your payout
+   will be held for review." IS supportable. Any board redraw should start from those verdicts.
+
 1. **Listing footer emphasis:** the board draws BID filled / Buy-Now outlined; `detailState`
    rule 1 (owner-reaffirmed 2026-09-22) says Buy Now leads. Painted as the board draws;
    resolver untouched; one `variant` line to revert.
