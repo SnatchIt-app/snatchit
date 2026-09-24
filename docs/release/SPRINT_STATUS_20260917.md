@@ -1806,3 +1806,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     listing price. `readSettledPayments`' select stays unchanged.
   - **(3) Tickets/fee breakdown:** not needed now. If the owner wants it, `payments.amount` and `buyer_fee` exist,
     via a separately reviewed select.
+- **A approved the order screen's money and payout facts** (C's `c84618ee` + `e5878b3f`).
+  - The embed is exactly 8 real columns, and `cover_image_url` was removed. A ran the schema leg on `a149_fresh_rehears`:
+    the select succeeds, and the `cover_image_url` control fails.
+  - `youPaidAmount` requires exactly one settled row (succeeded or refunded) with a positive total. There is no
+    listing-price path.
+  - The payout step comes from `payout_released_at` only. The confirm caption is true: the dialog comes first.
+  - The gated diff, including `settledRead.ts`: `signOut.ts` +5 only.
+  - Clean run `full-run-20`: 2784/2784, exit=0, dirty_files=0.
