@@ -1,6 +1,6 @@
 # V3 — the open design questions, in one place
 
-**Written by C, 2026-09-24, at candidate `db3dbe16`.** The owner asked for the remaining design
+**Written by C, 2026-09-24; current at candidate `a5c0bfc6`.** The owner asked for the remaining design
 questions consolidated into one short document, each with the exact reference, the implemented
 alternative, a recommendation and the consequence — routine implementation choices going to B for
 resolution, and only genuine product choices going to the owner.
@@ -25,7 +25,7 @@ capture and review the whole app at this pin regardless of how these land.
 | B-9 | Explore | Three chips; "Any date" is deliberately absent | **Leave it out** until it has a meaning. A date chip that filters nothing is a control that lies | Adding it needs a date predicate in the search path, which is not presentation |
 | B-10 | Order progress track | Four steps, no timestamps | **Leave the timestamps out.** Three of the four steps have no readable timestamp on the row, so three of four would be blank | Adding them needs new columns in an A-cleared select |
 | B-11 | Dock | Filled SF Symbols for all five items | **Apply B's settled table** (outline weight, Bids as a bar chart, Sell as a bare plus) and hold the FILL question, which a web render cannot settle because RNW substitutes Material icons | Native-only difference; it cannot be closed from a web capture either way |
-| B-12 | Radius by role | `v2.radius` is 10/14/20/pill; media slots carry their own radii | **Wait for B's component→radius table**, then apply it centrally in one commit. I will not round full-bleed art or re-radius every control from a partial reading | A central token pass; every screen's capture changes, so it should happen once |
+| B-12 | Radius by role | `v2.radius` is 10/14/20/pill; media slots carry their own radii | **UNBLOCKED — B's table is published** (`V3_REVIEW_0677c80e_AND_REFERENCES.md` §4.1): rules 0 · media 8 · chrome 22 · dock 33 · full-bleed 0 · panels 0, with controls under 44pt clamping. I apply it centrally in one commit, and will report the before/after of every affected screen because every capture changes | — |
 
 ## 2 · For the owner (genuine product choices no ruling answers)
 
@@ -50,11 +50,15 @@ something different from the same number everywhere else.
 
 **O-3 · What the bid screen says about payment.**
 *Reference:* `pkg2-bid-*` carries a sentence about paying if you win.
-*Implemented:* the commitment sentence, without a payment-timing claim.
-*Recommendation:* **say nothing more here.** Winning an auction reserves the listing and takes the
-bidder to checkout; any sentence about when money moves would be a second, weaker copy of what
-checkout itself says at the moment it is true.
-*Consequence:* a bidder learns the payment step at checkout rather than at bid time.
+*Implemented:* your own ratified copy of 2026-09-23, one sentence outside the summary —
+"Placing a bid doesn't charge you. If you win, you pay the total at checkout." (E corrected my
+earlier description of this row, which said there was no payment-timing claim: there is one, and it
+is yours.)
+*Recommendation:* **keep it.** It is true — verified in source: nothing charges on a win, the
+winner's route is `pay_now` → winner checkout → `payControl`'s Pay, which is the only control that
+moves a buyer's money — and it answers at bid time the question a bidder actually has.
+*Consequence:* the only alternative is to say nothing here and let checkout say it later, which
+leaves the bidder to assume.
 
 **O-4 · Whose name a listing shows, and where.**
 *Reference:* `nameState` is applied on the listing and the order screens; the boards show a seller
@@ -70,12 +74,13 @@ that supplies one. A name that degrades to "the seller" on some rows and not oth
 
 Recorded here only so the list is complete; A rules these and I apply them.
 
-- **Seller-side "Payment is held until they confirm (receipt)"** — `transferState.ts:190`,
-  `detailState.ts:228`. Same defect class as A's withdrawn §2f buyer sentence: it names one of four
-  release paths as the rule, and "held" reads as a card authorisation. Sent to A at `db3dbe16` with a
-  proposed direction; unchanged until A words it.
-- **The buyer's dispute line "Your payment stays on hold until this is resolved"** —
-  `transferState.ts:213`. What is frozen is the seller's payout, not the buyer's payment.
+- **CLOSED by A's §2g, applied at `1c468a1e`:** the seller's "Payment is held until they confirm
+  (receipt)" is now "The buyer has paid. Payout pending." on both surfaces, and the buyer's dispute
+  line now says the SELLER's payout is frozen. A rejected my first proposal for leaving out operator
+  release and seller-win; the wording is A's.
+- **Open with A:** the replacements for `receive:401` ("Support will review."), `send:546`, the
+  deletion and payout-setup time sentences, and the Bids tab's "Paid" figure — A has sent rulings for
+  all of these and they are the next batch.
 
 ## 4 · Closed since the last list, so nobody re-opens them
 
