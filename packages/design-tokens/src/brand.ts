@@ -255,6 +255,12 @@ export const type = {
   /** V3: the dock's visible item labels (mixed case, small, quiet). */
   navLabel: { family: font.bodyMedium, size: 11, lineHeight: 13, letterSpacing: 0.2, uppercase: false },
   /**
+   * V3 SECTION HEADING (pkg8-home boards; requested from Home 2026-09-24): sentence case, bold,
+   * quiet, barely tracked — `label`'s face and size with the uppercase and 2.2 tracking OFF.
+   * Feed section heads ("Tonight", "This week") and their siblings.
+   */
+  sectionLabel: { family: font.bodyBold, size: 12, lineHeight: 16, letterSpacing: 0.3, uppercase: false },
+  /**
    * Prices. `fontVariant: ['tabular-nums']` must be applied at the Text, or digits
    * jitter as a live bid updates. Declaring the intent in a comment is not enough,
    * so the variant travels with the token.

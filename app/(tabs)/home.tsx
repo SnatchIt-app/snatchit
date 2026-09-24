@@ -611,7 +611,7 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
           return (
             <View>
               <Text
-                style={[textStyle('label'), s.sectionLabel]}
+                style={[textStyle('sectionLabel'), s.sectionLabel]}
                 accessibilityRole="header"
                 numberOfLines={1}
               >
@@ -729,16 +729,9 @@ function makeStyles(p: Palette) {
     marginBottom: 10,
     backgroundColor: p.border.default,
   },
-  /**
-   * V3 section heading (owner 2026-09-24, pkg8 boards): sentence case, bold, quiet — 12pt on the
-   * board, in the secondary ink, barely tracked. It is `label`'s face and size with `label`'s
-   * uppercase and its 2.2 tracking turned OFF, because no token yet carries this exact voice;
-   * a `sectionLabel` token belongs in the scale and is requested of C.
-   */
+  /** V3 section heading: the `sectionLabel` token carries the voice; only layout lives here. */
   sectionLabel: {
     color: p.text.secondary,
-    textTransform: 'none',
-    letterSpacing: 0.3,
     paddingHorizontal: ROW_GUTTER,
     marginTop: v2.space.md,
   },
