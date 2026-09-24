@@ -30,7 +30,7 @@ describe('Listing detail — Buy Now', () => {
   it('the reserve path is unchanged inside the lock', () => {
     const start = code.indexOf('async function reserveAndCheckout()');
     const body = code.slice(start, code.indexOf('// ── Transfer actions', start) > 0 ? code.indexOf('// ── Transfer actions', start) : start + 4000);
-    for (const marker of ["rpc('reserve_buy_now'", 'await fetchData();', 'navigateToCheckout();', 'setReserving(false);']) {
+    for (const marker of ["rpc('reserve_buy_now'", 'await fetchData(true);', 'navigateToCheckout();', 'setReserving(false);']) {
       expect(body, marker).toContain(marker);
     }
   });

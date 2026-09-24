@@ -813,7 +813,12 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
       else                                       Alert.alert('Reservation failed', msg);
       return;
     }
-    await fetchData();
+    // SILENT, deliberately (F-V3-READFAIL-1, D 2026-09-24): a reservation has just LEFT this
+    // screen, so the failed-read view — whose copy promises "nothing was sent from this screen"
+    // — must be unreachable from here. This refresh is a courtesy for the screen left mounted
+    // under checkout; if it fails, the loaded listing stays up, which is strictly more truthful
+    // than replacing it with a reassurance that is now false.
+    await fetchData(true);
     setReserving(false);
     navigateToCheckout();
   }

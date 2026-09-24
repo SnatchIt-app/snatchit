@@ -450,5 +450,29 @@ describe('V3 §5 — the failed-read copy claims nothing it cannot know', () => 
     expect(src).toContain('label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData()');
     expect(src).toContain('<ScreenState state="offline"');   // offline keeps its own state
   });
+
+  it("F-V3-READFAIL-1: the copy can never render AFTER a reservation left this screen", async () => {
+    // D's trace (2026-09-24, verified line by line): reserve_buy_now succeeds, the post-write
+    // refetch runs NON-silent, a failed read there sets `error`, navigation proceeds anyway, and
+    // on return the screen says "Nothing was sent from this screen" — right after a reservation
+    // WAS sent and checkout may have created a PaymentIntent on mount. The invariant that keeps
+    // the sentence true is structural: only reads that precede any send may set `error`, so the
+    // post-reserve refresh must be SILENT — a refresh failure keeps the loaded screen, it does
+    // not replace it with a false reassurance.
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const block = src.slice(src.indexOf("supabase.rpc('reserve_buy_now'"), src.indexOf('navigateToCheckout();', src.indexOf("supabase.rpc('reserve_buy_now'")));
+    expect(block.length).toBeGreaterThan(0);
+    expect(block, 'the post-reserve refresh must be silent').toContain('fetchData(true)');
+    expect(block, 'a non-silent read after the write re-opens the defect').not.toMatch(/fetchData\(\)/);
+    // …and the error state remains reachable only from reads that precede any send: the initial
+    // load and the retry controls that render only once error is already set.
+    const bare = [...src.matchAll(/fetchData\(\)/g)].length;
+    const retries = [...src.matchAll(/onPress: \(\) => fetchData\(\)|onRetry=\{\(\) => fetchData\(\)\}/g)].length;
+    expect(bare - retries, 'every bare fetchData() must be a retry control').toBe(0);
+    // …and the one explicit non-silent call is the initial load, which precedes any send.
+    expect([...src.matchAll(/fetchData\(false\)/g)].length).toBe(1);
+  });
 });
 
