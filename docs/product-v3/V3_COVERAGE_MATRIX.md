@@ -184,6 +184,42 @@ palette; Light inks are witnessed in tests on StateView/Button/Badge. Screens mi
 makeStyles(palette) pattern), ~55 files. **B:** the light values remain provisional until you confirm;
 the pressed red is #FF5353 in both.
 
+### Reconciliation with B and A (`016087ea`, `212783f2`) — 2026-09-24
+
+- **One pressed value:** `#FF5353` in both mirrors (B's record `c1e23125` adopted C's value; B's `#FF4C4C`
+  also passed). Pinned on both mirrors (AP11). No further round.
+- **Daylight = B's token board** mapped onto the v2 key shape (AP12); `border.control` in both mirrors and
+  on Input / Chip / secondary Button (AP13). B's Midnight column: canvas `#08090A` withdrawn by B; **A-1
+  neutral hairlines are approved (owner 2026-09-22, restated 2026-09-24) and land next** (AP17 written red).
+- **Startup:** the provider withholds its tree until the stored choice is read (bounded 400 ms); the root
+  holds the splash until fonts AND the choice are ready — no System frame that flips (AP14, AP15).
+- **Checkout, A's ruling Q1–Q3 implemented:** itemised rows only once `serverBreakdown && !priceChange`,
+  every figure the server's; "Preparing your total" while setup runs; a lost hold keeps only a server figure
+  (CS4, CS5; control RC4). Gated surface still `signOut.ts +5` only. B's a∧b∧c condition superseded.
+- **A-1…A-5 (B's rendered defects) closed at `212783f2`:** `chrome` token group for the dock (glass, edge,
+  selected, dim) in both mirrors; the grabber is `border.control`; StatCardStrip palette-driven (zero
+  importers — themed, not a visible defect); the fallback initial is `text.muted`. **Verified as RENDERED
+  combinations:** `tests/v3-appearance-rendered.test.ts` mounts the real dock / plate / strip under each
+  palette, composites glass over the canvas, and computes contrast on the emitted styles (RD1–RD7; controls
+  RC6–RC11 incl. "light glass = dark glass" caught by the contrast assertion). Harness-rendered, not device.
+- **R-5 closed:** `offersBid(actions)` in `detailState.ts` — the resolver's answer, used by the dialog body
+  and the commitment sentence; `bidAvailable` deleted (LS2/LS3, control RC8).
+- **F-28 closed:** seller_sent block body only, badge unchanged, announcement kept, every failure dialog
+  pinned present (RC9). `transferStatusCopy('seller_sent','seller').title` stays — no screen renders it.
+- **F-27 answer for B:** `fetchData(` 5 → 8 call sites = two user-initiated Retry buttons on the failed-read
+  states (offline / read failed) plus the pull-to-refresh; **no race-lost or reservation-failure path refetches**.
+  Load-failure retry is not F-27's proposal.
+- **Inventory, by actual static colour access (comments stripped), at `212783f2`:** **54 files, 546 refs**
+  read `v2.(text|surface|border|status|brand).` — the migration surface. 14 files read the palette only.
+  B's "15 partial" are files that use the palette and import `v2` for **space / radius / type**, which need
+  no conversion; by colour access exactly **1** is partial (`app/_layout.tsx`, 2 refs). Largest: Create 58,
+  `_dev/foundation` 32, receive 30, send 29, notifications 27, profile/[id] 27, Checkout 25.
+- **Synthetic transfer-state gallery (owner-authorised, sandbox-only, read-only):** in progress — the five
+  approved blocks move to `src/components/transfer/TransferStateBlocks.tsx`, rendered by the real screens
+  AND by `app/_dev/transfer-states.tsx` (gated `IS_SANDBOX_BUILD || __DEV__`, redirect otherwise; entry only
+  via a sandbox-gated Settings row). Evidence: gallery pass = rendering with supplied props; tests = the
+  mappings; neither = live retrieval or the device data path.
+
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
 Home, Search, Listing detail and Bid entry are ready for B's review on `v3/midnight-app` @ `debb1b98`.
