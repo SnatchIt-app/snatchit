@@ -1694,3 +1694,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   PASS) and post. The merge is NOT authorised, and #92 must never go to `main`.
 - **#93 CI (run 36036750660, head `9fb450eb`): green, 9/9 checks, including the Deno type check.** pgTAP Files=96 /
   Tests=5543 PASS. That is exactly the predicted count: local 5537 plus the 6 in `000_helpers`. Census 32/108/37/38.
+- **D reviewed #93 by reading (PASS on the source).**
+  - D re-derived the fixed hashes `62f74728…` / `03ea4589…` independently.
+  - Q1: the flag's only reader is the admin label at `page.tsx:542`. Verified by A.
+  - Q3: every status writer is 002 or 0550 (both with the timestamp) or 065 (without). So a status-only row is a
+    seller-win or a direct write, and false is exact. Verified by A, after a lossy grep of A's was re-run raw.
+  - Q4: DUPLICATE_TRANSFER is relabelled as a contract test of a defensive branch; `record_transfer_payout` has no
+    live edge caller.
+  - The comments D asked for are applied at head `9e7006bf` (comments only; 216 26/26, and the vitest files re-run
+    green).
+  - The optional `dispute_open` read was declined: its true branch is unreachable after §5's 409.
+  - D's independent red/green of 216 has been requested (a two-party check).
