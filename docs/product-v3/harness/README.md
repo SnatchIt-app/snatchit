@@ -13,7 +13,7 @@ components** through Expo's web target; nothing here is a recreated mock screen.
 | Server | `npx expo start --web --port 8083` (not CI mode, so edits rebuild) |
 | Capture | `capture.sh <out-dir> <route> <name>` → headless system Chrome at **393×852 logical, ×3** = **1179×2556**, the same geometry as the owner's Build 24 screenshots |
 
-## The one local modification, disclosed
+## The two local modifications, disclosed and reproducible
 
 `src/theme/appearance.tsx` in the render worktree only, **uncommitted and never merged**:
 `Appearance.setColorScheme` does not exist in `react-native-web`, so `AppearanceProvider` throws and the app
@@ -21,6 +21,36 @@ boots straight into its error boundary. The harness guards the call with a `type
 
 **This is also a real finding for C, at their discretion:** the app cannot run on the web target at all
 without that guard. It is not an iOS defect — Build 24 runs on the phone.
+
+### 2 · `src/theme/fonts.ts` — the brand fonts did not load on the Expo web target
+
+Root-caused with `systematic-debugging`, not guessed. Evidence, in order:
+
+1. `document.fonts` held **six registered faces, every one `status: "unloaded"`**, and
+   `document.fonts.check('700 30px Oswald_700Bold')` was **false**.
+2. The injected `@font-face` rules register **`Oswald_700Bold`, `Inter_400Regular`, …** — expo-font's
+   suffixed names.
+3. But every rendered element computed **`font-family: Oswald` / `Inter`** — unsuffixed.
+4. Source: `fonts.ts:131` — `if (Platform.OS === 'web') return role === 'display' ? 'Oswald' : 'Inter';`
+
+**Root cause:** that branch is correct for the **Next.js `web/` app**, which loads the faces under their
+canonical names through its own CSS pipeline — the comment says exactly that. It is **wrong for the Expo web
+target**, where expo-font registers the suffixed names. The requested family therefore matched no registered
+face, so the browser never fetched one and fell back to **Times**.
+
+**Harness fix:** that web branch returns `FAMILY[role]` — the same suffixed names the native path uses.
+
+**Verified, not assumed:** after the change the faces report `loaded`, elements compute
+`Oswald_700Bold` / `Inter_400Regular` / `Inter_500Medium` / `Inter_700Bold`, and
+`comparisons/harness_fonts_before_after.png` shows the serif replaced by real condensed Oswald.
+(`Inter_600SemiBold` stays `unloaded` on this screen because nothing there uses it — correct lazy loading.)
+
+**Not an iOS defect.** On native, `fontFamily()` returns `FAMILY[role]` and expo-font loads the faces; the
+phone build renders correct type. For C this is a low-priority latent inconsistency — `brandFontsActive()`
+also returns `true` unconditionally on web — and it only matters if the Expo web target is ever used.
+
+**Typography, wrapping, spacing and geometry comparisons are valid only with this fix applied.** Before it,
+every such comparison was invalid, and I made none.
 
 ## The boundary — stated once
 
