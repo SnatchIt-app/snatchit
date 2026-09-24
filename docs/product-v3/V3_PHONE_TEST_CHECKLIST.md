@@ -10,9 +10,19 @@ evidence class each step produces. **Nothing here authorises a write.**
 iOS `preview` internal, sandbox project `ofaidukbieeekqaboscm`. **A diagnostic artifact, not a release
 candidate.** Artifact recorded, not installed.
 
-**The branch is one commit ahead of the build.** `24b021a3` is not in build 23. Its only rendered
-difference is the loading spinner's arc in Light — `#D31212` in the build, `#FF1A1A` on the branch. A
-screenshot from the branch is not evidence about build 23.
+**The branch is four commits ahead of the build.** Build 23 is `9c6c9bf4`. What it does NOT contain,
+so that a tester does not re-report any of it, and so that no screenshot from the branch is mistaken
+for evidence about the build:
+
+| Commit | Absent from build 23 |
+|---|---|
+| `24b021a3` | the Light loading-spinner arc is `#D31212` in the build, `#FF1A1A` on the branch (both clear 3:1) |
+| `d981727e` | the past ticket card still dims its own text (date and venue at 4.44:1 in Light) · the risk banners still carry ungraded tints (edges 1.32–1.75:1 Light, fills 1.03–1.07:1 apart) · nine `text.faint` values still faint · the bio counter's over-state still unreachable |
+| `2ffb10a8` | **FeedRow, SellerListingCard and DiscoveryCard still dim their own text** — "Sold"/"Ended" 2.71:1, "Cancelled" 2.11:1, the DiscoveryCard badge 4.12:1, all in Light · the **auth brand mark is still untinted**, i.e. a white monogram on Daylight's white canvas on all three auth screens · the push-challenge code field still has no visible label · signup's "At least 6 characters" still vanishes on the first keystroke · the sell form's unfilled pickers still at 2.4:1 · the notifications switch thumb still near-black in Light · **a transient eligibility failure still says "We've noticed some recent issues"** · "Contact support" still offers no route |
+
+These are presentation defects the tester WILL see on build 23. Expect them; do not re-report them.
+**No replacement build is authorised.** C flags it explicitly if the accumulation makes the artifact
+misleading rather than merely dated.
 
 ---
 
