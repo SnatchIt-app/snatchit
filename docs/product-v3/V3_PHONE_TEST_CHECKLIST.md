@@ -23,7 +23,9 @@ for evidence about the build:
 | `ca27d282`, `aee15697`, `404bce38` | **the whole dispute-copy set** (all three A-reviewed PASS). Build 23 tells a buyer who lost a dispute "You confirmed receipt. Enjoy the event.", tells the seller "The buyer confirmed they received the tickets.", and badges that row a green **"Received"** on the receive screen, the send screen AND the Bids board. It also says "Your payout is being processed" under a hold, and promises a notification the phone cannot keep |
 
 These are presentation defects the tester WILL see on build 23. Expect them; do not re-report them.
-**No replacement build is authorised; a replacement stays under the owner's gate G2.**
+**No replacement build is authorised.** A preview recut is **not** gate G2 — G2 is the *production*
+build, and whatever commit that pins will carry these fixes anyway (A, 2026-09-24). The recut is its
+own owner item, **S1** in §8 of A's submission checklist; A's G1 applies either way.
 
 ### C's assessment of the artifact, since this is where it gets called
 
@@ -41,8 +43,10 @@ in production, and no fixture creates one).
 **So: the appearance and rendering pass is still worth running on build 23** — the migration itself,
 which is what the pass is for, is entirely present at `9c6c9bf4`. My recommendation is to run Stages
 1–3 on it and accept the two conspicuous items above as known, **or** recut once if the owner would
-rather the first screen of the session look right. The decision is the owner's under G2; I am
-recording the input, not requesting the build.
+rather the first screen of the session look right. The decision is the owner's, as item S1; I am
+recording the input, not requesting the build. Note what this is NOT: because the production build
+will pin a commit that already carries the fix, the untinted mark is a defect of **this sandbox
+artifact**, never of a release candidate.
 
 ---
 
