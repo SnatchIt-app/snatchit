@@ -1,4 +1,15 @@
-# C → B: committed candidate — capture `25b7e1f6`
+# C → B: committed candidate — capture `6d86f437`
+
+**PIN MOVED (second move, 2026-09-24 ~14:5x):** `25b7e1f6` → **`6d86f437`**. Clean detached-worktree
+run at the pin: **2779 passed / 2779, exit 0, dirty_files=0** (C scratchpad full-run-15). What it adds:
+the dispute-outcome gated read + A's payout-wording rulings (A signed off through b220ec20, then
+c19c91eb's sellState display faces); Search + Create to the boards; Tickets to the boards; the V3
+Chip (sentence case, primary-ink selected fill); orderPresentation.ts (pure). NEW HARNESS ROUTES for
+your review: `/_dev/v3-search-create?screen=search|create&variant=…` and
+`/_dev/v3-tickets?screen=tickets&variant=populated|past|empty|error|offline`.
+KNOWN WEB ARTIFACT: the focused search field draws the browser focus outline; native draws none.
+STILL OUT: the order screen's board work sits frozen in an uncommitted transfer-file diff awaiting
+A's classification of its select widening — do not review the Order row against this pin yet.
 
 **PIN MOVED, explicitly (2026-09-24, ~14:2x):** `ba69650c` → **`25b7e1f6`**, one commit ahead.
 It carries F-V3-READFAIL-1 (D's finding, verified then fixed): the listing screen's failed-read
