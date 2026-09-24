@@ -231,3 +231,36 @@ change and the structural difference is a product decision. F-27's fix is drawn 
 once. **That is a change to shipped copy in `transferState.ts:162`, and `StateBlock` may require a title
 prop — C confirms both before implementing.** The alert at `:185` is left alone here: whether a confirmation
 alert should fire at all after a visible state change is a behaviour question, not a copy one.
+
+---
+
+## Dialog-copy repetition review (2026-09-23)
+
+The owner directed that existing dialog copy is **not automatically exempt** from the simplification pass.
+All 23 listing dialogs and 22 selling dialogs were re-read at `5b255838`.
+
+**Most title/body pairs are not repetition.** A native `Alert` takes a short title and a sentence; the title
+being the headline of its own body is the platform convention, not clutter. Rewriting forty shipped bodies to
+avoid echoing their titles would be churn with real risk and no gain for the reader.
+
+**Four are genuine — the body restates the title and adds nothing**, where it could instead carry the
+recovery:
+
+| # | Label | Finding | Evidence |
+|---|---|---|---|
+| **F-29** | **①** | **Four dialog bodies restate their own title and offer no recovery**: *"Buy Now unavailable / This listing does not have Buy Now enabled."* · *"Not available / This listing is no longer available."* · *"Already sold / This listing has already been sold."* · *"Already cancelled / This listing has already been cancelled."* Each spends its one sentence saying the title again | `ListingDetailScreen.tsx:766, 768, 782, 868` |
+
+**One is fixed now, because its recovery is knowable without any further ruling.** `buy_now_enabled` being
+false means the listing is auction-only, and the dialog can only fire from a buy path on a live listing:
+
+> **"Buy Now unavailable" / ~~"This listing does not have Buy Now enabled."~~ → "You can place a bid instead."**
+
+**The other three are blocked on F-27.** Their honest recovery is *"the screen you are looking at is out of
+date"* — and the app does not refetch on any failure path, so offering a refresh would describe behaviour that
+does not exist. **When F-27 is resolved, their bodies become the recovery.** Until then they keep their
+shipped copy; a speculative rewrite would be inventing a remedy.
+
+**Not changed, and why:** bodies that already carry a reason or a route (*"…because activity already exists.
+Cancel it instead."*, *"…You can unblock from Settings → Blocked Users."*, *"Use Cancel from My Listings if
+you need to remove it."*) are doing exactly what the four above fail to do. The destructive confirmations keep
+every word — a CONFIRM dialog is the authorisation, and shortening consent copy is not simplification.

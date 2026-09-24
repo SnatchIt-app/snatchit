@@ -261,6 +261,46 @@ advice the controls cannot give.
 
 ---
 
+## 6b · F-28 and the dialog-copy review — delivered
+
+**Artifact:** `pkg7-f28-marked-as-sent.png`.
+
+### F-28 — four statements of one fact, corrected to three roles
+
+| Before | After |
+|---|---|
+| Modal alert *"Marked as sent / You've marked this transfer as sent. The buyer still needs to confirm they received the tickets."* | **An inline `Text accessibilityRole="alert"` reading "Marked as sent"** — the app's own pattern, announced without a dialog to dismiss |
+| Badge *"Marked sent"* | **Unchanged.** It is the status and it stays on screen |
+| `StateBlock` title *"Marked as sent"* | **Removed** |
+| `StateBlock` body *"Waiting for the buyer to confirm…"* | **Kept** — the forward-looking fact the badge cannot carry |
+
+**Neither constraint is breached.** The accessible confirmation survives as an announcement rather than a
+modal, and **every failure alert is untouched**.
+
+**C verifies before this ships:** that the announcement fires once and is read by VoiceOver and TalkBack;
+that `StateBlock` renders without a title — **if it requires one, keep the block titled and drop the badge
+instead, not both**; that failure paths are untouched; and whether a sighted user still perceives the success
+without a modal, which is a device judgement and not a static-image one.
+
+### Dialog copy — reviewed, not exempt
+
+All 23 listing and 22 selling dialogs re-read. **Most title/body pairs are not repetition** — a native
+`Alert` takes a short title and a sentence, and the title heading its own body is the platform convention.
+
+**Four are genuine (F-29)**, where the body restates the title and offers no recovery. **One is fixed now:**
+
+> **"Buy Now unavailable"** / ~~*"This listing does not have Buy Now enabled."*~~ → **"You can place a bid instead."**
+
+Safe because `buy_now_enabled: false` means the listing is auction-only and the dialog only fires from a buy
+path on a live listing. **The other three are blocked on F-27** — their honest recovery is *"this screen is
+out of date"*, and no failure path refetches, so offering a refresh would describe behaviour that does not
+exist. They keep their shipped copy until F-27 is resolved.
+
+**Destructive confirmations keep every word.** A CONFIRM dialog is the authorisation; shortening consent copy
+is not simplification.
+
+---
+
 ## 7 · The full sweep — every inventoried surface, checked
 
 | Surface | Verdict |
