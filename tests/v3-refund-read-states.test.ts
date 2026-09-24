@@ -47,7 +47,10 @@ describe('the refund read keeps its four outcomes apart', () => {
 
   it('RR4: a successful read with a refund states the figure', () => {
     const st: RefundRead = { kind: 'loaded', facts: FACTS };
-    expect(refundStateLine(st, 'reversed')).toBe('Refunded $110.00');
+    // `formatCents` drops the cents on a whole-dollar amount, which is the app's existing
+    // convention and what TR2 already pins. (The approved V3 boards show 2dp throughout — that is a
+    // separate, deliberate formatting change, recorded with the visual corrections.)
+    expect(refundStateLine(st, 'reversed')).toBe('Refunded $110');
   });
 
   it('RR5: the reducer maps a failed read to error, not to loaded-with-nothing', () => {

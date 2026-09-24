@@ -183,6 +183,12 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
       '@/src/components/transfer/TransferStateBlocks', '@/src/config/envGuard', '@/src/lib/transfer/transferState',
       '@/src/theme/appearance', '@/src/theme/palette', '@/src/theme/typography', '@/src/theme/v2',
       '@/src/lib/listing/feedRowState', '@/src/lib/money',
+      // The blocks read the four-state refund read (262c908b). Pure by construction — its only
+      // import is './transferState' — and TG9 below would catch it acquiring a client. This
+      // failure surfaced in the first fully-preserved suite run on 2026-09-24 and is almost
+      // certainly one of the eight unclassified failures whose output was lost: deterministic,
+      // an assertion failure, not contention.
+      '@/src/lib/transfer/refundState',
     ]);
     for (const rel of ['app/_dev/transfer-states.tsx', 'src/components/transfer/TransferStateBlocks.tsx']) {
       const src = await stripped(rel);

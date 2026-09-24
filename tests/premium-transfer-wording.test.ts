@@ -100,7 +100,9 @@ describe('screens use the vocabulary, not their own words', () => {
     // Was a hard-coded title; it now comes from the shared vocabulary, which is what this test is
     // named for — and it has to, because the seller-win title is "Dispute resolved in your favour".
     expect(send).toContain("transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer })");
-    expect(send).toContain('<StateBlock title={copy.title} tone="success">');
+    // The tone is derived now, not hard-coded: an operator's dispute decision must not paint as a
+    // success beside a neutral badge. The title still comes from the shared vocabulary.
+    expect(send).toContain("<StateBlock title={copy.title} tone={byBuyer ? 'success' : 'neutral'}>");
     // The success is announced for assistive tech - not a dialog repeating it.
     expect(send).not.toContain("Alert.alert('Marked as sent'");
     expect(send).toContain("announceForAccessibility('Marked as sent");
