@@ -30,29 +30,72 @@ real effect, not a fixture — **fixture** · needs one of A's approved writes, 
 
 ---
 
-## Stage 0 · Preconditions
+## Stage 0 · The build under test, and the preconditions
 
-**PT-01** Install the new build; confirm its number on device · **PT-02** sign in as the **DV buyer**
-(*session*) · **PT-03** the owner's explicit **"go"** · **PT-04** A's preflight and T0 capture.
+| | |
+|---|---|
+| **Build** | number **24** · id **`c5b3a615-ff97-4a88-a4ce-2dae24558478`** |
+| **Commit** | **`404bce38969780f1db057e96dec71609c6795ed4`** — the pin the owner authorised, unchanged |
+| **Install page** (open on the iPhone) | `https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/c5b3a615-ff97-4a88-a4ce-2dae24558478` |
+| **Artifact** | `https://expo.dev/artifacts/eas/7J2ZIJ0uG7LaS85lnoMUwVF9Nc0OpdOJvePZ69GgHo0.ipa` |
+| Profile | `preview`, iOS internal · SDK 54.0.0 · version 1.0.0 · fingerprint `1fa6c258…` |
+| Sandbox | `ofaidukbieeekqaboscm` only · `pk_test_` Stripe key · built 11:43→11:50, 2026-09-24 |
+| Gates at that commit | 149 files **2704/2704** · `tsc` 0 · lint 0 errors / 29 warnings · gated payment surface `signOut.ts +5` only vs `e079fcc1` |
 
-Steps PT-05…PT-19 need none of these except the install.
+**PT-01** Install build 24 and confirm the number **on device** · **PT-02** sign in as the **DV buyer**
+(*session*: registers one push token) · **PT-03** the owner's explicit **"go"** · **PT-04** A's preflight and
+T0 capture.
 
-## Stage 1 · Appearance, startup, type — class none / local
+**Only PT-01 gates Stage 1. PT-02 gates Stage 1b onward. PT-03 and PT-04 gate Stage 4 only** — no
+appearance, navigation, type or read-only check waits on the owner's "go" or on A's preflight.
 
-Run before sign-in: **first-launch state is unrepeatable** once a preference is stored.
+### Recording the starting state, instead of claiming the first launch is unrepeatable
+
+It **is** repeatable, through a controlled reset, so record what is actually stored rather than treating
+the first launch as a one-shot:
+
+| State | Where it lives | Before Stage 1, record |
+|---|---|---|
+| Appearance preference | `AsyncStorage` key **`snatchit.appearance.v1`** (`src/lib/appearance/appearanceStore.ts:14`); absent = System | absent, or `system` / `light` / `dark` |
+| Session | `LargeSecureStore` — an AES-256 blob in AsyncStorage (`src/lib/supabase.ts:10`) | signed out, or which account |
+
+**Controlled reset, when a first-launch check needs re-running:** delete the app from the home screen and
+reinstall from the install page above. That clears the app container, so both the stored preference and the
+session go with it, and PT-05…PT-07 can be repeated as often as needed. Deleting the app is the reset; there
+is no in-app control for it, and none is needed.
+
+## Stage 1a · Signed OUT — cold launch and live following. Class: none
+
+These are the only checks that run before sign-in, because **Settings is not reachable while signed out**:
+`rootRouteDecision` (`src/lib/auth/rootRoute.ts:72`) sends a `signed_out` phase to `/(auth)/login`, and the
+auth screens offer no route into Settings. What these three exercise is System resolution and the first
+painted frame — no stored preference is involved yet.
 
 | | Step | Pass |
 |---|---|---|
-| **PT-05** | Phone **Dark**, cold launch (nothing stored yet) | Midnight |
-| **PT-06** | Phone **Light**, cold launch. **Watch the first frame** | Daylight from frame one. `resolveScheme` falls back to Midnight when the phone reports `null`, which iOS can do at launch — any Midnight frame is a fail |
-| **PT-07** | Foregrounded, switch the phone Light↔Dark | Follows live, no relaunch |
-| **PT-08** | Settings → Appearance → **Light**, phone on Dark *(local)* | Daylight, and it stays — the choice overrides the phone |
+| **PT-05** | Phone **Dark**, cold launch with nothing stored | Midnight. The login screen's SN monogram is visible (white on the dark canvas) |
+| **PT-06** | Force-quit. Phone **Light**. Cold launch and **watch the first frame** | Daylight from frame one — `resolveScheme` falls back to Midnight when the phone reports `null`, which iOS can do briefly at launch, so any Midnight frame is a fail. **And the login screen's SN monogram must be visible as dark-on-white**: build 23 drew that asset untinted, so this is the check for `2ffb10a8` |
+| **PT-07** | Foregrounded on the login screen, switch the phone Light↔Dark | Follows live, no relaunch |
+
+## Stage 1b · Signed IN — the stored preference. Class: none / local
+
+Runs after **PT-02**. Every step here needs Settings, which needs a session.
+
+| | Step | Pass |
+|---|---|---|
+| **PT-08** | Settings → Appearance → **Light**, with the phone on Dark *(local)* | Daylight, and it stays — an explicit choice overrides the phone |
 | **PT-09** | Move the phone Dark→Light→Dark | The app does not move |
-| **PT-10** | Force-quit, relaunch | Still Daylight. Saves never throw, so a silent save failure only shows here |
-| **PT-11** | Choose **System** *(local)* | Returns to following the phone |
+| **PT-10** | Force-quit, relaunch | Still Daylight. `saveAppearancePreference` never throws, so a silent save failure shows only here |
+| **PT-11** | Choose **System** *(local)* | Returns to following the phone immediately |
+| **PT-11b** | The selected row itself, both appearances | Four cues, not colour alone: ✓ glyph, red border, tinted fill, `accessibilityRole="radio"` + checked. The tint alone is 1.06 / 1.13:1 and carries nothing |
+
+## Stage 1c · Type, chrome and offline — signed in. Class: none
+
+| | Step | Pass |
+|---|---|---|
 | **PT-12** | Larger Text — largest non-AX, then an AX size — on Appearance, Home, Search, Sell | No clipping, truncation or overlap |
 | **PT-13** | Status bar, keyboard appearance, native alerts, both appearances | Each matches the appearance |
-| **PT-14** | Airplane Mode → pull to refresh Home | Offline / failed-read state correct in both |
+| **PT-14** | Airplane Mode → pull to refresh Home | The offline / failed-read state is correct in both appearances |
 
 ## Stage 2 · Signed in, reads only — no rows created
 
