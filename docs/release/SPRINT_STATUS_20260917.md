@@ -1621,3 +1621,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     04:00Z; no new notifications; the fixtures are unchanged. **No cleanup is needed and no cancellation is owed.**
   - Checklist gate G0 added. Not submission-ready while it is open.
   - R0 and the #92 decisions are unaffected (backend, separately authorised).
+- **A on C's fourth gated read** (dispute outcome on the receive and send screens): **APPROVED with conditions.**
+  - Add `dispute_resolution` + `dispute_resolved_at`, and key the state on `dispute_resolution`.
+  - Never map `'resolved_buyer_refunded'` to "refunded" copy.
+  - Tests for five cases, including a seller-win after payout. Gated-surface proof back to A.
+  - Evidence: 065's write matrix (production logic identical per R0); the sandbox D-8 column privilege `sel=true`;
+    production table-level SELECT for authenticated.
+- **A's ruling on B §4.5's claims at `404bce38`:**
+  - (1) "payout is being processed": false for a seller-win until R1. **Release-order dependency: no production build
+    may carry it before R1.** When a future `payout_hold_until` exists, state its date.
+  - (2) `SELLER_WINDOW_PASSED`: not true (a device-clock verdict plus an auto-release promise the 039 policy does not
+    guarantee).
+  - (3) `SELLER_HELD_FALLBACK`: not true (an invented timeline); replace with "Payout on hold."
+  - (4) `REFUND_DUE_POLICY`: true as written, as a labelled policy on `expired`.
+- C's single vitest run during D's window: the window had closed at about 12:00; D's run was clean, so nothing is void.
