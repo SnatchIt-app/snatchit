@@ -81,6 +81,31 @@ const fmtStep$ = formatDollars;
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
 const QUICK_CHIPS = [5, 10, 25] as const;
 
+/**
+ * What the bidder is told when the `bids` insert comes back with an error (V3, 2026-09-24).
+ *
+ * It used to be the server's own `error.message` — a raw PostgREST/Postgres string ("new row violates
+ * row-level security policy for table \"bids\"", a trigger's RAISE text, a transport failure's
+ * message) shown verbatim in an Alert on the screen where money is committed. That is not product
+ * copy, it is not written for a bidder, and it can disclose schema and policy names.
+ *
+ * The wording is deliberately silent on whether the bid landed, because the client does not know.
+ * supabase-js returns transport failures in the same `error` channel as a server rejection, so an
+ * error here is consistent with (i) the server rejecting the insert and (ii) the row committing and
+ * the response being lost. "Bid failed" would assert (i); "try again" alone would invite a second
+ * bid on top of a first that may already be in. So it says only what is true — no confirmation came
+ * back — and points at the one place that settles it, the listing's own current bid, which the
+ * insert trigger moves atomically.
+ *
+ * There is no KNOWN-error branch above this in `submitBid`: the only mapped case is the F-5 deletion
+ * guard, which returns BEFORE the insert. So this is the sole unknown-case fallback, not a
+ * replacement for specific copy.
+ */
+const BID_UNCONFIRMED_COPY = {
+  title: "We couldn't confirm your bid",
+  body: "We didn't get a confirmation back for it. Check the listing's current bid before bidding again, in case it did go through.",
+} as const;
+
 export default function PlaceBidScreen({ id, fixture }: Props) {
   const { user } = useAuth();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -211,7 +236,9 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
       });
 
       if (error) {
-        Alert.alert('Bid failed', error.message);
+        // The raw server string never reaches the bidder; see BID_UNCONFIRMED_COPY for why the
+        // wording claims neither outcome.
+        Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body);
         return;
       }
 

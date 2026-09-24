@@ -132,17 +132,17 @@ describe('the seller blocks — no payout claim before payout_released_at; the h
     const reversed = texts(mount(() => mod.SellerReversedBlock({})).output);
     expect(reversed).toContain(SELLER_REVERSED_COPY.title);
     expect(reversed).toContain(SELLER_REVERSED_COPY.body);
-    const held = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null, releaseCountdown: null })).output);
+    const held = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null})).output);
     expect(held).toContain(sellerHoldLine('held', '2026-10-02T12:00:00Z'));
     // RETARGETED with TG9's sibling assertion (owner ruling 2026-09-24): held without a date states
     // the hold, not an event-relative timeline.
-    const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
+    const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null})).output).join(' ');
     expect(heldNoDate).toMatch(/held for review/);
     expect(heldNoDate).not.toMatch(/shortly after the event/);
     expect(heldNoDate).not.toMatch(/Payout held until/);
-    const manual = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
+    const manual = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null})).output).join(' ');
     expect(manual).toMatch(/manual review/);
-    const release = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z', releaseCountdown: '2d 3h' })).output);
+    const release = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z'})).output);
     expect(release).toContain(sellerReleaseLine('2026-09-26T21:00:00Z'));
     expect(release.join(' ')).not.toMatch(/has been released/);
   });
@@ -162,42 +162,42 @@ describe('the seller blocks — no payout claim before payout_released_at; the h
      * because it names a DECISION, not an outcome.
      */
     const past = texts(mount(() => mod.SellerSentBlock({
-      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: 'Expired',
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z',
     })).output).join(' ');
     expect(past).not.toMatch(/window has passed/);
     expect(past).toContain(sellerReleaseLine('2026-09-20T21:00:00Z'));
     expect(past).toMatch(/If the buyer reports an issue/);      // still true at this status
     // The same row with the countdown still running says exactly the same thing: no clock branch.
     const running = texts(mount(() => mod.SellerSentBlock({
-      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: '2d 3h',
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z',
     })).output).join(' ');
     expect(running).toBe(past);
     // And with no countdown supplied at all — the prop is no longer read.
     const noCountdown = texts(mount(() => mod.SellerSentBlock({
-      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: null,
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z',
     })).output).join(' ');
     expect(noCountdown).toBe(past);
     // A missing field still yields no date line, and no invented one.
     const noField = texts(mount(() => mod.SellerSentBlock({
-      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null,
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null,
     })).output).join(' ');
     expect(noField).not.toMatch(/Release decision/);
     expect(noField).toMatch(/Waiting for the buyer to confirm/);
     // A hold or a manual review still suppresses the release date: the state does not warrant it.
     for (const status of ['held', 'manual_review']) {
       const gated = texts(mount(() => mod.SellerSentBlock({
-        payoutReviewStatus: status, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: null,
+        payoutReviewStatus: status, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z',
       })).output).join(' ');
       expect(gated, status).not.toMatch(/Release decision/);
     }
     // And across EVERY seller payout state this block can paint: no promise, no invented clock.
     const states: Array<Parameters<typeof mod.SellerSentBlock>[0]> = [
-      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
-      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z', releaseCountdown: '2d 3h' },
-      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: 'Expired' },
-      { payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null, releaseCountdown: null },
-      { payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
-      { payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null},
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z'},
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z'},
+      { payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null},
+      { payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null},
+      { payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null},
     ];
     for (const props of states) {
       const lines = texts(mount(() => mod.SellerSentBlock(props)).output);
@@ -275,7 +275,7 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
   it('TG9: a missing payout_hold_until or auto_release_at suppresses only the corresponding date line — never the status information', async () => {
     const mod = await import('@/src/components/transfer/TransferStateBlocks');
     // Countdown running but the server gave no auto_release_at: no release line, no EMPTY line; body + warning stay.
-    const noDate = mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: '2d 3h' }));
+    const noDate = mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null}));
     const t = texts(noDate.output);
     expect(t.join(' ')).toMatch(/Waiting for the buyer to confirm/);
     expect(t.join(' ')).toMatch(/If the buyer reports an issue/);
@@ -287,7 +287,7 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
     // behind it. `apply_payout_hold` takes the hold end as a parameter of the risk decision
     // (039_risk_based_payout.sql), so "shortly after the event" is not a fact this row carries.
     // Missing date ⇒ omit the date; the status sentence and the no-action guidance stay.
-    const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
+    const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null})).output).join(' ');
     expect(heldNoDate).toMatch(/held for review/);
     expect(heldNoDate).toMatch(/No action needed unless the buyer reports an issue/);
     expect(heldNoDate).not.toMatch(/shortly after the event/);

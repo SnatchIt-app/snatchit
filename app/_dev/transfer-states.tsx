@@ -60,15 +60,31 @@ export interface TransferStateFixture {
 
 /**
  * The approved status / refund / hold combinations (A's wording table, 2026-09-24), each rendered
- * through the real block with synthetic props. Twelve cases; nothing derived from another.
+ * through the real block with synthetic props. Nineteen cases; nothing derived from another.
  */
 export const TRANSFER_STATE_FIXTURES: TransferStateFixture[] = [
   { id: 'buyer-expired-full-refund', label: 'Buyer · expired · refund confirmed in full', role: 'buyer', covers: 'A 2a + refund full',
     render: () => <BuyerClosedBlock status="expired" refund={{ status: 'refunded', amount_refunded_cents: 12000, refunded_at: PAST, total: 12000 }} /> },
+  // `amount < total` with BOTH figures on the row is the only state that may state two amounts:
+  // `refundLine` prints "of <total>" solely from the row it was given, never from the bid or the
+  // transfer, so the second figure is as established as the first.
+  { id: 'buyer-expired-partial-refund', label: 'Buyer · expired · partial refund, both figures established', role: 'buyer', covers: 'A 2a + refund partial (amount < total ⇒ both figures)',
+    render: () => <BuyerClosedBlock status="expired" refund={{ status: 'refunded', amount_refunded_cents: 9000, refunded_at: PAST, total: 12000 }} /> },
+  // A recorded refund with NO confirmable amount. Two precedences meet here and both are the
+  // mapping's, not this file's: a NULL amount outranks the word "refunded" (so no figure is shown
+  // even though `total` is known), and an EXECUTED refund outranks the capture-based due policy
+  // (so `succeeded` does not add "a refund is due" on top of one already recorded).
+  { id: 'buyer-expired-refund-recorded-no-amount', label: 'Buyer · expired · refund recorded, no amount', role: 'buyer', covers: 'A 2a + NULL amount > "refunded", execution > the due policy',
+    render: () => <BuyerClosedBlock status="expired" refund={{ status: 'succeeded', amount_refunded_cents: null, refunded_at: PAST, total: 12000 }} /> },
   { id: 'buyer-expired-captured', label: 'Buyer · expired · captured, no refund recorded yet', role: 'buyer', covers: 'A 2a + policy line (16:51Z: due needs the capture)',
     render: () => <BuyerClosedBlock status="expired" refund={{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 12000 }} /> },
   { id: 'buyer-expired-no-row', label: 'Buyer · expired · no payment row read', role: 'buyer', covers: 'A 2a + neutral line (no capture, no due claim)',
     render: () => <BuyerClosedBlock status="expired" refund={null} /> },
+  // The buyer's side of a reversal with the refund actually executed in full. The ORDER word stays
+  // "Order closed" — the buyer never reads "reversed" — while the REFUND figure comes from the
+  // buyer's own payment row, which is a different fact from the seller's reversed payout.
+  { id: 'buyer-reversed-full-refund', label: 'Buyer · reversed · refund confirmed in full', role: 'buyer', covers: 'A 2c + refund full (amount === total)',
+    render: () => <BuyerClosedBlock status="reversed" refund={{ status: 'refunded', amount_refunded_cents: 7500, refunded_at: PAST, total: 7500 }} /> },
   { id: 'buyer-reversed-partial', label: 'Buyer · reversed · partial refund', role: 'buyer', covers: 'A 2c + refund partial',
     render: () => <BuyerClosedBlock status="reversed" refund={{ status: null, amount_refunded_cents: 6000, refunded_at: null, total: 12000 }} /> },
   { id: 'buyer-reversed-pending', label: 'Buyer · reversed · nothing recorded', role: 'buyer', covers: 'A 2c + pending line',
@@ -81,18 +97,36 @@ export const TRANSFER_STATE_FIXTURES: TransferStateFixture[] = [
     render: () => <BuyerSellerSentBlock autoReleaseAt={null} /> },
   { id: 'seller-expired', label: 'Seller · order expired (window closed)', role: 'seller', covers: 'A 2b — no payout ever moved',
     render: () => <SellerClosedBlock title={SELLER_ORDER_CLOSED_COPY.expired.title} body={SELLER_ORDER_CLOSED_COPY.expired.body} /> },
+  // NO seller-reversed REFUND variants here, and their absence is deliberate — not an oversight and
+  // not a gap to fill later (A's ruling, 2026-09-24). `reversed` is written only by
+  // `mark_transfer_reversed`, from the stripe-webhook `transfer.reversed` handler, so it is a fact
+  // about the SELLER's payout transfer and establishes nothing whatever about the buyer's refund.
+  // A seller block carrying refund props could therefore only paint a figure it did not read:
+  // `SellerReversedBlock` taking no refund props is the correct shape, and the buyer's refund
+  // variants for the same status are the three `buyer-reversed-*` cases above, read from the
+  // buyer's own payment row.
   { id: 'seller-reversed', label: 'Seller · payout reversed', role: 'seller', covers: 'A 2d — reversed > payout_released_at',
     render: () => <SellerReversedBlock /> },
   { id: 'seller-sent-held-date', label: 'Seller · marked sent · payout held with a date', role: 'seller', covers: 'A hold rule: held AND payout_hold_until',
-    render: () => <SellerSentBlock payoutReviewStatus="held" payoutHoldUntil={FUTURE} autoReleaseAt={null} releaseCountdown={null} /> },
+    render: () => <SellerSentBlock payoutReviewStatus="held" payoutHoldUntil={FUTURE} autoReleaseAt={null} /> },
   { id: 'seller-sent-held-no-date', label: 'Seller · marked sent · held, no date from the server', role: 'seller', covers: 'A hold rule fallback',
-    render: () => <SellerSentBlock payoutReviewStatus="held" payoutHoldUntil={null} autoReleaseAt={null} releaseCountdown={null} /> },
+    render: () => <SellerSentBlock payoutReviewStatus="held" payoutHoldUntil={null} autoReleaseAt={null} /> },
   { id: 'seller-sent-manual-review', label: 'Seller · marked sent · manual review', role: 'seller', covers: 'manual_review line',
-    render: () => <SellerSentBlock payoutReviewStatus="manual_review" payoutHoldUntil={null} autoReleaseAt={null} releaseCountdown={null} /> },
+    render: () => <SellerSentBlock payoutReviewStatus="manual_review" payoutHoldUntil={null} autoReleaseAt={null} /> },
   { id: 'seller-sent-release-line', label: 'Seller · marked sent · release decision time', role: 'seller', covers: 'A 2e release DECISION, not a payout',
-    render: () => <SellerSentBlock payoutReviewStatus={null} payoutHoldUntil={null} autoReleaseAt={FUTURE} releaseCountdown="7d 12h" /> },
-  { id: 'seller-sent-window-passed', label: 'Seller · marked sent · review window passed', role: 'seller', covers: 'window passed, payout pending',
-    render: () => <SellerSentBlock payoutReviewStatus={null} payoutHoldUntil={null} autoReleaseAt={PAST} releaseCountdown="Expired" /> },
+    render: () => <SellerSentBlock payoutReviewStatus={null} payoutHoldUntil={null} autoReleaseAt={FUTURE} /> },
+  // RELABELLED (A's ruling, 2026-09-24): this row's decision time has already passed, and the block
+  // no longer claims the review window closed — the window closes when the SERVER moves the row, and
+  // `buyer_dispute_transfer` still accepts a report while the status is seller_sent. What the case
+  // shows now is that the scheduled decision time keeps being stated after it passes.
+  { id: 'seller-sent-decision-past', label: 'Seller · marked sent · the scheduled decision time has passed', role: 'seller', covers: 'the server date stays stated; no window-passed claim',
+    render: () => <SellerSentBlock payoutReviewStatus={null} payoutHoldUntil={null} autoReleaseAt={PAST} /> },
+  // Neither server field present: no review status and no auto_release_at. A missing date suppresses
+  // the DATE line only (owner 2026-09-24), so this case exists to show the block intact WITHOUT one —
+  // the sent body and the report warning, no hold line, no release line, no window-passed line, and
+  // no empty line painted where a date would have gone.
+  { id: 'seller-sent-no-review-no-deadline', label: 'Seller · marked sent · no review status, no deadline from the server', role: 'seller', covers: 'A hold/release rules: neither field ⇒ no date line, block intact',
+    render: () => <SellerSentBlock payoutReviewStatus={null} payoutHoldUntil={null} autoReleaseAt={null} /> },
 ];
 
 const APPEARANCES: { key: 'system' | 'light' | 'dark'; label: string }[] = [

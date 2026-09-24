@@ -93,7 +93,13 @@ describe('PlaceBidScreen — shipped-source guards', () => {
 
   it('confirms and re-reads only AFTER the insert succeeded', () => {
     const insert = code.indexOf("from('bids').insert(");
-    const failed = code.indexOf("Alert.alert('Bid failed', error.message)");
+    /*
+     * RETARGETED 2026-09-24: the error arm no longer shows the server's own `error.message`. A raw
+     * PostgREST/Postgres string — an RLS policy name, a trigger's RAISE text, a transport failure —
+     * was being read out to a bidder on the screen where money is committed. The ORDERING this case
+     * is about is unchanged, and it is the same arm.
+     */
+    const failed = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)');
     const haptic = code.indexOf('hapticConfirm();');
     const reread = code.indexOf("select('current_bid')");
     const outcome = code.indexOf('bidOutcomeCopy(bidOutcome(amount, freshBid), amount, freshBid)');

@@ -108,9 +108,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
   const [windowChecked, setWindowChecked] = useState(false);
   const windowRecheckRef = useRef(false);
   const windowFollowUpRef = useRef(false);
-  const [releaseCountdown, setReleaseCountdown] = useState<string | null>(null);
   const expiryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const releaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const evidenceUpload = useImageUpload({
     userId,
@@ -183,13 +181,12 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
     return () => clearTimeout(t);
   }, [windowChecked, transfer?.status, fetchTransfer]);
 
-  // Auto-release countdown (seller_sent — buyer review window)
-  useEffect(() => {
-    if (!transfer?.auto_release_at || transfer.status !== 'seller_sent') return;
-    setReleaseCountdown(formatCountdown(transfer.auto_release_at));
-    releaseTimerRef.current = setInterval(() => setReleaseCountdown(formatCountdown(transfer.auto_release_at)), 60_000);
-    return () => { if (releaseTimerRef.current) clearInterval(releaseTimerRef.current); };
-  }, [transfer?.auto_release_at, transfer?.status]);
+  /*
+   * The auto-release COUNTDOWN is gone with the sentence it fed (A's ruling, 2026-09-24). The block
+   * now states the server's scheduled decision time and never a reading of the device clock against
+   * it, so there is nothing for a per-minute timer to drive here. The SEND-window countdown below is
+   * a different field (`expires_at`) and a different sentence, and is untouched.
+   */
 
   async function handleMarkSent() {
     if (!id || !userId) return;
@@ -471,7 +468,6 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             payoutReviewStatus={transfer.payout_review_status}
             payoutHoldUntil={transfer.payout_hold_until}
             autoReleaseAt={transfer.auto_release_at}
-            releaseCountdown={releaseCountdown}
           />
         ) : null}
 

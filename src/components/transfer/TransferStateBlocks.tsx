@@ -157,17 +157,10 @@ export function SellerSentBlock({
   payoutReviewStatus,
   payoutHoldUntil,
   autoReleaseAt,
-  releaseCountdown,
 }: {
   payoutReviewStatus: string | null | undefined;
   payoutHoldUntil: string | null | undefined;
   autoReleaseAt: string | null | undefined;
-  /**
-   * DEPRECATED and no longer read (A's ruling, 2026-09-24): no sentence here may be keyed to the
-   * device clock. Kept in the signature for one commit so the screen and the sandbox gallery can be
-   * updated together rather than broken apart; it is removed from all three in the follow-up.
-   */
-  releaseCountdown?: string | null;
 }) {
   const { s } = useStyles();
   const noReview = payoutReviewStatus == null;
