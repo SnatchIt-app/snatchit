@@ -319,7 +319,7 @@ the inventory plan, and this checklist. **Verdict unchanged: not submission-read
 **Built from records only:** D's messages to A in A's session and this checklist's citations. **No production read
 was made to build it.** Times are when D reported each read to A; D read shortly before, and the exact read times
 and query text are in D's session. **Limits:** D may have made reads it did not report to A, and A has not re-run
-any of them. **D's confirmation is pending.** D has not been asked yet: at about 21:50Z D was not a session A could reach (A's session list showed only C and E). E reports that D answered E about an hour earlier, and E has been asked to forward the request. D should confirm or correct this list from its own session records, making **no new production read**. Get that answer before the owner decides.
+any of them. **D's confirmation is pending.** D has not been asked yet: at about 21:50Z D was not a session A could reach (A's session list showed only C and E). E reports that D answered E about an hour earlier. E then tried to forward the request, but D was no longer reachable from E either. **The owner is asked to relay it to D.** D should confirm or correct this list from its own session records, making **no new production read**. Get that answer before the owner decides.
 
 **Not in this list:** D's *witness* reads for #92 and 149, which the owner's rulings cover. Also left out are D's
 "standing set" reads at 05:17–05:28Z for the signing-monitor run (job 27), such as transfers 23 and alerts; this
