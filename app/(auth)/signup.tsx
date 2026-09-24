@@ -260,7 +260,7 @@ export default function SignUpScreen() {
             />
             <Input
               label="Password"
-              placeholder="At least 6 characters"
+              helper="At least 6 characters"
               value={password}
               onChangeText={setPassword}
               secureTextEntry

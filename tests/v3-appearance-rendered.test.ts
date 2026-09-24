@@ -348,7 +348,9 @@ describe('text.faint carries no task-relevant information', () => {
       .split('\n').filter((f) => /\.tsx?$/.test(f) && !f.startsWith('src/theme/'));
     // Style keys that are genuinely decorative, each justified: a placeholder's empty state, the
     // redundant chevron glyph on a row that is itself the labelled control, and a __DEV__-only toggle.
-    const DECORATIVE = ['selectPlaceholder', 'chevron', 'devToggle'];
+    // `selectPlaceholder` was here and is not decoration: it is the prompt of a REQUIRED picker,
+    // sitting in the value slot, and it is the only statement of what the field wants (FP3).
+    const DECORATIVE = ['chevron', 'devToggle'];
     const offenders: string[] = [];
     for (const f of files) {
       const code = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');

@@ -78,15 +78,18 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
 
   return (
     // The row carries the product's press response like every other tappable (CFT-201).
-    <Tappable style={[s.card, cancelled && s.cardCancelled]} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
+    <Tappable style={s.card} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
       {/* A dense list: recognition, not persuasion — the SEARCH_RESULT slot at
           the row's own 76pt edge. Decorative: the row text already names the event. */}
+      {/* Cancelled recedes by dimming the artwork only: the card's own words — the "Cancelled"
+          line and the live deadline — stay at full strength on a row that is still tappable. */}
       <EventMedia
         asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }}
         slot="SEARCH_RESULT"
         width={THUMB}
         title={listing.event_name}
         decorative
+        style={cancelled ? s.cardCancelled : undefined}
       />
 
       <View style={s.content}>

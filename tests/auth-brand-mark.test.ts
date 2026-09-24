@@ -38,7 +38,16 @@ describe('auth brand mark', () => {
   });
 
   it('adds no plate, wordmark, glow or red treatment', () => {
-    expect(mark).not.toMatch(/backgroundColor|borderWidth|shadow|tintColor|brand\.red|Snatch It<\/Text>/);
+    expect(mark).not.toMatch(/backgroundColor|borderWidth|shadow|brand\.red|Snatch It<\/Text>/);
+  });
+
+  it('is tinted to the primary ink — a white monogram is invisible on a white canvas', () => {
+    // This pin used to forbid `tintColor` outright, which was right while every screen was
+    // Midnight and wrong the moment Daylight existed: the asset is white on transparent, so
+    // untinted it disappeared on all three auth screens. The Home header tints the same asset.
+    expect(mark).toContain('tintColor: p.text.primary');
+    expect(mark).toContain('useTheme()');
+    expect(read('src/components/discovery/HomeHeader.tsx')).toContain('tintColor: p.text.primary');
   });
 
   AUTH_SCREENS.forEach((screen) => {

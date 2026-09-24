@@ -355,7 +355,10 @@ export default function CreateListingScreen() {
 
   // Phase D — risk state
   const [riskWarningVisible, setRiskWarningVisible] = useState(false);
-  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason; tier: RiskTier | null } | null>(null);
+  // The banner shows either a server verdict or the client's own "the check did not answer" state.
+  // `check_unavailable` is deliberately NOT added to CanCreateListingReason: the server never sends
+  // it, and widening the server contract to carry a client state is how the two got confused.
+  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null } | null>(null);
   const [riskCheckPassed,    setRiskCheckPassed]    = useState(false);
 
   // UI
@@ -407,16 +410,33 @@ export default function CreateListingScreen() {
         return true;
       case 'transient':
         console.warn('[CreateListingScreen] risk check transient error — allowing submit:', result.message);
-        setRiskBanner({ reason: 'medium_risk_warning', tier: null });
+        // Fails open, as before. The banner says the check did not answer; it does not report a
+        // verdict the server never gave.
+        setRiskBanner({ reason: 'check_unavailable', tier: null });
         return true;
-      case 'bad_shape':
+      case 'bad_shape': {
         console.error('[CreateListingScreen] risk check returned unexpected shape:', JSON.stringify(result.raw));
-        Alert.alert('Something went wrong', 'Unable to verify your account status. Please try again.');
+        const msg = 'Unable to verify your account status. Please try again.';
+        if (Platform.OS === 'web') { window.alert(msg); } else { Alert.alert('Something went wrong', msg); }
         return false;
-      case 'block':
+      }
+      case 'block': {
         setRiskBanner({ reason: result.reason, tier: result.tier });
-        Alert.alert('Listing blocked', RISK_COPY[result.reason as keyof typeof RISK_COPY]);
+        // "Contact support" is an instruction, so the app offers the route — the same courtesy the
+        // phone-verification and payout gates in this function already extend. The two blocked
+        // reasons differ in origin (an admin restriction vs a computed tier) but not in what the
+        // seller can do about either, so they keep one sentence and one treatment.
+        const msg = RISK_COPY[result.reason as keyof typeof RISK_COPY];
+        if (Platform.OS === 'web') {
+          window.alert(msg);
+        } else {
+          Alert.alert('Listing blocked', msg, [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Contact support', onPress: () => router.push('/settings/support') },
+          ]);
+        }
         return false;
+      }
       case 'warn':
         setRiskBanner({ reason: result.reason, tier: result.tier });
         if (result.reason === 'high_risk_warning') {
@@ -856,6 +876,7 @@ export default function CreateListingScreen() {
             <View
               style={[
                 sx.riskBanner,
+                riskBanner.reason === 'check_unavailable' && sx.riskBannerNeutral,
                 riskBanner.reason === 'medium_risk_warning' && sx.riskBannerMedium,
                 riskBanner.reason === 'high_risk_warning' && sx.riskBannerHigh,
                 (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked') && sx.riskBannerCritical,
@@ -1067,7 +1088,7 @@ function makeStyles(p: Palette) {
     paddingVertical: v2.space.sm,
   },
   selectValue: { color: p.text.primary, flex: 1 },
-  selectPlaceholder: { color: p.text.faint, flex: 1 },
+  selectPlaceholder: { color: p.text.muted, flex: 1 },
   chevron: { color: p.text.muted, fontSize: 22, marginLeft: v2.space.sm },
 
   dateRow: { flexDirection: 'row', gap: v2.space.lg },
@@ -1134,6 +1155,8 @@ function makeStyles(p: Palette) {
   // measured 1.32–1.75:1 in Daylight, and the three fills were 1.03–1.07:1 against EACH OTHER — a
   // severity ranking that nobody could see. The tier is carried by three different sentences
   // (RISK_COPY) inside an accessibilityRole="alert", so the colour layer only owes a legible edge.
+  // "The check did not answer" is not a caution about the seller, so it does not borrow one.
+  riskBannerNeutral:  { borderColor: p.border.control },
   riskBannerMedium:   { borderColor: p.status.warning },
   riskBannerHigh:     { borderColor: p.status.error },
   riskBannerCritical: { borderColor: p.status.error },

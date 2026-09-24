@@ -233,8 +233,16 @@ export function parseRiskCheckResponse(
   return { status: 'ok', reason: 'ok', tier: risk_tier };
 }
 
-/** The seller-facing copy for each risk reason. Unchanged wording. */
+/**
+ * The seller-facing copy for each risk reason.
+ *
+ * `check_unavailable` is NOT a server reason: it is the client's own state for "the check did not
+ * answer". It exists because a transient failure used to borrow `medium_risk_warning`, telling a
+ * seller the app had noticed recent issues on their account when in fact the request never arrived.
+ * Submission still proceeds on a transient failure — only the sentence changed.
+ */
 export const RISK_COPY = {
+  check_unavailable:   "We couldn't check your account status just now. You can still publish.",
   medium_risk_warning: "We've noticed some recent issues. Please double-check your listing details.",
   high_risk_warning:   'Your account is under review. Incorrect listings may result in restrictions.',
   critical_risk:       'You cannot create listings at this time. Contact support.',

@@ -84,8 +84,11 @@ function FeedRowImpl({
         }
         accessibilityHint={presentation.actionHint}
       >
-        <View style={[s.row, dimmed && s.dimmed]}>
+        <View style={s.row}>
+          {/* The dim belongs to the artwork. Wrapping the row scaled the status word too — "Sold"
+              and "Ended" measure 2.71:1 in Daylight at 0.55 — on a row that stays tappable. */}
           <EventMedia
+            style={dimmed ? s.dimmed : undefined}
             asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
             slot="FEED_ROW_ART"
             width={ROW_ART}

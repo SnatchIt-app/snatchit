@@ -82,7 +82,9 @@ function DiscoveryCardImpl({
         }
         accessibilityHint={presentation.actionHint}
       >
-        <View style={dimmed ? styles.dimmed : undefined}>
+        {/* The Badge is a WORD and must not be scaled with the art, so the dim goes on EventMedia
+            itself rather than on a wrapper that also contains the badge (BidCard's shape). */}
+        <View>
           {/* `fluid` measures the real column width and requests a derivative at
               exactly that size, so the two-up grid fits a 375pt phone. */}
           <EventMedia
@@ -91,13 +93,15 @@ function DiscoveryCardImpl({
             title={eventName}
             fluid
             decorative
-          >
-            {presentation.statusLabel ? (
-              <View style={styles.badge} pointerEvents="none">
-                <Badge label={presentation.statusLabel} tone={TONE[presentation.statusTone]} />
-              </View>
-            ) : null}
-          </EventMedia>
+            style={dimmed ? styles.dimmed : undefined}
+          />
+          {/* Absolutely positioned over the artwork but a SIBLING of it, so the dim that recedes a
+              sold or ended cover never scales the word that says so. */}
+          {presentation.statusLabel ? (
+            <View style={styles.badge} pointerEvents="none">
+              <Badge label={presentation.statusLabel} tone={TONE[presentation.statusTone]} />
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.body}>

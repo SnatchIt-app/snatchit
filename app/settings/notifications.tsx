@@ -181,6 +181,10 @@ export default function NotificationsScreen() {
               {challenge.lastError === 'nonce_mismatch' ? (
                 <Text style={[textStyle('bodySm'), s.notice]}>{CHALLENGE_COPY.wrongCode(challenge.attemptsLeft)}</Text>
               ) : null}
+              {/* A persistent name for the field. The prompt above states the format once and the
+                  placeholder repeats it, but both are gone or unreferenced the moment a digit is
+                  typed — and this screen is reached mid-challenge, with a timer running. */}
+              <Text style={[textStyle('micro'), s.codeLabel]}>Verification code</Text>
               <TextInput
                 value={code}
                 onChangeText={(t) => setCode(t.replace(/[^0-9]/g, ''))}
@@ -236,7 +240,7 @@ export default function NotificationsScreen() {
                 value={prefs[item.key] as boolean}
                 onValueChange={(val) => handleToggle(item.key, val)}
                 trackColor={{ false: palette.border.strong, true: palette.brand.red }}
-                thumbColor={palette.text.primary}
+                thumbColor={palette.onArt.primary}
                 ios_backgroundColor={palette.border.strong}
                 accessibilityLabel={item.label}
               />
@@ -263,6 +267,7 @@ function makeStyles(p: Palette) {
   permBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.sm, borderWidth: 1, padding: v2.space.md, marginTop: v2.space.lg },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
   permBody: { flex: 1 },
+  codeLabel: { color: p.text.muted, textTransform: 'uppercase', marginBottom: v2.space.xs },
   permText: { color: p.text.primary },
   openSettings: { marginTop: v2.space.sm, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   openSettingsText: { color: p.brand.redText },
