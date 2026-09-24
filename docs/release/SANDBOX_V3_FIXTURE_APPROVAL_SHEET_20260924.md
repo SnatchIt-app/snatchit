@@ -212,6 +212,9 @@ end. It never waits for Stripe.
 4. **Confirm (A):** poll the row for up to 10 minutes. The deployed `stripe-webhook` moves it `pending → failed` on
    `payment_intent.canceled`, and only from `pending`/`processing`. If it moves, cancellation is confirmed by two
    routes, the owner's screen and Stripe's own event, and no SQL is needed.
+   Whether the sandbox Stripe account's webhook endpoint subscribes to `payment_intent.canceled` is **not
+   established**; the production subscription is itself an open owner decision (`PRODUCTION_RELEASE_PACKAGE.md:177`).
+   Expect step 5 to be the normal path unless step 4 moves the row.
 5. **Only if step 4 does not move it:** `update public.payments set status='failed' where id=<row> and
    status='pending' and stripe_payment_intent_id=<pi>`, row count 1. Run it only if all hold: the owner confirmed
    "Canceled" for exactly that id; the row still carries that id and is `pending`; L-CHK has no `succeeded` payment;
