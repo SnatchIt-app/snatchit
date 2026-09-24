@@ -191,14 +191,57 @@ is **an authoritative-state read**, so it goes through A's review of the gated s
   purchases fall through to listing-derived state and read as `Sold` / `Ended` — or, for a Buy Now with no
   bid row, vanish from the board.
 
-### 4.6 · What this does and does not affect
+### 4.6 · Correction to my own framing (owner, 2026-09-24)
 
-**None of this blocks the build.** All of it is copy, and none of it is reachable by the phone-test pass:
-`auto_released`, a resolved dispute and a failed refund read have no fixture, and A's sheet proposes none.
-These are **source-review findings**, recorded as such — no computed contrast applies and there is no
-device observation to make.
+I previously closed this section with *"None of this blocks the build … none of it is reachable by the
+phone-test pass"*. **That was the wrong framing and I withdraw it.** A missing fixture is a **coverage
+gap** — a statement about what this session can observe — not a reason to rank a defect lower or to defer
+it. Every item in §4 stands on its own evidence; what the pass can reach changes nothing about whether the
+app tells the truth.
 
----
+Corrected statement: these are **source-review findings**, no computed contrast applies, and **no device
+observation is available for any of them**, because `auto_released`, a resolved dispute and a failed refund
+read have no fixture and A's sheet proposes none. That is a gap in the evidence, recorded as one.
+
+### 4.7 · The payout and refund sentences are claims for A to verify, not copy for me to replace
+
+Also a correction. For §4.5 I proposed wordings. **Wording is not mine to settle here**: each of those
+sentences asserts something about money movement, and replacing it requires knowing what the server
+actually guarantees. I am recording them as **claims to verify with A**, with the question each needs
+answered:
+
+| Sentence | path:line | The question for A |
+|---|---|---|
+| `Your payout is being processed…` | `send/[id].tsx:473` | With `payout_review_status IS NULL` and no `payout_released_at`, what is actually in progress? Is there a queue or executor this describes, or is the only fact the absence of a release? |
+| `it releases automatically once it clears review` | `TransferStateBlocks.tsx:115` | Does an automatic release actually follow for this row, and on what trigger? The condition is a NULL column plus the **device clock** |
+| `funds are held until shortly after the event as a standard protection` | `TransferStateBlocks.tsx:116` | This branch is reached precisely when `payout_hold_until` is **absent**. What, if anything, bounds the hold then? |
+| `A refund is due; it will show here once it's confirmed.` | `transferState.ts:293` | On an expired transfer with a succeeded payment, is a refund actually owed by policy — and by what mechanism? Nothing is read from `payments` here |
+| `This order is complete.` | `transferState.ts:230` | `auto_released` with `payout_released_at IS NULL`. The seller is told the payout is **not** recorded as released in the same condition. Which is correct for the buyer? |
+
+**Do not infer a completed refund or payout from a dispute decision alone** — that constraint applies to
+every row above.
+
+### 4.8 · The refund read is three defects, not one
+
+Sharpened after the owner's note that loading, error and success must stay distinct and that stale facts
+must not leak between orders. All three live in one effect, `app/transfer/receive/[id].tsx:107-122`:
+
+1. **Loading is indistinguishable from resolved-empty.** `refundFacts` starts `null` and stays `null` while
+   the read is in flight — and `null` is also the value that means "no refund recorded". So the screen
+   renders its final answer *before the read returns*. There is no loading state at all.
+2. **A failed read is indistinguishable from "no refund".** `if (!alive || !('rows' in read)) return;`
+   discards the `{ error }` branch. `settledRead.ts` returns that branch **specifically** so a caller can
+   tell the two apart — its own comment says only a list establishes "no settled payment" — and the call
+   site throws the distinction away.
+3. **Nothing is cleared before a re-read, so a previous result can render against the current one.** The
+   effect clears `refundFacts` only when `!closedForRefund || !listingId || !userId`. On any re-run that
+   then fails or is slow — a status change, or the route reused with a different `[id]` — the **previous**
+   facts stay on screen as if they were this order's. Whether the component is reused across ids rather
+   than remounted is a router behaviour I have **not** confirmed; the fix does not depend on which it is,
+   because clearing before the read is correct either way.
+
+This is the standing rule stated three ways: **unknown-payment must stay distinct from expired, from
+reversed, and from "read not finished".**
 
 ## 5 · The tree-wide opacity sweep — clean, with one case left
 
