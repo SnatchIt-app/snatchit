@@ -76,6 +76,28 @@ const BASE: CheckoutViewProps = {
 /**
  * Every state the presentation can be in, driven by `?state=`. Each one is the resolved OUTPUT of a
  * decision the real screen makes — the decisions themselves stay in the screen and its own suites.
+ *
+ * COVERAGE OF THE PAY CONTROL (B's review at d374bd3f, via E: a reviewer has to be able to see that
+ * the set is complete). `payControl` resolves eleven outcomes, in this precedence. Each one has a
+ * fixture here, and `tests/v3-checkout-view.test.ts` asserts the mapping stays total:
+ *
+ *   payControl outcome        │ ?state=
+ *   ───────────────────────────┼──────────────────
+ *   Finalizing your order     │ finalizing
+ *   Confirming payment        │ confirming
+ *   Checking your payment     │ unconfirmed
+ *   Authenticating            │ authenticating
+ *   Setting up payment        │ preparing
+ *   Check again               │ status-unknown
+ *   Back to listing           │ hold-lost
+ *   Checking your hold        │ hold-checking
+ *   Pay <total>               │ ready · auction
+ *   Try again                 │ failed
+ *   Payment unavailable       │ unavailable
+ *
+ * Plus the faces the screen reaches through its own early returns, which the control never paints:
+ * complete · pending · settle-failed · refund. And `price-changed`, where the accept control
+ * REPLACES the pay control entirely.
  */
 const STATES: Record<string, CheckoutViewProps> = {
   // Setup running: no figure anywhere, and the control says what it is doing.
@@ -151,6 +173,50 @@ const STATES: Record<string, CheckoutViewProps> = {
     countdown: '0:00',
     paymentMethodLine: null,
     pay: { label: 'Checking your hold', loading: true, disabled: true },
+  },
+  // The charge is in flight. The sheet is up over the app on a device, so this is what is behind it.
+  confirming: {
+    ...BASE,
+    paymentMethodLine: null,
+    pay: { label: 'Confirming payment', loading: true, disabled: true },
+  },
+  // Charged, and the settlement record is being written (CFT-306: its own step, its own words).
+  finalizing: {
+    ...BASE,
+    paymentMethodLine: null,
+    pay: { label: 'Finalizing your order', loading: true, disabled: true },
+  },
+  // The session is still resolving, so nothing about this buyer is known yet.
+  authenticating: {
+    ...BASE,
+    breakdown: null,
+    paymentMethodLine: null,
+    escrowNote: null,
+    reservationMsLeft: null,
+    countdown: null,
+    pay: { label: 'Authenticating', loading: true, disabled: true },
+  },
+  // The settled-payment read failed, so whether this buyer already paid is UNKNOWN: no Pay is
+  // offered, the escrow line is withheld, and the only action re-runs the check.
+  'status-unknown': {
+    ...BASE,
+    paymentMethodLine: null,
+    escrowNote: null,
+    notice: {
+      title: "We couldn't check your payment status",
+      body: "We could not confirm whether this order has already been paid. Please don't pay again — check again in a moment.",
+    },
+    pay: { label: 'Check again', loading: false, disabled: false },
+  },
+  // The floor of the precedence: nothing is ready and nothing failed loudly.
+  unavailable: {
+    ...BASE,
+    breakdown: null,
+    paymentMethodLine: null,
+    escrowNote: null,
+    reservationMsLeft: null,
+    countdown: null,
+    pay: { label: 'Payment unavailable', loading: false, disabled: true },
   },
 };
 

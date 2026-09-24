@@ -182,6 +182,32 @@ describe('the V3 rendering the boards ask for (pkg8-checkout-dark / -light)', ()
     expect(src).toMatch(/notice\.action \?[\s\S]*?<Button/);
   });
 
+  it("CV9 (B's review of d374bd3f): every payControl outcome has a fixture, so a rendered review can be complete", async () => {
+    // A reviewer cannot tell a complete set from a partial one by looking at a page. This derives
+    // the outcome list from payControl itself and checks the harness covers all of it — so adding a
+    // twelfth outcome later fails here instead of quietly going uncaptured.
+    const control = code('src/lib/checkout/payControl.ts');
+    const labels = [...control.matchAll(/label: (?:'([^']+)'|`([^`]+)`)/g)].map((m) => m[1] ?? m[2]).filter((l) => l !== 'string');
+    expect(labels.length, 'payControl outcomes').toBeGreaterThanOrEqual(11);
+    const harness = read('app/_dev/v3-checkout.tsx');
+    for (const label of labels) {
+      // `Pay ${i.formattedTotal}` is the one templated label; the fixture spells a sample total.
+      const needle = label.startsWith('Pay ') ? 'Pay $99.00' : label;
+      expect(harness, `no fixture renders "${label}"`).toContain(needle);
+      // And the table in the header documents where to find it.
+      expect(harness.slice(0, harness.indexOf('const STATES')), `the table omits "${label}"`).toContain(label.startsWith('Pay ') ? 'Pay <total>' : label);
+    }
+  });
+
+  it("CV10 (B's review of d374bd3f): an in-flight status is stated at full strength, not only on the dimmed control", () => {
+    // A disabled control renders at 40% opacity, so a state whose only words were the pay label put
+    // the news in the faintest thing on the screen — worst in Light. The control keeps its label;
+    // the same words also appear in the body.
+    expect(src).toMatch(/\{!preparing && pay\.loading \?/);
+    expect(src).toMatch(/payStatus: \{ color: p\.text\.primary/);
+    expect(src).toMatch(/<Spinner label=\{pay\.label\} \/>/);
+  });
+
   it('CV8: the view formats no money and states no payout, refund or settlement wording of its own', () => {
     expect(src).not.toMatch(/formatCents|toFixed|\$\{.*cents/i);
     // Every sentence it owns is about the SCREEN's own furniture; the money and outcome words all
