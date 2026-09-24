@@ -141,7 +141,9 @@ export default function PrivacyPolicyScreen() {
           </Body>
           <Bullet s={s}>You can report a listing or another user at any time from the listing&apos;s overflow menu.</Bullet>
           <Bullet s={s}>You can block another user from your account; their listings will be hidden from your feed. Manage blocks at Settings → Blocked Users.</Bullet>
-          <Bullet s={s}>Reports are reviewed by the Snatch It team within 24 hours.</Bullet>
+          {/* No fixed review time (owner, 2026-09-24): the app does not promise a turnaround it
+              does not control. */}
+          <Bullet s={s}>Reports are reviewed by the Snatch It team.</Bullet>
           <Bullet s={s}>Listings or accounts that violate our rules may be removed, suspended, or permanently banned.</Bullet>
           <Bullet s={s}>Submitting false or repeated bad-faith reports may itself be grounds for suspension.</Bullet>
           <Body s={s}>

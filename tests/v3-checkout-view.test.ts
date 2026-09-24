@@ -202,16 +202,22 @@ describe('the V3 rendering the boards ask for (pkg8-checkout-dark / -light)', ()
     expect(harness).toContain('export const CHECKOUT_STATES');
   });
 
-  it("CV10 (B's review of d374bd3f): an in-flight status is stated at full strength, not only on the dimmed control", () => {
-    // A disabled control renders at 40% opacity, so a state whose only words were the pay label put
-    // the news in the faintest thing on the screen — worst in Light. The control keeps its label;
-    // the same words also appear in the body.
-    expect(src).toMatch(/\{!preparing && !notice && pay\.loading \?/);
-    expect(src).toMatch(/payStatus: \{ color: p\.text\.primary/);
-    // ONE announcement of one fact (E's follow-up): the row is suppressed where the slot above it
-    // already states the status, and the spinner beside the visible text is decorative so a screen
-    // reader does not read the same words twice.
-    expect(src).toMatch(/<Spinner label=\{pay\.label\} decorative \/>/);
+  it("CV10 (B's review of d374bd3f, resolved with E): ONE carrier for an in-flight status, and it is not dimmed", () => {
+    /*
+     * The route this took, recorded because the middle step was wrong. B measured that a state whose
+     * only words were the pay control's label put the news in a control at 40% opacity. My first fix
+     * added those words to the body — which then stated the same status twice at full strength once
+     * the second fix stopped dimming a busy control, and E caught that. The resolution is one carrier:
+     * the pending label, at full strength, announcing itself.
+     */
+    expect(src).not.toMatch(/payStatus/);                       // the body row is gone
+    expect(src).not.toMatch(/<Spinner label=\{pay\.label\}/);   // and its spinner with it
+    const button = code('src/components/ui/Button.tsx');
+    expect(button).toContain('disabled && !showPending && styles.disabled,');
+    expect(button).toMatch(/accessibilityLiveRegion=\{showPending \? 'polite' : 'none'\}/);
+    // The control is still inert while busy, so nothing about interactivity moved.
+    expect(button).toContain('const inert = disabled || loading;');
+    expect(button).toContain('disabled={inert}');
   });
 
   it('CV8: the view formats no money, and states no payout STATE or refund figure of its own', () => {

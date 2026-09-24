@@ -227,7 +227,10 @@ export function transferStatusCopy(
       // "pending review" asserts a process the row does not record. The 24-hour sentence is the
       // owner's own P1 decision (G9) and stays until they rule.
       return buyer
-        ? { title: 'Issue reported', body: "Our team typically reviews within 24 hours. The seller's payout is frozen until this is resolved." }
+        // The owner's decision (2026-09-24): no fixed review time. "Our team typically reviews
+        // within 24 hours" was a service-level promise nothing in the product keeps. The freeze is
+        // the fact, and it stays.
+        ? { title: 'Issue reported', body: "The seller's payout is frozen until this is resolved." }
         : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is frozen until the report is resolved.' };
     default:
       return { title: status.replace(/_/g, ' '), body: '' };

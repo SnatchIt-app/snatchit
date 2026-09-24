@@ -557,24 +557,20 @@ describe('v3-checkout — the fixture set is complete, and one status is stated 
     for (const label of rendered) expect(labels, `no branch produces "${label}"`).toContain(label);
   });
 
-  it('HV16: the status row appears only where nothing else states the status', async () => {
+  it('HV16: an in-flight fixture is a loading control, which is now the only carrier of its status', async () => {
     const { CHECKOUT_STATES } = await import('@/app/_dev/v3-checkout');
-    // The view renders the row when `!preparing && !notice && pay.loading`. These are the states
-    // where that is true — a bare loading control with no panel above it.
-    for (const key of ['confirming', 'finalizing', 'hold-checking']) {
-      const st = CHECKOUT_STATES[key];
-      expect(st.notice, key).toBeNull();
-      expect(st.preparing, key).toBe(false);
-      expect(st.pay.loading, key).toBe(true);
+    // RETARGETED (E's correction): the body status row is gone — the full-strength pending label on
+    // the control states each in-flight status once. What the fixtures must still do is SELECT those
+    // branches, so a reviewer sees every one of them.
+    for (const key of ['confirming', 'finalizing', 'hold-checking', 'authenticating', 'preparing', 'unconfirmed']) {
+      expect(CHECKOUT_STATES[key].pay.loading, key).toBe(true);
+      expect(CHECKOUT_STATES[key].pay.disabled, key).toBe(true);
     }
-    // And these are the states that already say it, so the row must not repeat them: `unconfirmed`
-    // has a titled panel with its own action (three copies of one status, before E's follow-up), and
-    // `preparing` has its own spinner row.
-    expect(CHECKOUT_STATES.unconfirmed.notice?.title).toBeTruthy();
-    expect(CHECKOUT_STATES.unconfirmed.pay.loading).toBe(true);
-    expect(CHECKOUT_STATES.preparing.preparing).toBe(true);
-    // The rule itself, at the one place that implements it.
-    const view = readFileSync('src/screens/checkout/CheckoutView.tsx', 'utf8');
-    expect(view).toMatch(/\{!preparing && !notice && pay\.loading \?/);
+    // And the actionable ones are not loading, so their labels are controls rather than statuses.
+    for (const key of ['ready', 'auction', 'failed', 'hold-lost', 'status-unknown']) {
+      expect(CHECKOUT_STATES[key].pay.loading, key).toBe(false);
+    }
+    expect(CHECKOUT_STATES.unavailable.pay.disabled).toBe(true);
+    expect(CHECKOUT_STATES.unavailable.pay.loading).toBe(false);
   });
 });

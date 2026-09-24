@@ -131,6 +131,12 @@ export function Button({
         accessibilityLabel={showPending ? pendingLabel : (accessibilityLabel ?? label)}
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled: inert, busy: loading }}
+        /*
+         * The pending label is the ONLY statement of an in-flight status on some screens — checkout's
+         * six payControl branches among them — so the control announces its own change rather than
+         * relying on a sentence elsewhere. Polite: it reports progress, it does not interrupt.
+         */
+        accessibilityLiveRegion={showPending ? 'polite' : 'none'}
         testID={testID}
       >
         {/* The label stays mounted but invisible while loading, so the button

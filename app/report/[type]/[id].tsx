@@ -74,8 +74,10 @@ export default function ReportScreen() {
         Alert.alert('Could not submit report', 'Please try again in a moment.');
         return;
       }
-      setSent(true); // the guard stands down; the alert's OK navigates back
-      Alert.alert('Report submitted', 'Thanks for letting us know. We review reports within 24 hours and act on what we find.', [
+      // No fixed review time in the confirmation (owner, 2026-09-24): what we do is the claim, when
+      // is not. The unsaved-work guard stands down first, then the alert's OK navigates back.
+      setSent(true);
+      Alert.alert('Report submitted', 'Thanks for letting us know. We review reports and act on what we find.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } finally {

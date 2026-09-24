@@ -193,27 +193,6 @@ export default function CheckoutView({
           )}
         </View>
 
-        {/*
-            THE STATUS IS NOT THE BUTTON'S JOB (B's checkout review at d374bd3f, via E). A disabled
-            control drops to 40% opacity, so a state whose only words were the pay control's label —
-            "Checking your payment", "Confirming payment", "Finalizing your order" — put the news in
-            the faintest thing on the screen, worst in Light. The control keeps its label and stays
-            disabled; the same words also appear here at full strength.
-
-            AND ONLY ONCE (E's follow-up). The row is suppressed when the slot above it already
-            states the status: `preparing` has its own spinner row, and a titled notice states its
-            own state and carries its own action — in `unconfirmed` the status was appearing three
-            times over.
-        */}
-        {!preparing && !notice && pay.loading ? (
-          <View style={s.payStateRow} accessibilityLiveRegion="polite">
-            {/* Decorative: the Text beside it says the same words, and a progressbar carrying the
-                same label would make a screen reader read the status twice. */}
-            <Spinner label={pay.label} decorative />
-            <Text style={[textStyle('body'), s.payStatus]}>{pay.label}</Text>
-          </View>
-        ) : null}
-
         {escrowNote ? <Text style={[textStyle('bodySm'), s.trust]}>{escrowNote}</Text> : null}
 
         <View style={{ height: 120 }} />
@@ -464,8 +443,6 @@ function makeStyles(p: Palette) {
   },
   payStateRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
   payStateText: { color: p.text.secondary },
-  /** An in-flight status, at full strength: the primary ink, never the disabled control's 40%. */
-  payStatus: { color: p.text.primary, marginTop: v2.space.md },
   payError: { color: p.status.error },
 
   // The V3 state treatment (pkg8): a filled panel with a 3pt accent, the shape the transfer

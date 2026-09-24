@@ -65,7 +65,9 @@ export default function SupportScreen() {
 
         <AccountSection title="Contact us">
           <Text style={[textStyle('bodySm'), s.body]}>
-            Email us and include your account email, the listing ID if relevant, and a description of the issue. We aim to respond within 1 to 2 business days.
+            {/* No response estimate (owner, 2026-09-24): support is one inbox, and "1 to 2 business
+                days" was a commitment nothing enforces. */}
+            Email us and include your account email, the listing ID if relevant, and a description of the issue. We&apos;ll reply by email as soon as we can.
           </Text>
           <Button label={SUPPORT_EMAIL} variant="secondary" onPress={openEmail} style={s.emailBtn} />
         </AccountSection>
