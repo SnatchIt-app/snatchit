@@ -78,7 +78,7 @@ export function IconButton({
         accessibilityState={{ disabled }}
         testID={testID}
       >
-        <Text style={styles.glyph}>{GLYPH[glyph]}</Text>
+        <Text style={[styles.glyph, onArt && styles.glyphOnArt]}>{GLYPH[glyph]}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -99,5 +99,12 @@ function makeStyles(p: Palette) {
   onArt: { backgroundColor: 'rgba(0,0,0,0.55)' },
   disabled: { opacity: 0.4 },
   glyph: { color: p.text.primary, fontSize: 28, lineHeight: 32 },
+  /**
+   * OVER ARTWORK the glyph joins the over-artwork inks (E's finding on B's Light listing render,
+   * 2026-09-24). `onArt` paints a dark plate and the glyph was still `text.primary`, which is
+   * near-black in Light: measured 1.02:1 — the back control could not be seen at all. The plate is
+   * dark in both appearances, so the ink on it has to be too.
+   */
+  glyphOnArt: { color: p.onArt.primary },
   });
 }

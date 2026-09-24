@@ -28,6 +28,15 @@ export type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'count';
 export interface BadgeProps {
   label: string;
   tone?: BadgeTone;
+  /**
+   * Drawn OVER artwork — a hero, a feature — where the canvas inks do not apply. E's finding on B's
+   * Light listing render (2026-09-24): the neutral badge takes `text.primary` for its border and
+   * label, which is near-black, and over the hero's dark plate it vanished in Light exactly as the
+   * back control did. Over art the label takes the appearance-invariant over-artwork ink; the WORD
+   * still carries the meaning, which is this component's own rule, so a status tone loses only its
+   * hue there and nothing a reader needs.
+   */
+  onArt?: boolean;
   style?: ViewStyle;
   testID?: string;
 }
@@ -44,10 +53,15 @@ function toneFor(p: Palette): Record<BadgeTone, { border: string; fill: string; 
   };
 }
 
-export function Badge({ label, tone = 'neutral', style, testID }: BadgeProps) {
+export function Badge({ label, tone = 'neutral', onArt = false, style, testID }: BadgeProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
-  const t = toneFor(palette)[tone];
+  const base = toneFor(palette)[tone];
+  // Urgency keeps its own over-art hue (the amber the palette carries for both appearances);
+  // everything else reads in the over-art primary.
+  const t = onArt
+    ? { ...base, fill: 'transparent', border: tone === 'warning' ? palette.onArt.urgent : palette.onArt.primary, text: tone === 'warning' ? palette.onArt.urgent : palette.onArt.primary }
+    : base;
   return (
     <View
       style={[styles.base, { borderColor: t.border, backgroundColor: t.fill }, style]}
@@ -71,8 +85,8 @@ export function Badge({ label, tone = 'neutral', style, testID }: BadgeProps) {
  * Copy is inherited from the brand, which says "direct" and "marketplace" to
  * customers and never says primary, secondary, rail or inventory.
  */
-export function FromAFanBadge({ style }: { style?: ViewStyle }) {
-  return <Badge label="From a fan" tone="neutral" style={style} />;
+export function FromAFanBadge({ onArt = false, style }: { onArt?: boolean; style?: ViewStyle }) {
+  return <Badge label="From a fan" tone="neutral" onArt={onArt} style={style} />;
 }
 
 function makeStyles(p: Palette) {

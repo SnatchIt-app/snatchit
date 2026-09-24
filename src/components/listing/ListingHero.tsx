@@ -86,7 +86,7 @@ export function ListingHero({
           that claim to be true about.
         */}
         <View style={styles.badge}>
-          <FromAFanBadge />
+          <FromAFanBadge onArt />
         </View>
         <Text style={[textStyle('bodySm'), styles.when]} numberOfLines={1}>
           {`${rowWhenLabel(eventDate, eventTime)} · ${venue}`}

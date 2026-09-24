@@ -45,7 +45,7 @@ vi.mock('react-native', () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@/components/ui/icon-symbol', () => ({ IconSymbol: 'IconSymbol' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, EASING_BEZIER: [0.2, 0, 0, 1] }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, MIN_TOUCH_TARGET: 44, EASING_BEZIER: [0.2, 0, 0, 1] }));
 vi.mock('@/src/theme/fonts', () => ({ fontFamily: () => 'Inter', useBrandFonts: () => true }));
 vi.mock('@/src/hooks/useReducedMotion', () => ({ useReducedMotion: () => true }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockCollapsed: () => false, useDockExpander: () => () => {} }));
@@ -224,6 +224,67 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
       const plate = findElement(h2.output, (el) => el.type === 'View' && JSON.stringify(el.props.style ?? '').includes('"flex":1'));
       expect(styleValue(plate, 'backgroundColor'), `${scheme} bare plate`).toBe(p.surface.surface);
     }
+  });
+
+  it("RD3d (E's finding on B's listing render, 2026-09-24): every control drawn OVER the media takes the over-artwork inks, in both appearances", async () => {
+    /*
+     * The same class of defect as the plate, one layer up. B's Light listing capture with no artwork
+     * shows the back chip, the overflow chip and the "From a fan" badge as dark-on-dark: the back
+     * control cannot be seen at all, which is a navigation defect rather than a cosmetic one.
+     *
+     * Cause: `IconButton onArt` paints a dark plate — rgba(0,0,0,0.55) — and then draws the glyph in
+     * `text.primary`, which is near-black in Light; `Badge` neutral takes `text.primary` for its
+     * border and label. Both are CANVAS inks, and neither control is on the canvas. This is not
+     * confined to the missing-artwork case: over a photograph in Light the plate is just as dark, so
+     * a Light listing hero has never had a visible back chevron.
+     *
+     * The rule, the same one `onArt` already states: anything drawn on the media uses the
+     * appearance-invariant over-artwork inks.
+     */
+    for (const [scheme, p] of palettes) {
+      th.scheme = scheme as 'light' | 'dark';
+      vi.resetModules();
+      const { IconButton } = await import('@/src/components/ui/IconButton');
+      const { Badge } = await import('@/src/components/ui/Badge');
+      const Icon = ((IconButton as { type?: unknown }).type ?? IconButton) as (p: unknown) => unknown;
+      const B = ((Badge as { type?: unknown }).type ?? Badge) as (p: unknown) => unknown;
+
+      // The two chips on the hero. Their plate is what they paint over the media.
+      for (const glyph of ['back', 'more'] as const) {
+        const h = new HookHost(() => Icon({ glyph, onArt: true, accessibilityLabel: 'x', onPress: () => {} }), new Map());
+        h.mount(); h.flush();
+        const pressable = findElement(h.output, (el) => el.type === 'Pressable');
+        const text = findElement(h.output, (el) => el.type === 'Text');
+        const plate = styleValue(pressable, 'backgroundColor')!;
+        expect(plate, `${scheme} ${glyph} plate`).toBeDefined();
+        // Composited over the darkest and the lightest thing the media can be: legible on both.
+        for (const behind of [dark.onArt.plate, '#FFFFFF']) {
+          const fill = over(plate, behind);
+          expect(contrast(styleValue(text, 'color')!, fill), `${scheme} ${glyph} glyph on ${behind}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+
+      // The provenance badge, in its over-artwork form.
+      const hb = new HookHost(() => B({ label: 'From a fan', tone: 'neutral', onArt: true }), new Map());
+      hb.mount(); hb.flush();
+      const box = findElement(hb.output, (el) => el.type === 'View');
+      const label = findElement(hb.output, (el) => el.type === 'Text');
+      // The badge is unfilled over art, so what sits behind its label IS the plate.
+      const boxFill = styleValue(box, 'backgroundColor');
+      expect(boxFill, `${scheme} badge fill`).toBe('transparent');
+      const plate = dark.onArt.plate;
+      expect(contrast(styleValue(label, 'color')!, plate), `${scheme} badge label`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(styleValue(box, 'borderColor')!, plate), `${scheme} badge border`).toBeGreaterThanOrEqual(3);
+      // Invariant, like every other ink that sits on artwork.
+      expect(styleValue(label, 'color'), `${scheme} badge ink`).toBe(dark.onArt.primary);
+    }
+  });
+
+  it('RD3e: the hero passes the over-artwork form to every control it draws on the media', async () => {
+    const hero = await stripped('src/components/listing/ListingHero.tsx');
+    // Both chips already declared themselves over-art; the badge must too.
+    expect(hero.match(/onArt/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(hero).toMatch(/<FromAFanBadge onArt/);
   });
 
   it('RD4: the only white literals left in EventMedia are the scrim gradients over artwork (which do not invert)', async () => {
