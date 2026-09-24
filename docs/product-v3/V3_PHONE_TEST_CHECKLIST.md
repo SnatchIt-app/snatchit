@@ -10,7 +10,7 @@ evidence class each step produces. **Nothing here authorises a write.**
 iOS `preview` internal, sandbox project `ofaidukbieeekqaboscm`. **A diagnostic artifact, not a release
 candidate.** Artifact recorded, not installed.
 
-**The branch is four commits ahead of the build.** Build 23 is `9c6c9bf4`. What it does NOT contain,
+**The branch is eight commits ahead of the build.** Build 23 is `9c6c9bf4`. What it does NOT contain,
 so that a tester does not re-report any of it, and so that no screenshot from the branch is mistaken
 for evidence about the build:
 
@@ -20,9 +20,29 @@ for evidence about the build:
 | `d981727e` | the past ticket card still dims its own text (date and venue at 4.44:1 in Light) · the risk banners still carry ungraded tints (edges 1.32–1.75:1 Light, fills 1.03–1.07:1 apart) · nine `text.faint` values still faint · the bio counter's over-state still unreachable |
 | `2ffb10a8` | **FeedRow, SellerListingCard and DiscoveryCard still dim their own text** — "Sold"/"Ended" 2.71:1, "Cancelled" 2.11:1, the DiscoveryCard badge 4.12:1, all in Light · the **auth brand mark is still untinted**, i.e. a white monogram on Daylight's white canvas on all three auth screens · the push-challenge code field still has no visible label · signup's "At least 6 characters" still vanishes on the first keystroke · the sell form's unfilled pickers still at 2.4:1 · the notifications switch thumb still near-black in Light · **a transient eligibility failure still says "We've noticed some recent issues"** · "Contact support" still offers no route |
 
+| `ca27d282`, `aee15697`, `404bce38` | **the whole dispute-copy set** (all three A-reviewed PASS). Build 23 tells a buyer who lost a dispute "You confirmed receipt. Enjoy the event.", tells the seller "The buyer confirmed they received the tickets.", and badges that row a green **"Received"** on the receive screen, the send screen AND the Bids board. It also says "Your payout is being processed" under a hold, and promises a notification the phone cannot keep |
+
 These are presentation defects the tester WILL see on build 23. Expect them; do not re-report them.
-**No replacement build is authorised.** C flags it explicitly if the accumulation makes the artifact
-misleading rather than merely dated.
+**No replacement build is authorised; a replacement stays under the owner's gate G2.**
+
+### C's assessment of the artifact, since this is where it gets called
+
+**One item has crossed from "dated" into "reads as broken", and it is the FIRST thing a signed-out
+tester sees.** Stage 1 deliberately runs before sign-in, and on build 23 in **Light** the auth
+screens' brand mark is an untinted white monogram on a white canvas — i.e. the login, signup and
+reset screens show an empty space where the logo belongs. A tester meeting that at PT-06/PT-07 has no
+way to read it as a known, fixed-on-branch defect rather than a broken build, which is exactly the
+line I said I would flag.
+
+Everything else in this table is legibly "dated": a dim that is too strong, a prompt that is too
+faint, copy that is wrong on a path the sandbox cannot even reach (no dispute has ever been resolved
+in production, and no fixture creates one).
+
+**So: the appearance and rendering pass is still worth running on build 23** — the migration itself,
+which is what the pass is for, is entirely present at `9c6c9bf4`. My recommendation is to run Stages
+1–3 on it and accept the two conspicuous items above as known, **or** recut once if the owner would
+rather the first screen of the session look right. The decision is the owner's under G2; I am
+recording the input, not requesting the build.
 
 ---
 
