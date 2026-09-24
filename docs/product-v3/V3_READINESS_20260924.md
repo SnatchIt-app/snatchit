@@ -9,6 +9,40 @@
 
 ---
 
+## 0 · Appearance migration coverage — measured, because a short defect list is not a status
+
+Counted on **C `v3/midnight-app` @ `016087ea`**, across `src/screens`, `src/components` and `app`:
+
+| | Files |
+|---|---|
+| `.tsx` total | **94** |
+| Carry no colour of their own (neither palette nor `v2`) | 22 |
+| **Colour-bearing** | **72** |
+| Read the palette at all | 17 |
+| …of those, **still also read static `v2.*`** — partially migrated | **15** |
+| **Read the palette only** — fully migrated | **2** |
+| **Read `v2.*` and never the palette** — unmigrated | **55** |
+
+**Why `v2.*` means wrong-in-Daylight:** `palette.ts` states that `dark` *"re-exports the v2 token groups
+untouched"*, and `light` is a separate map. **A file importing `v2.*` directly gets the Midnight value in
+both appearances.**
+
+**So the eight literals I reported are not the migration.** They are the subset that no token system could
+ever reach. **55 unmigrated files plus 15 partially migrated ones is the actual remaining surface**, and it
+is much larger than any defect list. The five primitives C has converted are the foundation, not the job.
+
+### Two record corrections, both mine
+
+1. **A-1 / A-2 / A-3 are APPROVED** (owner, 2026-09-22 — *"I approve neutral decorative hairlines,
+   mixed-case sentence headings, and the rounded controls shown in the approved V3 designs"*).
+   `palette.ts` currently records A-1 as *"an open owner decision … NOT adopted here"*, reading a **stale row
+   in my own coverage matrix**. That row is now closed. **Neutral hairlines are approved and should land.**
+2. **Canvas `#08090A` is not a proposal — withdraw it.** `V3_PACKAGE_1` §2 states canvas = **`#000000`**.
+   The `#08090A` in my boards is a rendering artefact of the drawing engine, never a design change.
+   **Canvas stays `#000000`.**
+
+---
+
 ## 1 · Remaining implementation — C, and it gates the build
 
 | # | Item | Done when |
@@ -30,7 +64,7 @@
 |---|---|
 | **C** | **Verify the rendered combinations, not that a component accepts a palette.** A-1 is exactly that failure: `makeStyles(palette)` is called and the surface is still a literal. Cover disabled controls, selected states, overlays, native dialogs, the keyboard, artwork and both status bars |
 | **C** | The **new visible pressed fill** (`Button.tsx:115`) — new behaviour, not a token correction. Reads at tap speed · no flicker on fast repeats · does not fight the 0.98 scale |
-| **B** | Remaining light appearances: Create · My listings · Send/receive transfer · Bids tab · Auth (7) · Tickets · Profile · Settings hub + 7 · Dispute/report · 45 dialogs · 4 state screens · error boundary · outbid notice · status banner. **Re-renders against a finished token set, not new decisions** |
+| **B** | Light designs for the **55 unmigrated + 15 partial** files as C reaches them — the token set is finished, so these are re-renders, not new decisions. Surfaces still to draw: Create · My listings · Send/receive transfer · Bids tab · Auth (7) · Tickets · Profile · Settings hub + 7 · Dispute/report · 45 dialogs · 4 state screens · error boundary · outbid notice · status banner. **Re-renders against a finished token set, not new decisions** |
 | **B** | Review each of C's screens as it lands, against the frozen package |
 
 ## 3 · Fixture permissions needed — exactly

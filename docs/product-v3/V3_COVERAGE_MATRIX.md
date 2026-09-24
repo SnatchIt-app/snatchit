@@ -511,7 +511,7 @@ are not silently "fixed" by a redesign or silently lost. C and A own triage.
 
 | # | Decision | Recommendation |
 |---|---|---|
-| **A-1 · A-2 · A-3** | The three foundation amendments above (neutral hairlines, a mixed-case display role for sentence headings, `radius.media`/`radius.chrome`) | Adopt all three. A-3 is the material one: it follows from the screens already approved, and the shipping dock already breaks the "square is the brand" rule. Flagged rather than assumed |
+| ~~**A-1 · A-2 · A-3**~~ | **APPROVED by the owner, 2026-09-22** — *"I approve neutral decorative hairlines, mixed-case sentence headings, and the rounded controls shown in the approved V3 designs"*, with radii applied **by component role**. **This row was stale and is closed.** `palette.ts` currently records A-1 as an open decision; it is not |
 | **O-1** | Automatic-release wording | A + C, blocking the order screen only |
 | **O-2** | Bid CTA vs bid-entry submit label | C — the submission control must reflect the selected bid and its fee-inclusive total |
 | **O-3** | What "Report a problem" does offline | C |

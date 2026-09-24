@@ -3,8 +3,9 @@
 **C → owner, 2026-09-24.** One sandbox EAS `preview` build is authorised once the V3 candidate passes its
 implementation and review gates (owner, 2026-09-24). This plan is what that build needs on the shared
 sandbox — nothing more. **It authorises nothing by itself**: every write below is listed so the owner can
-approve or strike it; unlisted writes do not happen. No payment is created, no notification is sent, no
-production project is touched, no store submission, no second build.
+approve or strike it; unlisted writes do not happen. **W1 and W2 are NOT executed** (owner, 2026-09-24) —
+their real side effects are traced in §3b and B's appendix, and each needs the owner's word for that line.
+No production project is touched, no store submission, no second build.
 
 | | |
 |---|---|
@@ -12,7 +13,7 @@ production project is touched, no store submission, no second build.
 | Production `hqycwntpfoztoinemqns` | not touched — no read, no write |
 | Build | one EAS `preview` (iOS internal distribution), pinned to one commit recorded here before the build |
 | Reads by C | **none directly.** Every read-back is A's, inside the owner's window |
-| Writes by C | **none.** The only writes are the ones the device checks intrinsically produce (listed in §3) |
+| Writes by C | **none typed by hand — but the device checks are not write-free.** W2 intrinsically creates a Stripe test-mode PaymentIntent and a pending `payments` row the moment checkout mounts; W1 intrinsically dispatches two push-trigger notifications. Both are listed in §3/§3b with their cleanup, and **neither is executed** |
 
 ## 1 · Accounts and fixtures reused (A's records; nothing new is created)
 
@@ -40,8 +41,8 @@ any fixture write.
 | **D-6 avatar across account switch** | buyer then seller on one device | reuse | none (auth only; the push-token rules of DV-611 apply and are A's read-back) |
 | **Bid screen "Current bid" / three-row summary** | an open auction with ≥ 1 bid | **unknown** — needs A's authorised read (a) | one bid by the DV buyer if none exists (§3) |
 | **"Buy both now" verb** | an active quantity-2 listing with buy_now | manifest records one (DV-609) at the last window; current state needs read (b) | none to see the verb; a Buy Now hold only if the checkout board is exercised (§3) |
-| **Checkout boards, both appearances** (server-figures-only rows, "Preparing your total", price-change, hold lost) | a Buy Now hold on a live listing | DV-609 listing | **one hold**, released by `release_reservation` (§3) — no payment |
-| **Transfer cells: expired · reversed · held with `payout_hold_until`** (D-7) | rows in those states | none known (A) — needs read (c) | **none proposed.** If read (c) finds none these cells stay **source-only** for this build and the plan says so |
+| **Checkout boards, both appearances** (server-figures-only rows, "Preparing your total", price-change, hold lost) | a Buy Now hold on a live listing | DV-609 listing | **W2 — a hold AND a PaymentIntent** (§3b): entering the screen runs setup on mount; no charge, but not "no payment" |
+| **Transfer cells: expired · reversed · held with `payout_hold_until`** (D-7) | rows in those states | none known (A) — needs read (c) | **none proposed.** If read (c) finds none these cells are **explicitly UNVERIFIED on-device** for this build — passing another transfer state does not cover them |
 | **D-8 Tickets RPC** | `public.get_my_tickets()` on this sandbox | A's catalog read (owner-authorised, optional item in A's report) | none; `kernel.tickets` stays 0 — populated Tickets fixtures remain excluded (A's manifest §6) |
 
 ## 3 · Permitted writes — each one named, each with its cleanup
@@ -50,14 +51,39 @@ Nothing here runs without the owner's word for that line.
 
 | # | Write | By | Why | Cleanup | Owner decision |
 |---|---|---|---|---|---|
-| W1 | One **bid** by the DV buyer on one open auction (only if read (a) finds none with bids) | the handset, C driving | "Current bid" line, Bid/Fee/Total rows, "You're leading" only after the fresh read | none needed for the app; A records the bid id; **no payment follows** (the auction is not finalised in the window) | ☐ |
-| W2 | One **Buy Now hold** on the quantity-2 listing | the handset | checkout boards in both appearances; "Buy both now" → reserved → checkout | released explicitly with `release_reservation` before the window closes — never left to lapse (A's rule) | ☐ |
+| W1 | One **bid** by the DV buyer on one open auction (only if read (a) finds none with bids) | the handset, C driving | "Current bid" line, Bid/Fee/Total rows, "You're leading" only after the fresh read | A records the bid id. **Side effects beyond the row — see §3b: two push-trigger dispatches and a possible auction win after the window.** Not "no payment follows" | ☐ **NOT executed** |
+| W2 | One **Buy Now hold** on the quantity-2 listing, then the checkout screen | the handset | checkout boards in both appearances; "Buy both now" → reserved → checkout | `release_reservation` before the window closes — never left to lapse (A's rule) — **plus whatever A rules for the PaymentIntent and the pending `payments` row that entering the screen creates (§3b)** | ☐ **NOT executed** |
 | W3 | **None** for transfer states | — | — | — | — |
 | W4 | Appearance preference | the handset (AsyncStorage) | D-9 | device-local; not a sandbox write | n/a |
 
-Explicitly **not** requested: any payment intent confirmation, any `finalize`, any `send-push` dispatch, any
-`kernel.tickets` row, any change to a flag, any migration on the sandbox. A push registration happens as a side
-effect of sign-in (DV-611 rules) and is A's read-back, not a fixture.
+Explicitly **not** requested: any payment-sheet confirmation (a charge), any `finalize`, any `kernel.tickets`
+row, any change to a flag, any migration on the sandbox. A push registration happens as a side effect of
+sign-in (DV-611 rules) and is A's read-back, not a fixture.
+
+## 3b · What W1 and W2 actually do — traced in source (C, after B's appendix below), nothing executed
+
+**W2 — entering checkout initialises a payment without a Pay tap.** `CheckoutNative.tsx:211` runs setup in a
+mount effect; `setupDecision.ts:229` calls `createIntent()` whenever no settled payment exists and the hold is
+the buyer's; that is `payments.ts:198` → the `create-payment-intent` edge function, which creates a **Stripe
+test-mode PaymentIntent** and persists a **pending `payments` row** for the buyer and listing (the function's
+own retire path later cancels stale pending intents and marks their rows `failed`; `release_reservation` (127)
+releases the hold and touches no `payments` row). So W2 = **one hold + one PaymentIntent + one pending
+`payments` row; no charge.** Cleanup beyond the hold is **A's ruling**: cancel the intent and retire the row,
+or leave them to the function's own retire path on the next attempt. **Reaching the checkout boards in both
+appearances cannot be done without this** — the setup runs on mount.
+
+**W1 — a bid does not stop at the row.** `bids` insert → `listings.current_bid` moves (trigger) →
+`trg_notify_bid_inbox` (058) writes inbox rows, and the production-era `bids.on_new_bid_notify` trigger posts
+through pg_net to `send-push` for **`bid_received` (the seller)** and **`outbid` (the previous leader)**; per
+F-23 no preference is consulted. On the sandbox under option (b) `send-push` refuses every dispatch (A's
+records, 2026-09-16) — **A confirms that is still the sandbox state.** After the window, if that auction
+ends with the DV buyer leading, `auto_finalize_expired_auctions` sets the winner (→ `auction_won` inbox row)
+and the buyer owes payment. So W1 needs either an auction whose seller is the **DV seller** with no other
+bidder, and an end time A confirms is outside any window where a win matters — or it is not run and the bid
+screen's "Current bid" state is read from an existing auction with bids (read (a)).
+
+**Rule for both (owner, 2026-09-24):** not executed yet; existing fixtures first; the three transfer states
+without fixtures are **unverified on-device** and recorded as such.
 
 ## 4 · Reads C asks A to make (owner-authorised, read-only)
 
@@ -66,68 +92,47 @@ effect of sign-in (DV-611 rules) and is A's read-back, not a fixture.
 · (d) the `get_my_tickets` catalog check (three statements, in A's report). C writes nothing and runs nothing
 against the sandbox.
 
-## 5 · Build pin and gates (filled in before the build)
+## 5 · Pre-build gates — everything here is source, CI or review. No device evidence.
+
+**Device verification cannot gate the build that produces it.** Nothing in this table requires a phone.
 
 | | |
 |---|---|
 | Commit | _pinned here, full sha from `git rev-parse`, before `eas build`_ |
-| Gates at that commit | `tsc` 0 · `lint` 0 errors · full `vitest` alone, clean · controls as predicted |
-| Reviews closed | B: inventory reconciled, pressed value one · A: checkout ruling implemented, transfer cells PASS |
+| Checks at that commit | `npm run typecheck` 0 · `npm run lint` 0 errors · full `vitest` **run alone**, clean · predicted mutants killed |
+| Implementation closed | A-1…A-5 appearance literals · R-5 via the resolver · F-28 |
+| Review closed | **B:** inventory reconciled, pressed value agreed, light designs delivered for every surface C has implemented · **A:** checkout ruling implemented, transfer cells PASS |
 | Profile | `preview` · iOS internal · one build |
 
----
+**Not a pre-build gate:** D-1…D-9, the appearance device checks, and every row in §2. Those are what the
+build is *for*.
 
-# B · Side-effect trace of W1 and W2 (2026-09-24) — source-traced, not assumed
+## 6 · Post-build — the device pass
 
-**Both rows understate what happens. Traced on `v3/midnight-app` @ `3f295bca`; nothing executed.**
+Runs only once the build exists. Results are recorded as **device** evidence; nothing in §5 is restated as
+device evidence, and nothing here is a prerequisite for §5.
 
-## W2 — "one hold, released by `release_reservation` — no payment" is incomplete
-
-**Navigating into checkout initialises a payment. No Pay tap is required.**
-
-`CheckoutNative.tsx:211` runs `setupPayment()` in a mount effect gated only on `authLoading` and `user?.id`.
-It calls `decideCheckoutSetup`, which is settled-first → hold → intent, and at
-**`setupDecision.ts:229`** reaches `const intent = await deps.createIntent();` whenever no settled payment
-exists and the hold is the buyer's. `createIntent` is
-`payments.ts:198` → `supabase.functions.invoke('create-payment-intent')`.
-
-**W2's actual side effects on the sandbox:**
-
-| | |
+| Group | Checks |
 |---|---|
-| 1 | The Buy Now hold (`reserve_buy_now`) — as recorded |
-| 2 | **A Stripe PaymentIntent created by `create-payment-intent`**, on the sandbox Stripe account |
-| 3 | Whatever that function writes server-side — `payments.ts:53` refers to a **"reuse" path**, so an intent is persisted and re-found, not created fresh each time |
-| 4 | `initPaymentSheet` is then called locally with that intent |
+| Appearance | D-9 (three settings, persistence across relaunch, live phone change, **no startup flash**), both status bars, keyboard appearance, native dialogs |
+| Rendered colour | Every combination in §2 **as rendered** — including disabled controls, selected states, overlays and artwork. **A component accepting a palette is not evidence that it renders correctly** |
+| Type and layout | D-1 mixed-case leading · D-3 enlarged text · D-4 narrowest width · D-5 keyboard |
+| Media | D-2 contrast over real uploads and the fallback plate, both appearances |
+| Identity | D-6 avatar across account switch |
+| Data-dependent | D-7 transfer cells (see §7) · D-8 Tickets |
 
-**No charge occurs** — that needs the payment sheet confirmed. **But "no payment" is the wrong word for a
-created PaymentIntent.** The accurate line is *"one hold and one PaymentIntent; no charge."*
+## 7 · The three states with no fixtures — a bounded option
 
-**Consequences for the plan:** the release step must cover the intent as well as the hold — A confirms
-whether `release_reservation` leaves an intent open, and whether an open sandbox intent needs cancelling.
-**Reaching the checkout boards in both appearances cannot be done without creating an intent**, because the
-effect runs on mount.
+**`expired`, `reversed` and `held` have no sandbox rows.** They stay **explicitly unverified on device**, and
+**another transfer state passing does not cover them.** A's source PASS of the cells is source evidence.
 
-## W1 — "no payment follows" is true, and it is not the whole side effect
+Three ways forward, in order of cost:
 
-`PlaceBidScreen.tsx:181` inserts into `bids`. A DB trigger moves `listings.current_bid`. Beyond that,
-migration **058_notification_producers.sql** (and the existing `notify_bid_placed` / `notify_outbid`
-**pg_net push triggers**) fire on that insert:
+| | Option | What it proves | What it does not |
+|---|---|---|---|
+| **1** | **Extend the existing `app/_dev/foundation.tsx` gallery** to render the five blocks (buyer expired, buyer reversed, seller reversed, held-with-`payout_hold_until`, review deadline) from **synthetic props**, and gate it on `EXPO_PUBLIC_APP_ENV === 'sandbox'` instead of `__DEV__` | **Device evidence of rendering**: layout, contrast in both appearances, large text, wrapping — on the real handset | **Nothing about whether the real status reaches the screen.** The data path stays untested. **Needs C to change the gate**, because `__DEV__` is false in a `preview` build, so the gallery is unreachable there today |
+| **2** | A creates sandbox transfer rows in those states | The full path, end to end | A fixture mutation with its own cleanup — **an owner decision, not A's to take** |
+| **3** | Leave them uncovered | — | Records the gap honestly and ships the build without them |
 
-| Produced | To |
-|---|---|
-| **`bid_received`** | **the seller of the listing** |
-| **`outbid`** | **the previous high bidder** (self-outbid is skipped) |
-
-Both are dispatched through **pg_net push triggers**, so these are **real dispatch attempts, not just rows**.
-Per **F-23**, `send-push` applies **no notification preference** to these.
-
-**And the bid does not stop when the window closes.** It enters auction finalisation: if that auction ends,
-this bid can **win**, which creates an order and a transfer obligation for the DV buyer. *"The auction is not
-finalised in the window"* describes the window, not the bid's lifetime.
-
-**Consequences for the plan:** pick a listing whose seller and previous leader are **fixture accounts**, or
-accept that two notifications leave the system. **A confirms the auction's end time is outside the window
-and that a win would be acceptable if it happens.**
-
-**Neither W1 nor W2 has been executed.**
+**Recommendation: option 1**, with its limit stated in the result — *"rendering verified on device; the data
+path for these three states is not."* Option 2 only if the owner wants the data path covered in this build.
