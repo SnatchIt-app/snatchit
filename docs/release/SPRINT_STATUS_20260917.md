@@ -1705,3 +1705,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     green).
   - The optional `dispute_open` read was declined: its true branch is unreachable after §5's 409.
   - D's independent red/green of 216 has been requested (a two-party check).
+- **#93 CI at `9e7006bf` (run 36037548673): green, 9/9 checks.** pgTAP Files=96 / Tests=5543 PASS; census 32/108/37/38.
