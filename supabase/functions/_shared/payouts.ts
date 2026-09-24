@@ -315,6 +315,8 @@ export interface ClaimedAttempt {
 /** claim_payout_attempt refusals that are expected operational states. */
 export const PAYOUT_NOT_ELIGIBLE_REASONS = [
   'TRANSFER_NOT_FOUND', 'TRANSFER_NOT_RELEASABLE', 'DISPUTED', 'PAYMENT_NOT_SUCCEEDED',
+  // 20260924000000: a seller-win dispute resolution under a pending risk hold / manual review
+  'PAYOUT_HELD', 'PAYOUT_UNDER_REVIEW',
   'PAYMENT_NOT_LIVE', 'SELLER_NOT_ONBOARDED', 'PAYOUT_AMOUNT_INVALID',
   'PAYMENT_PARTIALLY_REFUNDED',   // review round 2 MINOR-3: operator decision, never automatic
 ] as const;
