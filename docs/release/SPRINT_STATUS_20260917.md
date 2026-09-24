@@ -1532,3 +1532,6 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Fixed by `2ffb10a8` (tinted to primary ink), on `origin/v3/midnight-app` only.
   - A correction to C's framing: a sandbox `preview` recut is not G2, which is the `production` build. It is recorded as the separate choice S1.
   - The two §7s are distinct: A's is the submission checklist, `be2a4577`. C and B's phone checklist is `docs/product-v3/V3_PHONE_TEST_CHECKLIST.md` at `629a82ba` on `origin/design/frontend-audit-20260917`, which A resolved and which lists the three dispute commits.
+- **A self-correction:** A earlier wrote that the G2 pin "will carry the fix anyway". That overstated it, and C propagated it at `4b983d86` as "never of a release candidate".
+  - It holds only if the pinned commit contains `2ffb10a8` and `404bce38`. The first is an ancestor of the second; neither is in `9c6c9bf4`.
+  - The G2 row now makes this an explicit pin requirement, which A checks with `git merge-base --is-ancestor`.
