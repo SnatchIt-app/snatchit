@@ -46,8 +46,12 @@ function useStyles() {
 export function StateBlock({ title, tone, children }: { title?: string; tone: StateTone; children: ReactNode }) {
   const { palette, s } = useStyles();
   const color = tone === 'success' ? palette.status.success : tone === 'warning' ? palette.status.warning : palette.text.primary;
+  // V3 (pkg8-send board): the state reads as a QUOTE — a filled rounded panel with a left accent
+  // bar carrying the tone. Neutral states accent with the strong border ink, so tone still never
+  // paints a claim the words do not make.
+  const accent = tone === 'success' ? palette.status.success : tone === 'warning' ? palette.status.warning : palette.border.strong;
   return (
-    <View style={s.block}>
+    <View style={[s.block, { borderLeftColor: accent }]}>
       {title ? <Text style={[textStyle('title'), { color }]}>{title}</Text> : null}
       {children}
     </View>
@@ -167,8 +171,8 @@ function makeStyles(p: Palette) {
   return StyleSheet.create({
     block: {
       backgroundColor: p.surface.surface,
-      borderWidth: 1,
-      borderColor: p.border.default,
+      borderRadius: v2.radius.md,
+      borderLeftWidth: 3,
       padding: v2.space.lg,
       marginBottom: v2.space.md,
       gap: v2.space.xs,

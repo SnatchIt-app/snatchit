@@ -186,7 +186,9 @@ function texts(host: HookHost): string {
 const block = (host: HookHost, title: string) => findElement(host.output, (el) => el.props.title === title);
 const instructions = (host: HookHost) => findElement(host.output, (el) => el.type === 'PlatformInstructions');
 /** The delivery target is a local Row: its value is a prop, never flattened text (so assert on the prop). */
-const deliveryRow = (host: HookHost) => findElement(host.output, (el) => el.props.label === 'Email' && el.props.value === 'buyer@example.test');
+// V3 (pkg8-send): the delivery target is the panel's one middot line, not an "Email" Row.
+const deliveryRow = (host: HookHost) => findElement(host.output, (el) =>
+  el.type === 'Text' && String(Array.isArray(el.props.children) ? el.props.children.join('') : el.props.children).includes('buyer@example.test'));
 const markAsSent = (host: HookHost) =>
   findElement(host.output, (el) => el.type === 'Button' && (el.props.label === 'Mark as sent' || el.props.label === 'Try again'));
 

@@ -20,6 +20,7 @@ import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/media/uploadFlow';
 import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
@@ -304,8 +305,8 @@ export default function TransferSendScreen() {
   function Header() {
     return (
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Send transfer</Text>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Send transfer</Text>
         <View style={s.headerSpacer} />
       </View>
     );
@@ -356,10 +357,13 @@ export default function TransferSendScreen() {
         {/* Buyer delivery target. The details themselves are unchanged: whether fulfilment details (phone/email) show
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
-        <View style={s.section}>
-          <Text style={[textStyle('micro'), s.sectionLabel]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
-          {transfer.delivery_email ? <Row label="Email" value={transfer.delivery_email} s={s} /> : null}
-          {transfer.delivery_phone ? <Row label="Phone" value={transfer.delivery_phone} s={s} /> : null}
+        <View style={[s.section, s.sendToPanel]}>
+          <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
+          {(transfer.delivery_email || transfer.delivery_phone) ? (
+            <Text style={[textStyle('body'), s.sendToValue]}>
+              {[transfer.delivery_phone, transfer.delivery_email].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
           {buyerDeliveryMissing ? (
             <View style={s.warnBox}>
               <Text style={[textStyle('bodySm'), s.warnTitle]}>Delivery info not yet provided</Text>
@@ -382,13 +386,17 @@ export default function TransferSendScreen() {
           </View>
         ) : null}
 
-        {/* Details */}
+        {/* V3 (pkg8-send): the screen leads with the EVENT in the display voice, the state badge
+            beside it — not a labelled "Transfer" details table. Buyer and method stay as facts
+            below; the meta line joins when the send read gains the listing columns (A-gated,
+            requested — the receive embed's approval is the precedent). */}
         <View style={s.section}>
-          <View style={s.detailHead}>
-            <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
+          <View style={s.leadRow}>
+            <NameText token="nameOrder" maxLines={2} style={s.leadName}>
+              {transfer.listing?.event_name || 'Untitled'}
+            </NameText>
             <Badge label={meta.label} tone={meta.tone} />
           </View>
-          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} s={s} />
           <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
           <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
         </View>
@@ -559,6 +567,11 @@ function makeStyles(p: Palette) {
     borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
+  leadRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: v2.space.md, marginBottom: v2.space.sm },
+  leadName: { color: p.text.primary, flex: 1 },
+  sendToPanel: { backgroundColor: p.surface.surface, borderRadius: v2.radius.md, padding: v2.space.lg },
+  sendToTitle: { color: p.text.primary, marginBottom: v2.space.xs },
+  sendToValue: { color: p.text.secondary },
   headerSpacer: { width: 44 },
 
   content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },

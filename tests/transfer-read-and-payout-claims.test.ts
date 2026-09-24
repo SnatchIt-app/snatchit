@@ -202,7 +202,7 @@ describe.each(['send', 'receive'] as const)('the %s screen never calls a failed 
     expect(
       which === 'receive'
         ? findElement(host.output, (el) => el.type === 'NameText' && el.props.children === 'Sandbox L6')
-        : findElement(host.output, (el) => el.props.label === 'Event' && el.props.value === 'Sandbox L6'),
+        : findElement(host.output, (el) => el.type === 'NameText' && el.props.children === 'Sandbox L6'),
     ).toBeDefined();
   });
 });

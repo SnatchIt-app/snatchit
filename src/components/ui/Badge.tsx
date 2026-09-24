@@ -55,7 +55,9 @@ export function Badge({ label, tone = 'neutral', style, testID }: BadgeProps) {
       accessibilityLabel={label}
       testID={testID}
     >
-      <Text style={[textStyle('micro'), { color: t.text }]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
+      {/* V3 (pkg8 boards: "Marked sent", "Valid", "Transfer in progress"): badges read in the
+          quiet mixed-case voice, rounded — not the uppercase tracked micro in a square. */}
+      <Text style={[textStyle('navLabel'), { color: t.text }]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
         {label}
       </Text>
     </View>
@@ -78,7 +80,7 @@ function makeStyles(p: Palette) {
   base: {
     minHeight: 20,
     paddingHorizontal: v2.space.sm,
-    borderRadius: v2.radius.none,
+    borderRadius: v2.radius.sm,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
