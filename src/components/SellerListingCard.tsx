@@ -174,7 +174,7 @@ function makeStyles(p: Palette) {
   action: { color: p.status.warning },
 
   actions: { flexDirection: 'row', gap: v2.space.md },
-  edit: { color: p.brand.red },
+  edit: { color: p.brand.redText },
   delete: { color: p.status.error },
   cancel: { color: p.status.warning },
   });

@@ -391,7 +391,7 @@ function makeStyles(p: Palette) {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md,
   },
   probeText: { color: p.text.secondary, flex: 1 },
-  retry: { color: p.brand.red },
+  retry: { color: p.brand.redText },
 
   pendingBanner: {
     marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,

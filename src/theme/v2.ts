@@ -69,6 +69,11 @@ export const brand = {
   redPressed: '#FF5353',
   /** Selected-row tint and badge fill. */
   redSoft: 'rgba(255,26,26,0.10)',
+  /**
+   * The red as a FOREGROUND. Identical to `red` on Midnight; Daylight grades its own, because
+   * #FF1A1A on white is 3.88:1 — a fill that clears the 3:1 control bar, never text (B's F-32).
+   */
+  redText: '#FF1A1A',
 } as const;
 
 /**
@@ -100,6 +105,12 @@ export const status = {
   success: '#3DDC84',
   warning: '#FFB020',
   error: '#FF4D4D',
+  /**
+   * The ink ON a saturated status fill. Black here and white on Daylight, because Midnight's status
+   * colours are light and Daylight's are dark (B's F-31). `text.inverse` cannot serve: it is the ink
+   * on BRAND red, which is the same value in both appearances.
+   */
+  onFill: '#000000',
   /**
    * Informational, not a verdict: the Verified Seller mark. Midnight keeps the blue that badge
    * has always drawn; Daylight grades its own, because this one is 2.28:1 on white (AP18).

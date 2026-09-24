@@ -94,7 +94,7 @@ function makeStyles(p: Palette) {
   faqItem: { borderBottomWidth: 1, borderBottomColor: p.border.default, paddingVertical: v2.space.md },
   faqHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: v2.space.sm },
   faqQ: { flex: 1, color: p.text.primary },
-  faqChevron: { color: p.brand.red, fontSize: 20, lineHeight: 22 },
+  faqChevron: { color: p.brand.redText, fontSize: 20, lineHeight: 22 },
   faqA: { color: p.text.muted, marginTop: v2.space.sm },
 
   pad: { height: v2.space.xxxl },

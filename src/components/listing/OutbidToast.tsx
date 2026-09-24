@@ -79,6 +79,6 @@ function makeStyles(p: Palette) {
     backgroundColor: p.status.error,
     alignItems: 'center',
   },
-  text: { color: p.text.inverse },
+  text: { color: p.status.onFill },
   });
 }

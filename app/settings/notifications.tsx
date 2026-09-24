@@ -124,7 +124,7 @@ export default function NotificationsScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Notifications" />
-        <View style={s.center}><Spinner color={palette.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
       </View>
     );
   }
@@ -265,7 +265,7 @@ function makeStyles(p: Palette) {
   permBody: { flex: 1 },
   permText: { color: p.text.primary },
   openSettings: { marginTop: v2.space.sm, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-  openSettingsText: { color: p.brand.red },
+  openSettingsText: { color: p.brand.redText },
 
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md, paddingVertical: v2.space.md, borderBottomWidth: 1, borderBottomColor: p.border.default },
   rowText: { flex: 1 },

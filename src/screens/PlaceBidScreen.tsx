@@ -214,7 +214,7 @@ export default function PlaceBidScreen({ id }: Props) {
   if (loading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={palette.brand.red} />
+        <Spinner color={palette.brand.redText} />
       </View>
     );
   }
@@ -404,7 +404,7 @@ function makeStyles(p: Palette) {
     fontFamily: v2.font.bodyBold,
     fontSize: 56,
     lineHeight: 64,
-    color: p.brand.red,
+    color: p.brand.redText,
     fontVariant: ['tabular-nums'],
   },
   stepHint: { color: p.text.muted, marginTop: v2.space.xs, marginBottom: v2.space.lg },
@@ -426,7 +426,7 @@ function makeStyles(p: Palette) {
     backgroundColor: p.brand.redSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  quickText: { color: p.brand.red },
+  quickText: { color: p.brand.redText },
 
   breakNote: { color: p.text.muted, marginTop: v2.space.xl },
 

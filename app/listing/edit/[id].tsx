@@ -139,7 +139,7 @@ export default function EditListingScreen() {
   }
 
   if (loading || !listing) {
-    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.redText} /></View>;
   }
 
   return (

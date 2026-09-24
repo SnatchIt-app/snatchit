@@ -247,9 +247,10 @@ describe('over-artwork and on-fill inks — the cases a pure rename gets wrong',
     // The sample-data caveat is black on amber in Midnight, which is right, and was black on
     // #8A5400 in Daylight, which is 3.35:1. The contrasting ink is the canvas colour.
     const src = await stripped('app/(tabs)/tickets.tsx');
-    expect(src).toMatch(/sampleLabelText: \{ color: p\.surface\.canvas/);
+    // Named as `status.onFill` once B's F-31 showed the outbid toast has exactly the same case.
+    expect(src).toMatch(/sampleLabelText: \{ color: p\.status\.onFill/);
     for (const [scheme, p] of palettes) {
-      expect(contrast(p.surface.canvas, p.status.warning), `${scheme} caveat ink on fill`)
+      expect(contrast(p.status.onFill, p.status.warning), `${scheme} caveat ink on fill`)
         .toBeGreaterThanOrEqual(4.5);
     }
   });
@@ -261,5 +262,53 @@ describe('over-artwork and on-fill inks — the cases a pure rename gets wrong',
       expect(contrast(p.text.primary, p.surface.canvas), `${scheme} mark on canvas`)
         .toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+// ── B's measured failures, closed at the rendered level ─────────────────────────────────────────
+describe("the fixes for B's Daylight failures, as composited colour", () => {
+  it('RD11: F-34 — the risk banners are translucent tints, and their safety copy clears 4.5:1 over the composited tint in BOTH appearances', async () => {
+    const src = await stripped('src/screens/CreateListingScreen.tsx');
+    const styles = src.slice(src.indexOf('function makeStyles'));
+    // #FFDDBB measured 1.29:1 on white — the old label was invisible in Daylight on a component
+    // that tells a seller their account is blocked.
+    expect(styles).not.toMatch(/#FFDDBB|#332B00|#331A00|#330000/);
+    expect(styles).toMatch(/riskBannerText: \{ color: p\.text\.primary \}/);
+    const tints = ['rgba(255,176,32,0.12)', 'rgba(255,120,32,0.12)', 'rgba(255,77,77,0.12)'];
+    for (const [scheme, p] of palettes) {
+      for (const tint of tints) {
+        const fill = over(tint, p.surface.canvas);
+        expect(contrast(p.text.primary, fill), `${scheme} risk copy on ${tint}`).toBeGreaterThanOrEqual(4.5);
+        // …and the banner is still visibly a banner: its edge separates it from the canvas.
+        const edge = over(tint.replace('0.12', '0.45'), p.surface.canvas);
+        expect(contrast(edge, p.surface.canvas), `${scheme} risk edge`).toBeGreaterThanOrEqual(1.2);
+      }
+    }
+  });
+
+  it('RD12: F-31/F-33 — the outbid label takes the ink ON its fill, and the Buy Now thumb stays white on the red track', async () => {
+    const toast = await stripped('src/components/listing/OutbidToast.tsx');
+    expect(toast).toMatch(/text: \{ color: p\.status\.onFill \}/);
+    const sell = await stripped('src/screens/CreateListingScreen.tsx');
+    expect(sell).toMatch(/thumbColor=\{palette\.onArt\.primary\}/);
+    for (const [scheme, p] of palettes) {
+      expect(contrast(p.status.onFill, p.status.error), `${scheme} outbid label`).toBeGreaterThanOrEqual(4.5);
+      // The thumb must read against the track it sits on in its "on" state.
+      expect(contrast(p.onArt.primary, p.brand.red), `${scheme} thumb on track`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('RD13: F-32 — no surface paints the brand red as text any more; the graded ink is what links and actions use', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const files = execFileSync('git', ['ls-files', 'app', 'src'], { encoding: 'utf8' })
+      .split('\n').filter((f) => /\.tsx?$/.test(f) && !f.startsWith('src/theme/') && !f.startsWith('app/_dev/'));
+    const fs = await import('node:fs');
+    const offenders: string[] = [];
+    for (const f of files) {
+      const code = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      if (/\bcolor:\s*(p|palette)\.brand\.red\b(?!Text|Pressed|Soft)/.test(code)) offenders.push(f);
+      if (/\bcolor=\{(p|palette)\.brand\.red\}/.test(code)) offenders.push(f);
+    }
+    expect(offenders).toEqual([]);
   });
 });

@@ -371,7 +371,7 @@ export default function TransferReceiveScreen() {
   }
 
   if (loading) {
-    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.redText} /></View>;
   }
 
   if (error || !transfer) {
@@ -603,7 +603,7 @@ function makeStyles(p: Palette) {
   countdownExpiredText: { color: p.status.error },
 
   proofBlock: { marginBottom: v2.space.md },
-  proofImage: { width: '100%', height: 220, backgroundColor: p.surface.surface, marginTop: v2.space.xs },
+  proofImage: { width: '100%', height: 220, backgroundColor: p.onArt.letterbox, marginTop: v2.space.xs },
   hint: { color: p.text.muted, marginTop: v2.space.xs },
 
   confirmPrompt: { borderWidth: 1, borderColor: p.status.warning, padding: v2.space.sm, marginBottom: v2.space.md },

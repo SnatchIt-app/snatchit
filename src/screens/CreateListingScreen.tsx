@@ -162,7 +162,7 @@ function SelectRow({
       <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
       <Pressable
         onPress={onPress}
-        style={[sx.selectRow, { borderBottomColor: error ? p.status.error : p.border.strong }]}
+        style={[sx.selectRow, { borderBottomColor: error ? p.status.error : p.border.control }]}
         accessibilityRole="button"
         accessibilityLabel={`${label}. ${value ?? placeholder}`}
       >
@@ -197,7 +197,7 @@ function MoneyField({
   p: Palette;
 }) {
   const [focused, setFocused] = useState(false);
-  const underline = error ? p.status.error : focused ? p.brand.red : p.border.strong;
+  const underline = error ? p.status.error : focused ? p.brand.red : p.border.control;
   return (
     <View style={sx.field}>
       <Text style={[textStyle('micro'), sx.fieldLabel]}>{label}</Text>
@@ -250,7 +250,7 @@ function MultilineField({
         style={[
           textStyle('body') as TextStyle,
           sx.multiline,
-          { borderBottomColor: focused ? p.brand.red : p.border.strong },
+          { borderBottomColor: focused ? p.brand.red : p.border.control },
         ]}
         value={value}
         onChangeText={onChange}
@@ -746,9 +746,9 @@ export default function CreateListingScreen() {
             <Switch
               value={buyNowEnabled}
               onValueChange={(v) => { setBuyNowEnabled(v); if (!v) setBuyNowPrice(''); }}
-              trackColor={{ false: palette.border.strong, true: palette.brand.red }}
-              thumbColor={palette.text.primary}
-              ios_backgroundColor={palette.border.strong}
+              trackColor={{ false: palette.border.control, true: palette.brand.red }}
+              thumbColor={palette.onArt.primary}
+              ios_backgroundColor={palette.border.control}
             />
           </Pressable>
 
@@ -1091,7 +1091,7 @@ function makeStyles(p: Palette) {
   stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xl },
   stepBtn: {
     width: 44, height: 44,
-    borderWidth: 1, borderColor: p.border.strong,
+    borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
   stepDisabled: { opacity: 0.35 },
@@ -1112,7 +1112,7 @@ function makeStyles(p: Palette) {
   commitRow: { flexDirection: 'row', alignItems: 'flex-start' },
   checkbox: {
     width: 22, height: 22,
-    borderWidth: 2, borderColor: p.border.strong,
+    borderWidth: 2, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
     marginRight: v2.space.sm, marginTop: 1,
   },
@@ -1152,8 +1152,8 @@ function makeStyles(p: Palette) {
   },
   sheetRowOn: { backgroundColor: p.brand.redSoft },
   sheetRowText: { color: p.text.primary },
-  sheetRowTextOn: { color: p.brand.red },
-  sheetCheck: { color: p.brand.red, fontSize: 16, fontWeight: '700' },
+  sheetRowTextOn: { color: p.brand.redText },
+  sheetCheck: { color: p.brand.redText, fontSize: 16, fontWeight: '700' },
 
   riskModalBody: { color: p.text.secondary },
   riskModalActions: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },

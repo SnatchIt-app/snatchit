@@ -434,12 +434,12 @@ function makeStyles(p: Palette) {
   checkMark: { color: p.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
   ageText: { flex: 1, color: p.text.secondary },
   legal: { color: p.text.muted, marginTop: v2.space.sm, marginBottom: v2.space.xs },
-  legalLink: { color: p.brand.red, textDecorationLine: 'underline' },
+  legalLink: { color: p.brand.redText, textDecorationLine: 'underline' },
   cta: { marginTop: v2.space.lg },
   alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
   altText: { color: p.text.muted },
   link: { alignItems: 'center', marginTop: v2.space.lg },
   linkText: { color: p.text.muted },
-  linkAccent: { color: p.brand.red },
+  linkAccent: { color: p.brand.redText },
   });
 }

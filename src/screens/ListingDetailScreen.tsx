@@ -1367,7 +1367,7 @@ function makeStyles(p: Palette) {
     justifyContent: 'center',
     paddingHorizontal: v2.space.lg,
   },
-  refreshText: { color: p.brand.red },
+  refreshText: { color: p.brand.redText },
 
   centered: {
     flex: 1,

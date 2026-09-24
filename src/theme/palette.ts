@@ -25,6 +25,8 @@ export const ON_ART = {
   primary: '#FFFFFF',
   secondary: 'rgba(255,255,255,0.78)',
   muted: 'rgba(255,255,255,0.62)',
+  /** The plate BEHIND a contained image: fixed and dark, so a screenshot is not framed in near-white. */
+  letterbox: '#0A0A0A',
   /** Urgency over artwork (a closing clock on a flyer): the Midnight amber, kept in both. */
   urgent: '#FFB020',
 } as const;
@@ -77,6 +79,8 @@ export const light: Palette = {
     red: v2.brand.red,
     redPressed: v2.brand.redPressed,
     redSoft: 'rgba(255,26,26,0.08)',
+    /** Solved on the plate: 5.39:1 on the canvas, 4.90:1 on the surface (AP19). */
+    redText: '#D31212',
   },
   border: {
     /** A divider identifies nothing: listed, not graded (1.32:1). */
@@ -93,6 +97,8 @@ export const light: Palette = {
     error: '#C41414',
     /** Solved on the plate like the others: 6.30:1 on the canvas, 5.62:1 on the surface. */
     info: '#1B5FB8',
+    /** White on Daylight's dark status fills: 6.07:1 on error, 6.28:1 on warning, 5.44:1 on success. */
+    onFill: '#FFFFFF',
   },
   // Light glass: the dock floats as a near-white material with a dark hairline; the selected
   // capsule and the avatar dim blend toward the dock fill, as on Midnight, in the other direction.

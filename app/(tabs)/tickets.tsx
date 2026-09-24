@@ -193,9 +193,9 @@ function makeStyles(p: Palette) {
   devToggle: { color: p.text.faint, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm },
   // Owner-ruled caveat for fixture rows: high-contrast, full-width, not dismissable.
   sampleLabel: { marginHorizontal: v2.space.lg, marginBottom: v2.space.sm, paddingVertical: v2.space.xs, paddingHorizontal: v2.space.sm, backgroundColor: p.status.warning, borderRadius: v2.radius.none },
-  // The ink contrasts the FILL, not the canvas: Daylight's warning is a dark brown, so black on
-  // it is 3.35:1. The canvas colour is the value that inverts with the fill in both appearances.
-  sampleLabelText: { color: p.surface.canvas, fontWeight: '700', textAlign: 'center' },
+  // The ink ON a fill, which flips with the scheme (AP20): black on Midnight's bright amber,
+  // white on Daylight's #8A5400, where black would be 3.35:1.
+  sampleLabelText: { color: p.status.onFill, fontWeight: '700', textAlign: 'center' },
   list: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.sm },
   sectionHeader: { color: p.text.muted, marginTop: v2.space.md, marginBottom: v2.space.md },
   });

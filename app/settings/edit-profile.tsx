@@ -144,7 +144,7 @@ export default function EditProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Edit profile" />
-        <View style={s.center}><Spinner color={palette.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
       </View>
     );
   }
@@ -245,9 +245,9 @@ function makeStyles(p: Palette) {
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
   avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.red },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.redText },
   avatarOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: RING / 2, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
-  changePhoto: { color: p.brand.red },
+  changePhoto: { color: p.brand.redText },
 
   fields: { gap: v2.space.lg },
   bioLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.xs },

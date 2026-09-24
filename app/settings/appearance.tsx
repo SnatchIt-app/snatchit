@@ -86,6 +86,6 @@ function makeStyles(p: Palette) {
     rowText: { flex: 1, minWidth: 0, gap: 2 },
     label: { color: p.text.primary },
     description: { color: p.text.muted },
-    mark: { color: p.brand.red, width: 24, textAlign: 'center' },
+    mark: { color: p.brand.redText, width: 24, textAlign: 'center' },
   });
 }

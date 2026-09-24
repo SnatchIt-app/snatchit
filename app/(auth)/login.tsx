@@ -323,6 +323,6 @@ function makeStyles(p: Palette) {
   altText: { color: p.text.muted },
   link: { alignItems: 'center', marginTop: v2.space.lg },
   linkText: { color: p.text.muted },
-  linkAccent: { color: p.brand.red },
+  linkAccent: { color: p.brand.redText },
   });
 }

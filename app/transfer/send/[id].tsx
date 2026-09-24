@@ -305,7 +305,7 @@ export default function TransferSendScreen() {
   }
 
   if (loading) {
-    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.redText} /></View>;
   }
 
   if (error || !transfer) {
@@ -531,17 +531,9 @@ function makeStyles(p: Palette) {
   countdownExpiredText: { color: p.status.error },
 
   block: { marginBottom: v2.space.md },
-  hint: { color: p.text.muted, marginBottom: v2.space.sm },
   confirmNote: { color: p.text.secondary, marginTop: v2.space.md },
   blockedText: { color: p.status.error, marginTop: v2.space.sm },
   cta: { marginTop: v2.space.md },
-
-  stateBlock: {
-    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
-    padding: v2.space.lg, marginBottom: v2.space.md, gap: v2.space.xs,
-  },
   stateText: { color: p.text.secondary },
-  stateSub: { color: p.text.muted, marginTop: v2.space.xs },
-  stateWarn: { color: p.status.warning, marginTop: v2.space.sm },
 });
 }

@@ -232,7 +232,7 @@ export default function ProfileScreen() {
   if (pageLoading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={palette.brand.red} />
+        <Spinner color={palette.brand.redText} />
       </View>
     );
   }
@@ -367,7 +367,7 @@ function makeStyles(p: Palette) {
     borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
-  headerAction: { color: p.brand.red },
+  headerAction: { color: p.brand.redText },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
@@ -382,7 +382,7 @@ function makeStyles(p: Palette) {
     width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2,
     backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center',
   },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.red },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.redText },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject, borderRadius: RING / 2,
     backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center',

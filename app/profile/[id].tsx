@@ -183,7 +183,7 @@ export default function PublicProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Profile" />
-        <View style={s.centered}><Spinner color={palette.brand.red} /></View>
+        <View style={s.centered}><Spinner color={palette.brand.redText} /></View>
       </View>
     );
   }
@@ -306,7 +306,7 @@ function makeStyles(p: Palette) {
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
   avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: p.brand.red },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: p.brand.redText },
   name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.text.primary, marginTop: v2.space.md, textAlign: 'center' },
   badgeWrap: { marginTop: v2.space.sm },
   bio: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.md },

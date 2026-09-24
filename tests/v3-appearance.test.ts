@@ -298,6 +298,46 @@ describe('status.info — the verification blue, graded for Daylight', () => {
   });
 });
 
+describe("B's measured Daylight failures — F-31, F-32, N-1 (2026-09-24, independent trace)", () => {
+  it('AP19: F-32 — a red TEXT ink exists and clears 4.5:1 on both light surfaces; Midnight keeps the brand red exactly', async () => {
+    // The palette certifies #FF1A1A as a FILL (3.88:1 on white, past the 3:1 control bar) with a black
+    // label. It certifies nothing about the red as a foreground: 20 surfaces use it as link, retry,
+    // chevron and initials text, and 3.88:1 is not text. Midnight is unchanged by construction.
+    const mirror = await import('../packages/design-tokens/src/brand');
+    expect(v2.brand.redText).toBe(v2.brand.red);
+    expect(mirror.brand.redText).toBe('#FF1A1A');
+    expect(dark.brand.redText).toBe('#FF1A1A');
+    expect(contrast(light.brand.red, light.surface.canvas)).toBeLessThan(4.5);   // why the token exists
+    for (const bg of [light.surface.canvas, light.surface.surface, light.surface.elevated]) {
+      expect(contrast(light.brand.redText, bg)).toBeGreaterThanOrEqual(4.5);
+    }
+    // It is still recognisably the brand's red, not a maroon: a saturated red channel dominates.
+    expect(light.brand.redText).toMatch(/^#[A-F0-9]{6}$/);
+  });
+
+  it('AP20: F-31 — the ink ON a status fill flips with the scheme, because Midnight status colours are light and Daylight status colours are dark', async () => {
+    const mirror = await import('../packages/design-tokens/src/brand');
+    expect(v2.status.onFill).toBe('#000000');
+    expect(mirror.status.onFill).toBe('#000000');
+    expect(light.status.onFill).toBe('#FFFFFF');
+    // Measured on every status fill in both appearances — this is what text.inverse could not do:
+    // it is documented as the ink on BRAND red, which is the same value in both appearances.
+    for (const p of [dark, light]) {
+      for (const fill of [p.status.error, p.status.warning, p.status.success]) {
+        expect(contrast(p.status.onFill, fill), `${p.scheme} on ${fill}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    expect(contrast(dark.text.inverse, light.status.error)).toBeLessThan(4.5);   // the defect B measured
+  });
+
+  it('AP21: N-1 — the letterbox behind a seller photo is a fixed dark neutral, not a canvas-relative surface', () => {
+    // `resizeMode="contain"` shows the plate around the image. Daylight's surface.surface is #F4F4F6:
+    // near-white bars around a screenshot. Letterboxing is conventionally fixed and dark.
+    expect(light.onArt.letterbox).toBe(dark.onArt.letterbox);
+    expect(contrast(dark.onArt.letterbox, '#FFFFFF')).toBeGreaterThan(10);
+  });
+});
+
 describe('A-1 — neutral hairlines, approved (owner 2026-09-22, restated 2026-09-24)', () => {
   it('AP17: Midnight dividers are the approved neutral #28292D, the stronger rule is the graded control edge, no red-tinted hairline survives in either mirror; the canvas stays #000000', async () => {
     const mirror = await import('../packages/design-tokens/src/brand');

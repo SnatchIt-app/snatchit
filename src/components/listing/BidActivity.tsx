@@ -99,7 +99,7 @@ function makeStyles(p: Palette) {
   who: { flex: 1, minWidth: 0 },
   name: { color: p.text.primary },
   time: { color: p.text.muted },
-  leading: { color: p.brand.red },
+  leading: { color: p.brand.redText },
   amount: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
   amountTop: { color: p.text.primary },
   });

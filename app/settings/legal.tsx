@@ -336,14 +336,14 @@ function makeStyles(p: Palette) {
                   marginBottom: v2.space.sm },
 
   bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
-  bulletDot:    { color: p.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
+  bulletDot:    { color: p.brand.redText, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
   bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary },
 
   contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                   marginBottom: v2.space.sm },
 
   fullTermsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  chevron:         { color: p.brand.red, fontSize: 20 },
+  chevron:         { color: p.brand.redText, fontSize: 20 },
   fullTermsBody:   { marginTop: v2.space.sm, backgroundColor: p.surface.surface, padding: v2.space.md,
                      borderWidth: 1, borderColor: p.border.default },
   ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
@@ -355,7 +355,7 @@ function makeStyles(p: Palette) {
   privacyLink:     { borderWidth: 1, borderColor: p.border.strong, paddingVertical: v2.space.md,
                      paddingHorizontal: v2.space.md, alignItems: 'center', marginTop: v2.space.sm },
   privacyLinkText: { fontFamily: v2.font.bodyBold, fontSize: 12, letterSpacing: 2.2,
-                     textTransform: 'uppercase', color: p.brand.red },
+                     textTransform: 'uppercase', color: p.brand.redText },
 
   bottomPad:    { height: v2.space.xxxl },
   });

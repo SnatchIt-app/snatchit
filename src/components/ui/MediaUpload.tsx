@@ -92,7 +92,7 @@ export function MediaUpload({
                 {picking ? UPLOAD_COPY.opening : isError && error ? error : helper}
               </Text>
             </View>
-            {picking ? <Spinner color={palette.brand.red} /> : <IconSymbol name={'plus' as never} size={20} color={palette.brand.red} />}
+            {picking ? <Spinner color={palette.brand.redText} /> : <IconSymbol name={'plus' as never} size={20} color={palette.brand.redText} />}
           </Pressable>
         </View>
       );
@@ -124,7 +124,7 @@ export function MediaUpload({
         </Text>
       </View>
       {working ? (
-        <Spinner color={palette.brand.red} />
+        <Spinner color={palette.brand.redText} />
       ) : hasImage ? (
         actions
       ) : (
@@ -144,7 +144,7 @@ function makeStyles(p: Palette) {
   helperErr: { color: p.status.error, marginTop: 1 },
 
   actions: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
-  replace: { color: p.brand.red },
+  replace: { color: p.brand.redText },
   remove: { color: p.status.error },
 
   // cover empty

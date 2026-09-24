@@ -101,7 +101,7 @@ export default function PreferencesScreen() {
     <View style={s.root}>
       <SettingsHeader title="Your scene" />
       {loading ? (
-        <View style={s.center}><Spinner color={palette.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
       ) : (
         <>
           <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">

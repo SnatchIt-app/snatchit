@@ -615,7 +615,7 @@ function makeStyles(p: Palette) {
     paddingBottom: v2.space.md,
   },
   noticeText: { color: p.text.muted, flexShrink: 1 },
-  noticeAction: { color: p.brand.red },
+  noticeAction: { color: p.brand.redText },
   container: { flex: 1, backgroundColor: p.surface.canvas },
   // Holds the feed and the overlay bar; clips the bar as it slides up so it
   // never rides over the brand header.

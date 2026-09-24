@@ -92,6 +92,6 @@ function makeStyles(p: Palette) {
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  place: { color: p.brand.red },
+  place: { color: p.brand.redText },
   });
 }

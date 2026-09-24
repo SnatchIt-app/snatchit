@@ -139,7 +139,7 @@ function makeStyles(p: Palette) {
   price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   allIn: { color: p.text.muted },
   secondary: { color: p.text.muted },
-  action: { color: p.brand.red, marginTop: 2 },
+  action: { color: p.brand.redText, marginTop: 2 },
   chevron: { color: p.text.muted, fontSize: 22, lineHeight: 24 },
   });
 }

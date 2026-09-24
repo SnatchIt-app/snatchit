@@ -444,7 +444,7 @@ function makeStyles(p: Palette) {
     paddingBottom: v2.space.md,
   },
   noticeText: { color: p.text.muted, flexShrink: 1 },
-  noticeAction: { color: p.brand.red },
+  noticeAction: { color: p.brand.redText },
   skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
   skeletonBody: { flex: 1, justifyContent: 'center' },
   });

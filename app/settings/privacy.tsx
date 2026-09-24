@@ -200,7 +200,7 @@ function makeStyles(p: Palette) {
                   marginBottom: v2.space.sm },
 
   bulletRow:    { flexDirection: 'row', marginBottom: v2.space.xs, paddingLeft: v2.space.xs },
-  bulletDot:    { color: p.brand.red, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
+  bulletDot:    { color: p.brand.redText, fontSize: 15, marginRight: v2.space.sm, lineHeight: 22 },
   bulletText:   { flex: 1, fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.secondary },
 
   contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,

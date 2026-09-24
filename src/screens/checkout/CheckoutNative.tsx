@@ -1127,8 +1127,6 @@ function makeStyles(p: Palette) {
 
   orderRow: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
   orderText: { flex: 1, minWidth: 0, gap: 2 },
-  eventName: { color: p.text.primary },
-  meta: { color: p.text.muted },
 
   holdRow: { marginTop: v2.space.lg },
   // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).

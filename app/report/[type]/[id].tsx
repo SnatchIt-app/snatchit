@@ -114,7 +114,7 @@ export default function ReportScreen() {
 
           <Text style={[textStyle('micro'), s.sectionLabel]}>Additional details (optional)</Text>
           <TextInput
-            style={[textStyle('body') as TextStyle, s.notes, { borderBottomColor: notesFocused ? palette.brand.red : palette.border.strong }]}
+            style={[textStyle('body') as TextStyle, s.notes, { borderBottomColor: notesFocused ? palette.brand.red : palette.border.control }]}
             placeholder="Anything else our team should know?"
             placeholderTextColor={palette.text.faint}
             value={notes}
@@ -149,7 +149,7 @@ function makeStyles(p: Palette) {
 
   reasons: { borderTopWidth: 1, borderTopColor: p.border.default },
   reasonRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, minHeight: 52, paddingVertical: v2.space.sm, borderBottomWidth: 1, borderBottomColor: p.border.default },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: p.border.strong, alignItems: 'center', justifyContent: 'center' },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: p.border.control, alignItems: 'center', justifyContent: 'center' },
   radioOn: { borderColor: p.brand.red },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: p.brand.red },
   reasonLabel: { flex: 1, color: p.text.primary },

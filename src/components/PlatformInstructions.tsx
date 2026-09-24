@@ -175,7 +175,7 @@ function makeStyles(p: Palette) {
     marginTop: 1,
   },
   stepNumberText: {
-    color: p.brand.red,
+    color: p.brand.redText,
     fontSize: fontSize.xs,
     fontWeight: '700',
   },

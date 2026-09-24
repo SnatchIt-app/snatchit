@@ -359,6 +359,6 @@ function makeStyles(p: Palette) {
     paddingBottom: v2.space.md,
   },
   noticeText: { color: p.text.muted, flexShrink: 1 },
-  noticeAction: { color: p.brand.red },
+  noticeAction: { color: p.brand.redText },
   });
 }

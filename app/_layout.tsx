@@ -242,7 +242,7 @@ function SplashOverlay() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <View style={[styles.splash, { backgroundColor: palette.surface.canvas }]}>
-        <Spinner size="large" color={palette.brand.red} label="Loading Snatch It" />
+        <Spinner size="large" color={palette.brand.redText} label="Loading Snatch It" />
       </View>
     </View>
   );

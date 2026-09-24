@@ -200,7 +200,7 @@ describe('Home — shipped-source guards', () => {
     expect(header).not.toMatch(/['"]Miami['"]/);
     expect(home).not.toMatch(/['"]Miami['"]/);
     expect(header).toContain("textStyle('micro')");
-    expect(header).toContain('place: { color: p.brand.red }');
+    expect(header).toContain('place: { color: p.brand.redText }');
   });
 
   it('search preserved on Home, not a primary destination', () => {
