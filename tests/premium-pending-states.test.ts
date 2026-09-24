@@ -87,24 +87,32 @@ describe('Delivery form — the shared Button', () => {
 });
 
 describe('Checkout — pay control and completion (display only; for A)', () => {
+  // RETARGETED 2026-09-24: checkout's presentation moved to CheckoutView.tsx so it can be rendered
+  // on a path with no payment module in its import graph. The screen still decides; these three
+  // cases are about what is PAINTED, so they read the view — and the screen half of each (the pay
+  // control's inputs, the purchase key it passes) is asserted alongside.
   const screen = read('src/screens/checkout/CheckoutNative.tsx');
+  const view = read('src/screens/checkout/CheckoutView.tsx');
   const code = stripComments(screen);
+  const viewCode = stripComments(view);
 
   it('the pending states payControl names are visible beside the spinner', () => {
-    expect(screen).toContain('pendingLabel={pay.loading ? pay.label : undefined}');
+    expect(view).toContain('pendingLabel={pay.loading ? pay.label : undefined}');
+    expect(screen).toMatch(/pay=\{\{ label: pay\.label, loading: pay\.loading, disabled: pay\.disabled \}\}/);
   });
 
   it('one success haptic, keyed on the completed outcome only, once per purchase', () => {
     // A's nit on 4b705c4: a settled checkout that remounts (3-D Secure return)
     // must not buzz twice, so the latch lives outside the component.
-    expect(screen).toContain('const celebratedPurchases = new Set<string>();');
-    expect(code).toMatch(/if \(!completed \|\| celebratedPurchases\.has\(purchaseKey\)\) return;\s*celebratedPurchases\.add\(purchaseKey\);\s*hapticSuccess\(\);/);
+    expect(view).toContain('const celebratedPurchases = new Set<string>();');
+    expect(viewCode).toMatch(/if \(!completed \|\| celebratedPurchases\.has\(purchaseKey\)\) return;\s*celebratedPurchases\.add\(purchaseKey\);\s*hapticSuccess\(\);/);
     expect(screen).toContain('purchaseKey={listingId}');
-    expect(code.split('hapticSuccess').length - 1).toBe(2); // import + the one call
+    expect(viewCode.split('hapticSuccess').length - 1).toBe(2); // import + the one call
+    expect(code).not.toContain('hapticSuccess');                // the screen no longer buzzes
   });
 
   it('the hold countdown uses tabular digits (CFT-207)', () => {
-    expect(code).toMatch(/hold: \{[^}]*fontVariant: \['tabular-nums'\]/);
+    expect(viewCode).toMatch(/hold: \{[^}]*fontVariant: \['tabular-nums'\]/);
   });
 
   it('nothing in the pay decision or handlers changed', () => {

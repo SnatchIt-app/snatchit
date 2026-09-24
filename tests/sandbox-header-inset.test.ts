@@ -91,14 +91,21 @@ describe('the eleven surfaces use the badge-aware inset with their original spac
       expect(src).not.toMatch(/insets\.top/);
     });
   }
-  it('src/screens/checkout/CheckoutNative.tsx (top bar and both confirmation bodies)', () => {
-    const src = stripComments(read('src/screens/checkout/CheckoutNative.tsx'));
-    expect(src.split('const topPad = useTopInset();').length - 1).toBe(3);
+  it('src/screens/checkout/CheckoutView.tsx (top bar and the shared terminal face)', () => {
+    /*
+     * RETARGETED 2026-09-24: checkout's presentation moved to CheckoutView.tsx. The inset obligation
+     * is unchanged, and the count drops from three readers to two because the refund and the
+     * confirmation faces are now ONE component — a single `TerminalFace` — instead of two copies.
+     */
+    const src = stripComments(read('src/screens/checkout/CheckoutView.tsx'));
+    expect(src.split('const topPad = useTopInset();').length - 1).toBe(2);
     expect(src).toContain('paddingTop: topPad + v2.space.sm');
-    expect(src.split('paddingTop: topPad + v2.space.xxl').length - 1).toBe(2);
+    expect(src.split('paddingTop: topPad + v2.space.xxl').length - 1).toBe(1);
     expect(src).not.toMatch(/insets\.top/);
     // the bottom bars still pay the bottom inset
-    expect(src.split('insets.bottom').length - 1).toBe(3);
+    expect(src.split('insets.bottom').length - 1).toBe(2);
+    // And the screen that owns the payment flow no longer reads an inset at all.
+    expect(stripComments(read('src/screens/checkout/CheckoutNative.tsx'))).not.toContain('useTopInset');
   });
 });
 

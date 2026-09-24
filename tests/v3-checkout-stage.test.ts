@@ -94,43 +94,69 @@ describe('no nearby Total beside the pay control (owner + A N2, 2026-09-24)', ()
 });
 
 describe('the itemised rows are server figures only (A\'s ruling Q1–Q3, 2026-09-24)', () => {
-  const code = async () => (await import('node:fs')).readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8')
+  /*
+   * RETARGETED 2026-09-24: checkout's presentation moved to `CheckoutView.tsx`, a module with no
+   * native payment module in its import graph, so the owner's "rendering path that cannot mount
+   * payment setup" exists at all (see tests/v3-checkout-view.test.ts). The RULE these cases pin is
+   * unchanged and now has two halves: the SCREEN decides whether there is a breakdown to show and
+   * formats every figure; the VIEW paints what it is handed and formats nothing.
+   */
+  const code = async (rel: string) => (await import('node:fs')).readFileSync(rel, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const screen = () => code('src/screens/checkout/CheckoutNative.tsx');
+  const view = () => code('src/screens/checkout/CheckoutView.tsx');
 
   it('CS4: the rows render only once create-payment-intent has answered and no price change is pending; every figure is the server\'s', async () => {
-    const src = await code();
-    expect(src).toMatch(/\{serverBreakdown && !priceChange \? \(\s*<View style=\{s\.breakdown\}>/);
-    expect(src).toContain('value={formatCents(serverBreakdown.amount)}');
-    expect(src).toContain('value={formatCents(serverBreakdown.buyerFee)}');
-    expect(src).toContain('{formatCents(serverBreakdown.total)}');
+    const src = await screen();
+    // The gate is still the same expression, and it is the screen's.
+    expect(src).toMatch(/breakdown=\{serverBreakdown && !priceChange \? \{/);
+    expect(src).toContain('amount: formatCents(serverBreakdown.amount)');
+    expect(src).toContain('fee: formatCents(serverBreakdown.buyerFee)');
+    expect(src).toContain('total: formatCents(serverBreakdown.total)');
     // The word "Total" never sits over the route estimate: the only remaining use of the mixed
     // figure is the pay control's input, which the control prints only when payment is ready.
     expect(src.match(/formatCents\(totalCents\)/g)?.length).toBe(1);
     expect(src).toContain('formattedTotal: formatCents(totalCents)');
     expect(src).not.toMatch(/acceptedTotalCents - dollarsToCents/);
+    // The view cannot invent a figure: it neither formats money nor reads the server's breakdown.
+    const v = await view();
+    expect(v).not.toMatch(/formatCents|buyerTotalCents|dollarsToCents|serverBreakdown/);
+    expect(v).toMatch(/<Row label=\{breakdown\.item\} value=\{breakdown\.amount\}/);
   });
 
   it('CS5: before the server answers, one line "Preparing your total" and no figure — only while setup is actually running', async () => {
-    const src = await code();
-    expect(src).toMatch(/!serverBreakdown && \(authLoading \|\| paymentLoading\) \? \(/);
-    expect(src).toContain('Preparing your total');
+    const src = await screen();
+    expect(src).toContain('const preparing = authLoading || paymentLoading;');
+    expect(src).toContain('preparing={preparing}');
+    const v = await view();
+    // One line, in the breakdown's own slot, and only when there is no breakdown yet.
+    expect(v).toMatch(/\{breakdown \? \([\s\S]*?\) : preparing \? \(/);
+    expect(v).toContain('PREPARING_TOTAL');
+    expect(v).toContain("export const PREPARING_TOTAL = 'Preparing your total';");
   });
 });
 
 describe('screen wiring (source pins; behaviour suites stay green)', () => {
   it('CS2: all three checkout views render the ONE identity block; no per-view name rows remain', async () => {
+    // RETARGETED: the three faces live in CheckoutView now. Two <OrderIdentity> sites cover them —
+    // the main view's, and the one inside the shared terminal face that both the refund and the
+    // confirmation render — and the screen passes ONE identity object to all three.
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8')
+    const view = readFileSync('src/screens/checkout/CheckoutView.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src.match(/<OrderIdentity/g)?.length).toBe(3);
-    expect(src).not.toMatch(/s\.eventName\]\}/);
+    expect(view.match(/<OrderIdentity/g)?.length).toBe(2);
+    expect(view).toContain('function TerminalFace(');       // one shape…
+    expect(view.match(/<TerminalFace/g)?.length).toBe(2);   // …rendered by the refund and the confirmation
+    expect(view).not.toMatch(/s\.eventName\]\}/);
+    const screen = readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8');
+    expect(screen.match(/identity=\{identity\}/g)?.length).toBe(3);
   });
 
   it('CS3: the breakdown item row is "Tickets" on buy-now — the identity line owns the count', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8');
-    expect(src).toContain("label={isBuyNow ? 'Tickets' : 'Winning bid'}");
+    expect(src).toContain("item: isBuyNow ? 'Tickets' : 'Winning bid',");
   });
 });

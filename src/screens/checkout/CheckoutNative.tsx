@@ -16,10 +16,8 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTopInset } from '@/src/lib/nav/navInsets';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Platform } from 'react-native';
 import {
   isPlatformPaySupported,
   PlatformPay,
@@ -41,12 +39,11 @@ import {
 import * as Sentry from '@sentry/react-native';
 
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
-import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
-import { Button, IconButton, Spinner } from '@/src/components/ui';
-import { textStyle } from '@/src/theme/typography';
-import { useTheme } from '@/src/theme/appearance';
-import type { Palette } from '@/src/theme/palette';
-import * as v2 from '@/src/theme/v2';
+import CheckoutView, {
+  CheckoutShell,
+  ConfirmationView,
+  RefundView,
+} from './CheckoutView';
 import {
   LISTING_SUMMARY_COLUMNS,
   mapListingSummary,
@@ -55,7 +52,6 @@ import {
   type ListingSummaryRow,
 } from '@/src/lib/checkout/listingSummary';
 import { payControl, fmtCountdown, withinExpiryMargin } from '@/src/lib/checkout/payControl';
-import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import { ESCROW_NOTE_COPY, fmtHoldUntil, notHeldCopy, notHeldReason, PAYMENT_STATUS_UNKNOWN_COPY, RESERVATION_UNVERIFIABLE_COPY, refundViewModel, showEscrowNote } from '@/src/lib/checkout/holdState';
 import { paymentSheetErrorCopy } from '@/src/lib/checkout/paymentErrors';
 import { createSingleFlight } from '@/src/lib/checkout/paymentGuard';
@@ -80,12 +76,7 @@ function reportCheckoutFailure(stage: CheckoutStage, detail: string) {
 
 export default function CheckoutScreen() {
   const { user, loading: authLoading } = useAuth();
-  const { palette } = useTheme();
-  const s = useMemo(() => makeStyles(palette), [palette]);
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const insets = useSafeAreaInsets();
-  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
-  const topPad = useTopInset();
 
   const params = useLocalSearchParams<{
     id:         string;
@@ -728,44 +719,38 @@ export default function CheckoutScreen() {
   // complete; `pending` and `failed` speak with SETTLEMENT_COPY, so the screen
   // and the alert can never disagree.
 
+  // The identity block's facts, shared by all three faces.
+  const identity = {
+    cover,
+    eventName: showName,
+    venue: showVenue,
+    eventDate: display?.date || null,
+    eventTime: display?.time || null,
+    quantity: display?.quantity ?? null,
+    ticketType: display?.ticketType ?? null,
+  };
+
   if (refundState) {
     return (
-      <View style={s.safe}>
-        <RefundView
-          state={refundState}
-          cover={cover}
-          eventName={showName}
-          venue={showVenue}
-          identity={{
-            eventDate: display?.date || null,
-            eventTime: display?.time || null,
-            quantity: display?.quantity ?? null,
-            ticketType: display?.ticketType ?? null,
-          }}
-        />
-      </View>
+      <CheckoutShell>
+        <RefundView view={refundViewModel(refundState.kind, refundState.refundedCents)} identity={identity} />
+      </CheckoutShell>
     );
   }
 
   if (settlement) {
     return (
-      <View style={s.safe}>
+      <CheckoutShell>
         <ConfirmationView
           outcome={settlement}
-          cover={cover}
-          eventName={showName}
-          venue={showVenue}
-          identity={{
-            eventDate: display?.date || null,
-            eventTime: display?.time || null,
-            quantity: display?.quantity ?? null,
-            ticketType: display?.ticketType ?? null,
-          }}
+          // The same table the failure alert reads, so the screen and the alert cannot diverge.
+          copy={SETTLEMENT_COPY[settlement]}
+          identity={identity}
           isBuyNow={isBuyNow}
           transferId={postPurchaseTransferId}
           purchaseKey={listingId}
         />
-      </View>
+      </CheckoutShell>
     );
   }
 
@@ -799,397 +784,50 @@ export default function CheckoutScreen() {
     : null;
   const holdUntil = reservedUntil ? fmtHoldUntil(reservedUntil) : null;
 
+  const preparing = authLoading || paymentLoading;
+
   return (
-    <View style={s.safe}>
-      {/* Header */}
-      <View style={[s.topBar, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => router.back()} />
-        <Text style={[textStyle('displaySm'), s.topTitle]} accessibilityRole="header">Checkout</Text>
-        <View style={s.topSpacer} />
-      </View>
-
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* What you are buying */}
-        <OrderIdentity
-          cover={cover}
-          name={showName}
-          venue={showVenue}
-          eventDate={display?.date || null}
-          eventTime={display?.time || null}
-          quantity={display?.quantity ?? null}
-          ticketType={display?.ticketType ?? null}
-        />
-
-        {/* Reservation countdown (Buy Now) */}
-        {isBuyNow && reservationMsLeft != null && !holdLost ? (
-          <View style={s.holdRow}>
-            <Text
-              style={[textStyle('label'), reservationMsLeft === 0 ? s.holdExpired : s.hold]}
-              accessibilityLiveRegion="none"
-            >
-              {reservationMsLeft === 0
-                ? 'Checking your hold'
-                : `Held for you · ${fmtCountdown(reservationMsLeft)} left${holdUntil ? ` · until ${holdUntil}` : ''}`}
-            </Text>
-          </View>
-        ) : null}
-
-        {/* Price breakdown — the one screen where itemising is correct, and SERVER FIGURES ONLY
-            (A's ruling Q1–Q3, 2026-09-24). The rows render once create-payment-intent has answered
-            and no price change is pending: before that the word "Total" never sits over the route
-            estimate, and while a new total awaits acceptance the button carries the only figure —
-            which also removes the old two-totals case (:419 vs the stale row) by construction. A
-            lost hold keeps a figure the server actually quoted (historical) and shows nothing if
-            only the estimate exists. */}
-        {serverBreakdown && !priceChange ? (
-          <View style={s.breakdown}>
-            {/* De-dup: the identity line above owns the count; this row is the money item. */}
-            <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(serverBreakdown.amount)} s={s} />
-            <Row label="Service fee" value={formatCents(serverBreakdown.buyerFee)} s={s} />
-            <View style={s.hairline} />
-            <View style={s.totalRow}>
-              <Text style={[textStyle('label'), s.totalLabel]}>Total</Text>
-              <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1}>
-                {formatCents(serverBreakdown.total)}
-              </Text>
-            </View>
-            {/* De-dup (owner 2026-09-23): the rows above already itemise the tickets and the
-                service fee into this total - a sentence restating them said everything twice. */}
-          </View>
-        ) : !serverBreakdown && (authLoading || paymentLoading) ? (
-          <View style={s.breakdown}>
-            <Text style={[textStyle('body'), s.payStateText]}>Preparing your total</Text>
-          </View>
-        ) : null}
-
-        {/* Payment method state */}
-        <View style={s.payState}>
-          {authLoading || paymentLoading ? (
-            <View style={s.payStateRow}>
-              <Spinner label="Preparing secure payment" />
-              <Text style={[textStyle('body'), s.payStateText]}>Preparing secure payment</Text>
-            </View>
-          ) : paymentReady ? (
-            <View style={s.payStateRow}>
-              <Text style={[textStyle('body'), s.payStateText]}>
-                {applePayAvailable ? 'Apple Pay or card' : 'Card payment'}
-              </Text>
-            </View>
-          ) : holdCopy ? (
-            <View accessibilityLiveRegion="polite">
-              <Text style={[textStyle('title'), s.payStateText]}>{holdCopy.title}</Text>
-              <Text style={[textStyle('body'), s.payStateText]}>{holdCopy.body}</Text>
-            </View>
-          ) : priceChange ? (
-            <View accessibilityLiveRegion="polite">
-              <Text style={[textStyle('title'), s.payStateText]}>The total changed</Text>
-              <Text style={[textStyle('body'), s.payStateText]}>
-                {`It was ${formatCents(priceChange.previousCents)} and is now ${formatCents(priceChange.nextCents)}, service fee included. Nothing has been charged. Accept the new total to continue.`}
-              </Text>
-            </View>
-          ) : checkUnreachable ? (
-            <View accessibilityLiveRegion="polite">
-              <Text style={[textStyle('title'), s.payStateText]}>{"We couldn't confirm your payment yet"}</Text>
-              <Text style={[textStyle('body'), s.payStateText]}>
-                {"Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now."}
-              </Text>
-              <View style={{ marginTop: v2.space.md }}>
-                <Button label="Check status" variant="secondary" size="md" onPress={recheckPayment} loading={checking} disabled={checking} />
-              </View>
-            </View>
-          ) : paymentError ? (
-            <View>
-              <Text style={[textStyle('body'), s.payError]}>{paymentError}</Text>
-            </View>
-          ) : (
-            <View style={s.payStateRow}>
-              <Spinner label="Initializing" />
-              <Text style={[textStyle('body'), s.payStateText]}>Initializing</Text>
-            </View>
-          )}
-        </View>
-
-        {showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable }) ? (
-          <Text style={[textStyle('bodySm'), s.trust]}>{ESCROW_NOTE_COPY}</Text>
-        ) : null}
-
-        <View style={{ height: 120 }} />
-      </ScrollView>
-
-      {/* Sticky pay bar */}
-      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        {/* No nearby Total (owner + A's N2, 2026-09-24): before the intent returns the figure is
-            the client estimate — not valid for the state — and once it returns the pay control
-            itself reads "Pay $132.00". The itemised Total row above stays the server figure. */}
-        {priceChange ? (
-          <Button
-            label={`Accept ${formatCents(priceChange.nextCents)}`}
-            onPress={acceptNewTotal}
-            variant="primary"
-            size="md"
-          />
-        ) : (
-          <Button
-            label={pay.label}
-            // The pending states payControl already names ("Processing",
-            // "Checking your payment", "Checking your hold") are now visible
-            // beside the spinner instead of hidden under it (CFT-203).
-            pendingLabel={pay.loading ? pay.label : undefined}
-            onPress={payOnPress}
-            variant="primary"
-            size="md"
-            disabled={pay.disabled}
-            loading={pay.loading}
-          />
-        )}
-      </View>
-    </View>
-  );
-}
-
-// A-03: a refund is its own screen. It says only what the recorded amounts
-// establish (owner, 2026-09-18): never that the purchase succeeded or that none
-// was made, never processing, cancellation, bank timing or the order's status.
-// The only control is "Back to home" — no retry, no way back to the listing.
-function RefundView({
-  state, cover, eventName, venue, identity,
-}: {
-  state: RefundState;
-  cover: string | null; eventName: string; venue: string;
-  identity: { eventDate: string | null; eventTime: string | null; quantity: number | null; ticketType: string | null };
-}) {
-  const insets = useSafeAreaInsets();
-  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
-  const topPad = useTopInset();
-  const { palette } = useTheme();
-  const s = useMemo(() => makeStyles(palette), [palette]);
-  const view = refundViewModel(state.kind, state.refundedCents);
-  return (
-    <View style={s.confirmWrap}>
-      <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>
-        <Text style={[textStyle('micro'), s.confirmKicker, s.confirmKickerPending]}>{view.kicker}</Text>
-        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">{view.title}</Text>
-        <View style={s.confirmCard}>
-          <OrderIdentity
-            cover={cover}
-            name={eventName}
-            venue={venue}
-            eventDate={identity.eventDate}
-            eventTime={identity.eventTime}
-            quantity={identity.quantity}
-            ticketType={identity.ticketType}
-          />
-        </View>
-        <Text style={[textStyle('body'), s.confirmNote]}>{view.body}</Text>
-      </View>
-      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        <Button
-          label={view.cta.label}
-          onPress={() => router.replace(view.cta.href)}
-          variant="primary"
-          size="lg"
-          block
-        />
-      </View>
-    </View>
-  );
-}
-
-// -- Sub-components ----------------------------------------------------------
-
-function Row({ label, value, s }: { label: string; value: string; s: CheckoutStyles }) {
-  return (
-    <View style={s.row} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[textStyle('body'), s.rowLabel]}>{label}</Text>
-      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-// One celebration per purchase for the life of the process (A's review nit on
-// 4b705c4): a settled checkout that remounts — a 3-D Secure return landing
-// back on it — must not buzz a second time. A component ref would not survive
-// the remount; this latch does.
-const celebratedPurchases = new Set<string>();
-
-// The post-charge screen, in all three of its faces. `completed` is the only
-// one allowed to claim the purchase is done; `pending` and `failed` take their
-// words from SETTLEMENT_COPY so this screen and the alert cannot diverge.
-function ConfirmationView({
-  outcome, cover, eventName, venue, identity, isBuyNow, transferId, purchaseKey,
-}: {
-  outcome: SettlementOutcome;
-  cover: string | null; eventName: string; venue: string;
-  identity: { eventDate: string | null; eventTime: string | null; quantity: number | null; ticketType: string | null };
-  isBuyNow: boolean; transferId: string | null;
-  /** Identifies the purchase (the listing) so the success haptic fires once. */
-  purchaseKey: string;
-}) {
-  const insets = useSafeAreaInsets();
-  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
-  const topPad = useTopInset();
-  const { palette } = useTheme();
-  const s = useMemo(() => makeStyles(palette), [palette]);
-  const copy = SETTLEMENT_COPY[outcome];
-  const completed = outcome === 'completed';
-  // The one distinctive haptic (CFT-202), only for the face that is allowed to
-  // claim the purchase is done, and only once per purchase; its visible
-  // equivalent is the kicker below.
-  useEffect(() => {
-    if (!completed || celebratedPurchases.has(purchaseKey)) return;
-    celebratedPurchases.add(purchaseKey);
-    hapticSuccess();
-  }, [completed, purchaseKey]);
-  // Only a recorded sale has a transfer to hand off.
-  const showTransfer = completed && !!transferId;
-  return (
-    <View style={s.confirmWrap}>
-      <View style={[s.confirmBody, { paddingTop: topPad + v2.space.xxl }]}>
-        <Text
-          style={[
-            textStyle('micro'),
-            s.confirmKicker,
-            outcome === 'pending' && s.confirmKickerPending,
-            outcome === 'failed'  && s.confirmKickerFailed,
-          ]}
-        >
-          {completed
-            ? (isBuyNow ? 'Purchase complete' : 'Payment complete')
-            : outcome === 'pending' ? 'Finalizing your order' : 'Needs attention'}
-        </Text>
-        <Text style={[textStyle('displayLg'), s.confirmTitle]} accessibilityRole="header">
-          {completed ? "You're in." : copy.title}
-        </Text>
-
-        <View style={s.confirmCard}>
-          <OrderIdentity
-            cover={cover}
-            name={eventName}
-            venue={venue}
-            eventDate={identity.eventDate}
-            eventTime={identity.eventTime}
-            quantity={identity.quantity}
-            ticketType={identity.ticketType}
-          />
-        </View>
-
-        <Text style={[textStyle('body'), s.confirmNote]}>
-          {!completed
-            ? copy.body
-            : showTransfer
-              ? 'Your ticket is confirmed. The seller sends it next, and your payment is held until it reaches you.'
-              : 'Your ticket is confirmed. Check your email for transfer instructions.'}
-        </Text>
-      </View>
-
-      <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        <Button
-          label={showTransfer ? 'View transfer' : 'Back to home'}
-          onPress={() =>
-            showTransfer
-              ? router.replace(`/transfer/receive/${transferId}`)
-              : router.replace('/(tabs)/home')
+    <CheckoutView
+      identity={identity}
+      isBuyNow={isBuyNow}
+      // The hold row speaks only while a hold exists and has not been reported lost.
+      reservationMsLeft={isBuyNow && reservationMsLeft != null && !holdLost ? reservationMsLeft : null}
+      countdown={reservationMsLeft != null ? fmtCountdown(reservationMsLeft) : null}
+      holdUntil={holdUntil}
+      // Server figures only, and only once the intent has answered with no change pending. Every
+      // amount is formatted HERE, by the one money module; the view formats nothing.
+      breakdown={serverBreakdown && !priceChange ? {
+        item: isBuyNow ? 'Tickets' : 'Winning bid',
+        amount: formatCents(serverBreakdown.amount),
+        fee: formatCents(serverBreakdown.buyerFee),
+        total: formatCents(serverBreakdown.total),
+      } : null}
+      preparing={preparing}
+      paymentMethodLine={!preparing && paymentReady ? (applePayAvailable ? 'Apple Pay or card' : 'Card payment') : null}
+      // Precedence unchanged: a lost hold, then an unaccepted total, then an unconfirmed payment.
+      notice={
+        holdCopy ? { title: holdCopy.title, body: holdCopy.body }
+        : priceChange ? {
+            title: 'The total changed',
+            body: `It was ${formatCents(priceChange.previousCents)} and is now ${formatCents(priceChange.nextCents)}, service fee included. Nothing has been charged. Accept the new total to continue.`,
           }
-          variant="primary"
-          size="lg"
-          block
-        />
-      </View>
-    </View>
+        : checkUnreachable ? {
+            title: "We couldn't confirm your payment yet",
+            body: "Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now.",
+            action: { label: 'Check status', onPress: recheckPayment, loading: checking },
+          }
+        : null
+      }
+      errorLine={paymentError}
+      escrowNote={showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable })
+        ? ESCROW_NOTE_COPY : null}
+      pay={{ label: pay.label, loading: pay.loading, disabled: pay.disabled }}
+      onPay={payOnPress}
+      acceptTotal={priceChange
+        ? { label: `Accept ${formatCents(priceChange.nextCents)}`, onPress: acceptNewTotal }
+        : null}
+      onBack={() => router.back()}
+    />
   );
 }
 
-// -- Helpers ----------------------------------------------------------------
-
-// V3: identity dates render through feedRowState's shared format inside OrderIdentity.
-
-
-// --- Styles ----------------------------------------------------------------
-
-type CheckoutStyles = ReturnType<typeof makeStyles>;
-
-function makeStyles(p: Palette) {
-  return StyleSheet.create({
-  safe: { flex: 1, backgroundColor: p.surface.canvas },
-
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: v2.space.sm,
-    paddingBottom: v2.space.sm,
-  },
-  topTitle: { color: p.text.primary },
-  topSpacer: { width: 44 },
-
-  scroll: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
-
-  orderRow: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
-  orderText: { flex: 1, minWidth: 0, gap: 2 },
-
-  holdRow: { marginTop: v2.space.lg },
-  // Tabular digits: the m:ss countdown must not shift width as it ticks (CFT-207).
-  hold: { color: p.status.warning, fontVariant: ['tabular-nums'] },
-  holdExpired: { color: p.status.error },
-
-  breakdown: {
-    marginTop: v2.space.xl,
-    borderTopWidth: 1,
-    borderTopColor: p.border.default,
-    paddingTop: v2.space.md,
-    gap: v2.space.sm,
-  },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
-  rowLabel: { color: p.text.muted },
-  rowValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
-  hairline: { height: 1, backgroundColor: p.border.default, marginVertical: v2.space.xs },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  totalLabel: { color: p.text.primary },
-  totalValue: { color: p.text.primary },
-
-  payState: {
-    marginTop: v2.space.xl,
-    borderTopWidth: 1,
-    borderTopColor: p.border.default,
-    paddingTop: v2.space.md,
-  },
-  payStateRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
-  payStateText: { color: p.text.secondary },
-  payError: { color: p.status.error },
-
-  trust: { color: p.text.muted, marginTop: v2.space.lg },
-
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: v2.space.md,
-    paddingHorizontal: v2.space.lg,
-    paddingTop: v2.space.md,
-    borderTopWidth: 1,
-    borderTopColor: p.border.strong,
-    backgroundColor: p.surface.surface,
-  },
-  barPrice: { flex: 1, minWidth: 0 },
-
-  // Confirmation
-  confirmWrap: { flex: 1, backgroundColor: p.surface.canvas },
-  confirmBody: { flex: 1, paddingHorizontal: v2.space.lg, gap: v2.space.md },
-  confirmKicker: { color: p.status.success },
-  // Same kicker, three readings: settled / not landed yet / unfulfillable.
-  confirmKickerPending: { color: p.status.warning },
-  confirmKickerFailed:  { color: p.status.error },
-  confirmTitle: { color: p.text.primary },
-  confirmCard: {
-    flexDirection: 'row',
-    gap: v2.space.md,
-    alignItems: 'center',
-    marginTop: v2.space.md,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: p.border.default,
-    paddingVertical: v2.space.md,
-  },
-  confirmNote: { color: p.text.secondary, marginTop: v2.space.md },
-});
-}
