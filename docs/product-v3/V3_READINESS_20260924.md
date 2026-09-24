@@ -9,37 +9,11 @@
 
 ---
 
-## 0 · Appearance migration coverage — measured, because a short defect list is not a status
+## 0 · Appearance migration coverage
 
-Counted on **C `v3/midnight-app` @ `016087ea`**, across `src/screens`, `src/components` and `app`:
-
-| | Files |
-|---|---|
-| `.tsx` total | **94** |
-| Carry no colour of their own (neither palette nor `v2`) | 22 |
-| **Colour-bearing** | **72** |
-| Read the palette at all | 17 |
-| …of those, **still also read static `v2.*`** — partially migrated | **15** |
-| **Read the palette only** — fully migrated | **2** |
-| **Read `v2.*` and never the palette** — unmigrated | **55** |
-
-**Why `v2.*` means wrong-in-Daylight:** `palette.ts` states that `dark` *"re-exports the v2 token groups
-untouched"*, and `light` is a separate map. **A file importing `v2.*` directly gets the Midnight value in
-both appearances.**
-
-**So the eight literals I reported are not the migration.** They are the subset that no token system could
-ever reach. **55 unmigrated files plus 15 partially migrated ones is the actual remaining surface**, and it
-is much larger than any defect list. The five primitives C has converted are the foundation, not the job.
-
-### Two record corrections, both mine
-
-1. **A-1 / A-2 / A-3 are APPROVED** (owner, 2026-09-22 — *"I approve neutral decorative hairlines,
-   mixed-case sentence headings, and the rounded controls shown in the approved V3 designs"*).
-   `palette.ts` currently records A-1 as *"an open owner decision … NOT adopted here"*, reading a **stale row
-   in my own coverage matrix**. That row is now closed. **Neutral hairlines are approved and should land.**
-2. **Canvas `#08090A` is not a proposal — withdraw it.** `V3_PACKAGE_1` §2 states canvas = **`#000000`**.
-   The `#08090A` in my boards is a rendering artefact of the drawing engine, never a design change.
-   **Canvas stays `#000000`.**
+**Superseded by `V3_APPEARANCE_COVERAGE.md`** — the 55/15/2 figures here counted *imports*, not colour
+accesses. Corrected: of **82** files, **68 are colour-bearing**; **45 unmigrated**, **1 partial**, **16
+palette-only** (11 of them fully clean), **6 literal-only**. C has migrated four times more than I said.
 
 ---
 
