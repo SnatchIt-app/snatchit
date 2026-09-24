@@ -87,11 +87,12 @@ fixture mutations.
 | | |
 |---|---|
 | Xcode | 26.6 (17F113), `/Applications/Xcode.app`, first-launch complete, licence accepted |
-| Runtime | iOS 26.2 (23C54) |
+| Runtime | iOS 26.2 (23C54) is installed and Ready in CoreSimulator |
+| **BLOCKED** | **Xcode 26.6 ships the iOS 26.5 SDK and its iOS PLATFORM support is not installed**, so `xcodebuild` offers NO simulator destination for the scheme at all: `-showdestinations` returns only the device placeholder, with "iOS 26.5 is not installed. Please download and install the platform from Xcode > Settings > Components." The build fails at destination resolution, before compiling. Sent to the owner with the exact action; ~8 GiB free versus a platform download of that order, so space has to be freed first |
 | Device | **`SN V3 393x852`**, iPhone 16, UDID `88115BF4-FBD6-4CEF-A1F0-26F4099882AC` |
 | Why that device | 393 × 852 pt @3× — the SAME geometry as every web capture in this programme. The iPhone 16 **Pro** is 402 × 874 and would not compare |
 | Env | `EXPO_PUBLIC_APP_ENV=sandbox`, the sandbox project ref, no `pk_live` present |
-| Build | `expo run:ios` against that UDID, from a clean tree at the pin |
+| Build | `expo run:ios` against that UDID, from a clean tree at the pin. Prebuild and CocoaPods both SUCCEEDED; `ios/` is gitignored, so the tree stayed clean at the pin |
 
 Captures are named `<sha7>_<route>_<variant>_<appearance>_<contentsize>.png` with a manifest naming
 the sha, UDID, device type, runtime, Xcode build, appearance and content size. **Simulator evidence is
