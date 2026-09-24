@@ -27,7 +27,7 @@ SELL IN MINUTES
 List your tickets with a photo and set a starting bid or a Buy Now price. Sellers verify a phone number before listing and are paid through Stripe Connect once the sale completes.
 
 TRANSFERS DONE RIGHT
-You pay at checkout. The seller is paid only after you confirm the tickets arrived, or after a review window with no report. Sellers transfer through the original ticketing platform, with step-by-step guides for 14+ ticketing services. If your tickets don't arrive, report it in the app and the seller's payout is frozen while it is reviewed.
+You pay at checkout. The seller is paid only after you confirm the tickets arrived, or after a review window with no report. Sellers transfer through the original ticketing platform, with step-by-step guides for 14+ ticketing services. If your tickets don't arrive, report it in the app and the seller's payout is frozen.
 
 WHY SNATCH IT
 • Real-time bidding with live countdowns

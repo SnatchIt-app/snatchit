@@ -57,7 +57,8 @@ unknown.
   live; F4 no test key on production; F5 the key's account fragment must be `51T6Far`, the live account.
 - `app.json`: `merchant.com.snatchit`, bundle `com.jdt-inc.snatchit`, `supportsTablet: false`.
 - **To confirm on the actual candidate:** the pinned commit, and that the TestFlight build opens without the guard
-  screen [OWNER, no charge].
+  screen [OWNER, no charge]. A production build that launches at all has therefore already proven client-side mode and
+  account alignment (D's review). V2, V3 and V6 carry only the server side and the webhook subscription.
 
 | # | Check | How | Who | Charge? |
 |---|---|---|---|---|
@@ -95,7 +96,7 @@ server = gate `5b255838`, deployed 2026-09-23.
 | "yours in one tap with Apple Pay or card" | **reword**: "Check out with card or Apple Pay, processed by Stripe." Keep Apple Pay only after V4 | [SRC] `CheckoutNative.tsx:315-355` (Apple Pay detected, cart items); live certificate unverified (V4) |
 | "Payouts go straight to your bank through Stripe" | **reword**: "Sellers are paid through Stripe Connect once the sale completes." | legacy path paid 23 transfers, including a live one 2026-08-04 [REC `SPRINT_STATUS:1405,1412`]; the payout code deployed 2026-09-23 has not yet run in production [D-PROD `payout_attempts` 0; REC SPRINT_STATUS:1412] |
 | "Confirm receipt and the sale completes" | **keep** | [SRC] `confirm-and-release` |
-| "open a dispute and our team steps in" | **reword**: "If the tickets don't arrive, report it in the app; the seller's payout is frozen while it is reviewed." | [SRC] `buyer_dispute_transfer` (0550:207-225) sets `disputed_at`, which every payout gate checks. "Our team steps in" is **omitted**: operator alerts are undelivered (`alert_delivery_enabled` false, no dispatcher; admin push to `admin_users` only, 0 of 2 admins with an active push token [REC SPRINT_STATUS:1377]; email off [D-PROD / REC]), and the review promise has no operating process (§5b) |
+| "open a dispute and our team steps in" | **reword**: "If the tickets don't arrive, report it in the app; the seller's payout is frozen." Stop there (D's review): a review process is not evidenced, since `dispute_resolutions` holds 0 rows and 5 disputes are open [D-PROD]. | [SRC] `buyer_dispute_transfer` (0550:207-225) sets `disputed_at`, which every payout gate checks. "Our team steps in" is **omitted**: operator alerts are undelivered (`alert_delivery_enabled` false, no dispatcher; admin push to `admin_users` only, 0 of 2 admins with an active push token [REC SPRINT_STATUS:1377]; email off [D-PROD / REC]), and the review promise has no operating process (§5b) |
 | "Verified phone numbers on every seller account" | **reword**: "Sellers verify a phone number before listing." | [SRC] `CreateListingScreen.tsx:427`. "Every" account was not checked |
 | "Step-by-step transfer guides for 14+ ticketing services" | **keep** | [SRC] `platformInstructions.ts`: 15 named platforms plus "other" |
 | "Report, block, and dispute tools built in" | **keep** | [SRC] report `app/report/[type]/[id].tsx:65`; block `Settings → Blocked Users`; dispute as above |
@@ -118,7 +119,8 @@ server = gate `5b255838`, deployed 2026-09-23.
   no-backfill design predicts (142 / 20260906120000). No refund since 2026-08-04.
 - **History establishes:** real Stripe refunds occurred in test mode. The two live-mode sibling orders of 2026-08-04
   were refunded and their transfers reversed, per A's August record [REC memory `snatchit-aug3-payment-incident`:
-  "Both earlier test purchases refunded, transfers 'reversed'"].
+  "Both earlier test purchases refunded, transfers 'reversed'"]. Production corroborates it independently: exactly
+  **2** transfers are `reversed`, matching the 2 live-mode refunded payments of 2026-08-04 [D-PROD].
 - **Unknown:** how those two live rows, and the 2026-03-29 test row, were written. Source at origin/main, which was
   deployed until 2026-09-23, shows **two code writers** of that exact shape: `refunded` + `refunded_at` + no refund id.
   - The lost-chargeback branch (`stripe-webhook:690-697`) never writes a refund id.
@@ -140,14 +142,17 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 20260906120000 says such duplicates were bounded only by Stripe's own dedup.
 
 **Finding F-DISPUTE-SELLERWIN-1 (A, 2026-09-24, source-verified at the gate; not a regression of this release):**
-- A dispute resolved "seller wins" (`resolve_transfer_dispute`, 065:119-129) sets `status='buyer_confirmed'` and
+- A dispute resolved "seller wins" (`resolve_transfer_dispute`, 065:119-129) sets the status value `'buyer_confirmed'` and
   clears `disputed_at`, but leaves `buyer_confirmed_at` NULL.
-- The payout sweep takes `buyer_confirmed` rows only with `buyer_confirmed_at` older than 15 minutes (gate
+- The payout sweep takes rows with status `'buyer_confirmed'` only when `buyer_confirmed_at` is older than 15 minutes (gate
   `enforce-transfer-expiry:1180-1181`; the same filter is on main at `:804-806`).
 - The console's `payout_release` accepts only `seller_sent` (144:813).
 - So a seller-win outcome has **no automated or console path that pays the seller**. The money is stuck, not lost; an
   ops `release_stuck` case is expected to surface it.
-- Production count of such rows: [UNK]; no production read is authorised.
+- **Affected rows today: 0.** All 19 `'buyer_confirmed'` transfers carry a timestamp [D-PROD]. The zero exists only
+  because **no dispute has ever been resolved**: `public.dispute_resolutions` holds 0 rows, while **5 disputes are open
+  now** (`dispute_resolved_at` NULL, matching the 5 `dispute_open` ops cases) [D-PROD]. The first seller-win resolution
+  anyone performs will hit this path. D confirmed the three source anchors independently.
 - A bounded fix will be prepared as a source change for review. Nothing is applied.
 
 ## 5. Owner actions (all together)
@@ -160,6 +165,7 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 | O4 | Confirm the reviewer accounts still exist and their credentials still sign in; the credentials were treated as exposed and rotation is still OPEN [REC `HISTORY_EXPOSURE_MEMO.md:3,48-50`] | review login | before inventory planning |
 | O5 | Confirm the Supabase Auth test phone number is still configured, and Twilio auto-recharge (OFF, [REC `PHONE_OTP_DELIVERY_CONFIGURATION_REPORT.md:380`]) | signup OTP for reviewers and real users | before submission |
 | O6 | Read the two live `refunded` rows of 2026-08-04 in the Stripe Dashboard: refund or lost dispute, and the amount | the refund record is ambiguous (§4) | before any refund wording |
+| O8 | Plan the review inventory: which listings, prices, end dates and seller; and whether to reprice or end the $300 III Points listing | a reviewer currently sees one listing, at $300 | before submission |
 | O7 | Later decisions, not requested yet: V6 (non-charging production checkout plus cancel) and V7 (one $2.20 live purchase plus Dashboard refund); review inventory | each creates production state | after O2–O5 |
 
 ## 5b. Owner operating-policy decisions (separate from the actions)
@@ -182,6 +188,9 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 ## 6. Readiness verdict
 
 **Not submission-ready.** Required and not done:
+- **Production inventory, the hardest blocker:** 113 listings, **exactly 1** active and unexpired: III Points Saturday
+  GA, ends 2026-10-18, Buy Now **$300** (so a reviewer could complete a $330 charge). 66 more are active with an end
+  time already past [D-PROD]. A reviewer today sees one purchasable item. Owner action O8;
 - the V3 production candidate build (none exists; every build since 13 is a sandbox preview);
 - O2–O5;
 - inventory planning;
