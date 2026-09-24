@@ -1755,3 +1755,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Rehearsal R0–R8: every step matched, except that R3 failed on 7 keys where A predicted 6 (A's prediction error).
   - The production request is byte-identical to the rehearsed one.
   - NOT authorised. D's script review has been requested.
+- **D's script review of the 149 package: PASS.**
+  - D's recommended `md5(statements[1])` check and three further improvements are adopted.
+  - Re-rehearsed as v2, with every prediction matching, including two new negative controls that fail on exactly their
+    targets.
+  - Re-frozen: `FROZEN_SHA256.txt` `8305d966…`, 16 files.
+  - Still NOT authorised; the owner's approval request uses the new package commit.

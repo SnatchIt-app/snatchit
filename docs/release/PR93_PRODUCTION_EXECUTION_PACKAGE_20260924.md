@@ -73,17 +73,31 @@
 4. `CONFIRM_REF=… deploy_149.sh confirm-and-release`: the before-version guard, the pre-download check, the deploy, the
    after read (version 38, `verify_jwt` True), and the post-download byte comparison against `037092f0`.
 5. **Optional V-3** `CONFIRM_REF=… probe_149.sh`: one `OPTIONS` request with the public anon key. The handler answers
-   `OPTIONS` before any auth, database or Stripe call, so 200 `ok` proves the new bundle boots and writes nothing.
+   `OPTIONS` before any auth, database or Stripe call, and only after every static import has evaluated. So it proves
+   the new bundle boots, and it writes nothing.
+   - **The discriminator is the body `ok`, the function's own string.** A gateway answering the preflight itself would
+     not produce it, so the check must never be trimmed to "HTTP 200".
+   - The response header `Access-Control-Allow-Methods: POST, OPTIONS` (from `getCorsHeaders`) is the function's own
+     fingerprint.
+   - Outcomes: body ok + header → **PASS**; body ok, header different → **INCONCLUSIVE**, reported and NOT a rollback
+     trigger; anything else → **FAIL**.
+   - **It exercises none of the changed code.** a1/a2 run in the POST path after authentication. It also does not
+     identify the version; attribution is by timing, after `deploy_149.sh` has read v38 back (D).
 6. Records: the registry row, the SPRINT_STATUS entry, the execution record in this file, and checklist R1.
 
 ## 6. Verification, and what it cannot show
 
-- **DB POST assertion, 9 needs:**
+- **DB POST assertion, 15 checks plus the grants matrix,** all pass/fail inside the script:
   - the ledger row (`created_by=claude-a/owner-authorised-149`, `stmts=1`) and ledger 162;
+  - **`md5(statements[1])` = `7e4d3b2d…`**, D's anchor. This closes reviewed blob → applied file → **recorded**
+    statement without needing any other production read;
   - both defn lines (secdef, search_path) and both prosrc lines;
   - both grant lines (service_role only);
-  - census 32/108/37/38.
-  - The grants delta must be none.
+  - census 32/108/37/38;
+  - the three switches (detectors true, refund-resolution detector false, **alert delivery false**);
+  - **148's claim and notify bodies unchanged** (`ce30b56c…`/`ff103b3e…`), showing the apply touched only what it
+    should;
+  - the grants matrix identical to P2's. P2 (`00`) must run first, or the assertion fails.
 - **Edge:** version 38; `verify_jwt` True; post-download 5/5 files equal the gate blobs; no unexpected `_shared` file.
 - **Not shown:** the new paths run only on a buyer call for a row with no buyer confirmation, or on a reversal. None
   occurs on its own and none will be triggered. Their evidence stays:
@@ -103,6 +117,14 @@
 
 - **The layers are independent.** Both are audit writers with no call between them, so either can be rolled back
   without the other, in either order.
+- **There is deliberately no "bodies-only" mode** (D). The one state it would serve (ledger row gone, bodies still
+  149's) is unreachable through these scripts: `ledger-only`'s delete is conditional on the pre-149 bodies, so it
+  cannot fire against 149's. A later migration that owns these bodies also keeps 149's ledger row, which is correct.
+- The delete's conditions use `::regprocedure`. That **raises** if either function has been dropped, rather than doing
+  nothing. This is the loud direction, kept on purpose: read such an error as "a function is missing", not as corruption.
+- **Runbook, P3:** if a **defn** pin mismatches while prosrc and the binding both match, the first hypothesis is a
+  rendering difference in `pg_get_functiondef` (the pins come from a local replay; the precedent is n=1, at 148).
+  Re-derive from production's own text. Do not treat it as drift or an incident; the stop was safe. (D)
 - **Rollback transaction shape, disclosed:** the reviewed rollback file carries its own `BEGIN…COMMIT`, so the ledger
   delete runs as a second implicit transaction after it. If the file raises, nothing after it runs. If only the delete
   fails, `rollback_149.sh ledger-only` resumes. The frozen `rollback_148.sh` has the same shape, unconditional there; it
@@ -131,15 +153,15 @@ extra safety.
 
 ## 9. Frozen artefacts (`scratchpad/apply_149/`, frozen 2026-09-24 ~18:30Z)
 
-`FROZEN_SHA256.txt` (sha256 `81653983…`) lists 15 files with sha256 and size. The execution-time check is that every
+`FROZEN_SHA256.txt` (sha256 `8305d966…`, re-frozen after D's review) lists 16 files with sha256 and size. The execution-time check is that every
 line matches. Review surfaces:
 
 | File | sha256 | Derived from | Diff |
 |---|---|---|---|
-| `apply_one_149.sh` | `216498d0…` (18,284 B) | executed `apply_one_148.sh` (`8cbd950d…`) | `diff_vs_apply_one_148.patch`, 114 changed lines: path, usage, the `prestate` sub-mode, the 149 STOP block, tag and `created_by`, the 149 POST assertion. The vault mode and the 133 / #21 guards are kept verbatim and are inert |
+| `apply_one_149.sh` | `e2100356…` | executed `apply_one_148.sh` (`8cbd950d…`) | `diff_vs_apply_one_148.patch`, 136 changed lines: path, usage, the `prestate` sub-mode, the 149 STOP block, tag and `created_by`, and the 149 POST assertion (15 checks plus the grants matrix, after D). The vault mode and the 133 / #21 guards are kept verbatim and are inert |
 | `rollback_149.sh` | `9f84866a…` | `rollback_148.sh` (`1419f12f…`) | `diff_vs_rollback_148.patch`: the 149 guard, the **conditional** ledger delete, `ledger-only`, and a LOCALDB rehearsal mode (148's rollback had none) |
 | `deploy_149.sh` | `edf04467…` | executed `deploy_148.sh` (`142899c8…`) | `diff_vs_deploy_148.patch`, 28 changed lines: W = `gate149` at `037092f0`; `confirm-and-release` only; `verify_jwt` True; closure `payout-logic payouts sentry stripe` (= frozen `deploy_one.sh`'s table); before-version 37 |
-| `probe_149.sh` | `14e450ce…` | new | the V-3 `OPTIONS` probe. The key is taken from `eas.json`'s production profile and checked for `role=anon`, `ref=hqycwntpfoztoinemqns`; it is never printed |
+| `probe_149.sh` | `754f93c6…` | new | the V-3 `OPTIONS` probe. The key comes from `eas.json`'s production profile, is checked for `role=anon`, `ref=hqycwntpfoztoinemqns`, and is never printed. Outcomes PASS / INCONCLUSIVE / FAIL (body `ok` + methods header) |
 | migration / rollback | `ce4440ca…` / `c61c458b…` | git blobs `1b58b20c` / `5d7c5677` at `037092f0` | — |
 | `d_md5.txt` | `20260924120000 7e4d3b2d347c1cedf63e554dd6358569 9904` | **D's independent anchor** from ref `037092f0` (`d_anchor_verbatim.txt`); equals A's `a_md5.txt` | — |
 | Edge rollback | `apply_5b255838/deploy_one.sh` `029c6af7…` (pre-existing, frozen 2026-09-22) | — | — |
@@ -163,6 +185,16 @@ texts, sent to a local database.
 | R7 re-apply | POST PASS, identical hashes; pgTAP **216 26/26, 122 74/74, 215 43/43** on the re-applied DB | match |
 | R8 `DRY=1` production assembly | `01_apply.sql` **byte-identical** to the rehearsed request (`f1bb0489…`, 20,051 B); the rollback request also identical (`749d690b…`) | match |
 
+**v2 re-rehearsal after D's review** (18:34–18:36Z; `rehearsal_predictions_v2.txt` `8901e997…`, registered first):
+**every prediction matched.**
+- V2-R0 to R2 on a fresh DB: the POST assertion runs 15 checks plus the grants matrix, all PASS, with `stmt_md5` =
+  `7e4d3b2d…`.
+- **N1**, the comparator control (a copy of the script with the `stmt_md5` expectation zeroed): FAILS on exactly
+  `stmt_md5`.
+- **N2**, "00 not run": FAILS on exactly `grants_baseline`.
+- R4 rollback PASS; R7 re-apply PASS with 216 at 26/26.
+- R8 DRY request still byte-identical (`f1bb0489…`). The request text did not change; only the checks did.
+
 **Controls:**
 - All four scripts **REFUSE** without `CONFIRM_REF`. The first line names the mode; `deploy_149.sh --dry` also refuses,
   because it reads production.
@@ -180,4 +212,16 @@ texts, sent to a local database.
 
 ## 11. Review
 - **D, 2026-09-24:** independent anchor (above), and a post-hoc PASS on both merges from D's own GitHub reads.
-- **Script review of this package: requested** (below).
+- **D, script review of the frozen package at `0d2851be` (2026-09-24 ~18:32Z): PASS.**
+  - D's own checks: the manifest (15/15); the anchor, agreed by both parties; the import closure, derived independently
+    (5 files; `payout-policy.ts` correctly absent); before-version 37 from D's own earlier read.
+  - Rollback transaction shape: "sound, and materially better than 148's".
+  - Keep the defn pins: they cover LANGUAGE, volatility, COST and parallel safety, which the binding does not.
+  - V-3 is real evidence because of the body check.
+  - D recommended adding `md5(statements[1])` before this went to the owner, plus three improvements. **All four are
+    adopted:**
+    - `stmt_md5`;
+    - 148's bodies in the POST assertion;
+    - switches and grants as pass/fail;
+    - the probe fingerprint with an INCONCLUSIVE outcome.
+  - The doc notes D asked for are in §5.5 and §7. Re-rehearsed as v2 and re-frozen (`8305d966…`).
