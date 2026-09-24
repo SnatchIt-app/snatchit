@@ -174,6 +174,46 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
     expect(actionable).toBeUndefined();
   });
 
+  it('TG8: the gallery\'s and the blocks\' static imports are side-effect-free modules only (the guard runs at render, imports run at load)', async () => {
+    // Owner 2026-09-24: "a component-level environment guard does not run before static imports. Keep
+    // imports side-effect-free." Every module the route pulls in at load is a pure module or the app's
+    // own theme/env layer; none opens a client, storage, network or dialog.
+    const allowed = new Set([
+      'expo-router', 'react', 'react-native', 'react-native-safe-area-context',
+      '@/src/components/transfer/TransferStateBlocks', '@/src/config/envGuard', '@/src/lib/transfer/transferState',
+      '@/src/theme/appearance', '@/src/theme/palette', '@/src/theme/typography', '@/src/theme/v2',
+      '@/src/lib/listing/feedRowState', '@/src/lib/money',
+    ]);
+    for (const rel of ['app/_dev/transfer-states.tsx', 'src/components/transfer/TransferStateBlocks.tsx']) {
+      const src = await stripped(rel);
+      const imports = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
+      expect(imports.length, rel).toBeGreaterThan(0);
+      for (const i of imports) expect(allowed.has(i), `${rel} imports ${i}`).toBe(true);
+    }
+    // And the blocks' own dependency, transferState, reaches nothing but the money formatter and the row formatter.
+    const state = await stripped('src/lib/transfer/transferState.ts');
+    for (const i of [...state.matchAll(/from '([^']+)'/g)].map((m) => m[1])) expect(allowed.has(i), `transferState imports ${i}`).toBe(true);
+  });
+
+  it('TG9: a missing payout_hold_until or auto_release_at suppresses only the corresponding date line — never the status information', async () => {
+    const mod = await import('@/src/components/transfer/TransferStateBlocks');
+    // Countdown running but the server gave no auto_release_at: no release line, no EMPTY line; body + warning stay.
+    const noDate = mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: '2d 3h' }));
+    const t = texts(noDate.output);
+    expect(t.join(' ')).toMatch(/Waiting for the buyer to confirm/);
+    expect(t.join(' ')).toMatch(/If the buyer reports an issue/);
+    expect(t.join(' ')).not.toMatch(/Release decision/);
+    expect(findElement(expandTree(noDate.output), (el) => el.type === 'Text' && el.props.children == null)).toBeUndefined();
+    // Held without a date: the hold's status sentence stays; only the dated line is absent.
+    const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
+    expect(heldNoDate).toMatch(/funds are held until shortly after the event/);
+    expect(heldNoDate).not.toMatch(/Payout held until/);
+    // The buyer's claim without a server deadline: the claim stays, no deadline sentence, no empty line.
+    const claim = mount(() => mod.BuyerSellerSentBlock({ autoReleaseAt: null }));
+    expect(texts(claim.output).join(' ')).toMatch(/Seller marked as sent/);
+    expect(findElement(expandTree(claim.output), (el) => el.type === 'Text' && el.props.children == null)).toBeUndefined();
+  });
+
   it('TG7: the gallery reaches no server and no dialog, and its only entry is a sandbox-gated Settings row', async () => {
     const gallery = await stripped('app/_dev/transfer-states.tsx');
     expect(gallery).not.toMatch(/supabase|\.rpc\(|functions\.invoke|Alert\b|payments|fetch\(/);

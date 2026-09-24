@@ -137,18 +137,18 @@ export function SellerSentBlock({
 }) {
   const { s } = useStyles();
   const noReview = payoutReviewStatus == null;
+  // A missing server date suppresses only the corresponding DATE line (owner 2026-09-24): the status
+  // sentence, the held fallback and the warning never depend on it, and no empty line is painted.
+  const releaseLine = noReview && releaseCountdown && releaseCountdown !== 'Expired' ? sellerReleaseLine(autoReleaseAt) : null;
+  const holdLine = payoutReviewStatus === 'held' ? (sellerHoldLine(payoutReviewStatus, payoutHoldUntil) ?? SELLER_HELD_FALLBACK) : null;
   return (
     <StateBlock tone="neutral">
       <Text style={[textStyle('bodySm'), s.text]}>{SELLER_SENT_BODY}</Text>
-      {noReview && releaseCountdown && releaseCountdown !== 'Expired' ? (
-        <Text style={[textStyle('bodySm'), s.sub]}>{sellerReleaseLine(autoReleaseAt)}</Text>
-      ) : null}
+      {releaseLine ? <Text style={[textStyle('bodySm'), s.sub]}>{releaseLine}</Text> : null}
       {noReview && releaseCountdown === 'Expired' ? (
         <Text style={[textStyle('bodySm'), s.sub]}>{SELLER_WINDOW_PASSED}</Text>
       ) : null}
-      {payoutReviewStatus === 'held' ? (
-        <Text style={[textStyle('bodySm'), s.sub]}>{sellerHoldLine(payoutReviewStatus, payoutHoldUntil) ?? SELLER_HELD_FALLBACK}</Text>
-      ) : null}
+      {holdLine ? <Text style={[textStyle('bodySm'), s.sub]}>{holdLine}</Text> : null}
       {payoutReviewStatus === 'manual_review' ? (
         <Text style={[textStyle('bodySm'), s.sub]}>{SELLER_MANUAL_REVIEW}</Text>
       ) : null}
