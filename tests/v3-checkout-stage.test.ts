@@ -84,6 +84,31 @@ describe('no nearby Total beside the pay control (owner + A N2, 2026-09-24)', ()
   });
 });
 
+describe('the itemised rows are server figures only (A\'s ruling Q1–Q3, 2026-09-24)', () => {
+  const code = async () => (await import('node:fs')).readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('CS4: the rows render only once create-payment-intent has answered and no price change is pending; every figure is the server\'s', async () => {
+    const src = await code();
+    expect(src).toMatch(/\{serverBreakdown && !priceChange \? \(\s*<View style=\{s\.breakdown\}>/);
+    expect(src).toContain('value={formatCents(serverBreakdown.amount)}');
+    expect(src).toContain('value={formatCents(serverBreakdown.buyerFee)}');
+    expect(src).toContain('{formatCents(serverBreakdown.total)}');
+    // The word "Total" never sits over the route estimate: the only remaining use of the mixed
+    // figure is the pay control's input, which the control prints only when payment is ready.
+    expect(src.match(/formatCents\(totalCents\)/g)?.length).toBe(1);
+    expect(src).toContain('formattedTotal: formatCents(totalCents)');
+    expect(src).not.toMatch(/acceptedTotalCents - dollarsToCents/);
+  });
+
+  it('CS5: before the server answers, one line "Preparing your total" and no figure — only while setup is actually running', async () => {
+    const src = await code();
+    expect(src).toMatch(/!serverBreakdown && \(authLoading \|\| paymentLoading\) \? \(/);
+    expect(src).toContain('Preparing your total');
+  });
+});
+
 describe('screen wiring (source pins; behaviour suites stay green)', () => {
   it('CS2: all three checkout views render the ONE identity block; no per-view name rows remain', async () => {
     const { readFileSync } = await import('node:fs');

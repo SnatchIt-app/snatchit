@@ -3,9 +3,13 @@
  *
  * `dark` IS Midnight: it re-exports the v2 token groups untouched, so every existing static
  * style keeps its exact colours and the v2 ↔ design-tokens mirror is not disturbed. `light` is
- * derived from the same hierarchy — same keys, same roles, same red — and is PROVISIONAL: B
- * owns both appearances across the inventory and will confirm or replace these values.
- * Contrast for the body inks is computed in tests (≥ 4.5:1 on canvas, surface and elevated).
+ * B's Daylight column (package 8, `pkg8-appearance-tokens.png`, 2026-09-23) mapped onto the v2
+ * key shape: B's `surface.panel` is `surface.surface`, B's `surface.plate` also resolves to it
+ * (v2 carries no plate key; the difference is 0.04 in luminance), and B's `border.control` is a
+ * new key in BOTH appearances. Contrast is computed in tests, not estimated.
+ *
+ * B's board also proposes different MIDNIGHT values (canvas #08090A, neutral hairlines — the
+ * pkg1 A-1 amendment). Those remain an open owner decision and are NOT adopted here.
  *
  * `onArt` is deliberately identical in both appearances: text over artwork sits on the image
  * and its scrim, never on the canvas, so it stays white however the canvas flips.
@@ -43,40 +47,45 @@ export const dark: Palette = {
   onArt: ON_ART,
 };
 
-/** PROVISIONAL light appearance — B confirms or replaces. Roles mirror Midnight one for one. */
+/** Daylight — B's token board. Roles mirror Midnight one for one; elevation flips (panel darker than canvas). */
 export const light: Palette = {
   scheme: 'light',
   surface: {
     canvas: '#FFFFFF',
-    surface: '#F4F4F5',
+    /** B's `surface.panel` (and its `plate`): sits DARKER than the canvas — elevation reads by contrast. */
+    surface: '#F4F4F6',
     elevated: '#FFFFFF',
     overlay: 'rgba(0,0,0,0.40)',
   },
   text: {
-    primary: '#0E0E10',
-    // Computed, not estimated (tests): ≥ 8:1 on white, ≥ 5:1 at muted on the surface grey.
-    secondary: 'rgba(14,14,16,0.74)',
-    muted: 'rgba(14,14,16,0.62)',
-    faint: 'rgba(14,14,16,0.36)',
+    primary: '#0B0C0E',
+    secondary: '#4A4D53',
+    /** Solved, not mirrored: the lightest value that clears 4.5:1 on the darkest light surface. */
+    muted: '#686C73',
+    faint: 'rgba(11,12,14,0.36)',
     /** Text on brand red stays black — the signature holds in both appearances. */
     inverse: '#000000',
   },
-  // The same red: black-on-red stays ≥ 5:1. Red TEXT on a white canvas measures ~4:1 (large
-  // text only) — flagged for B; the pressed/soft variants follow the dark ratios.
+  // The same red in both: black on #FF1A1A is 5.41:1 whatever sits behind the button, and the
+  // fill clears 3:1 against white (3.88:1). B withdrew the Daylight-only red.
   brand: {
     red: v2.brand.red,
     redPressed: v2.brand.redPressed,
     redSoft: 'rgba(255,26,26,0.08)',
   },
   border: {
-    default: 'rgba(255,26,26,0.20)',
-    strong: 'rgba(255,26,26,0.40)',
+    /** A divider identifies nothing: listed, not graded (1.32:1). */
+    default: '#DFE0E4',
+    strong: '#8A8B90',
+    /** The edge that identifies a control: 3.40:1 on the canvas, 3.10:1 on the panel. */
+    control: '#8A8B90',
     overArt: v2.border.overArt,
   },
+  // Re-picked as TEXT colours: #3DDC84 is 1.6:1 and #FFB020 is 1.9:1 on white.
   status: {
-    success: '#1B8A4A',
-    warning: '#A65E00',
-    error: '#D32F2F',
+    success: '#0B7A3C',
+    warning: '#8A5400',
+    error: '#C41414',
   },
   onArt: ON_ART,
 };

@@ -714,10 +714,10 @@ export default function CheckoutScreen() {
   const showVenue = display?.venue ?? venue;
 
   // The total is always the server figure once loaded; the client estimate is a
-  // placeholder before createPaymentIntent returns. Neither is computed here.
+  // placeholder before createPaymentIntent returns. Neither is computed here. This mixed
+  // figure feeds the pay control only, which prints it solely when payment is ready — i.e.
+  // after the server has answered. The itemised rows below never read it (A, 2026-09-24).
   const totalCents   = serverBreakdown ? serverBreakdown.total : acceptedTotalCents;
-  const ticketCents  = serverBreakdown ? serverBreakdown.amount : dollarsToCents(bidAmount);
-  const feeCents     = serverBreakdown ? serverBreakdown.buyerFee : acceptedTotalCents - dollarsToCents(bidAmount);
 
   // -- Settlement outcome UI ------------------------------------------------
   // One screen, three faces. Only `completed` is allowed to say the purchase is
@@ -831,22 +831,33 @@ export default function CheckoutScreen() {
           </View>
         ) : null}
 
-        {/* Price breakdown — the one screen where itemising is correct. Every
-            number is the server figure once loaded. */}
-        <View style={s.breakdown}>
-          {/* De-dup: the identity line above owns the count; this row is the money item. */}
-          <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(ticketCents)} />
-          <Row label="Service fee" value={formatCents(feeCents)} />
-          <View style={s.hairline} />
-          <View style={s.totalRow}>
-            <Text style={[textStyle('label'), s.totalLabel]}>Total</Text>
-            <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1}>
-              {formatCents(totalCents)}
-            </Text>
+        {/* Price breakdown — the one screen where itemising is correct, and SERVER FIGURES ONLY
+            (A's ruling Q1–Q3, 2026-09-24). The rows render once create-payment-intent has answered
+            and no price change is pending: before that the word "Total" never sits over the route
+            estimate, and while a new total awaits acceptance the button carries the only figure —
+            which also removes the old two-totals case (:419 vs the stale row) by construction. A
+            lost hold keeps a figure the server actually quoted (historical) and shows nothing if
+            only the estimate exists. */}
+        {serverBreakdown && !priceChange ? (
+          <View style={s.breakdown}>
+            {/* De-dup: the identity line above owns the count; this row is the money item. */}
+            <Row label={isBuyNow ? 'Tickets' : 'Winning bid'} value={formatCents(serverBreakdown.amount)} />
+            <Row label="Service fee" value={formatCents(serverBreakdown.buyerFee)} />
+            <View style={s.hairline} />
+            <View style={s.totalRow}>
+              <Text style={[textStyle('label'), s.totalLabel]}>Total</Text>
+              <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1}>
+                {formatCents(serverBreakdown.total)}
+              </Text>
+            </View>
+            {/* De-dup (owner 2026-09-23): the rows above already itemise the tickets and the
+                service fee into this total - a sentence restating them said everything twice. */}
           </View>
-          {/* De-dup (owner 2026-09-23): the rows above already itemise the tickets and the
-              service fee into this total - a sentence restating them said everything twice. */}
-        </View>
+        ) : !serverBreakdown && (authLoading || paymentLoading) ? (
+          <View style={s.breakdown}>
+            <Text style={[textStyle('body'), s.payStateText]}>Preparing your total</Text>
+          </View>
+        ) : null}
 
         {/* Payment method state */}
         <View style={s.payState}>

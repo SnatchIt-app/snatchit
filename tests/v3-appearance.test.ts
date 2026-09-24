@@ -160,7 +160,11 @@ describe('the provider — live System following and explicit overrides', () => 
       setPref = setPreference;
       return null;
     };
-    const host = new HookHost(() => mod.AppearanceProvider({ children: Probe(), store: fakeStore() }), new Map());
+    // ONE store for the host's life, as the root passes one: a store built inside the render
+    // closure re-runs the load effect on every re-render and writes the stored value back over a
+    // newer in-memory choice — a fixture artefact that AP14 exposed, not app behaviour.
+    const store = fakeStore();
+    const host = new HookHost(() => mod.AppearanceProvider({ children: Probe(), store }), new Map());
     host.mount();
     for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
     host.flush();
@@ -181,6 +185,7 @@ describe('the provider — live System following and explicit overrides', () => 
     host.flush();
     expect(read()?.scheme).toBe('dark');                   // back to the phone
     expect(rn.setColorScheme.at(-1)).toBeNull();
+    host.unmount();                                        // no live subscriber leaks into later tests
   });
 });
 
@@ -218,5 +223,108 @@ describe('screens (source pins) — the root, Settings, and the first migrated s
     const bid = await code('src/screens/PlaceBidScreen.tsx');
     expect(bid).toContain('useTheme()');
     expect(bid).not.toMatch(/v2\.(surface|text|border|brand|status)\./);
+  });
+});
+
+describe('reconciliation with B (owner 2026-09-24) — one pressed value, B\'s Daylight column, one control edge', () => {
+  it('AP11: the pressed primary is ONE agreed value, #FF5353, in BOTH token mirrors — no second round', async () => {
+    // B first closed F-30 at #FF4C4C while C shipped #FF5353; both pass (black label 6.39:1 vs 6.6:1,
+    // fill vs white 3.29:1 vs 3.17:1). B's reconciliation record (design c1e23125) adopts #FF5353, so
+    // that is the shared value. Pinned on both mirrors so the parity test is not the only thing
+    // holding them together, and the label contrast is recomputed here rather than trusted.
+    expect(v2.brand.redPressed).toBe('#FF5353');
+    const mirror = await import('../packages/design-tokens/src/brand');
+    expect(mirror.brand.redPressed).toBe('#FF5353');
+    expect(light.brand.redPressed).toBe('#FF5353');
+    expect(contrast('#000000', '#FF5353')).toBeGreaterThanOrEqual(4.5);
+    expect(contrast('#FF5353', '#FFFFFF')).toBeGreaterThanOrEqual(3);   // identifiable on Daylight
+  });
+
+  it('AP12: Daylight IS B\'s token board (pkg8-appearance-tokens) — no provisional ink survives', () => {
+    expect(light.surface.canvas).toBe('#FFFFFF');
+    expect(light.surface.surface).toBe('#F4F4F6');     // B's surface.panel
+    expect(light.text.primary).toBe('#0B0C0E');
+    expect(light.text.secondary).toBe('#4A4D53');
+    expect(light.text.muted).toBe('#686C73');           // solved on the plate, not mirrored
+    expect(light.text.inverse).toBe('#000000');
+    expect(light.brand.red).toBe('#FF1A1A');            // the brand red never needed changing
+    expect(light.border.default).toBe('#DFE0E4');
+    expect(light.status.error).toBe('#C41414');
+    expect(light.status.warning).toBe('#8A5400');       // #FFB020 is 1.9:1 as text on white
+    expect(light.status.success).toBe('#0B7A3C');       // #3DDC84 is 1.6:1 as text on white
+    // Status colours are used as TEXT (badges, money states): they must clear 4.5:1 on the light surfaces.
+    for (const bg of [light.surface.canvas, light.surface.surface]) {
+      expect(contrast(light.status.error, bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(light.status.warning, bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(light.status.success, bg)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('AP13: border.control — the edge that identifies a control — exists in both mirrors and clears 3:1 on canvas and surface in both appearances', async () => {
+    const mirror = await import('../packages/design-tokens/src/brand');
+    expect(v2.border.control).toBe('#64656A');
+    expect(mirror.border.control).toBe('#64656A');
+    expect(light.border.control).toBe('#8A8B90');
+    for (const p of [dark, light]) {
+      for (const bg of [p.surface.canvas, p.surface.surface]) {
+        expect(contrast(p.border.control, bg)).toBeGreaterThanOrEqual(3);
+      }
+    }
+    // The primitives whose edge identifies them use it at rest: Input's underline, Chip's outline,
+    // the secondary Button's outline. Focus/selected/error states keep their own colours.
+    const code = async (rel: string) => (await import('node:fs')).readFileSync(rel, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(await code('src/components/ui/Input.tsx')).toMatch(/:\s*palette\.border\.control;/);
+    expect(await code('src/components/ui/Chip.tsx')).toMatch(/borderColor: p\.border\.control,/);
+    expect(await code('src/components/ui/Button.tsx')).toMatch(/borderWidth: 1, borderColor: palette\.border\.control \}/);
+  });
+});
+
+describe('startup — no flash of the wrong appearance before the stored choice is read', () => {
+  it('AP14: the provider withholds the tree until the persisted choice loads, then renders the CHOSEN scheme; a silent store is bounded', async () => {
+    const mod = await import('@/src/theme/appearance');
+    rn.scheme = 'dark';                                   // the phone is dark …
+    let resolve!: (v: string | null) => void;
+    const slow: KeyValueStore = {
+      getItem: () => new Promise<string | null>((r) => { resolve = r; }),
+      setItem: async () => {},
+    };
+    let seen: string | null = null;
+    const Probe = () => { seen = mod.useTheme().scheme; return null; };
+    const host = new HookHost(() => mod.AppearanceProvider({ children: Probe(), store: slow }), new Map());
+    host.mount();
+    await new Promise((r) => setImmediate(r));
+    host.flush();
+    expect(host.output).toBeNull();                       // nothing painted yet — no dark first frame
+    resolve('light');                                     // … but the person chose Light
+    for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
+    host.flush();
+    expect(host.output).not.toBeNull();
+    expect(seen).toBe('light');                           // first painted frame is the chosen one
+
+    host.unmount();
+
+    // A store that never answers must not wedge the app: after the bound it renders under System.
+    // The bound is a real timer, so the wait is a real timer too — four immediates can complete in
+    // under a millisecond and race a 0 ms bound (observed once as a flake under an unrelated mutant).
+    const silent: KeyValueStore = { getItem: () => new Promise(() => {}), setItem: async () => {} };
+    const host2 = new HookHost(() => mod.AppearanceProvider({ children: Probe(), store: silent, maxWaitMs: 1 }), new Map());
+    host2.mount();
+    host2.flush();
+    expect(host2.output).toBeNull();                      // still withheld before the bound
+    await new Promise((r) => setTimeout(r, 25));
+    host2.flush();
+    expect(host2.output).not.toBeNull();
+    host2.unmount();
+  });
+
+  it('AP15: the root holds the splash until fonts AND the appearance choice are ready (source pin)', async () => {
+    const root = (await import('node:fs')).readFileSync('app/_layout.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(root).toContain('SplashScreen.preventAutoHideAsync()');
+    // The hide lives in ThemedShell, which mounts only inside the provider's withheld tree, and
+    // fires on fonts — so both gates are open when the splash goes.
+    expect(root).toMatch(/function ThemedShell[\s\S]*?if \(fontsReady\) void SplashScreen\.hideAsync\(\)[\s\S]*?function RootLayout/);
+    expect(root).toContain('<ThemedShell fontsReady={fontsReady}>');
   });
 });

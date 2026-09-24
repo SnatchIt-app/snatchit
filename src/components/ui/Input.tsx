@@ -44,11 +44,13 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   const [focused, setFocused] = useState(false);
   const hasError = !!error;
 
+  // At rest the underline is the edge that identifies the field (border.control, 3:1 in both
+  // appearances); focus raises it to brand red and an error to status.error.
   const underline = hasError
     ? palette.status.error
     : focused
       ? palette.brand.red
-      : palette.border.strong;
+      : palette.border.control;
 
   return (
     <View style={[styles.wrap, disabled && styles.disabled, containerStyle]}>

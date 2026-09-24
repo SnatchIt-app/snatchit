@@ -18,6 +18,7 @@ import 'react-native-get-random-values';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
 import { router, Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -52,12 +53,23 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+// Hold the native splash until the brand fonts AND the persisted appearance choice are ready
+// (B, package 8 §6): the first painted frame must be the chosen appearance, never a System
+// frame that then flips. AppearanceProvider withholds its tree until the choice is read, and
+// ThemedShell — which mounts only inside that tree — releases the splash once fonts land. On
+// web the call resolves as a no-op.
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
 /**
  * Appearance (owner 2026-09-23): the navigation theme and the status bar follow the resolved
  * scheme — System by default, or the user's explicit Light/Dark — instead of a hard-coded dark.
  */
-function ThemedShell({ children }: { children: ReactNode }) {
+function ThemedShell({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { scheme, palette } = useTheme();
+  // Mounted only once the appearance choice is read; fonts ready here means both gates are open.
+  useEffect(() => {
+    if (fontsReady) void SplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
   const navTheme = useMemo(() => {
     const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
     return {
@@ -154,7 +166,7 @@ function RootLayout() {
     <AppShell>
     <SafeAreaProvider>
     <AppearanceProvider>
-    <ThemedShell>
+    <ThemedShell fontsReady={fontsReady}>
       {fontsReady ? (
       <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />

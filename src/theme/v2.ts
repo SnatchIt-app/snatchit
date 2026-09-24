@@ -59,9 +59,12 @@ export const text = {
 export const brand = {
   red: '#FF1A1A',
   /**
-   * F-30 (owner 2026-09-24): the pressed fill is LIGHTER, not darker — #FF1A1A + 25% white,
-   * composited = #FF5353 — so the black label measures 6.6:1 pressed (it measured 3.6:1 on the
-   * old #CC0000). Visibly distinct with the 0.98 press scale; the press helper applies no opacity.
+   * F-30 (owner 2026-09-24, ONE value agreed with B at design c1e23125): the pressed fill is
+   * LIGHTER, not darker — #FF5353 (#FF1A1A under 25% white), an opaque token — so the black label
+   * reads 6.6:1 pressed (3.57:1 on the old #CC0000) and the fill clears 3:1 against both canvases
+   * (6.2:1 Midnight, 3.17:1 Daylight). Visibly distinct with the 0.98 press scale; the press
+   * helper applies no opacity. B's earlier #FF4C4C also passed; B's record adopts this value, so
+   * both token mirrors carry it and no further round is opened.
    */
   redPressed: '#FF5353',
   /** Selected-row tint and badge fill. */
@@ -76,6 +79,13 @@ export const border = {
   default: 'rgba(255,26,26,0.15)',
   strong: 'rgba(255,26,26,0.30)',
   overArt: 'rgba(255,255,255,0.10)',
+  /**
+   * The edge that IDENTIFIES a control — an input's underline at rest, a chip's outline, a
+   * secondary button's outline — graded at 3:1 (WCAG 1.4.11): 3.61:1 on the canvas, 3.40:1 on
+   * a surface. Dividers stay `default`: a rule that separates rows identifies nothing and is not
+   * graded (B, package 8). Neutral, like `overArt`, because a red edge would read as a state.
+   */
+  control: '#64656A',
 } as const;
 
 /**

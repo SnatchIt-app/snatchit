@@ -82,7 +82,7 @@ export function Button({
     variant === 'primary'
       ? { backgroundColor: palette.brand.red }
       : variant === 'secondary'
-        ? { borderWidth: 1, borderColor: palette.border.strong }
+        ? { borderWidth: 1, borderColor: palette.border.control }
         : variant === 'destructive'
           ? { borderWidth: 1, borderColor: palette.status.error }
           : {};

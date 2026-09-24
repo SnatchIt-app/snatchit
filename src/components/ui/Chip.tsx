@@ -85,7 +85,7 @@ function makeStyles(p: Palette) {
     paddingHorizontal: v2.space.md,
     borderRadius: v2.radius.none,
     borderWidth: 1,
-    borderColor: p.border.default,
+    borderColor: p.border.control,
     alignItems: 'center',
     justifyContent: 'center',
   },

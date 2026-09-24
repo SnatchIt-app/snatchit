@@ -62,22 +62,45 @@ export function useAppearancePreference(): {
   };
 }
 
-export function AppearanceProvider({ children, store }: { children: ReactNode; store?: KeyValueStore }) {
+/**
+ * How long startup waits for the persisted choice before rendering under System anyway. The
+ * read is one AsyncStorage key and normally settles in a few milliseconds; the bound only
+ * exists so a wedged store can never hold the whole app behind the splash.
+ */
+export const APPEARANCE_LOAD_BOUND_MS = 400;
+
+export function AppearanceProvider({
+  children,
+  store,
+  maxWaitMs = APPEARANCE_LOAD_BOUND_MS,
+}: {
+  children: ReactNode;
+  store?: KeyValueStore;
+  maxWaitMs?: number;
+}) {
   const pref = usePreference();
+  // Nothing under the provider paints until the stored choice is read (or the bound passes):
+  // painting first under System and then flipping to the person's explicit Light/Dark is the
+  // startup flash B's package 8 §6 asks to rule out. The root holds the native splash meanwhile.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     persistence = store ?? persistence ?? defaultStore();
     let alive = true;
     void loadAppearancePreference(persistence).then((loaded) => {
-      if (alive) setAppearancePreference(loaded);
+      if (!alive) return;
+      // A late answer (after the bound) still applies: the choice is not lost for this launch.
+      setAppearancePreference(loaded);
+      setReady(true);
     });
-    return () => { alive = false; };
-  }, [store]);
+    const bound = setTimeout(() => { if (alive) setReady(true); }, maxWaitMs);
+    return () => { alive = false; clearTimeout(bound); };
+  }, [store, maxWaitMs]);
 
   // An explicit Light/Dark is told to the OS so native surfaces match; System hands it back.
   useEffect(() => {
     Appearance.setColorScheme(pref === 'system' ? null : pref);
   }, [pref]);
 
-  return <>{children}</>;
+  return ready ? <>{children}</> : null;
 }
