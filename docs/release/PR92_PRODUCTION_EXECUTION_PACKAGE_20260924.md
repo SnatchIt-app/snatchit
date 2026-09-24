@@ -508,6 +508,10 @@ Outputs are in `scratchpad/apply_148/out/` and `edge/out/`.
      dispute_resolutions 0).
    - **Deploying #92's bundle is not the fix.** Per F-CR-148-SHARED it would write a *false* `payout_decisions` row
      (`buyer_confirmed true`). The fix is `payoutDeferred` handling these two codes; until then v37 stays.
+   - **v37 is not the safe side of the audit-truth axis either (D, verified).** Given a seller-win row, the live v37
+     already writes that false row through the refusals it recognises (reader sweep a1, corrected), and through the
+     success-path audit (a2). Holding v37 avoids two extra routes; it does not contain the defect. That defect predates
+     this execution and is tracked in FINDINGS, not here.
 
 **State now.** Production ledger 161 (max `20260924000000`); claim and notify at the 148 bodies;
 `enforce-transfer-expiry` v41 from `e73553d2`; the other nine edge functions unchanged. The repo carries 148 only on

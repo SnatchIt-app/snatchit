@@ -120,6 +120,25 @@ resolution fires both.
 - **Constraint:** no `confirm-and-release` deploy from `release/production-gate-20260918` once #92 has merged into it,
   and none from any other tree containing #92, until `payoutDeferred` handles these two codes without a
   confirmation claim.
+- **Correction (2026-09-24 ~17:35Z, D's finding, verified by A at `5b255838` and `e73553d2`): keeping v37 does not
+  contain the false record. It only avoids two new routes into it.** Given a seller-win row, a buyer call already
+  reaches `payoutDeferred` on the live v37:
+  - `confirm_transfer_received` raises "…from current status: buyer_confirmed" (`0550:202`), which trips the
+    `alreadyConfirmed` bypass (`confirm-and-release:207-209`).
+  - The §5 guards pass: status `buyer_confirmed`, `disputed_at` null after a resolution (the row shape rehearsal 6
+    produced with production's writer bodies), not released.
+  - `executePayoutAttempt` (`:386`) then refuses with a code v37 already knows: after 148's hold checks, `PAYMENT_NOT_SUCCEEDED`, `PAYMENT_NOT_LIVE`,
+    `PAYMENT_PARTIALLY_REFUNDED`, `SELLER_NOT_ONBOARDED` or `PAYOUT_AMOUNT_INVALID` (148 `:123-155`; before 148 the
+    same set without the hold checks).
+  - That becomes `not_eligible` (`:481-490`), then `payoutDeferred`, then a `payout_decisions` row with
+    `buyer_confirmed true`.
+  - If the claim does not refuse, a2's `release` audit row carries the same false flag.
+  **Limits:**
+  - Source only. The production body of `confirm_transfer_received` was not in R0's twelve.
+  - Needs a seller-win row (0 today) and a buyer call that current clients do not offer on a resolved transfer
+    (E-6). Older builds were not checked, and a direct API call remains possible.
+  - Prospective, not urgent. **It needs its own fix, not the `confirm-and-release` deploy decision:** `payoutDeferred`
+    and the `:401-421` audit must not assert a buyer confirmation when `buyer_confirmed_at` is NULL.
 
 ## Reader sweep — everything that treats `status='buyer_confirmed'` as buyer confirmation (A's read-only subagent, 2026-09-24; SERVER = #92 head `e73553d2`, CLIENT = `404bce38`)
 
@@ -129,7 +148,7 @@ list be trusted where they differ.
 
 | # | Class | Where | Status |
 |---|---|---|---|
-| a1 | (a) false record | `confirm-and-release` `payoutDeferred` (`:345-379`) → `payout_decisions` `BUYER_CONFIRMED` / `buyer_confirmed true` | unfixed; reachable only via a redeploy (F-CR-148-SHARED) |
+| a1 | (a) false record | `confirm-and-release` `payoutDeferred` (`:345-379`) → `payout_decisions` `BUYER_CONFIRMED` / `buyer_confirmed true` | unfixed. **Reachable on the live v37 today, given a seller-win row** (corrected 2026-09-24 after D; the earlier "reachable only via a redeploy" was wrong): any refusal v37 already recognises → `not_eligible` → `payoutDeferred`. F-CR-148-SHARED adds two more routes (see its correction) |
 | a2 | (a) false record | `confirm-and-release` `:401-421`: the `release` audit row on a buyer-called payout of a seller-win, reason `BUYER_CONFIRMED`, `buyer_confirmed true` | unfixed; predates #92; direct API call only (current clients offer confirm only on `seller_sent`) |
 | a3 | (a) false record | `record_payout_attempt_result` (`20260906120000:823`): the `reversal_required` decision sets `buyer_confirmed := status='buyer_confirmed'` | unfixed |
 | a4 | (a) false record | `flag_payout_reversal_required` (`20260906120000:894`): the same expression | unfixed |

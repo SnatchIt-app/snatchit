@@ -1669,3 +1669,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - P1's v40 is recorded as held by control flow.
   - D states it read production at 17:03:51Z and 17:04:53Z under the owner's authorisation; A cannot see it, so owner
     confirmation is requested.
+- **Correction to reader sweep a1 (D's finding; A verified at `5b255838`/`e73553d2`).** The false `payout_decisions`
+  row (`buyer_confirmed true`) is reachable on the live `confirm-and-release` v37, given a seller-win row. The path is
+  the `alreadyConfirmed` bypass, then any refusal v37 already recognises, then `payoutDeferred`. "Reachable only via a
+  redeploy" was wrong. Holding v37 only avoids two more routes. The defect needs its own fix (neither `payoutDeferred`
+  nor the release audit may assert a confirmation when `buyer_confirmed_at` is NULL). It is prospective (0 seller-win
+  rows; current clients don't offer the call). D stopped production reads pending the owner's ruling on the scope of
+  D's witness authorisation, which D quoted in full.
