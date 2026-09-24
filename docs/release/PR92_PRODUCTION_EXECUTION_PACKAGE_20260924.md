@@ -512,6 +512,13 @@ Outputs are in `scratchpad/apply_148/out/` and `edge/out/`.
      already writes that false row through the refusals it recognises (reader sweep a1, corrected), and through the
      success-path audit (a2). Holding v37 avoids two extra routes; it does not contain the defect. That defect predates
      this execution and is tracked in FINDINGS, not here.
+   - **What deploying (d) did on this axis:**
+     - (d)'s own edge writers write `buyer_confirmed: false`.
+     - (d) makes seller-win rows reach the DB writer a3 on `DUPLICATE_TRANSFER` only.
+     - After it pays a seller-win row, a later lost chargeback reaches a4. Both a3 and a4 derive the flag from
+       `status`.
+     - These are rare anomaly paths, but they are new for seller-win rows. The fix scope is a1–a4 (FINDINGS,
+       F-CR-148-SHARED follow-up).
 
 **State now.** Production ledger 161 (max `20260924000000`); claim and notify at the 148 bodies;
 `enforce-transfer-expiry` v41 from `e73553d2`; the other nine edge functions unchanged. The repo carries 148 only on

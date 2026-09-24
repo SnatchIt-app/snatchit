@@ -139,6 +139,31 @@ resolution fires both.
     (E-6). Older builds were not checked, and a direct API call remains possible.
   - Prospective, not urgent. **It needs its own fix, not the `confirm-and-release` deploy decision:** `payoutDeferred`
     and the `:401-421` audit must not assert a buyer confirmation when `buyer_confirmed_at` is NULL.
+- **Follow-up (2026-09-24 ~17:45Z, D's second pass; A verified each point):**
+  - **Only the genuine buyer can trip the bypass.** `0550:201` checks buyer identity before `:202` checks status, and
+    §5 checks `buyer_id` again.
+  - **The mechanism, not just the rehearsal row:** a seller-win is 065's unfreeze branch (`065:120-124`), and
+    `065:151` sets `disputed_at` to NULL on unfreeze.
+  - **Rank a2 (`:401-421`) above a1.** a2 is on the success path, so money has moved. It needs no hold: after 148,
+    an unheld seller-win row claims cleanly and pays.
+  - **Correction to D's "the falsity is confined to `confirm-and-release`":**
+    - The edge writers in the deployed `enforce-transfer-expiry` are clean. `logDecision` (`:821-852`, called only
+      from Phase 2 at `:1061/1075/1084`) and `recordManualReviewOnce` (`:870-897`) both write `buyer_confirmed:
+      false`.
+    - But (d) reaches `executePayoutAttempt`, which calls the DB writer a3 (`record_payout_attempt_result`,
+      `20260906120000:814-823`). a3 sets `buyer_confirmed := v_t.status = 'buyer_confirmed'`.
+    - For a seller-win row, `PAID_DURING_DISPUTE` is excluded explicitly (`:789`), so only `DUPLICATE_TRANSFER`
+      (`:793-798`, two real Stripe transfers for one obligation) reaches it.
+    - a4 (`flag_payout_reversal_required`, called by `stripe-webhook:681` on a chargeback lost after payout) uses
+      the same expression. It becomes reachable for any seller-win row that (d) has paid.
+    - Both routes are rare anomalies, but **deploying (d) did extend a3/a4 to seller-win rows through an automated
+      path.**
+  - **Fix scope is therefore all four writers, a1–a4.** Each must derive `buyer_confirmed` from
+    `buyer_confirmed_at IS NOT NULL`, never from `status`, and none may prepend `BUYER_CONFIRMED` without it.
+  - **Observation (D; not a finding):** a successful Phase 2b sweep writes no `payout_decisions` row. `sweepOne`
+    only counts `'paid'`, and Phase 2b's only decision writer is the manual-review one. This predates #92, but (d)
+    now carries operator-decided payouts, whose only record is then `payout_attempts` plus
+    `transfers.payout_released_at`.
 
 ## Reader sweep — everything that treats `status='buyer_confirmed'` as buyer confirmation (A's read-only subagent, 2026-09-24; SERVER = #92 head `e73553d2`, CLIENT = `404bce38`)
 
