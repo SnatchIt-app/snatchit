@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `7e578ed5` (updated by C, 2026-09-24)
+### ② Implemented on C's branch — `v3/midnight-app` @ `6f116c8e` (updated by C, 2026-09-24)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -164,6 +164,17 @@ facts only from the buyer's own payments row via the existing settled-payments r
 states now need their visual treatment reviewed against pkg4's transfer matrix** (StateBlock tones:
 warning for expired/payout reversed, neutral for the buyer's closed order). Mapping sent to A for his
 read; not called done until then.
+
+### F-30 closed (`6f116c8e`) — the pressed treatment, recorded
+
+Normal primary unchanged: #FF1A1A, black label (5.4:1). Pressed: `brand.redPressed = #FF5353` (#FF1A1A
+under 25% white) — black label 6.6:1 in both appearances, measured on the token; the press helper applies
+no opacity, so the rendered fill is the token; the 0.98 scale stays as the second cue; disabled unchanged
+(whole-control 0.4 opacity; inactive controls are exempt). Both token mirrors updated. **B:** the boards'
+darker pressed red (#CC0000, 3.6:1) is superseded — please redraw pressed states with #FF5353.
+**A has PASSed the four transfer cells + deadline at 7e578ed5** (docs/release/V3_REVIEW_NOTES_20260924.md);
+the seller's held date now shows from payout_hold_until when held. **B's checkout amount-source
+condition is PENDING A's lifecycle review** — the nearby total stays removed until then.
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
