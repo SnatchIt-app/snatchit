@@ -214,11 +214,24 @@ the pressed red is #FF5353 in both.
   B's "15 partial" are files that use the palette and import `v2` for **space / radius / type**, which need
   no conversion; by colour access exactly **1** is partial (`app/_layout.tsx`, 2 refs). Largest: Create 58,
   `_dev/foundation` 32, receive 30, send 29, notifications 27, profile/[id] 27, Checkout 25.
-- **Synthetic transfer-state gallery (owner-authorised, sandbox-only, read-only):** in progress — the five
-  approved blocks move to `src/components/transfer/TransferStateBlocks.tsx`, rendered by the real screens
-  AND by `app/_dev/transfer-states.tsx` (gated `IS_SANDBOX_BUILD || __DEV__`, redirect otherwise; entry only
-  via a sandbox-gated Settings row). Evidence: gallery pass = rendering with supplied props; tests = the
-  mappings; neither = live retrieval or the device data path.
+- **Synthetic transfer-state gallery (owner-authorised, sandbox-only, read-only) — `6c7fc18b`:** the blocks
+  live in `src/components/transfer/TransferStateBlocks.tsx`, rendered by the real screens AND by
+  `app/_dev/transfer-states.tsx` (component-level guard at render: `IS_SANDBOX_BUILD || __DEV__`, redirect
+  otherwise — TG5; static imports whitelisted side-effect-free — TG8; entry only via the sandbox-gated
+  Settings "Sandbox" section, rendered tests SG1/SG2). A-1 neutral hairlines landed in the same commit
+  (AP17). A's gap: TS3 renders the real send screen with a held row. Evidence: gallery pass = rendering
+  with supplied props; tests = the mappings; neither = live retrieval or the device data path (D5 / D6).
+- **Appearance matrix, corrected (owner 2026-09-24):** counted by actual static colour access at `6c7fc18b`.
+  **Consumer-build files still reading Midnight-only colour tokens: 53** (546 refs at `212783f2`; the two
+  transfer screens now read the palette only through the shared blocks and still carry their own static
+  styles). Excluded from that count as dev-only or unused: `app/_dev/foundation.tsx` (32 refs, `__DEV__`
+  gallery), `TransferStatusBadge` (zero importers), `StatCardStrip` (zero importers, themed anyway).
+  **Partial root layout:** `app/_layout.tsx` reads the palette for the navigation theme and status bar AND
+  keeps `v2.brand.red` for the loading spinner (identical in both appearances) plus five literals in the
+  "Build misconfigured" blocker (`#1a0000`, `#7a3b00`, `#FF1A1A`, `#ffb3b3`, `#ffd9a0`) — a fatal-error
+  screen that paints its own background and inks and is not a palette surface; recorded, not converted.
+  **Unresolved literals in palette-based files:** none other than that blocker (scan of every file that
+  reads `useTheme()`, black artwork scrims excluded as context-fixed).
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
