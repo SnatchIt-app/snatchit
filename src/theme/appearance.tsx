@@ -98,7 +98,12 @@ export function AppearanceProvider({
   }, [store, maxWaitMs]);
 
   // An explicit Light/Dark is told to the OS so native surfaces match; System hands it back.
+  // react-native-web does not implement `setColorScheme` (there are no OS surfaces to tint), and
+  // calling it there throws inside this provider, which takes the whole app to the error boundary.
+  // Feature-detected rather than Platform-branched so native keeps the identical call, and so any
+  // other runtime lacking the API degrades instead of crashing.
   useEffect(() => {
+    if (typeof Appearance.setColorScheme !== 'function') return;
     Appearance.setColorScheme(pref === 'system' ? null : pref);
   }, [pref]);
 

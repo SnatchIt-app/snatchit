@@ -17,7 +17,7 @@ import 'react-native-get-random-values';
 
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
-import { router, Stack } from 'expo-router';
+import { router, Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -142,8 +142,19 @@ function RootLayout() {
     setSentryUser(session ? { id: session.user.id, email: session.user.email ?? undefined } : null);
   }, [session, loading]);
 
+  // The V3 rendering harness under `app/_dev/` must paint a screen without a session, and the
+  // auth gate below would replace the route before it ever renders. The exemption is false FOR A
+  // PRODUCTION PAIRING at runtime — __DEV__ is false in a release bundle, and IS_SANDBOX_BUILD
+  // requires the env guard's three conjuncts (guard passed, APP_ENV 'sandbox', sandbox host) —
+  // so the gate behaves exactly as before there, though the _dev modules do still ship. The
+  // app/_dev/_layout.tsx gate is the second, independent runtime refusal.
+  // (owner 2026-09-24: web rendering of the approved boards; wording per A's review.)
+  const segments = useSegments();
+  const inDevHarness = (__DEV__ || IS_SANDBOX_BUILD) && segments[0] === '_dev';
+
   // Navigation is a separate concern and runs only on a real phase boundary.
   useEffect(() => {
+    if (inDevHarness) return;
     const phase = authPhase(session);
     const decision = rootRouteDecision({
       loading,
@@ -155,7 +166,7 @@ function RootLayout() {
     if (!decision.navigate) return;
     routedPhaseRef.current = phase;
     router.replace(decision.to);
-  }, [session, loading, isRecovery, onboarding]);
+  }, [session, loading, isRecovery, onboarding, inDevHarness]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
