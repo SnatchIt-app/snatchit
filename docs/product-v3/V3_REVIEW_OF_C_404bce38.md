@@ -93,3 +93,105 @@ This is also the lean-UI direction applied: the line explains a state the badge 
   carries no information — its designed role.
 - **The three risk tiers sharing an edge treatment.** The tiers are separated by three different sentences;
   the hue never carried them. Collapsing them is aligned with not exposing internal classifications.
+
+---
+
+## 4 · The transfer/dispute claim copy — independently swept, then verified at source
+
+The three commits `ca27d282`, `aee15697`, `404bce38` are **sound**, and I verified their premise myself:
+`transfers.status = 'buyer_confirmed'` is reached two ways — the buyer's own RPC, which writes
+`buyer_confirmed_at`, and `resolve_transfer_dispute` on `seller_win`, which never does — so
+`buyer_confirmed_at IS NULL ⇒ not the buyer` holds. The badge, both block bodies, the board row and the
+payout clause are now honest on that path.
+
+**What follows is the same defect class on statuses and surfaces those commits did not reach.** Every item
+is verified by my own read at `404bce38`, not accepted from the sweep.
+
+### 4.1 · `auto_released` is badged **"Received" / success** on the Bids board — fix now
+
+`src/lib/bids/bidState.ts:69-70` folds `buyer_confirmed` **and** `auto_released` into one
+`purchase_confirmed` status. The guard added by `aee15697` tests only the first:
+
+```ts
+const byOperator = row.purchaseTransferStatus === 'buyer_confirmed'
+  && row.purchaseBuyerConfirmedAt === null;
+label: byOperator ? 'Resolved' : 'Received',
+tone:  byOperator ? 'neutral'  : 'success',
+```
+
+So an `auto_released` row falls to **"Received" / success** — asserting the buyer confirmed receipt when
+what actually happened is that the review window **closed without a word from them**. The transfer screen
+for the same row says exactly that, and `transferState.ts`'s own header states the rule: `auto_released`
+means possession is unknown. `transferStatusMeta` honours it; `bidState.ts` does not.
+
+This is the identical defect the three commits fixed, one status over, and the same one-line shape of fix.
+
+### 4.2 · `tone="success"` was not branched on the two state blocks — fix now
+
+`app/transfer/receive/[id].tsx:535` and `app/transfer/send/[id].tsx:475` hard-code `tone="success"` for the
+whole `buyer_confirmed` block, **including the operator-decision case**. `aee15697` made the badge
+`neutral` there on the stated ground that "it is not a success for them either" — the block title still
+renders in the success role. The buyer who reported non-receipt and lost reads "Dispute resolved" presented
+as a success. C's own reasoning applies unchanged; only the badge got it.
+
+### 4.3 · A failed payments read is indistinguishable from "no refund" — fix now
+
+`app/transfer/receive/[id].tsx:113`:
+
+```ts
+void readSettledPayments(supabase, listingId, userId).then((read) => {
+  if (!alive || !('rows' in read)) return;   // ← the error branch is discarded
+```
+
+On a read failure the effect returns early and `refundFacts` stays `null`, so `BuyerClosedBlock` renders
+the same line as a genuine no-refund-recorded. `settledRead.ts` exists precisely to stop this — its header
+says it "never turns an error into 'no rows'" — and the distinction is thrown away at the call site.
+
+This is the standing rule directly: **unknown-payment must stay distinct from expired and reversed.** A
+buyer whose refund the app *could not read* is told the same thing as one whose payment carries no refund.
+
+### 4.4 · Resolved disputes still render as open — report to A, not a quick fix
+
+Verified in `065_dispute_resolution.sql:128-141`. On `buyer_win` and `partial_refund` the server sets
+`dispute_resolution` and `dispute_resolved_at` but **leaves `status = 'disputed'`** — deliberately, since
+`transfers_status_check` has no `resolved` value. A `seller_win` on an already-paid transfer likewise keeps
+the previous status.
+
+Neither screen selects those columns — I checked both selects at `receive/[id].tsx:166` and
+`send/[id].tsx:106`. So `status='disputed'` covers **four** distinct situations — open, buyer-won,
+partial-refund, and seller-won-after-payout — and all four render:
+
+> *"Our team typically reviews within 24 hours. Your payment stays on hold until this is resolved."*
+
+A buyer who **won** their dispute is told it is still under review, with a 24-hour SLA that has already
+elapsed. The seller in the same row is told their payout is "on hold pending review" when the review is over.
+
+**This is the mirror image of the defect the three commits fixed**, and the same move is available — key on
+a column the row already carries. But adding `dispute_resolution` / `dispute_resolved_at` to those selects
+is **an authoritative-state read**, so it goes through A's review of the gated surface, not into this build.
+
+### 4.5 · Lower-ranked, reported for C's judgement
+
+- **`Your payout is being processed…`** (`send/[id].tsx:473`) is still reachable for a seller-win decision
+  when `payout_review_status IS NULL` — the common case, since only `apply_payout_hold` /
+  `apply_manual_review` ever write it. `aee15697` fixed the `held` and `manual_review` arms with reasoning
+  that applies here too. The only thing backing "being processed" is the *absence* of `payout_released_at`.
+- **Timelines with nothing behind them:** `"it releases automatically once it clears review"`
+  (`TransferStateBlocks.tsx:115`) is gated on a NULL column **and the device clock**; `"funds are held
+  until shortly after the event"` (`:116`) states a timeline precisely in the branch where
+  `payout_hold_until` is **absent**; `"A refund is due"` (`transferState.ts:293`) asserts a refund is owed
+  with nothing read from `payments` — note its `reversed` sibling at `:295` is properly conditional.
+- **`"This order is complete."`** (`transferState.ts:230`) — buyer, `auto_released`, `payout_released_at
+  IS NULL`. The seller in the *identical* condition is told "Your payout has not been recorded as released
+  yet." That sentence is the model; the buyer's asserts completion on a release *decision* and withholds
+  the one fact the app knows.
+- **`expired` and `reversed` are excluded from the Bids query** (`app/(tabs)/bids.tsx:222`), so those
+  purchases fall through to listing-derived state and read as `Sold` / `Ended` — or, for a Buy Now with no
+  bid row, vanish from the board.
+
+### 4.6 · What this does and does not affect
+
+**None of this blocks the build.** All of it is copy, and none of it is reachable by the phone-test pass:
+`auto_released`, a resolved dispute and a failed refund read have no fixture, and A's sheet proposes none.
+These are **source-review findings**, recorded as such — no computed contrast applies and there is no
+device observation to make.
