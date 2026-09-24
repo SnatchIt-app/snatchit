@@ -18,44 +18,55 @@ by **actual colour-token access** (`v2.surface|text|brand|border|status`, includ
 | `.tsx` total | **82** | |
 | No colour access at all | **14** | 2 of them import `v2` for **spacing/type only** — not conversion work |
 | **Colour-bearing** | **68** | |
-| → static `v2` colour only — **unmigrated** | **45** | was reported as 55 |
+| → static `v2` colour only — **unmigrated** | **45** (**44** consumer-reachable) | was reported as 55 |
 | → static + palette — **partial** | **1** (`app/_layout.tsx`) | was reported as 15 |
 | → palette only | **16** | was reported as 2 |
-| → literals only, no token | **6** | |
+| → literals only, no token | **6** (**4** consumer-reachable) | |
 
 **C has migrated four times more than my figure implied.** The remaining work is **45 + 6**, not 55 + 15.
 
+### Consumer-build completion count — dev-only and unused surfaces excluded
+
+**Completion should be measured against what a consumer build can reach.** Two exclusions:
+
+| Excluded | Why |
+|---|---|
+| `app/_dev/foundation.tsx` (32 colour accesses) | **Dev-only route**, `__DEV__`-gated |
+| `TransferStatusBadge.tsx` (14 literals) · **`StatCardStrip.tsx`** | **Zero importers.** Nothing renders them |
+
+**`StatCardStrip` has zero importers too — I had it on the blocker list as A-4. That was wrong**, the same
+error I already corrected for `TransferStatusBadge`. Neither blocks the build; both block only whoever wires
+them.
+
+| Consumer-reachable, colour-bearing | **65** |
+|---|---|
+| Palette-only | **16** — of which **11 carry no colour literal at all** |
+| **Partial — `app/_layout.tsx`** | **1.** Reads the palette **and** static `v2` colour. It is the **root layout**, so it frames every screen: it belongs in the completion count, not in a footnote |
+| Unmigrated | **44** |
+| Literal-only | **4** — `VerifiedSellerBadge`, `ProofImageViewer`, `PlatformInstructions`, `ErrorBoundary` |
+
 ### Palette-only is not the same as finished
 
-Of the 16 palette-only files, **11 carry no colour literal at all**. Five still do:
+Of the 16, **11 are clean**. Five carry literals — and **three of those are unresolved defects, not artwork**:
 
 | File | Literals | Verdict |
 |---|---|---|
-| `nav/AdaptiveDock.tsx` | 5 | **All wrong** — `:236 :238 :255 :261 :278`. A-1 / A-2 |
-| `media/EventMedia.tsx` | 5 | 4 are the scrim gradients — **correct, artwork**. `:309` the fallback initial is **wrong** (A-5) |
-| `ui/Sheet.tsx` | 1 | **Wrong** — `:135` grabber (A-3) |
-| `ui/IconButton.tsx` | 1 | `onArt` — **correct, artwork** |
-| `ui/MediaUpload.tsx` | 1 | overlay on a photo — **correct, artwork** |
+| `nav/AdaptiveDock.tsx` | 5 | **All wrong** — `:236 :238 :255 :261 :278`. **Open** |
+| `media/EventMedia.tsx` | 5 | 4 are the scrim — **correct**. `:309` fallback initial is **wrong. Open** |
+| `ui/Sheet.tsx` | 1 | `:135` grabber — **wrong. Open** |
+| `ui/IconButton.tsx` · `ui/MediaUpload.tsx` | 1 each | `onArt` and a photo overlay — **correct, artwork** |
 
-**Scheme-independent artwork colours are not conversion work.** Text and scrims over a seller's photo sit on
-the image, never on the canvas, and stay identical in both appearances.
+**A file reading the palette can still be unfinished.** These three are counted as open work even though
+their files sit in the palette-only column.
 
-### The 6 literal-only files
-
-`TransferStatusBadge` (14 — **zero importers, not a visible defect**) · `VerifiedSellerBadge` (2) ·
-`StatCardStrip` · `ProofImageViewer` (viewer backdrop — likely correct) · `PlatformInstructions` ·
-`ErrorBoundary`.
-
----
-
-## 2 · The 45 unmigrated, in work order
+## 2 · The 44 consumer unmigrated, in work order
 
 Weighted by colour accesses — the biggest conversions first:
 
 | Accesses | File |
 |---|---|
 | 58 | `src/screens/CreateListingScreen.tsx` |
-| 32 | `app/_dev/foundation.tsx` *(dev route)* |
+| — | ~~`app/_dev/foundation.tsx`~~ — **excluded, dev-only** |
 | 30 · 29 | `app/transfer/receive/[id].tsx` · `app/transfer/send/[id].tsx` |
 | 27 · 27 | `app/profile/[id].tsx` · `app/settings/notifications.tsx` |
 | 25 | `src/screens/checkout/CheckoutNative.tsx` |
@@ -86,4 +97,5 @@ most are among the cheapest to migrate.
 checkout · your order · create listing · my listings · send transfer.
 
 **This is design coverage. It is not implementation completion.** Of those ten screens, the implementations
-of listing detail, checkout, create, my listings, send transfer and your order are **still in the 45**.
+of listing detail, checkout, create, my listings, send transfer and your order are **still in the 44**, and
+the root layout that frames all of them is the one partial file.
