@@ -1,6 +1,8 @@
 # Payment-state and wording table for the V3 order/transfer screens (A → C, 2026-09-24)
 
 Owner instruction 2026-09-24: "Provide the evidence-backed payment-state and wording table for buyer expired, buyer reversed, seller reversed, and the review/automatic-release deadline. Distinguish order status, recorded refund amount and confirmed payout. State what the UI may truthfully say when evidence is missing."
+**Revised 2026-09-24 ~21:30Z (A):** §2d and §2e carry the two seller rulings sent to C at 20:56Z; they supersede the earlier text of those cells. This table is the shared wording reference for C (implementation), B (rendering/gallery) and E (audit).
+
 Every claim below is cited to the gate source at `5b255838` (migrations under `supabase/migrations/`, edges under `supabase/functions/`), which is what production runs as of 2026-09-23 23:22Z (ledger 160; ten functions deployed). Since 2026-09-24 16:55Z production also runs 148 and `enforce-transfer-expiry` v41 from #92; what they change is in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` §3 E-2 to E-4. Nothing here is inferred from the client.
 
 ## 1. The three facts are three different rows/columns — never derive one from another
@@ -38,14 +40,47 @@ Notation: **Order** = `transfers.status`; **Refund** = `payments.amount_refunded
 
 ### 2d. Seller, transfer `reversed`
 - **Server facts:** `status='reversed'`; `payout_released_at` and `stripe_transfer_id` remain set (history), so the row LOOKS paid out unless status is checked first. The reversed amount is not stored (Stripe's `amount_reversed` is in the event only).
-- **May say:** "Payout reversed" (no amount), with the dispute outcome if a dispute record exists; "This order's payout was reversed after a dispute/operator review."
-- **Must not say:** "Payout released" or any released date for a `reversed` row — check `status` BEFORE `payout_released_at` (order of precedence: `reversed` > `payout_released_at`); an amount reversed.
+- **May say (RULING, A → C 2026-09-24 20:56Z; supersedes this cell's earlier text):** title "Payout reversed"; body "A reversal was recorded on this order's payout. Contact support for details." No amount and no cause.
+  - Why: `mark_transfer_reversed` (0561) is the only writer of `'reversed'`, called by stripe-webhook's `transfer.reversed` handler (v42 :810–818) on **any** reversal event. It never compares `amount_reversed` with the transfer amount, so a **partial** reversal also reads `reversed`. The row records no cause.
+  - The earlier "reversed after a dispute/operator review" stated a cause, and "the payout was reversed" implied all of it. Both are withdrawn.
+- **Must not say:** "Payout released" or any released date for a `reversed` row. Check `status` BEFORE `payout_released_at` (order of precedence: `reversed` > `payout_released_at`). Also never an amount reversed, a cause (dispute, operator review), "fully"/"all", or **any buyer-refund fact**.
+  - A reversal (the seller's payout transfer) and a buyer refund (the payment row) are separate facts; neither implies the other.
+  - The seller's reversed block takes no refund props. **The gallery's four seller-reversed refund variants are stale.**
 
 ### 2e. The review / automatic-release deadline
 - **Server facts:** at `seller_sent`, `auto_release_at = seller_sent_at + 72h` (008:100–103). At that time the payout policy (039 header) decides: LOW risk → `auto_released` (039:220/:298) then paid by the cron (Phase 2b) → `payout_released_at`; MEDIUM → `payout_review_status='held'`, `payout_hold_until` = event date + `post_event_grace_hours` (24h default, 039:62), never more than `medium_max_hold_days` (7, 039:64) past `auto_release_at`, then manual review; HIGH → `payout_review_status='manual_review'` (039:265; no date); orders ≥ `high_value_cents` ($200 default) never auto-release on buyer silence (039:57–58); `disputed` rows are excluded from every auto path (039 header). Buyer confirmation (`buyer_confirmed`) releases without waiting for the deadline; the money fact is still `payout_released_at`.
 - **Buyer may say:** while `seller_sent`: "Confirm you received the tickets, or report a problem, before <auto_release_at>" — the deadline is the review window the buyer has (the server-enforced fact is that the release decision runs at `auto_release_at`). After it: `auto_released` → existing `buyerAutoReleasedCopy(payout_released_at)` (transferState.ts:186): the decision is stated; "released" money wording only when `payout_released_at` is set.
-- **Seller may say:** while `seller_sent` and `payout_review_status` NULL: "Release decision at <auto_release_at>" (existing send screen countdown, app/transfer/send/[id].tsx:153–157 reads `auto_release_at`); `payout_review_status='held'`: "Payout held until <payout_hold_until>"; `'manual_review'`: "Payout under review" (no date — none exists); `auto_released` without `payout_released_at`: "Review window passed" (existing send screen :458); with `payout_released_at`: "Payout released".
+- **Seller may say:** while `seller_sent` and `payout_review_status` NULL and `auto_release_at` present: **always** "Release decision at <auto_release_at>.", also after that time has passed. It is a scheduled server time, so it stays true. Nothing when `auto_release_at` is absent.
+  - **RULING, A → C 2026-09-24 20:56Z:** never "The buyer review window has passed" (`SELLER_WINDOW_PASSED`), and no branch on the device clock or on a countdown reading "Expired".
+    - The device clock is not an authority.
+    - The sentence is false even with a correct clock: `buyer_dispute_transfer` (0550, latest definer) accepts a report while `status = 'seller_sent'` regardless of `auto_release_at`. The window closes by a **status change** (`apply_auto_release` in the cron, or a buyer confirmation), not by the clock.
+  - Keep `SELLER_REPORT_WARNING` while `seller_sent`. The post-window state is the server's `auto_released`/`buyer_confirmed` status with its own copy. `payout_review_status='held'`: "Payout held until <payout_hold_until>"; `'manual_review'`: "Payout under review" (no date — none exists); `auto_released` without `payout_released_at`: "Review window passed" (existing send screen :458); with `payout_released_at`: "Payout released".
 - **Must not say:** a countdown after `disputed` (excluded from auto paths); "Payout released" from `auto_released` alone; a date for `manual_review`.
+
+### 2f. Buyer: what happens to the payment after purchase (RULING, A, 2026-09-24 ~21:45Z)
+- **Withdrawn:** "your payment is held until it reaches you" (checkout confirmation face, `CheckoutView.tsx:316` at C's
+  `d374bd3f`) and "Payment is held until your ticket reaches you." (`ESCROW_NOTE_COPY`, `src/lib/checkout/holdState.ts:97`,
+  a gated file). Both are pre-existing. The metadata version was already reworded in the submission checklist §4.
+  - **The system never observes delivery.** The seller's payout follows one of four things:
+    - the buyer's confirmation;
+    - the release decision after the review window when there is no report;
+    - an operator releasing an unreleased `seller_sent` row (144:807–829 → `admin_release_held_payout`, which sets
+      `auto_released`, 0551);
+    - since #92, a dispute resolved for the seller.
+    None of these depends on the ticket reaching the buyer.
+  - "Held" / "on hold" reads as a card authorisation, but the card is charged at checkout.
+- **True, and usable:** a report freezes the seller's payout.
+  - `buyer_dispute_transfer` (0550) accepts a report only while the order is `seller_sent`.
+  - Every release path either needs the row to still be `seller_sent` with no open dispute (144:813–819) or needs a
+    status the buyer's report prevents.
+  - So an accepted report always comes before any release, and the payout stays frozen until the report is resolved.
+- **Compliant example** (C and B may adjust the voice, not the claims). Confirmation face: "Your order is confirmed. The
+  seller sends the tickets next. If they don't arrive, report it from your order; a report freezes the seller's payout."
+  Escrow note: "You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's
+  payout."
+- **Must not say:** that the payment waits for the ticket to arrive; "on hold"; a deadline stated as a guarantee. An
+  operator can release before `auto_release_at`, so "you have until <date>" is not a promise the server keeps; "before
+  <date>" as an instruction is fine.
 
 ## 3. When evidence is missing — the truthful minimum
 

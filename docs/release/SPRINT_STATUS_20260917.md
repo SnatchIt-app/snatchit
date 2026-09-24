@@ -1869,3 +1869,42 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     refund variants are stale.
   - (3) Finding: SELLER_REVERSED_COPY overstates. A partial reversal also marks the row reversed, and the cause is not
     recorded. Replacement text sent.
+- **Owner's instruction, ~21:20Z (A, 2026-09-24): D's reads, the secret check, dashboard checks, seller rulings.**
+  - **G10 stays OPEN.** E relayed an owner ratification of D's review reads. The owner's later direct instruction to A
+    asked instead for a bounded list and said the owner will decide the scope, and A follows that instruction.
+    - Checklist §9 lists the 4 reads (R1–R4, reported 04:53–05:19Z): purpose, scope, figures, and A's retain/drop
+      recommendation. It was built from records, with no new production read.
+    - Every [D-PROD] figure is now tagged with its read time and "as of".
+    - Figures an authorised read measured since are re-cited to that read: 149 P3 at 20:30:20Z (payout_attempts 0,
+      dispute_resolutions 0, 5 open, seller-win rows 0) and A's 2026-09-17 R7 (EMAIL_ENABLED absent).
+  - **The Stripe-secret step was replaced.** The old instruction put the secret on the command line; it is removed from
+    every doc.
+    - New tool: `scripts/owner/secret_digest_compare.zsh` (sha256 `a4f1a636…0866`). It takes the secret as hidden
+      input, which goes only through a builtin into a pipe to `/usr/bin/shasum`. It clears the clipboard and prints
+      only the kind and length.
+    - Tests: 8/8 PASS with dummy values in a pseudo-terminal (exact match, trailing newline, wrong digest,
+      whitespace/uppercase, test-key kind, bad digest, the control URL, non-tty refusal).
+    - Echo witness: a copy of the tool with echo left on is caught by the same check.
+  - **Digest comparability (sandbox, read-only).** All 14 values are 64-hex. SUPABASE_URL's value is exactly
+    SHA-256(value): a trailing newline, SHA-1 and the other control's value do not match.
+    - The anon-key control did NOT match. The likely cause is a wrong candidate value; this is untested and recorded as
+      unexplained.
+    - A test of hand-set secrets was refused by the permission check because it guessed values. A did not pursue it.
+    - So G4 starts with a control on the production page (the prod SUPABASE_URL row; its expected digest is computed
+      locally). A mismatch after a passing control is "most likely a different value", not proof.
+  - **G3/G5 now say configuration presence only.** Neither is evidence of delivery, signature verification or a
+    working Apple Pay payment.
+  - **Seller rulings (C, 20:56Z) are now in the shared reference** `PAYMENT_STATE_WORDING_TABLE_20260924.md` §2d/§2e.
+    - §2d's own earlier "after a dispute/operator review" text was A's, and is withdrawn.
+  - **C's 102d8de9: CONFIRMED** (read at the commit). SELLER_WINDOW_PASSED is removed. The release line no longer
+    branches on the clock. The reversed copy is exactly the ruling's text. TG4b asserts the property.
+  - **C's d374bd3f (checkout split): PASS on behaviour** (a reading review; A ran no tests).
+    - The CheckoutScreen logic before the render is identical except for 3 presentation hooks.
+    - The payControl inputs and onPress mapping are byte-identical, and so are the button bindings.
+    - The success-haptic latch moved verbatim. The gated files are unchanged.
+    - One presentation-only difference: "Preparing your total" can now show while a changed total is pending.
+  - **RE-RULED (§2f):** "payment is held until it reaches you" (completed face) and ESCROW_NOTE_COPY
+    (holdState.ts:97) are withdrawn, because release never depends on delivery.
+    - True replacement: "a report freezes the seller's payout" (0550; 144:813–819; 0551).
+    - Pre-existing, so not a d374bd3f blocker.
+  - **Disputes:** the 5 stay unresolved; no action on them.

@@ -63,7 +63,7 @@ guard-bypass SQL; this plan does not do that.
 ## 4. The existing $300 listing and the stale live intents (owner decisions)
 
 - **`c8d04339-bb33-4bf3-945d-d23d7dd269ca`** (III Points Saturday GA, Buy Now $300, ends 2026-10-18) is today the only
-  active listing, and it carries an uncancelled pending live **$330** intent of 2026-09-03 [D-PROD].
+  active listing, and it carries an uncancelled pending live **$330** intent of 2026-09-03 [D-PROD 05:19Z, as of that read; checklist §9 R4].
   - Whose listing it is is **not in any record**. `STRIPE_NETWORK_TIMEOUT_REPORT.md:3-10` records the owner tapping
     "Pay $330" on their own iPhone on 2026-09-04, which suggests the intent is the owner's own attempt. Unconfirmed.
   - (a) If it is the owner's own or a test listing: cancel it in the app as its seller, and cancel the $330 intent (§5).
