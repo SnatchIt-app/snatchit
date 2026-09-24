@@ -1,0 +1,195 @@
+# PR #92 — production execution package: migration 148 + `enforce-transfer-expiry` (A, 2026-09-24)
+
+**Status: PREPARED, NOT EXECUTED, NOT AUTHORISED.** Nothing here has touched production. The owner's message of
+2026-09-24 authorised preparing this package, and explicitly not production execution or dispute resolution. D reviews
+it independently before it goes to the owner. The frozen artefacts are in A's scratchpad at `apply_148/`; §9 lists
+their hashes.
+
+## 1. Identity (verified 2026-09-24)
+
+| Item | Value | How verified |
+|---|---|---|
+| PR | [#92](https://github.com/SnatchIt-app/snatchit/pull/92), draft, "DO NOT MERGE — fix(disputes): seller-win payout eligibility and truthful seller notice (148)" | `gh pr view 92` |
+| Head | `e73553d26636ca2faa6ec846eba0dc19ee31a538` | `gh pr view` `headRefOid`; the frozen worktree `pr92_head` is at this sha and clean |
+| Base | `release/production-gate-20260918` at `aadf996e298c6733b4b23af4fcbf0efea1f8f6af` (the #91/147 merge); an ancestor of the head; `mergeStateStatus` CLEAN | `git merge-base --is-ancestor` |
+| CI at head | 9 checks pass: Admin console, Deno type-check, Immutability + ordering, Migrations apply cleanly (fresh DB), Typecheck/Lint/Unit, Web build, Vercel web, Vercel comments. Supabase Preview skipping. pgTAP at `e2205bbb`: Files=95, Tests=5517, PASS | `gh pr checks 92` |
+| Migration | `supabase/migrations/20260924000000_seller_win_dispute_payout_and_notice.sql`: blob `2b6e54d7…`, 13,567 B, md5 `4eb38855e9eb2dcbbdb45a13b50beeff`, sha256 `f9f45ae4aeaf86f843cb41da0db362188f6d073a89fff689ee291c375fe99a2d` | `git show` at the head; frozen copy `cmp`-equal |
+| Rollback | `supabase/rollbacks/20260924000000_…_rollback.sql`: blob `584af1b8…`, sha256 `8c5e34c403f964261064cf12f162a329db3f4606adba46bbec1f1c33cc3abaeb` | same |
+| Diff vs the gate | 8 files: the migration, the rollback, pgTAP 215, 2 test files, 1 fixture, `_shared/payouts.ts` (+2), `enforce-transfer-expiry/index.ts` (+49). No import line changed | `git diff --stat aadf996e..e73553d2` |
+| Reviews | D: 18 pass, with 2 "could not determine" (the mutant outcomes and P1 end to end). D has since reproduced both independently in an owner-authorised machine window: edge mutants 12/12 and SQL 12/12 against the pre-registered `predictions.json` (sha256 `dba54f11…`), an unmutated baseline 43/43, and Q5 (the genuine-confirmation control) failing exactly [28,29] | D's report, 2026-09-24 |
+
+## 2. What changes in production
+
+**Database, one request (migration text + ledger row, implicit single transaction):**
+- `public.claim_payout_attempt(uuid,text,interval)` and `public.notify_transfer_state_inbox()` are redefined by
+  `CREATE OR REPLACE`. The bodies are verbatim plus the additions. There is no table DDL, no grant statement and no
+  top-level DML; the only INSERT/UPDATE lines are inside the claim body, as a static check of the file shows.
+  `CREATE OR REPLACE` keeps the ACL, and the local ACL is identical before and after.
+- One ledger row is added: `20260924000000 | seller_win_dispute_payout_and_notice | created_by=claude-a/owner-authorised-148`.
+  The ledger goes from 160 to 161.
+
+**Edge:** `enforce-transfer-expiry` goes from v40 to v41. Its bundle is the gate's plus exactly two hunks: Phase 2b (d)
+in `index.ts`, and `_shared/payouts.ts` gaining `PAYOUT_HELD` and `PAYOUT_UNDER_REVIEW` in
+`PAYOUT_NOT_ELIGIBLE_REASONS`. The import closure is unchanged (5 shared files).
+
+**Deliberately NOT deployed: `confirm-and-release`, which stays at v37.** It bundles the same `_shared/payouts.ts`.
+With the new file, the two new refusal codes would classify as `not_eligible` and reach `payoutDeferred`
+(`confirm-and-release/index.ts:345-376`). For a seller-win row, that inserts a `payout_decisions` row asserting
+`buyer_confirmed true`, `reason_codes ['BUYER_CONFIRMED', <code>]`, `dispute_open false` and `risk_tier 'low'`, all
+hard-coded. That is an operator-facing record saying the buyer confirmed on a transfer the buyer disputed and lost:
+the same root cause as the false seller notice, in a different table for a different audience. D traced both
+branches and put it this way: deploying it "would fix a notification that lies to the seller while adding a decision
+row that lies to the operator". This is finding **F-CR-148-SHARED**. `payoutDeferred` must be fixed before any future
+`confirm-and-release` deploy from a tree that contains #92, including the gate once #92 merges into it.
+
+## 3. Expected effects
+
+| # | Effect | Evidence |
+|---|---|---|
+| E-1 | **At apply: no row changes, and nothing becomes payable.** The preflight requires 0 transfers in the seller-win shape (`status 'buyer_confirmed'`, `buyer_confirmed_at` NULL, `dispute_resolution 'resolved_seller_paid'`); D's reads show `dispute_resolutions` 0 rows and 5 open disputes | static file check; preflight |
+| E-2 | `claim_payout_attempt`: **for seller-win rows only**, it refuses `PAYOUT_UNDER_REVIEW` under manual review, and `PAYOUT_HELD` under a future hold or `held` with no end. Genuine buyer confirmations are unchanged | pgTAP 215 P-block; Q1–Q6, Q5 control |
+| E-3 | Trigger: the "Buyer confirmed receipt" notice fires only when `buyer_confirmed_at` is set. A seller-win resolution enqueues one in-app row: `dispute_resolved_seller`, "Dispute resolved in your favour", "The dispute on <title> was resolved in your favour.", dedupe `dispute_resolved:<id>:seller`. The notice says nothing about payout | 215 N-block; Q7–Q11 |
+| E-4 | Edge (d): each run selects up to 20 seller-win rows that meet all of these: resolved more than 15 min ago, payment succeeded, no Stripe transfer, not released, not disputed, not under manual review. It skips held rows and pays through the same attempt executor as (b). **With 0 such rows, (d) is a no-op** | vitest SW-*; edge mutants E1–E12 |
+| E-5 | **The first real effect is an operator's first seller-win resolution of one of the 5 open disputes.** The seller's in-app notice is written at once. About 15 min later the sweep pays, if there is no hold, the payment is live and succeeded, and the seller is onboarded. This is likely to be **the first production run of the attempt-based payout executor** (checklist E5), unless a genuine buyer confirmation comes first | source |
+| E-6 | **Expected log noise, by design, until F-CR-148-SHARED is fixed and `confirm-and-release` redeployed.** v37 is unchanged. If a buyer calls it on a held or manual-review seller-win row, the claim refuses with `PAYOUT_HELD` / `PAYOUT_UNDER_REVIEW`. v37's `rpcReason` does not know the code, so the outcome is `db_error` at stage `claim`. The function logs `confirm-and-release: payout attempt DB error: {stage: 'claim', …PAYOUT_HELD…}` (`console.error` only, no Sentry capture) and returns 200 `payout_status 'processing'`. No money moves and no row is written. Current clients do not offer that call on a resolved transfer: mobile `app/transfer/receive/[id].tsx:422` (`seller_sent`/`pending` only, at `404bce38`) and web `BuyerTransferPanel.tsx:140` (`seller_sent` only, at the gate). Older installed builds were not checked, and a direct API call remains possible. **Before 148, the same call pays the seller despite the hold**: the pre-148 claim body has no hold or review check at all (pre-148 replay, lines 48-86) | source; local body; D's trace |
+
+## 4. Preflight: production reads, run at execution time, each a STOP on mismatch
+
+| # | Step | Expected, or STOP |
+|---|---|---|
+| P1 | `deploy_148.sh enforce-transfer-expiry --dry` | `before` version **40**, `verify_jwt` True. The deployed source, downloaded, is byte-equal to the gate `5b255838` blobs (index + 5 shared). Proves the rollback target is the running code |
+| P2 | `apply_one_148.sh 00` (baseline read-back) | recorded, including census, grants matrix and switches; the comparison base for the post read-back |
+| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**. Informational: dispute_resolutions, open disputes, payout_attempts, both ACLs |
+
+The expected pre-state is not assumed. Production's last recorded values match it: claim defn `d3cd9fdd…` from the
+2026-09-22 read-back of `20260906120000`, and notify defn `37a46d03…` from the 2026-09-22 untouched-function comparison.
+Only 147 (`get_unsettled_payments`) has been applied since. The same four values were recomputed on the pre-148 replay
+`a_sw_base_rehears` today.
+
+## 5. Execution (A runs every step; owner authorises; D witnesses the reads if the owner authorises D)
+
+1. **P1, P2** (reads).
+2. **Apply:** `apply_one_148.sh 01`. This runs the P3 guard, then POSTs the migration text plus the ledger insert as one
+   request to the Management API (`POST /v1/projects/hqycwntpfoztoinemqns/database/query`, the 147 route), then the
+   read-back, then the **automatic post-assert**:
+   - ledger row, and ledger 161;
+   - claim defn `b6aae868…` + prosrc `ce30b56c…`;
+   - notify defn `8de79350…` + prosrc `ff103b3e…`;
+   - `secdef=true`, `search_path=public`;
+   - read-back grants delta: none.
+3. **Deploy, only after step 2 PASS:** `deploy_148.sh enforce-transfer-expiry`. It repeats the P1 guards, then runs
+   `supabase functions deploy --use-api` from the frozen `e73553d2` worktree, then checks:
+   - version 41, `verify_jwt` True;
+   - the deployed source downloaded back and **byte-compared to `e73553d2`**.
+4. **Run check, after at least 2 cron ticks** (every 2 min): `runcheck_148.sh <deploy time>`. This reads the cron's own
+   response bodies. It PASSes with at least 2 post-deploy runs, all HTTP 200, not timed out, and `errors` equal to the
+   newest pre-deploy run's value. A failing (d) query increments `errors`
+   (`index.ts:1224-1226`).
+5. **Records:** registry row 148 → applied; SPRINT_STATUS; this package's §10.
+6. **Repository:** mark #92 ready, retitle it without "DO NOT MERGE" and merge it into
+   `release/production-gate-20260918`, **not `main`**, as #91/147 was. This happens only after steps 2–4 PASS, so the
+   gate's tree equals production.
+
+Duration is about 15 minutes. It must happen **before the first of the 5 open disputes is resolved**. Nothing else
+needs to be quiet.
+
+## 6. Stop conditions and rollback
+
+| Where it stops | State left | Next |
+|---|---|---|
+| P1/P3 mismatch | nothing changed | report to the owner |
+| Apply HTTP ≠ 201 | nothing changed (one request, one transaction) | report |
+| Post-assert FAIL | 148 is in the database; the edge is untouched | `rollback_148.sh`. Its guard requires the 148 bodies and 1 ledger row; the rollback file itself refuses unless the bodies are 148's, and raises unless the restored bodies hash to pre-148. It then deletes the ledger row and reads back |
+| Deploy failure, or byte mismatch after deploy | DB at 148; edge at v40 or at an unverified v41 | rollback the edge with the **frozen** `deploy_one.sh enforce-transfer-expiry` (sha256 `029c6af7…`) from the `5b255838` worktree, which byte-verifies the gate source. The DB can stay at 148: the claim is only stricter, and seller-win rows stay unpaid as today |
+| Run check FAIL | both applied | edge rollback as above, then report. The DB decision is the owner's |
+
+**Rollback order when both must go: edge first, then the DB.** A new edge over a pre-148 claim would pay seller-win rows
+without the database's hold rule. The (d) loop's inline hold check would still skip them, but that is one layer, not
+two. The rollback reverses code only. It cannot reverse a payout already made, which is why the post-assert and run
+check come before any seller-win resolution.
+
+## 7. Local rehearsal (production-shaped for the objects 148 touches)
+
+See §10 for the run evidence. The rehearsal runs the **frozen apply script itself**. Its `LOCALDB=<db>_rehears` mode
+sends the same request texts to a local copy of the pre-148 replay with a 160-row stand-in ledger. It runs:
+- the positive control, P3 PASS on the base;
+- apply → read-back → post-assert;
+- the negative control, P3 re-run on the applied DB, which must FAIL;
+- the rollback request (the frozen rollback assembled by `rollback_148.sh`, `DRY=1`), then pre-hashes restored and the
+  ledger back to 160;
+- re-apply, with identical hashes;
+- pgTAP 215 on the re-applied DB, 43/43.
+
+**Evidence limits:**
+- The local harness is superuser with default ACLs, so its grants matrix is not production's. Only the delta is
+  meaningful.
+- The ledger is a stand-in.
+- The edge deploy and download path cannot be rehearsed locally. It was proven byte-faithful on 2026-09-22/23 (v38 → v39,
+  and the ten-function release).
+- 148 was not applied to the sandbox. That was not authorised, and the sandbox at ledger 144 is not production-shaped for
+  the payout path.
+
+## 8. Approval request (what the owner is asked to say)
+
+> "I authorise the PR #92 production execution as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at `<commit>`:
+> steps P1–P3 (reads), the apply of migration 148, the deploy of `enforce-transfer-expiry` only, the run check, the
+> records, and merging #92 into the release gate. On a failed read-back or run check, A may run the rollback in §6 for
+> the failing layer, edge first. This does not authorise resolving any dispute, deploying `confirm-and-release`, or any
+> other production change."
+
+Optional additions the owner may make:
+- D's read-only witness of P1–P3 and the read-backs;
+- whether the rollback is pre-authorised. If not, A stops at the failure and asks.
+
+## 9. Frozen artefacts (`scratchpad/apply_148/`)
+
+Recorded at freeze time in `README_148.md`, with sha256 values. Each derived script has its diff against the frozen
+precedent as the review surface:
+- `apply_one_148.sh`, vs `apply_one_147.sh` (`2260c00a…`);
+- `rollback_148.sh`, vs `rollback_147.sh`;
+- `deploy_148.sh`, vs `deploy_one.sh` (`029c6af7…`). Its `--dry` mode performs production **reads** (version and the pre-download), so it could not be exercised before authorisation; it is reviewed by diff only;
+- `runcheck_148.sh`, which is new;
+- `manifest_sha256.txt`, `rollback_sha256.txt` and `a_md5.txt`;
+- `d_md5.txt`, D's external anchor, computed from the git ref.
+
+## 10. Rehearsal and freeze record (A, 2026-09-24 ~15:58Z)
+
+**Rehearsal**, run by the frozen `apply_one_148.sh` in `LOCALDB` mode against `a_148fbf_rehears`: a copy of the pre-148
+replay `a_sw_base_rehears`, with a 160-row stand-in ledger whose max is `20260923000000`.
+1. `00` baseline: ledger 160; census recorded; 75 grant rows.
+2. `01`: D anchor ok (md5 `4eb38855…`, 13,567 B). P3 **PASS**, every value equal to production's recorded pre-state. HTTP 201.
+   Read-back: ledger row + 161, claim `b6aae868…`/`ce30b56c…`, notify `8de79350…`/`ff103b3e…`, `secdef=true`,
+   `search_path=public`, execute grants unchanged (service_role only), grants delta none, census unchanged.
+   **POST-APPLY ASSERTION: PASS.**
+3. Negative control, `01` on the applied DB: P3 reports ledger 1/161 and both 148 hashes; "UNEXPECTED STARTING STATE —
+   NOT APPLYING 148", exit 3.
+4. Rollback: `DRY=1 rollback_148.sh` assembled the request (sha256 `626db799…`). Its guard SQL on the applied DB returned
+   exactly the rollback's expected values. The request ran; the read-back shows ledger 160, claim `d3cd9fdd…`/`083bf9a3…`,
+   notify `37a46d03…`/`203f7c7d…`, grants delta none. The guard SQL re-run afterwards no longer matches, which is its
+   negative control.
+5. Re-apply: P3 PASS, and the same four post hashes. **POST-APPLY ASSERTION: PASS.**
+6. pgTAP 215 on the re-applied DB: plan 1..43, **ok 43, not ok 0**.
+7. The production request assembled offline (`DRY=1 apply_one_148.sh 01`, no network call) is **byte-identical** to the
+   rehearsed request: sha256 `c91cec23ac3d87bba2d988326b07c4f445e3f529da48be5c60f9093f50fcb145`, 27,375 B.
+
+Run check: `runcheck_148.sh`'s query and verdict logic were exercised on a stub `net._http_response` with the same
+columns. Two healthy post-deploy runs gave PASS. One post-deploy run with `errors=1` gave FAIL.
+
+**D's external anchor** (`d_anchor_verbatim.txt`), computed by D from the git ref: migration md5 `4eb38855…`, 13,567 B,
+sha256 `f9f45ae4…`, blob `2b6e54d7…`; rollback sha256 `8c5e34c4…`, md5 `b72d4104…`, 11,271 B, blob `584af1b8…`. All
+equal A's. `d_md5.txt` holds it in the script's one-line format: `20260924000000 4eb38855e9eb2dcbbdb45a13b50beeff 13567`.
+
+**Frozen (read-only), sha256:**
+
+| File | sha256 | Bytes |
+|---|---|---|
+| `apply_one_148.sh` | `8977efae8b9f7e5e328eb420489b58ae574ed3ed3646ff51311f98566e3f7a8d` | 15,403 |
+| `rollback_148.sh` | `f33ade583ea9c31b131c834868c84ac86c38ea82ab8c6b1ef8e3de07e58f8d3f` | 4,501 |
+| `deploy_148.sh` | `4db0969b5b02ddb36c38e5a1a76c132d78001af7cfc8a7d2962e39a44cbcb511` | 6,410 |
+| `runcheck_148.sh` | `c1b9abf9093d1aee636dc970353db518df0252e5c2dbfdd47bc05e7205056e12` | 3,448 |
+| `migrations/20260924000000_…sql` | `f9f45ae4aeaf86f843cb41da0db362188f6d073a89fff689ee291c375fe99a2d` | 13,567 |
+| `rollbacks/20260924000000_…_rollback.sql` | `8c5e34c403f964261064cf12f162a329db3f4606adba46bbec1f1c33cc3abaeb` | 11,271 |
+| `d_md5.txt` (= `a_md5.txt`) | `b7f8961747ecf1b3cbdb5a2aaba771bbf09db6db8e797404d0182924663b5385` | 54 |
+| review surfaces: `diff_vs_apply_one_147.patch` (93 changed lines), `diff_vs_rollback_147.patch` (50), `diff_vs_deploy_one.patch` (44) | `c7d4e1ca…`, `0a3d458f…`, `74886138…` | |
+
+The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D re-review and a new hash.
