@@ -121,7 +121,9 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(host, '$95.00')).toBeDefined();
     expect(byText(host, 'Service fee (10%)')).toBeDefined();
     expect(byText(host, '$9.50')).toBeDefined();
-    expect(byText(host, 'Your total if you win')).toBeDefined();
+    // R-2 (B): no total row — the CTA sub-label states the minimum all-in; the figure must not
+    // appear in the panel at all.
+    expect(byText(host, 'Your total if you win')).toBeUndefined();
     const totals: string[] = [];
     const walk = (node: unknown) => {
       if (Array.isArray(node)) { node.forEach(walk); return; }
@@ -131,20 +133,19 @@ describe('TransactionPanel — the §5 panel', () => {
       walk(el.props.children);
     };
     walk(host.output);
-    expect(totals).toHaveLength(1);
+    expect(totals).toHaveLength(0);
     // The fee is named in the breakdown; the old trailing fee sentence is gone from live views.
     expect(byText(host, 'All prices include the 10% service fee.')).toBeUndefined();
 
     const closed = await mountPanel({ mode: 'closed', nextBidAllIn: null, minBidBase: null, minBidFee: null, clock: null });
     expect(byText(closed, 'If you bid the minimum')).toBeUndefined();
-    expect(byText(closed, 'Your total if you win')).toBeUndefined();
 
     // Defence in depth: even if a caller hands a closed panel the row values (L6 survived the
     // first control run because only the nulled case was pinned), the block must stay hidden —
     // a would-be total on a closed auction is an offer that no longer exists.
     const closedWithValues = await mountPanel({ mode: 'closed', clock: null });
     expect(byText(closedWithValues, 'If you bid the minimum')).toBeUndefined();
-    expect(byText(closedWithValues, 'Your total if you win')).toBeUndefined();
+    expect(byText(closedWithValues, 'Service fee (10%)')).toBeUndefined();
   });
 
   it('LP5: sold shows what it went for, no bid arithmetic — and keeps its one fee sentence', async () => {
@@ -206,5 +207,15 @@ describe('screen wiring (source pins)', () => {
     expect(src).toContain("label: 'Neighborhood'");
     expect(src).toContain('PLATFORM_INSTRUCTIONS[');
     expect(src).toContain('minBidBase');
+  });
+
+  it('LS2 (F-29): the "place a bid instead" recovery is offered only when a bid is actually available', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toMatch(/const bidAvailable = !\(ended \|\| isSold\) && !\(isReserved && listing\.reserved_by !== user\.id\);/);
+    expect(src).toContain("bidAvailable ? 'You can place a bid instead.' : \"Buy Now isn't offered on this listing.\"");
+    expect(src).not.toContain("'This listing does not have Buy Now enabled.'");
   });
 });

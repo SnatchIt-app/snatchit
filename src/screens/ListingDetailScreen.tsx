@@ -734,7 +734,10 @@ export default function ListingDetailScreen({ id }: Props) {
       Alert.alert('Not allowed', 'You cannot purchase your own listing.'); return;
     }
     if (!listing.buy_now_enabled || listing.buy_now_price == null) {
-      Alert.alert('Buy Now unavailable', 'This listing does not have Buy Now enabled.'); return;
+      // F-29 (owner 2026-09-23): offer the bid recovery only when a bid is genuinely available —
+      // the same conditions the later guards and detailState apply — never an unavailable action.
+      const bidAvailable = !(ended || isSold) && !(isReserved && listing.reserved_by !== user.id);
+      Alert.alert('Buy Now unavailable', bidAvailable ? 'You can place a bid instead.' : "Buy Now isn't offered on this listing."); return;
     }
     if (ended || isSold) { Alert.alert('Not available', 'This listing is no longer available.'); return; }
     if (reservedByOther) {

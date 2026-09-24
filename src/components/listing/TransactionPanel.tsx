@@ -5,7 +5,8 @@
  * merged: the PANEL states what the listing stands at now — one all-in price, the ticket
  * count it buys, the bid count and the clock — and says nothing about the buyer's total. The
  * BREAKDOWN below it belongs to the bid being offered ("If you bid the minimum"), every row
- * preformatted by the caller through the one money module. The buy-now amount lives on its own
+ * preformatted by the caller through the one money module. R-2 (B, 2026-09-23): the would-be
+ * total is NOT repeated here — the bid CTA's sub-label already states the minimum all-in. The buy-now amount lives on its own
  * CTA in the sticky bar (which keeps Buy Now primary — the owner reaffirmed the hierarchy);
  * printing it here as well made the panel a second, competing statement of the offer.
  *
@@ -117,10 +118,6 @@ export function TransactionPanel({
             <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee (10%)</Text>
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidFee}</Text>
           </View>
-          <View style={[styles.bRow, styles.bTotalRow]}>
-            <Text style={[textStyle('label'), styles.bLabel]}>Your total if you win</Text>
-            <Text style={[textStyle('price'), styles.bTotal]} numberOfLines={1}>{nextBidAllIn}</Text>
-          </View>
         </View>
       ) : null}
     </View>
@@ -161,11 +158,5 @@ const styles = StyleSheet.create({
   bEyebrow: { color: v2.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
   bLabel: { color: v2.text.secondary },
   bValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  bTotalRow: {
-    borderTopWidth: 1,
-    borderTopColor: v2.border.default,
-    paddingTop: v2.space.xs,
-  },
-  bTotal: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
   note: { color: v2.text.muted },
 });

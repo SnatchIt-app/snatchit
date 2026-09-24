@@ -53,7 +53,6 @@ import {
   sellingMethodBlurb,
   submitCtaLabel,
   proceedsKicker,
-  proceedsLabel,
 } from '@/src/lib/sell/sellState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -808,13 +807,14 @@ export default function CreateListingScreen() {
           ) : null}
 
           {/* Lightweight review — authoritative money helpers only */}
+          {/* R-4 (owner 2026-09-23): the card keeps its purpose — it renders only when the form
+              is valid, reviewing WHAT will be listed. The money sides are stated once elsewhere
+              (buyer side on the price field, seller net at the sticky), so they are not repeated. */}
           {summary.valid ? (
             <View style={sx.reviewCard}>
               <ReviewRow label="Event" value={eventName.trim() || '—'} />
               <ReviewRow label="Tickets" value={ticketType ? `${quantity} × ${ticketType}` : `${quantity}`} />
               <ReviewRow label="Selling" value={buyNowEnabled ? 'Auction + Buy Now' : 'Auction'} />
-              <ReviewRow label="Buyer pays" value={summary.buyerAllInLabel} />
-              <ReviewRow label="You receive" value={proceedsLabel(summary.sellerNet, quantity)} />
             </View>
           ) : null}
 

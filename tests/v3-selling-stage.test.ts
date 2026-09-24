@@ -56,6 +56,15 @@ describe('Create — money sides once each; the summary at the action (§1)', ()
     expect(s).toMatch(/summary\.valid \? \([\s\S]{0,900}\) : submitted \? \([\s\S]{0,300}Fix the highlighted fields/);
   });
 
+  it('SL6 (R-4): the review card keeps Event / Tickets / Selling and drops the two money rows', () => {
+    const s = src();
+    expect(s).toContain('<ReviewRow label="Event"');
+    expect(s).toContain('<ReviewRow label="Selling"');
+    expect(s).not.toContain('<ReviewRow label="Buyer pays"');
+    expect(s).not.toContain('<ReviewRow label="You receive"');
+    expect(s).toMatch(/summary\.valid \? \(\s*<View style=\{sx\.reviewCard\}>/);
+  });
+
   it('SL5: "Image added" stays secondary ink — green is reserved for confirmed money states', () => {
     const s = code('src/components/ui/MediaUpload.tsx');
     expect(s).toContain("'Image added'");
