@@ -163,7 +163,7 @@ sends the same request texts to a local copy of the pre-148 replay with a 160-ro
 These are three separate decisions, following D's review, so the apply can be approved without pre-authorising a
 rollback or a merge.
 
-**(R0) Recommended first: one read-only production query of function definitions.** It reads definitions only, no
+**(R0) Required before (A): one read-only production query of function definitions.** It reads definitions only, no
 table rows and no user data. It uses the frozen `r0_read.sh`, `r0_narrow.sql` / `r0_wide.sql`, and a frozen local
 reference. The comparator was self-tested: 12/12 identical against itself, and a swapped-argument tamper was flagged
 with the exact field. There are two options, deliberately not bundled, because they answer different questions:
@@ -180,7 +180,10 @@ with the exact field. There are two options, deliberately not bundled, because t
   > (R0-wide in §8 of the package)."
 - If only R0-narrow is taken, **the wide question stays recorded as open** in FINDINGS, not dropped.
 
-**(A) Required: the apply and deploy.**
+**(A) Required: the apply and deploy. It runs only after R0 (narrow or wide) has run and A and D have reviewed the
+writer result. This order is mandatory, not advisory.** P3's exact-signature casts make a changed writer signature fail
+P3 as an unexplained "PRESTATE HTTP ≠ 201", exit 3, with nothing applied. That opacity is acceptable **only** because R0
+has already explained it (D). If R0-first is ever relaxed, P3 must first be changed to report the signature itself.
 > "I authorise the PR #92 production apply and deploy as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at
 > `<commit>`: the preflight reads P1–P3, the apply of migration 148, the deploy of `enforce-transfer-expiry` only, the
 > run check, and the records. This does not authorise any rollback, merging #92, resolving any dispute, deploying
@@ -333,7 +336,17 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
     - P3 in the apply script uses the same exact-signature casts. A changed signature there makes the P3 query error:
       HTTP ≠ 201, "PRESTATE HTTP", exit 3, nothing applied. That is safe and loud, but it does not explain itself,
       which is one more reason to run R0 first.
-- **Adopted from D:** the mode gate, the rollback-order reasoning, the §8 split, and the binding contract.
+- **Adopted from D:** the mode gate, the rollback-order reasoning, the §8 split, the binding contract, the R0
+  overload listing, and R0-first as mandatory.
+- **D's final review status (~16:35Z):**
+  - **R0 change accepted; either variant is safe to run.**
+  - D verified from the artefacts: name-based overload subqueries (2 lookups and 2 overload subqueries in the narrow
+    file); the three comparator states (lines 29 and 35); the gate at line 7 before the token read at line 12; zero
+    write or DDL verbs; catalog only, no application table.
+  - **Not verified by D:** the E2E-1 to E2E-3 results (A's); §10; the regenerated diffs beyond `CONFIRM_REF` and P3;
+    rehearsals 4–5 as executed; `deploy --dry`.
+  - D: "The package is ready for the owner as far as my review goes, with the three decisions in §8 separate and R0
+    sequenced first."
 
 **Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats
 `status='buyer_confirmed'` as proof the buyer confirmed.

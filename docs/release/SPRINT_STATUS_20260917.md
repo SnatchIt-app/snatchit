@@ -1590,3 +1590,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Tested end to end through the real query:** identical; re-created with a swapped order → "EXISTS AT A DIFFERENT
     SIGNATURE"; dropped → "NO FUNCTION OF THIS NAME".
   - R0 is re-frozen, and the package records it.
+- **D accepted the R0 change (~16:35Z); the #92 package is ready for the owner.**
+  - R0 is now a mandatory prerequisite of (A), because P3's exact-signature casts would fail opaquely without it (D).
+  - Unreviewed by D, as recorded in §11: §10, the regenerated diffs beyond `CONFIRM_REF` and P3, rehearsals 4–5, the
+    E2E-1 to E2E-3 results, and `deploy --dry`.
