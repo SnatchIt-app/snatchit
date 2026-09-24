@@ -229,9 +229,12 @@ describe('shipped-source guards — no Alert on this screen reads a server strin
     expect(copy).toBeGreaterThan(chips);
     expect(copy).toBeLessThan(component);
 
-    // Used at the insert error, after the insert and before the success path.
+    // Used at the insert error, after the insert and before the success path. Searched FROM the
+    // insert, because the same copy now also serves the THROW path above submitBid (E's finding: a
+    // transport exception outside the `{ error }` channel has the same unknown outcome), so a plain
+    // indexOf would measure the wrong arm.
     const insert = code.indexOf("from('bids').insert(");
-    const used = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)');
+    const used = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)', insert);
     const haptic = code.indexOf('hapticConfirm();');
     expect(insert).toBeGreaterThan(0);
     expect(used).toBeGreaterThan(insert);

@@ -99,7 +99,10 @@ describe('PlaceBidScreen — shipped-source guards', () => {
      * was being read out to a bidder on the screen where money is committed. The ORDERING this case
      * is about is unchanged, and it is the same arm.
      */
-    const failed = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)');
+    // Searched FROM the insert: the same copy also serves the throw path, which sits above
+     // submitBid, so a plain indexOf would find that one and this ordering check would be about the
+     // wrong arm (it failed exactly that way when the throw path was reworded).
+    const failed = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)', insert);
     const haptic = code.indexOf('hapticConfirm();');
     const reread = code.indexOf("select('current_bid')");
     const outcome = code.indexOf('bidOutcomeCopy(bidOutcome(amount, freshBid), amount, freshBid)');

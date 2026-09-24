@@ -23,8 +23,23 @@ import { describe, expect, it } from 'vitest';
 import { ESCROW_NOTE_COPY, showEscrowNote } from '../src/lib/checkout/holdState';
 
 describe('the rule', () => {
-  it('E1: the line is the existing sentence, now held in the copy module', () => {
-    expect(ESCROW_NOTE_COPY).toBe('Payment is held until your ticket reaches you. Secured by Stripe.');
+  it("E1 (A's ruling §2f, 2026-09-24): the line states what the product actually does — no delivery-linked hold", () => {
+    /*
+     * WITHDRAWN by A: "Payment is held until your ticket reaches you." The system never observes
+     * delivery, and the seller's payout follows one of four things, none of which is the ticket
+     * arriving: the buyer's confirmation; the release decision after the review window with no
+     * report; an operator releasing an unreleased seller_sent row (admin_release_held_payout, 0551);
+     * or a dispute resolved for the seller. "Held"/"on hold" also reads as a card authorisation,
+     * while the card is charged at checkout.
+     *
+     * TRUE and usable, from A's table: a report freezes the seller's payout. `buyer_dispute_transfer`
+     * (0550) accepts a report only while the order is seller_sent, and every release path needs that
+     * status with no open dispute — so an accepted report always precedes any release.
+     */
+    expect(ESCROW_NOTE_COPY).toBe("You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's payout.");
+    // A's must-nots, asserted rather than trusted.
+    expect(ESCROW_NOTE_COPY.toLowerCase()).not.toMatch(/held|on hold|until (your|the) ticket|reaches you|escrow/);
+    expect(ESCROW_NOTE_COPY).not.toMatch(/\bby [A-Z]|\d{1,2} [A-Z][a-z]{2}/);   // no deadline as a guarantee
   });
 
   it('E2: hidden when the payment lookup failed', () => {

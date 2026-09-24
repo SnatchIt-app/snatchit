@@ -198,7 +198,10 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
     // A skipped run means a submission is already in flight: nothing to do.
     flight.run(() => submitBid(user.id, selectedBid)).catch(() => {
       setSubmitting(false);
-      Alert.alert('Bid failed', 'Something went wrong. Please try again.');
+      // A THROW has the same unknown outcome as an `{ error }` reply — a transport exception can be
+      // raised after the row committed — so it gets the same wording, which claims neither outcome
+      // and does not invite a second bid (E's finding on ed344659).
+      Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body);
     });
   }
 

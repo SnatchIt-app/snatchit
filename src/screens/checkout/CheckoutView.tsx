@@ -328,7 +328,11 @@ export function ConfirmationView({
       body={!completed
         ? copy.body
         : showTransfer
-          ? 'Your ticket is confirmed. The seller sends it next, and your payment is held until it reaches you.'
+          // A's ruling §2f (2026-09-24): the old clause — "your payment is held until it reaches you" —
+          // is withdrawn. Release never depends on delivery, which the system cannot observe; and
+          // "held" reads as a card authorisation, while the card was charged at checkout. What is
+          // true, and more useful to a buyer, is the recourse: a report freezes the seller's payout.
+          ? "Your order is confirmed. The seller sends the tickets next. If they don't arrive, report it from your order; a report freezes the seller's payout."
           : 'Your ticket is confirmed. Check your email for transfer instructions.'}
       identity={identity}
       cta={{

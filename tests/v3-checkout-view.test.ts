@@ -208,10 +208,19 @@ describe('the V3 rendering the boards ask for (pkg8-checkout-dark / -light)', ()
     expect(src).toMatch(/<Spinner label=\{pay\.label\} \/>/);
   });
 
-  it('CV8: the view formats no money and states no payout, refund or settlement wording of its own', () => {
+  it('CV8: the view formats no money, and states no payout STATE or refund figure of its own', () => {
     expect(src).not.toMatch(/formatCents|toFixed|\$\{.*cents/i);
-    // Every sentence it owns is about the SCREEN's own furniture; the money and outcome words all
-    // arrive as props or from SETTLEMENT_COPY.
-    expect(src).not.toMatch(/refunded|payout|released|automatic/i);
+    /*
+     * RETARGETED: the confirmation face now carries A's §2f recourse sentence, which names the
+     * payout — "a report freezes the seller's payout" — because that is the one true thing to tell a
+     * buyer about their money after checkout. What the view still may not do is assert a payout or
+     * refund STATE, which only the server's own fields establish.
+     */
+    expect(src).toContain("a report freezes the seller's payout");
+    expect(src).not.toMatch(/payout (has been |was )?(released|reversed|pending|on hold)/i);
+    expect(src).not.toMatch(/refunded|refund of|released to/i);
+    expect(src).not.toMatch(/automatic/i);
+    // And the withdrawn claim is gone: nothing here ties the money to delivery.
+    expect(src).not.toMatch(/held until|until it reaches|until your ticket/i);
   });
 });

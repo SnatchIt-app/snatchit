@@ -89,12 +89,21 @@ export const RESERVATION_UNVERIFIABLE_COPY = "We couldn't check your reservation
 export const PAYMENT_STATUS_UNKNOWN_COPY = "We couldn't check whether this has already been paid.";
 
 /**
- * The escrow assurance under checkout's payment state. Owner (2026-09-19): shown only where it is supported, so it is
- * hidden while the settled-payment lookup has failed, while a payment result could not be confirmed (unreachable), and
- * while the reservation could not be checked, until a read succeeds. "A successful lookup finding no payment does not
- * establish that money is being held."
+ * The buyer's protection line under checkout's payment state. Owner (2026-09-19): shown only where it is supported, so
+ * it is hidden while the settled-payment lookup has failed, while a payment result could not be confirmed
+ * (unreachable), and while the reservation could not be checked, until a read succeeds.
+ *
+ * WORDING (A's ruling §2f, 2026-09-24, in PAYMENT_STATE_WORDING_TABLE_20260924.md). The previous sentence — "Payment is
+ * held until your ticket reaches you. Secured by Stripe." — is WITHDRAWN:
+ *   - the system never observes delivery. The seller's payout follows the buyer's confirmation, the release decision
+ *     after the review window with no report, an operator releasing an unreleased `seller_sent` row
+ *     (`admin_release_held_payout`, 0551), or a dispute resolved for the seller. None of them is the ticket arriving;
+ *   - "held" / "on hold" reads as a card authorisation, and the card is charged at checkout.
+ * What IS true and worth saying: a report freezes the seller's payout. `buyer_dispute_transfer` (0550) accepts a report
+ * only while the order is `seller_sent`, and every release path needs that status with no open dispute — so an accepted
+ * report always comes before any release, and the payout stays frozen until the report is resolved.
  */
-export const ESCROW_NOTE_COPY = 'Payment is held until your ticket reaches you. Secured by Stripe.';
+export const ESCROW_NOTE_COPY = "You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's payout.";
 
 export function showEscrowNote(i: {
   paymentStatusUnknown: boolean;
