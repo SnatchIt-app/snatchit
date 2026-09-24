@@ -21,6 +21,7 @@ import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/me
 import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import { NameText } from '@/src/components/NameText';
+import { orderWhenWhereLine } from '@/src/lib/orders/orderPresentation';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
@@ -62,7 +63,16 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   buyer: { display_name: string | null };
-  listing: { event_name: string | null; ticket_platform: TicketPlatform | null };
+  listing: {
+    event_name: string | null;
+    ticket_platform: TicketPlatform | null;
+    event_date?: string | null;
+    event_time?: string | null;
+    venue?: string | null;
+    quantity?: number | null;
+    ticket_type?: string | null;
+    cover_image_path?: string | null;
+  };
 };
 
 export default function TransferSendScreen() {
@@ -111,7 +121,7 @@ export default function TransferSendScreen() {
         'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
-        'listing:listings!listing_id(event_name, ticket_platform)',
+        'listing:listings!listing_id(event_name, ticket_platform, event_date, event_time, venue, quantity, ticket_type, cover_image_path)',
       )
       .eq('id', id)
       .eq('seller_id', userId)
@@ -397,6 +407,13 @@ export default function TransferSendScreen() {
             </NameText>
             <Badge label={meta.label} tone={meta.tone} />
           </View>
+          {(() => {
+            const when = orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue);
+            const qty = transfer.listing?.quantity && transfer.listing?.ticket_type
+              ? `${transfer.listing.quantity} × ${transfer.listing.ticket_type}` : '';
+            const line = [when, qty].filter(Boolean).join(' · ');
+            return line ? <Text style={[textStyle('bodySm'), s.leadMeta]} numberOfLines={1}>{line}</Text> : null;
+          })()}
           <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
           <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
         </View>
@@ -569,6 +586,7 @@ function makeStyles(p: Palette) {
   headerTitle: { color: p.text.primary },
   leadRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: v2.space.md, marginBottom: v2.space.sm },
   leadName: { color: p.text.primary, flex: 1 },
+  leadMeta: { color: p.text.secondary, marginBottom: v2.space.sm },
   sendToPanel: { backgroundColor: p.surface.surface, borderRadius: v2.radius.md, padding: v2.space.lg },
   sendToTitle: { color: p.text.primary, marginBottom: v2.space.xs },
   sendToValue: { color: p.text.secondary },

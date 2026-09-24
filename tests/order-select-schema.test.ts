@@ -53,9 +53,10 @@ function listingsColumnsFromMigrations(): Set<string> {
   return cols;
 }
 
-describe("the order screen's listing embed exists column-for-column in the schema", () => {
-  const screen = readFileSync('app/transfer/receive/[id].tsx', 'utf8');
-  const embed = screen.match(/listing:listings!listing_id\(([^)]*)\)/)?.[1];
+describe("the transfer screens' listing embeds exist column-for-column in the schema", () => {
+  const screens = ['app/transfer/receive/[id].tsx', 'app/transfer/send/[id].tsx'];
+  const embeds = screens.map((rel) => [rel, readFileSync(rel, 'utf8').match(/listing:listings!listing_id\(([^)]*)\)/)?.[1]] as const);
+  const embed = embeds[0][1];
   const schema = listingsColumnsFromMigrations();
 
   it('S0 (witness): the extractor sees a real schema, and can tell a fake column from a real one', () => {
@@ -68,14 +69,18 @@ describe("the order screen's listing embed exists column-for-column in the schem
     expect(schema.has('cover_image_url')).toBe(false);
   });
 
-  it('S1: every column the embed selects is created by some migration', () => {
-    expect(embed, 'the embed must exist').toBeTruthy();
-    for (const col of embed!.split(',').map((c) => c.trim()).filter(Boolean)) {
-      expect(schema.has(col), `listings.${col} is selected but no migration creates it`).toBe(true);
+  it('S1: every column either embed selects is created by some migration (send approved by A, 2026-09-24)', () => {
+    for (const [rel, e] of embeds) {
+      expect(e, `${rel}: the embed must exist`).toBeTruthy();
+      for (const col of e!.split(',').map((c) => c.trim()).filter(Boolean)) {
+        expect(schema.has(col), `${rel}: listings.${col} is selected but no migration creates it`).toBe(true);
+      }
     }
   });
 
-  it('S2: the transfers side of the select keeps its pinned prefix and the two gated dispute columns', () => {
-    expect(screen).toMatch(/dispute_resolution, dispute_resolved_at/);
+  it('S2: the transfers side of BOTH selects keeps the two gated dispute columns', () => {
+    for (const rel of screens) {
+      expect(readFileSync(rel, 'utf8'), rel).toMatch(/dispute_resolution, dispute_resolved_at/);
+    }
   });
 });
