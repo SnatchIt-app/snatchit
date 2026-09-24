@@ -397,6 +397,11 @@ export default function CreateListingScreen() {
     else setEventTime(selected);
   }
 
+  // Both blocked reasons get the identical treatment and the identical action: they differ in origin
+  // — an admin restriction against a computed tier — but not in what the seller can do about either.
+  const riskBlocked = riskBanner != null
+    && (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked');
+
   // ── Phase D pre-submit risk check (unchanged behaviour) ─────────────────────
   async function runRiskCheck(): Promise<boolean> {
     if (!user) return false;
@@ -879,13 +884,27 @@ export default function CreateListingScreen() {
                 riskBanner.reason === 'check_unavailable' && sx.riskBannerNeutral,
                 riskBanner.reason === 'medium_risk_warning' && sx.riskBannerMedium,
                 riskBanner.reason === 'high_risk_warning' && sx.riskBannerHigh,
-                (riskBanner.reason === 'critical_risk' || riskBanner.reason === 'listing_blocked') && sx.riskBannerCritical,
+                riskBlocked && sx.riskBannerCritical,
               ]}
               accessibilityRole="alert"
             >
               <Text style={[textStyle('bodySm'), sx.riskBannerText]}>
                 {RISK_COPY[riskBanner.reason as keyof typeof RISK_COPY]}
               </Text>
+              {/* The alert is dismissible and this banner is not, so the instruction needs its route
+                  here as well. Identical for both blocked reasons, so which one the seller is in
+                  stays unexposed. */}
+              {riskBlocked ? (
+                <Pressable
+                  onPress={() => router.push('/settings/support')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Contact support"
+                  hitSlop={8}
+                  style={sx.riskBannerAction}
+                >
+                  <Text style={[textStyle('bodySm'), sx.riskBannerActionText]}>Contact support</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -1161,6 +1180,8 @@ function makeStyles(p: Palette) {
   riskBannerHigh:     { borderColor: p.status.error },
   riskBannerCritical: { borderColor: p.status.error },
   riskBannerText: { color: p.text.primary },
+  riskBannerAction: { marginTop: v2.space.sm, alignSelf: 'flex-start' },
+  riskBannerActionText: { color: p.brand.redText, textDecorationLine: 'underline' },
 
   validationMsg: { color: p.status.error, textAlign: 'center', marginTop: v2.space.md },
 

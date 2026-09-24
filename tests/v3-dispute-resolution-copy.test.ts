@@ -133,3 +133,40 @@ describe('the other surfaces that asserted receipt', () => {
     expect(block).toMatch(/byBuyer/);
   });
 });
+
+/**
+ * Two more from the owner's list (2026-09-24): an auto-released purchase is not a received one, and
+ * the badge and the state block must agree about what a dispute decision is.
+ */
+describe('auto-release and dispute results are labelled truthfully', () => {
+  it('DR12: an auto_released purchase is not labelled "Received" on the Bids board', async () => {
+    const { bidPresentation } = await import('@/src/lib/bids/bidState');
+    const ME = 'me';
+    const row = (st: string, extra: Record<string, unknown> = {}) => ({
+      id: 'b1', amount: 10000, bidder_user_id: ME, listing_id: 'l1',
+      listing: { id: 'l1', seller_id: 's1', auction_status: 'ended', current_bid: 10000, winner_user_id: ME },
+      purchaseTransferStatus: st, ...extra,
+    });
+    // auto_released means the review window closed with no confirmation and no report — the money
+    // moved, the tickets were never confirmed received. "Received" asserts the buyer's own action.
+    const auto = bidPresentation(row('auto_released') as never, ME);
+    expect(auto.label).toBe('Released');
+    expect(auto.label).not.toBe('Received');
+    // The established vocabulary: this is the same word the transfer badge uses for that state.
+    const { transferStatusMeta } = await import('@/src/lib/transfer/transferState');
+    expect(auto.label).toBe(transferStatusMeta('auto_released', 'buyer').label);
+    // A real confirmation still reads "Received".
+    expect(bidPresentation(row('buyer_confirmed', { purchaseBuyerConfirmedAt: '2026-09-20T00:00:00Z' }) as never, ME).label).toBe('Received');
+  });
+
+  it('DR13: badge and state block agree — a dispute decision is not a success on either screen', () => {
+    for (const rel of ['app/transfer/receive/[id].tsx', 'app/transfer/send/[id].tsx']) {
+      const src = read(rel);
+      const block = src.slice(src.indexOf("status === 'buyer_confirmed'"));
+      // The badge went neutral for an operator decision; a StateBlock hard-coded to tone="success"
+      // would then paint the same fact as a success right beside it.
+      expect(block.slice(0, 1200), `${rel} must not hard-code success`).not.toMatch(/tone="success"/);
+      expect(block, `${rel} must derive the tone`).toMatch(/tone=\{/);
+    }
+  });
+});

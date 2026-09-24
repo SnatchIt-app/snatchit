@@ -210,9 +210,13 @@ export function bidPresentation(row: BidRowInput, userId: string, now: number = 
       // success for the buyer who reported non-receipt; the row still routes to the transfer.
       const byOperator = row.purchaseTransferStatus === 'buyer_confirmed'
         && row.purchaseBuyerConfirmedAt === null;
+      // `auto_released` reaches this kind too, and it is NOT a receipt: the review window closed with
+      // no confirmation and no report, so the money moved while the tickets were never confirmed
+      // received. "Released" is the word the transfer badge already uses for that state.
+      const autoReleased = row.purchaseTransferStatus === 'auto_released';
       return base({
-        label: byOperator ? 'Resolved' : 'Received',
-        tone: byOperator ? 'neutral' : 'success',
+        label: autoReleased ? 'Released' : byOperator ? 'Resolved' : 'Received',
+        tone: autoReleased || byOperator ? 'neutral' : 'success',
         actionHint: 'View transfer', routesToTransfer: true, priority: 6,
         priceLabel: 'Paid', priceDollars: row.amount,
       });

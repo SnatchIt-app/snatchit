@@ -71,3 +71,36 @@ describe('the eligibility check says only what it knows', () => {
     expect(guards.length).toBe(alerts.length);
   });
 });
+
+/**
+ * B's review at 404bce38 left two actionable defects. Both are fixed below; neither is in build 24,
+ * which was authorised at that commit.
+ */
+describe("B's two remaining findings at 404bce38", () => {
+  it('EC6: the blocked BANNER offers the support route too, not only the transient alert', () => {
+    const screen = read('src/screens/CreateListingScreen.tsx');
+    const banner = screen.slice(screen.indexOf('{riskBanner && riskBanner.reason'), screen.indexOf('Sticky bar'));
+    // The alert is dismissible and the banner persists, so a seller who taps "Not now" was left
+    // reading "Contact support." on a surface with no way to do it — the very defect the alert fix
+    // addressed. The action is identical for both blocked reasons, so it exposes no classification.
+    expect(banner).toMatch(/riskBlocked/);
+    expect(banner).toMatch(/accessibilityRole="button"/);
+    expect(banner).toMatch(/'\/settings\/support'/);
+    expect(banner).toMatch(/accessibilityRole="alert"/);   // the container keeps it
+    // It appears only for the blocked pair — not on the neutral or warning banners.
+    expect(banner).toMatch(/riskBlocked \? \(/);
+  });
+
+  it('EC7: a cancelled seller card says "Cancelled" once', () => {
+    const card = read('src/components/SellerListingCard.tsx');
+    // The Badge carries the word and a11yLabel already includes it via sellerBadgeLabel(badge).
+    const slot = card.slice(card.indexOf('<View style={s.bottomLeft}>'), card.indexOf('</View>', card.indexOf('<View style={s.bottomLeft}>')));
+    expect(slot).not.toMatch(/>Cancelled</);
+    expect(card).toMatch(/<Badge label=\{sellerBadgeLabel\(badge\)\}/);
+    // The other branches of the same slot are untouched: each adds something the badge does not say.
+    expect(slot).toMatch(/timeLeftLabel/);
+    expect(slot).toMatch(/Winner selected/);
+    expect(slot).toMatch(/Action needed — send the tickets/);
+    expect(slot).toMatch(/Sold \{new Date/);
+  });
+});

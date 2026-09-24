@@ -29,6 +29,7 @@ import {
   transferStatusCopy,
   type PaymentRefundFacts,
 } from '@/src/lib/transfer/transferState';
+import { refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import { textStyle } from '@/src/theme/typography';
@@ -59,10 +60,15 @@ export function StateBlock({ title, tone, children }: { title?: string; tone: St
  * `expired` states the refund POLICY when nothing is recorded; `reversed` says only that a refund
  * will show if one is issued.
  */
-export function BuyerClosedBlock({ status, refund }: { status: 'expired' | 'reversed'; refund: PaymentRefundFacts | null | undefined }) {
+export function BuyerClosedBlock({ status, refund }: { status: 'expired' | 'reversed'; refund: RefundRead | PaymentRefundFacts | null | undefined }) {
   const { s } = useStyles();
   const copy = BUYER_ORDER_CLOSED_COPY[status];
-  const line = refundLine(refund) ?? (status === 'expired' ? REFUND_DUE_POLICY : REFUND_PENDING_LINE);
+  // Accepts either the read STATE (the screens) or bare facts (the sandbox gallery, which supplies
+  // fixtures directly). Bare facts are by definition a completed read.
+  const state: RefundRead = refund != null && typeof refund === 'object' && 'kind' in refund
+    ? refund
+    : { kind: 'loaded', facts: (refund as PaymentRefundFacts | null) ?? null };
+  const line = refundStateLine(state, status);
   return (
     <StateBlock title={copy.title} tone={status === 'expired' ? 'warning' : 'neutral'}>
       <Text style={[textStyle('bodySm'), s.text]}>{copy.body}</Text>

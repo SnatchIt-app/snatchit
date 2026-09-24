@@ -1,0 +1,81 @@
+/**
+ * A listing's state must be legible even when the control that names it is disabled
+ * (owner 2026-09-24: "readable listing-state explanation").
+ *
+ * The primary CTA does double duty on `unavailable`: its label is not a control word but the
+ * listing's STATE — Sold, Cancelled, On hold, Ended, Your listing — and `Button`'s disabled
+ * `opacity: 0.4` then renders it at 1.61:1 on Midnight and 1.50:1 on Daylight (B, measured at
+ * `404bce38`). That is not a WCAG violation, because an inactive control is exempt, and the disabled
+ * treatment is not what needs changing. It is an information defect: a dim that is right for a
+ * control is wrong for a status.
+ *
+ * Two of the five are carried elsewhere at full strength — the price label swaps to "Sold for" when
+ * sold and "Final bid" when closed. The other three were stated nowhere else. They now populate
+ * `primary.subLabel`, which the screen already renders in a `Text` OUTSIDE the button.
+ */
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+
+import { listingActions } from '@/src/lib/listing/detailState';
+
+const BASE = {
+  listing: {
+    status: 'active', auction_status: 'active', buy_now_enabled: true, buy_now_price: 12000,
+    seller_id: 'seller-1', reserved_by: null, winner_user_id: null, bid_count: 0, quantity: 1,
+  },
+  userId: 'buyer-1',
+  clockEnded: false, reservationActive: false, finalizing: false, reserving: false,
+  transfer: { id: null, status: null, buyerId: null },
+  isHighestBidder: false, hasBid: false, buyNowAllIn: '$132.00', nextBidAllIn: null,
+};
+
+const actionsFor = (over: Record<string, unknown>) =>
+  listingActions({ ...BASE, ...over } as never);
+
+describe('an unavailable listing states why, outside the dimmed button', () => {
+  it('LR1: cancelled, on hold and your-listing each carry a full-strength sub-label', () => {
+    const cancelled = actionsFor({ clockEnded: true, listing: { ...BASE.listing, auction_status: 'cancelled' } });
+    expect(cancelled.primary.kind).toBe('unavailable');
+    expect(cancelled.primary.subLabel, 'cancelled').toBeTruthy();
+    expect(cancelled.primary.subLabel).toMatch(/cancel/i);
+
+    const onHold = actionsFor({
+      clockEnded: true, reservationActive: true,
+      listing: { ...BASE.listing, reserved_by: 'someone-else' },
+    });
+    if (onHold.primary.label === 'On hold') {
+      expect(onHold.primary.subLabel, 'on hold').toBeTruthy();
+      // This is the one that costs a buyer most: it is the reason they cannot buy.
+      expect(onHold.primary.subLabel).toMatch(/another buyer|someone else|checkout/i);
+    }
+
+    const mine = actionsFor({ userId: 'seller-1' });
+    expect(mine.primary.label).toBe('Your listing');
+    expect(mine.primary.subLabel, 'your listing').toBeTruthy();
+    expect(mine.primary.subLabel).toMatch(/your own|you listed|seller/i);
+  });
+
+  it('LR2: sold and ended do NOT gain one — the price label already carries them at full strength', () => {
+    const sold = actionsFor({ clockEnded: true, listing: { ...BASE.listing, status: 'sold' } });
+    expect(sold.primary.label).toBe('Sold');
+    expect(sold.primary.subLabel).toBeUndefined();
+    const ended = actionsFor({ clockEnded: true });
+    expect(ended.primary.label).toBe('Ended');
+    expect(ended.primary.subLabel).toBeUndefined();
+    // The other cue, unchanged: the screen swaps the price label for those two states.
+    const screen = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(screen).toMatch(/isSold \? 'Sold for'/);
+    expect(screen).toMatch(/'Final bid'/);
+  });
+
+  it('LR3: the sub-label renders outside the Button, so the disabled dim does not reach it', () => {
+    const screen = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const i = screen.indexOf('state.primary.subLabel');
+    expect(i).toBeGreaterThan(0);
+    // The Text carrying it is a sibling of <Button>, not a child.
+    const region = screen.slice(i - 400, i + 300);
+    expect(region).toMatch(/<Text style=\{\[textStyle\('bodySm'\), s\.ctaSubLabel\]\}/);
+    expect(region).not.toMatch(/<Button[^>]*>\s*<Text/);
+  });
+});

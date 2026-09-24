@@ -49,7 +49,7 @@ import {
   transferStatusMeta,
   TRANSFER_EXPIRY_COPY,
   CONFIRM_RECEIPT_DIALOG,
-  type PaymentRefundFacts,
+
 } from '@/src/lib/transfer/transferState';
 import { BuyerClosedBlock, BuyerSellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import {
@@ -63,6 +63,7 @@ import {
   type HandoffState,
 } from '@/src/lib/transfer/providerHandoff';
 import { textStyle } from '@/src/theme/typography';
+import { refundReadState, type RefundRead } from '@/src/lib/transfer/refundState';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -101,24 +102,25 @@ export default function TransferReceiveScreen() {
   const [transfer, setTransfer] = useState<TransferData | null>(null);
 
   // The RECORDED REFUND is a fact on the buyer's own payment row (RLS: buyer_id = auth.uid()), read
-  // through the one settled-payments read and only for the closed states that can carry one. A read
-  // that fails establishes nothing — the screen then says a refund will show when confirmed.
-  const [refundFacts, setRefundFacts] = useState<PaymentRefundFacts | null>(null);
+  // through the one settled-payments read and only for the closed states that can carry one.
+  //
+  // FOUR outcomes, kept apart: in flight, failed, read-with-no-refund, read-with-a-refund. They used
+  // to collapse into one `null`, which renders a line ABOUT THE PAYMENT ROW — and after a failed read
+  // the app knows nothing about that row. The state also resets to `loading` whenever the order
+  // changes, so a previous order's figure cannot sit on a new order's block while its read is in
+  // flight.
+  const [refundRead, setRefundRead] = useState<RefundRead>({ kind: 'idle' });
   const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed';
   useEffect(() => {
     let alive = true;
     const listingId = transfer?.listing_id ?? null;
-    if (!closedForRefund || !listingId || !userId) { setRefundFacts(null); return; }
+    if (!closedForRefund || !listingId || !userId) { setRefundRead({ kind: 'idle' }); return; }
+    setRefundRead({ kind: 'loading' });
     void readSettledPayments(supabase, listingId, userId).then((read) => {
-      if (!alive || !('rows' in read)) return;
-      const rows = read.rows;
-      const withRefund = rows.find((r) => r.refunded_at != null || (r.amount_refunded_cents ?? 0) > 0) ?? rows[0] ?? null;
-      setRefundFacts(withRefund ? {
-        status: withRefund.status,
-        amount_refunded_cents: withRefund.amount_refunded_cents ?? null,
-        refunded_at: withRefund.refunded_at ?? null,
-        total: withRefund.total ?? null,
-      } : null);
+      if (!alive) return;
+      setRefundRead(refundReadState(read));
+    }).catch(() => {
+      if (alive) setRefundRead({ kind: 'error' });
     });
     return () => { alive = false; };
   }, [closedForRefund, transfer?.listing_id, transfer?.status, userId]);
@@ -528,11 +530,16 @@ export default function TransferReceiveScreen() {
         {/* CONFIRMED — the buyer's own statement of possession */}
         {/* EXPIRED / REVERSED — the buyer's cells (A's table 2a/2c). The ORDER fact from the status;
             the REFUND fact only from the payment row; nothing about the seller's payout event. */}
-        {transfer.status === 'expired' ? <BuyerClosedBlock status="expired" refund={refundFacts} /> : null}
-        {transfer.status === 'reversed' ? <BuyerClosedBlock status="reversed" refund={refundFacts} /> : null}
+        {transfer.status === 'expired' ? <BuyerClosedBlock status="expired" refund={refundRead} /> : null}
+        {transfer.status === 'reversed' ? <BuyerClosedBlock status="reversed" refund={refundRead} /> : null}
 
+        {/* Tone follows the same fact as the badge: an operator's dispute decision is not a success for
+            the buyer who reported non-receipt, so it must not be painted as one beside a neutral badge. */}
         {transfer.status === 'buyer_confirmed' ? (
-          <StateBlock title={transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).title} tone="success">
+          <StateBlock
+            title={transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).title}
+            tone={transfer.buyer_confirmed_at != null ? 'success' : 'neutral'}
+          >
             <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).body}</Text>
           </StateBlock>
         ) : null}

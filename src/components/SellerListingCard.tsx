@@ -112,9 +112,11 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
 
         <View style={s.bottomRow}>
           <View style={s.bottomLeft}>
-            {cancelled ? (
-              <Text style={[textStyle('bodySm'), s.dim]}>Cancelled</Text>
-            ) : badge === 'active' || badge === 'ending_soon' ? (
+            {/* No `cancelled` branch: the Badge beside it already reads "Cancelled" and the word is
+                in a11yLabel through sellerBadgeLabel(badge). There is no cancelled_at to show
+                instead, and the actions column is governed separately, so the row is not left bare.
+                Every other branch here adds what the badge does not say (B's review, 404bce38). */}
+            {badge === 'active' || badge === 'ending_soon' ? (
               <Text style={[textStyle('bodySm'), badge === 'ending_soon' ? s.urgent : s.dim]}>{timeLeftLabel(listing.ends_at)}</Text>
             ) : badge === 'ended' && listing.winner_user_id ? (
               <Text style={[textStyle('bodySm'), s.ok]}>Winner selected</Text>

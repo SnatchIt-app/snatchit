@@ -314,14 +314,32 @@ export function listingActions(input: DetailStateInput): {
           : reservationActive && listing.reserved_by && listing.reserved_by !== userId
             ? 'On hold'
             : 'Ended';
-    return { primary: { kind: 'unavailable', label, disabled: true }, secondary: null };
+    // The CTA's label here is LISTING state, not a control word, and a disabled control is dimmed to
+    // 0.4 — 1.50:1 in Daylight. That dim is correct for a control and wrong for a status, so the
+    // three states nothing else carries are also stated in `subLabel`, which renders at full strength
+    // OUTSIDE the button. `Sold` and `Ended` are already carried by the price label ("Sold for" /
+    // "Final bid"), so they get none — a second sentence saying the same thing is noise.
+    const subLabel =
+      label === 'Cancelled' ? 'This listing was cancelled.'
+        : label === 'On hold' ? 'Another buyer is in checkout.'
+          : undefined;
+    return {
+      primary: { kind: 'unavailable', label, disabled: true, ...(subLabel ? { subLabel } : {}) },
+      secondary: null,
+    };
   }
 
   // The seller of a live listing is not a buyer. No bid button, no Buy Now: the
   // database refuses both, and offering them is how a screen teaches a user that
   // its buttons cannot be trusted.
   if (role === 'seller') {
-    return { primary: { kind: 'unavailable', label: 'Your listing', disabled: true }, secondary: null };
+    return {
+      primary: {
+        kind: 'unavailable', label: 'Your listing', disabled: true,
+        subLabel: 'You listed this, so you cannot bid or buy.',
+      },
+      secondary: null,
+    };
   }
 
   if (reservedByMe) {

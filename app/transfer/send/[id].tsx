@@ -472,7 +472,7 @@ export default function TransferSendScreen() {
                 ? 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.'
                 : 'Your payout is being processed, make sure your payout account is set up in Settings.';
           return (
-            <StateBlock title={copy.title} tone="success">
+            <StateBlock title={copy.title} tone={byBuyer ? 'success' : 'neutral'}>
               <Text style={[textStyle('bodySm'), s.stateText]}>{`${copy.body} ${payoutLine}`}</Text>
             </StateBlock>
           );
