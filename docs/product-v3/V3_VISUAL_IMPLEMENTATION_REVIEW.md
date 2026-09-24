@@ -1,122 +1,128 @@
 # B — visual implementation review, Build 24 vs the approved boards
 
-**Method corrected.** Everything before this document reviewed tokens, source and computed contrast, and
-reported visual PASS from them. **That was not a visual review and I withdraw those PASSes.** This document
-compares **rendered app output** — the owner's Build 24 screenshots — against the approved boards. Where I
-have not compared a render, the row says so.
+**Method.** Earlier V3 reviews reported visual PASS from tokens, source and computed contrast. That is not a
+visual review and **those PASSes are withdrawn.** This compares **rendered output** — the owner's Build 24
+screenshots — against the references in `V3_SCREEN_TO_BOARD_MAP.md`.
 
 **Under test:** Build 24 `c5b3a615-ff97-4a88-a4ce-2dae24558478`, commit `404bce38`.
-**Comparison images:** `docs/product-v3/comparisons/cmp_home.png`, `cmp_listing.png`, `cmp_bid.png`.
+**Images:** `comparisons/cmp_home.png`, `cmp_listing.png`, `cmp_bid.png`.
 
-**The boards are the target. They are not redrawn to match the app.**
+**Measurement rules applied after the owner's correction:**
+- Dimensions are quoted **only in logical units taken from the renderer or the spec**. Nothing in this
+  document converts screenshot pixels into points.
+- Size and whitespace comparisons are **not** made until the two frames are normalised for viewport, safe
+  area and the sandbox banner. Claims that needed that normalisation and have not had it are marked
+  **[not normalised]** and carry no number.
+- The boards are the target. They are not redrawn to match the app, and no approved choice is reopened.
 
 ---
 
-## 0 · The headline: the appearance migration was presented as V3 implementation. It is not.
+## 1 · Systemic gaps — three, and radius is only one of them
 
-The migration swapped **colour tokens**. It never touched **geometry, composition or the type case**. That
-is why the screens resolve the right colours and still do not look like the boards.
+### S1 · The chrome radius token does not exist
+
+Approved 2026-09-22: *"the rounded controls shown in the approved V3 designs"*, radii **by component role** —
+0 rules, **8 media**, **22 chrome** (buttons, chips, sheets, search field), 33 dock.
+
+`src/theme/v2.ts:150` still reads `radius = { none: 0, pill: 9999 }`. `Button:175`, `Chip:86`, `Input:95`,
+`Sheet:125`, `Badge:81` all set `v2.radius.none`. **Actions, chips, fields, sheets and badges are square.**
+
+### S2 · The media radius is **partially** implemented — correction
+
+**I withdraw "every thumbnail is square."** `slots.ts` applies `ROW_ART_RADIUS` (8) to **`FEED_ROW_ART`**,
+which is correct and is what the home rows use. The slots still at `v2.radius.none` are:
+**`DISCOVERY_CARD`, `SEARCH_RESULT`, `HOME_FEATURE_V3`, `LISTING_HERO_V3`, `CHECKOUT_THUMBNAIL`** and the
+other legacy slots. So this is a named, partial gap, not a blanket one.
+
+### S3 · Colour roles used outside their definitions
+
+Foundations defines `brand.red` as **"primary action fill · BLACK label"**. Build 24 renders the **editable
+bid amount** in red (a value, not an action) and the **+$5 / +$10 / +$25 chips** with a red outline *and* a
+dark-red fill. Meanwhile the listing's own primary action is **not** red (§3.2).
+
+### S4 · Screen-title case
+
+The bid reference draws **"Place bid"**; Build 24 renders **"PLACE BID"**.
 
 ---
 
-## 1 · Systemic — these cause most of the per-screen failures
+## 2 · Corrections to my own previous draft
 
-### S1 · The V3 radius amendment was never implemented. The tokens do not exist.
-
-`pkg1-foundations.png` (approved foundations) specifies four radii and carries an explicit amendment,
-**"'Square is the brand' is narrowed, not deleted"**:
-
-| Radius | Applies to |
+| Claim | Status |
 |---|---|
-| **0** | rules, dividers, hairline fields — unchanged |
-| **8** | **media** — artwork thumbnails and plates |
-| **22** | **chrome** — buttons, chips, sheets, search field |
-| 33 | the floating dock (already shipping) |
+| "Radius is the root cause of the majority of the mismatch" | **Overstated.** It is one systemic gap of several; composition and colour-role gaps are independent of it |
+| "Every thumbnail is square" | **Withdrawn** — see S2 |
+| Dock avatar "overflows the dock's top edge and is clipped" | **Withdrawn — my crop artefact.** Re-cropped with generous bounds: the circle sits wholly inside the dock |
+| "The 'You' label overlaps the avatar" | **Withdrawn — same artefact.** The label sits below the ring |
+| "The avatar ring is red" | **Split.** The **dock** ring renders **white**, which is correct — the nav board reserves red. The **profile screen's** avatar ring and edit badge are red; that is a different surface, governed by `pkg8-account-tickets-dark.png`, **which I have not yet compared. No finding there yet** |
+| Bid entry "≈25% of the screen is empty" | **Number withdrawn** — [not normalised] |
+| "Section headings Tonight / This week are missing" | **Withdrawn as a defect.** The boards draw them but no package text defines the grouping rule, and a heading like "Tonight" needs **matching data**, not a hard-coded label over future listings |
+| Bid entry "'Starting bid' should read 'Current bid'" | **Withdrawn.** *"Starting bid"* is **correct at zero bids**. The board says "Current bid" only because its sample has six |
 
-At `404bce38`, `src/theme/v2.ts:150` still reads **`radius = { none: 0, pill: 9999 }`**. There is no `media`
-and no `chrome` token. `Button:175`, `Chip:86`, `Input:95`, `Sheet:125`, `Badge:81` all set
-`v2.radius.none`. **Every action, chip, panel, field and thumbnail in Build 24 is square.**
-
-This single gap accounts for the majority of the visual mismatch on all four screens.
-
-### S2 · Screen-title case
-
-The bid board draws the title **"Place bid"** in mixed case. Build 24 renders **"PLACE BID"**. The
-foundations board keeps `displaySm` uppercase for *short structural screen titles* and adds a mixed-case
-display role for sentence headings. Which bucket each title falls in needs the approval history (§4).
-
-### S3 · Colour roles are being used outside their definitions
-
-Foundations defines `brand.red` as **"primary action fill · BLACK label"**, and the nav board states plainly:
-**"Red is not used — it is reserved for primary actions, destructive actions and the brand mark."**
-
-Build 24 uses red for the **editable bid amount** (a value), the **+$5/+$10/+$25 chips** (outline *and*
-fill), the **profile avatar ring**, the **"MIAMI"** city label and **"SETTINGS"**. None is a primary action.
+**Dock geometry verified from the renderer and matching the approved sheet:** `ITEM_W 66`, `DOCK_HEIGHT 66`,
+`DOCK_RADIUS 33`, `AVATAR 28`, `ICON_ACTIVE 28`, ring 1.6pt at 2.5pt outside, `contentFit="cover"`, 12%
+unselected blend, label below. **No geometry defect in the dock.**
 
 ---
 
-## 2 · Per screen
+## 3 · Confirmed discrepancies, for implementation
 
-### 2.1 · Bid entry — `pkg8-bid-dark.png` · image `cmp_bid.png`
+### 3.1 · Bid entry — ref `pkg7-bid-after-raised.png`, tokens `pkg8-bid-dark.png`
 
-| # | Category | Board | Build 24 |
+| # | Category | Reference | Build 24 |
 |---|---|---|---|
-| B1 | **colour role** | Amount in **white** `text.primary` | Amount in **red** |
-| B2 | **colour role + radius** | Quick-add chips: neutral outline, white label, radius 22 | Red outline, **dark-red fill**, red label, square |
-| B3 | **dimensions + radius** | Steppers ~200pt tall, radius 22 | Small squares, ~35% the height |
-| B4 | **composition** | "Minimum $95.00 · **$5 steps**" sits **above** the chips, under the amount | "Minimum $105" sits **below** the chips; "· $5 steps" dropped |
-| B5 | **composition** | Reference is a **labelled row** — "Current bid … $90.00" — with a hairline above and below | An inline sentence "Starting bid · $100", no row, no rules |
-| B6 | **typography** | Two decimals — `$95.00` | No decimals — `$105` |
-| B7 | **composition** | Summary sits in a **filled `surface.panel` block** | Bare rows on the canvas, no panel |
-| B8 | **composition** | Modest gap above the summary | **~25% of the screen is empty.** The owner's bid-summary direction explicitly required the large empty gap removed |
-| B9 | **radius + typography** | CTA is a red **pill**, "Place bid" mixed case | Red **square**, "PLACE BID" uppercase |
+| B1 | colour role | Amount in `text.primary` (white) | Amount in **red** |
+| B2 | colour role + radius | Quick-add chips: neutral outline, white label, chrome radius | **Red outline, dark-red fill, red label**, square |
+| B3 | radius | Steppers rounded (chrome role) | Square |
+| B4 | composition | "Minimum … · $5 steps" sits **above** the chips, under the amount | Sits **below** the chips; "· $5 steps" dropped |
+| B5 | composition | The reference figure is a **labelled row with a hairline above and below**. *(The label "Starting bid" is correct here — zero bids)* | An inline sentence, no row, no rules |
+| B6 | typography | Two decimals | No decimals |
+| B7 | composition | Summary sits in a **filled `surface.panel` block** | Bare rows on the canvas |
+| B8 | composition | Summary follows the commitment line closely | A large empty band above the summary — **[not normalised]**, reported as present, not measured. The owner's bid-summary direction required this gap removed |
+| B9 | radius + typography | CTA rounded, "Place bid" mixed case | Square, "PLACE BID" uppercase |
 
-### 2.2 · Listing detail — `pkg8-listing-dark.png` · image `cmp_listing.png`
+### 3.2 · Listing detail — ref `midnight-listing-clean.png` + `pkg7-listing-after.png`
 
-| # | Category | Board | Build 24 |
+| # | Category | Reference | Build 24 |
 |---|---|---|---|
-| L1 | **image/fallback** | **Full-bleed hero artwork** with scrim; date line and name sit **over** it | Hero collapses to a **small grey letter on black**; name and date fall onto the canvas below |
-| L2 | **sticky action + colour role** | Two stacked CTAs in flow: red **pill** "Place a bid" with sub-line "minimum $104.50 all-in", then outlined **pill** "Buy both now · $132.00" / "ends the auction" | A **sticky bar**: square **outlined, non-red** button flanked by two text fragments |
-| L3 | **alignment — outright failure** | — | The sticky bar's right text is **clipped**: "all-in, ends t…" |
-| L4 | **composition** | Delivery and Seller are label/value rows **inside** the "if you bid the minimum" block | A **SELLER row with an avatar**, and a separate **"THE TICKET"** section (Type/Quantity/Delivery) that exists on no board |
-| L5 | **composition** | Panel reads "CURRENT BID / $99.00", with "all-in" in the meta line | "STARTING BID / **$110 total**" — "total" appended beside the amount |
-| L6 | **radius** | Back button is a **circular** chip over the artwork | Square chip |
+| L1 | image/fallback | Full-bleed hero with scrim; date and name **over** the artwork | Hero collapses; name and date fall onto the canvas below. See §4 |
+| L2 | **hierarchy** | **Owner ruling 2026-09-23: Buy now is PRIMARY** (this overrides every listing board, which still draw bid-primary) | A single **outlined, non-red** "PLACE A BID". **No buy-now primary is visible at all**, and the primary action carries no red |
+| L3 | **alignment — render failure** | — | The sticky bar's right-hand text is **clipped**: "all-in, ends t…" |
+| L4 | composition | Delivery and Seller are label/value rows inside the bid-minimum block | A **SELLER row with an avatar**, plus a **"THE TICKET"** section (Type/Quantity/Delivery) that exists on **no board** |
+| L5 | composition | "all-in" lives in the panel's meta line | "**$110 total**" — "total" appended beside the amount |
+| L6 | radius | Back control is a circular chip | Square |
 
-### 2.3 · Home — `pkg8-home-dark.png` · image `cmp_home.png`
+### 3.3 · Home — ref `midnight-home-clean.png` (owner-approved)
 
-| # | Category | Board | Build 24 |
+| # | Category | Reference | Build 24 |
 |---|---|---|---|
-| H1 | **composition/alignment** | SN logo **left**, search right. No city row, no filter chips | Logo **centred**; an extra "MIAMI" row; three filter chips. **Pending §4** — chips may come from an earlier approved board |
-| H2 | **composition** | Section headings **"Tonight"** and **"This week"** | **Absent** |
-| H3 | **image/fallback** | Feature is full-bleed artwork; the approved missing-artwork treatment is a **plate (`surface.plate` #141519, radius 8) carrying the SN monogram** — visible on the board's third row | Feature becomes a **~470px empty black area** with a small grey letter. **Not the approved fallback, and the layout changed because the image is missing** |
-| H4 | **image/fallback + radius** | Row thumbnails: artwork at radius 8 | Square grey tiles with a letter glyph |
+| H1 | composition | SN logo **left**, search right. **No city row and no filter chips** | Logo **centred**; a "MIAMI" row; three filter chips above the feed |
+| H3 | image/fallback | Missing artwork is a **plate (`surface.plate`) carrying the SN monogram** — drawn on the board's third row | A **letter glyph** on a grey tile; and with no image the **feature loses its hero treatment entirely** |
 
-### 2.4 · Profile and the dock — `compare-profile-nav.png`
+### 3.4 · Dock and profile
 
-The dock is specified exactly: a **28pt circle inside the 66×66 item**, centre-cropped `contentFit="cover"`,
-**"the crop never shifts between states"**, selection carried by the capsule plus a 1.6pt ring, label "You"
-**under** the icon, and **red not used**.
-
-| # | Category | Board | Build 24 (both screenshots) |
-|---|---|---|---|
-| P1 | **dimensions — outright failure** | Circle sits wholly inside the item box | The avatar **overflows the dock's top edge and is clipped by it** |
-| P2 | **alignment — outright failure** | Label sits **below** the icon | The **"You" label overlaps the avatar** |
-| P3 | **image treatment** | Centre-crop, recognisable in both states | Renders as a red/dark band — not a centre crop |
-| P4 | **colour role** | "Red is not used" in the dock | Avatar ring is red. **Pending §4** — the profile *screen* board may differ from the nav board |
+| # | Status |
+|---|---|
+| P3 | **Confirmed, cause not diagnosed.** The dock avatar renders as a red field over a dark band. The profile screen's avatar for the same account shows red over a pale block. The dock is therefore **not showing what a centre-crop of that image would show.** The renderer already sets `contentFit="cover"` and requests a 28pt-wide URL via `getAvatarUrl`, so the cause is **not** visible from appearance — candidates are the sized-URL transform, the stored asset, or the source crop. **I am not prescribing a fix**; C should instrument the resolved URL and the intrinsic image before changing anything |
 
 ---
 
-## 3 · What I have NOT yet compared
+## 4 · The no-image case, treated as deliberately as the photographic one
 
-Search, Checkout, Create/Sell, My listings, Tickets, Orders, Transfers, Settings, Auth, and every state
-screen. **No visual PASS exists for any of them.** Boards exist for most; renders do not.
+The sandbox has no artwork, so **every screenshot is the no-image case** — which makes it the best-evidenced
+part of this review, not a caveat.
 
-## 4 · Open until the approval history lands
+The approved treatment is a **plate** (`surface.plate` `#141519`, media radius) carrying the **SN monogram**,
+drawn on the third row of `midnight-home-clean.png`. It is a *filled slot*, not an absence.
 
-A read-only trace of the approval record is running. Four items above depend on it and are marked
-**pending**: the home header composition (H1), the profile avatar ring (P4), the bid-entry commitment
-sentence — Build 24's wording may be the owner's *later* correction rather than a deviation — and whether
-each screen title is "structural" (uppercase) or a sentence heading (mixed case) under S2.
+Build 24 instead: uses a **letter glyph** in place of the monogram; and on the listing hero and the home
+feature, **the missing image changes the layout** — the hero collapses and the name and date relocate from
+over-artwork to on-canvas. **A missing image must fill the slot, not resize it.**
 
-**The screen-to-board map is not published yet.** Publishing it before the approval history is resolved
-would be exactly the error the owner called out: selecting a superseded board as the reference.
+---
+
+## 5 · Not yet compared — no visual PASS exists
+
+Search, Checkout, Sell/Create, My listings, Tickets, Orders, Transfers, Settings, Auth, the profile screens,
+every dialog and every state screen. Boards exist for most; renders do not. **I will not issue a PASS for any
+screen I have not compared as a render.**
