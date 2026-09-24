@@ -82,7 +82,7 @@ before any query. Nothing was written.
 |---|---|
 | Commit | _pinned here, full sha from `git rev-parse`, before `eas build`_ |
 | Checks at that commit | `npm run typecheck` 0 · `npm run lint` 0 errors · full `vitest` **run alone**, clean · predicted mutants killed |
-| Implementation closed | A-1…A-5 rendered literals (`212783f2`) · R-5 via the resolver (`212783f2`) · F-28 (`212783f2`) · **A-1 neutral hairlines** · **the synthetic gallery, sandbox-gated** · **the remaining static-colour files (§0) migrated, or the exact list of surfaces still Midnight-only in the Light appearance recorded here** |
+| Implementation closed | A-1…A-5 rendered literals (`212783f2`) · R-5 via the resolver (`212783f2`) · F-28 (`212783f2`) · A-1 neutral hairlines (`6c7fc18b`) · the synthetic gallery, sandbox-gated, with its tested Settings entry (`6c7fc18b` + the hardening commit) · **OPEN: the remaining static-colour files — 53 consumer-build files at `6c7fc18b`, listed by count in `V3_COVERAGE_MATRIX.md` ("Appearance matrix, corrected"). Until they are migrated, those surfaces render Midnight colours in the Light appearance; the build ships with that list recorded as the Light-appearance exception, not as completion** |
 | Review closed | **B:** inventory reconciled against §0; pressed value agreed (`#FF5353`); light designs delivered for every surface C has implemented · **A:** checkout ruling implemented (`016087ea`); transfer cells PASS (`7e578ed5`); D-8 closed |
 | Profile | `preview` · iOS internal · one build |
 
