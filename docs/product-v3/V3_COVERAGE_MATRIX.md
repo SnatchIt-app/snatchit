@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `be6aebfc` (updated by C, 2026-09-24)
+### ② Implemented on C's branch — `v3/midnight-app` @ `7e578ed5` (updated by C, 2026-09-24)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -153,6 +153,17 @@ next, screen by screen. **B questions:** (1) confirm/replace the light values; (
 "Paying with" card — A rejects FlowController (payment-flow change); either a read-only "Default card" line
 sourced from the intent's customer key, or drop the card. **Owner's bid-summary direction, R-1, R-2, R-4,
 F-28, F-29 implemented** (`67b7f306`, `be6aebfc`); N2 resolved by removing the nearby checkout Total.
+
+### Order/transfer cells landed (`7e578ed5`, 2026-09-24) — B-1 / B-2 / B-3 / B-5 implemented, awaiting A's read
+
+Against A's PAYMENT_STATE_WORDING_TABLE_20260924: buyer expired ("Order expired" + policy/refund line),
+buyer reversed ("Order closed", never the word "reversed", never "released"), seller reversed ("Payout
+reversed", before any payout claim), seller expired + "No payout for this order.", the buyer's review
+deadline from auto_release_at (omitted when absent) and the seller's "Release decision at <t>." Refund
+facts only from the buyer's own payments row via the existing settled-payments read. **B: these five
+states now need their visual treatment reviewed against pkg4's transfer matrix** (StateBlock tones:
+warning for expired/payout reversed, neutral for the buyer's closed order). Mapping sent to A for his
+read; not called done until then.
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
