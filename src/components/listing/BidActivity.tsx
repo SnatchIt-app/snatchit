@@ -37,7 +37,8 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
   const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={styles.wrap}>
-      <Text style={[textStyle('displaySm'), styles.head]} accessibilityRole="header">
+      {/* Board (pkg8-listing): bold sans, mixed case — not the uppercase Oswald displaySm. */}
+      <Text style={[textStyle('screenTitle'), styles.head]} accessibilityRole="header">
         Bid activity
       </Text>
 
@@ -48,14 +49,17 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
           const isMine = !!viewerId && bid.bidder_id === viewerId;
           const isTop = i === 0 && highlightTop;
           const short = bid.bidder_id ? bid.bidder_id.slice(0, 4).toUpperCase() : '----';
-          const name = bid.profiles?.display_name ?? `Bidder ${short}`;
+          // The board prints the bare code (K7F2); a screen reader still hears "Bidder K7F2"
+          // through the row label below, so the visible economy costs no comprehension.
+          const name = bid.profiles?.display_name ?? short;
+          const spokenName = bid.profiles?.display_name ?? `Bidder ${short}`;
           return (
             <View
               key={bid.id}
               style={[styles.row, i === bids.length - 1 && styles.last]}
               accessible
               accessibilityLabel={
-                `${isMine ? 'Your bid' : name}, ${amountFor(bid)}, ${timeFor(bid)}` +
+                `${isMine ? 'Your bid' : spokenName}, ${amountFor(bid)}, ${timeFor(bid)}` +
                 (isTop ? '. Highest bid.' : '')
               }
             >
@@ -70,7 +74,9 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
                 state survives a screenshot and a colourblind reader.
               */}
               {isTop ? (
-                <Text style={[textStyle('micro'), styles.leading]}>Leading</Text>
+                <View style={styles.leadingChip}>
+                  <Text style={[textStyle('micro'), styles.leading]}>Leading</Text>
+                </View>
               ) : null}
               <Text style={[textStyle('price'), styles.amount, isTop && styles.amountTop]}>
                 {amountFor(bid)}
@@ -99,7 +105,15 @@ function makeStyles(p: Palette) {
   who: { flex: 1, minWidth: 0 },
   name: { color: p.text.primary },
   time: { color: p.text.muted },
-  leading: { color: p.brand.redText },
+  // The board's chip: soft green fill, success ink, the same pair in both appearances. Green,
+  // not brand red — leading is a STATUS; red stays reserved for actions.
+  leadingChip: {
+    backgroundColor: p.status.successSoft,
+    borderRadius: v2.radius.sm,
+    paddingHorizontal: v2.space.sm,
+    paddingVertical: 3,
+  },
+  leading: { color: p.status.onSuccessSoft },
   amount: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
   amountTop: { color: p.text.primary },
   });

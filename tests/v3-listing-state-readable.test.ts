@@ -62,10 +62,11 @@ describe('an unavailable listing states why, outside the dimmed button', () => {
     const ended = actionsFor({ clockEnded: true });
     expect(ended.primary.label).toBe('Ended');
     expect(ended.primary.subLabel).toBeUndefined();
-    // The other cue, unchanged: the screen swaps the price label for those two states.
-    const screen = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
-    expect(screen).toMatch(/isSold \? 'Sold for'/);
-    expect(screen).toMatch(/'Final bid'/);
+    // The other cue MOVED, not vanished (V3 footer rebuild, 2026-09-24): the board removes the
+    // sticky price block, so the sold/ended wording now lives in the panel's price label.
+    const panel = readFileSync('src/components/listing/TransactionPanel.tsx', 'utf8');
+    expect(panel).toMatch(/'Final bid'/);
+    expect(panel).toMatch(/label="Sold for"/);
   });
 
   it('LR3: the sub-label renders outside the Button, so the disabled dim does not reach it', () => {

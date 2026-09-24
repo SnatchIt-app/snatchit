@@ -13,12 +13,48 @@
  * Pure functions, no React and no React Native, so the mapping can be tested
  * directly. This file decides WHAT is offered. The components decide how it looks.
  *
- * IT COMPUTES NO MONEY. Every amount is a preformatted string produced by the
- * established helpers in `src/lib/money.ts` and handed in. There is exactly one
- * dollars-to-cents conversion in this app and it is not here.
+ * IT DOES NO FEE ARITHMETIC. Every amount the resolver handles is a preformatted string
+ * handed in by the caller. The one addition is `listingPriceLinesV3` below — DISPLAY
+ * formatting composed from the canonical helpers in `src/lib/money.ts`, exactly as
+ * `bidPriceLinesV3` does for the bid screen. It computes no fee and no rounding of its own.
  */
 
+import { buyerFeeCents, buyerTotalCents, dollarsToCents, formatCentsV3 } from '@/src/lib/money';
 import type { TransferStatus } from '@/src/types';
+
+/**
+ * V3 DISPLAY ONLY (owner 2026-09-24, pkg8 listing board: "$99.00", "$95.00", "$9.50").
+ *
+ * The same integer-cent arithmetic the app already does — `dollarsToCents`, `buyerFeeCents`,
+ * `buyerTotalCents` — printed with cents, because `formatCents` trims ".00" and the approved
+ * boards show it. Nothing here is submitted, stored or charged: a bid is still chosen and sent
+ * in whole dollars and checkout still recomputes its own total, which the server re-checks.
+ *
+ * ITS RIGHT HOME IS `src/lib/money.ts` (as `allInFromDollarsV3`), beside the helpers it wraps;
+ * it lives here only because that module is owned centrally. Move it when that lands.
+ */
+export interface ListingPriceLinesV3 {
+  /** The ticket price itself, e.g. "$95.00". */
+  base: string;
+  /** The 10% buyer service fee, e.g. "$9.50". */
+  fee: string;
+  /** What the buyer pays all-in, e.g. "$104.50". */
+  allIn: string;
+}
+
+export function listingPriceLinesV3(baseDollars: number): ListingPriceLinesV3 {
+  const cents = dollarsToCents(baseDollars);
+  return {
+    base: formatCentsV3(cents),
+    fee: formatCentsV3(buyerFeeCents(cents)),
+    allIn: formatCentsV3(buyerTotalCents(cents)),
+  };
+}
+
+/** The all-in on its own — the price every V3 listing surface leads with. */
+export function listingAllInV3(baseDollars: number): string {
+  return listingPriceLinesV3(baseDollars).allIn;
+}
 
 /** Who is looking. A listing means something different to each of them. */
 export type ViewerRole = 'seller' | 'buyer' | 'visitor';

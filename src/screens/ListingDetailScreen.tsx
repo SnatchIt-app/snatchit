@@ -53,21 +53,29 @@ import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars, allInLabel, baseFromDollars, buyerFeeFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
 import { clockLabel } from '@/src/lib/listing/feedRowState';
 import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
-import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
-import { StateView, Button, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+// `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
+// the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
+import { BarAction } from '@/src/components/ui/StickyBar';
 import { BidActivity } from '@/src/components/listing/BidActivity';
 import { ListingHero } from '@/src/components/listing/ListingHero';
 import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
 import { OutbidToast } from '@/src/components/listing/OutbidToast';
-import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
-import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { offersBid, BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import {
+  offersBid,
+  BID_COMMITMENT_COPY,
+  LISTING_READ_FAILED_COPY,
+  detailState,
+  listingAllInV3,
+  listingPriceLinesV3,
+  type ActionKind,
+} from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -80,7 +88,38 @@ import type { Bid, Listing, TransferStatus } from '@/src/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-type Props = { id: string };
+/**
+ * DEVELOPMENT RENDERING ONLY (owner 2026-09-24). When supplied, the screen paints these rows
+ * instead of READING them, so the approved boards can be compared against what the real
+ * component renders without a session, a listing row or a seller. Only `app/_dev/v3-listing.tsx`
+ * passes it, and that route redirects unless the bundle is a sandbox or `__DEV__` build; the real
+ * `/listing/[id]` route never passes it, so the production path is the read path, untouched.
+ *
+ * It short-circuits READS ONLY. Every offer, gate, total, reservation and bid below still comes
+ * from `listing` through `detailState`, exactly as it does for a fetched row.
+ */
+export interface ListingDetailFixture {
+  listing: Listing;
+  seller?: { display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null;
+  /** Painted in Bid activity. The price, the minimum and the outbid logic still read the live hook. */
+  bids?: Bid[];
+  /** Which of those bids reads as "You". Display only — it is never an identity for a transaction. */
+  viewerId?: string;
+}
+
+type Props = { id: string; fixture?: ListingDetailFixture };
+
+/** One row of the board's fact list: quiet label left, the fact right, a hairline under it. */
+type FactRow = {
+  label: string;
+  value: string;
+  /** Tabular figures, so a column of amounts lines up instead of jittering. */
+  money?: boolean;
+  /** Long free text (restrictions) wraps under its label instead of fighting it. */
+  block?: boolean;
+  /** Makes the row a control. Only the seller row has one, and it opens their profile. */
+  onPress?: () => void;
+};
 
 const VALID_TRANSFER_STATUSES: readonly TransferStatus[] = [
   'pending', 'seller_sent', 'buyer_confirmed', 'disputed', 'expired', 'auto_released',
@@ -136,7 +175,7 @@ const WIN_TITLES = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function ListingDetailScreen({ id }: Props) {
+export default function ListingDetailScreen({ id, fixture }: Props) {
 
   // Sticky-bar stacking is decided by StickyBar itself, from the live window
   // width against a threshold derived from the layout. This screen no longer
@@ -215,7 +254,9 @@ export default function ListingDetailScreen({ id }: Props) {
     // so the hook always dispatches to the latest version of the callback.
     onNewBid: (bid, allBids) => handleNewBidRef.current(bid, allBids),
   });
-  const bids       = rt.bids;
+  // Display list only. `rt.bids` still drives the price, the outbid detection and every gate —
+  // the fixture replaces what Bid activity paints, never what the screen decides.
+  const bids       = fixture?.bids ?? rt.bids;
   const bidsLoaded = !rt.loading;
 
   // ── Ticker ─────────────────────────────────────────────────────────────────
@@ -338,6 +379,16 @@ export default function ListingDetailScreen({ id }: Props) {
   // ── fetchData ─────────────────────────────────────────────────────────────
   // Only fetches the listing row — bids are owned by useListingRealtime.
   async function fetchData(silent = false) {
+    // Development rendering only: the fixture stands in for every READ this function makes —
+    // the listing row, the seller profile, the transfer row and the finalize call that follows a
+    // dead clock. Nothing below this line runs, and nothing above the guard writes anything.
+    if (fixture) {
+      setListing(fixture.listing);
+      setSellerProfile(fixture.seller ?? null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!silent) setLoading(true);
     setError(null);
 
@@ -1057,7 +1108,6 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ─── Derived display values ────────────────────────────────────────────────
 
-  const ticketLabel   = listing.ticket_type;
   const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile transfer' : 'Email';
 
   const isSold          = listing.status === 'sold';
@@ -1077,7 +1127,8 @@ export default function ListingDetailScreen({ id }: Props) {
   const userHasBid    = myMaxBid > 0;
 
   // Preformatted by the canonical money helper. Nothing downstream does arithmetic.
-  const buyNowAllIn = listing.buy_now_price != null ? allInFromDollars(listing.buy_now_price) : null;
+  // V3 display: cents are shown on every amount (pkg8 boards), which is the only difference.
+  const buyNowAllIn = listing.buy_now_price != null ? listingAllInV3(listing.buy_now_price) : null;
 
   // ─── One state object drives the whole screen ──────────────────────────────
   // Every offer, refusal and status decision is made in src/lib/listing/detailState.ts
@@ -1103,9 +1154,9 @@ export default function ListingDetailScreen({ id }: Props) {
     isHighestBidder:   userHasBid && myMaxBid >= currentHighest,
     hasBid:            userHasBid,
     buyNowAllIn,
-    // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the panel's
-    // "Next bid from" line, and never shown once the auction is closed (detailState guards mode).
-    nextBidAllIn:      allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
+    // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the breakdown
+    // below, and never shown once the auction is closed (detailState guards mode).
+    nextBidAllIn:      listingAllInV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
   });
 
   // A frozen screen must not look live (CFT-504): say when the bids channel is
@@ -1122,12 +1173,15 @@ export default function ListingDetailScreen({ id }: Props) {
   // The retry effect above polls for ten seconds; this is the manual escape.
   const needsTransferRefresh = isSold && isSeller && !transferId;
 
-  const soldAllIn = isSold ? allInFromDollars(finalSoldPrice(listing)) : null;
-  const currentAllIn = allInFromDollars(currentHighest);
+  const soldAllIn = isSold ? listingAllInV3(finalSoldPrice(listing)) : null;
+  const currentAllIn = listingAllInV3(currentHighest);
+  // The panel's breakdown GATE, in the legacy display form. The rows themselves are rendered
+  // below in the board's list, so this value is never printed.
   const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
   // §5 breakdown rows for "If you bid the minimum" — same base, through the one money module.
-  const minBidBase = baseFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
-  const minBidFee = buyerFeeFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBid = listingPriceLinesV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBidBase = minBid.base;
+  const minBidFee = minBid.fee;
 
   // "Mobile transfer · DICE": the platform's display name from the existing instruction table.
   // 'other' adds nothing — "· Other" is noise, not information.
@@ -1136,28 +1190,47 @@ export default function ListingDetailScreen({ id }: Props) {
       ? PLATFORM_INSTRUCTIONS[listing.ticket_platform]?.displayName
       : null;
 
-  const detailRows: DetailRow[] = [
-    { label: 'Type', value: ticketLabel },
-    { label: 'Quantity', value: `${listing.quantity} ${listing.quantity === 1 ? 'ticket' : 'tickets'}` },
+  // ─── The facts, as ONE list (pkg8 board) ───────────────────────────────────
+  // The board draws the minimum-bid breakdown and the two facts that decide whether this ticket
+  // is worth bidding on — how it is delivered and who is selling it — as the same kind of row,
+  // under one eyebrow and separated by hairlines. Type and quantity are NOT repeated here: the
+  // panel above already states "2 × GA tickets".
+  //
+  // The breakdown rows exist only while a bid can be placed. On a closed listing there is no
+  // minimum to break down, so the eyebrow and both rows are absent rather than stale.
+  const showBreakdown = state.mode !== 'closed';
+  const sellerName = sellerProfile?.display_name?.trim() || 'Seller';
+  const detailRows: FactRow[] = [
+    ...(showBreakdown
+      ? [
+          { label: 'Tickets', value: minBidBase, money: true },
+          { label: 'Service fee (10%)', value: minBidFee, money: true },
+        ]
+      : []),
     { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },
-    // V3: the hero no longer carries the neighborhood; it moves here rather than vanishing.
+    // The seller row replaces the avatar strip the board drops. The verified mark survives as a
+    // WORD rather than a colour, and the row still opens the seller's profile.
+    ...(sellerProfile
+      ? [{
+          label: 'Seller',
+          value: sellerProfile.is_verified_seller ? `${sellerName} · Verified seller` : sellerName,
+          onPress: () => router.push(`/profile/${listing.seller_id}`),
+        }]
+      : []),
+    // V3: the hero no longer carries the neighborhood; it lives here rather than vanishing.
     ...(listing.neighborhood
       ? [{
           label: 'Neighborhood',
           value: listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase()),
         }]
       : []),
-    {
-      label: 'Category',
-      value: (listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-    },
-    { label: 'Started at', value: allInLabel(listing.starting_bid) },
   ];
   // Ownership proof appears only after a human reviewed it. It never claims
   // verification before review (migration 033).
   if (listing.proof_status === 'approved') {
     detailRows.push({ label: 'Ownership proof', value: 'Reviewed by Snatch It' });
   }
+  // A material term of the sale. It is never dropped to make the list match a sample board.
   if (listing.restrictions) {
     detailRows.push({ label: 'Restrictions', value: listing.restrictions, block: true });
   }
@@ -1195,8 +1268,10 @@ export default function ListingDetailScreen({ id }: Props) {
   const primaryBusy =
     (state.primary.kind === 'buy_now' || state.primary.kind === 'continue_reservation') && reserving;
 
-  const stickyPriceLabel = isSold ? 'Sold for' : state.mode === 'closed' ? 'Final bid' : 'Current bid';
-  const stickyPriceAmount = soldAllIn ?? currentAllIn;
+  // The live action's sub-line, read off the resolved action. Destructured so the ONE place that
+  // spells `state.primary.subLabel` is the unavailable-state sentence in the footer, which is the
+  // one that must stay outside the dimmed button.
+  const { subLabel: primarySubLabel } = state.primary;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -1254,8 +1329,10 @@ export default function ListingDetailScreen({ id }: Props) {
           mode={state.mode}
           currentAllIn={currentAllIn}
           nextBidAllIn={state.mode === 'closed' ? null : nextBidAllIn}
-          minBidBase={state.mode === 'closed' ? null : minBidBase}
-          minBidFee={state.mode === 'closed' ? null : minBidFee}
+          // The breakdown is rendered below, as the board draws it: one list, one row idiom,
+          // hairlines under every row — not two differently-styled blocks.
+          minBidBase={null}
+          minBidFee={null}
           // §5 clock forms, from the server's ends_at. Display only: the live/ended DECISION
           // stays with detailState, exactly as before.
           clock={state.mode === 'closed' ? null : clockLabel(listing.ends_at, now)}
@@ -1265,26 +1342,50 @@ export default function ListingDetailScreen({ id }: Props) {
           ticketType={listing.ticket_type}
         />
 
-        {sellerProfile ? (
-          <SellerTrustRow
-            displayName={sellerProfile.display_name || 'Seller'}
-            avatarUrl={getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url)}
-            isVerified={sellerProfile.is_verified_seller}
-            onPress={() => router.push(`/profile/${listing.seller_id}`)}
-          />
-        ) : null}
-
-        <TicketDetails rows={detailRows} />
-
-        {state.showsBidActivity ? (
-          <BidActivity
-            bids={bids}
-            amountFor={(b) => allInFromDollars(b.amount)}
-            timeFor={(b) => timeAgo(b.created_at)}
-            viewerId={user?.id}
-            highlightTop={!isSold && !auctionEnded && !ended}
-          />
-        ) : null}
+        <View style={s.facts}>
+          {showBreakdown ? (
+            <Text style={[textStyle('micro'), s.factEyebrow]}>If you bid the minimum</Text>
+          ) : null}
+          {detailRows.map((row) => {
+            const cells = (
+              <>
+                <Text style={[textStyle('body'), s.factLabel]}>{row.label}</Text>
+                <Text
+                  style={[
+                    textStyle('body'),
+                    s.factValue,
+                    row.money ? s.factMoney : null,
+                    row.block ? s.factValueBlock : null,
+                  ]}
+                  numberOfLines={row.block ? undefined : 2}
+                >
+                  {row.value}
+                </Text>
+              </>
+            );
+            return row.onPress ? (
+              <Pressable
+                key={row.label}
+                onPress={row.onPress}
+                style={[s.factRow, row.block ? s.factRowBlock : null]}
+                accessibilityRole="button"
+                accessibilityLabel={`${row.label}: ${row.value}`}
+                accessibilityHint="Opens the seller's profile"
+              >
+                {cells}
+              </Pressable>
+            ) : (
+              <View
+                key={row.label}
+                style={[s.factRow, row.block ? s.factRowBlock : null]}
+                accessible
+                accessibilityLabel={`${row.label}: ${row.value}`}
+              >
+                {cells}
+              </View>
+            );
+          })}
+        </View>
 
         {/* The commitment sentence, wherever a bid can actually be placed from here. De-dup:
             it carries no numbers — the panel and the CTA sub-label already do. */}
@@ -1292,47 +1393,62 @@ export default function ListingDetailScreen({ id }: Props) {
           <Text style={[textStyle('bodySm'), s.commitment]}>{BID_COMMITMENT_COPY}</Text>
         ) : null}
 
+        {state.showsBidActivity ? (
+          <BidActivity
+            bids={bids}
+            amountFor={(b) => listingAllInV3(b.amount)}
+            timeFor={(b) => timeAgo(b.created_at)}
+            viewerId={fixture?.viewerId ?? user?.id}
+            // Nobody leads an auction that was cancelled: the bids are void, and the row that
+            // was in front is history like the rest of them.
+            highlightTop={!isSold && !auctionEnded && !ended && listing.auction_status !== 'cancelled'}
+          />
+        ) : null}
+
         <View style={s.scrollTail} />
       </ScrollView>
 
       {/*
-        One bar, one decision. Buy Now leads when it exists and bidding sits
-        beside it as the secondary; the old screen inverted that, giving instant
-        purchase a grey outline and the bid a red fill.
+        THE FOOTER AS THE BOARD DRAWS IT (pkg8-listing-dark/light). Full-width pill actions in a
+        COLUMN, each with its own sub-line inside it, on the page rather than on a raised bar.
+        What this replaces: both actions and both sub-lines were being pushed through the bar's
+        horizontal `actions` container, which clipped and crowded them.
+
+        The price is not repeated here. The panel at the top of the screen states it once, which
+        is what the board draws and what "each number once" has meant on this screen since §5.
       */}
-      <StickyBar
-        left={
-          <PriceDisplay
-            size="sticky"
-            label={stickyPriceLabel}
-            amount={stickyPriceAmount}
-            muted={isSold || state.mode === 'closed'}
-          />
-        }
-      >
-        {state.secondary?.subLabel ? (
-          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={1}>{state.secondary.subLabel}</Text>
+      <StickyBar layout="stack">
+        {/* A dimmed control may not be the only place a listing's STATE is written: Button drops a
+            disabled pill to 0.4. So an unavailable primary keeps its sentence OUTSIDE the pill, at
+            full strength — the live actions below carry theirs inside. */}
+        {(state.primary.disabled || state.primary.kind === 'unavailable') && state.primary.subLabel ? (
+          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={2}>{state.primary.subLabel}</Text>
         ) : null}
+
+        {/*
+          Board hierarchy: the bid is the filled action and Buy Now is the outlined one beneath it.
+          `detailState` still resolves Buy Now as `primary` (its label, its price and its handler are
+          untouched) — only the emphasis follows the approved board. Flagged for ratification: the
+          resolver's own rule 1 says Buy Now leads, and the board that supersedes it draws the
+          opposite fill. Nothing about what either action DOES changed with the paint.
+        */}
         {state.secondary ? (
-          <Button
+          <BarAction
             label={state.secondary.label}
-            variant="secondary"
-            size="md"
+            subLabel={state.secondary.subLabel}
+            variant="primary"
             disabled={state.secondary.disabled}
             onPress={() => runAction(state.secondary!.kind)}
           />
         ) : null}
-        {/* V3 (O-2): the sub-line is informational — a minimum, never the amount this button submits. */}
-        {state.primary.subLabel ? (
-          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={1}>{state.primary.subLabel}</Text>
-        ) : null}
-        <Button
+        <BarAction
           label={state.primary.label}
+          // V3 (O-2): informational — a minimum or a consequence, never the amount a tap submits.
+          subLabel={state.primary.disabled || state.primary.kind === 'unavailable' ? undefined : primarySubLabel}
           // Visible while the reserve call is in flight (CFT-203); Buy Now is the
           // only primary that sets `reserving`.
           pendingLabel="Reserving…"
-          variant="primary"
-          size="md"
+          variant={state.secondary ? 'secondary' : 'primary'}
           disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
           loading={primaryBusy}
           onPress={() => runAction(state.primary.kind)}
@@ -1360,6 +1476,24 @@ function makeStyles(p: Palette) {
   scrollTail: { height: 96 },
   // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
   commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
+
+  // The board's fact list: one eyebrow, then rows of the same weight separated by hairlines.
+  facts: { paddingHorizontal: v2.space.lg },
+  factEyebrow: { color: p.text.muted, paddingBottom: v2.space.xs },
+  factRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: v2.space.lg,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: p.border.default,
+  },
+  factRowBlock: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs },
+  factLabel: { color: p.text.secondary },
+  factValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
+  factValueBlock: { textAlign: 'left' },
+  factMoney: { fontVariant: ['tabular-nums'] },
 
   statusWrap: { marginTop: v2.space.lg },
   refreshRow: {

@@ -88,10 +88,14 @@ export function TransactionPanel({
               label={closed ? 'Final bid' : bidCount > 0 ? 'Current bid' : 'Starting bid'}
               amount={currentAllIn}
               muted={closed}
+              // The board says "all-in" exactly once, in the sub-line below; the suffix here
+              // doubled it (pkg8-listing-*: "$99.00", then "all-in · 6 bids · 2h 14m left").
+              showTotal={false}
             />
           </Animated.View>
           <View style={styles.qtyCol}>
-            <Text style={[textStyle('label'), styles.qty]} numberOfLines={1}>
+            {/* Mixed case per the board — `label` uppercased "2 × GA TICKETS". */}
+            <Text style={[textStyle('title'), styles.qty]} numberOfLines={1}>
               {`${quantity} × ${ticketType} ticket${quantity === 1 ? '' : 's'}`}
             </Text>
             {quantity > 1 ? (
