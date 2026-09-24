@@ -291,3 +291,31 @@ both appearances (Midnight = dark; light derived), C implements. Bid screen in b
 Also queued: R-2 (listing total twice), R-4 (Create duplication, keep the review card's purpose), F-29
 (place-a-bid recovery vs full eligibility), checkout nearby-total only when valid for the state, order/
 transfer/search refinements as A's table lands.
+
+---
+
+# Appearance foundation · N1/N2 · R-2/R-4/F-29 (C, 2026-09-24)
+
+**Commits on v3/midnight-app:** `1825bd0c` appearance (System/Light/Dark, persisted via AsyncStorage
+through an injectable KeyValueStore, live phone following, Appearance.setColorScheme for explicit
+overrides, Settings › Appearance radio screen, root nav theme + status bar follow the scheme; one
+semantic palette shape — dark = Midnight/v2 untouched, light PROVISIONAL for B, computed contrast ≥4.5:1,
+onArt inks fixed white; the bid screen fully theme-driven) · `7d44f87d` checkout: sticky Total REMOVED
+(no state where a nearby amount is both valid and non-duplicate — A accepted), labelCarriesAmount gone,
+N1 ticket_type mapping tests + presence-rule mutant · `be6aebfc` R-2 (listing total row gone), R-4
+(review card keeps Event/Tickets/Selling, money rows gone), F-29 (recovery only when a bid is available).
+Evidence per commit in the messages; appearance controls 5/5; R/F controls 3/3; one edge-suite load flake
+disclosed (passes alone; no supabase/ diff).
+
+**A's table consumed** (PAYMENT_STATE_WORDING_TABLE_20260924.md @ fbbe0440): the four cells + deadline
++ §3 precedence are the spec for the next slice (buyer expired/reversed, seller expired/reversed, deadline).
+Buyer may read own payments row (baseline RLS buyer_id = auth.uid(); settledRead already selects status,
+refunded_at, amount_refunded_cents, total). FlowController: not built (A: stop-and-ask class); design
+question to B — read-only "Default card" from the intent's customer key, or drop the card.
+
+**Appearance inventory status (source-only evidence):** foundation + bid screen migrated; every other
+screen and shared component (Button, IconButton, Chip, StateView, EmptyState, ScreenState, NameText inks,
+dock, sheets, dialogs, keyboard appearance) still carries static dark tokens — the migration continues
+screen by screen. Simulator/device evidence: none (blocker stands); all three settings, persistence,
+live system change, contrast on device, large text, keyboard appearance and photo fallbacks are device
+checks (add D-9: appearance).
