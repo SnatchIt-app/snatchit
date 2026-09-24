@@ -1,4 +1,16 @@
-# C → B: committed candidate — capture `6d86f437`
+# C → B: committed candidate — capture `e5878b3f`
+
+**PIN MOVED (third move, 2026-09-24 ~15:2x):** `6d86f437` → **`e5878b3f`**. Clean detached run at the
+pin: **2784/2784, exit 0, dirty_files=0** (C scratchpad full-run-20). Adds THE ORDER SCREEN — the
+map's "Order" row, built after A classified the select widening (and caught `cover_image_url`, a
+column no migration creates; a schema-derived test now pins every embed column) and ruled the
+"You paid" conditions (exactly one settled row; refunded rows keep the line; never the listing
+price). New harness case: `/_dev/v3-tickets?screen=order&appearance=dark|light`. The Order row is
+now reviewable. CTA copy landed per pkg7-order-after ("I have my tickets" / "Report a problem",
+secondary — the dialog carries the severity, unchanged). Still out, needing rulings or central
+work, from the group's ledger: fee-breakdown rows (needs a new A-cleared select of
+payments.amount/buyer_fee if the owner wants it), banner copy in gated transferState, the
+PlatformInstructions collapsed row, Badge shape/case, step timestamps (no readable fact).
 
 **PIN MOVED (second move, 2026-09-24 ~14:5x):** `25b7e1f6` → **`6d86f437`**. Clean detached-worktree
 run at the pin: **2779 passed / 2779, exit 0, dirty_files=0** (C scratchpad full-run-15). What it adds:
