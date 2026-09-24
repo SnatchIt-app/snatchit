@@ -271,7 +271,9 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
                 // "2 listings · Soonest first": a count of what is ON SCREEN, and a sort label
                 // that matches the query's real `ends_at` ascending order.
                 <View style={s.resultsHeader}>
-                  <Text style={[textStyle('label'), s.resultsCount]}>
+                  {/* sectionLabel, not `label`: the board writes "2 listings" in the quiet
+                      sentence-case heading voice, not the uppercase tracked eyebrow. */}
+                  <Text style={[textStyle('sectionLabel'), s.resultsCount]}>
                     {searchResultsHeader(shown.length)}
                   </Text>
                   <Text style={[textStyle('bodySm'), s.resultsSort]}>{SORT_LABEL}</Text>

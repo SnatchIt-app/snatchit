@@ -67,7 +67,7 @@ export function Chip({
         testID={testID}
       >
         <Text
-          style={[textStyle('label'), selected ? styles.labelOn : styles.labelOff]}
+          style={[textStyle('action'), selected ? styles.labelOn : styles.labelOff]}
           numberOfLines={1}
           maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
         >
@@ -91,12 +91,15 @@ function makeStyles(p: Palette) {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // V3 (pkg8-search boards, 2026-09-24): a SELECTED chip is the primary ink filled — white on
+  // Midnight, near-black on Daylight — with the canvas ink for its label. The V2 red-soft fill
+  // read as a brand state on a control that is a filter, and red stays reserved for actions.
   selected: {
-    borderColor: p.brand.red,
-    backgroundColor: p.brand.redSoft,
+    borderColor: p.text.primary,
+    backgroundColor: p.text.primary,
   },
   disabled: { opacity: 0.4 },
-  labelOff: { color: p.text.muted },
-  labelOn: { color: p.text.primary },
+  labelOff: { color: p.text.primary },
+  labelOn: { color: p.surface.canvas },
   });
 }
