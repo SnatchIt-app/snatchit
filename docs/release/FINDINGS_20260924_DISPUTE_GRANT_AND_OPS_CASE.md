@@ -164,6 +164,25 @@ resolution fires both.
     only counts `'paid'`, and Phase 2b's only decision writer is the manual-review one. This predates #92, but (d)
     now carries operator-decided payouts, whose only record is then `payout_attempts` plus
     `transfers.payout_released_at`.
+- **Complete writer inventory (D's exhaustive sweep, independently reproduced by A at `e73553d2`; 2026-09-24 ~17:55Z).**
+  Every writer of `payout_decisions` in `supabase/migrations`, `supabase/functions`, `admin/src`, `web/src` and `src`
+  is below. Every other mention is a read (116), a grant (074) or a comment. No `UPDATE`/`DELETE` writer exists.
+
+  | Site | `buyer_confirmed` | Seller-win row |
+  |---|---|---|
+  | a1 `confirm-and-release:357-368` (`payoutDeferred`) | hard-coded `true` | **false record** |
+  | a2 `confirm-and-release:401-418` (release audit) | hard-coded `true` | **false record** (ranked first) |
+  | a3 `20260906120000:815-823` (`record_payout_attempt_result`) | `v_t.status = 'buyer_confirmed'` | **false record** (`DUPLICATE_TRANSFER` only) |
+  | a4 `20260906120000:889-894` (`flag_payout_reversal_required`) | same expression | **false record** (after a (d) payout plus a lost chargeback) |
+  | `enforce-transfer-expiry:825-846` (`logDecision`) and `:883-892` (`recordManualReviewOnce`) | hard-coded `false` | truthful |
+  | `admin_release_held_payout`, `039:304`, redefined `0551:94` (the latest definer) | omitted, so the default `false` applies (`039:88`) | unreachable: `0551:88` returns false unless `status = 'seller_sent'` |
+
+  **The fix scope a1–a4 is complete.**
+  - a3 and a4 already have `buyer_confirmed_at` in `v_t`.
+  - a1 and a2 also need the column **added to §5's select** (`5b255838:233` does not select it). Swapping the literal
+    alone is not enough (D).
+  - **Limit:** this is a repo-source sweep. Production's bodies for a3, a4 and `admin_release_held_payout` were not
+    among R0's twelve, and R0-wide showed that production can drift from the repo.
 
 ## Reader sweep — everything that treats `status='buyer_confirmed'` as buyer confirmation (A's read-only subagent, 2026-09-24; SERVER = #92 head `e73553d2`, CLIENT = `404bce38`)
 
