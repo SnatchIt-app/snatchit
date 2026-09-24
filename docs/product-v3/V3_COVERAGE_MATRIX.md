@@ -259,15 +259,28 @@ the pressed red is #FF5353 in both.
   killed by exactly the predicted gate (AM1 / RD8 / AM4); harness-rendered contrast — real components
   mounted under each palette, layers composited, WCAG computed on emitted styles. *Device-verified:*
   **nothing.** D-1…D-9 need the build.
-- **Still open, and they are design or copy decisions, not migration gaps** (B measured or raised each;
-  none blocks the build): N-2 `status.warning` as a 1px border reads bright amber on Midnight and dark
-  brown on Daylight — passes contrast, looks materially different, wants B's rendered review · N-3
-  opacity as "past" dims toward the canvas, so it washes out rather than recedes on white · meaning
-  carried by colour alone (checkout countdown recolours to error while its copy stays neutral; input
-  focus is the underline colour alone; the switch state is the track colour alone; the three risk tiers
-  rank by hue under one ink, and `critical_risk` and `listing_blocked` share both copy and style) ·
-  `text.faint` below 4.5:1 in BOTH appearances (sheet group headings, the 0/1000 counter) · B's
-  `HomeFeature` note that Dark's over-artwork secondary moves 0.70 → 0.78 alpha with the onArt fix.
+- **The carried-forward findings, RE-JUDGED at `9c6c9bf4` / `24b021a3` (B, 2026-09-24).** Full working:
+  `V3_REVIEW_OF_C_9c6c9bf4.md`. Two did not survive contact with the current code.
+  | Finding | Verdict |
+  |---|---|
+  | **N-2** `status.warning` as a border | **Closed — not a defect.** 10.33–11.48:1 Midnight, 5.71–6.27:1 Daylight, across nine sites. The amber→brown shift is the token behaving correctly. Eight of nine carry a non-colour cue. `PlatformInstructions`' hardcoded tint is classified in AM5 — checked, not a miss |
+  | **N-3** opacity as "past" | **Real failure, in BOTH appearances — and not at the two sites recorded.** `BidCard` (artwork only) and `TicketEventGroup` (0.92) are fine. `FeedRow` and `SellerListingCard` dim the **text** at 0.55: the status word **Sold/Ended** lands at 3.45:1 Midnight / **2.71:1 Daylight**, and "Cancelled" at **1.49 / 1.54:1**. Both rows stay tappable, so the inactive-component exemption does not apply. Fix: dim the artwork only, as `BidCard` already does |
+  | **`text.faint`** | **Real failure, symmetric and pre-existing** — 2.46–2.67:1 Midnight, 2.36–2.39:1 Daylight. Most of the 22 sites are incidental; three are not: the **four required-field placeholders** on Create (15px), the **6-digit code** field's only visible name, and "Cancelled". Fix: those to `text.muted` |
+  | **Checkout countdown** | **WITHDRAWN.** One ternary on `reservationMsLeft === 0` drives both the colour and the string; copy and hue change together. The finding described code that does not exist |
+  | **Switch = track colour alone** | **WITHDRAWN.** The thumb's position is the primary, non-colour cue, plus `accessibilityState={{checked}}` |
+  | **Input focus = underline alone** | **Real, mitigated.** The state change is 1.50:1 Midnight / **1.14:1 Daylight** — hue only. iOS supplies a caret and the keyboard. Fix: `borderBottomWidth` 1 → 2 on focus |
+  | **Three risk tiers rank by hue** | **Restated.** The tints are 1.02–1.07:1 apart — the grading is inert. It costs nothing, because the three sentences differ |
+  | **`critical_risk` = `listing_blocked`** | **Confirmed, unchanged.** Byte-identical copy (`sellState.ts:240-241`), one OR'd style branch (`CreateListingScreen.tsx:861`), same alert. `risk_tier` is stored and never read. Worth fixing regardless of appearance |
+- **F-33 is HALF CLOSED — correction to the entry above.** `CreateListingScreen.tsx:750` uses
+  `onArt.primary` (white, correct); **`app/settings/notifications.tsx:239` still uses `text.primary`**,
+  a near-black thumb in Daylight. Not a contrast failure (5.05:1 on the ON track) — an inconsistency
+  between two instances of the same control. One-word fix.
+- **New (B, 2026-09-24): a transient RPC error is reported to the seller as a fact about their account.**
+  `CreateListingScreen.tsx:408-411` — when `can_create_listing` fails transiently the seller is shown
+  "We've noticed some recent issues. Please double-check your listing details.", and the publish proceeds
+  anyway. An **unknown** risk posture rendered as a **known** medium-risk one. Show nothing, or a true
+  neutral line.
+- B's `HomeFeature` note that Dark's over-artwork secondary moves 0.70 → 0.78 alpha with the onArt fix.
 - **Preserved failure evidence (owner 2026-09-24: "A later passing run does not erase earlier
   failures").** Three full runs in this session failed and are recorded, not overwritten:
   | Run | Result | Cause, established |
