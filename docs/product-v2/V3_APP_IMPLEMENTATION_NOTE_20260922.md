@@ -408,3 +408,8 @@ files** (dev-only foundation and unused components excluded); root layout partia
 fatal blocker's own literals, recorded not converted). A's D-8 reads closed the Tickets RPC; 4 reversed rows
 carry the reversed boards on real data; expired/held stay gallery-only with the data path open (D5/D6).
 **Not done: the 53-file appearance migration** — the build's §5 gate records the exact list instead.
+
+**Hardening commit `2619b9e1` (owner corrections, 2026-09-24):** date lines suppress only themselves (TG9;
+RC17); static imports whitelisted (TG8); tested Settings entry through the real screen (SG1/SG2; RC18).
+Evidence at 2619b9e1: tsc 0 · lint 0/29 · **full vitest alone 143 files, 2660/2660 clean** (load average 5).
+Branch head for the build pin, when the §5 gates are met: `2619b9e1` (v3/midnight-app).
