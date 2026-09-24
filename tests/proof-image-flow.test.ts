@@ -369,7 +369,7 @@ describe('the surfaces (source contract; the device rows DV-IMG-1..8 prove the b
     expect(send).toContain('reuseKey: id');
     expect(send).toContain(".select('status, transfer_evidence_path')");
     const run = send.indexOf('runMarkSent(');
-    const success = send.indexOf("Alert.alert('Marked as sent'", run);
+    const success = send.indexOf("announceForAccessibility('Marked as sent", run);   // F-28: announced, not a dialog
     expect(success).toBeGreaterThan(run);
     expect(send.slice(run, success)).toContain("kind === 'sent'");
     expect(send).not.toContain("setTransfer((prev) => (prev ? { ...prev, status: 'seller_sent'");   // no local success without the read-back

@@ -11,7 +11,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -182,7 +182,10 @@ export default function TransferSendScreen() {
           setLastFailed(false);
           evidenceUpload.reset();
           await fetchTransfer(true);
-          Alert.alert('Marked as sent', "You've marked this transfer as sent. The buyer still needs to confirm they received the tickets.");
+          // F-28 (owner 2026-09-23): the screen's own "Marked as sent" block IS the confirmation;
+          // a dialog repeating it said the same thing twice. Assistive tech still hears the
+          // change. Failure dialogs below are untouched.
+          AccessibilityInfo.announceForAccessibility('Marked as sent. Waiting for the buyer to confirm they received the tickets.');
           return;
         }
         if (outcome.kind === 'needs_proof') {

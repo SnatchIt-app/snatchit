@@ -44,6 +44,8 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: <T,>(s: T) => s },
 }));
 vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} } }));
+// V3 footer: the screen reads the bottom inset itself now (StickyBar used to, behind the ui mock).
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => h.network }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
@@ -173,9 +175,9 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     expect(view(host)).toHaveProperty('form', true);
     const joined = screenText(host.output);
     expect(joined).toContain('Sandbox L6');
-    // V3 de-dup: the market price appears once, all-in (100 -> $110). Still the SERVER's
-    // number, never an invented floor - which is what this regression guard exists to prove.
-    expect(joined).toContain('$110 all-in');
+    // R-1 (owner 2026-09-23): the market line shows the UNDERLYING bid, in the editable bid's
+    // units. Still the SERVER's number, never an invented floor - the regression this guards.
+    expect(joined).toContain('bid · $100');
     expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
     expect(joined).not.toContain('$0');
   });

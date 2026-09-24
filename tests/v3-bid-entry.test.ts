@@ -1,14 +1,15 @@
 /**
- * V3 bid entry — the DE-DUPLICATED screen (owner direction 2026-09-23, superseding the pkg2
- * board's repetitions and this suite's earlier pins):
+ * V3 bid entry — the owner's FINAL bid-summary direction (2026-09-23, "implement and
+ * reconcile without another approval round"):
  *
- *   identity + quantity · the market price ONCE · one clearly-labelled editable bid ·
- *   the service fee ONCE · the final total beside the "Place bid" button — and nowhere else.
+ *   identity + quantity · the market price ONCE, in the SAME UNITS as the editable bid (R-1:
+ *   the underlying bid, never a fee-inclusive figure beside a fee-exclusive input) · one
+ *   labelled editable bid · exactly three summary rows — Bid / Fee (10%) / Total, Total
+ *   strongest — directly above a plain "Place bid" button · no side total, no "all-in", no
+ *   caption or sentence inside the summary · one concise payment sentence OUTSIDE it.
  *
- * No duplicate central total, no repeated proposed-bid summary, at most one "all-in" label,
- * no sentence explaining that the stepper steps. The payment explanation is the verified
- * truth: nothing charges automatically — the winner pays through checkout (runAction
- * 'pay_now' → winner checkout → payControl's Pay, the only charging control in the app).
+ * The bid value repeating inside the summary is intentional per the direction. Payment truth
+ * unchanged: placing a bid charges nothing; the winner pays at checkout.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +27,7 @@ vi.mock('react-native', () => ({
   ScrollView: 'ScrollView', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
 }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} } }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOffline: false }) }));
@@ -68,8 +70,6 @@ async function mount(l: Record<string, unknown>) {
   return host;
 }
 
-const byText = (host: HookHost, text: string) =>
-  findElement(host.output, (el) => el.type === 'Text' && el.props.children === text);
 const collect = (node: unknown, out: string[]) => {
   if (Array.isArray(node)) { node.forEach((n) => collect(n, out)); return; }
   const el = node as Element | null;
@@ -77,18 +77,15 @@ const collect = (node: unknown, out: string[]) => {
   if (typeof el.props.children === 'string') out.push(el.props.children);
   collect(el.props.children, out);
 };
-const allTexts = (host: HookHost): string[] => { const out: string[] = []; collect(host.output, out); return out; };
-const stickyTexts = (host: HookHost): string[] => {
-  const bar = findElement(host.output, (el) => el.type === 'StickyBar');
-  const out: string[] = [];
-  collect(bar?.props.left, out);
-  return out;
-};
+const textsIn = (node: unknown): string[] => { const out: string[] = []; collect(node, out); return out; };
+const byText = (host: HookHost, text: string) =>
+  findElement(host.output, (el) => el.type === 'Text' && el.props.children === text);
+const byTestId = (host: HookHost, id: string) => findElement(host.output, (el) => el.props.testID === id);
 
 beforeEach(() => { vi.resetModules(); });
 
-describe('V3 bid entry — each fact exactly once', () => {
-  it('BE1: identity and quantity — name in the display voice, the dated line, the whole-listing count', async () => {
+describe('identity and the market price, in the bid\'s own units (R-1)', () => {
+  it('BE1: name in the display voice, the dated line, the whole-listing quantity', async () => {
     const host = await mount(listing());
     const name = findElement(host.output, (el) => (el.props as { token?: string }).token === 'nameOrder');
     expect(name?.props.children).toBe('Neon Choir');
@@ -102,53 +99,70 @@ describe('V3 bid entry — each fact exactly once', () => {
     expect(byText(host, '1 × GA · sold together')).toBeUndefined();
   });
 
-  it('BE3: the market price ONCE — one line, all-in, and no comparison columns', async () => {
+  it('BE3: "Current bid" shows the UNDERLYING bid — same units as the editable value — and no "all-in" anywhere', async () => {
     const host = await mount(listing());
-    expect(byText(host, 'Current bid · $110 all-in')).toBeDefined();
-    // The old two-column layout and its sub-lines are gone.
-    expect(byText(host, 'all-in · $100 bid + fee')).toBeUndefined();
-    expect(byText(host, 'all-in · $105 bid + fee')).toBeUndefined();
-    // At most one "all-in" on the whole screen (the market line).
-    expect(allTexts(host).filter((t) => /all-in/.test(t))).toHaveLength(1);
+    expect(byText(host, 'Current bid · $100')).toBeDefined();
+    expect(textsIn(host.output).some((t) => /all-in/.test(t))).toBe(false);
   });
 
-  it('BE4: with zero bids the market line says "Starting bid" — never a current bid nobody placed', async () => {
+  it('BE4: with zero bids the line says "Starting bid" — never a current bid nobody placed', async () => {
     const host = await mount(listing({ bid_count: 0 }));
-    expect(byText(host, 'Starting bid · $110 all-in')).toBeDefined();
-    expect(allTexts(host).some((t) => t.startsWith('Current bid'))).toBe(false);
+    expect(byText(host, 'Starting bid · $100')).toBeDefined();
+    expect(textsIn(host.output).some((t) => t.startsWith('Current bid'))).toBe(false);
   });
+});
 
-  it('BE5: one labelled editable bid, minimum guidance at the point of entry, and NO central total', async () => {
+describe('the editable bid and the three-row summary', () => {
+  it('BE5: one labelled editable bid with minimum guidance; the old central-total copy is gone', async () => {
     const host = await mount(listing());
     expect(byText(host, 'Your bid')).toBeDefined();
-    const stepVal = findElement(host.output, (el) =>
-      String(el.props.accessibilityLabel ?? '').startsWith('Your bid '));
+    const stepVal = findElement(host.output, (el) => String(el.props.accessibilityLabel ?? '').startsWith('Your bid '));
     expect(stepVal?.props.children).toBe('$105');
     expect(byText(host, 'Minimum $105')).toBeDefined();
-    // The total lives beside the action and nowhere in the scroll content.
-    expect(allTexts(host).filter((t) => t === '$115.50')).toHaveLength(0);
-    expect(allTexts(host).some((t) => t.includes('your total if you win'))).toBe(false);
-    expect(allTexts(host).some((t) => t.startsWith('Steps raise your bid'))).toBe(false);
-    expect(allTexts(host).some((t) => t.startsWith('Lowest you can place'))).toBe(false);
+    const texts = textsIn(host.output);
+    for (const gone of ['your total if you win', 'Lowest you can place', 'Steps raise your bid']) {
+      expect(texts.some((t) => t.includes(gone))).toBe(false);
+    }
+    // The old sticky kicker was the standalone text "If you win"; the payment sentence may
+    // still use those words mid-sentence.
+    expect(texts).not.toContain('If you win');
   });
 
-  it('BE6: the fee ONCE, and one truthful payment sentence — the winner pays at checkout', async () => {
+  it('BE6: exactly three rows — Bid / Fee (10%) / Total — from the existing calculation, and nothing else inside', async () => {
     const host = await mount(listing());
-    expect(byText(host, 'Service fee (10%)')).toBeDefined();
-    expect(byText(host, '$10.50')).toBeDefined();
-    expect(byText(host,
-      "Nothing is charged now. If you win, you'll pay this total at checkout to complete the purchase.",
-    )).toBeDefined();
-    // The old sentence implied an automatic charge on winning; the winner in fact returns to pay.
-    expect(allTexts(host).some((t) => t.includes('Only charged if you win'))).toBe(false);
+    const summary = byTestId(host, 'bid-summary');
+    expect(summary).toBeDefined();
+    const inside = textsIn(summary);
+    expect(inside).toEqual(['Bid', '$105', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
+    // Total is the strongest row: it carries the marker the styles key off.
+    expect(byTestId(host, 'bid-summary-total')).toBeDefined();
   });
 
-  it('BE7: the final total sits BESIDE the plain "Place bid" action — on it or beside it, never both', async () => {
+  it('BE7: the plain "Place bid" button sits DIRECTLY below the summary, in the same footer; no side total', async () => {
     const host = await mount(listing());
-    const btn = findElement(host.output, (el) => el.type === 'Button' && typeof el.props.label === 'string');
+    const footer = byTestId(host, 'bid-footer');
+    expect(footer).toBeDefined();
+    const btn = findElement(footer, (el) => el.type === 'Button');
     expect(btn?.props.label).toBe('Place bid');
-    const beside = stickyTexts(host);
-    expect(beside).toContain('If you win');
-    expect(beside).toContain('$115.50');
+    expect(findElement(footer, (el) => el.props.testID === 'bid-summary')).toBeDefined();
+    // The footer holds only the summary and the button — no kicker, no second amount.
+    expect(textsIn(footer)).toEqual(['Bid', '$105', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
+    expect(findElement(host.output, (el) => el.type === 'StickyBar')).toBeUndefined();
+  });
+
+  it('BE8: one concise, accurate payment sentence — outside the summary; a bid charges nothing', async () => {
+    const host = await mount(listing());
+    const sentence = "Placing a bid doesn't charge you. If you win, you pay the total at checkout.";
+    expect(byText(host, sentence)).toBeDefined();
+    expect(textsIn(byTestId(host, 'bid-summary'))).not.toContain(sentence);
+    expect(textsIn(host.output).some((t) => t.includes('Only charged if you win'))).toBe(false);
+  });
+
+  it('BE9: the summary tracks the bid — a raised bid moves all three rows', async () => {
+    const host = await mount(listing());
+    const raise = findElement(host.output, (el) => el.props.accessibilityLabel === 'Raise bid');
+    (raise?.props.onPress as () => void)();
+    host.flush();
+    expect(textsIn(byTestId(host, 'bid-summary'))).toEqual(['Bid', '$110', 'Fee (10%)', '$11', 'Total', '$121']);
   });
 });

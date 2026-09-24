@@ -41,15 +41,16 @@ import {
 } from '@/src/lib/bid/bidEntry';
 import { hapticConfirm } from '@/src/lib/feedback/haptics';
 import { rowMeta } from '@/src/lib/listing/feedRowState';
-import { allInFromDollars, formatDollars } from '@/src/lib/money';
+import { formatDollars } from '@/src/lib/money';
 import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
-import { Button, IconButton, Spinner, StickyBar, Tappable } from '@/src/components/ui';
+import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = { id: string };
 
@@ -63,6 +64,7 @@ export default function PlaceBidScreen({ id }: Props) {
   const { user } = useAuth();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  const insets = useSafeAreaInsets();
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -256,8 +258,11 @@ export default function PlaceBidScreen({ id }: Props) {
 
         {/* De-dup (owner 2026-09-23): each fact once. The market price is ONE line; the buyer's
             total appears exactly once, beside the Place bid action in the sticky bar. */}
+        {/* R-1 (owner 2026-09-23): the market price in the SAME UNITS as the editable bid — the
+            underlying bid, never a fee-inclusive figure beside a fee-exclusive input. The
+            summary below supplies the fee and the total. */}
         <Text style={[textStyle('bodySm'), s.marketLine]} numberOfLines={1}>
-          {`${(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'} · ${allInFromDollars(listing?.current_bid ?? 0)} all-in`}
+          {`${(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'} · ${fmt$(listing?.current_bid ?? 0)}`}
         </Text>
 
         {/* ── The editable bid (the focus), clearly labelled ── */}
@@ -316,35 +321,40 @@ export default function PlaceBidScreen({ id }: Props) {
           <Text style={[textStyle('bodySm'), s.stepHint]}>{`Minimum ${fmt$(minimumBid)}`}</Text>
         </View>
 
-        {/* ── The fee, once; and the one payment sentence ─────
-            Verified in source: nothing charges on a win. The winner's route is pay_now →
-            winner checkout → payControl's Pay — the only control that moves the buyer's
-            money. The old "Only charged if you win the auction." implied an automatic
-            charge and is gone (owner 2026-09-23). */}
-        <View style={s.breakdown}>
-          <View style={s.breakRow}>
-            <Text style={[textStyle('body'), s.breakLabel]}>{`Service fee (${Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)`}</Text>
-            <Text style={[textStyle('body'), s.breakVal]}>{lines.fee}</Text>
-          </View>
-          <Text style={[textStyle('bodySm'), s.breakNote]}>
-            Nothing is charged now. If you win, you&apos;ll pay this total at checkout to complete the purchase.
-          </Text>
-        </View>
+        {/* The one payment sentence, OUTSIDE the summary (owner 2026-09-23). Verified in
+            source: nothing charges on a win — the winner's route is pay_now → winner checkout →
+            payControl's Pay, the only control that moves the buyer's money. */}
+        <Text style={[textStyle('bodySm'), s.breakNote]}>
+          Placing a bid doesn&apos;t charge you. If you win, you pay the total at checkout.
+        </Text>
       </ScrollView>
 
-      {/* ── Sticky action ───────────────────────────────────── */}
-      <StickyBar
-        left={
-          <View>
-            <Text style={[textStyle('micro'), s.stickyKicker]}>If you win</Text>
-            <Text style={[textStyle('price'), s.stickyTotal]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{lines.total}</Text>
+      {/* ── Summary + action (owner's final direction, 2026-09-23) ──
+          Exactly three rows from the existing calculation — Bid / Fee / Total, Total strongest —
+          and the plain "Place bid" button DIRECTLY below them. No side total, no "all-in", no
+          caption. The bid repeating here is intentional. */}
+      <View testID="bid-footer" style={[s.footer, { paddingBottom: v2.space.md + insets.bottom }]}>
+        <View testID="bid-summary" style={s.summary}>
+          <View style={s.summaryRow}>
+            <Text style={[textStyle('body'), s.summaryLabel]}>Bid</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1}>{lines.bid}</Text>
           </View>
-        }
-      >
+          <View style={s.summaryRow}>
+            <Text style={[textStyle('body'), s.summaryLabel]}>{`Fee (${Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)`}</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1}>{lines.fee}</Text>
+          </View>
+          <View testID="bid-summary-total" style={[s.summaryRow, s.summaryTotalRow]}>
+            <Text style={[textStyle('title'), s.summaryTotalLabel]}>Total</Text>
+            <Text
+              style={[textStyle('price'), s.summaryTotalValue]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
+            >
+              {lines.total}
+            </Text>
+          </View>
+        </View>
         <Button
-          // De-dup (owner 2026-09-23): the total appears BESIDE the action — the sticky bar's
-          // "If you win {total}" — so the button is the plain verb. An amount lives on an
-          // action or immediately beside it, never both.
           label="Place bid"
           pendingLabel="Submitting bid…"
           onPress={handleConfirm}
@@ -352,7 +362,7 @@ export default function PlaceBidScreen({ id }: Props) {
           disabled={submitting}
           block
         />
-      </StickyBar>
+      </View>
     </View>
   );
 }
@@ -412,17 +422,24 @@ const s = StyleSheet.create({
   },
   quickText: { color: v2.brand.red },
 
-  breakdown: {
-    marginTop: v2.space.xxl,
-    borderWidth: 1, borderColor: v2.border.default,
-    backgroundColor: v2.surface.surface,
-    padding: v2.space.lg,
-  },
-  breakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.sm },
-  breakLabel: { color: v2.text.secondary },
-  breakVal: { color: v2.text.primary },
-  breakNote: { color: v2.text.muted, marginTop: v2.space.sm },
+  breakNote: { color: v2.text.muted, marginTop: v2.space.xl },
 
-  stickyKicker: { color: v2.text.muted },
-  stickyTotal: { color: v2.text.primary, marginTop: 2 },
+  // The footer: the summary directly above the action, no gap, no second amount.
+  footer: {
+    paddingHorizontal: v2.space.lg,
+    paddingTop: v2.space.md,
+    gap: v2.space.md,
+    backgroundColor: v2.surface.surface,
+    borderTopWidth: 1,
+    borderTopColor: v2.border.strong,
+  },
+  summary: { gap: v2.space.xs },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
+  summaryLabel: { color: v2.text.secondary },
+  summaryValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+  // Total is the strongest row: heavier label, the price face, a hairline above.
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: v2.border.default, paddingTop: v2.space.xs, marginTop: 2 },
+  summaryTotalLabel: { color: v2.text.primary },
+  summaryTotalValue: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
+
 });

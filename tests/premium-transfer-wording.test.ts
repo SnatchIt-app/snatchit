@@ -83,7 +83,10 @@ describe('screens use the vocabulary, not their own words', () => {
     const send = stripComments(read('app/transfer/send/[id].tsx'));
     expect(send).toContain('<StateBlock title="Marked as sent"');
     expect(send).toContain('<StateBlock title="Tickets received"');
-    expect(send).toContain("Alert.alert('Marked as sent'");
+    // F-28 (owner 2026-09-23): the success is the screen's own "Marked as sent" block, announced
+    // for assistive tech - not a dialog repeating it. Failure dialogs are untouched.
+    expect(send).not.toContain("Alert.alert('Marked as sent'");
+    expect(send).toContain("announceForAccessibility('Marked as sent");
     expect(send).not.toMatch(/"Transfer sent"|"Transfer complete"|'Sent'/);
   });
 
