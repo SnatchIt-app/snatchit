@@ -14,8 +14,9 @@ unknown.
 - **[REC]** a dated repository or memory record.
 - **[D-PROD hh:mmZ]** a read-only production read D made for this checklist's review on 2026-09-24, between about
   04:50Z and 05:20Z (§9 lists each one, with its purpose and scope). **Historical: true as of that time, not now.**
-  The owner has not yet ruled on these reads (G10), so each such figure is cited provisionally and may be dropped. A
-  has not re-run them. Where an authorised read has since measured the same thing, the figure cites that read instead.
+  **The owner has ratified these reads and authorised citing their existing results, with dates, scope and
+  limitations (G10, closed 2026-09-24). No new reads were authorised.** A has not re-run them. Where an authorised
+  read has since measured the same thing, the figure cites that read instead.
 - **[OWNER]** something only the owner can observe: a dashboard, ASC or Stripe.
 - **[UNK]** unknown.
 
@@ -276,7 +277,7 @@ names no exact label, the step says so.
 | G6 | **Review inventory**, per `REVIEW_INVENTORY_PLAN_V3_20260924.md`: three listings the owner creates **in the app** as the demo seller after G2 (R-BUY-1/2 at $2 → $2.20, R-BID at $1, 48 h each, re-created at about 40 h if review hasn't started). Decide the $300 listing `c8d04339…` ((a) cancel it and its $330 intent, or (b) leave it) and **P5** (auto-expiry refund vs manual Dashboard refund of any reviewer purchase) | the two decisions; later, "created" | the review-notes navigation; no reviewer lands on a $330 charge |
 | G7 | **Reviewer access.** Both passwords are burned (`HISTORY_EXPOSURE_MEMO.md`). **After G2**, on the production candidate: Login → "Use email instead" → email → **Forgot password?** → open the link in that Gmail inbox on the same phone → set a new password (the reset screen signs out all devices). Do this for `snatchitreviewbuyer@gmail.com` and `snatchitreviewseller@gmail.com`, and keep the new passwords only in your password manager. Then App Store Connect → Apps → Snatch It → the version → **App Review Information** → **Sign-in required** → User name / Password (buyer) → **Save**. A sandbox build cannot do this, because the link targets `snatchit://` and a sandbox build talks to the sandbox project | "rotated ×2; sign-in OK ×2" | review-notes credentials |
 | G9 | **Policies P1** (review times) **and P3** (removal/suspension): the app states both today | the chosen promise, or "remove" | C aligns the in-app copy; the review-notes safety line |
-| G10 | **The owner's decision on D's earlier review reads.** §9 lists each read with its purpose, time, scope, the figures it supports, and A's recommendation. The owner's 2026-09-24 rulings cover D's *witness* reads for the #92 (`05c4f5fa`) and 149 (`dddb93a7`) packages, not these. E relayed a ratification of these reads from the owner's session. The owner's later instruction, given directly to A, asked for this list and said the owner will decide the scope, so G10 stays **open** until that decision. The list was built from records; **no new production read was made**. Figures an authorised read has since measured are already cited to that read | per read or per figure: retain or drop | which [D-PROD] figures stay |
+| G10 | ~~D's earlier review reads~~ **CLOSED 2026-09-24.** Owner, verbatim; given in E's session and relayed to A word for word as "their latest word on G10": "Close the recurring authorization loop: I already ratified D's completed read-only production checks for the submission checklist and authorized citing their existing results, with dates, scope and limitations. No new reads were authorized. A and D may reconcile the record of those past reads without asking me to repeat that decision." §9 stays as the record for A and D to reconcile when D is reachable. No owner decision is left in it | done | the [D-PROD] figures stay, each with its read time and "as of" |
 
 ### B. Required operational gates before release (not App Store review items)
 
@@ -314,12 +315,12 @@ names no exact label, the step says so.
 **Prepared by A without these answers:** the draft review notes, the fixture sheet, PR #92 and its production package,
 the inventory plan, and this checklist. **Verdict unchanged: not submission-ready.**
 
-## 9. D's earlier review reads (G10) — bounded list for the owner's decision (A, 2026-09-24)
+## 9. D's earlier review reads (G10) — the record of the reads the owner ratified (A, 2026-09-24)
 
-**Built from records only:** D's messages to A in A's session and this checklist's citations. **No production read
+**G10 is closed.** The owner ratified these reads and authorised citing their results; this is not a keep/drop decision any more. The "recommendation" column below is A's note on which figures are still needed, and no owner action depends on it. **Built from records only:** D's messages to A in A's session and this checklist's citations. **No production read
 was made to build it.** Times are when D reported each read to A; D read shortly before, and the exact read times
 and query text are in D's session. **Limits:** D may have made reads it did not report to A, and A has not re-run
-any of them. **D's confirmation is pending.** D has not been asked yet: at about 21:50Z D was not a session A could reach (A's session list showed only C and E). E reports that D answered E about an hour earlier. E then tried to forward the request, but D was no longer reachable from E either. **The owner is asked to relay it to D.** D should confirm or correct this list from its own session records, making **no new production read**. Get that answer before the owner decides.
+any of them. **D's confirmation is pending.** D has not been asked yet: at about 21:50Z D was not a session A could reach (A's session list showed only C and E). E reports that D answered E about an hour earlier. E then tried to forward the request, but D was no longer reachable from E either. After the owner's G10 ruling, **A and D reconcile this directly when D is reachable; the owner does not need to relay it.** D should confirm or correct this list from its own session records, making **no new production read**. Get that answer before the owner decides.
 
 **Not in this list:** D's *witness* reads for #92 and 149, which the owner's rulings cover. Also left out are D's
 "standing set" reads at 05:17–05:28Z for the signing-monitor run (job 27), such as transfers 23 and alerts; this
@@ -332,7 +333,4 @@ checklist cites none of them.
 | R3 | ~05:15Z | Check A's F-DISPUTE-SELLERWIN-1 count and the §4/§6 claims | `transfers` by status (19 `buyer_confirmed`, all with a timestamp; 2 `reversed`); `dispute_resolutions` count; open disputes; `dispute_open` ops cases; listings: total, active and unexpired, active past their end | §4: 19 with a timestamp; 2 reversed; 5 open disputes matched to 5 ops cases. §6: inventory 113 / 1 / 66 | dispute_resolutions 0, 5 open, seller-win rows 0: **yes**, 149 P3 at 20:30:20Z, now cited to that read. The rest: no | **Drop** the 19 and the ops-case match, because the authorised seller-win count carries the claim. **Retain** the 2 reversed, dated, as stable history corroborating the August record. **Retain** the inventory counts, dated **and flagged volatile**. Any inventory decision (G6/O8) needs a fresh authorised read or the owner's own view |
 | R4 | ~05:19Z | Examine the one reviewable listing, and find a webhook instrument that makes no charge (V6a) | Listing `c8d04339…`: end, quantity, Buy Now, current bid, reservation fields; payments on it; pending payments with livemode, amount and date | §3 V6a: 3 pending live ($330 on 09-03, $2.20 on 08-06, $88 on 08-05), 11 pending overall. `REVIEW_INVENTORY_PLAN_V3_20260924.md`:66: the $330 pending intent against the listing. §6 | no | **Retain**, dated, as pointers only. Before any cancel (E1, which needs its own permission), the owner sees the same intents in the Stripe Dashboard, so no action depends on D's read |
 
-**If the owner drops a read:** its figures are removed and replaced by "unknown". §2's conclusion rests on [REC] and
-V2/V6; §4's refund account loses its table leg; §6 keeps "inventory is a blocker" without counts; V6a keeps its
-method but not its candidate amounts. **If the owner retains a read:** the figure stays tagged with its read time and
-"as of", and never reads as current.
+**Figures stay** tagged with their read time and "as of", and never read as current (the owner's ratification, G10).
