@@ -1692,3 +1692,5 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Nothing is applied or deployed. D's review has been requested.
 - **#92 gate-merge package prepared** (package §14): the exact commands, and `merge92_checks.sh` pre (dry run ALL
   PASS) and post. The merge is NOT authorised, and #92 must never go to `main`.
+- **#93 CI (run 36036750660, head `9fb450eb`): green, 9/9 checks, including the Deno type check.** pgTAP Files=96 /
+  Tests=5543 PASS. That is exactly the predicted count: local 5537 plus the 6 in `000_helpers`. Census 32/108/37/38.
