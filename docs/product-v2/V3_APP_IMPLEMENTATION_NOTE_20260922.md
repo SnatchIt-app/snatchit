@@ -388,3 +388,23 @@ synthetic transfer-state gallery authorised (sandbox-only, read-only, same compo
 → in progress; the three transfer states stay unverified on device until then, and the data path stays open.
 **Inventory at 212783f2 by actual colour access:** 54 files / 546 static refs; 14 palette-only; 1 partial
 (app/_layout). B's 55+15 counts imports (space/radius/type included).
+
+---
+
+# A-1 hairlines · shared transfer blocks · sandbox gallery (C, 2026-09-24) — `6c7fc18b`
+
+A-1 approved neutral hairlines landed (#28292D / #64656A both mirrors; AP17; foundation pin retired).
+The five transfer-state blocks are ONE module (`src/components/transfer/TransferStateBlocks.tsx`)
+rendered by the real receive/send screens and by the owner-authorised sandbox-only gallery
+(`app/_dev/transfer-states.tsx`: render-time guard → Redirect outside sandbox/dev (TG5); static imports
+whitelisted side-effect-free (TG8); fourteen labelled synthetic cases; in-page appearance switch; no
+client/dialog/action; entry = Settings "Sandbox" section rendered only in a sandbox build, SG1/SG2). A's gap
+closed: TS3 renders the real send screen with a held row. Harness gained `expandTree()` (nested components
+rendered through). Date rule hardened after the owner's note: a missing date suppresses only its line (TG9).
+Controls RC12–RC16 (RC12 a superset: TS2's source pin on the deleted call). Full run alone 2655/2656 —
+credential-sign timed out at load average 58 (two other sessions); passes alone 26/26; an earlier run at
+that load (35 timeouts, 16 untouched edge suites) is void. **Consumer-build appearance count corrected: 53
+files** (dev-only foundation and unused components excluded); root layout partial (spinner red + the
+fatal blocker's own literals, recorded not converted). A's D-8 reads closed the Tickets RPC; 4 reversed rows
+carry the reversed boards on real data; expired/held stay gallery-only with the data path open (D5/D6).
+**Not done: the 53-file appearance migration** — the build's §5 gate records the exact list instead.
