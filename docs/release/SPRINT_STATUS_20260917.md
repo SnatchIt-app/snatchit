@@ -1659,3 +1659,13 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     attribution by timing; new paths unexercised; Stripe not read).
   - Not done, not authorised: merging #92 (C); resolving disputes; `confirm-and-release` (still v37).
   - Records updated: registry row 148, checklist P6/P7/R1/R2, HANDOFF_A §2, wording table header.
+- **D's review of the #92 execution record: PASS.** §13 is amended with D's four points, each verified by A against
+  source:
+  - the (d) selection is schema-valid, provided execution reached (d);
+  - payout-side Stripe calls are bounded by payout_attempts 0;
+  - E-6 is now live prospectively ("processing" told to a buyer on a held seller-win row; no money, no row). #92's
+    bundle is not the fix (F-CR-148-SHARED);
+  - the drift hazard is widened to a bulk redeploy, which would invisibly reinstate F-DISPUTE-SELLERWIN-1.
+  - P1's v40 is recorded as held by control flow.
+  - D states it read production at 17:03:51Z and 17:04:53Z under the owner's authorisation; A cannot see it, so owner
+    confirmation is requested.

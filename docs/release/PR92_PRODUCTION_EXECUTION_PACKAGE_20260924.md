@@ -465,7 +465,7 @@ any step (`exec_predictions.txt`, sha256 `219f7867…`). **Every step matched it
 
 | Step | UTC | Result |
 |---|---|---|
-| P1 `deploy_148.sh --dry` | 16:54:50 | `enforce-transfer-expiry` v40, ezbr `8370c58d…`, verify_jwt true. Pre-download: 6 files vs the `5b255838` blobs, 0 mismatches |
+| P1 `deploy_148.sh --dry` | 16:54:50 | `enforce-transfer-expiry` v40, ezbr `8370c58d…`, verify_jwt true. Pre-download: 6 files vs the `5b255838` blobs, 0 mismatches. **A's terminal observation only:** the real run overwrote the dry run's artefacts. The real run re-enforced v40 by its hard stop (`deploy_148.sh:34`) and re-verified the pre-download (`:44`); that kept pre-download is 6/6 vs the gate (D re-derived). So v40 holds by control flow, and the ezbr value is unwitnessed |
 | P2 `apply_one_148.sh 00` | 16:55:22 | ledger 160, no 148 row. Census 32/108/37/38. Grants matrix 69 rows (`00_grants.txt` `9955f5d9…`). Switches: detectors true, refund_resolution_detector false, alert_delivery false |
 | P3 prestate | 16:55:40 | 13/13 STOP keys equal expected: ledger 0/160/20260923000000; claim `d3cd9fdd…`/`083bf9a3…`; notify `37a46d03…`/`203f7c7d…`; `trg_notify_transfer_state_inbox@transfers=O`; seller_win_rows 0; writers `b7f11225…`/`c5ab888d…`; both bindings. Info: dispute_resolutions 0, open disputes 5, payout_attempts 0 |
 | Apply `01` | 16:55:40 | HTTP 201. The executed request `01_apply.sql` (sha256 `c91cec23…`) is the rehearsed request, byte for byte |
@@ -477,20 +477,60 @@ any step (`exec_predictions.txt`, sha256 `219f7867…`). **Every step matched it
 unauthorised); no dispute was resolved; `confirm-and-release` is still v37; no other production change was made.
 Outputs are in `scratchpad/apply_148/out/` and `edge/out/`.
 
-**Evidence limits.**
-1. The run response carries no function version. The claim that v41 served the three post-deploy runs rests on
-   timing: the first run is 75 s after v41's platform timestamp. No per-invocation version was read; an edge-log read
-   would settle it, and it was neither authorised nor run.
-2. The new paths are deployed but not yet exercised in production. seller_win_rows is 0, so Phase 2b (d) selected
-   nothing and no claim met the new refusal. The run check proves that v41 runs the existing phases cleanly; it does
-   not prove that (d) or the claim's hold refusal behaves correctly in production. The evidence for those is still the
-   rehearsal (215 43/43 with production's writer bodies; edge mutants E1–E12; SQL mutants). Their first production
-   exercise is E-5.
-3. payout_attempts is a count: 0 before and 0 after. Stripe itself was not read.
+**Evidence limits (amended after D's review, 2026-09-24 ~17:20Z; A verified each against source).**
+1. **Version attribution rests on timing.** The run response carries no function version. v41's platform timestamp is
+   16:56:44.955Z (A's deploy read, 1790269004955 ms). The last pre-deploy run (16:56:02.12Z) is 42.8 s before it, and
+   the first post-deploy run (16:58:00.28Z) is 75.3 s after it, so no run straddles the swap (D's observation). No
+   per-invocation version was read.
+2. **The (d) selection is accepted by production's schema, provided execution reached (d).** The (d) query is issued
+   on every tick, and its error increments `errors` (`index.ts:1224-1226` at `e73553d2`). So errors 0 across the
+   post-deploy runs rules out a malformed selection: a wrong column, a bad `.or()` filter, or a bad `payments!inner`
+   embed. Those are defect classes a replayed schema can miss. **But the response cannot show that (d) was reached.**
+   Phase 2b's outer catch (`:1240-1242`) logs and does not count, and every other counter is incremented inside
+   `sweepOne`. (D's restatement, verified.) (d)'s loop body and the claim's hold refusal are still evidenced only by
+   rehearsal: 215 43/43 with production's writer bodies, edge mutants E1–E12, and SQL mutants. Their first production
+   exercise is E-5. One edge-log read would close both this condition and limit 1 (D). It has not been requested.
+3. **Payout-side Stripe calls are bounded by the attempt count, not by a Stripe read.**
+   - `executePayoutAttempt` claims first (`_shared/payouts.ts:363`).
+   - The claim either inserts a `payout_attempts` row (148 `:160`) or returns an open one.
+   - Every payout Stripe call is made after the claim inside `executePayoutAttempt` (`:379`, `:413`, `:434`).
+   - Both deployed callers use it: `enforce-transfer-expiry` at `e73553d2`, and `confirm-and-release` at `5b255838:386`.
+   - So payout_attempts 0 at 17:03:42Z means no payout Stripe call from either function between the apply and the read.
+   - **Not bounded:** the unchanged non-payout Stripe calls (expiry refunds, intent cancels). They are outside this
+     change. (D; A verified.)
+4. **E-6 is now live, prospectively, because of this apply.** Since 16:55:40Z the claim can raise `PAYOUT_HELD` /
+   `PAYOUT_UNDER_REVIEW`. Deployed `confirm-and-release` v37 does not know those codes, so a buyer call on a held
+   seller-win row gets `db_error` at stage `claim`, then `console.error`, then 200 `payout_status 'processing'`.
+   - No money moves and no row is written.
+   - The buyer is told "processing" where the truthful state is pending review. That is a notification-truthfulness
+     defect, not a payout-correctness one.
+   - Reachable only by that call on a held seller-win row. There are zero today (seller_win_rows 0,
+     dispute_resolutions 0).
+   - **Deploying #92's bundle is not the fix.** Per F-CR-148-SHARED it would write a *false* `payout_decisions` row
+     (`buyer_confirmed true`). The fix is `payoutDeferred` handling these two codes; until then v37 stays.
 
 **State now.** Production ledger 161 (max `20260924000000`); claim and notify at the 148 bodies;
 `enforce-transfer-expiry` v41 from `e73553d2`; the other nine edge functions unchanged. The repo carries 148 only on
 draft #92, not on `release/production-gate-20260918` and not on `main`. Until (C):
 - a `db push` from the gate would find a remote version with no local file;
-- a deploy of `enforce-transfer-expiry` from the gate would silently revert (d). The DB would stay at 148, which is
-  safe, since the claim is only stricter.
+- **any redeploy of `enforce-transfer-expiry` from the gate reinstates F-DISPUTE-SELLERWIN-1 invisibly.** That
+  includes the likelier accident, a bulk redeploy of all ten functions (D). With (d) gone and 148 still applied, a
+  seller-win row is never swept, while the registry says 148 is live. Money stays safe, since the claim is only
+  stricter, but the defect returns unseen.
+
+**D's review (2026-09-24 ~17:15Z): PASS on the record.** D independently re-derived every file-based number:
+- the manifest, 21/21, with a byte-flip control;
+- `exec_predictions.txt`, `02_runcheck.txt`, and `01_apply.sql` (= the local and DRY-6 rehearsal requests byte for byte);
+- grants and census on both sides;
+- the migration file = git blob `2b6e54d7…` at `e73553d2`;
+- claim and notify prosrc hashes, extracted from source;
+- 6/6 pre-download vs the gate and 6/6 post-download vs the head, with 2 of the 6 files changed, so neither comparison
+  is vacuous.
+
+D also states that it read production at 17:03:51Z and 17:04:53Z "under the owner's authorisation". From those reads:
+- the ledger's recorded statements md5 = `4eb38855…` (= the file);
+- the platform `updated_at` = 16:56:44.955Z;
+- 4 post-deploy runs by 17:04:53Z (the fourth at 17:04:01.42Z, status 200, errors 0).
+
+A cannot see that authorisation from A's session. The owner's (A)+(B) authorisation named A's steps, and §8 lists
+D's witness as a separate optional item. **Owner confirmation requested.**
