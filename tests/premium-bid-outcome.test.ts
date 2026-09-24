@@ -116,7 +116,10 @@ describe('PlaceBidScreen — shipped-source guards', () => {
   it('stepper and quick-add keys use Tappable, and amounts use formatDollars', () => {
     expect(code).not.toMatch(/<Pressable\b/);
     expect(screen).toContain('<Tappable');
-    expect(screen).toContain('const fmt$ = formatDollars;');
+    // V3 (pkg8 boards): displayed amounts carry cents through the display-only V3 formatter;
+    // the whole-dollar face stays for the step keys. Same single-formatter discipline, two faces.
+    expect(screen).toContain('const fmt$ = formatDollarsV3;');
+    expect(screen).toContain('const fmtStep$ = formatDollars;');
     expect(code).not.toContain("toLocaleString('en-US')");
   });
 });

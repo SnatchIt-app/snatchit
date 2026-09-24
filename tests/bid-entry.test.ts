@@ -75,7 +75,7 @@ describe('Place Bid — shipped-source guards', () => {
       'bidder_id',
       'minNextBid(',                // minimum via the pure model
       'canPlaceBid(',
-      'bidPriceLines(',             // all-in via the pure model
+      'bidPriceLinesV3(',             // all-in via the pure model
     ]) {
       expect(screen, `${marker} must survive`).toContain(marker);
     }

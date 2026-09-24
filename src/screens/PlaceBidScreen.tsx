@@ -32,7 +32,7 @@ import { APP_CONFIG } from '@/src/config/app';
 import {
   bidOutcome,
   bidOutcomeCopy,
-  bidPriceLines,
+  bidPriceLinesV3,
   canPlaceBid,
   minNextBid,
   quickAdd,
@@ -41,7 +41,7 @@ import {
 } from '@/src/lib/bid/bidEntry';
 import { hapticConfirm } from '@/src/lib/feedback/haptics';
 import { rowMeta } from '@/src/lib/listing/feedRowState';
-import { formatDollars } from '@/src/lib/money';
+import { formatDollars, formatDollarsV3 } from '@/src/lib/money';
 import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
@@ -54,15 +54,34 @@ import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type Props = { id: string };
+type Props = {
+  id: string;
+  /**
+   * DEVELOPMENT RENDERING ONLY (owner 2026-09-24). When supplied, the screen paints this
+   * listing instead of reading one, so the approved boards can be compared against what the
+   * REAL component renders without a session or a sandbox row. Only `app/_dev/v3-screens.tsx`
+   * passes it, and that route redirects unless the bundle is a sandbox or __DEV__ build; the
+   * real `/bid/[id]` route never passes it, so the production path is byte-for-byte the read
+   * path above. It short-circuits the READ only — the bid path, the floor arithmetic and the
+   * insert are untouched.
+   */
+  fixture?: Listing;
+};
 
-/** Whole-dollar bid display, e.g. "$80". Bid amounts are whole dollars. */
-const fmt$ = formatDollars;
+/**
+ * V3 money display (owner 2026-09-24): the approved boards show cents on every amount,
+ * so displayed figures read "$95.00". The bid itself is still chosen and submitted in
+ * whole dollars — `selectedBid` and the `bids` insert are untouched; only the string is
+ * formatted with cents. `fmtStep$` keeps the whole-dollar form for the +$5 / +$10 / +$25
+ * keys and the "$5 steps" hint, which the boards also draw without cents.
+ */
+const fmt$ = formatDollarsV3;
+const fmtStep$ = formatDollars;
 
 const MIN_INCREMENT = APP_CONFIG.MIN_BID_INCREMENT;
 const QUICK_CHIPS = [5, 10, 25] as const;
 
-export default function PlaceBidScreen({ id }: Props) {
+export default function PlaceBidScreen({ id, fixture }: Props) {
   const { user } = useAuth();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
@@ -92,6 +111,13 @@ export default function PlaceBidScreen({ id }: Props) {
   // it invented and a "Current bid" of $0 on the screen where a bid is committed. A thrown read used to skip
   // the handler entirely and leave the spinner up for good.
   const load = useCallback(async () => {
+    if (fixture) {
+      setListing(fixture);
+      setSelectedBid(fixture.current_bid + MIN_INCREMENT);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -115,7 +141,7 @@ export default function PlaceBidScreen({ id }: Props) {
       setLoadError(classifyLoadFailure(err, offlineRef.current));
       setLoading(false);
     }
-  }, [id]);
+  }, [id, fixture]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -128,7 +154,7 @@ export default function PlaceBidScreen({ id }: Props) {
   function increase() { setSelectedBid((p) => stepUp(p, MIN_INCREMENT)); }
   function addQuick(n: number) { setSelectedBid((p) => quickAdd(p, n)); }
 
-  const lines = bidPriceLines(selectedBid);
+  const lines = bidPriceLinesV3(selectedBid);
 
   function handleConfirm() {
     // Guard: must be signed in
@@ -234,8 +260,8 @@ export default function PlaceBidScreen({ id }: Props) {
     <View style={s.root}>
       {/* ── Header ──────────────────────────────────────────── */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Place bid</Text>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Place bid</Text>
         <View style={s.headerSpacer} />
       </View>
 
@@ -261,14 +287,21 @@ export default function PlaceBidScreen({ id }: Props) {
           </Text>
         ) : null}
 
-        {/* De-dup (owner 2026-09-23): each fact once. The market price is ONE line; the buyer's
-            total appears exactly once, beside the Place bid action in the sticky bar. */}
-        {/* R-1 (owner 2026-09-23): the market price in the SAME UNITS as the editable bid — the
-            underlying bid, never a fee-inclusive figure beside a fee-exclusive input. The
-            summary below supplies the fee and the total. */}
-        <Text style={[textStyle('bodySm'), s.marketLine]} numberOfLines={1}>
-          {`${(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'} · ${fmt$(listing?.current_bid ?? 0)}`}
-        </Text>
+        {/* V3 (pkg8-bid-*): the market price is a LABELLED ROW between hairlines — the label
+            left, the amount right in the price face — not a middot-joined sentence. The label
+            still depends on the data: "Current bid" only when a bid exists, else "Starting bid".
+            De-dup (owner 2026-09-23) holds: the market price appears once, in the same units as
+            the editable bid, and the buyer's total appears once, in the summary below. */}
+        <View style={[s.rule, s.ruleTop]} />
+        <View style={s.marketRow}>
+          <Text style={[textStyle('body'), s.marketLabel]}>
+            {(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'}
+          </Text>
+          <Text style={[textStyle('price'), s.marketValue]} numberOfLines={1}>
+            {fmt$(listing?.current_bid ?? 0)}
+          </Text>
+        </View>
+        <View style={s.rule} />
 
         {/* ── The editable bid (the focus), clearly labelled ── */}
         <View style={s.amountBlock}>
@@ -286,11 +319,14 @@ export default function PlaceBidScreen({ id }: Props) {
               accessibilityState={{ disabled: atFloor }}
               hitSlop={6}
             >
-              <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
+              <Text style={[s.stepGlyph, s.stepGlyphMinus]} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
             </Tappable>
             <Text
               style={s.bigAmount}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
               accessibilityLabel={`Your bid ${fmt$(selectedBid)}`}
             >
               {fmt$(selectedBid)}
@@ -306,6 +342,12 @@ export default function PlaceBidScreen({ id }: Props) {
             </Tappable>
           </View>
 
+          {/* The board puts the guidance directly under the amount and the quick keys under
+              that, and states the step size as well as the floor. */}
+          <Text style={[textStyle('bodySm'), s.stepHint]}>
+            {`Minimum ${fmt$(minimumBid)} · ${fmtStep$(MIN_INCREMENT)} steps`}
+          </Text>
+
           <View style={s.quickRow}>
             {QUICK_CHIPS.map((n) => (
               <Tappable
@@ -314,16 +356,13 @@ export default function PlaceBidScreen({ id }: Props) {
                 style={s.quick}
                 onPress={() => addQuick(n)}
                 accessibilityRole="button"
-                accessibilityLabel={`Add ${fmt$(n)}`}
+                accessibilityLabel={`Add ${fmtStep$(n)}`}
                 hitSlop={4}
               >
-                <Text style={[textStyle('label'), s.quickText]}>+{fmt$(n)}</Text>
+                <Text style={[textStyle('action'), s.quickText]}>+{fmtStep$(n)}</Text>
               </Tappable>
             ))}
           </View>
-
-          {/* Minimum guidance at the point of entry — validation says the rest. */}
-          <Text style={[textStyle('bodySm'), s.stepHint]}>{`Minimum ${fmt$(minimumBid)}`}</Text>
         </View>
 
         {/* The one payment sentence, OUTSIDE the summary (owner 2026-09-23). Verified in
@@ -365,6 +404,7 @@ export default function PlaceBidScreen({ id }: Props) {
           onPress={handleConfirm}
           loading={submitting}
           disabled={submitting}
+          size="lg"
           block
         />
       </View>
@@ -377,76 +417,102 @@ function makeStyles(p: Palette) {
   root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { alignItems: 'center', justifyContent: 'center' },
 
+  // V3: no rule under the header — the board separates the header from the content with
+  // space, and the first hairline on the screen is the one above "Current bid".
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: v2.space.md,
     paddingBottom: v2.space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
   eventName: { color: p.text.primary },
-  venue: { color: p.text.muted, marginTop: 2 },
+  venue: { color: p.text.secondary, marginTop: 2 },
 
-  // De-dup: the market price is one quiet line; the buyer's own bid is the focus below it.
-  marketLine: { color: p.text.muted, marginTop: v2.space.md },
+  // The row supplies its own vertical padding, so only the FIRST hairline adds space above
+  // itself — the board closes the second one up under the row rather than leaving a second gap.
+  rule: { height: 1, backgroundColor: p.border.default },
+  ruleTop: { marginTop: v2.space.lg },
+  marketRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.md,
+    paddingVertical: v2.space.lg,
+  },
+  marketLabel: { color: p.text.primary },
+  marketValue: { color: p.text.primary, fontSize: 24, lineHeight: 28 },
 
-  amountBlock: { alignItems: 'center', marginTop: v2.space.xxl },
+  amountBlock: { alignItems: 'center', marginTop: v2.space.xl },
   bidLabel: { color: p.text.secondary, alignSelf: 'flex-start' },
+
+  // The amount is the loudest thing on the screen and it is TEXT-coloured, not brand red:
+  // red is the action, and an amount painted in it reads as a button.
   bigAmount: {
     flex: 1,
     textAlign: 'center',
     fontFamily: v2.font.bodyBold,
-    fontSize: 56,
+    fontSize: 54,
     lineHeight: 64,
-    color: p.brand.redText,
+    color: p.text.primary,
     fontVariant: ['tabular-nums'],
   },
-  stepHint: { color: p.text.muted, marginTop: v2.space.xs, marginBottom: v2.space.lg },
+  stepHint: { color: p.text.muted, marginTop: v2.space.md, textAlign: 'center' },
 
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, alignSelf: 'stretch' },
+  // V3 steppers: tall rounded keys on a transparent fill, flanking the amount.
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, alignSelf: 'stretch', marginTop: v2.space.lg },
   stepBtn: {
-    width: 52, height: 52,
-    borderWidth: 1, borderColor: p.border.strong,
+    width: 62, height: 104,
+    borderRadius: v2.radius.md,
+    borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
   stepBtnOff: { opacity: 0.35 },
-  stepGlyph: { color: p.text.primary, fontSize: 26, lineHeight: 30 },
+  stepGlyph: { color: p.text.primary, fontSize: 30, lineHeight: 34 },
+  // The board draws the minus quieter than the plus: lowering is the secondary direction.
+  stepGlyphMinus: { color: p.text.muted },
 
-  quickRow: { flexDirection: 'row', gap: v2.space.sm, alignSelf: 'stretch', marginTop: v2.space.md },
+  // V3 quick-add keys: neutral rounded keys, not red rectangles. Red is reserved for the
+  // one committing action, so an increment key can never read as "Place bid".
+  quickRow: { flexDirection: 'row', gap: v2.space.md, alignSelf: 'stretch', marginTop: v2.space.lg },
   quickWrap: { flex: 1 },
   quick: {
-    minHeight: 40, paddingVertical: v2.space.xs,
-    borderWidth: 1, borderColor: p.brand.red,
-    backgroundColor: p.brand.redSoft,
+    minHeight: 56,
+    borderRadius: v2.radius.md,
+    borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
-  quickText: { color: p.brand.redText },
+  quickText: { color: p.text.primary },
 
-  breakNote: { color: p.text.muted, marginTop: v2.space.xl },
+  breakNote: { color: p.text.secondary, marginTop: v2.space.xl },
 
-  // The footer: the summary directly above the action, no gap, no second amount.
+  // The footer: the filled summary panel, then the action directly below it.
   footer: {
     paddingHorizontal: v2.space.lg,
     paddingTop: v2.space.md,
     gap: v2.space.md,
-    backgroundColor: p.surface.surface,
-    borderTopWidth: 1,
-    borderTopColor: p.border.strong,
+    backgroundColor: p.surface.canvas,
   },
-  summary: { gap: v2.space.xs },
+  // Square by design: the board fills this panel and leaves its corners sharp, which is
+  // why `radius.none` is still a value in the scale.
+  summary: {
+    gap: v2.space.xs,
+    backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.none,
+    paddingHorizontal: v2.space.lg,
+    paddingVertical: v2.space.lg,
+  },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
   summaryLabel: { color: p.text.secondary },
   summaryValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   // Total is the strongest row: heavier label, the price face, a hairline above.
-  summaryTotalRow: { borderTopWidth: 1, borderTopColor: p.border.default, paddingTop: v2.space.xs, marginTop: 2 },
+  summaryTotalRow: { borderTopWidth: 1, borderTopColor: p.border.default, paddingTop: v2.space.md, marginTop: v2.space.xs },
   summaryTotalLabel: { color: p.text.primary },
-  summaryTotalValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  summaryTotalValue: { color: p.text.primary, fontVariant: ['tabular-nums'], fontSize: 26, lineHeight: 30 },
 
 });
 }

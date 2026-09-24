@@ -180,10 +180,12 @@ describe('F-BID-1 — a failed listing read never becomes a bid form', () => {
     expect(view(host)).toHaveProperty('form', true);
     const joined = screenText(host.output);
     expect(joined).toContain('Sandbox L6');
-    // R-1 (owner 2026-09-23): the market line shows the UNDERLYING bid, in the editable bid's
-    // units. Still the SERVER's number, never an invented floor - the regression this guards.
-    expect(joined).toContain('bid · $100');
-    expect(joined).toContain('$105');   // floor = current + MIN_BID_INCREMENT
+    // R-1 (owner 2026-09-23) still holds on the V3 row (pkg8, 2026-09-24): the market price is
+    // the UNDERLYING bid in the editable bid's units — now a labelled row with a 2dp display of
+    // the SERVER's number, never an invented floor - the regression this guards.
+    expect(joined).toContain('Starting bid');
+    expect(joined).toContain('$100.00');
+    expect(joined).toContain('$105.00');   // floor = current + MIN_BID_INCREMENT
     expect(joined).not.toContain('$0');
   });
 

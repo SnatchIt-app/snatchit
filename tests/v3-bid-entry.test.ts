@@ -106,13 +106,17 @@ describe('identity and the market price, in the bid\'s own units (R-1)', () => {
 
   it('BE3: "Current bid" shows the UNDERLYING bid — same units as the editable value — and no "all-in" anywhere', async () => {
     const host = await mount(listing());
-    expect(byText(host, 'Current bid · $100')).toBeDefined();
+    // pkg8 board: a labelled ROW ("Current bid" left, the amount right, 2dp) replaced the
+    // 2026-09-23 middot line. Still the UNDERLYING bid, still no all-in on this screen.
+    expect(byText(host, 'Current bid')).toBeDefined();
+    expect(byText(host, '$100.00')).toBeDefined();
     expect(textsIn(host.output).some((t) => /all-in/.test(t))).toBe(false);
   });
 
   it('BE4: with zero bids the line says "Starting bid" — never a current bid nobody placed', async () => {
     const host = await mount(listing({ bid_count: 0 }));
-    expect(byText(host, 'Starting bid · $100')).toBeDefined();
+    expect(byText(host, 'Starting bid')).toBeDefined();
+    expect(byText(host, '$100.00')).toBeDefined();
     expect(textsIn(host.output).some((t) => t.startsWith('Current bid'))).toBe(false);
   });
 });
@@ -122,8 +126,9 @@ describe('the editable bid and the three-row summary', () => {
     const host = await mount(listing());
     expect(byText(host, 'Your bid')).toBeDefined();
     const stepVal = findElement(host.output, (el) => String(el.props.accessibilityLabel ?? '').startsWith('Your bid '));
-    expect(stepVal?.props.children).toBe('$105');
-    expect(byText(host, 'Minimum $105')).toBeDefined();
+    expect(stepVal?.props.children).toBe('$105.00');
+    // The board adds the step size to the guidance and shows cents on the floor.
+    expect(byText(host, 'Minimum $105.00 · $5 steps')).toBeDefined();
     const texts = textsIn(host.output);
     for (const gone of ['your total if you win', 'Lowest you can place', 'Steps raise your bid']) {
       expect(texts.some((t) => t.includes(gone))).toBe(false);
@@ -138,7 +143,7 @@ describe('the editable bid and the three-row summary', () => {
     const summary = byTestId(host, 'bid-summary');
     expect(summary).toBeDefined();
     const inside = textsIn(summary);
-    expect(inside).toEqual(['Bid', '$105', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
+    expect(inside).toEqual(['Bid', '$105.00', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
     // Total is the strongest row: it carries the marker the styles key off.
     expect(byTestId(host, 'bid-summary-total')).toBeDefined();
   });
@@ -151,7 +156,7 @@ describe('the editable bid and the three-row summary', () => {
     expect(btn?.props.label).toBe('Place bid');
     expect(findElement(footer, (el) => el.props.testID === 'bid-summary')).toBeDefined();
     // The footer holds only the summary and the button — no kicker, no second amount.
-    expect(textsIn(footer)).toEqual(['Bid', '$105', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
+    expect(textsIn(footer)).toEqual(['Bid', '$105.00', 'Fee (10%)', '$10.50', 'Total', '$115.50']);
     expect(findElement(host.output, (el) => el.type === 'StickyBar')).toBeUndefined();
   });
 
@@ -168,6 +173,6 @@ describe('the editable bid and the three-row summary', () => {
     const raise = findElement(host.output, (el) => el.props.accessibilityLabel === 'Raise bid');
     (raise?.props.onPress as () => void)();
     host.flush();
-    expect(textsIn(byTestId(host, 'bid-summary'))).toEqual(['Bid', '$110', 'Fee (10%)', '$11', 'Total', '$121']);
+    expect(textsIn(byTestId(host, 'bid-summary'))).toEqual(['Bid', '$110.00', 'Fee (10%)', '$11.00', 'Total', '$121.00']);
   });
 });
