@@ -1732,3 +1732,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - a successful one clears once;
     - a throwing clear still returns signed out;
     - with a negative control.
+- **Gated sign-off CLOSED: C's `signOut.ts` +5 is APPROVED.**
+  - C added the behavioural tests `tests/signout-clears-dock-avatar.test.ts` SA1–SA4, driven through
+    `revokeThenSignOut(deps)`.
+  - C's negative control (the call moved above the failure return) killed SA1 and SA2, with the digests restored.
+  - A read the tests and ran them once in `snatchit-refund`: 4/4, exit 0.
+  - The test file is still uncommitted. It must land in the same batch as `5668bdab`.
+  - C's full suite: 152 files / 2724 tests, exit 0 (C's run).
