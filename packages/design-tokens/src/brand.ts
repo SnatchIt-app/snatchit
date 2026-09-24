@@ -58,7 +58,12 @@ export const text = {
 
 export const brand = {
   red: '#FF1A1A',
-  redPressed: '#CC0000',
+  /**
+   * F-30 (owner 2026-09-24): the pressed fill is LIGHTER, not darker — #FF1A1A + 25% white,
+   * composited = #FF5353 — so the black label measures 6.6:1 pressed (it measured 3.6:1 on the
+   * old #CC0000). Visibly distinct with the 0.98 press scale; the press helper applies no opacity.
+   */
+  redPressed: '#FF5353',
   /** Selected-row tint and badge fill. */
   redSoft: 'rgba(255,26,26,0.10)',
 } as const;

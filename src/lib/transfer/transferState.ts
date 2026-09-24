@@ -261,7 +261,7 @@ export const BUYER_ORDER_CLOSED_COPY = {
 /** A stated policy on `expired`, not an asserted fact: the refund shows when the payment row does. */
 export const REFUND_DUE_POLICY = "A refund is due; it will show here once it's confirmed.";
 /** The transfer row is readable but the payment row carries no refund yet. */
-export const REFUND_PENDING_LINE = "We'll update this when a refund is confirmed.";
+export const REFUND_PENDING_LINE = "If a refund is issued, it will show here.";
 
 export const SELLER_REVERSED_COPY = {
   title: 'Payout reversed',
@@ -319,4 +319,15 @@ export function sellerReleaseLine(autoReleaseAt: string | null | undefined): str
   if (!autoReleaseAt) return null;
   const when = localDateTime(autoReleaseAt);
   return when ? `Release decision at ${when}.` : null;
+}
+
+/**
+ * The seller's hold line (A, 2026-09-24): only when payout_review_status === 'held' AND the server's
+ * payout_hold_until is present — never derived from auto_release_at + policy days. A hold, not a
+ * payout: after that time the release DECISION runs; the money fact is still payout_released_at.
+ */
+export function sellerHoldLine(reviewStatus: string | null | undefined, holdUntil: string | null | undefined): string | null {
+  if (reviewStatus !== 'held' || !holdUntil) return null;
+  const when = localDateTime(holdUntil);
+  return when ? `Payout held until ${when}.` : null;
 }

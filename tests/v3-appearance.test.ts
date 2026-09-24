@@ -140,6 +140,10 @@ describe('palette — one semantic shape, two appearances', () => {
       }
       // Black on brand red is the signature; it must stay legible in both.
       expect(contrast(p.text.inverse, p.brand.red)).toBeGreaterThanOrEqual(4.5);
+      // F-30: the PRESSED primary keeps the black label ≥ 4.5:1 — measured on the token itself,
+      // and the press helper adds no opacity, so the rendered fill IS the token in both appearances.
+      expect(contrast(p.text.inverse, p.brand.redPressed)).toBeGreaterThanOrEqual(4.5);
+      expect(p.brand.redPressed).not.toBe(p.brand.red);   // visibly distinct
     }
   });
 });
@@ -200,6 +204,14 @@ describe('screens (source pins) — the root, Settings, and the first migrated s
     for (const opt of ["'system'", "'light'", "'dark'"]) expect(screen).toContain(opt);
     expect(screen).toContain('accessibilityRole="radio"');
     expect(screen).toContain('accessibilityState={{ checked:');
+  });
+
+  it('AP10 (F-30): the primary button recolours to the measured pressed token while pressed; the press helper has no opacity', async () => {
+    const btn = await code('src/components/ui/Button.tsx');
+    expect(btn).toMatch(/variant === 'primary' && pressed && !inert \? \{ backgroundColor: v2\.brand\.redPressed \}/);
+    const press = await code('src/components/ui/press.ts');
+    expect(press).not.toMatch(/opacity/);
+    expect(press).toContain('PRESSED_SCALE = 0.98');
   });
 
   it('AP9: the bid screen reads every colour from the theme — no static token colours remain', async () => {

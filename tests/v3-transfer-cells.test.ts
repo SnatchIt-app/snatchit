@@ -75,6 +75,7 @@ import {
   refundLine,
   SELLER_NO_PAYOUT_LINE,
   SELLER_REVERSED_COPY,
+  sellerHoldLine,
   sellerReleaseLine,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
@@ -157,7 +158,7 @@ describe('status words and copy per role', () => {
     expect(BUYER_ORDER_CLOSED_COPY.expired).toEqual({ title: 'Order expired', body: "The seller didn't send the tickets in time." });
     expect(REFUND_DUE_POLICY).toBe("A refund is due; it will show here once it's confirmed.");
     expect(BUYER_ORDER_CLOSED_COPY.reversed).toEqual({ title: 'Order closed', body: 'This order is closed.' });
-    expect(REFUND_PENDING_LINE).toBe("We'll update this when a refund is confirmed.");
+    expect(REFUND_PENDING_LINE).toBe("If a refund is issued, it will show here.");   // A: strictly conditional — a reversal implies no refund by itself
     expect(SELLER_REVERSED_COPY).toEqual({ title: 'Payout reversed', body: "This order's payout was reversed after a dispute or operator review." });
     expect(SELLER_NO_PAYOUT_LINE).toBe('No payout for this order.');
     for (const s of [BUYER_ORDER_CLOSED_COPY.expired.body, BUYER_ORDER_CLOSED_COPY.reversed.body, SELLER_REVERSED_COPY.body]) {
@@ -171,6 +172,15 @@ describe('status words and copy per role', () => {
     expect(buyerReviewDeadlineLine(null)).toBeNull();
     expect(buyerReviewDeadlineLine('not-a-date')).toBeNull();
     expect(buyerReviewDeadlineLine(iso)!.toLowerCase()).not.toMatch(/payout|released/);
+  });
+
+  it('TC6: the hold line only when held AND the server gives the date — a hold, never a payout, never derived', () => {
+    const iso = '2026-09-28T12:00:00Z';
+    expect(sellerHoldLine('held', iso)).toBe(`Payout held until ${expectedDeadline(iso)}.`);
+    expect(sellerHoldLine('held', null)).toBeNull();
+    expect(sellerHoldLine('manual_review', iso)).toBeNull();
+    expect(sellerHoldLine(null, iso)).toBeNull();
+    expect(sellerHoldLine('held', iso)!.toLowerCase()).not.toMatch(/released|paid out/);
   });
 
   it('TC5: the seller\'s line names a release DECISION time, never a payout', () => {
@@ -261,5 +271,8 @@ describe('the seller\'s send screen — reversed cell and the release line (sour
     const src = readFileSync('app/transfer/send/[id].tsx', 'utf8');
     expect(src).toContain('sellerReleaseLine(transfer.auto_release_at)');
     expect(src).not.toContain('Your payout releases once it clears review');
+    // A (2026-09-24): payout_hold_until is read and shown only in the held branch.
+    expect(src).toMatch(/payout_review_status, payout_hold_until, /);
+    expect(src).toContain("sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until)");
   });
 });

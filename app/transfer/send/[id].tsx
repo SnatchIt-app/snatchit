@@ -33,6 +33,7 @@ import {
   SELLER_NO_PAYOUT_LINE,
   SELLER_REVERSED_COPY,
   sellerReleaseLine,
+  sellerHoldLine,
 } from '@/src/lib/transfer/transferState';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
@@ -47,6 +48,8 @@ type TransferData = {
   expires_at: string | null;
   auto_release_at: string | null;
   payout_released_at: string | null;
+  /** Written by 039 apply_payout_hold with payout_review_status='held'; shown only then (A, 2026-09-24). */
+  payout_hold_until: string | null;
   payout_review_status: 'held' | 'manual_review' | null;
   delivery_email: string | null;
   delivery_phone: string | null;
@@ -96,7 +99,7 @@ export default function TransferSendScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -428,7 +431,10 @@ export default function TransferSendScreen() {
               <Text style={[textStyle('bodySm'), s.stateSub]}>The buyer review window has passed. Payout pending, it releases automatically once it clears review.</Text>
             ) : null}
             {transfer.payout_review_status === 'held' ? (
-              <Text style={[textStyle('bodySm'), s.stateSub]}>Payout pending, funds are held until shortly after the event as a standard protection. No action needed unless the buyer reports an issue.</Text>
+              <Text style={[textStyle('bodySm'), s.stateSub]}>
+                {sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until)
+                  ?? 'Payout pending, funds are held until shortly after the event as a standard protection. No action needed unless the buyer reports an issue.'}
+              </Text>
             ) : null}
             {transfer.payout_review_status === 'manual_review' ? (
               <Text style={[textStyle('bodySm'), s.stateSub]}>Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.</Text>

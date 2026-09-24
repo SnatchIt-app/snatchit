@@ -99,12 +99,15 @@ export function Button({
         hitSlop={HIT_SLOP[size]}
         // Disabled dims the whole control rather than recolouring it: a disabled
         // primary that changes hue reads as a different button.
-        style={[
+        style={({ pressed }) => [
           styles.base,
           // minHeight (not height): the box grows if the label wraps taller at
           // large Dynamic Type instead of clipping. Normal-size height is unchanged.
           { minHeight: HEIGHT[size] },
           fill,
+          // F-30: a primary that is pressed shows the measured pressed red (lighter, so the black
+          // label keeps ≥ 4.5:1 in both appearances) on top of the scale feedback.
+          variant === 'primary' && pressed && !inert ? { backgroundColor: v2.brand.redPressed } : null,
           block && styles.block,
           disabled && styles.disabled,
           style,
