@@ -470,3 +470,19 @@ keeps the informative sentence on the normal path; (b) make both sentences true 
 without new data ("Tickets received. This transfer is complete."), which is available today but
 spends real information on the common path. Blocked on one fact from A: whether the DEPLOYED server
 sets `buyer_confirmed_at` on an operator decision today.
+
+**Critical-tier enforcement — A confirmed at source, gate `aadf996e`; recorded as
+F-LISTING-CRITICAL-TIER-1 in `docs/release/FINDINGS_20260924_DISPUTE_GRANT_AND_OPS_CASE.md`.**
+`can_create_listing` (013:8-68) returns `allowed=false / 'critical_risk'` and is **advisory**. Server
+enforcement is only the RLS insert policy (070:36-39: own `seller_id`, `stripe_onboarding_complete`,
+`phone_verified()`) and the 119 BEFORE INSERT trigger, which refuses only `is_listing_blocked`.
+Neither reads `risk_tier`, so a critical-tier seller who is not admin-blocked is refused by the app
+and by nothing else.
+
+**What that means for this lane, recorded so nobody later reads the UI as authoritative:** for
+`critical_risk` the Sell screen's refusal *is* the enforcement. The banner's sentence — "You cannot
+create listings at this time" — remains accurate for someone using the app, and A's ruling is that
+the client behaviour stays exactly as it is, including failing open on a transient eligibility error.
+The proposed fix extends the 119 guard to refuse `risk_tier='critical'` with a pgTAP case and a
+negative control; it is **listing-restriction policy and therefore an owner decision**, and it is not
+implemented. No client change is required, and none was made.
