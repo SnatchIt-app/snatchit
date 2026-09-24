@@ -106,7 +106,11 @@ describe('the buyer blocks — order fact from the status, refund fact only from
 
   it('TG3: expired without a payment row states the policy; reversed states the pending line, a partial, or "Refund recorded" — never "reversed" or "released"', async () => {
     const mod = await import('@/src/components/transfer/TransferStateBlocks');
-    expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'expired', refund: null })).output)).toContain(REFUND_DUE_POLICY);
+    // RETARGETED (owner 16:51Z via A, 2026-09-24): "due" needs the CAPTURE — a read that found no
+    // payment row supports only the neutral pending line; the policy line moves to the captured,
+    // unrefunded fixture.
+    expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'expired', refund: null })).output)).toContain(REFUND_PENDING_LINE);
+    expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'expired', refund: { status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 9900 } })).output)).toContain(REFUND_DUE_POLICY);
     const pending = texts(mount(() => mod.BuyerClosedBlock({ status: 'reversed', refund: null })).output);
     expect(pending).toContain(BUYER_ORDER_CLOSED_COPY.reversed.title);
     expect(pending).toContain(REFUND_PENDING_LINE);

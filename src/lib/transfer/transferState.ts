@@ -291,6 +291,11 @@ export const BUYER_ORDER_CLOSED_COPY = {
 
 /** A stated policy on `expired`, not an asserted fact: the refund shows when the payment row does. */
 export const REFUND_DUE_POLICY = "A refund is due; it will show here once it's confirmed.";
+/**
+ * A PARTIAL ruling's obligation line (owner 16:51Z): no amount — the client cannot read one, and
+ * the ruling's amount is not on `transfers`, so any figure here would be invented.
+ */
+export const REFUND_PARTIAL_DUE_POLICY = "A partial refund is due; it will show here once it's confirmed.";
 /** The transfer row is readable but the payment row carries no refund yet. */
 export const REFUND_PENDING_LINE = "If a refund is issued, it will show here.";
 

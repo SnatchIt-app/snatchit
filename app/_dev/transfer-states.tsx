@@ -65,7 +65,9 @@ export interface TransferStateFixture {
 export const TRANSFER_STATE_FIXTURES: TransferStateFixture[] = [
   { id: 'buyer-expired-full-refund', label: 'Buyer · expired · refund confirmed in full', role: 'buyer', covers: 'A 2a + refund full',
     render: () => <BuyerClosedBlock status="expired" refund={{ status: 'refunded', amount_refunded_cents: 12000, refunded_at: PAST, total: 12000 }} /> },
-  { id: 'buyer-expired-no-row', label: 'Buyer · expired · no refund recorded yet', role: 'buyer', covers: 'A 2a + policy line',
+  { id: 'buyer-expired-captured', label: 'Buyer · expired · captured, no refund recorded yet', role: 'buyer', covers: 'A 2a + policy line (16:51Z: due needs the capture)',
+    render: () => <BuyerClosedBlock status="expired" refund={{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 12000 }} /> },
+  { id: 'buyer-expired-no-row', label: 'Buyer · expired · no payment row read', role: 'buyer', covers: 'A 2a + neutral line (no capture, no due claim)',
     render: () => <BuyerClosedBlock status="expired" refund={null} /> },
   { id: 'buyer-reversed-partial', label: 'Buyer · reversed · partial refund', role: 'buyer', covers: 'A 2c + refund partial',
     render: () => <BuyerClosedBlock status="reversed" refund={{ status: null, amount_refunded_cents: 6000, refunded_at: null, total: 12000 }} /> },

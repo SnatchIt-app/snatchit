@@ -40,9 +40,16 @@ describe('the refund read keeps its four outcomes apart', () => {
   });
 
   it('RR3: a successful read with no refund is where the policy lines belong', () => {
-    const st: RefundRead = { kind: 'loaded', facts: null };
-    expect(refundStateLine(st, 'expired')).toBe(REFUND_DUE_POLICY);
-    expect(refundStateLine(st, 'reversed')).toBe(REFUND_PENDING_LINE);
+    // RETARGETED (owner 16:51Z via A, 2026-09-24, verbatim): "A refund is due" is supported only
+    // when the payment was CAPTURED (payments.status = 'succeeded') with no recorded refund. A
+    // read that found NO payment row proves no capture, so the due claim would rest on nothing
+    // the client read — expired-with-no-row now renders the neutral pending line instead.
+    const noRow: RefundRead = { kind: 'loaded', facts: null };
+    expect(refundStateLine(noRow, 'expired')).toBe(REFUND_PENDING_LINE);
+    expect(refundStateLine(noRow, 'reversed')).toBe(REFUND_PENDING_LINE);
+    // The due line where it belongs: a captured, unrefunded payment behind an expired order.
+    const captured: RefundRead = { kind: 'loaded', facts: { status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 11000 } };
+    expect(refundStateLine(captured, 'expired')).toBe(REFUND_DUE_POLICY);
   });
 
   it('RR4: a successful read with a refund states the figure', () => {

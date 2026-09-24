@@ -67,9 +67,11 @@ describe('vocabulary: claim ≠ possession', () => {
 describe('screens use the vocabulary, not their own words', () => {
   it('receive: pending/sent/confirmed/released/disputed all come from transferStatusCopy', () => {
     const receive = stripComments(read('app/transfer/receive/[id].tsx'));
-    for (const st of ['pending', 'disputed']) {
-      expect(receive, st).toContain(`transferStatusCopy('${st}', 'buyer')`);
-    }
+    expect(receive).toContain("transferStatusCopy('pending', 'buyer')");
+    // disputed routes through disputeOutcome (the fourth gated read, A 2026-09-24), which
+    // DELEGATES the open state to transferStatusCopy('disputed', …) verbatim — same vocabulary,
+    // one owner; the decided states add the operator-ruling sentences that module owns.
+    expect(receive).toContain("disputedStateCopy(decision, 'buyer')");
     // buyer_confirmed now passes the one fact that separates a real confirmation from an operator's
     // dispute decision — same vocabulary, chosen by `buyer_confirmed_at` rather than by status alone.
     expect(receive).toContain("transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null })");

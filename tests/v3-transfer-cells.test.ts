@@ -212,14 +212,26 @@ describe('status words and copy per role', () => {
 });
 
 describe('the buyer\'s receive screen — expired and reversed cells', () => {
-  it('TR1: expired with no payment row — the order fact, the refund POLICY, the Expired word; no amount', async () => {
+  it('TR1: expired with no payment row — the order fact, the NEUTRAL line, the Expired word; no amount', async () => {
+    // RETARGETED (owner 16:51Z via A, 2026-09-24): "due" needs the CAPTURE — a read that found no
+    // payment row supports only the neutral pending line; the policy line moves to the captured,
+    // unrefunded fixture.
     const host = await mount();
     const t = texts(host);
     expect(t).toContain('Order expired');
     expect(t).toContain("The seller didn't send the tickets in time.");
-    expect(t).toContain(REFUND_DUE_POLICY);
+    expect(t).toContain(REFUND_PENDING_LINE);
+    expect(t).not.toContain(REFUND_DUE_POLICY);
     expect(t).toContain('Expired');
     expect(t.some((x) => /Refunded|\$/.test(x))).toBe(false);
+  });
+
+  it('TR1b: expired with a CAPTURED, unrefunded payment — the refund POLICY line, and still no amount', async () => {
+    h.payments = [{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 9900 }];
+    const host = await mount();
+    const t = texts(host);
+    expect(t).toContain(REFUND_DUE_POLICY);
+    expect(t.some((x) => /Refunded/.test(x))).toBe(false);
   });
 
   it('TR2: expired with a full refund recorded — "Refunded $99", and the policy line steps aside', async () => {

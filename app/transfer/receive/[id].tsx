@@ -63,7 +63,8 @@ import {
   type HandoffState,
 } from '@/src/lib/transfer/providerHandoff';
 import { textStyle } from '@/src/theme/typography';
-import { refundReadState, type RefundRead } from '@/src/lib/transfer/refundState';
+import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
+import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -83,6 +84,9 @@ type TransferData = {
   /** Written only after the Stripe payout transfer succeeded; gates the buyer's money sentence. */
   buyer_confirmed_at: string | null;
   payout_released_at: string | null;
+  /** The fourth gated read (A, 2026-09-24): an operator's ruling and its display timestamp. */
+  dispute_resolution: string | null;
+  dispute_resolved_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
@@ -110,7 +114,11 @@ export default function TransferReceiveScreen() {
   // changes, so a previous order's figure cannot sit on a new order's block while its read is in
   // flight.
   const [refundRead, setRefundRead] = useState<RefundRead>({ kind: 'idle' });
-  const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed';
+  // A DECIDED buyer-win or partial dispute is also a state whose block speaks about a refund, so
+  // the settled read runs for it too — the obligation line needs the capture behind it (16:51Z (ii)).
+  const decision = disputeDecision(transfer ?? { status: '', dispute_resolution: null, dispute_resolved_at: null });
+  const dueContext = refundDueContext(decision);
+  const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed' || dueContext != null;
   useEffect(() => {
     let alive = true;
     const listingId = transfer?.listing_id ?? null;
@@ -123,7 +131,7 @@ export default function TransferReceiveScreen() {
       if (alive) setRefundRead({ kind: 'error' });
     });
     return () => { alive = false; };
-  }, [closedForRefund, transfer?.listing_id, transfer?.status, userId]);
+  }, [closedForRefund, transfer?.listing_id, transfer?.status, transfer?.dispute_resolution, userId]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -165,7 +173,7 @@ export default function TransferReceiveScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -398,7 +406,9 @@ export default function TransferReceiveScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status, 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null });
+  const meta = transfer.status === 'disputed'
+    ? disputedStateMeta(decision, 'buyer')
+    : transferStatusMeta(transfer.status, 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null });
 
   return (
     <View style={s.root}>
@@ -552,10 +562,16 @@ export default function TransferReceiveScreen() {
           </StateBlock>
         ) : null}
 
-        {/* DISPUTED */}
+        {/* DISPUTED — open keeps the warning and the under-review copy; a DECIDED dispute is a
+            neutral fact. The decision sentence carries no money claim; when the ruling supports an
+            obligation (buyer win / partial), the refund line below it comes from the four-state
+            settled read — checking, unreadable, due (needs the capture), or the recorded fact. */}
         {transfer.status === 'disputed' ? (
-          <StateBlock title={transferStatusCopy('disputed', 'buyer').title} tone="warning">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('disputed', 'buyer').body}</Text>
+          <StateBlock title={disputedStateCopy(decision, 'buyer').title} tone={decision.kind === 'decided' ? 'neutral' : 'warning'}>
+            <Text style={[textStyle('bodySm'), s.stateText]}>{disputedStateCopy(decision, 'buyer').body}</Text>
+            {dueContext != null ? (
+              <Text style={[textStyle('bodySm'), s.stateText]}>{refundStateLine(refundRead, dueContext)}</Text>
+            ) : null}
           </StateBlock>
         ) : null}
 

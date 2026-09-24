@@ -34,6 +34,7 @@ import {
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
+import { disputeDecision, disputedStateCopy, disputedStateMeta } from '@/src/lib/transfer/disputeOutcome';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -53,6 +54,9 @@ type TransferData = {
   /** Written by 039 apply_payout_hold with payout_review_status='held'; shown only then (A, 2026-09-24). */
   payout_hold_until: string | null;
   payout_review_status: 'held' | 'manual_review' | null;
+  /** The fourth gated read (A, 2026-09-24): an operator's ruling and its display timestamp. */
+  dispute_resolution: string | null;
+  dispute_resolved_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
@@ -103,7 +107,7 @@ export default function TransferSendScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -327,7 +331,10 @@ export default function TransferSendScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status, 'seller', { buyerConfirmed: transfer.buyer_confirmed_at != null });
+  const disputeState = disputeDecision(transfer);
+  const meta = transfer.status === 'disputed'
+    ? disputedStateMeta(disputeState, 'seller')
+    : transferStatusMeta(transfer.status, 'seller', { buyerConfirmed: transfer.buyer_confirmed_at != null });
 
   return (
     <View style={s.root}>
@@ -492,12 +499,27 @@ export default function TransferSendScreen() {
           </StateBlock>
         ) : null}
 
-        {/* DISPUTED */}
-        {transfer.status === 'disputed' ? (
-          <StateBlock title="Dispute in progress" tone="warning">
-            <Text style={[textStyle('bodySm'), s.stateText]}>The buyer has reported an issue with the transfer. Your payout is on hold pending review.</Text>
-          </StateBlock>
-        ) : null}
+        {/* DISPUTED — open keeps the warning; a DECIDED dispute states the ruling and nothing
+            about money. Payout wording, when any appears, comes ONLY from the payout fields:
+            released from payout_released_at, a hold from payout_review_status — never from the
+            resolution's name (A's conditions, owner 16:51Z point 1). A decided dispute with no
+            payout fact set gets NO payout sentence at all: for a buyer-win there may never be
+            one, and "pending" would promise it. */}
+        {transfer.status === 'disputed' ? (() => {
+          const copy = disputedStateCopy(disputeState, 'seller');
+          const heldLine = sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until);
+          const payoutLine = disputeState.kind === 'decided'
+            ? (transfer.payout_released_at
+                ? 'Your payout has been released.'
+                : heldLine)
+            : null;
+          return (
+            <StateBlock title={copy.title} tone={disputeState.kind === 'decided' ? 'neutral' : 'warning'}>
+              <Text style={[textStyle('bodySm'), s.stateText]}>{copy.body}</Text>
+              {payoutLine ? <Text style={[textStyle('bodySm'), s.stateText]}>{payoutLine}</Text> : null}
+            </StateBlock>
+          );
+        })() : null}
 
         <View style={{ height: v2.space.xxl }} />
       </ScrollView>

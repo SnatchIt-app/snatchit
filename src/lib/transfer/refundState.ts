@@ -12,7 +12,7 @@
  * The rule this module exists to keep: a line about a refund may only be rendered from a payment row
  * that was actually read.
  */
-import { REFUND_DUE_POLICY, REFUND_PENDING_LINE, refundLine, type PaymentRefundFacts } from './transferState';
+import { REFUND_DUE_POLICY, REFUND_PARTIAL_DUE_POLICY, REFUND_PENDING_LINE, refundLine, type PaymentRefundFacts } from './transferState';
 
 /** In flight, failed, or read — and if read, what the row said. */
 export type RefundRead =
@@ -55,18 +55,31 @@ export function refundReadState(read: SettledRead): RefundRead {
 }
 
 /**
- * The one line the closed-order block renders, per state. `expired` and `reversed` differ only in
- * what a SUCCESSFUL read with no refund means: an expired order is owed one, a reversed order may or
- * may not be.
+ * The one line the closed-order block renders, per state and context.
+ *
+ * The contexts that may say "due" — `expired`, and the two rulings `buyer_win` / `partial` — are
+ * the owner's SOURCES (16:51Z (i)). But a source alone is not the obligation: (ii) requires the
+ * payment to have been CAPTURED (`status === 'succeeded'`) with no refund recorded. So a read
+ * that found no payment row, or a row that never succeeded, renders the neutral pending line —
+ * an obligation claim without the capture behind it would rest on nothing the client read.
+ * `reversed` is the seller's payout event and never supports "due".
  */
-export function refundStateLine(state: RefundRead, status: 'expired' | 'reversed'): string {
+export type RefundLineContext = 'expired' | 'reversed' | 'buyer_win' | 'partial';
+
+export function refundStateLine(state: RefundRead, context: RefundLineContext): string {
   switch (state.kind) {
     case 'loading':
     case 'idle':
       return REFUND_CHECKING_LINE;
     case 'error':
       return REFUND_UNREADABLE_LINE;
-    case 'loaded':
-      return refundLine(state.facts) ?? (status === 'expired' ? REFUND_DUE_POLICY : REFUND_PENDING_LINE);
+    case 'loaded': {
+      const recorded = refundLine(state.facts);
+      if (recorded) return recorded; // EXECUTION: the payment row speaks for itself.
+      const source = context === 'expired' || context === 'buyer_win' || context === 'partial';
+      const captured = state.facts?.status === 'succeeded';
+      if (source && captured) return context === 'partial' ? REFUND_PARTIAL_DUE_POLICY : REFUND_DUE_POLICY;
+      return REFUND_PENDING_LINE;
+    }
   }
 }
