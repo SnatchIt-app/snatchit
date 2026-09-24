@@ -94,6 +94,7 @@ describe("B's two remaining findings at 404bce38", () => {
   it('EC7: a cancelled seller card says "Cancelled" once', () => {
     const card = read('src/components/SellerListingCard.tsx');
     // The Badge carries the word and a11yLabel already includes it via sellerBadgeLabel(badge).
+    // The pkg3/pkg8 boards print the word a second time as a bottom line; this ruling wins.
     const slot = card.slice(card.indexOf('<View style={s.bottomLeft}>'), card.indexOf('</View>', card.indexOf('<View style={s.bottomLeft}>')));
     expect(slot).not.toMatch(/>Cancelled</);
     expect(card).toMatch(/<Badge label=\{sellerBadgeLabel\(badge\)\}/);
@@ -101,6 +102,9 @@ describe("B's two remaining findings at 404bce38", () => {
     expect(slot).toMatch(/timeLeftLabel/);
     expect(slot).toMatch(/Winner selected/);
     expect(slot).toMatch(/Action needed — send the tickets/);
-    expect(slot).toMatch(/Sold \{new Date/);
+    // RETARGETED 2026-09-24 (V3 my-listings): the sale date moved from this slot to the board's
+    // meta line, through the locale-fixed soldOnLabel — it still renders exactly once.
+    expect(slot).not.toMatch(/soldOnLabel|Sold \{new Date/);
+    expect(card).toMatch(/badge === 'sold' && listing\.sold_at \? soldOnLabel\(listing\.sold_at\) : bidMeta/);
   });
 });

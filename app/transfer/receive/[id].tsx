@@ -35,7 +35,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -51,14 +51,12 @@ import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { EventMedia } from '@/src/components/media/EventMedia';
 import {
-  CONFIRMATION_PENDING,
   orderProgress,
   orderProgressA11y,
   orderTicketsLine,
   orderWhenWhereLine,
   youPaidAmount,
   YOU_PAID_LABEL,
-  type OrderStep,
 } from '@/src/lib/orders/orderPresentation';
 import {
   formatCountdown,
@@ -653,7 +651,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
               style={s.cta}
             />
             {/* True: handleConfirm opens the release dialog first; nothing is sent on this tap. */}
-            <Text style={[textStyle('bodySm'), s.ctaCaption]}>you'll confirm on the next step</Text>
+            <Text style={[textStyle('bodySm'), s.ctaCaption]}>you&apos;ll confirm on the next step</Text>
             <Button
               label="Report a problem"
               pendingLabel="Reporting…"

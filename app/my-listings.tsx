@@ -1,12 +1,21 @@
 /**
- * app/my-listings.tsx — Seller's listings (V2).
+ * app/my-listings.tsx — Seller's listings (V3).
  *
- * PRESENTATION rebuilt on the V2 system; the DATA LAYER is unchanged: the same
- * listings fetch, the per-listing transfer map that drives "send the tickets",
- * hard-load + focus refetch + pull-to-refresh, and the exact delete/cancel rules
- * (no bids → delete; has bids → cancel via `cancel_listing`, both confirmed). The
- * six emoji filter tabs become Active/Send/Sold/Ended/All chips; the card is the
- * V2 SellerListingCard. Closes the seller loop from the redesigned Profile.
+ * Boards: composition `pkg3-my-listings-{clean,empty}.png`, tokens
+ * `pkg8-mylistings-{dark,light}.png`. The header speaks the screen-title voice; the
+ * filter chips carry the board's bare words (All / Active / Send tickets / Sold /
+ * Ended — no counts drawn); the row is the V3 SellerListingCard. The board's empty
+ * body says "Tap the Create tab…" — stale against the owner's Create → "Sell" dock
+ * rename, so the Sell wording stays.
+ *
+ * The DATA LAYER is unchanged: the same listings fetch, the per-listing transfer
+ * map that drives "send the tickets", hard-load + focus refetch + pull-to-refresh,
+ * and the exact delete/cancel rules (no bids → delete; has bids → cancel via
+ * `cancel_listing`, both confirmed).
+ *
+ * The `fixture` prop exists for the `_dev/v3-mylistings-bids` rendering harness
+ * only: it short-circuits ONLY the network read (rows supplied as literals), and it
+ * makes the destructive paths preview-only — nothing leaves the app.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -32,7 +41,12 @@ const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 's
 
 type TransferInfo = { transferId: string; status: string };
 
-export default function MyListingsScreen() {
+/** Harness-only literals in place of the network reads: rows (+ transfer states), or a first-load failure. */
+export type MyListingsFixture =
+  | { listings: Listing[]; transfers?: { listing_id: string; transferId: string; status: string }[] }
+  | { failure: 'offline' | 'error' };
+
+export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixture } = {}) {
   const { session } = useAuth();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -44,11 +58,19 @@ export default function MyListingsScreen() {
   const resolvedInitialFilter: FilterKey =
     filterParam && VALID_FILTERS.includes(filterParam as FilterKey) ? (filterParam as FilterKey) : 'all';
 
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [listings, setListings] = useState<Listing[]>(fixture && 'listings' in fixture ? fixture.listings : []);
+  const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(() => {
+    const map = new Map<string, TransferInfo>();
+    if (fixture && 'listings' in fixture) {
+      for (const t of fixture.transfers ?? []) map.set(t.listing_id, { transferId: t.transferId, status: t.status });
+    }
+    return map;
+  });
+  const [loading, setLoading] = useState(!fixture);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
+  const [loadError, setLoadError] = useState<'offline' | 'error' | null>(
+    fixture && 'failure' in fixture ? fixture.failure : null,
+  );
 
   const initialLoadDone = useRef(false);
   // F-DESTRUCT-1: one destructive request per listing at a time. The ref is the lock (a second tap that
@@ -68,6 +90,8 @@ export default function MyListingsScreen() {
   }
 
   const fetchMyListings = useCallback(async (silent = false) => {
+    // The harness fixture replaces the network reads and nothing else: no query leaves the app.
+    if (fixture) return;
     if (!userId) return;
     if (!silent) setLoading(true);
 
@@ -100,7 +124,7 @@ export default function MyListingsScreen() {
       map.set(t.listing_id, { transferId: t.id, status: t.status });
     }
     setTransfers(map);
-  }, [userId]);
+  }, [userId, fixture]);
 
   useEffect(() => {
     fetchMyListings(false).finally(() => { initialLoadDone.current = true; });
@@ -122,6 +146,8 @@ export default function MyListingsScreen() {
   // ── Delete / cancel (unchanged rules) ────────────────────────────────────────
 
   async function performDelete(listing: Listing) {
+    // The harness can never walk a destructive chain: the guard precedes every write.
+    if (fixture) return;
     if (listing.bid_count > 0 || listing.auction_status !== 'active') {
       Alert.alert('Cannot delete', 'This listing has bids and cannot be deleted.');
       return;
@@ -144,6 +170,7 @@ export default function MyListingsScreen() {
   }
 
   async function performCancel(listing: Listing) {
+    if (fixture) return;
     if (!beginDestructive(listing.id)) return;
     try {
       const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
@@ -183,21 +210,6 @@ export default function MyListingsScreen() {
     [transfers],
   );
 
-  const filterCounts = useMemo(() => {
-    const c = { all: listings.length, active: 0, needs_action: 0, ended: 0, sold: 0 };
-    for (const l of listings) {
-      if (l.status === 'sold') {
-        c.sold++;
-        if (needsTicketSend(l)) c.needs_action++;
-      } else if (l.auction_status === 'ended' || l.auction_status === 'cancelled' || new Date(l.ends_at) <= new Date()) {
-        c.ended++;
-      } else {
-        c.active++;
-      }
-    }
-    return c;
-  }, [listings, needsTicketSend]);
-
   const filteredListings = useMemo(() => {
     if (filter === 'all') return listings;
     if (filter === 'active') return listings.filter((l) =>
@@ -220,17 +232,17 @@ export default function MyListingsScreen() {
     <View style={s.root}>
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">My listings</Text>
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">My listings</Text>
         <View style={s.headerSpacer} />
       </View>
 
       {!loading && listings.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters} keyboardShouldPersistTaps="handled">
+          {/* Board: the chips carry bare words — the filter is the promise, not a number. */}
           {TABS.map((tab) => (
             <Chip
               key={tab.key}
               label={tab.label}
-              count={filterCounts[tab.key] > 0 ? filterCounts[tab.key] : undefined}
               selected={filter === tab.key}
               onPress={() => setFilter(tab.key)}
             />

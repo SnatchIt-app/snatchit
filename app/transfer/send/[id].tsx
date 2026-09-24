@@ -75,7 +75,15 @@ type TransferData = {
   };
 };
 
-export default function TransferSendScreen() {
+/**
+ * DEVELOPMENT RENDERING ONLY: the harness fixture, same sanctioned pattern as the buyer screen's
+ * OrderFixture — it short-circuits the TRANSFER READ and nothing else. Upload, mark-sent and
+ * every server action still require the real client; only `app/_dev/v3-tickets.tsx` passes it,
+ * behind the _dev gates, and the live route passes nothing.
+ */
+export type SendFixture = { transfer: TransferData };
+
+export default function TransferSendScreen({ fixture }: { fixture?: SendFixture } = {}) {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -113,6 +121,7 @@ export default function TransferSendScreen() {
   });
 
   const fetchTransfer = useCallback(async (quiet = false) => {
+    if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return; }
     if (!userId || !id) return;
     if (!quiet) setLoading(true);
     const { data, error: fetchErr } = await supabase
@@ -143,7 +152,7 @@ export default function TransferSendScreen() {
       setTransfer(data as unknown as TransferData);
     }
     if (!quiet) setLoading(false);
-  }, [id, userId]);
+  }, [id, userId, fixture]);
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
