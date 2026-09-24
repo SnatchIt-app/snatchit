@@ -214,7 +214,7 @@ export default function PlaceBidScreen({ id }: Props) {
   if (loading) {
     return (
       <View style={[s.root, s.centered]}>
-        <Spinner color={palette.brand.redText} />
+        <Spinner color={palette.brand.red} />
       </View>
     );
   }

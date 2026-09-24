@@ -371,7 +371,7 @@ export default function TransferReceiveScreen() {
   }
 
   if (loading) {
-    return <View style={[s.root, s.center]}><Spinner color={palette.brand.redText} /></View>;
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
   if (error || !transfer) {

@@ -392,6 +392,33 @@ describe('startup — no flash of the wrong appearance before the stored choice 
     host2.unmount();
   });
 
+  it('AP22: the root RESPONDS to the appearance — nav theme, status bar and the in-app splash all follow the resolved scheme', async () => {
+    // The owner's second pre-build condition is that the root layout responds correctly, which is more
+    // than "holds no static token": the navigator's own colours, the status-bar style and the splash
+    // that covers the navigator must each follow the scheme, and the splash must sit inside the
+    // provider's gate so it cannot paint a Midnight canvas at someone who chose Light.
+    const root = (await import('node:fs')).readFileSync('app/_layout.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    // Navigation theme: the base theme itself flips, and the five colours come from the palette.
+    expect(root).toMatch(/scheme === 'dark' \? DarkTheme : DefaultTheme/);
+    for (const k of ['primary: palette.brand.red', 'background: palette.surface.canvas',
+                     'card: palette.surface.surface', 'text: palette.text.primary',
+                     'border: palette.border.default']) {
+      expect(root).toContain(k);
+    }
+    // Status bar: light glyphs on Midnight, dark glyphs on Daylight.
+    expect(root).toMatch(/StatusBar style=\{scheme === 'dark' \? 'light' : 'dark'\}/);
+    // The splash is its own component so it can read the palette, and it is rendered INSIDE
+    // ThemedShell — i.e. inside the tree AppearanceProvider withholds until the choice is read.
+    expect(root).toMatch(/function SplashOverlay\(\)[\s\S]*?useTheme\(\)/);
+    expect(root).toMatch(/backgroundColor: palette\.surface\.canvas/);
+    expect(root).toMatch(/color=\{palette\.brand\.red\}/);
+    const shell = root.slice(root.indexOf('<ThemedShell fontsReady'), root.indexOf('</ThemedShell>'));
+    expect(shell).toContain('<SplashOverlay />');
+    // Nothing static is left behind: the dead token import is gone.
+    expect(root).not.toMatch(/import \* as v2/);
+  });
+
   it('AP15: the root holds the splash until fonts AND the appearance choice are ready (source pin)', async () => {
     const root = (await import('node:fs')).readFileSync('app/_layout.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');

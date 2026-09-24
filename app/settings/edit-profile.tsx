@@ -144,7 +144,7 @@ export default function EditProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Edit profile" />
-        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }

@@ -116,7 +116,7 @@ export default function BlockedUsersScreen() {
     <View style={s.root}>
       <SettingsHeader title="Blocked users" />
       {loading ? (
-        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : loadFailed && rows.length === 0 ? (
         <View style={s.center}>
           <Text style={[textStyle('title'), s.failTitle]}>Couldn&apos;t load your block list</Text>

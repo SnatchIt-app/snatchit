@@ -164,7 +164,7 @@ export default function PayoutSetupScreen() {
     <View style={s.root}>
       <SettingsHeader title="Payout setup" />
       {loading ? (
-        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : (
         <View style={s.body}>
           <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">{ui.title}</Text>

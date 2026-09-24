@@ -124,7 +124,7 @@ export default function NotificationsScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Notifications" />
-        <View style={s.center}><Spinner color={palette.brand.redText} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }

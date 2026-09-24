@@ -92,7 +92,7 @@ export function MediaUpload({
                 {picking ? UPLOAD_COPY.opening : isError && error ? error : helper}
               </Text>
             </View>
-            {picking ? <Spinner color={palette.brand.redText} /> : <IconSymbol name={'plus' as never} size={20} color={palette.brand.redText} />}
+            {picking ? <Spinner color={palette.brand.red} /> : <IconSymbol name={'plus' as never} size={20} color={palette.brand.redText} />}
           </Pressable>
         </View>
       );
@@ -124,7 +124,7 @@ export function MediaUpload({
         </Text>
       </View>
       {working ? (
-        <Spinner color={palette.brand.redText} />
+        <Spinner color={palette.brand.red} />
       ) : hasImage ? (
         actions
       ) : (

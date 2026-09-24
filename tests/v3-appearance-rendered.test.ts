@@ -307,8 +307,16 @@ describe("the fixes for B's Daylight failures, as composited colour", () => {
     for (const f of files) {
       const code = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
       if (/\bcolor:\s*(p|palette)\.brand\.red\b(?!Text|Pressed|Soft)/.test(code)) offenders.push(f);
-      if (/\bcolor=\{(p|palette)\.brand\.red\}/.test(code)) offenders.push(f);
+      // A prop-form colour counts too — EXCEPT on <Spinner>, whose arc is a graphical object, not
+      // text: the 3:1 bar applies there and the brand red clears it (3.88:1 on white, 3.54:1 on the
+      // light surface). The loading indicator stays the brand's red; only text takes the graded ink.
+      const propForm = code.replace(/<Spinner[^>]*?>/g, '').replace(/<Spinner[^>]*$/gm, '');
+      if (/\bcolor=\{(p|palette)\.brand\.red\}/.test(propForm)) offenders.push(f);
     }
     expect(offenders).toEqual([]);
+    // The exemption, measured: the arc clears the 3:1 graphical bar on every light surface.
+    for (const bg of [light.surface.canvas, light.surface.surface, light.surface.elevated]) {
+      expect(contrast(light.brand.red, bg)).toBeGreaterThanOrEqual(3);
+    }
   });
 });

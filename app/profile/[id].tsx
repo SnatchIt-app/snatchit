@@ -183,7 +183,7 @@ export default function PublicProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Profile" />
-        <View style={s.centered}><Spinner color={palette.brand.redText} /></View>
+        <View style={s.centered}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }
