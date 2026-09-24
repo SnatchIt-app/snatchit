@@ -221,17 +221,61 @@ the pressed red is #FF5353 in both.
   Settings "Sandbox" section, rendered tests SG1/SG2). A-1 neutral hairlines landed in the same commit
   (AP17). A's gap: TS3 renders the real send screen with a held row. Evidence: gallery pass = rendering
   with supplied props; tests = the mappings; neither = live retrieval or the device data path (D5 / D6).
-- **Appearance matrix, corrected (owner 2026-09-24):** counted by actual static colour access at `6c7fc18b`.
-  **Consumer-build files still reading Midnight-only colour tokens: 53** (546 refs at `212783f2`; the two
-  transfer screens now read the palette only through the shared blocks and still carry their own static
-  styles). Excluded from that count as dev-only or unused: `app/_dev/foundation.tsx` (32 refs, `__DEV__`
-  gallery), `TransferStatusBadge` (zero importers), `StatCardStrip` (zero importers, themed anyway).
-  **Partial root layout:** `app/_layout.tsx` reads the palette for the navigation theme and status bar AND
-  keeps `v2.brand.red` for the loading spinner (identical in both appearances) plus five literals in the
-  "Build misconfigured" blocker (`#1a0000`, `#7a3b00`, `#FF1A1A`, `#ffb3b3`, `#ffd9a0`) — a fatal-error
-  screen that paints its own background and inks and is not a palette surface; recorded, not converted.
-  **Unresolved literals in palette-based files:** none other than that blocker (scan of every file that
-  reads `useTheme()`, black artwork scrims excluded as context-fixed).
+- **Appearance matrix — COMPLETE at `9c6c9bf4` (C, 2026-09-24).** Counted the same way, by actual static
+  colour access with comments stripped: **0 consumer files** still read Midnight-only colour tokens, down
+  from 53 (546 refs). The only static readers left are `src/theme/palette.ts`, which builds both palettes
+  FROM the tokens, and `app/_dev/foundation.tsx`, whose purpose is to display them; `tests/
+  v3-appearance-migration.test.ts` AM1 scans the whole tree and AM2 pins that those two are the only
+  exemptions, so a third cannot be added quietly. The root layout is no longer partial: its in-app splash
+  reads the palette through `SplashOverlay`, mounted inside the provider gate, and its dead `v2` import is
+  gone. AM3 keeps the "Build misconfigured" blocker and the SANDBOX badge on fixed colours by design.
+- **What the count did NOT catch, and is now also closed.** Four classes, each of which passed a
+  static-token scan and still rendered wrong in Light:
+  1. **Three transfer-flow components were never on v2 at all** — `DeliveryInfoForm`,
+     `PlatformInstructions`, `ProofImageViewer` still imported `colors` from the pre-v2 `@/src/theme`,
+     which has no light counterpart (dark `#0B0F14` cards, `#E10600` red). All three are reachable from
+     the receive screen and two from send. **AM4** now forbids that import in any consumer file.
+  2. **Text over artwork** (`HomeFeature`, `ListingHero`) renamed cleanly to canvas inks, which paints
+     near-black onto a dark flyer in Light. Those inks are `onArt`, identical in both appearances by
+     design; the group gained `urgent` for a closing clock over artwork. B's own trace raised
+     `ListingHero` independently.
+  3. **The ink on a saturated status fill** flips with the scheme — B's F-31, measured: black is 6.42:1
+     on Midnight's `#FF4D4D` and 3.46:1 on Daylight's `#C41414`. `status.onFill` carries it.
+  4. **The brand red as text** — B's F-32. 30 files used `brand.red` as a foreground; 3.88:1 on white is
+     a fill that clears the 3:1 control bar, not text. `brand.redText` is #FF1A1A on Midnight and a
+     graded #D31212 on Daylight. **RD13** scans for the regression.
+  Also closed: F-33 (switch thumb stays white), F-34 (risk banners became graded translucent tints —
+  the old `#FFDDBB` on `#332B00` measured 1.29:1 on white, on the banner that tells a seller their
+  account is blocked), N-1 (letterbox `onArt.letterbox`), N-4 (nine control edges to `border.control`),
+  N-5 (six dead styles deleted, not migrated). `status.info` carries the Verified Seller blue, which was
+  a literal at 2.28:1 on white.
+- **Every colour literal outside the theme is classified one by one (AM5)**, with its reason in the test:
+  build-safety diagnostics (env blocker, SANDBOX badge), the crash screen that cannot depend on a
+  provider, lightbox chrome over a photograph, scrims over artwork, the graded risk tints, and
+  `TransferStatusBadge` — whose "unused" reason AM5 checks by asserting it has no importer, rather than
+  trusting the claim.
+- **States of evidence, kept apart.** *Designed:* B's ten surfaces plus the account group (`04220c3f`).
+  *Implemented:* every consumer surface at `9c6c9bf4`. *Tested:* 2675/2675 with three negative controls
+  killed by exactly the predicted gate (AM1 / RD8 / AM4); harness-rendered contrast — real components
+  mounted under each palette, layers composited, WCAG computed on emitted styles. *Device-verified:*
+  **nothing.** D-1…D-9 need the build.
+- **Still open, and they are design or copy decisions, not migration gaps** (B measured or raised each;
+  none blocks the build): N-2 `status.warning` as a 1px border reads bright amber on Midnight and dark
+  brown on Daylight — passes contrast, looks materially different, wants B's rendered review · N-3
+  opacity as "past" dims toward the canvas, so it washes out rather than recedes on white · meaning
+  carried by colour alone (checkout countdown recolours to error while its copy stays neutral; input
+  focus is the underline colour alone; the switch state is the track colour alone; the three risk tiers
+  rank by hue under one ink, and `critical_risk` and `listing_blocked` share both copy and style) ·
+  `text.faint` below 4.5:1 in BOTH appearances (sheet group headings, the 0/1000 counter) · B's
+  `HomeFeature` note that Dark's over-artwork secondary moves 0.70 → 0.78 alpha with the onArt fix.
+- **Preserved failure evidence (owner 2026-09-24: "A later passing run does not erase earlier
+  failures").** Three full runs in this session failed and are recorded, not overwritten:
+  | Run | Result | Cause, established |
+  |---|---|---|
+  | full suite, 2026-09-24 ~03:5x | **35 timeouts across 16 untouched edge suites** | machine load average 58 from two peer sessions; `pgrep` showed no peer vitest. Void, not evidence about the code |
+  | same, retried | **1 timeout** (`credential-sign`, first test in its file) | load average 30; passes 26/26 alone |
+  | full suite at `4d1e4b3d`'s tree, 01:17 | **104 failed across 13 files** | **NOT contention — load 4.2, zero peer vitest.** The migrated components call `useTheme()`; those 13 suites mock `react-native` without `useColorScheme`, and vitest fails such a mock explicitly. Fixed by mocking the appearance boundary to Midnight (whose values ARE the v2 tokens, so nothing they pin moved) and retiring two source pins with the change they defended |
+  | full suite at `9c6c9bf4` | **144 files, 2675/2675** at load 4.16, no peer | the isolated final result |
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
