@@ -462,8 +462,8 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           // F-28 (B pkg7 §6b; owner 2026-09-24): the badge above already says "Marked sent", so the
           // block carries only the forward-looking body — no title repeating the badge. The success
           // itself is announced for assistive tech at the tap; every failure dialog is untouched.
-          // The payout lines (release decision / window passed / HELD with the server's date /
-          // manual review) live in the shared block, which the sandbox gallery renders too.
+          // The payout lines (the release decision's scheduled date, a HELD hold with the server's
+          // date, manual review) live in the shared block, which the sandbox gallery renders too.
           <SellerSentBlock
             payoutReviewStatus={transfer.payout_review_status}
             payoutHoldUntil={transfer.payout_hold_until}
@@ -534,11 +534,16 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           // The status is the release DECISION; `payout_released_at` is written only after the Stripe transfer
           // succeeds, and the job can skip a payout and retry for ever. So the money claim waits for that field
           // (owner, 2026-09-19) — the same gate buyer_confirmed already uses.
-          <StateBlock title={transfer.payout_released_at ? 'Payout released' : 'Review window passed'} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
+          //
+          // A's §2g (2026-09-24): and neither arm says the review window passed. `admin_release_held_payout`
+          // sets this status from `seller_sent` without reading `auto_release_at`, so an operator can release
+          // before the window ends; what the status establishes is a release with no buyer confirmation and no
+          // report.
+          <StateBlock title={transfer.payout_released_at ? 'Payout released' : 'Payout pending'} tone={transfer.payout_released_at ? 'success' : 'neutral'}>
             <Text style={[textStyle('bodySm'), s.stateText]}>
               {transfer.payout_released_at
-                ? 'The buyer review window passed without a dispute. Your payout has been released.'
-                : 'The buyer review window passed without a dispute. Your payout has not been recorded as released yet. Contact support@snatchitapp.com if it does not arrive.'}
+                ? 'This order was released without a confirmation or a report from the buyer. Your payout has been released.'
+                : 'This order was released without a confirmation or a report from the buyer. Make sure your payout account is set up in Settings. Contact support@snatchitapp.com if it does not arrive.'}
             </Text>
           </StateBlock>
         ) : null}

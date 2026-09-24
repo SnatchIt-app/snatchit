@@ -222,11 +222,19 @@ describe('the seller is told a payout moved only when the payout itself was reco
     const host = await mount('send');
     const shown = texts(host);
 
-    expect(shown).toContain('The buyer review window passed without a dispute.');   // the status IS established
+    /*
+     * RETARGETED (A's §2g, 2026-09-24). "The buyer review window passed" is NOT established by this
+     * status: `admin_release_held_payout` (039, and 0551's bypass twin) sets `auto_released` gated on
+     * `status='seller_sent'` and `payout_released_at IS NULL` alone — it never reads auto_release_at —
+     * so an operator can release before the window ends, and A has withdrawn its own §2e wording.
+     * What the status DOES establish is that the release happened without the buyer confirming and
+     * without a report.
+     */
+    expect(shown).not.toMatch(/window (passed|closed)/);
+    expect(shown).toContain('This order was released without a confirmation or a report from the buyer.');
     expect(shown).not.toContain(RELEASED);
-    expect(shown).toContain('has not been recorded as released yet');
-    // The TITLE must not claim it either (it is a prop, so the body assertions above cannot see it).
-    expect(blockTitled(host, 'Review window passed')).toBeDefined();
+    // The TITLE must not claim a release either (it is a prop, so the body assertions cannot see it).
+    expect(blockTitled(host, 'Payout pending')).toBeDefined();
     expect(blockTitled(host, 'Payout released')).toBeUndefined();   // witness: P1 finds this title
     expect(shown.toLowerCase()).not.toMatch(/refund|cancel/);                        // and no refund/cancellation claim
   });
@@ -262,7 +270,10 @@ describe('the seller is told a payout moved only when the payout itself was reco
     h.transfer = transfer({ status: 'auto_released', payout_released_at: new Date().toISOString() });
     const host = await mount('receive');
     expect(blockTitled(host, 'Payment released')).toBeDefined();
-    expect(texts(host)).toContain('so payment went to the seller');
+    // RETARGETED (A's §2g): the money sentence is now its own clause, added ONLY with the field —
+    // and the release is no longer attributed to the window closing.
+    expect(texts(host)).toContain('The seller has been paid.');
+    expect(texts(host)).not.toMatch(/window (passed|closed)/);
   });
 
   it('B2: the buyer, auto_released WITHOUT it — the window closed and the order is complete, with no money claim', async () => {
@@ -274,8 +285,10 @@ describe('the seller is told a payout moved only when the payout itself was reco
 
     expect(blockTitled(host, 'Payment released')).toBeUndefined();   // witness: B1 finds this title
     expect(shown).not.toContain('went to the seller');
-    expect(shown).toContain('The review window closed without a confirmation or a report from you.');
-    expect(shown).toContain('This order is complete.');
+    // RETARGETED (A's §2g): no window claim — an operator can release before auto_release_at.
+    expect(shown).not.toMatch(/window (passed|closed)/);
+    expect(shown).toContain('This order was released to the seller without a confirmation or a report from you.');
+    expect(shown).not.toContain('The seller has been paid.');   // not with payout_released_at NULL
     expect(shown.toLowerCase()).not.toMatch(/refund|cancel/);        // and no refund or cancellation claim
   });
 

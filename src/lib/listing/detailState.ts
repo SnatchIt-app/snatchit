@@ -225,7 +225,9 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
       return {
         kind: 'transfer_pending',
         label: 'Send the tickets',
-        detail: 'The buyer has paid. Payment is held until they confirm.',
+        // A's §2g (2026-09-24): "held" collides with the payout review status, and the buyer's
+        // confirmation is one of four release paths, not the rule.
+        detail: 'The buyer has paid. Payout pending.',
         tone: 'warning',
       };
     }

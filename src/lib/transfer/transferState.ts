@@ -187,7 +187,10 @@ export function transferStatusCopy(
     case 'pending':
       return buyer
         ? { title: 'Waiting for the seller', body: 'The seller has not marked the tickets as sent yet.' }
-        : { title: 'Send the tickets', body: 'The buyer has paid. Payment is held until they confirm receipt.' };
+        // A's §2g (2026-09-24): "held" collides with payout_review_status='held', which has its own
+        // dated copy, and naming the buyer's confirmation as the condition leaves out the three other
+        // release paths (the review-window decision, an operator release, a seller-win).
+        : { title: 'Send the tickets', body: 'The buyer has paid. Payout pending.' };
     case 'seller_sent':
       return buyer
         ? { title: 'Seller marked as sent', body: "That is the seller's update, not a confirmation. Check your ticket account, then confirm receipt here." }
@@ -205,29 +208,45 @@ export function transferStatusCopy(
         ? { title: 'Tickets received', body: 'You confirmed receipt. Enjoy the event.' }
         : { title: 'Tickets received', body: 'The buyer confirmed they received the tickets.' };
     case 'auto_released':
+      /*
+       * A's §2g (2026-09-24), which withdraws A's own earlier §2e wording. `auto_released` does NOT
+       * establish that the review window passed: `admin_release_held_payout` (039; 0551's bypass
+       * twin) sets this status gated on `status='seller_sent'` and `payout_released_at IS NULL`
+       * alone, never reading `auto_release_at`, so an operator can release at any time — including
+       * before the window ends. What the status does establish is that the release happened without
+       * the buyer confirming and without a report. The money claim still waits for
+       * `payout_released_at`, which is why these titles are the released ones and the callers below
+       * gate on that field.
+       */
       return buyer
-        ? { title: 'Payment released', body: 'The review window closed without a confirmation or a report from you, so payment went to the seller.' }
-        : { title: 'Payout released', body: 'The buyer review window passed without a report. Your payout has been released.' };
+        ? { title: 'Payment released', body: 'This order was released to the seller without a confirmation or a report from you. The seller has been paid.' }
+        : { title: 'Payout released', body: 'This order was released without a confirmation or a report from the buyer. Your payout has been released.' };
     case 'disputed':
+      // A's §2g: what a report freezes is the SELLER's payout — the buyer's card was charged at
+      // checkout, so "your payment stays on hold" reads as an authorisation that never existed. And
+      // "pending review" asserts a process the row does not record. The 24-hour sentence is the
+      // owner's own P1 decision (G9) and stays until they rule.
       return buyer
-        ? { title: 'Issue reported', body: 'Our team typically reviews within 24 hours. Your payment stays on hold until this is resolved.' }
-        : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is on hold pending review.' };
+        ? { title: 'Issue reported', body: "Our team typically reviews within 24 hours. The seller's payout is frozen until this is resolved." }
+        : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is frozen until the report is resolved.' };
     default:
       return { title: status.replace(/_/g, ' '), body: '' };
   }
 }
 
 /**
- * The buyer's auto-release block (owner, 2026-09-19; A's review). `auto_released` is the release DECISION;
- * `payout_released_at` is written only by `record_transfer_payout`, after the Stripe transfer succeeded. Without that
- * field the screen says the window closed and the order is complete, and claims nothing about money reaching the
- * seller. With it, the existing sentence stands.
+ * The buyer's auto-release block (owner, 2026-09-19; A's review, reworded by A's §2g 2026-09-24).
+ * `auto_released` is the release DECISION; `payout_released_at` is written only by
+ * `record_transfer_payout`, after the Stripe transfer succeeded. Without that field the screen says
+ * what the status establishes and nothing about money reaching the seller. With it, "The seller has
+ * been paid." is added — and neither version claims the review window passed, because an operator
+ * can set this status before it does.
  */
 export function buyerAutoReleasedCopy(payoutReleasedAt: string | null | undefined): { title: string; body: string } {
   if (payoutReleasedAt) return transferStatusCopy('auto_released', 'buyer');
   return {
-    title: 'Review window closed',
-    body: 'The review window closed without a confirmation or a report from you. This order is complete.',
+    title: 'Order released',
+    body: 'This order was released to the seller without a confirmation or a report from you.',
   };
 }
 
