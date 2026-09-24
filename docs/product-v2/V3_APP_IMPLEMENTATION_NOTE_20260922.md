@@ -444,3 +444,29 @@ and re-verified everything after recovery.
 **Build created (the one authorised):** `65cb7633-0eca-4314-b135-fd9c90db8214` — iOS `preview`, internal,
 build number 23, commit `9c6c9bf4`, sandbox `ofaidukbieeekqaboscm`. Device evidence: **none yet**; D-1…D-9 wait
 on the owner's D1–D6 approval (A's sheet, revision 2, `7dae4815`, NOT approved).
+
+**Follow-on from A's seller-win dispute fix (draft PR #92, source-only, not deployed) — C's lane,
+recorded 2026-09-24, NOT implemented.** After an operator resolves a dispute in the seller's favour
+the row reaches `buyer_confirmed`, and the client's copy is driven by that status ALONE:
+
+- `src/lib/transfer/transferState.ts:174` — the buyer is told **"You confirmed receipt. Enjoy the
+  event."** A buyer who lost a dispute is told they did something they did not do.
+- `src/lib/transfer/transferState.ts:175` and `app/transfer/send/[id].tsx:453-454` — the seller is
+  told **"The buyer confirmed they received the tickets."** Equally false on that path.
+
+This is the product truth C enforces — a server reply asserts only what it says — applied to the
+app's own account of what a person did. `buyer_confirmed_at` exists in the schema and in
+`src/types/index.ts:252`, but **neither transfer screen selects it** (`receive/[id].tsx:164`,
+send likewise), so today the client cannot tell the two apart even in principle.
+
+**Why it is not fixed yet.** The distinguishing semantic — `buyer_confirmed_at` NULL for an operator
+decision — arrives with A's #92, which is a draft and is not deployed. Gating copy on a column whose
+meaning is not yet live would be a guess. Adding it to the select is also a **gated
+authoritative-state read**, so it goes to A before merge regardless.
+
+**The two options, for A and the owner, not for me to pick unilaterally:** (a) select
+`buyer_confirmed_at` (or `dispute_resolution`) and branch the copy, once #92's semantics are live —
+keeps the informative sentence on the normal path; (b) make both sentences true under either cause
+without new data ("Tickets received. This transfer is complete."), which is available today but
+spends real information on the common path. Blocked on one fact from A: whether the DEPLOYED server
+sets `buyer_confirmed_at` on an operator decision today.
