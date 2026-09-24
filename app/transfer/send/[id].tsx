@@ -464,7 +464,10 @@ export default function TransferSendScreen() {
           const payoutLine = transfer.payout_released_at
             ? 'Your payout has been released.'
             : !byBuyer && transfer.payout_review_status === 'held'
-              ? (heldLine ?? 'Payout on hold. We will tell you when it is released.')
+              // No promise of a notification: push reaches only a seller with an active token, and
+              // the in-app row is read by the web app. No promise of a live update either — this
+              // screen refetches on pull-to-refresh, not on its own. (A's review of aee15697.)
+              ? (heldLine ?? 'Payout on hold.')
               : !byBuyer && transfer.payout_review_status === 'manual_review'
                 ? 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.'
                 : 'Your payout is being processed, make sure your payout account is set up in Settings.';

@@ -110,6 +110,18 @@ describe('the other surfaces that asserted receipt', () => {
     expect(confirmed.label).toBe('Received');
   });
 
+  it('DR11: the held fallback promises nothing the app does not do', () => {
+    const src = read('app/transfer/send/[id].tsx');
+    const block = src.slice(src.indexOf("transfer.status === 'buyer_confirmed'"), src.indexOf('AUTO_RELEASED'));
+    // A's review: "We will tell you when it is released" promises a notification that only reaches a
+    // seller with an active push token, and the in-app row is read by the web app. "This screen
+    // updates when it is released" would overstate it too — this screen has no useFocusEffect and
+    // refetches on pull-to-refresh, so it does not update on its own either.
+    expect(block).not.toMatch(/we will tell you|we'll tell you|you will be notified/i);
+    expect(block).not.toMatch(/this screen updates/i);
+    expect(block).toContain("'Payout on hold.'");
+  });
+
   it('DR10: a seller-win payout line says only what the payout fields state', async () => {
     const src = read('app/transfer/send/[id].tsx');
     // Under a hold or a manual review the payout is NOT being processed, so the operator-decision
