@@ -24,8 +24,9 @@ for evidence about the build:
 
 These are presentation defects the tester WILL see on build 23. Expect them; do not re-report them.
 **No replacement build is authorised.** A preview recut is **not** gate G2 — G2 is the *production*
-build, and whatever commit that pins will carry these fixes anyway (A, 2026-09-24). The recut is its
-own owner item, **S1** in §8 of A's submission checklist; A's G1 applies either way.
+build. The recut is its own owner item, **S1** in §8 of A's submission checklist; A's G1 applies
+either way. The release candidate carries these fixes only if it is **pinned to a commit containing
+them**, which is now an explicit pin requirement A checks at G2 — it is a condition, not a given.
 
 ### C's assessment of the artifact, since this is where it gets called
 
@@ -44,9 +45,11 @@ in production, and no fixture creates one).
 which is what the pass is for, is entirely present at `9c6c9bf4`. My recommendation is to run Stages
 1–3 on it and accept the two conspicuous items above as known, **or** recut once if the owner would
 rather the first screen of the session look right. The decision is the owner's, as item S1; I am
-recording the input, not requesting the build. Note what this is NOT: because the production build
-will pin a commit that already carries the fix, the untinted mark is a defect of **this sandbox
-artifact**, never of a release candidate.
+recording the input, not requesting the build. Note the limit of that claim, corrected by A after I
+had overstated it: the untinted mark is a defect of **this sandbox artifact**, and it stays out of a
+release candidate only while that candidate is pinned to a commit containing `2ffb10a8` (an ancestor
+of `404bce38`; verified — neither is in `9c6c9bf4`). A checks that at G2 with
+`git merge-base --is-ancestor`.
 
 ---
 
