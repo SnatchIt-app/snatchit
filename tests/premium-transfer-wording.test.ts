@@ -67,9 +67,12 @@ describe('vocabulary: claim ≠ possession', () => {
 describe('screens use the vocabulary, not their own words', () => {
   it('receive: pending/sent/confirmed/released/disputed all come from transferStatusCopy', () => {
     const receive = stripComments(read('app/transfer/receive/[id].tsx'));
-    for (const st of ['pending', 'buyer_confirmed', 'disputed']) {
+    for (const st of ['pending', 'disputed']) {
       expect(receive, st).toContain(`transferStatusCopy('${st}', 'buyer')`);
     }
+    // buyer_confirmed now passes the one fact that separates a real confirmation from an operator's
+    // dispute decision — same vocabulary, chosen by `buyer_confirmed_at` rather than by status alone.
+    expect(receive).toContain("transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null })");
     // seller_sent moved into the shared block the screen renders (owner 2026-09-24, one implementation
     // for the screens and the sandbox gallery): the vocabulary is still the shared copy.
     expect(receive).toContain('<BuyerSellerSentBlock autoReleaseAt={transfer.auto_release_at} />');
@@ -94,7 +97,10 @@ describe('screens use the vocabulary, not their own words', () => {
     const blocks = stripComments(read('src/components/transfer/TransferStateBlocks.tsx'));
     expect(blocks).toMatch(/function StateBlock\(\{ title, tone, children \}: \{ title\?: string/);
     expect(blocks).toMatch(/export function SellerSentBlock[\s\S]*?<StateBlock tone="neutral">/);
-    expect(send).toContain('<StateBlock title="Tickets received"');
+    // Was a hard-coded title; it now comes from the shared vocabulary, which is what this test is
+    // named for — and it has to, because the seller-win title is "Dispute resolved in your favour".
+    expect(send).toContain("transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer })");
+    expect(send).toContain('<StateBlock title={copy.title} tone="success">');
     // The success is announced for assistive tech - not a dialog repeating it.
     expect(send).not.toContain("Alert.alert('Marked as sent'");
     expect(send).toContain("announceForAccessibility('Marked as sent");

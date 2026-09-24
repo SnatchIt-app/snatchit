@@ -158,8 +158,20 @@ export type TransferRole = 'buyer' | 'seller';
  * "marked … as sent" is always the seller's statement; "received" is always the
  * buyer's. Auto-release says what happened to the money, not to the tickets.
  */
-export function transferStatusCopy(status: string, role: TransferRole): { title: string; body: string } {
+export function transferStatusCopy(
+  status: string,
+  role: TransferRole,
+  /**
+   * `buyer_confirmed` is reached two ways: the buyer confirms, or an operator resolves a dispute for
+   * the seller. Only the buyer's own `confirm_transfer_received` writes `buyer_confirmed_at`
+   * (0550:191-205); `resolve_transfer_dispute` (065:119-152) never touches it and a guard blocks
+   * direct writes — so a NULL timestamp on that status means the buyer did NOT confirm. Defaults to
+   * true so every existing caller keeps the sentence it had.
+   */
+  opts: { buyerConfirmed?: boolean } = {},
+): { title: string; body: string } {
   const buyer = role === 'buyer';
+  const buyerConfirmed = opts.buyerConfirmed ?? true;
   switch (status) {
     case 'pending':
       return buyer
@@ -170,6 +182,14 @@ export function transferStatusCopy(status: string, role: TransferRole): { title:
         ? { title: 'Seller marked as sent', body: "That is the seller's update, not a confirmation. Check your ticket account, then confirm receipt here." }
         : { title: 'Marked as sent', body: 'Waiting for the buyer to confirm they received the tickets.' };
     case 'buyer_confirmed':
+      if (!buyerConfirmed) {
+        // An operator decided this, so neither sentence may credit the buyer with confirming. The
+        // buyer's line says what happened without hinting at a refund; the seller's matches the
+        // server's own notice and leaves every payout statement to the payout fields.
+        return buyer
+          ? { title: 'Dispute resolved', body: 'Support reviewed the dispute on this transfer and decided it in the seller\'s favour. Contact support if you have questions.' }
+          : { title: 'Dispute resolved in your favour', body: 'Support reviewed this transfer and decided it in your favour.' };
+      }
       return buyer
         ? { title: 'Tickets received', body: 'You confirmed receipt. Enjoy the event.' }
         : { title: 'Tickets received', body: 'The buyer confirmed they received the tickets.' };

@@ -29,6 +29,7 @@ import {
   sellerDeliveryMissing,
   sellerWindowView,
   transferReadOutcome,
+  transferStatusCopy,
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
@@ -46,6 +47,7 @@ type TransferData = {
   transfer_method: TransferMethod;
   expires_at: string | null;
   auto_release_at: string | null;
+  buyer_confirmed_at: string | null;
   payout_released_at: string | null;
   /** Written by 039 apply_payout_hold with payout_review_status='held'; shown only then (A, 2026-09-24). */
   payout_hold_until: string | null;
@@ -100,7 +102,7 @@ export default function TransferSendScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
@@ -446,15 +448,22 @@ export default function TransferSendScreen() {
         ) : null}
 
         {/* BUYER_CONFIRMED */}
-        {transfer.status === 'buyer_confirmed' ? (
-          <StateBlock title="Tickets received" tone="success">
-            <Text style={[textStyle('bodySm'), s.stateText]}>
-              {transfer.payout_released_at
-                ? 'The buyer confirmed they received the tickets. Your payout has been released.'
-                : 'The buyer confirmed they received the tickets. Your payout is being processed, make sure your payout account is set up in Settings.'}
-            </Text>
-          </StateBlock>
-        ) : null}
+        {transfer.status === 'buyer_confirmed' ? (() => {
+          // Two causes, one status: the buyer confirmed, or an operator decided the dispute for this
+          // seller. Only the buyer's own confirmation writes buyer_confirmed_at, so a NULL here means
+          // the sentence must not credit the buyer. The payout clause is unchanged either way — it
+          // says only what payout_released_at states.
+          const byBuyer = transfer.buyer_confirmed_at != null;
+          const copy = transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer });
+          const payoutLine = transfer.payout_released_at
+            ? 'Your payout has been released.'
+            : 'Your payout is being processed, make sure your payout account is set up in Settings.';
+          return (
+            <StateBlock title={copy.title} tone="success">
+              <Text style={[textStyle('bodySm'), s.stateText]}>{`${copy.body} ${payoutLine}`}</Text>
+            </StateBlock>
+          );
+        })() : null}
 
         {/* AUTO_RELEASED */}
         {transfer.status === 'auto_released' ? (

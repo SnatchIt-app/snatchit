@@ -80,6 +80,7 @@ type TransferData = {
   /** The buyer's review window (A's table 2e). Shown only when the server gives it — never assumed. */
   auto_release_at: string | null;
   /** Written only after the Stripe payout transfer succeeded; gates the buyer's money sentence. */
+  buyer_confirmed_at: string | null;
   payout_released_at: string | null;
   delivery_email: string | null;
   delivery_phone: string | null;
@@ -162,7 +163,8 @@ export default function TransferReceiveScreen() {
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, delivery_email, delivery_phone, transfer_evidence_path, ' +
+        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, ' +
+        'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform)',
       )
@@ -295,7 +297,11 @@ export default function TransferReceiveScreen() {
       // Authoritative: the edge function recorded the confirmation. Only now the
       // distinctive success haptic (CFT-202), paired with the state block below.
       hapticSuccess();
-      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed' } : prev));
+      // The timestamp travels WITH the status, because the two together are what say the buyer
+      // confirmed: a `buyer_confirmed` row with a NULL timestamp means an operator decided a
+      // dispute. Only its PRESENCE is read — the authority here is the edge function's success,
+      // not this clock.
+      setTransfer((prev) => (prev ? { ...prev, status: 'buyer_confirmed', buyer_confirmed_at: new Date().toISOString() } : prev));
       Alert.alert('Receipt confirmed', 'You confirmed you received the tickets. Enjoy the event.');
     } catch {
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -526,8 +532,8 @@ export default function TransferReceiveScreen() {
         {transfer.status === 'reversed' ? <BuyerClosedBlock status="reversed" refund={refundFacts} /> : null}
 
         {transfer.status === 'buyer_confirmed' ? (
-          <StateBlock title={transferStatusCopy('buyer_confirmed', 'buyer').title} tone="success">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('buyer_confirmed', 'buyer').body}</Text>
+          <StateBlock title={transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).title} tone="success">
+            <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null }).body}</Text>
           </StateBlock>
         ) : null}
 
