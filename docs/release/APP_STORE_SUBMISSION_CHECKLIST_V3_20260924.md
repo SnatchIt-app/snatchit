@@ -186,13 +186,15 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
   refunds by the cron once confirmed in production.
 - **P5 — refunds of App Review purchases.** Decide whether to commit to refunding any purchase a reviewer completes,
   and who does it.
-- **P6 — seller-win disputes.** The fix is PR #92. Its production package is prepared and rehearsed (§8 R1).
-  **Until R1 executes, do not resolve any of the 5 open disputes in the seller's favour.** Today such a resolution
-  has no payout path. Worse, the pre-148 claim has no hold or review check, so a buyer-triggered confirm on that row
-  would pay the seller despite any hold.
+- **P6 — seller-win disputes.** The fix is PR #92. **R1 executed 2026-09-24: apply 16:55:40Z, deploy 16:57:01Z, run
+  check PASS 17:03:42Z** (package §13). A seller-win resolution now has a payout path that respects holds and manual
+  review (E-4/E-5): the seller's notice is written at once, and about 15 min later the sweep pays if nothing holds it.
+  Resolving any of the 5 open disputes remains the owner's decision; R1 did not authorise it. The first seller-win
+  resolution will probably be the first production run of the attempt-based payout executor, so tell A beforehand and
+  the outcome can be read back (a separately authorised read). (Superseded: "until R1 executes, do not resolve".)
 - **P7 — what a seller is told after a seller-win resolution. DECIDED by the owner (2026-09-24):** "Dispute resolved
   in your favour", with no claim that payout has completed. It is implemented server-side in #92 and client-side in C's
-  `ca27d282` / `aee15697` / `404bce38` (A PASS). It is live only after R1 (server) and a new build (client).
+  `ca27d282` / `aee15697` / `404bce38` (A PASS). Server side live since R1 (2026-09-24 16:55:40Z); the client side needs a new build.
 
 ## 6. Readiness verdict
 
@@ -230,7 +232,7 @@ planned for the device session; Build 24 replaces it (below).
   unchanged.
 - **New since the last revision.**
   - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92**, head `e73553d2` (all 9 checks green; pgTAP Files=95 /
-    Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **It is not applied or deployed.**
+    Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **Applied and deployed to production 2026-09-24 (R1); source not merged.**
   - Build 23 still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`) and shows
     "Received" on three surfaces. C's fix is on `v3/midnight-app` (`ca27d282`, `aee15697`, `404bce38`), all A PASS. It is
     **in Build 24, not in Build 23**. The sandbox path still cannot reach a seller-win row.
@@ -262,8 +264,8 @@ names no exact label, the step says so.
 
 | # | What | Bring back | Unblocks |
 |---|---|---|---|
-| R1 | **PR #92 production execution**: package `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` (prepared, rehearsed locally, frozen; D reviewing). A brings the exact approval request once D's review is in. **Before the first of the 5 open disputes is resolved** | the authorisation, in the package's §8 words | seller-win payouts with holds respected; a truthful seller notice |
-| R2 | Policies **P2** (who handles disputes and reports), **P4** (refund policy), **P5** (App Review purchase refunds; also G6), **P6** (no seller-win resolution until R1) | decisions | the operating process behind the promises |
+| R1 | **PR #92 production execution: EXECUTED 2026-09-24** (apply 16:55:40Z, deploy v41 16:57:01Z, run check PASS 17:03:42Z; package §13). Merging #92 into the gate (§8 (C)) is separate and not authorised | done: (A)+(B) at `05c4f5fa`. Open: (C) | seller-win payouts with holds respected; a truthful seller notice (server side live) |
+| R2 | Policies **P2** (who handles disputes and reports), **P4** (refund policy), **P5** (App Review purchase refunds; also G6), **P6** (when to resolve the 5 open disputes; R1 done) | decisions | the operating process behind the promises |
 | R3 | **Twilio auto-recharge:** `console.twilio.com/us1/billing/manage-billing/billing-overview` → **Enable auto recharge** → Auto Recharge "Enabled" → **Recharge Balance To** / **When Balance Falls Below** (minimum trigger $10) → Select Payment Method → **Save** (today: OFF). The help article is tagged "legacy Console", so use the direct URL | on/off, amounts | signup OTPs keep working when the balance runs out |
 
 ### C. Optional additional evidence (each needs its own permission; none is requested here)

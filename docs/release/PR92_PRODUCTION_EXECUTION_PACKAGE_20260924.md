@@ -455,3 +455,42 @@ separately.
 - **Still not reviewed by D:** §10, the regenerated diffs beyond `CONFIRM_REF` and the P3 additions, rehearsals 4–6 as
   executed, E2E-1 to E2E-3 as executed, and `deploy --dry`.
 
+
+## 13. Execution record (owner authorisation (A)+(B) at `05c4f5fa`; executed 2026-09-24 16:54:50–17:03:42Z)
+
+§1–§12 are unchanged from `05c4f5fa`; only this section is new. The frozen package matched its manifest (21/21 files,
+sha256 and size) before execution and again at 17:03:22Z. `shasum -c` cannot parse the manifest, because each line
+carries a size column, so the check reads the manifest's own format. Predictions were registered at 16:54:50Z, before
+any step (`exec_predictions.txt`, sha256 `219f7867…`). **Every step matched its prediction.**
+
+| Step | UTC | Result |
+|---|---|---|
+| P1 `deploy_148.sh --dry` | 16:54:50 | `enforce-transfer-expiry` v40, ezbr `8370c58d…`, verify_jwt true. Pre-download: 6 files vs the `5b255838` blobs, 0 mismatches |
+| P2 `apply_one_148.sh 00` | 16:55:22 | ledger 160, no 148 row. Census 32/108/37/38. Grants matrix 69 rows (`00_grants.txt` `9955f5d9…`). Switches: detectors true, refund_resolution_detector false, alert_delivery false |
+| P3 prestate | 16:55:40 | 13/13 STOP keys equal expected: ledger 0/160/20260923000000; claim `d3cd9fdd…`/`083bf9a3…`; notify `37a46d03…`/`203f7c7d…`; `trg_notify_transfer_state_inbox@transfers=O`; seller_win_rows 0; writers `b7f11225…`/`c5ab888d…`; both bindings. Info: dispute_resolutions 0, open disputes 5, payout_attempts 0 |
+| Apply `01` | 16:55:40 | HTTP 201. The executed request `01_apply.sql` (sha256 `c91cec23…`) is the rehearsed request, byte for byte |
+| Read-back | 16:55:45 | POST-APPLY ASSERTION PASS. Ledger row `20260924000000 \| seller_win_dispute_payout_and_notice \| created_by=claude-a/owner-authorised-148 \| stmts=1`; ledger 161. Claim `b6aae868…`/`ce30b56c…`; notify `8de79350…`/`ff103b3e…`; secdef, search_path=public; EXECUTE service_role only. Grants matrix identical to P2 (`01_grants.txt` `9955f5d9…`). Census and switches unchanged |
+| Deploy | 16:57:01 | v41 (platform updated_at ≈16:56:45Z), ezbr `d7410c97…`, verify_jwt true. Post-download: 6 files vs `e73553d2`, 0 mismatches |
+| Run check | 17:03:42 | 12 runs read. The 3 after the deploy (16:58:00, 17:00:00, 17:02:02) are all HTTP 200, not timed out, and errors 0, equal to the pre-deploy baseline of 0. payout_attempts 0; seller_win_rows 0. **PASS** (`02_runcheck.txt` `a385995b…`) |
+
+**No rollback: every check passed, so (B) was never exercised.** Outside (A) and not done: #92 is not merged (C is
+unauthorised); no dispute was resolved; `confirm-and-release` is still v37; no other production change was made.
+Outputs are in `scratchpad/apply_148/out/` and `edge/out/`.
+
+**Evidence limits.**
+1. The run response carries no function version. The claim that v41 served the three post-deploy runs rests on
+   timing: the first run is 75 s after v41's platform timestamp. No per-invocation version was read; an edge-log read
+   would settle it, and it was neither authorised nor run.
+2. The new paths are deployed but not yet exercised in production. seller_win_rows is 0, so Phase 2b (d) selected
+   nothing and no claim met the new refusal. The run check proves that v41 runs the existing phases cleanly; it does
+   not prove that (d) or the claim's hold refusal behaves correctly in production. The evidence for those is still the
+   rehearsal (215 43/43 with production's writer bodies; edge mutants E1–E12; SQL mutants). Their first production
+   exercise is E-5.
+3. payout_attempts is a count: 0 before and 0 after. Stripe itself was not read.
+
+**State now.** Production ledger 161 (max `20260924000000`); claim and notify at the 148 bodies;
+`enforce-transfer-expiry` v41 from `e73553d2`; the other nine edge functions unchanged. The repo carries 148 only on
+draft #92, not on `release/production-gate-20260918` and not on `main`. Until (C):
+- a `db push` from the gate would find a remote version with no local file;
+- a deploy of `enforce-transfer-expiry` from the gate would silently revert (d). The DB would stay at 148, which is
+  safe, since the claim is only stricter.

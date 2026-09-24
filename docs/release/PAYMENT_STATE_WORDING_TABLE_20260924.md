@@ -1,7 +1,7 @@
 # Payment-state and wording table for the V3 order/transfer screens (A → C, 2026-09-24)
 
 Owner instruction 2026-09-24: "Provide the evidence-backed payment-state and wording table for buyer expired, buyer reversed, seller reversed, and the review/automatic-release deadline. Distinguish order status, recorded refund amount and confirmed payout. State what the UI may truthfully say when evidence is missing."
-Every claim below is cited to the gate source at `5b255838` (migrations under `supabase/migrations/`, edges under `supabase/functions/`), which is what production runs as of 2026-09-23 23:22Z (ledger 160; ten functions deployed). Nothing here is inferred from the client.
+Every claim below is cited to the gate source at `5b255838` (migrations under `supabase/migrations/`, edges under `supabase/functions/`), which is what production runs as of 2026-09-23 23:22Z (ledger 160; ten functions deployed). Since 2026-09-24 16:55Z production also runs 148 and `enforce-transfer-expiry` v41 from #92; what they change is in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` §3 E-2 to E-4. Nothing here is inferred from the client.
 
 ## 1. The three facts are three different rows/columns — never derive one from another
 

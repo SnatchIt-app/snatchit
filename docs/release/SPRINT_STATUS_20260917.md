@@ -1650,3 +1650,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Expiry execution is automatic once, live-mode only, with no retry. Dispute execution is manual.
   - Test scope sent to C.
   - The fixture pause stays; the existing approvals stand and are not re-requested.
+- **#92 production execution, 2026-09-24 (owner (A)+(B) at package `05c4f5fa`): PASS, no rollback.**
+  - P1 16:54:50Z; P2 16:55:22Z; P3 and apply 16:55:40Z (HTTP 201; the request is the rehearsed one, `c91cec23…`).
+  - Ledger 160→161 (`20260924000000`); claim and notify at the 148 hashes; grants matrix identical; census unchanged.
+  - `enforce-transfer-expiry` v40→v41 at 16:57:01Z from `e73553d2`, byte-verified.
+  - Run check PASS at 17:03:42Z: 3 post-deploy runs, all 200 with 0 errors; payout_attempts 0; seller_win_rows 0.
+  - All steps matched the predictions registered at 16:54:50Z. Record: package §13, with three evidence limits (version
+    attribution by timing; new paths unexercised; Stripe not read).
+  - Not done, not authorised: merging #92 (C); resolving disputes; `confirm-and-release` (still v37).
+  - Records updated: registry row 148, checklist P6/P7/R1/R2, HANDOFF_A §2, wording table header.
