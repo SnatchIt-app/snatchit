@@ -150,6 +150,7 @@ async function sweepWorld(ledger: AttemptLedger) {
   const payouts = loadPayoutsModule(stripe);
   const transferQueries: QueryCall[] = [];
   const claimsFor: string[] = [];
+  const decisions: { decision: string; reason_codes: string[]; buyer_confirmed: boolean }[] = [];
   const sb = mockSupabase({
     rpc: async (name: string, params: Record<string, unknown>) => {
       if (['enforce_transfer_expiry', 'get_auto_release_candidates', 'get_unsettled_payments'].includes(name)) return { data: [] };
@@ -169,7 +170,7 @@ async function sweepWorld(ledger: AttemptLedger) {
       payout_policy: () => ({ data: null }),
       payments: () => ({ data: [] }),
       listings: () => ({ data: { event_name: 'Fixture' } }),
-      payout_decisions: () => ({ data: null }),
+      payout_decisions: (q: QueryCall) => { if (q.op === 'insert') decisions.push(q.body as (typeof decisions)[number]); return { data: null }; },
       webhook_retries: () => ({ data: [] }),
     },
   });
@@ -191,7 +192,7 @@ async function sweepWorld(ledger: AttemptLedger) {
   const posts = () => stripe.calls.filter((c) => c.method === 'POST' && c.path === '/transfers');
   const postedFor = (transferId: string) => posts().filter((c) => (c.idempotencyKey ?? '').startsWith(`payout_${transferId}_a`));
   const claimed = (transferId: string) => claimsFor.filter((t) => t === transferId).length;
-  return { run, posts, postedFor, transferQueries, stripeMock, claimed };
+  return { run, posts, postedFor, transferQueries, stripeMock, claimed, decisions };
 }
 
 function paidOnce(w: Awaited<ReturnType<typeof sweepWorld>>, ledger: AttemptLedger, id: string) {
@@ -389,5 +390,41 @@ describe('one hold matrix for both suites', () => {
       expect: r[4] === 'NULL' ? null : r[4].slice(1, -1),
     }));
     expect(rows).toEqual(MATRIX.cases);
+  });
+});
+
+// ── Automatic payout records stay explicitly buyer-unconfirmed (F-CR-148-SHARED follow-up) ──
+// The sweep's own audit writers (logDecision, recordManualReviewOnce) write
+// buyer_confirmed: false by construction: the cron is not the buyer. They never
+// derive it from status, so (d) cannot spread the a1–a4 defect. A genuinely
+// confirmed stuck row is recorded false too — an under-claim, never an over-claim,
+// kept deliberately (owner, 2026-09-24).
+describe('automatic payout records (enforce-transfer-expiry writers)', () => {
+  it('SW-AUDIT-1: a seller-win whose seller is not onboarded → one manual_review decision, buyer_confirmed false, no BUYER_CONFIRMED', async () => {
+    const ledger = new AttemptLedger();
+    seedSellerWin(ledger, 'swa1', { resolvedAgoMin: 60 });
+    ledger.profiles.set('seller-1', { stripe_connect_id: null });
+    const w = await sweepWorld(ledger);
+    await w.run();
+    notPaid(w, ledger, 'swa1');
+    expect(w.decisions).toEqual([expect.objectContaining({ decision: 'manual_review', reason_codes: ['SELLER_NOT_ONBOARDED'], buyer_confirmed: false })]);
+  });
+
+  it('SW-AUDIT-2: a genuinely confirmed stuck row, seller not onboarded → buyer_confirmed false (automatic record, deliberate under-claim)', async () => {
+    const ledger = new AttemptLedger();
+    seedGenuineConfirm(ledger, 'gca2', { confirmedAgoMin: 60 });
+    ledger.profiles.set('seller-1', { stripe_connect_id: null });
+    const w = await sweepWorld(ledger);
+    await w.run();
+    expect(w.decisions).toEqual([expect.objectContaining({ decision: 'manual_review', reason_codes: ['SELLER_NOT_ONBOARDED'], buyer_confirmed: false })]);
+  });
+
+  it('SW-AUDIT-3: a successful (d) payout writes no decision row, so no automatic record asserts a confirmation', async () => {
+    const ledger = new AttemptLedger();
+    seedSellerWin(ledger, 'swa3', { resolvedAgoMin: 60 });
+    const w = await sweepWorld(ledger);
+    await w.run();
+    paidOnce(w, ledger, 'swa3');
+    expect(w.decisions).toEqual([]);
   });
 });
