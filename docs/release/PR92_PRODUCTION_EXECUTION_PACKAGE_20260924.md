@@ -59,12 +59,28 @@ row that lies to the operator". This is finding **F-CR-148-SHARED**. `payoutDefe
 |---|---|---|
 | P1 | `deploy_148.sh enforce-transfer-expiry --dry` | `before` version **40**, `verify_jwt` True. The deployed source, downloaded, is byte-equal to the gate `5b255838` blobs (index + 5 shared). Proves the rollback target is the running code |
 | P2 | `apply_one_148.sh 00` (baseline read-back) | recorded, including census, grants matrix and switches; the comparison base for the post read-back |
-| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**. Informational: dispute_resolutions, open disputes, payout_attempts, both ACLs |
+| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer's logic is the repo's**: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Informational: both writers' defn md5, dispute_resolutions, open disputes, payout_attempts, both ACLs |
+
+**Why the writer check exists:** 148 keys on the exact row shape that `resolve_transfer_dispute` writes (status
+`buyer_confirmed`, `buyer_confirmed_at` NULL, `dispute_resolution 'resolved_seller_paid'`). The defect analysis was
+source-verified at the gate, not against production's body. Production's **defn** md5 for both writers differed from
+the replay in the 2026-09-22 capture: `resolve_transfer_dispute` `7d18f1d8` vs `7b9e17a5`, `admin_resolve_dispute`
+`9f70196f` vs `2649898d`. The cause is unknown; it may be attributes only. Ten other functions differ in the same way,
+none of which 148 touches.
+- A **prosrc** match proves the logic is the repo's.
+- A mismatch stops the run (exit 3). A then reads that body (a preflight read), and A and D diff its seller-win branch.
+- Any difference comes back to the owner as a one-line re-approval; nothing is applied meanwhile.
+- **If production's writer set `buyer_confirmed_at` on a seller-win, the defect and the fix would both be different**,
+  which is why this is a stop and not a note.
 
 The expected pre-state is not assumed. Production's last recorded values match it: claim defn `d3cd9fdd…` from the
 2026-09-22 read-back of `20260906120000`, and notify defn `37a46d03…` from the 2026-09-22 untouched-function comparison.
-Only 147 (`get_unsettled_payments`) has been applied since. The same four values were recomputed on the pre-148 replay
-`a_sw_base_rehears` today.
+Only 147 (`get_unsettled_payments`) has been applied since. The four claim and notify values were recomputed on the
+pre-148 replay today by A, and **independently by D** (8/8, pre and post, on D's own fresh copy). Record paths:
+`apply_5b255838/out/21_readback.json` (claim), and `apply_5b255838/out/prod_untouched_fns.txt` (notify
+`37a46d03`), a production capture written 2026-09-23 ~03:11Z, just after the 24-file apply completed at 03:06:35Z. Its
+producing command is not in a script, only in that session's history; its content differs from the local list in 12
+functions, so it is not a copy.
 
 ## 5. Execution (A runs every step; owner authorises; D witnesses the reads if the owner authorises D)
 
@@ -91,7 +107,7 @@ deliberate choice in both directions (D's review, 2026-09-24).
    newest pre-deploy run's value. A failing (d) query increments `errors`
    (`index.ts:1224-1226`).
 5. **Records:** registry row 148 → applied; SPRINT_STATUS; this package's §10.
-6. **Repository:** mark #92 ready, retitle it without "DO NOT MERGE" and merge it into
+6. **Repository, only under approval (C):** mark #92 ready, retitle it without "DO NOT MERGE" and merge it into
    `release/production-gate-20260918`, **not `main`**, as #91/147 was. This happens only after steps 2–4 PASS, so the
    gate's tree equals production.
 
@@ -104,7 +120,7 @@ needs to be quiet.
 |---|---|---|
 | P1/P3 mismatch | nothing changed | report to the owner |
 | Apply HTTP ≠ 201 | nothing changed (one request, one transaction) | report |
-| Post-assert FAIL | 148 is in the database; the edge is untouched | `rollback_148.sh`. Its guard requires the 148 bodies and 1 ledger row; the rollback file itself refuses unless the bodies are 148's, and raises unless the restored bodies hash to pre-148. It then deletes the ledger row and reads back |
+| Post-assert FAIL | 148 is in the database; the edge is untouched | under (B), or on the owner's word: `rollback_148.sh`. Its guard requires the 148 bodies and 1 ledger row; the rollback file itself refuses unless the bodies are 148's, and raises unless the restored bodies hash to pre-148. It then deletes the ledger row and reads back |
 | Deploy failure, or byte mismatch after deploy | DB at 148; edge at v40 or at an unverified v41 | rollback the edge with the **frozen** `deploy_one.sh enforce-transfer-expiry` (sha256 `029c6af7…`) from the `5b255838` worktree, which byte-verifies the gate source. The DB can stay at 148: the claim is only stricter, and seller-win rows stay unpaid as today |
 | Run check FAIL | both applied | edge rollback as above, then report. The DB decision is the owner's |
 
@@ -138,15 +154,23 @@ sends the same request texts to a local copy of the pre-148 replay with a 160-ro
 
 ## 8. Approval request (what the owner is asked to say)
 
-> "I authorise the PR #92 production execution as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at `<commit>`:
-> steps P1–P3 (reads), the apply of migration 148, the deploy of `enforce-transfer-expiry` only, the run check, the
-> records, and merging #92 into the release gate. On a failed read-back or run check, A may run the rollback in §6 for
-> the failing layer, edge first. This does not authorise resolving any dispute, deploying `confirm-and-release`, or any
-> other production change."
+These are three separate decisions, following D's review, so the apply can be approved without pre-authorising a
+rollback or a merge.
 
-Optional additions the owner may make:
-- D's read-only witness of P1–P3 and the read-backs;
-- whether the rollback is pre-authorised. If not, A stops at the failure and asks.
+**(A) Required: the apply and deploy.**
+> "I authorise the PR #92 production apply and deploy as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at
+> `<commit>`: the preflight reads P1–P3, the apply of migration 148, the deploy of `enforce-transfer-expiry` only, the
+> run check, and the records. This does not authorise any rollback, merging #92, resolving any dispute, deploying
+> `confirm-and-release`, or any other production change."
+
+**(B) Optional: pre-authorised rollback.** Without it, A stops at a failed check, reports, and waits.
+> "If a read-back or the run check fails, A may run the §6 rollback for the failing layer, edge first."
+
+**(C) Separate, and may come later: source reconciliation,** as with #91/147.
+> "After A reports the apply, deploy and run check as PASS, A may mark #92 ready and merge it into
+> `release/production-gate-20260918` (not `main`)."
+
+**Optional (D): D's read-only witness** of P1–P3 and the read-backs.
 
 ## 9. Frozen artefacts (`scratchpad/apply_148/`)
 
@@ -207,18 +231,41 @@ scripts print `### REFUSED …` and exit 2.
 
 The first freeze (`8977efae…` / `f33ade58…` / `4db0969b…` / `c1b9abf9…`) is superseded. The only change is the mode gate
 and banner.
+
+**Rehearsal 3, after the writer check was added to P3** (~16:12Z; fresh copy):
+- **Negative control first:** the writer body was changed by one comment (prosrc `2bfbca0a…`); P3 reported the mismatch
+  and exited 3 before any request.
+- **Clean copy:** P3 PASS (writer prosrc `19161d7a…` / `4548b9ee…`; defn `7b9e17a5…` / `2649898d…`); apply → POST
+  PASS; re-run refused (exit 3); rollback `626db799…` → 160 rows and pre-hashes; re-apply → PASS; 215 43/43.
+- The production request is still `c91cec23…`, byte-identical.
+- `apply_one_148.sh` is now **`1c477598706e7aec73e1fb14953cdcbbf2c48badf49d459154dc344370265f5a`** (17,060 B; diff
+  `c024c3eb…`, 107 changed lines) and supersedes `0bf97b89…`. The other scripts are unchanged: rollback `1419f12f…`,
+  deploy `142899c8…`, runcheck `14e0b918…`. `FROZEN_SHA256.txt` is regenerated.
 The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D re-review and a new hash.
 
 ## 11. Review status and bearing of the reader sweep (2026-09-24 ~16:10Z)
 
-**D's review so far:**
-- **Reviewed and passed:** the frozen artefacts (scripts, anchor files, directory and hashes); the anchor read-back (an
-  exact match, recomputed from the ref); the anchor guard (before any request, in every mode); `LOCALDB` safety (D
-  checked four properties, the strongest being that no token is ever fetched in rehearsal); the rollback order.
-- **Not verified by D, and not claimed:** the P3 pre-state and post hashes (no production read is authorised; D offered
-  to recompute them on a fresh replay copy); `deploy_148.sh --dry` (diff only, same limit as A's); **this document**
-  (§8 wording and the §10 narrative have not been reviewed yet).
-- **Adopted from D:** the mode gate (§5) and the rollback-order reasoning (§6).
+**D's review so far (as of ~16:15Z):**
+- **Reviewed and passed:**
+  - the frozen artefacts (scripts, anchor files, directory and hashes);
+  - the anchor read-back, recomputed from the ref;
+  - the anchor guard;
+  - `LOCALDB` safety;
+  - the `CONFIRM_REF` gate, in both directions;
+  - the rollback order;
+  - §8. D found two faults in it: the quote pre-authorised the rollback while an option claimed to let the owner
+    decline it, and it bundled the merge with the apply. §8 is rewritten as (A)/(B)/(C).
+- **Independently determined by D:** all 8 claim and notify hashes, pre and post (claim `d3cd9fdd`/`083bf9a3` →
+  `b6aae868`/`ce30b56c`; notify `37a46d03`/`203f7c7d` → `8de79350`/`ff103b3e`), on D's own fresh copy, applying the
+  frozen migration.
+- D could not find `prod_untouched_fns.txt`. It is in `apply_5b255838/out/`, one level below the directory D checked
+  (A verified; the path is now given in full in §4).
+- **Not reviewed by D:**
+  - §10's rehearsal narrative;
+  - the regenerated diffs, beyond the presence of the `CONFIRM_REF` lines;
+  - the writer check added after D's review (rehearsal 3);
+  - `deploy_148.sh --dry` (a production read).
+- **Adopted from D:** the mode gate, the rollback-order reasoning, and the §8 split.
 
 **Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats
 `status='buyer_confirmed'` as proof the buyer confirmed.
@@ -236,4 +283,7 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
   - `confirm-and-release`'s already-confirmed inference (b1);
   - `ops.detect_release_stuck`, which would open false "stuck" cases for held seller-win rows (b2).
 - **None of them blocks R1.**
+- D's five (b4, a8, b1, b2, a1) are all in the list. D missed a3 and a4, although both lines were in D's own grep output.
+  D takes a5 and a6. a6 displays a flag that a1–a4 corrupt, so fixing the writers fixes a6; a5, the label mapping, is
+  independently wrong.
 
