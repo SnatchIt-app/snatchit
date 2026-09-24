@@ -42,12 +42,10 @@ import * as Sentry from '@sentry/react-native';
 
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
-import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { Button, IconButton, Spinner } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import {
-  labelCarriesAmount,
   LISTING_SUMMARY_COLUMNS,
   mapListingSummary,
   reservedUntilMs,
@@ -906,13 +904,9 @@ export default function CheckoutScreen() {
 
       {/* Sticky pay bar */}
       <View style={[s.bar, { paddingBottom: v2.space.md + insets.bottom }]}>
-        {!priceChange && !labelCarriesAmount(pay.label) ? (
-          <View style={s.barPrice}>
-            {/* De-dup: shown only while the pay control's label states no amount; once the
-                button reads "Pay $132.00" (or "Accept $…"), the action carries the figure. */}
-            <PriceDisplay size="sticky" label="Total" amount={formatCents(totalCents)} showTotal={false} />
-          </View>
-        ) : null}
+        {/* No nearby Total (owner + A's N2, 2026-09-24): before the intent returns the figure is
+            the client estimate — not valid for the state — and once it returns the pay control
+            itself reads "Pay $132.00". The itemised Total row above stays the server figure. */}
         {priceChange ? (
           <Button
             label={`Accept ${formatCents(priceChange.nextCents)}`}

@@ -94,6 +94,13 @@ describe('mapping a row to what the screen shows', () => {
     expect(s.time).toBe('');
   });
 
+  it('maps ticket_type through the same presence rule — "GA" stays, blank is null (A review N1)', () => {
+    expect(mapListingSummary({ ticket_type: 'GA' }, fallback).ticketType).toBe('GA');
+    expect(mapListingSummary({ ticket_type: '   ' }, fallback).ticketType).toBeNull();
+    expect(mapListingSummary({ ticket_type: null }, fallback).ticketType).toBeNull();
+    expect(mapListingSummary({}, fallback).ticketType).toBeNull();
+  });
+
   it('survives a missing row entirely', () => {
     expect(mapListingSummary(null, fallback)).toEqual({
       cover: null, eventName: 'Nav event', venue: 'Nav venue', date: '', time: '', quantity: null, ticketType: null,

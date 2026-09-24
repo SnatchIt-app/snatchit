@@ -19,7 +19,6 @@ vi.mock('react-native', () => ({
 vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
 
-import { labelCarriesAmount } from '@/src/lib/checkout/listingSummary';
 import { findElement, HookHost } from './helpers/nav-stack-harness';
 
 const byText = (host: HookHost, text: string) =>
@@ -74,19 +73,14 @@ describe('OrderIdentity — one block, each fact once', () => {
   });
 });
 
-describe('the sticky Total appears only when the action does not state the amount', () => {
-  it('CL1: labelCarriesAmount is a plain dollar test', () => {
-    expect(labelCarriesAmount('Pay $132.00')).toBe(true);
-    expect(labelCarriesAmount('Preparing secure payment')).toBe(false);
-    expect(labelCarriesAmount('Check again')).toBe(false);
-  });
-
-  it('CS1: the screen gates the sticky Total on it, and hides it during a price change too', async () => {
+describe('no nearby Total beside the pay control (owner + A N2, 2026-09-24)', () => {
+  it('CS1: the sticky bar carries no Total at all — before the intent the figure is an estimate, after it the button says it', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/screens/checkout/CheckoutNative.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src).toMatch(/!priceChange && !labelCarriesAmount\(pay\.label\)/);
+    expect(src).not.toMatch(/<PriceDisplay size="sticky" label="Total"/);
+    expect(src).not.toContain('labelCarriesAmount');
   });
 });
 

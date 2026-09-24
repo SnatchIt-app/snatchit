@@ -109,10 +109,3 @@ export function ticketCountLabel(quantity: number | null): string | null {
   return `${quantity} ${quantity === 1 ? 'ticket' : 'tickets'}`;
 }
 
-/**
- * De-dup rule (owner 2026-09-23): the sticky Total renders only when the pay control's own
- * label does not already state an amount — on the action or beside it, never both.
- */
-export function labelCarriesAmount(label: string): boolean {
-  return /\$\d/.test(label);
-}
