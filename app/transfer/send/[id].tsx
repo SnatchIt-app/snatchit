@@ -21,6 +21,7 @@ import { REQUEST_TIMEOUT_MS, UPLOAD_COPY, withUploadTimeout } from '@/src/lib/me
 import { ATTACH_COPY, MARK_SENT_COPY, runAttachEvidence, runMarkSent, type TransferSnapshot } from '@/src/lib/transfer/markSent';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
 import { NameText } from '@/src/components/NameText';
+import { providerLink } from '@/src/lib/transfer/providerHandoff';
 import { orderWhenWhereLine } from '@/src/lib/orders/orderPresentation';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
@@ -373,6 +374,28 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             paid out). No amount is stored, so none is shown. */}
         {transfer.status === 'reversed' ? <SellerReversedBlock /> : null}
 
+        {/* V3 (pkg8-send): the screen leads with the EVENT in the display voice, the state badge
+            beside it — not a labelled "Transfer" details table. Buyer and method stay as facts
+            below; the meta line joins when the send read gains the listing columns (A-gated,
+            requested — the receive embed's approval is the precedent). */}
+        <View style={s.section}>
+          <View style={s.leadRow}>
+            <NameText token="nameOrder" maxLines={2} style={s.leadName}>
+              {transfer.listing?.event_name || 'Untitled'}
+            </NameText>
+            <Badge label={meta.label} tone={meta.tone} />
+          </View>
+          {(() => {
+            const when = orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue);
+            const qty = transfer.listing?.quantity && transfer.listing?.ticket_type
+              ? `${transfer.listing.quantity} × ${transfer.listing.ticket_type}` : '';
+            const line = [when, qty].filter(Boolean).join(' · ');
+            return line ? <Text style={[textStyle('bodySm'), s.leadMeta]} numberOfLines={1}>{line}</Text> : null;
+          })()}
+          <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
+          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
+        </View>
+
         {/* Buyer delivery target. The details themselves are unchanged: whether fulfilment details (phone/email) show
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
             "Send tickets to" would instruct the opposite of the block above it (owner, via D). */}
@@ -380,7 +403,12 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           <Text style={[textStyle('title'), s.sendToTitle]}>{orderClosed ? "Buyer's delivery details" : 'Send tickets to'}</Text>
           {(transfer.delivery_email || transfer.delivery_phone) ? (
             <Text style={[textStyle('body'), s.sendToValue]}>
-              {[transfer.delivery_phone, transfer.delivery_email].filter(Boolean).join(' · ')}
+              {[
+                transfer.delivery_phone,
+                transfer.delivery_email,
+                transfer.transfer_method === 'mobile_transfer' ? 'Mobile transfer' : 'Email',
+                providerLink(platform)?.name ?? null,
+              ].filter(Boolean).join(' · ')}
             </Text>
           ) : null}
           {buyerDeliveryMissing ? (
@@ -405,27 +433,6 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           </View>
         ) : null}
 
-        {/* V3 (pkg8-send): the screen leads with the EVENT in the display voice, the state badge
-            beside it — not a labelled "Transfer" details table. Buyer and method stay as facts
-            below; the meta line joins when the send read gains the listing columns (A-gated,
-            requested — the receive embed's approval is the precedent). */}
-        <View style={s.section}>
-          <View style={s.leadRow}>
-            <NameText token="nameOrder" maxLines={2} style={s.leadName}>
-              {transfer.listing?.event_name || 'Untitled'}
-            </NameText>
-            <Badge label={meta.label} tone={meta.tone} />
-          </View>
-          {(() => {
-            const when = orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue);
-            const qty = transfer.listing?.quantity && transfer.listing?.ticket_type
-              ? `${transfer.listing.quantity} × ${transfer.listing.ticket_type}` : '';
-            const line = [when, qty].filter(Boolean).join(' · ');
-            return line ? <Text style={[textStyle('bodySm'), s.leadMeta]} numberOfLines={1}>{line}</Text> : null;
-          })()}
-          <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
-          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
-        </View>
 
         {/* PENDING — upload + mark sent */}
         {transfer.status === 'pending' ? (
