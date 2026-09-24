@@ -1506,3 +1506,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Item 4 is withdrawn by D as an error, and recorded at D's request in these terms: "absence asserted from a sample".** D read one block (SW-HOLD) and generalised to the whole file that refusal codes are never checked in JS; `CLAIM[...]` (`toThrow(c.expect)`) and `CLAIM-BYPASS` (`reason 'PAYOUT_HELD'`) check them. **Defence: before writing "never", run the search that could find it.**
   - Register: this is the same class as the vacuous-check instances, in a new form (a sentence, not a command).
   - Independent reproduction of the mutant outcomes is offered by D as a separate job, needing machine coordination and the owner's word.
+- **PR #92 CI GREEN at the new head `e73553d2`** (all 9 checks, including the fresh-DB migrations job and the unit tests).
+- **C's seller-win client copy, option (a), at `ca27d282`: A PASS on the gated read.**
+  - `buyer_confirmed_at` is added to the two transfer selects only. Its value is never rendered; only its presence is read.
+  - The gated payment surface is unchanged (`signOut.ts` +5).
+  - Copy accepted. Buyer: "Dispute resolved" with no credit to the buyer and no refund implied. Seller: "Dispute resolved in your favour", matching #92's notice.
+  - C reports gates 149 / 2699, tsc 0, lint 0/29. It is not in Build 23.
+  - **Follow-ons for C:**
+    - the "Received" badge (`transferStatusMeta`) and the Bids board label still key on status alone; the Bids fix needs a gated read;
+    - after #92 deploys, a held or manual-review seller-win should show the hold or review line instead of "being processed".
