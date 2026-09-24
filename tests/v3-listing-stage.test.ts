@@ -231,6 +231,27 @@ describe('screen wiring (source pins)', () => {
     expect(src).toMatch(/\{offersBid\(state\) \? \(\s*<Text style=\{\[textStyle\('bodySm'\), s\.commitment\]\}>\{BID_COMMITMENT_COPY\}/);
     expect(src).not.toContain("'This listing does not have Buy Now enabled.'");
   });
+
+  it('LS4 (owner ruling 2026-09-24): the RESOLVED PRIMARY carries the filled emphasis and leads the column — the board-first flip is gone', async () => {
+    const { readFileSync } = await import('node:fs');
+    const raw = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    // The flip pinned the emphasis to the board (`pkg8-listing-*` draws the bid filled and Buy Now
+    // outlined beneath it) while `detailState` rule 1 resolves Buy Now as the primary. The owner
+    // ruled the resolver decides: "Buy Now leads whenever the resolver selects it as primary."
+    expect(src).not.toContain("variant={state.secondary ? 'secondary' : 'primary'}");
+    // Exactly one filled action, and it is the primary's.
+    const primaryBlock = src.slice(src.indexOf('label={state.primary.label}'));
+    expect(primaryBlock.slice(0, primaryBlock.indexOf('/>'))).toContain('variant="primary"');
+    const secondaryBlock = src.slice(src.indexOf('label={state.secondary.label}'));
+    expect(secondaryBlock.slice(0, secondaryBlock.indexOf('/>'))).toContain('variant="secondary"');
+    // Leading also means FIRST in the stacked footer: the primary's BarAction precedes the
+    // secondary's in source order, which is the order StickyBar layout="stack" paints.
+    expect(src.indexOf('label={state.primary.label}')).toBeLessThan(src.indexOf('label={state.secondary.label}'));
+    // Nothing about what either action DOES changed: both still dispatch through runAction.
+    expect(src).toContain('onPress={() => runAction(state.primary.kind)}');
+    expect(src).toContain('onPress={() => runAction(state.secondary!.kind)}');
+  });
 });
 
 describe('offersBid — the resolver decides whether a bid exists on this screen (R-5)', () => {

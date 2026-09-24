@@ -1431,21 +1431,15 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         ) : null}
 
         {/*
-          Board hierarchy: the bid is the filled action and Buy Now is the outlined one beneath it.
-          `detailState` still resolves Buy Now as `primary` (its label, its price and its handler are
-          untouched) — only the emphasis follows the approved board. Flagged for ratification: the
-          resolver's own rule 1 says Buy Now leads, and the board that supersedes it draws the
-          opposite fill. Nothing about what either action DOES changed with the paint.
+          HIERARCHY COMES FROM THE RESOLVER (owner ruling 2026-09-24): "Buy Now leads whenever the
+          resolver selects it as primary." `detailState` rule 1 makes Buy Now the primary on a
+          listing that offers both, so the primary is the FILLED action and it leads the column;
+          the bid follows, outlined. The earlier reading — pkg8-listing-{dark,light} draws the bid
+          filled with Buy Now outlined beneath it — pinned the emphasis to the board and inverted
+          the resolver; that flip is what this ruling closes. The board's remaining footer facts
+          (full-width pills stacked on the page, each sub-line inside its own pill, no repeated
+          price) are unchanged, and nothing about what either action DOES moved with the paint.
         */}
-        {state.secondary ? (
-          <BarAction
-            label={state.secondary.label}
-            subLabel={state.secondary.subLabel}
-            variant="primary"
-            disabled={state.secondary.disabled}
-            onPress={() => runAction(state.secondary!.kind)}
-          />
-        ) : null}
         <BarAction
           label={state.primary.label}
           // V3 (O-2): informational — a minimum or a consequence, never the amount a tap submits.
@@ -1453,11 +1447,20 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           // Visible while the reserve call is in flight (CFT-203); Buy Now is the
           // only primary that sets `reserving`.
           pendingLabel="Reserving…"
-          variant={state.secondary ? 'secondary' : 'primary'}
+          variant="primary"
           disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
           loading={primaryBusy}
           onPress={() => runAction(state.primary.kind)}
         />
+        {state.secondary ? (
+          <BarAction
+            label={state.secondary.label}
+            subLabel={state.secondary.subLabel}
+            variant="secondary"
+            disabled={state.secondary.disabled}
+            onPress={() => runAction(state.secondary!.kind)}
+          />
+        ) : null}
       </StickyBar>
     </View>
   );
