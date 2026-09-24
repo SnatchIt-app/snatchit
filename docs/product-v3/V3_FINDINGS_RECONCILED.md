@@ -295,3 +295,19 @@ conditional body, which makes it **a logic change, not a copy change**, and it b
 recovery work alongside **F-27** rather than in the copy pass. **Owner: C.**
 
 All four F-29 dialogs therefore keep their shipped copy for now.
+
+---
+
+## F-30 — the primary button's pressed label fails 4.5:1 (2026-09-23)
+
+| # | Label | Finding | Observable consequence | Evidence |
+|---|---|---|---|---|
+| **F-30** | **①** | **Pressed primary: black label on `#CC0000` is 3.57:1** | The Button label is `textStyle('label')` = **12pt bold**, which is **not** large text, so 4.5:1 applies. At rest, black on `#FF1A1A` is 5.41:1 and passes. Under the finger, `brand.redPressed` darkens the fill and the label drops to **3.57:1** | `Button.tsx:125,144` (`textStyle('label')`); `v2.ts` `brand.redPressed` `#CC0000`; computed |
+
+**This predates light mode and fails in Midnight too** — deriving Daylight only surfaced it. Transient, but
+1.4.3 has no exemption for transient states (the exemption is for *inactive* controls, which a pressed button
+is not).
+
+**Options, none of which I am taking unilaterally on a shipped brand token:** lighten the pressed fill
+instead of darkening it; swap the label colour on press; or carry press feedback with opacity or scale rather
+than a fill change. **A and C decide.**

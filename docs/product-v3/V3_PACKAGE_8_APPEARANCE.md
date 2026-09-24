@@ -25,38 +25,54 @@ as the instruction says.
 
 ---
 
-## 2 · Daylight is derived, not inverted
+## 2 · Daylight is derived, not inverted — and one of my reasons was wrong
 
-Two things a mirror gets wrong, both caught by measuring:
+### The correction
 
-1. **Elevation flips.** `surface.panel` sits *lighter* than the canvas on Midnight and *darker* on Daylight.
-   Elevation reads by contrast, not by lightness.
-2. **Three signal colours cannot survive the trip.** On white: `status.warning` `#FFB020` is **1.9:1**,
-   `status.success` `#3DDC84` is **1.6:1**, and `brand.red` `#FF1A1A` is **3.9:1** — too weak to carry a
-   black label. Daylight re-picks all three.
+I reported a red fill's contrast **against the canvas** and used it to argue that `#FF1A1A` could not carry a
+black label on white. **Those are two different measurements and I ran them together.**
 
-**`brand.onRed` is a token, not a constant:** black on Midnight's `#FF1A1A` (**5.41:1**), white on Daylight's
-`#D60000` (**5.44:1**). The shipped rule "primary red + black label" becomes "primary red + `brand.onRed`".
+| Question | Measurement | Answer |
+|---|---|---|
+| Does the label pass? | **text vs its own background** | **black on `#FF1A1A` is 5.41:1** — and it is 5.41:1 whatever sits *behind* the button |
+| Is the control identifiable? | **fill vs canvas** (1.4.11, 3:1) | `#FF1A1A` vs white is **3.88:1** — passes |
 
-**`text.muted` is not mirrored either.** A mirrored value failed **4.18:1** on the plate. Solved to `#686C73`
-— the lightest value that passes 4.5:1 on the *darkest* surface, at **4.56:1**.
+**The brand red never needed changing.** `#D60000` and the white label are **withdrawn**; both schemes use
+`#FF1A1A` with a black label, and `brand.onRed` is a **constant, not a per-scheme token** — that claim is
+withdrawn too.
+
+### What the measuring did establish, and still holds
+
+1. **Elevation flips.** `surface.panel` sits lighter than the canvas on Midnight, darker on Daylight.
+2. **Two signal colours cannot survive as TEXT on white:** `status.warning` `#FFB020` is **1.9:1** and
+   `status.success` `#3DDC84` is **1.6:1**. Daylight re-picks both. *(This is a text/background measurement,
+   correctly categorised.)*
+3. **`text.muted` is not mirrored** — a mirrored value failed **4.18:1** on the plate; solved to `#686C73`,
+   the lightest value that passes on the *darkest* surface, at **4.56:1**.
 
 ### One new token: `border.control`
 
-A divider is decoration and WCAG 1.4.11 exempts it. **A field or stepper boundary is not.** Midnight's
-divider is **1.37:1** — correct for a rule, wrong for a control edge. `border.control` carries **3:1** in both
-schemes (`#64656A` / `#8A8B90`) and applies to inputs, steppers and chip outlines only.
+**Dividers and control boundaries are different things.** A rule that separates rows identifies nothing, so
+1.4.11 does not apply and `border.default` is **listed, not graded** (1.37:1 / 1.32:1). **The edge that
+identifies an input, a stepper or a chip is a control boundary** and is graded at 3:1 — that is
+`border.control`, new in both schemes.
 
-**21 pairs measured per scheme. All pass.** Ratios are computed with alpha compositing, not estimated —
-the script is `light.py`, and the numbers are on the token board.
+### The report, as it now stands
 
----
+**A · Text on background (1.4.3, 4.5:1)** — no large-text relief: the shipped Button label is
+`textStyle('label')` = **12pt bold**, which is not large text.
+**B · Non-text contrast (1.4.11, 3:1)** — only boundaries needed to identify a control.
+**Listed, not graded** — dividers, and disabled controls (both criteria exempt inactive components).
+
+**23 graded pairs per scheme. One fails, in both — see F-30.**
 
 ## 3 · Rules that apply to every surface
 
 - **Artwork does not invert.** A seller's photo is its own context: the protective scrim and the white text
-  over it are identical in both schemes. A light-mode hero with dark text over an unknown photo is the one
-  thing neither palette can guarantee, and the measured scrim already solves it.
+  over it are identical in both schemes. **The scrim is not a guarantee.** It was measured against **four
+  generated artwork variants**, worst case 5.17:1 — evidence that it holds for those four and nothing more. A
+  real upload can be brighter, busier or flatter than any of them. **C checks real uploads; no board here
+  claims every image passes.**
 - **Status bar follows the scheme** — light content on Midnight, dark on Daylight.
 - **Keyboard appearance follows the scheme**, so it never arrives as a white slab on a dark screen.
 - **The missing-artwork plate and the profile-photo fallback are surface-derived** and follow automatically.
@@ -75,35 +91,41 @@ the script is `light.py`, and the numbers are on the token board.
 | **Light** | — |
 | **Dark** | — |
 
-Beneath: **"Saved on this device."**
+**Nothing else on the screen.** *"Saved on this device."* is **removed**, and there is no instructional
+paragraph. *"System"* alone does not say what it follows, so it keeps its sub-line; Light and Dark need no
+explanation and get none.
 
 System follows the phone and changes **live, without a restart**. An explicit choice **overrides the phone
-until System is chosen again** and **persists across restarts**. *"System"* alone does not say what it
-follows, so it gets a sub-line; Light and Dark need no explanation and get none. The local-only line is there
-because nothing syncs, and that is worth stating rather than leaving to be assumed.
+until System is chosen again** and **persists across restarts**.
 
 ---
 
-## 5 · Checkout — the nearby total needs a second condition
+## 5 · Checkout — the amount's SOURCE, not just the state (a proposal for A)
 
-C's `labelCarriesAmount` gives *"on the action or beside it, never both"*. **That is necessary and not
-sufficient.** Per the owner: a nearby total is appropriate only when **that amount is valid for the current
-state**.
+**Artifact:** `pkg8-checkout-amount-source.png`.
 
-| `payControl` state | Label | Nearby total |
-|---|---|---|
-| `paymentReady` | `Pay $132.00` | **No** — the label carries it |
-| `paymentError` | *Try again* | **Yes** — the total is still the order total |
-| `authLoading`, `paymentLoading`, `confirming`, `finalizing`, `checking` | in-progress | **Yes** |
-| **`holdLost`** | *Back to listing* | **NO.** The hold is gone; that amount is no longer what this buyer would pay |
-| **`statusUnknown`** | *Check again* | **NO.** The payment status is unknown, and a confident total beside it reads as a confirmed charge |
-| **`checkingHold`** | *Checking your hold* | **NO.** Not yet established |
+My earlier three-state exclusion was a **state-only rule**, and it missed the axis that matters:
 
-**The rule: show the nearby total when the label carries no amount AND the state has an established, current
-total.** Never make an unknown or stale amount look confirmed. `holdState`'s own copy already says what is
-unknown; the number must not contradict it.
+```
+CheckoutNative.tsx:721   const totalCents = serverBreakdown ? serverBreakdown.total : acceptedTotalCents;
+```
 
----
+**The amount has two sources.** `serverBreakdown.total` is authoritative; `acceptedTotalCents` derives from
+the `totalCents` **route param**, which the screen's own comment calls *"Display estimate only"*.
+
+All eleven states are tabulated on the board against source and validity. Two corrections to what I said
+before: **`checkingHold` should show the total** — I excluded it wrongly, since it is the *hold* being
+checked, not the amount — and **`authLoading` / `paymentLoading` / `paymentError` / `unavailable` may hold
+only an estimate**, which I had not considered at all.
+
+> **Proposed rule — three conditions, not one.** Show a nearby total when **(a)** the control's label carries
+> no amount, **and (b)** an authoritative server total exists, **and (c)** the state still leads to paying it.
+
+`labelCarriesAmount` is condition (a) only: necessary, not sufficient. **An unavailable amount and a known
+historical amount are different** — `holdLost` has a real figure that is no longer payable from that screen,
+while `unavailable` may have nothing but a route-param estimate.
+
+**This is a proposal, not an adopted rule. Payment logic is unchanged. A reviews it before C implements.**
 
 ## 6 · What C verifies — label the evidence honestly
 
@@ -111,6 +133,14 @@ All three settings · persistence across restart · **live system change with no
 in both · large text · keyboard visibility · profile-image fallbacks (including that a previous user's photo
 never survives an account change).
 
-**Say which is which:** *source-only* (read from code), *simulator*, or *device*. My side is **source-only
-plus computed contrast** — no build, no simulator, no device. The 21 ratios are arithmetic on token values,
-not observations of a running screen.
+**Say which is which:** *source-only* (read from code), *simulator*, or *device*. **My side is source-only
+plus computed contrast — preliminary evidence, nothing more.** No build, no simulator, no device. The 23
+graded ratios are arithmetic on token values, not observations of a running screen, and they settle none of:
+**disabled controls as rendered · selected states · overlays · native dialogs and the keyboard, which the app
+does not paint · real artwork.**
+
+**C owns the theme architecture.** Reuse the semantic names and keep `v2.ts` and
+`packages/design-tokens/src/brand.ts` consistent — but **adding a second value to a token does not update a
+`StyleSheet.create` that captured the first one**. Static styles resolve once. C verifies that **every
+mounted screen responds when System changes**, that explicit overrides persist across restart, and that
+**startup does not flash the wrong appearance** before the stored choice is read.
