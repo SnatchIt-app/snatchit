@@ -79,6 +79,14 @@ already committed.
     - Listing content is public anyway (`listings_select_all using (true)`, 070:43), so hiding on detail is a display
       rule and the refusal is the safety rule;
   - the order screens and checkout keep reading `listings` directly (2c);
+  - **Do not add a payment-time block check** to `create-payment-intent`, for either mode. The paths are correct by
+    construction:
+    - **Buy Now:** a buy_now intent can't exist without the buyer's live reservation. The refusals run in order: sold,
+      then not reserved, then reserved by another, then reservation expired (:659-674). `reserve_buy_now` is the only
+      way to get a reservation, and it is gated.
+    - **Auction:** a blocked user can't bid (the trigger), so can't become the winner. A block that lands between
+      winning and paying is the "winning bid predates the block" exemption.
+    - A payment-time check would therefore only ever refuse the exempt cases (C verified this at source, 2026-09-24).
   - **no RLS hiding on `listings` itself**, for the same reason;
   - an index on `user_blocks (blocked_id, blocker_id)`, since 0230 indexes `blocker_id` only (:83).
   - **`user_blocks` RLS stays owner-only** (0230:88-92). Letting a client read rows where it is the blocked party would
