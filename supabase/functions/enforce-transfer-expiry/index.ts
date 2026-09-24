@@ -143,8 +143,12 @@ function refundSourceOf(r: StripeRefund): 'expiry' | 'unfulfillable' | 'dashboar
   return r.metadata?.reason === 'unfulfillable' ? 'unfulfillable' : 'expiry';
 }
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+/** The one method used — the same structural shape as _shared/payouts.ts PayoutDb (a real client satisfies it). */
+interface RefundStateDb {
+  rpc(name: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
 async function recordRefundState(
-  sb: ReturnType<typeof createClient>, pi: string, r: StripeRefund, source: string,
+  sb: RefundStateDb, pi: string, r: StripeRefund, source: string,
   via: 'create_response' | 'reconcile',
 ) {
   return await sb.rpc('record_refund_state', {
