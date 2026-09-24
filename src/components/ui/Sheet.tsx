@@ -30,10 +30,13 @@ import {
   useWindowDimensions,
   type ViewStyle,
 } from 'react-native';
+import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 /**
@@ -44,6 +47,8 @@ import * as v2 from '@/src/theme/v2';
  * in any orientation.
  */
 export function SheetAction({ children }: { children: React.ReactNode }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   return <View style={styles.action}>{children}</View>;
 }
 
@@ -60,6 +65,8 @@ export interface SheetProps {
 }
 
 export function Sheet({ visible, onClose, title, children, footer, style, testID }: SheetProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
@@ -109,14 +116,15 @@ export function Sheet({ visible, onClose, title, children, footer, style, testID
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: v2.surface.overlay },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: p.surface.overlay },
   sheet: {
-    backgroundColor: v2.surface.elevated,
+    backgroundColor: p.surface.elevated,
     borderRadius: v2.radius.none,
     borderTopWidth: 1,
-    borderTopColor: v2.border.strong,
+    borderTopColor: p.border.strong,
     paddingHorizontal: v2.space.lg,
     paddingTop: v2.space.sm,
   },
@@ -128,7 +136,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: v2.space.md,
   },
-  title: { color: v2.text.primary, marginBottom: v2.space.md },
+  title: { color: p.text.primary, marginBottom: v2.space.md },
   body: { gap: v2.space.md },
   footer: {
     flexDirection: 'row',
@@ -138,7 +146,8 @@ const styles = StyleSheet.create({
     marginTop: v2.space.lg,
     paddingTop: v2.space.md,
     borderTopWidth: 1,
-    borderTopColor: v2.border.default,
+    borderTopColor: p.border.default,
   },
   action: { flex: 1, flexBasis: 0, minWidth: 0 },
-});
+  });
+}

@@ -13,11 +13,14 @@
  */
 
 import { StyleSheet, View, useWindowDimensions, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
 import { stickyBottomPadding } from '@/src/lib/nav/keyboardLift';
 
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 /**
@@ -37,6 +40,8 @@ export interface StickyBarProps {
 }
 
 export function StickyBar({ left, children, style, testID }: StickyBarProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const insets = useSafeAreaInsets();
   const keyboardUp = useKeyboardUp();
   const { width } = useWindowDimensions();
@@ -62,16 +67,17 @@ export function StickyBar({ left, children, style, testID }: StickyBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: v2.space.md,
     paddingHorizontal: v2.space.lg,
     paddingTop: v2.space.md,
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
     borderTopWidth: 1,
-    borderTopColor: v2.border.strong,
+    borderTopColor: p.border.strong,
   },
   barStacked: { flexDirection: 'column', alignItems: 'stretch', gap: v2.space.sm },
   // minWidth 0 so a long price shrinks instead of pushing the action off the bar.
@@ -79,4 +85,5 @@ const styles = StyleSheet.create({
   leftStacked: { alignSelf: 'stretch' },
   actions: { flexShrink: 0, flexDirection: 'row', gap: v2.space.sm },
   actionsStacked: { alignSelf: 'stretch', flexDirection: 'row', gap: v2.space.sm },
-});
+  });
+}

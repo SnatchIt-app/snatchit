@@ -15,8 +15,11 @@
  */
 
 import { Animated, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 import { usePressScale } from './press';
@@ -69,25 +72,27 @@ export function Button({
   accessibilityHint,
   testID,
 }: ButtonProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const inert = disabled || loading;
   const press = usePressScale(!inert);
   const showPending = loading && !!pendingLabel;
 
   const fill: ViewStyle =
     variant === 'primary'
-      ? { backgroundColor: v2.brand.red }
+      ? { backgroundColor: palette.brand.red }
       : variant === 'secondary'
-        ? { borderWidth: 1, borderColor: v2.border.strong }
+        ? { borderWidth: 1, borderColor: palette.border.strong }
         : variant === 'destructive'
-          ? { borderWidth: 1, borderColor: v2.status.error }
+          ? { borderWidth: 1, borderColor: palette.status.error }
           : {};
 
   const labelColor =
     variant === 'primary'
-      ? v2.text.inverse
+      ? palette.text.inverse
       : variant === 'destructive'
-        ? v2.status.error
-        : v2.text.primary;
+        ? palette.status.error
+        : palette.text.primary;
 
   return (
     <Animated.View style={[block ? styles.block : undefined, press.style]}>
@@ -107,7 +112,7 @@ export function Button({
           fill,
           // F-30: a primary that is pressed shows the measured pressed red (lighter, so the black
           // label keeps ≥ 4.5:1 in both appearances) on top of the scale feedback.
-          variant === 'primary' && pressed && !inert ? { backgroundColor: v2.brand.redPressed } : null,
+          variant === 'primary' && pressed && !inert ? { backgroundColor: palette.brand.redPressed } : null,
           block && styles.block,
           disabled && styles.disabled,
           style,
@@ -164,7 +169,8 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
     borderRadius: v2.radius.none,
     alignItems: 'center',
@@ -180,4 +186,5 @@ const styles = StyleSheet.create({
   ghost: { height: 0, opacity: 0, overflow: 'hidden' },
   pendingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
   spinnerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-});
+  });
+}

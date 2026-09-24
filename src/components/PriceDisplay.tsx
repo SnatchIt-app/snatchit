@@ -16,8 +16,11 @@
  *     text into vertical letter-stacks.
  */
 import { StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 
-import { colors, fontSize } from '@/src/theme';
+import { fontSize } from '@/src/theme';
 
 export type PriceDisplaySize = 'card' | 'detail' | 'sticky' | 'checkout';
 
@@ -56,6 +59,8 @@ export function PriceDisplay({
   align = 'left',
   muted = false,
 }: Props) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const a = AMOUNT[size];
   return (
     <View style={[s.wrap, align === 'right' && s.wrapRight]}>
@@ -86,7 +91,8 @@ export function PriceDisplay({
   );
 }
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap:      { minWidth: 0 },
   wrapRight: { alignItems: 'flex-end' },
   row:       { flexDirection: 'row', alignItems: 'baseline', minWidth: 0 },
@@ -94,20 +100,21 @@ const s = StyleSheet.create({
   label: {
     fontSize: fontSize.xs,
     fontWeight: '700',
-    color: colors.textDim,
+    color: p.text.faint,
     letterSpacing: 1.0,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
   amount: {
-    color: colors.text,
+    color: p.text.primary,
     fontVariant: ['tabular-nums'],
     flexShrink: 1,
   },
-  amountMuted: { color: colors.textMuted },
+  amountMuted: { color: p.text.muted },
   suffix: {
-    color: colors.textDim,
+    color: p.text.faint,
     fontWeight: '500',
     flexShrink: 0,
   },
-});
+  });
+}

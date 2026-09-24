@@ -14,6 +14,11 @@ process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
 
 const h = vi.hoisted(() => ({ userId: 'user-1' as string | null }));
 
+// V3 appearance: primitives read the palette; pin the shipped dark one here.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
 vi.mock('react-native', () => {
   class Value {
     v: number;

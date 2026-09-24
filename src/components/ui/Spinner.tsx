@@ -7,13 +7,15 @@
  */
 
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { textStyle } from '@/src/theme/typography';
-import * as v2 from '@/src/theme/v2';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 
 export function Spinner({
-  color = v2.text.primary,
+  color: colorProp,
   size = 'small',
   label = 'Loading',
 }: {
@@ -21,6 +23,9 @@ export function Spinner({
   size?: 'small' | 'large';
   label?: string;
 }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  const color = colorProp ?? palette.text.primary;
   const reduceMotion = useReducedMotion();
 
   if (reduceMotion) {
@@ -41,6 +46,8 @@ export function Spinner({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   static: { alignItems: 'center', justifyContent: 'center' },
-});
+  });
+}

@@ -11,9 +11,12 @@
  */
 
 import { Animated, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 
 import { hapticSelect } from '@/src/lib/feedback/haptics';
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 import { usePressScale } from './press';
@@ -38,6 +41,8 @@ export function Chip({
   style,
   testID,
 }: ChipProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale(!disabled);
   const text = count == null ? label : `${label} ${count}`;
 
@@ -73,21 +78,23 @@ export function Chip({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
     minHeight: 32,
     paddingHorizontal: v2.space.md,
     borderRadius: v2.radius.none,
     borderWidth: 1,
-    borderColor: v2.border.default,
+    borderColor: p.border.default,
     alignItems: 'center',
     justifyContent: 'center',
   },
   selected: {
-    borderColor: v2.brand.red,
-    backgroundColor: v2.brand.redSoft,
+    borderColor: p.brand.red,
+    backgroundColor: p.brand.redSoft,
   },
   disabled: { opacity: 0.4 },
-  labelOff: { color: v2.text.muted },
-  labelOn: { color: v2.text.primary },
-});
+  labelOff: { color: p.text.muted },
+  labelOn: { color: p.text.primary },
+  });
+}

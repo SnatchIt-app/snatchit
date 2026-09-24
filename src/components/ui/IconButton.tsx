@@ -12,8 +12,11 @@
  */
 
 import { Animated, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 
 import { MIN_TOUCH_TARGET } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 import { usePressScale } from './press';
@@ -51,6 +54,8 @@ export function IconButton({
   style,
   testID,
 }: IconButtonProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale(!disabled);
   return (
     <Animated.View style={press.style}>
@@ -71,7 +76,8 @@ export function IconButton({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,
@@ -82,5 +88,6 @@ const styles = StyleSheet.create({
   // A transparent control over a photograph is invisible half the time.
   onArt: { backgroundColor: 'rgba(0,0,0,0.55)' },
   disabled: { opacity: 0.4 },
-  glyph: { color: v2.text.primary, fontSize: 22, lineHeight: 26 },
-});
+  glyph: { color: p.text.primary, fontSize: 22, lineHeight: 26 },
+  });
+}

@@ -208,7 +208,7 @@ describe('screens (source pins) — the root, Settings, and the first migrated s
 
   it('AP10 (F-30): the primary button recolours to the measured pressed token while pressed; the press helper has no opacity', async () => {
     const btn = await code('src/components/ui/Button.tsx');
-    expect(btn).toMatch(/variant === 'primary' && pressed && !inert \? \{ backgroundColor: v2\.brand\.redPressed \}/);
+    expect(btn).toMatch(/variant === 'primary' && pressed && !inert \? \{ backgroundColor: palette\.brand\.redPressed \}/);
     const press = await code('src/components/ui/press.ts');
     expect(press).not.toMatch(/opacity/);
     expect(press).toContain('PRESSED_SCALE = 0.98');

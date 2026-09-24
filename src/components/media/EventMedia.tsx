@@ -27,7 +27,7 @@
  */
 
 import { Image } from 'expo-image';
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useState, type ReactNode, useMemo } from 'react';
 import {
   PixelRatio,
   StyleSheet,
@@ -41,6 +41,8 @@ import { scrimBackgroundImage } from '@/src/lib/design/scrim';
 import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName, type SlotSpec } from '@/src/lib/media/slots';
 import { resolveImage, type MediaAsset } from '@/src/lib/media/url';
 import { fontFamily } from '@/src/theme/fonts';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface EventMediaProps {
@@ -82,6 +84,8 @@ export interface EventMediaProps {
 
 /** A deterministic, brand-safe plate for when there is no renderable image. */
 function FallbackPlate({ title, height }: { title?: string; height: number }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const initial = (title ?? '').trim().charAt(0).toUpperCase();
   return (
     <View style={[styles.fallback, { height }]}>
@@ -108,6 +112,8 @@ function EventMediaImpl({
   decorative = false,
   children,
 }: EventMediaProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // Widened to the spec type: the literal slot table omits optional fields like `heightFor`.
   const spec: SlotSpec = MEDIA_SLOTS[slot];
 
@@ -139,7 +145,7 @@ function EventMediaImpl({
             aspectRatio: spec.aspectRatio,
             borderRadius: spec.radius,
             overflow: 'hidden',
-            backgroundColor: v2.surface.surface,
+            backgroundColor: palette.surface.surface,
           },
           style,
         ]}
@@ -178,7 +184,7 @@ function EventMediaImpl({
     height: boxHeight,
     borderRadius: spec.radius,
     overflow: 'hidden',
-    backgroundColor: v2.surface.surface,
+    backgroundColor: palette.surface.surface,
   };
 
   // A load failure takes the same branch as "no renderable image": same frame,
@@ -276,20 +282,21 @@ function EventMediaImpl({
 
 export const EventMedia = memo(EventMediaImpl);
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   /**
    * A hairline edge so a dark image does not dissolve into the black canvas.
    * Neutral rather than red: over artwork a red hairline fights the image.
    */
   edge: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: v2.border.overArt,
+    borderColor: p.border.overArt,
   },
   fallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
   },
   scrimBase: {
     position: 'absolute',
@@ -328,4 +335,5 @@ const styles = StyleSheet.create({
     top: 0,
     experimental_backgroundImage: scrimBackgroundImage(),
   },
-});
+  });
+}

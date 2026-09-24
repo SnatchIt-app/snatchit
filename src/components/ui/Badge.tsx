@@ -16,8 +16,11 @@
  */
 
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'count';
@@ -29,18 +32,22 @@ export interface BadgeProps {
   testID?: string;
 }
 
-const TONE: Record<BadgeTone, { border: string; fill: string; text: string }> = {
-  neutral: { border: v2.text.primary, fill: 'transparent', text: v2.text.primary },
-  success: { border: v2.status.success, fill: 'transparent', text: v2.status.success },
-  warning: { border: v2.status.warning, fill: 'transparent', text: v2.status.warning },
-  danger: { border: v2.status.error, fill: 'transparent', text: v2.status.error },
+function toneFor(p: Palette): Record<BadgeTone, { border: string; fill: string; text: string }> {
+  return {
+  neutral: { border: p.text.primary, fill: 'transparent', text: p.text.primary },
+  success: { border: p.status.success, fill: 'transparent', text: p.status.success },
+  warning: { border: p.status.warning, fill: 'transparent', text: p.status.warning },
+  danger: { border: p.status.error, fill: 'transparent', text: p.status.error },
   // The one filled variant: a count is a quantity, not a state, and it needs to
   // be found at a glance.
-  count: { border: v2.brand.red, fill: v2.brand.red, text: v2.text.inverse },
-};
+  count: { border: p.brand.red, fill: p.brand.red, text: p.text.inverse },
+  };
+}
 
 export function Badge({ label, tone = 'neutral', style, testID }: BadgeProps) {
-  const t = TONE[tone];
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  const t = toneFor(palette)[tone];
   return (
     <View
       style={[styles.base, { borderColor: t.border, backgroundColor: t.fill }, style]}
@@ -66,7 +73,8 @@ export function FromAFanBadge({ style }: { style?: ViewStyle }) {
   return <Badge label="From a fan" tone="neutral" style={style} />;
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
     minHeight: 20,
     paddingHorizontal: v2.space.sm,
@@ -76,4 +84,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'flex-start',
   },
-});
+  });
+}

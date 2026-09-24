@@ -10,7 +10,7 @@
  * types, which is exactly when they need to know what the field was for.
  */
 
-import { forwardRef, useState } from 'react';
+import { forwardRef, useState, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -21,6 +21,8 @@ import {
 } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface InputProps extends Omit<TextInputProps, 'style' | 'editable'> {
@@ -37,14 +39,16 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   { label, helper, error, disabled = false, containerStyle, onFocus, onBlur, ...rest },
   ref,
 ) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const [focused, setFocused] = useState(false);
   const hasError = !!error;
 
   const underline = hasError
-    ? v2.status.error
+    ? palette.status.error
     : focused
-      ? v2.brand.red
-      : v2.border.strong;
+      ? palette.brand.red
+      : palette.border.strong;
 
   return (
     <View style={[styles.wrap, disabled && styles.disabled, containerStyle]}>
@@ -53,8 +57,8 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
       <TextInput
         ref={ref}
         editable={!disabled}
-        placeholderTextColor={v2.text.faint}
-        selectionColor={v2.brand.red}
+        placeholderTextColor={palette.text.faint}
+        selectionColor={palette.brand.red}
         onFocus={(e) => { setFocused(true); onFocus?.(e); }}
         onBlur={(e) => { setFocused(false); onBlur?.(e); }}
         style={[textStyle('body'), styles.field, { borderBottomColor: underline }]}
@@ -77,18 +81,20 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   );
 });
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { alignSelf: 'stretch' },
   disabled: { opacity: 0.4 },
-  label: { color: v2.text.muted, marginBottom: v2.space.xs },
+  label: { color: p.text.muted, marginBottom: v2.space.xs },
   field: {
     minHeight: 50,
-    color: v2.text.primary,
+    color: p.text.primary,
     borderBottomWidth: 1,
     borderRadius: v2.radius.none,
     paddingHorizontal: 0,
     paddingVertical: v2.space.sm,
   },
-  helper: { color: v2.text.muted, marginTop: v2.space.xs },
-  error: { color: v2.status.error, marginTop: v2.space.xs },
-});
+  helper: { color: p.text.muted, marginTop: v2.space.xs },
+  error: { color: p.status.error, marginTop: v2.space.xs },
+  });
+}

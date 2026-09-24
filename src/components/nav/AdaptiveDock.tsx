@@ -39,6 +39,8 @@ import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { dockAvatarPathFor, subscribeDockAvatar } from '@/src/lib/nav/dockAvatar';
 import { navItems, isCollapsingRoute } from '@/src/lib/nav/navItems';
 import { DOCK_GAP, DOCK_HEIGHT, DOCK_RADIUS, DOCK_SIDE_MARGIN } from '@/src/lib/nav/navInsets';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import { textStyle } from '@/src/theme/typography';
 
@@ -54,6 +56,8 @@ const DURATION = 220;
 const AVATAR = 28;
 
 export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const insets = useSafeAreaInsets();
   const { width: screenW } = useWindowDimensions();
   const expandRoute = useDockExpander();
@@ -186,7 +190,7 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
                       </View>
                     </View>
                   ) : (
-                    <IconSymbol name={item.icon as never} size={isFocused ? ICON_ACTIVE : ICON} color={isFocused ? v2.text.primary : v2.text.muted} />
+                    <IconSymbol name={item.icon as never} size={isFocused ? ICON_ACTIVE : ICON} color={isFocused ? palette.text.primary : palette.text.muted} />
                   )}
                   {/* V3: visible labels, matching each item's accessible name exactly. */}
                   <Text style={[textStyle('navLabel'), isFocused ? styles.labelActive : styles.label]} numberOfLines={1}>
@@ -211,7 +215,8 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: 0,
@@ -238,8 +243,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', height: DOCK_HEIGHT, alignItems: 'center' },
   item: { width: ITEM_W, height: DOCK_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   itemInner: { alignItems: 'center', justifyContent: 'center', gap: 2 },
-  label: { color: v2.text.muted },
-  labelActive: { color: v2.text.primary },
+  label: { color: p.text.muted },
+  labelActive: { color: p.text.primary },
   // V3 "You" — all four image states share this exact geometry, so nothing reflows (§4).
   avatarCircle: {
     width: AVATAR,
@@ -258,7 +263,7 @@ const styles = StyleSheet.create({
   avatarRing: {
     padding: 2.5,
     borderWidth: 1.6,
-    borderColor: v2.text.primary,
+    borderColor: p.text.primary,
     borderRadius: v2.radius.pill,
   },
   // The unselected wrapper keeps the ring's footprint so selection cannot shift the crop.
@@ -272,4 +277,5 @@ const styles = StyleSheet.create({
     borderRadius: DOCK_RADIUS - 9, // 24
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
-});
+  });
+}

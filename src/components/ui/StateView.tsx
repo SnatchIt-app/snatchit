@@ -11,12 +11,14 @@
  * cached content to keep on screen (a failed quiet refresh keeps the rows).
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { AccessibilityInfo, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { STATE_COPY } from '@/src/lib/ui/loadState';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 import { Button } from './Button';
@@ -41,6 +43,8 @@ const GLYPH: Record<StateKind, 'wifi.slash' | 'exclamationmark.triangle' | 'magn
 };
 
 export function StateView({ kind, title, body, action, style, testID }: StateViewProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const failure = kind === 'offline' || kind === 'error';
   const resolvedTitle = title ?? (kind === 'empty' ? '' : STATE_COPY[kind].title);
   const resolvedBody = body ?? (kind === 'empty' ? undefined : STATE_COPY[kind].body);
@@ -58,7 +62,7 @@ export function StateView({ kind, title, body, action, style, testID }: StateVie
     >
       {glyph ? (
         <View style={[styles.glyph, failure ? styles.glyphFailure : null]} accessible={false}>
-          <IconSymbol name={glyph} size={26} color={kind === 'error' ? v2.status.warning : v2.text.secondary} />
+          <IconSymbol name={glyph} size={26} color={kind === 'error' ? palette.status.warning : palette.text.secondary} />
         </View>
       ) : null}
       {/* V3 §2: the empty/error heading joins the mixed-case display voice (nameState). */}
@@ -80,7 +84,8 @@ export function StateView({ kind, title, body, action, style, testID }: StateVie
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -91,11 +96,12 @@ const styles = StyleSheet.create({
   glyph: {
     width: 56, height: 56, borderRadius: 28,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: v2.surface.surface, borderWidth: 1, borderColor: v2.border.default,
+    backgroundColor: p.surface.surface, borderWidth: 1, borderColor: p.border.default,
     marginBottom: v2.space.xs,
   },
-  glyphFailure: { borderColor: v2.border.strong },
-  title: { color: v2.text.primary, textAlign: 'center' },
-  body: { color: v2.text.muted, textAlign: 'center', maxWidth: 320 },
+  glyphFailure: { borderColor: p.border.strong },
+  title: { color: p.text.primary, textAlign: 'center' },
+  body: { color: p.text.muted, textAlign: 'center', maxWidth: 320 },
   action: { marginTop: v2.space.md, paddingHorizontal: v2.space.xl, minWidth: 160 },
-});
+  });
+}

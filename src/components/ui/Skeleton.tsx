@@ -12,10 +12,12 @@
  * Under reduced motion it holds still at a readable opacity instead of pulsing.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { Animated, Easing, StyleSheet, type ViewStyle } from 'react-native';
 
 import { useReducedMotion } from '@/src/hooks/useReducedMotion';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface SkeletonProps {
@@ -28,6 +30,8 @@ export interface SkeletonProps {
 }
 
 export function Skeleton({ width = '100%', height, aspectRatio, style, testID }: SkeletonProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const reduceMotion = useReducedMotion();
   const pulse = useRef(new Animated.Value(0.5)).current;
 
@@ -65,9 +69,11 @@ export function Skeleton({ width = '100%', height, aspectRatio, style, testID }:
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
-    backgroundColor: v2.surface.elevated,
+    backgroundColor: p.surface.elevated,
     borderRadius: v2.radius.none,
   },
-});
+  });
+}
