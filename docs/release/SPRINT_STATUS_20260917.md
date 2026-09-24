@@ -1605,3 +1605,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Rehearsal 6 used production's exact writer functions (defn equal): P3 PASS → POST PASS, and **215 43/43 on
     production's writer code**. The repo-body copy now stops.
   - With D for review.
+- **D: R0 result PASS (~16:45Z). #92's production premise holds.**
+  - D's independent classification: 0 signature, 0 attribute and 12 body differences, 11 of them comments or case.
+  - `handle_new_user` is the one real difference. Production is richer than the repo, so a rebuild or restore from the
+    repo would silently regress it (a DR risk).
+  - The P3 re-pin and rehearsal 6 are pending D's review.

@@ -413,5 +413,21 @@ normalisation is sound here.
 - **`apply_one_148.sh` is now `8cbd950d40842e6eb9df383dd4e463bac8917729e30022b6db4e0a641a245b15`** (diff `8b780a4f…`). Rollback, deploy and runcheck are unchanged.
 
 **F-PROD-REPO-DRIFT-1** is resolved as benign for 11 of 12. The one logic difference is a repo-baseline gap, recorded
-separately. D's review of the R0 result and the re-pin is recorded below when it arrives.
+separately.
+
+**D's review of the R0 result (~16:45Z): PASS. "#92's production premise HOLDS."**
+- D classified the captured result independently of A's comparator: 0/12 signature differences, 0/12 attribute
+  differences, 12/12 raw body differences, 11 of them comments and keyword case only.
+- D confirmed the production seller-win branch: status `'buyer_confirmed'`, `buyer_confirmed_at` left NULL,
+  `dispute_resolution 'resolved_seller_paid'`, `disputed_at` cleared.
+- The same exact identity holds for `admin_resolve_dispute`, `record_transfer_payout`, the three webhook functions,
+  `finalize_auction` and `validate_and_apply_bid`.
+- D on the negative decomposition: none of the nine attribute variants could ever have matched, because the cause was
+  body storage formatting.
+- D's own method cautions, recorded as D gave them: a case-sensitive first pass briefly read
+  `guard_listing_identity_columns` as missing its ownership guard. D read the full production body and found the guard
+  present, so it was not a finding. D's literal-comparison column also has an artefact on three functions. D ran no
+  production query.
+- **Not yet reviewed by D:** the P3 re-pin (`8cbd950d…`) and rehearsal 6. That review is requested, and execution of
+  (A) waits for it.
 

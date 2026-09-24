@@ -199,4 +199,9 @@ list be trusted where they differ.
     depends on them passes or fails for a reason production does not share.
   - **Not a production change, and not #92's concern.** The fix is a repo-side decision (a numbered migration
     restating production's body, applied as a verified no-op), for the owner and A later.
+  - **Direction matters (D):** production is *richer* than the repo. Anyone rebuilding or restoring production from this
+    repository's chain would ship a `handle_new_user` that silently stops populating `full_name`, `display_name` and
+    `avatar_url` for new sign-ups, and no repo test would fail, because the tests know only the repo's version. This is
+    a restore and disaster-recovery risk, not only a test-fidelity one.
+- D reviewed the R0 result independently and gave a PASS, with the same classification (§12 of the #92 package).
 
