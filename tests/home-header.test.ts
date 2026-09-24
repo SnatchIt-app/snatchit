@@ -1,27 +1,28 @@
 /**
- * tests/home-header.test.ts — Home header + quick-filter bar.
+ * tests/home-header.test.ts — the Home header and the one filter control on it.
  *
- * The scroll tests drive the SAME pure controller the screen uses
- * (src/lib/home/filterBarMachine), including the partial-collapse-then-reverse
- * case the owner hit on device. Source guards pin the three-control quick row,
- * the centred SN mark, the single market label, and that the bottom dock and the
- * full filter taxonomy are untouched.
+ * RETARGETED 2026-09-24 (B's H1 at pin 911f65fd, under the owner's ruling "preserve useful filter
+ * functionality, but propose its placement within the approved Home composition"). B's finding: the
+ * quick-filter chip row "is not in the approved Home composition at all — the board goes header →
+ * section heading → feature." Deleting the functionality was explicitly not an option either, so the
+ * three controls collapse into ONE on the header line, and everything they reached moves inside the
+ * sheet that already owned the rest of the taxonomy:
+ *
+ *   Your scene → a sheet group of its own (it selects `chip`, so it belongs in that single-select
+ *                family rather than beside the neighbourhood multi-select)
+ *   Price      → the sheet's price section, which already existed
+ *   Filters    → the header control, now signalling EVERY active filter, since it is the only one
+ *
+ * With no floating bar there is nothing to hide on scroll, so `src/lib/home/filterBarMachine` and
+ * the thirteen scroll-controller tests that drove it are gone with it: the machine existed only to
+ * keep an overlay out of the way. The dock's own scroll machine is untouched and is now the feed's
+ * only scroll consumer.
  */
 
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  initialFilterBarState,
-  reduceFilterBarScroll,
-  showFilterBar,
-  HIDE_AFTER,
-  HIDE_TRAVEL,
-  SHOW_TRAVEL,
-  TOP_RESET,
-  type FilterBarState,
-} from '../src/lib/home/filterBarMachine';
 import {
   CHIP_GROUPS,
   DEFAULT_FILTERS,
@@ -36,112 +37,35 @@ import { navItems } from '../src/lib/nav/navItems';
 const root = resolve(__dirname, '..');
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8');
 
-const run = (offsets: number[], from: FilterBarState = initialFilterBarState()) =>
-  offsets.reduce((s, y) => reduceFilterBarScroll(s, y), from);
-
-/** Shown, parked deep in the feed — the state a mid-feed reversal starts from. */
-const deepShown = (y = 200): FilterBarState => ({ y, hidden: false, downAcc: 0, upAcc: 0 });
-const deepHidden = (y = 300): FilterBarState => ({ y, hidden: true, downAcc: 0, upAcc: 0 });
-
-describe('quick-filter bar controller', () => {
-  it('1. is shown near the top', () => {
-    expect(run([0]).hidden).toBe(false);
-    expect(run([TOP_RESET]).hidden).toBe(false);
-  });
-
-  it('2. sustained downward travel hides it', () => {
-    expect(run([0, HIDE_AFTER + 10, HIDE_AFTER + 10 + HIDE_TRAVEL + 5]).hidden).toBe(true);
-  });
-
-  it('3. upward travel shows it again mid-feed (no need to reach the top)', () => {
-    const s = reduceFilterBarScroll(deepHidden(300), 300 - SHOW_TRAVEL - 2);
-    expect(s.hidden).toBe(false);
-    expect(s.y).toBeGreaterThan(TOP_RESET);
-  });
-
-  it('4. PARTIAL DOWN THEN UP: never sticks, and no stale travel is held', () => {
-    // Down, but not far enough to hide.
-    const partial = reduceFilterBarScroll(deepShown(200), 200 + HIDE_TRAVEL - 18);
-    expect(partial.hidden).toBe(false);
-    expect(partial.downAcc).toBeLessThan(HIDE_TRAVEL);
-
-    // Reverse: the downward accumulator is dropped immediately.
-    const reversed = reduceFilterBarScroll(partial, partial.y - 25);
-    expect(reversed.hidden).toBe(false);
-    expect(reversed.downAcc).toBe(0);
-
-    // A later, genuine downward browse still hides normally (no corruption).
-    const after = reduceFilterBarScroll(reversed, reversed.y + HIDE_TRAVEL + 5);
-    expect(after.hidden).toBe(true);
-  });
-
-  it('5. COLLAPSED THEN SMALL UP: noise below the threshold does not show it', () => {
-    let s = deepHidden(300);
-    s = reduceFilterBarScroll(s, 295); // up 5
-    s = reduceFilterBarScroll(s, 291); // up 4  (cumulative 9 < SHOW_TRAVEL)
-    expect(s.hidden).toBe(true);
-  });
-
-  it('6. COLLAPSED THEN INTENTIONAL UP: returns predictably', () => {
-    let s = deepHidden(300);
-    s = reduceFilterBarScroll(s, 288); // up 12
-    s = reduceFilterBarScroll(s, 278); // up 10 -> 22 >= SHOW_TRAVEL
-    expect(s.hidden).toBe(false);
-  });
-
-  it('7. RAPID DIRECTION REVERSAL: down/up/down/up ends valid, accumulators clean', () => {
-    let s = deepShown(200);
-    s = reduceFilterBarScroll(s, 200 + HIDE_TRAVEL + 5); expect(s.hidden).toBe(true);
-    s = reduceFilterBarScroll(s, s.y - SHOW_TRAVEL - 5);  expect(s.hidden).toBe(false);
-    s = reduceFilterBarScroll(s, s.y + HIDE_TRAVEL + 5);  expect(s.hidden).toBe(true);
-    s = reduceFilterBarScroll(s, s.y - SHOW_TRAVEL - 5);  expect(s.hidden).toBe(false);
-    expect(s.downAcc).toBe(0);
-    expect(s.upAcc).toBe(0);
-  });
-
-  it('8. TOP RESET: returning near the top always shows it', () => {
-    expect(reduceFilterBarScroll(deepHidden(500), 0).hidden).toBe(false);
-    expect(showFilterBar(deepHidden(500)).hidden).toBe(false);
-  });
-
-  it('9. negative iOS overscroll stays shown', () => {
-    expect(reduceFilterBarScroll(deepHidden(300), -80).hidden).toBe(false);
-  });
-
-  it('10. empty / short feed is stable: repeated zero offsets never toggle or loop', () => {
-    let s = initialFilterBarState();
-    for (let i = 0; i < 25; i++) s = reduceFilterBarScroll(s, 0);
-    expect(s.hidden).toBe(false);
-    expect(s.downAcc).toBe(0);
-  });
-
-  it('jitter below the deadband never accumulates toward a threshold', () => {
-    let s = deepShown(200);
-    for (let i = 0; i < 40; i++) s = reduceFilterBarScroll(s, 200 + (i % 2 ? 1 : 0));
-    expect(s.hidden).toBe(false);
-  });
-
-  it('showing costs less travel than hiding (responsive return)', () => {
-    expect(SHOW_TRAVEL).toBeLessThan(HIDE_TRAVEL);
-  });
-});
-
 describe('filter model', () => {
   it('12/13. the sheet owns the taxonomy; All is not a control', () => {
     const keys = CHIP_GROUPS.flatMap((g) => g.options.map((o) => o.key));
     expect(keys).toEqual(expect.arrayContaining(['buy_now', 'auction', 'ga', 'vip', 'ended', 'recently_sold']));
     expect(keys).not.toContain('all');        // the unfiltered feed IS "all"
-    expect(keys).not.toContain('your_scene'); // it has its own quick control
+    // RETARGETED: `your_scene` no longer has a control of its own, so the sheet must offer it —
+    // and it must sit in THIS single-select family, because it selects the same `chip` field.
+    expect(keys).toContain('your_scene');
+    // One option per key: a chip that appeared in two groups could be cleared by the wrong one.
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('active-state helpers do not double-count price or your scene', () => {
+  it('the one control signals every active filter — nothing is silently on', () => {
+    // RETARGETED: the count used to exclude price and your scene BECAUSE they had their own
+    // controls. They do not any more, so a filter the header does not count is a filter the user
+    // cannot see is applied.
     const f = { ...DEFAULT_FILTERS, priceMin: '20', chip: 'your_scene' as const };
     expect(hasPriceFilter(f)).toBe(true);
-    expect(sheetFilterCount(f)).toBe(0);   // price + your scene have own controls
-    expect(hasSheetFilters(f)).toBe(false);
-    expect(activeFilterCount(f)).toBe(2);  // but both still count as "filtered"
+    expect(sheetFilterCount(f)).toBe(2);
+    expect(hasSheetFilters(f)).toBe(true);
+    // Both bounds of one price range are still ONE filter on the control.
+    expect(sheetFilterCount({ ...DEFAULT_FILTERS, priceMin: '20', priceMax: '80' })).toBe(1);
     const g = { ...DEFAULT_FILTERS, chip: 'ga' as const, categories: new Set(['music']) };
     expect(sheetFilterCount(g)).toBe(2);
+    // Nothing selected reads as nothing selected, in both helpers.
+    expect(sheetFilterCount(DEFAULT_FILTERS)).toBe(0);
+    expect(hasSheetFilters(DEFAULT_FILTERS)).toBe(false);
+    // activeFilterCount drives the EMPTY-state copy and still counts each bound separately.
+    expect(activeFilterCount(f)).toBe(2);
   });
 });
 
@@ -150,9 +74,26 @@ describe('Home — shipped-source guards', () => {
   const home = read('app/(tabs)/home.tsx');
   const sheet = read('src/components/discovery/FilterSheet.tsx');
 
-  it('12. exactly three quick controls', () => {
-    const labels = [...home.matchAll(/<Chip\s+label="([^"]+)"/g)].map((m) => m[1]);
-    expect(labels).toEqual(['Your scene', 'Price', 'Filters']);
+  it("H1: ONE filter control, and it is on the header line — not a row in the feed's composition", () => {
+    // B's H1 at 911f65fd: "the filter-chip row is not in the approved Home composition at all."
+    expect([...home.matchAll(/<Chip\s+label="([^"]+)"/g)].map((m) => m[1])).toEqual([]);
+    expect(home).not.toContain('quickRow');
+    // The control lives in the header component, beside search, and Home supplies its state.
+    expect(header).toMatch(/label="Filters"/);
+    expect(home).toMatch(/<HomeHeader[\s\S]*?onFilters=\{/);
+    expect(home).toMatch(/<HomeHeader[\s\S]*?filterCount=\{/);
+    // Nothing floats over the feed any more, and the feed carries no inset for a bar.
+    expect(home).not.toContain('filterBarHeight');
+    expect(home).not.toContain('Animated.View');
+    expect(home).not.toContain("position: 'absolute'");
+  });
+
+  it('H1b: the composition the board draws is what remains — header, then headings and rows', () => {
+    // The order in source is the order the screen paints: header first, then the list.
+    expect(home.indexOf('<HomeHeader')).toBeLessThan(home.indexOf('<FlatList'));
+    // The section heading and the feature are the list's own content, unchanged by this move.
+    expect(home).toContain('accessibilityRole="header"');
+    expect(home).toContain('<HomeFeature');
   });
 
   it('13/14. removed chips are gone from Home but live in the sheet', () => {
@@ -164,33 +105,27 @@ describe('Home — shipped-source guards', () => {
     expect(sheet).toContain('setChip(\'all\')'); // Clear/reset lives in the sheet
   });
 
-  it('PRICE opens the existing sheet directly on the price section', () => {
-    expect(home).toContain("setSheetFocus('price')");
-    expect(home).toContain('focus={sheetFocus}');
-    // FILTERS opens the same sheet, unfocused
-    expect(home).toContain('setSheetFocus(undefined)');
-    // one sheet, one state — no second price implementation
+  it('everything the removed controls reached is still reachable, through the one sheet', () => {
+    // Price: the sheet's own section, with the focus capability it always had (nothing on Home
+    // focuses it now, and the sheet is still the only price implementation).
     expect((home.match(/<FilterSheet/g) ?? []).length).toBe(1);
     expect(sheet).toContain("focus !== 'price'");
     expect(sheet).toContain('scrollRef.current?.scrollTo');
+    expect(sheet).toMatch(/Price/);
+    // Your scene: a sheet group, so tapping it still selects the same `chip` the quick control set.
+    expect(sheet).toContain('CHIP_GROUPS');
+    expect(read('src/lib/home/filterModel.ts')).toContain("key: 'your_scene'");
+    // The lazy sold/ended datasets still load on selection — that was the quick row's other job.
+    expect(home).toMatch(/onFiltersApply[\s\S]*?fetchSoldListings\(\)/);
+    expect(home).toMatch(/onFiltersApply[\s\S]*?fetchEndedListings\(\)/);
   });
 
-  it('11. hidden controls are not tappable or focusable', () => {
-    expect(home).toMatch(/pointerEvents=\{filterBar\.hidden \? 'none' : 'auto'\}/);
-    expect(home).toContain('accessibilityElementsHidden={filterBar.hidden}');
-  });
-
-  it('the bar is a transform overlay, not an animated layout height', () => {
-    expect(home).toContain('useNativeDriver: true');
-    expect(home).toContain('translateY');
-    expect(home).toContain("position: 'absolute'");
-    // the feed's own layout must not be animated during the gesture
-    expect(home).not.toMatch(/height: filterAnim/);
-    expect(home).not.toMatch(/useNativeDriver: false/);
-  });
-
-  it('uses its own controller, not the dock machine', () => {
-    expect(home).toContain('reduceFilterBarScroll');
+  it('the filter-bar machine is gone, and the dock keeps its own', () => {
+    expect(home).not.toContain('reduceFilterBarScroll');
+    expect(home).not.toContain('filterBarMachine');
+    expect(() => read('src/lib/home/filterBarMachine.ts')).toThrow();
+    // The dock's scroll machine is untouched and is the feed's only scroll consumer.
+    expect(home).toContain("useDockScroll('home')");
     expect(home).not.toContain('reduceDockScroll');
   });
 
@@ -221,9 +156,11 @@ describe('Home — shipped-source guards', () => {
     expect(navItems({ tickets: true }).map((i) => i.key)).not.toContain('search');
   });
 
-  it('reduced motion handled, no new animation library', () => {
-    expect(home).toContain('useReducedMotion');
-    expect(home).toMatch(/duration: reduceMotion \? 0/);
+  it('no animation library, and no animation left to reduce', () => {
+    // RETARGETED: `useReducedMotion` was here for the bar's slide. With the bar gone Home animates
+    // nothing, which is the strongest form of the same guarantee.
+    expect(home).not.toContain('Animated');
+    expect(home).not.toContain('useReducedMotion');
     expect(home).not.toMatch(/react-native-reanimated|moti|lottie/);
   });
 

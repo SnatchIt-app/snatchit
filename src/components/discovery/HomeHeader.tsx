@@ -23,16 +23,28 @@
  * Brand mark: the official white "SN" monogram, `brand/sn-logo-white.png`, rendered directly on
  * the canvas — no plate, no border, no container — and tinted to the primary ink, because the
  * asset is white on transparent and a white monogram is invisible on Daylight's white canvas.
+ *
+ * THE FILTER CONTROL (B's H1 at pin 911f65fd; owner's placement ruling 2026-09-24). Home used to
+ * carry three quick controls on a floating row between this header and the feature. B's finding is
+ * that the row "is not in the approved Home composition at all" — the board goes header → section
+ * heading → feature — and the owner's ruling is that the functionality must survive the correction.
+ * So the three collapse into one control on THIS line, beside search: the whole taxonomy already
+ * lived in the sheet it opens, and `your_scene` and price joined it there. It carries the count of
+ * every active filter, so a filtered feed can never look unfiltered.
+ *
+ * Why a Chip and not a fourth glyph: the count and the selected state are what the control has to
+ * say, and Chip already says both. A bare icon would need a badge invented for it.
  */
 
 import { useMemo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 
-import { IconButton } from '@/src/components/ui';
+import { Chip, IconButton } from '@/src/components/ui';
 import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
+import * as v2 from '@/src/theme/v2';
 
 // The official SN mark. Intrinsic 1024×371; the aspect ratio is pinned in the
 // style so the geometry can never be squashed regardless of the rendered height.
@@ -48,7 +60,17 @@ const SN_MARK_HEIGHT = 15;
  */
 const SN_MARK_WIDTH = Math.round(SN_MARK_HEIGHT * SN_MARK_RATIO);
 
-export function HomeHeader({ onSearch }: { onSearch: () => void }) {
+export function HomeHeader({
+  onSearch,
+  onFilters,
+  filterCount = 0,
+}: {
+  onSearch: () => void;
+  /** Opens the filter sheet. Omitted by any caller that has no filters to offer. */
+  onFilters?: () => void;
+  /** How many filters are currently applied; drives the count and the selected state. */
+  filterCount?: number;
+}) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   // The real inset, not a guessed 56. Every tab screen in this app hardcoded it.
@@ -56,7 +78,7 @@ export function HomeHeader({ onSearch }: { onSearch: () => void }) {
 
   return (
     <View style={[styles.header, { paddingTop: topPad }]}>
-      {/* One line: mark left, search right. Decorative mark — it is a brand
+      {/* One line: mark left, controls right. Decorative mark — it is a brand
           mark with no interaction, and announcing it on every Home visit is noise. */}
       <View style={styles.row}>
         <Image
@@ -66,7 +88,19 @@ export function HomeHeader({ onSearch }: { onSearch: () => void }) {
           accessibilityElementsHidden
           importantForAccessibility="no"
         />
-        <IconButton glyph="search" accessibilityLabel="Search events" onPress={onSearch} />
+        <View style={styles.controls}>
+          {onFilters ? (
+            <Chip
+              label="Filters"
+              // The number is the whole point of the count: "Filters 2" states that the feed is
+              // narrowed without opening anything. Zero says it with the unselected state instead.
+              count={filterCount > 0 ? filterCount : undefined}
+              selected={filterCount > 0}
+              onPress={onFilters}
+            />
+          ) : null}
+          <IconButton glyph="search" accessibilityLabel="Search events" onPress={onSearch} />
+        </View>
       </View>
     </View>
   );
@@ -86,5 +120,7 @@ function makeStyles(p: Palette) {
     justifyContent: 'space-between',
   },
   mark: { height: SN_MARK_HEIGHT, width: SN_MARK_WIDTH, tintColor: p.text.primary },
+  // Filters then search, in that reading order, with the boards' small gap between controls.
+  controls: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
   });
 }

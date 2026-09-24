@@ -39,7 +39,7 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -57,26 +57,18 @@ import {
 import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
-import { Chip, EmptyState } from '@/src/components/ui';
+import { EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
-import {
-  initialFilterBarState,
-  reduceFilterBarScroll,
-  type FilterBarState,
-} from '@/src/lib/home/filterBarMachine';
 import { groupByEventDate } from '@/src/lib/home/sections';
 import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import {
   DEFAULT_FILTERS,
   activeFilterCount,
-  hasPriceFilter,
-  hasSheetFilters,
   sheetFilterCount,
   type Filters,
   type QuickChip,
 } from '@/src/lib/home/filterModel';
-import { useReducedMotion } from '@/src/hooks/useReducedMotion';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
@@ -115,9 +107,8 @@ function sortByNeighborhoods(listings: Listing[], prefs: Set<string>): Listing[]
 // ─── Filter types ────────────────────────────────────────────────────────────
 
 // The filter model (QuickChip, Filters, DEFAULT_FILTERS, active-state helpers)
-// lives in src/lib/home/filterModel.ts so the quick row and the full FilterSheet
-// read exactly one model. The Home quick row shows three controls; the rest of
-// the taxonomy lives inside the sheet.
+// lives in src/lib/home/filterModel.ts. Home reads it for the header control's
+// count; the sheet owns the whole taxonomy, `your_scene` and price included.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -154,36 +145,13 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
   const { onScroll: onHomeScroll, expand } = useDockScroll('home');
   const dockClearance = useDockClearance();
 
-  // ── Quick-filter bar (disappearing toolbar) ────────────────────────────────
-  // The bar is an OVERLAY on the feed, moved with a transform on the native
-  // driver. The previous revision animated its layout HEIGHT above the list,
-  // which re-laid out the scroll container on every frame of an active gesture
-  // and fed the resulting offset changes straight back into the same state
-  // machine — the loop that made a half-finished collapse stick or judder when
-  // the finger reversed. Nothing about the feed's layout changes while scrolling
-  // now: the list carries a constant top padding equal to the bar, and only the
-  // bar's translateY moves, so a reversal simply retargets a UI-thread animation.
-  const reduceMotion = useReducedMotion();
-  const [filterBar, setFilterBar] = useState<FilterBarState>(initialFilterBarState);
-  const [filterBarHeight, setFilterBarHeight] = useState(0);
-  const barAnim = useRef(new Animated.Value(0)).current; // 0 = shown, 1 = hidden
-
-  useEffect(() => {
-    Animated.timing(barAnim, {
-      toValue: filterBar.hidden ? 1 : 0,
-      duration: reduceMotion ? 0 : 200,
-      useNativeDriver: true, // transform + opacity only
-    }).start();
-  }, [filterBar.hidden, reduceMotion, barAnim]);
-
-  // Which section the sheet opens on: PRICE lands on price, FILTERS on the top.
-  const [sheetFocus, setSheetFocus] = useState<'price' | undefined>(undefined);
-
-  const onFeedScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    onHomeScroll(e); // bottom dock — independent state, unchanged
-    const y = e.nativeEvent.contentOffset.y;
-    setFilterBar((prev) => reduceFilterBarScroll(prev, y));
-  }, [onHomeScroll]);
+  // ── Filters ────────────────────────────────────────────────────────────────
+  // ONE control, on the header line (B's H1 at 911f65fd; the owner's placement ruling). What used to
+  // be here: a three-chip overlay on the feed, slid out of the way on scroll by its own state
+  // machine. B's finding is that the row is not in the approved composition at all — the board goes
+  // header → section heading → feature — so the row, the overlay, its top inset and the machine that
+  // hid it are all gone. Nothing was lost with them: the sheet the control opens already owned the
+  // taxonomy, and `your_scene` and price are groups in it now.
 
   const [allListings,   setAllListings]   = useState<Listing[]>([]);
   const [soldListings,  setSoldListings]  = useState<Listing[]>([]);
@@ -441,21 +409,13 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
     return { ordered: flat, headingFor: heading, dividerAfter: divider };
   }, [filteredListings, todayStart]);
 
-  // ── Chip tap ──────────────────────────────────────────────────────────────
-  function onChipTap(key: QuickChip) {
-    const nextChip = key === filters.chip ? 'all' : key;
-    setFilters(prev => ({ ...prev, chip: nextChip }));
-    // Lazy-load on first tap
-    if (nextChip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
-    if (nextChip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
-  }
-
   function onFiltersApply(next: {
     chip: QuickChip; neighborhoods: Set<string>; categories: Set<string>; priceMin: string; priceMax: string;
   }) {
     setFilters(prev => ({ ...prev, ...next }));
     setModalOpen(false);
-    // Same lazy-load the quick chips did: these two are separate datasets.
+    // The lazy loads the removed quick row also did: sold and ended are separate datasets, fetched
+    // the first time a selection asks for them.
     if (next.chip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
     if (next.chip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
   }
@@ -472,11 +432,8 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
   }
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // FILTERS signals what the sheet owns. Price and Your scene have their own
-  // controls, so they are not counted here and never double-signalled.
+  // The one control signals EVERY applied filter, so a narrowed feed never looks unnarrowed.
   const sheetCount = sheetFilterCount(filters);
-  const priceActive = hasPriceFilter(filters);
-  const yourSceneActive = filters.chip === 'your_scene';
 
   // F-HOME-1: which lazy dataset the active chip is showing, and how its last read went.
   const activeDataset: FilterDataset | null =
@@ -499,12 +456,14 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
 
   return (
     <View style={s.container}>
-      {/* Brand header stays put: the owner's note was about the filter controls. */}
-      <HomeHeader onSearch={() => router.push('/(tabs)/explore')} />
+      {/* The approved composition: this header, then the headings and rows. The one filter control
+          sits on the header's line and carries the count of everything currently applied. */}
+      <HomeHeader
+        onSearch={() => router.push('/(tabs)/explore')}
+        onFilters={() => setModalOpen(true)}
+        filterCount={sheetCount}
+      />
 
-      {/* The feed and the quick-filter overlay share this region. `overflow:
-          hidden` clips the bar as it slides up, so it never rides over the
-          header. */}
       <View style={s.feed}>
       <FlatList
         data={loading ? [] : ordered}
@@ -515,11 +474,10 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
         ItemSeparatorComponent={({ leadingItem }: { leadingItem?: Listing }) =>
           leadingItem && !dividerAfter.has(leadingItem.id) ? null : <View style={s.divider} />
         }
-        // Constant top inset for the bar: the feed's layout never changes while
-        // scrolling, which is what keeps the gesture smooth and interruptible.
-        contentContainerStyle={[s.list, { paddingTop: filterBarHeight, paddingBottom: dockClearance }]}
+        contentContainerStyle={[s.list, { paddingBottom: dockClearance }]}
         showsVerticalScrollIndicator={false}
-        onScroll={onFeedScroll}
+        // The dock's own machine is the only consumer of the feed's scroll now.
+        onScroll={(e) => onHomeScroll(e)}
         scrollEventThrottle={16}
         // The ticker drives every countdown on screen; without this the cells
         // memoize and the clocks freeze.
@@ -624,54 +582,11 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
         }}
       />
 
-      {/* Quick controls: three, and only three. Everything else is behind
-          Filters. Hidden state is removed from the a11y tree and untappable. */}
-      <Animated.View
-        style={[
-          s.filterBar,
-          {
-            opacity: barAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-            transform: [{
-              translateY: barAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -(filterBarHeight || 0)],
-              }),
-            }],
-          },
-        ]}
-        onLayout={(e) => {
-          const h = e.nativeEvent.layout.height;
-          if (h > 0 && h !== filterBarHeight) setFilterBarHeight(h);
-        }}
-        pointerEvents={filterBar.hidden ? 'none' : 'auto'}
-        accessibilityElementsHidden={filterBar.hidden}
-        importantForAccessibility={filterBar.hidden ? 'no-hide-descendants' : 'auto'}
-      >
-        <View style={s.quickRow}>
-          <Chip
-            label="Your scene"
-            selected={yourSceneActive}
-            onPress={() => onChipTap('your_scene')}
-          />
-          <Chip
-            label="Price"
-            selected={priceActive}
-            onPress={() => { setSheetFocus('price'); setModalOpen(true); }}
-          />
-          <Chip
-            label="Filters"
-            count={sheetCount > 0 ? sheetCount : undefined}
-            selected={hasSheetFilters(filters)}
-            onPress={() => { setSheetFocus(undefined); setModalOpen(true); }}
-          />
-        </View>
-      </Animated.View>
       </View>
 
       <FilterSheet
         visible={modalOpen}
         value={filters}
-        focus={sheetFocus}
         onApply={onFiltersApply}
         onClose={() => setModalOpen(false)}
       />
@@ -693,30 +608,8 @@ function makeStyles(p: Palette) {
   noticeText: { color: p.text.muted, flexShrink: 1 },
   noticeAction: { color: p.brand.redText },
   container: { flex: 1, backgroundColor: p.surface.canvas },
-  // Holds the feed and the overlay bar; clips the bar as it slides up so it
-  // never rides over the brand header.
-  feed: { flex: 1, overflow: 'hidden' },
-  // Overlay, not a layout row: moving it never re-lays out the feed.
-  filterBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: p.surface.canvas,
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: v2.space.sm,
-    paddingHorizontal: v2.space.lg,
-    paddingBottom: v2.space.lg,
-    alignItems: 'center',
-  },
-  chips: {
-    paddingHorizontal: v2.space.lg,
-    paddingBottom: v2.space.lg,
-    gap: v2.space.sm,
-    alignItems: 'center',
-  },
+  // The feed region: nothing floats over it any more, so it needs no clipping.
+  feed: { flex: 1 },
   // The tab bar sits over the last row; this keeps it reachable.
   list: { paddingBottom: 96 },
   // §3 divider: 1px, inset to the 20pt row gutter, with the 10pt gap to the next row's top.
