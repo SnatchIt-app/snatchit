@@ -512,11 +512,11 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
                         step.state === 'done' && s.progressDotDone,
                         step.state === 'current' && s.progressDotCurrent,
                       ]} />
-                      <Text style={[textStyle('navLabel'), step.state === 'current' ? s.progressLabelCurrent : s.progressLabel]} numberOfLines={1}>
+                      <Text style={[textStyle('navLabel'), s.progressText, step.state === 'current' ? s.progressLabelCurrent : s.progressLabel]} numberOfLines={2}>
                         {step.label}
                       </Text>
                       {step.sub ? (
-                        <Text style={[textStyle('navLabel'), s.progressDetail]} numberOfLines={1}>{step.sub}</Text>
+                        <Text style={[textStyle('navLabel'), s.progressText, s.progressDetail]} numberOfLines={2}>{step.sub}</Text>
                       ) : null}
                     </View>
                   ))}
@@ -751,6 +751,7 @@ function makeStyles(p: Palette) {
   progressDot: { width: 12, height: 12, borderRadius: v2.radius.pill, borderWidth: 2, borderColor: p.border.control },
   progressDotDone: { backgroundColor: p.text.primary, borderColor: p.text.primary },
   progressDotCurrent: { borderColor: p.status.warning },
+  progressText: { textAlign: 'center' },
   progressLabel: { color: p.text.secondary },
   progressLabelCurrent: { color: p.status.warning },
   progressDetail: { color: p.text.muted },

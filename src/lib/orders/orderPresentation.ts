@@ -34,8 +34,10 @@ export function orderWhenWhereLine(
   const d = parseLocalDate(eventDate);
   if (d) {
     const weekday = d.toLocaleDateString(undefined, { weekday: 'short' });
-    const day = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-    parts.push(`${weekday} ${day}`);
+    const month = d.toLocaleDateString(undefined, { month: 'short' });
+    // Day BEFORE month — "Sat 24 Oct" — the shape every other surface and every board uses;
+    // the locale default put the month first and broke rank with the rest of the app.
+    parts.push(`${weekday} ${d.getDate()} ${month}`);
   }
   const t = (eventTime ?? '').match(/^(\d{2}:\d{2})/);
   if (t) parts.push(t[1]);
