@@ -85,3 +85,23 @@ resolution fires both.
   an operator-resolved transition from a genuine buyer confirmation, or the resolution uses a status that does not mean
   "the buyer confirmed". Established only server-side at 058:191; whether any client code also hardcodes the string was
   not checked.
+
+## F-LISTING-CRITICAL-TIER-1 — the "critical" risk tier blocks listing creation only in the client (raised by C, verified by A at source, gate `aadf996e`, 2026-09-24)
+
+**Object.**
+- `public.can_create_listing` (013:8-68) returns `allowed = false, reason 'critical_risk'` for `seller_risk_scores.risk_tier = 'critical'`. It is advisory: the clients call it before inserting.
+- The server-side enforcement is:
+  - `listings: auth insert` (070:36-39): own `seller_id`, `stripe_onboarding_complete`, `phone_verified()`;
+  - the `119_listing_block_insert_guard` BEFORE INSERT trigger, which refuses only `is_listing_blocked = true`.
+- Neither reads `risk_tier`.
+
+**Consequence.** A seller at the critical tier who is not admin-blocked is refused by the app, but can create a listing with a direct PostgREST insert using their own session.
+
+**Related (C).** `refresh_seller_risk_score` has no scheduler in the repo. Its only automatic caller is `get_auto_release_candidates`, so tier changes, including the "back to medium after 30 clean days" self-heal, depend on a seller having a seller_sent transfer past auto-release.
+
+**Evidence limits.**
+- Source only.
+- Whether any production seller is at the critical tier is unknown; no production read.
+- Whether 119 is applied in production was not re-read here.
+
+**Bounded fix, proposed, NOT implemented.** Extend the 119 guard to also refuse `risk_tier = 'critical'`, matching `can_create_listing`, with a pgTAP case and a negative control. It is a listing-restriction policy change, so it is an owner decision.

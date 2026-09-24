@@ -103,14 +103,14 @@ server = gate `5b255838`, deployed 2026-09-23.
 | "Report, block, and dispute tools built in" | **keep** | [SRC] report `app/report/[type]/[id].tsx:65`; block `Settings → Blocked Users`; dispute as above |
 | "Free to browse and bid. You pay only when you win." | **reword**: "…You pay only if you win and complete checkout." | [SRC] a winner pays through checkout; bids are not charged |
 | "peer-to-peer marketplace for users 18 and over" | **keep**, with the review-note wording "users confirm they are 18+ at signup" | [SRC] `signup.tsx:71,272` (self-attested checkbox) |
-| Review notes: "Reports are reviewed within 24 hours" | **omit** | nothing enforces 24 h; disputes get a 72 h case due date, reports none [SRC 115:147, 117:402,523]; alerts undelivered. **The app itself says 24 h** in three places (`report/[type]/[id].tsx:74`, `settings/privacy.tsx:137`, `transferState.ts:182`), and "may remove content or suspend accounts" (`report/[type]/[id].tsx:88`) although no listing-takedown or account-suspension action exists [SRC 144:480-484,830-876]. In-app copy is C's lane; the promise is the owner's policy (§5b) |
+| Review notes: "Reports are reviewed within 24 hours" | **omit** | nothing enforces 24 h; disputes get a 72 h case due date, reports none [SRC 115:147, 117:402,523]; alerts undelivered. **The app itself says 24 h** for reports in two places and for disputes in one (`report/[type]/[id].tsx:78`, `settings/privacy.tsx:144`; disputes `transferState.ts:182`; lines at `9c6c9bf4`), and "may remove content or suspend accounts" (`report/[type]/[id].tsx:88`) although no listing-takedown or account-suspension action exists [SRC 144:480-484,830-876]. In-app copy is C's lane; the promise is the owner's policy (§5b) |
 | Review notes: "unresolved or disputed orders are refunded per policy" | **omit** | expiry refund code exists (enforce-transfer-expiry Phase 1) but no end-to-end expiry has been confirmed in production [REC SPRINT_STATUS:1258]; a buyer-win dispute records `refund_required` only, and executing it needs the disabled refund executor or a manual Stripe Dashboard refund [SRC 065:130-141, 144:889-914; REC SPRINT_STATUS:1285] |
 | Review notes: "if a purchase is completed, we monitor and refund" | **omit as written**; replace only with an owner commitment (§5b) | refunds are manual (Dashboard); no alert reaches an operator |
 | Review notes: "Build 13 is the current binary"; "$2 / $2.20"; "active through late August 2026"; "current bid $1" | **replace** | the V3 build number, prices and dates come from V5 and the owner's inventory plan; none exist yet |
 | Review notes: button labels "Buy · $X" / "Pay · $X" | **replace** with V3 labels: listing "Buy now · $X" (quantity 1), checkout "Pay $X" | [SRC] `detailState.ts:348-352`, `payControl.ts:90` |
 | Review notes: Apple Pay via PaymentSheet, merchant `merchant.com.snatchit` | **keep, after V4** | [SRC] `app.json:73`; certificate [OWNER] |
 | Review notes: test phone number +1 800 555 0123 / 789012 | **keep only after the owner confirms** it is still configured in Supabase Auth | [OWNER] |
-| Review notes: Settings → Delete Account | **keep**, without "double confirmation" | [SRC] `app/settings/index.tsx:207-210` |
+| Review notes: Settings → Delete Account (double confirmation) | **keep as written** — the app does ask twice (corrected 2026-09-24 against Build 23) | [SRC `9c6c9bf4`] `app/settings/index.tsx:211-214`, button :367 |
 | Review notes: Stripe data handling (card/bank/KYC data stored by Stripe only) | **keep** | unchanged architecture; PaymentSheet and Connect-hosted onboarding |
 
 **Refund facts, three ways, as the owner asked:**
@@ -171,12 +171,12 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 
 ## 5b. Owner operating-policy decisions (separate from the actions)
 
-- **P1 — review and response times.** The app promises report review "within 24 hours" in three places, dispute
+- **P1 — review and response times.** The app promises report review "within 24 hours" in two places, dispute
   review "typically within 24 hours", and support email replies "within 1 to 2 business days". No process or alert
   backs any of them. Choose the promise, or remove it; C then aligns the in-app copy.
 - **P2 — who handles disputes and reports, and how they learn of them.** Operator alerts are off, admin push reaches
   no active token, and email is off. The console shows cases only when someone looks.
-- **P3 — content removal and suspension.** The app says the team "may remove content or suspend accounts". The
+- **P3 — content removal and suspension.** The app says the team "may remove content or suspend accounts" (`report/[type]/[id].tsx:92`), and also `privacy.tsx:145` ("removed, suspended, or permanently banned"), `legal.tsx:247` and the bad-faith-report suspension lines (`report/[type]/[id].tsx:134`, `privacy.tsx:146`). The
   console has no listing takedown and no suspension; it has only `user_restrict`, which blocks new listings. Either
   build the mechanism or remove the promise.
 - **P4 — refunds.** State the refund policy the operation can honour today: manual Dashboard refunds, and expiry
@@ -204,3 +204,61 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 - the residual live-transaction gap (§3) decided.
 
 The draft review notes and metadata are in `APP_STORE_REVIEW_NOTES_V3_DRAFT_20260924.md`.
+
+## 7. Build 23 reconciliation (A, 2026-09-24)
+
+**Build 23** is EAS `65cb7633-0eca-4314-b135-fd9c90db8214`, commit `9c6c9bf4`, `preview` profile. It is a **sandbox** binary:
+`pk_test`, project `ofaidukbieeekqaboscm`. **It is not a production candidate and cannot be submitted.** It is the V3 client
+the device session will exercise.
+- Every client citation in §3–§4 was re-verified at `9c6c9bf4` by a read-only check. None changed in behaviour or copy;
+  some line numbers moved and are updated above. The two commits after the prior candidate change colour and styling only.
+- `eas.json`, `app.json` and `envGuard.ts` are unchanged since `2619b9e1`, so V1 holds for Build 23's source.
+- **Known gaps Build 23 carries**, recorded by C in the plan's checklist: the Spinner colour (branch `24b021a3` / `2ffb10a8`
+  differ in presentation only), the seller-win copy follow-on (below), and `text.faint` contrast.
+- **New since the last revision.**
+  - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92** at `e2205bbb`. CI is green: pgTAP Files=95 / Tests=5517 PASS,
+    census 32/108/37/38. **It is not applied or deployed.**
+  - The client still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`). C's fix
+    (option (a): select `buyer_confirmed_at`, branch the copy) is agreed in principle and comes to A before merge.
+  - F-LISTING-CRITICAL-TIER-1: the critical risk tier is enforced only by the client. Not a submission claim; an
+    operational finding.
+
+## 8. Owner action checklist (consolidated; required gates first)
+
+**Required submission gates.** Nothing is submittable until all of these are done.
+
+| # | Where, exactly | Evidence to bring back | Unblocks |
+|---|---|---|---|
+| G1 | Decide the fixture sheet `SANDBOX_V3_FIXTURE_APPROVAL_SHEET_20260924.md` rev 2 (`7dae4815`): tick D1–D6 and D's witness reads | ticks | the V3 device session on Build 23, including the **expired / held** cells (material gap, §6) |
+| G2 | **Authorise the V3 production-candidate build**: one EAS `production` build (pk_live) + TestFlight upload, commit pinned by A | the authorisation | V1 on the real binary, V4, V5, the review build number |
+| G3 | Stripe Dashboard → **Live mode** → Developers → Webhooks → the endpoint `…hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook` | URL, status, the subscribed events list — **is `payment_intent.canceled` there?** | V3, and whether V6/V6a can prove delivery |
+| G4 | In your own terminal: `supabase secrets list --project-ref hqycwntpfoztoinemqns`; in Stripe Live → Developers → API keys, copy the **secret** key and compute `printf %s "$KEY" \| shasum -a 256` locally; same for the webhook signing secret | "digest matches: yes/no" for `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` — no values | V2 (server key is live and of the build's account) |
+| G5 | Stripe Dashboard → Live → Settings → Payment methods → **Apple Pay** | `merchant.com.snatchit` certificate listed and active | any Apple Pay line in the review notes |
+| G6 | **Review inventory decision** (A prepares the plan; nothing is created without you): low-priced listings a reviewer can buy without a real $330 charge; decide the $300 listing `c8d04339…` and its stale $330 pending intent | the approved plan | the review-notes navigation; no reviewer lands on a $330 charge |
+| G7 | Reviewer accounts: confirm both still sign in (after G2, on TestFlight), and decide the credential rotation that is still OPEN (`HISTORY_EXPOSURE_MEMO.md`) | "sign-in ok" ×2 + rotation decision | review-notes credentials |
+| G8 | Supabase Dashboard → project `hqycwntpfoztoinemqns` → Authentication → Sign In / Providers → **Phone** → test phone numbers | whether `+1 800 555 0123 → 789012` is present | the review-notes phone line (omitted if absent) |
+| G9 | **Policies P1 (review times) and P3 (removal/suspension)**: the app states both today | the chosen promise, or "remove" | C aligns the in-app copy; review-notes safety line |
+| G10 | Rule on D's production reads for the App Store claims: ratify, or record them as unauthorised-source | the ruling | which figures the checklist may cite as evidence |
+
+**Required operational gates before release.** These are not App Store review items, but release depends on them.
+
+| # | Where | Evidence | Unblocks |
+|---|---|---|---|
+| R1 | PR #92: authorise the production apply of migration 148 and the deploy of `enforce-transfer-expiry` (A prepares the frozen scripts; production bodies are read and matched first) | the authorisation | seller-win payouts and a truthful notice before the first of the 5 open disputes is resolved |
+| R2 | Policies **P2** (who handles disputes and reports, and how they learn of them), **P4** (refund policy), **P5** (App Review purchase refunds), **P6** (seller-win handling until R1), **P7** (seller-win copy, C) | decisions | operating process behind the promises |
+| R3 | Twilio Console → Billing → **Auto-recharge** (currently OFF) | on/off decision | signup OTPs do not fail when the balance runs out |
+
+**Optional additional evidence.** Each needs its own permission; none is requested here.
+
+| # | What | Residual it closes |
+|---|---|---|
+| E1 | V6a: cancel the existing stale **$2.20** live PaymentIntent in the Dashboard (Live) | proves the live webhook's subscription, signing secret and handler v42 end to end, with no new charge; needs G3 first |
+| E2 | V6: one non-charging production checkout visit + cancel | server key mode and account (alternative to G4) |
+| E3 | V7: one $2.20 live purchase + Dashboard refund | settlement and refund recording on the new code |
+| E4 | Stripe read of the two live `refunded` rows of 2026-08-04 | only needed if any refund wording is ever added |
+| E5 | A first real payout through the attempt-based executor | its first production run |
+| E6 | F-LISTING-CRITICAL-TIER-1: whether the server should also refuse the critical tier | a server-enforced listing restriction |
+
+**Prepared by A without these answers:** the draft review notes (`APP_STORE_REVIEW_NOTES_V3_DRAFT_20260924.md`, placeholders
+only where G-items decide), the fixture sheet, PR #92, this checklist, and the inventory plan requirements (G6).
+**Verdict unchanged: not submission-ready.**
