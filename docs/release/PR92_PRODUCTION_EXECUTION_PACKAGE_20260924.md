@@ -553,3 +553,38 @@ and post-run witness reads count as authorised under this wording:
 
 So D's reads at 17:03:51Z and 17:04:53Z were in scope, and **D's PASS is recorded as the authorised independent
 witness of this execution.** The ruling covers that package's witness only; it grants no further production reads.
+
+**D's witness statement, with its evidence boundary (D's text, lightly condensed; received 2026-09-24).** Verdict
+**PASS**. D made no production write at any point. Each claim is marked with its evidence class:
+- **R**: D's own production read.
+- **F**: D's own derivation from files.
+- **C**: inferred from the frozen scripts' control flow.
+
+1. **148 applied, ledger 161.**
+   - (R) The ledger row has `created_by=claude-a/owner-authorised-148`; total 161; max `20260924000000`;
+     md5(statements[1]) = `4eb38855…`.
+   - (F) That equals the migration file, blob `2b6e54d7…` at `e73553d2`.
+   - (F→R) D's own body hashes, `ce30b56c…` / `ff103b3e…`, match what production holds.
+   - Unchanged: secdef, search_path, ACLs, the trigger binding, census 32/108/37/38 and grants `9955f5d9…`. No
+     top-level DML.
+2. **v41, source matches the approved head.**
+   - (R) v41, verify_jwt true, ACTIVE, ezbr `d7410c97…`, updated_at 16:56:44.955Z.
+   - (F) Post-download 6/6 vs `e73553d2` and pre-download 6/6 vs `5b255838`, with exactly six files. 2 of the 6
+     changed, so neither comparison is vacuous.
+   - (C) Before-version 40 by control flow; ezbr `8370c58d…` was not witnessed by D.
+3. **Run check passed, zero errors.**
+   - (R) Four post-deploy runs by 17:04:53Z, all 200, none timed out, errors 0 against a 0 baseline over twelve
+     retained pre-deploy runs.
+   - A's 17:03:42Z read saw three. That is a difference in measurement time, not a disagreement.
+4. **No payout attempt and no seller-win row in the window.** (R) At both ends: payout_attempts 0, seller_win_rows 0,
+   dispute_resolutions 0, open disputes 5 unchanged. Zero notifications in the preceding hour. alert_delivery_enabled
+   false throughout.
+5. **Not proven: the new payout path running on a real seller-win case.**
+   - Zero rows means (d) selected nothing, and no claim met the refusal.
+   - Zero errors establishes only that a malformed (d) query would have shown, and only if execution reached (d).
+   - (d)'s loop body, the hold predicate and the refusal rest on rehearsal.
+6. **Not proven: Stripe activity beyond the absence of payout attempts.**
+   - Stripe was not read.
+   - The claim writes a payout_attempts row before any Stripe call, so 0 rules out a payout transfer from either
+     caller. It does not bound expiry refunds or intent cancels.
+   - v41 is attributed to the post-deploy runs by timing alone.
