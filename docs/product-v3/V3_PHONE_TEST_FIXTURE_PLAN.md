@@ -96,6 +96,14 @@ before any query. Nothing was written.
 | Profile | `preview` · iOS internal · one build |
 | **Build created** | **`65cb7633-0eca-4314-b135-fd9c90db8214`** · iOS `preview`, internal distribution · **build number 23** · commit **`9c6c9bf4…`** · SDK 54.0.0 · sandbox project `ofaidukbieeekqaboscm` · credentials already on EAS (distribution certificate and a provisioning profile carrying the owner's iPhone UDID `00008130-000E59801198001C`) · logs: `https://expo.dev/accounts/jdt_inc/projects/snatchit/builds/65cb7633-0eca-4314-b135-fd9c90db8214` · **this is the one authorised build; no second build will be created** |
 
+**The branch has moved past the build, by one commit — state this when reading device notes.** `24b021a3`
+lands after the build was cut and is **not in it**: the F-32 sweep had also caught `<Spinner>`, whose arc is a
+graphical object at the 3:1 bar rather than text, so thirteen files get the brand red back for the loading
+indicator, and `AP22` pins the root layout's *response* (nav theme base and its five colours, status-bar glyphs,
+the splash inside the provider gate). The only rendered difference in the installed build is the loading
+spinner's arc in Light — `#D31212` in build 23, `#FF1A1A` on the branch — and both clear 3:1. **No second build
+is authorised and none will be created.**
+
 **Not a pre-build gate:** D-1…D-9 and every row in §2. Those are what the build is *for*.
 
 ## 6 · Post-build — the device pass
