@@ -59,7 +59,7 @@ row that lies to the operator". This is finding **F-CR-148-SHARED**. `payoutDefe
 |---|---|---|
 | P1 | `deploy_148.sh enforce-transfer-expiry --dry` | `before` version **40**, `verify_jwt` True. The deployed source, downloaded, is byte-equal to the gate `5b255838` blobs (index + 5 shared). Proves the rollback target is the running code |
 | P2 | `apply_one_148.sh 00` (baseline read-back) | recorded, including census, grants matrix and switches; the comparison base for the post read-back |
-| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer's logic is the repo's**: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Informational: both writers' defn md5, dispute_resolutions, open disputes, payout_attempts, both ACLs |
+| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer is the repo's**. Its logic: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Its binding contract, which prosrc cannot see (D): ordered args, result type and `SECURITY DEFINER` for both, plus the admin wrapper's `search_path=public`, because it calls `resolve_transfer_dispute` unqualified (A). Informational, as an attribute-level delta: defn md5, the writer's config (its only unqualified call is `pg_catalog.set_config`), owner, volatility; dispute_resolutions, open disputes, payout_attempts, both ACLs |
 
 **Why the writer check exists:** 148 keys on the exact row shape that `resolve_transfer_dispute` writes (status
 `buyer_confirmed`, `buyer_confirmed_at` NULL, `dispute_resolution 'resolved_seller_paid'`). The defect analysis was
@@ -72,6 +72,12 @@ none of which 148 touches.
 - Any difference comes back to the owner as a one-line re-approval; nothing is applied meanwhile.
 - **If production's writer set `buyer_confirmed_at` on a seller-win, the defect and the fix would both be different**,
   which is why this is a stop and not a note.
+- **Offline decomposition attempted, and it does not explain the drift.** Nine attribute-only variants of the local
+  definitions were hashed against production's 8-character prefixes for all 12 drifted functions: search_path
+  `''` / `public,pg_temp` / `public,extensions` / none, SECURITY DEFINER removed or added, a trailing newline, and
+  CRLF. **Not one matched any of the twelve.** So the differences are most likely in the bodies. P3's prosrc check is
+  therefore **likely to stop** on `resolve_transfer_dispute`, whose only definition in git is 065 (`c11c8b45`, never
+  edited). **A one-query read before execution day settles this; see §8 (R0).**
 
 The expected pre-state is not assumed. Production's last recorded values match it: claim defn `d3cd9fdd…` from the
 2026-09-22 read-back of `20260906120000`, and notify defn `37a46d03…` from the 2026-09-22 untouched-function comparison.
@@ -157,6 +163,12 @@ sends the same request texts to a local copy of the pre-148 replay with a 160-ro
 These are three separate decisions, following D's review, so the apply can be approved without pre-authorising a
 rollback or a merge.
 
+**(R0) Recommended first, and separate: one read-only production query** of the two dispute-writer definitions:
+defn and prosrc md5, arguments, result, security, config, and the two `prosrc` texts. These are function definitions
+only; no user data is read. It answers the drift question before (A), instead of at P3 on the day.
+> "I authorise one read-only production query of the definitions of `public.resolve_transfer_dispute` and
+> `public.admin_resolve_dispute`, as in §8 R0 of the package."
+
 **(A) Required: the apply and deploy.**
 > "I authorise the PR #92 production apply and deploy as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at
 > `<commit>`: the preflight reads P1–P3, the apply of migration 148, the deploy of `enforce-transfer-expiry` only, the
@@ -238,9 +250,19 @@ and banner.
 - **Clean copy:** P3 PASS (writer prosrc `19161d7a…` / `4548b9ee…`; defn `7b9e17a5…` / `2649898d…`); apply → POST
   PASS; re-run refused (exit 3); rollback `626db799…` → 160 rows and pre-hashes; re-apply → PASS; 215 43/43.
 - The production request is still `c91cec23…`, byte-identical.
-- `apply_one_148.sh` is now **`1c477598706e7aec73e1fb14953cdcbbf2c48badf49d459154dc344370265f5a`** (17,060 B; diff
-  `c024c3eb…`, 107 changed lines) and supersedes `0bf97b89…`. The other scripts are unchanged: rollback `1419f12f…`,
-  deploy `142899c8…`, runcheck `14e0b918…`. `FROZEN_SHA256.txt` is regenerated.
+- `apply_one_148.sh` became `1c477598…` (107 changed lines), superseding `0bf97b89…`.
+
+**Rehearsal 4, after D's binding-contract recommendation** (~16:16Z):
+- **Three negative controls, each on a fresh copy:**
+  - NC1: the admin wrapper's search_path set to `''`, with the body identical, **stops** (exit 3);
+  - NC2: the writer set to `SECURITY INVOKER`, with the body identical, **stops**;
+  - NC3: the writer's search_path set to `public, pg_temp` is informational, so it **proceeds** to POST PASS.
+- **Clean copy:** P3 PASS, then apply, POST PASS; re-run refused (exit 3); rollback `626db799…` → 160 rows; re-apply →
+  PASS; 215 43/43; the production request is still `c91cec23…`.
+- The rehearsal DB was dropped afterwards.
+- **`apply_one_148.sh` is now `3d74a714ddd093a50002e5292e7bebc72f2a26e45ea33af2cdc70354bdb34e1a`** (18,693 B; diff
+  `f36836de…`, 115 changed lines). The other scripts are unchanged: rollback `1419f12f…`, deploy `142899c8…`, runcheck
+  `14e0b918…`. `FROZEN_SHA256.txt` is regenerated.
 The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D re-review and a new hash.
 
 ## 11. Review status and bearing of the reader sweep (2026-09-24 ~16:10Z)
@@ -265,7 +287,11 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
   - the regenerated diffs, beyond the presence of the `CONFIRM_REF` lines;
   - the writer check added after D's review (rehearsal 3);
   - `deploy_148.sh --dry` (a production read).
-- **Adopted from D:** the mode gate, the rollback-order reasoning, and the §8 split.
+- **Reviewed by D after that:** the added P3 lines and the prosrc bar. D judged prosrc right but not sufficient and
+  recommended the binding contract, which A adopted in rehearsal 4. D judged search_path not to matter because the
+  writer's references are qualified. A verified that this holds for the writer but not for the admin wrapper, whose
+  unqualified call makes its config part of the contract.
+- **Adopted from D:** the mode gate, the rollback-order reasoning, the §8 split, and the binding contract.
 
 **Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats
 `status='buyer_confirmed'` as proof the buyer confirmed.
