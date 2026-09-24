@@ -270,3 +270,24 @@ F-1…F-8 (F-5 PROPOSED). Evidence: tsc 0 · lint 0/29 · 2599/137 alone · cont
 Remaining pkg3 items: edit-listing screen restyle rides the same components (no spec deltas found beyond
 findings); payout screens conform as shipped. Next: pkg4 non-blocked cells + pkg5/pkg6 sweeps, order
 screen still on A (O-1/B-4), transfer cells B-1/2/3 on A.
+
+---
+
+# Bid summary final + R-1 + F-28 (C, 2026-09-23) — `67b7f306`
+
+Owner's final direction implemented without another round: three rows (Bid / Fee (10%) / Total, Total
+strongest) directly above a full-width plain "Place bid" in one footer; sticky side-total, fee row, gap,
+every "all-in" and in-summary captions removed; one concise payment sentence outside ("Placing a bid
+doesn't charge you. If you win, you pay the total at checkout."). R-1: market line = the underlying bid
+(same units as the editable value). F-28: success announced via AccessibilityInfo, no repeating dialog;
+all failure dialogs + needs_proof path untouched. No keyboard on this screen; footer grows with large
+text. Evidence: tsc 0 · lint 0/29 · 2601/137 alone (one full run flaked two edge suites under load — both
+73/73 alone, no supabase/ diff) · controls 3/3 (Q1 superset disclosed). A's base question answered:
+batch base e079fcc1; #81 files identical 19b6fc2b↔e079fcc1.
+
+**New owner requirement (2026-09-23): full light/dark appearance** — System default, Settings
+Appearance (System/Light/Dark), local persistence, live system changes, semantic tokens app-wide; B owns
+both appearances (Midnight = dark; light derived), C implements. Bid screen in both appearances first.
+Also queued: R-2 (listing total twice), R-4 (Create duplication, keep the review card's purpose), F-29
+(place-a-bid recovery vs full eligibility), checkout nearby-total only when valid for the state, order/
+transfer/search refinements as A's table lands.
