@@ -60,11 +60,16 @@ These are **two different changes needing two different kinds of evidence**:
 | **A-3** | `Sheet.tsx:135` grabber | `rgba(255,255,255,0.30)` → **1.03:1** on a light panel. Invisible |
 | **A-4** | `StatCardStrip.tsx:65` | `rgba(255,255,255,0.06)` and **no palette import at all** |
 | **A-5** | `EventMedia.tsx:309` | The **image fallback initial**, `rgba(255,255,255,0.20)` on `surface.plate` → **~1.02:1**. This is one of the fallbacks the owner named |
-| **A-6** | `TransferStatusBadge.tsx:6-12` | **Seven** hard-coded colours in a component with **zero importers** — F-30's shape exactly. Convert it or delete it; do not wire it as it stands |
-| **A-7** | `PlatformInstructions.tsx:186` | A **second amber** (`#FBBF24`) beside `status.warning` `#FFB020`. Drift, not a contrast failure |
 | **R-5** | **`bidAvailable` misses one case** | `:739` re-derives availability locally instead of asking the resolver. With `reservedByMe` it evaluates **true**, but `listingActions` returns `continue_reservation` **with no secondary** — so the copy offers a bid the screen does not have. Add `&& !reservedByMe`, or better, read `place_bid` off the resolved actions |
 | **F-28** | Not yet implemented | `transferState.ts:171` still carries the `StateBlock` title *"Marked as sent"* beside the badge |
 | **F-27** | Status unclear | `fetchData(` went from 5 call sites to 8. **C states which failure paths now refetch** — and keeps this functional change separate from copy-only work |
+
+#### Not build blockers — unused, and kept separate from visible defects
+
+| # | Item | Why it does not block |
+|---|---|---|
+| **A-6** | `TransferStatusBadge.tsx:6-12` — seven hard-coded colours | **Zero importers.** Nothing renders it, so it cannot fail in either appearance. It blocks only if someone wires it: **convert it at that moment, or delete it.** I listed it as a blocker before; that was wrong |
+| **A-7** | `PlatformInstructions.tsx:186` — a second amber `#FBBF24` | Rendered, but a 10% tint with a tokened border. Drift, not a defect |
 
 **Correct as literals, no action:** avatar and upload overlays, `IconButton.onArt`, the `EventMedia` scrim
 gradients — all artwork context, which does not invert. `ProofImageViewer.tsx:193`'s close button is fine
@@ -77,10 +82,11 @@ Profile · Settings hub + 7 sub-surfaces · Dispute/report · 45 dialogs · 4 st
 outbid notice · status banner.** The token set is complete, so these are re-renders, not new decisions.
 Plus: review C's screens as packages land.
 
-### Owner — the one item needing you
+### Owner — nothing outstanding
 
-**Authorisation for the both-appearances candidate build.** Your standing constraint is that a new build
-requires it explicitly; nothing A, B or C does substitutes. Everything else above is ours.
+**The build is already authorised.** One sandbox EAS `preview` build, conditional on the readiness checks,
+is recorded in `V3_PHONE_TEST_FIXTURE_PLAN.md`. **"Awaiting build authorisation" is removed from this list
+and must not reappear.**
 
 ### Worth resolving before a device session, not after
 
