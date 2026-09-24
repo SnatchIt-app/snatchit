@@ -127,17 +127,39 @@ function coverPath(listing: Listing): string | null {
 // V3: date formatting for rows/feature lives in src/lib/listing/feedRowState.ts, inside the
 // components, so home and search cannot drift apart.
 
-export interface HomeScreenProps {
-  /**
-   * Render harness seam ONLY (`app/_dev/v3-home.tsx`). When present it stands in for the feed's
-   * network read and for the realtime subscription, and for nothing else: every filter, sort,
-   * section, countdown and piece of copy below still runs exactly as it does in the app. Never
-   * passed by a route.
-   */
-  fixture?: Listing[];
+/**
+ * The harness seam's shape (`app/_dev/v3-home.tsx`). It stands in for the THREE reads and for the
+ * realtime subscription, and for nothing else: every filter, sort, section, countdown and piece of
+ * copy still runs exactly as it does in the app.
+ *
+ * The lazy datasets and the failure arm are here because their states are otherwise unreachable for
+ * review: "Nothing sold yet", "No ended auctions" and the failed-read view each need a read that
+ * ACTUALLY RAN — the settled-empty copy is gated on `mayShowEmptyCopy`, which is what stops a slow or
+ * failed read from telling a shopper the marketplace is empty. A fixture that only replaced the main
+ * feed could not produce any of them, which is exactly what the harness agent found.
+ */
+export interface HomeFixture {
+  /** The live feed's rows. */
+  rows?: Listing[];
+  /** The lazily-loaded datasets, so their settled-empty copy is reachable. */
+  sold?: Listing[];
+  ended?: Listing[];
+  /** A FIRST-LOAD failure of the live feed, which is the state that shows ScreenState. */
+  failure?: 'offline' | 'error';
+  /** Which chip the harness starts on, so a dataset's own empty state is the one on screen. */
+  chip?: QuickChip;
 }
 
-export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
+export interface HomeScreenProps {
+  /**
+   * Render harness seam ONLY. Never passed by a route. An array is the live feed's rows, which is
+   * what the first version of this seam took.
+   */
+  fixture?: Listing[] | HomeFixture;
+}
+
+export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}) {
+  const fixture: HomeFixture | undefined = Array.isArray(rawFixture) ? { rows: rawFixture } : rawFixture;
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   // Adaptive dock: feed scroll direction in, and give the list bottom clearance
@@ -180,7 +202,10 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
   offlineRef.current = isOffline;
   const [loadError,     setLoadError]     = useState<'offline' | 'error' | null>(null);
   const [now,           setNow]           = useState(() => Date.now());
-  const [filters,       setFilters]       = useState<Filters>(DEFAULT_FILTERS);
+  // The harness may start on a chip, so a lazy dataset's own empty state is the one on screen.
+  const [filters,       setFilters]       = useState<Filters>(
+    fixture?.chip ? { ...DEFAULT_FILTERS, chip: fixture.chip } : DEFAULT_FILTERS,
+  );
   const [modalOpen,     setModalOpen]     = useState(false);
 
   const initialLoadDone   = useRef(false);
@@ -205,7 +230,12 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
   // ── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchListings() {
     // The harness seam, and the only thing it replaces: the read. Nothing below this line changes.
-    if (fixture) { setAllListings(fixture); setLoadError(null); return; }
+    if (fixture) {
+      // The harness seam, and the only thing it replaces: the read. A fixture failure takes the same
+      // path a real one does — `setLoadError` — so the screen decides what to paint, not the fixture.
+      if (fixture.failure) { setLoadError(fixture.failure); setAllListings([]); return; }
+      setAllListings(fixture.rows ?? []); setLoadError(null); return;
+    }
     neighborhoodPrefs.current = await getUserNeighborhoods();
 
     const baseQuery = supabase
@@ -231,6 +261,7 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
 
   async function fetchSoldListings() {
     markFilterLoading('recently_sold');
+    if (fixture) { setSoldListings(fixture.sold ?? []); markFilterLoaded('recently_sold'); soldLoadedOnce.current = true; return; }
     const baseQuery = supabase
       .from('listings')
       .select('*')
@@ -255,6 +286,7 @@ export default function HomeScreen({ fixture }: HomeScreenProps = {}) {
 
   async function fetchEndedListings() {
     markFilterLoading('ended');
+    if (fixture) { setEndedListings(fixture.ended ?? []); markFilterLoaded('ended'); endedLoadedOnce.current = true; return; }
     // Ended = auction_status 'ended' but not yet sold
     const baseQuery = supabase
       .from('listings')

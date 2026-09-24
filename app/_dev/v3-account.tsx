@@ -19,6 +19,27 @@
  * deletion view); nothing here creates, mimics or stores an auth session, and every action on the
  * mounted screens still goes through the real (absent) session and fails closed.
  *
+ * THE AVATAR CASES, AND THE ONE COMPARISON THIS ROUTE CANNOT STAGE.
+ * `?screen=profile&variant=avatar` paints the identity row WITH a photo (the bundled data uri
+ * below); `variant=noavatar` paints the initials fallback. Both are real Profile renders: the
+ * fixture's `avatarUri` is the exact value the live screen assigns from `getAvatarUrl(...)`.
+ *
+ * It cannot put that same photo on the DOCK in the same capture, and no fixture can:
+ *   1. The dock is the `(tabs)` navigator's tab bar (`app/(tabs)/_layout.tsx` passes `AdaptiveDock`
+ *      as `tabBar`). A `_dev` route is outside that group, so no dock is mounted here at all.
+ *   2. Even inside the group, `AdaptiveDock` paints the "You" photo from
+ *      `dockAvatarPathFor(user?.id)` through `getAvatarUrl`, and that resolver accepts only an
+ *      https URL on this project's OWN storage origin (`src/lib/media/url.ts`: everything else
+ *      classifies `unsafe-host` and returns null, which falls back to the person icon). A bundled
+ *      asset, a `data:` uri and a `file://` path therefore CANNOT reach the dock's circle.
+ *   3. The property the owner wants checked — that a square derivative comes back at the size it
+ *      was requested (84×84 for the dock's 28pt circle at dpr 2) and crops to the same visible
+ *      square as Profile's untransformed object URL — is a property of the storage transform
+ *      endpoint. It exists only for a real object in the `avatars` bucket.
+ * So that comparison is a signed-in check against a real uploaded avatar inside the tabs, not
+ * something a rendering fixture can stand in for. Nothing is uploaded and no remote url is added
+ * here; what this route gives that comparison is the Profile half, at a known crop.
+ *
  * NOT REACHABLE IN PRODUCTION. Like the other `_dev` routes, the segment layout gates the whole
  * group and this file redirects on its own too: a production binary cannot show it through
  * navigation or a deep link.
@@ -72,8 +93,10 @@ function profileFixtureFor(variant: string | undefined): ProfileFixture {
   switch (variant) {
     case 'noavatar':
       return PROFILE_BASE;
+    case 'avatar':
     default:
-      // The board's own-profile panel draws a photo in the ring.
+      // The board's own-profile panel draws a photo in the ring. `avatar` names the state in the
+      // URL; the default keeps it, so an existing capture command still shows the photographed row.
       return { ...PROFILE_BASE, avatarUri: AVATAR_DATA_URI };
   }
 }
