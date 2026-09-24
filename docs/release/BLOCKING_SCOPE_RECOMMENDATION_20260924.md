@@ -44,8 +44,7 @@ already committed.
 | Interaction | Rule | Where |
 |---|---|---|
 | Place a bid | Refused if the bidder and the seller are blocked either way | a `BEFORE INSERT` trigger on `bids` raising **`BLOCKED_PARTY`**. It is a trigger rather than an RLS policy, because an RLS rejection arrives as a generic error the app would treat as an unknown outcome |
-| Buy Now reservation | Refused likewise, with **`BLOCKED_PARTY`** | `reserve_buy_now` (SQL) |
-| Buy Now payment | Refused likewise (defence in depth): an error code `BLOCKED_PARTY` | `create-payment-intent`, buy_now mode only |
+| Buy Now reservation | Refused likewise, with **`BLOCKED_PARTY`** | `reserve_buy_now` (SQL). **This is the single Buy Now gate.** A buy_now PaymentIntent already requires the buyer to hold the live reservation (create-payment-intent :664-673), so a separate payment-time check would only ever refuse a reservation taken *before* the block, which 2c exempts. There is therefore **no** `create-payment-intent` check |
 | Report the other person | **Always allowed** | unchanged |
 
 - `public.users_blocked(a, b)` is a `SECURITY DEFINER` helper that reads both directions without exposing any row or the
@@ -60,23 +59,35 @@ already committed.
 - **Any order that already exists** (a `transfers` row), for both people: seeing the order and its listing, sending
   and confirming tickets, reporting a problem, refunds, payouts, and support.
 - **Settling an auction the blocked person had already won:** the winner's payment for that auction.
+- **A checkout already in progress:** a live Buy Now reservation taken before the block. Checkout's listing reads
+  (`CheckoutNative` :173 display, :235 setup) stay on `listings`. The display read never blocks or fails a payment,
+  and the setup read fails closed, so either one going through the view would strand a legitimate order.
 - Rationale: a block must never strand money or tickets, or leave an order with no way forward.
 
 ### 2d. Where enforcement belongs
 
 - **Server (A implements; migration 152, owner-gated):**
   - the helper;
-  - the `bids` trigger, `reserve_buy_now` and the `create-payment-intent` check, all returning `BLOCKED_PARTY`;
+  - the `bids` trigger and `reserve_buy_now`, both returning `BLOCKED_PARTY`;
   - a **feed read that carries the hide**: a `security_invoker` view (e.g. `public.listings_feed`) filtering
-    `NOT users_blocked(auth.uid(), seller_id)`. The browse surfaces and listing detail read it; order screens keep
-    reading `listings` directly, so existing orders are untouched (2c);
+    `NOT users_blocked(auth.uid(), seller_id)`. **The browse surfaces only** read it;
+  - **listing detail keeps reading `listings`** and asks `public.listing_view_state(p_listing_id)` → `'ok' | 'blocked'
+    | 'missing'` (`SECURITY DEFINER`; no direction, no listing content).
+    - A row that is simply absent from a view can't be told apart from a deleted listing. Detail already maps a null
+      row to "Listing not found · It may have been sold or taken down" (:1102-1111), which is false for a hidden
+      listing.
+    - Listing content is public anyway (`listings_select_all using (true)`, 070:43), so hiding on detail is a display
+      rule and the refusal is the safety rule;
+  - the order screens and checkout keep reading `listings` directly (2c);
   - **no RLS hiding on `listings` itself**, for the same reason;
   - an index on `user_blocks (blocked_id, blocker_id)`, since 0230 indexes `blocker_id` only (:83).
   - **`user_blocks` RLS stays owner-only** (0230:88-92). Letting a client read rows where it is the blocked party would
     reveal who blocked it.
 - **App (C):**
-  - read the feed view;
-  - the unavailable-listing state;
+  - read the feed view on the browse surfaces, and **remove `applyBlockedSellerFilter`** from Home and Explore once
+    they do. The client list stays for Unblock and the optimistic hide;
+  - the unavailable-listing state, keyed on `listing_view_state`: `blocked` shows the unavailable state, `missing` the
+    existing not-found;
   - the "Blocked user" row;
   - block entry points on listing detail's overflow and the profile (which exist), plus **the two order screens**
     (`transfer/receive`, `transfer/send`), made safe by 2c;
@@ -100,6 +111,12 @@ ops action `user_suspend` enforced at sign-in, via a Supabase Auth ban, and in R
 - **Web isn't C's surface**; it inherits the view.
 - **Refusals need a stable, direction-free code** (`BLOCKED_PARTY`), not a generic RLS error.
 - The auction-settlement exemption lives entirely in the server predicate. The client never compares timestamps.
+- **C's second review:**
+  - A row hidden by a view reads as "not found". So listing detail uses `listing_view_state` and keeps reading
+    `listings`.
+  - Checkout's reads stay on `listings`: an in-progress reservation is exempt.
+  - A's addition: since a payment requires the reservation, `reserve_buy_now` is the single Buy Now gate, and the
+    payment-time check is dropped.
 
 ## 3. Effective behaviour after 2a–2d, and what A does not claim
 
