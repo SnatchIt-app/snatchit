@@ -1745,3 +1745,13 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - #93 merged at 18:15:58Z as `037092f0`, pre and post ALL PASS. Gate CI on `037092f0` is pending at the time of
     writing.
   - `main` is unchanged. Nothing was applied or deployed.
+- **D's post-hoc witness of both merges: PASS**, from D's own GitHub reads.
+  - Both parent pairs and tree identities hold; ancestry was checked first.
+  - File sets are 8 and 6. CI logs show 95/5517 and 96/5543.
+  - `main` is unmoved. Vercel "Canceled by Ignored Build Step" with **zero deployments** on either commit.
+  - D's independent 149 anchor `7e4d3b2d…`/9904 equals A's.
+- **149 + `confirm-and-release` production package prepared, rehearsed and frozen:**
+  `PR93_PRODUCTION_EXECUTION_PACKAGE_20260924.md`, `scratchpad/apply_149/`, `FROZEN_SHA256.txt` `81653983…`.
+  - Rehearsal R0–R8: every step matched, except that R3 failed on 7 keys where A predicted 6 (A's prediction error).
+  - The production request is byte-identical to the rehearsed one.
+  - NOT authorised. D's script review has been requested.
