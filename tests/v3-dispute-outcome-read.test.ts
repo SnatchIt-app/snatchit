@@ -106,6 +106,13 @@ describe('(c) the five outcomes', () => {
     expect(block).toMatch(/disputeDecision|disputedState/);
     expect(block).toMatch(/payout_released_at/);
     expect(block).not.toMatch(/resolved_seller_paid'?\s*\?\s*['"`][^'"`]*released/i);
+    // A's (c) change (2026-09-24, verified against 065:129): inside status==='disputed', a
+    // decided seller-win is by construction ALREADY PAID (unpaid seller-wins move to
+    // buyer_confirmed), so the only rulings that can sit here unpaid are buyer-win, partial and
+    // unknown — for whom payout_review_status / payout_hold_until can be STALE leftovers from the
+    // seller_sent hold. A held-line here would tell a seller who lost the dispute that a payout
+    // is coming. So the decided block derives from payout_released_at ALONE.
+    expect(block).not.toMatch(/sellerHoldLine|heldLine|payout_review_status|payout_hold_until/);
     // …and the buyer's decided copy never reads as an open review (O2 already pinned the words).
     const d = disputeDecision(row({ dispute_resolution: 'resolved_seller_paid', dispute_resolved_at: 'x' }));
     expect(disputedStateCopy(d, 'buyer').body).not.toMatch(/under review|reviews within/i);
@@ -175,6 +182,31 @@ describe('(d) the read itself — both screens, exactly two new columns, and the
       expect(src, rel).toMatch(/dispute_resolution, dispute_resolved_at/);
     }
   });
+  it("R3: buyer-win with a STALE hold (payout_review_status 'held', future payout_hold_until) gets NO payout sentence", () => {
+    // The A-required case, structurally: the decided-dispute block's only payout derivation is
+    // payout_released_at, so a stale hold cannot produce a sentence. (The source pin above is the
+    // enforcement; this test documents the exact scenario A named.)
+    const src = strip('app/transfer/send/[id].tsx');
+    const idx = src.lastIndexOf("status === 'disputed'");
+    const block = src.slice(idx, idx + 2600);
+    const derivation = block.slice(block.indexOf('payoutLine'), block.indexOf('return ('));
+    expect(derivation).toMatch(/payout_released_at/);
+    expect(derivation).not.toMatch(/held|review/i);
+  });
+
+  it("R4: the UNPAID operator seller-win (buyer_confirmed branch) says 'Payout pending.' — never 'being processed'", () => {
+    // A's adjacent question, answered and fixed: the branch's final else used to serve BOTH the
+    // genuine confirmation (whose wording a prior ruling keeps) and the operator decision with no
+    // payout facts — telling a seller 'being processed' when nothing is processing. The owner's
+    // rule: released from payout_released_at, held/manual review from the review fields,
+    // otherwise a pending state, never 'being processed'.
+    const src = strip('app/transfer/send/[id].tsx');
+    const idx = src.indexOf("'buyer_confirmed'");
+    const block = src.slice(idx, idx + 3000);
+    expect(block).toMatch(/byBuyer\s*\n?\s*\? 'Your payout is being processed/);
+    expect(block).toContain("'Payout pending.'");
+  });
+
   it('R2: the buyer screen runs the settled read for a decided buyer-win or partial dispute', () => {
     const src = strip('app/transfer/receive/[id].tsx');
     expect(src).toMatch(/closedForRefund/);

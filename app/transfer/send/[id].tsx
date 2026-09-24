@@ -477,7 +477,9 @@ export default function TransferSendScreen() {
               ? (heldLine ?? 'Payout on hold.')
               : !byBuyer && transfer.payout_review_status === 'manual_review'
                 ? 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.'
-                : 'Your payout is being processed, make sure your payout account is set up in Settings.';
+                : byBuyer
+                  ? 'Your payout is being processed, make sure your payout account is set up in Settings.'
+                  : 'Payout pending.';
           return (
             <StateBlock title={copy.title} tone={byBuyer ? 'success' : 'neutral'}>
               <Text style={[textStyle('bodySm'), s.stateText]}>{`${copy.body} ${payoutLine}`}</Text>
@@ -507,11 +509,13 @@ export default function TransferSendScreen() {
             one, and "pending" would promise it. */}
         {transfer.status === 'disputed' ? (() => {
           const copy = disputedStateCopy(disputeState, 'seller');
-          const heldLine = sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until);
-          const payoutLine = disputeState.kind === 'decided'
-            ? (transfer.payout_released_at
-                ? 'Your payout has been released.'
-                : heldLine)
+          // A's (c), verified at 065:129: an UNPAID seller-win never sits at status 'disputed' —
+          // it moves to buyer_confirmed — so a decided ruling here is either an already-paid
+          // seller-win (payout_released_at set) or a buyer-win/partial/unknown ruling, for whom
+          // the review fields can be STALE seller_sent leftovers. A hold line would tell a seller
+          // who lost the dispute that a payout is coming. payout_released_at alone speaks here.
+          const payoutLine = disputeState.kind === 'decided' && transfer.payout_released_at
+            ? 'Your payout has been released.'
             : null;
           return (
             <StateBlock title={copy.title} tone={disputeState.kind === 'decided' ? 'neutral' : 'warning'}>
