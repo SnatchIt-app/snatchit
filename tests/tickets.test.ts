@@ -54,7 +54,10 @@ describe('ownership vocabulary', () => {
     expect(ownershipLabel('valid')).toBe('Valid');
     expect(ownershipLabel('used')).toBe('Used');
     expect(ownershipTone('void')).toBe('danger');   // not usable, destructive
-    expect(ownershipTone('valid')).toBe('success');
+    // RETARGETED 2026-09-24 (V3 tickets task instruction): the pkg8-account-tickets boards draw
+    // "Valid" quiet in both appearances — the ordinary state stopped being a green event.
+    // Board-value coverage lives in tests/v3-tickets-stage.test.ts (TK4).
+    expect(ownershipTone('valid')).toBe('neutral');
   });
 });
 

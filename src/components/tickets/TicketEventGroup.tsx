@@ -27,6 +27,7 @@ import {
   ownershipLabel,
   ownershipTone,
   showFulfillmentBadge,
+  showOwnershipBadge,
   ticketTypeLine,
   type EventGroup,
 } from '@/src/lib/tickets/ticketState';
@@ -50,7 +51,12 @@ function StateRow({ s, row, quiet }: { s: Styles; row: MyTicketGroup; quiet?: bo
         {ticketTypeLine(row)}
       </Text>
       <View style={s.badges}>
-        <Badge label={ownershipLabel(row.ownership_status)} tone={ownershipTone(row.ownership_status)} />
+        {/* V3 (pkg8-account-tickets): one meaningful word per row — 'Valid' yields to a
+            surfaced fulfillment state; a non-valid ownership word always shows. The full
+            state pair stays in the a11y label above, which never hides a true word. */}
+        {showOwnershipBadge(row.ownership_status, row.fulfillment_status) ? (
+          <Badge label={ownershipLabel(row.ownership_status)} tone={ownershipTone(row.ownership_status)} />
+        ) : null}
         {showFulfillmentBadge(row.fulfillment_status) ? (
           <Badge label={fulfillmentLabel(row.fulfillment_status)} tone={fulfillmentTone(row.fulfillment_status)} />
         ) : null}
@@ -78,7 +84,9 @@ export const TicketEventGroup = memo(function TicketEventGroup({
           <EventMedia asset={asset} slot="SEARCH_RESULT" width={64} />
         </View>
         <View style={s.pastBody}>
-          <Text style={[textStyle('title'), s.pastTitle]} numberOfLines={1}>{group.event_title}</Text>
+          {/* V3: event names carry the mixed-case display voice (owner amendment 2026-09-22);
+              the quiet past row takes the row step. */}
+          <Text style={[textStyle('nameRow'), s.pastTitle]} numberOfLines={1}>{group.event_title}</Text>
           {dateLine ? <Text style={[textStyle('bodySm'), s.metaQuiet]} numberOfLines={1}>{dateLine}</Text> : null}
           <Text style={[textStyle('bodySm'), s.metaQuiet]} numberOfLines={1}>{group.venue_name}</Text>
           <View style={s.pastRows}>
@@ -95,7 +103,8 @@ export const TicketEventGroup = memo(function TicketEventGroup({
     <View style={s.card} accessible accessibilityLabel={groupA11yLabel(group)}>
       <EventMedia asset={asset} slot="TICKET_ART" fluid />
       <View style={s.body}>
-        <Text style={[textStyle('title'), s.title]} numberOfLines={2}>{group.event_title}</Text>
+        {/* V3: the loud upcoming card leads with the name in the order-tier display step. */}
+        <Text style={[textStyle('nameOrder'), s.title]} numberOfLines={2}>{group.event_title}</Text>
         {dateLine ? <Text style={[textStyle('body'), s.meta]} numberOfLines={1}>{dateLine}</Text> : null}
         <Text style={[textStyle('body'), s.meta]} numberOfLines={1}>
           {group.venue_name}{group.session_label ? `  -  ${group.session_label}` : ''}
@@ -114,11 +123,14 @@ type Styles = ReturnType<typeof makeStyles>;
 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
-  // Upcoming — artwork-led card.
+  // Upcoming — artwork-led card. V3 (pkg8-account-tickets): cards round at the card step
+  // (A-3 radius-by-role); overflow clips the artwork to the same corners.
   card: {
     backgroundColor: p.surface.surface,
     borderWidth: 1,
     borderColor: p.border.default,
+    borderRadius: v2.radius.md,
+    overflow: 'hidden',
     marginBottom: v2.space.lg,
   },
   body: { padding: v2.space.lg, gap: v2.space.xs },
@@ -142,7 +154,8 @@ function makeStyles(p: Palette) {
     borderBottomWidth: 1,
     borderBottomColor: p.border.default,
   },
-  pastThumb: { width: 64, height: 64, overflow: 'hidden', opacity: 0.92 },
+  // V3: small media rounds at the inline step (A-3).
+  pastThumb: { width: 64, height: 64, overflow: 'hidden', opacity: 0.92, borderRadius: v2.radius.sm },
   pastBody: { flex: 1, gap: 2 },
   pastTitle: { color: p.text.primary },
   metaQuiet: { color: p.text.muted },

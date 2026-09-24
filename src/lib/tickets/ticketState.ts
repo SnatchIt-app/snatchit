@@ -28,7 +28,9 @@ export function ownershipLabel(status: OwnershipStatus): string {
 
 export function ownershipTone(status: OwnershipStatus): BadgeTone {
   switch (status) {
-    case 'valid': return 'success';
+    // V3 (pkg8-account-tickets boards, both appearances): "Valid" is the ordinary state and is
+    // drawn quiet — a green badge on every card made the ordinary look like an event.
+    case 'valid': return 'neutral';
     case 'used': return 'neutral';
     case 'void': return 'danger';
     case 'expired': return 'neutral';
@@ -51,7 +53,9 @@ export function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
   switch (status) {
     case 'held': return 'neutral';
     case 'listed': return 'neutral';
-    case 'in_transfer': return 'neutral';
+    // V3 (pkg8-account-tickets boards): a transfer in progress is drawn in the warning ink —
+    // it is the one in-flight state on this screen and the boards give it the amber word.
+    case 'in_transfer': return 'warning';
     case 'payment_hold': return 'warning';
     case 'disputed': return 'danger';
   }
@@ -63,6 +67,18 @@ export function fulfillmentTone(status: FulfillmentStatus): BadgeTone {
  */
 export function showFulfillmentBadge(status: FulfillmentStatus): boolean {
   return status !== 'held';
+}
+
+/**
+ * V3 (pkg8-account-tickets boards): one quiet card carries one meaningful word. 'Valid' is the
+ * ordinary ownership state, so it yields its slot when a fulfillment state is worth surfacing
+ * (the board's "Midnight Arcade" card shows only "Transfer in progress"). Any NON-valid
+ * ownership word — Used / Void / Expired — always shows: hiding "Void" behind "Listed for
+ * resale" would misstate ownership, and ticket ownership presentation must never imply more
+ * than the server stated.
+ */
+export function showOwnershipBadge(ownership: OwnershipStatus, fulfillment: FulfillmentStatus): boolean {
+  return ownership !== 'valid' || !showFulfillmentBadge(fulfillment);
 }
 
 // ─── Quantity ───────────────────────────────────────────────────────────────
