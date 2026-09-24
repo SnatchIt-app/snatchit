@@ -589,7 +589,7 @@ witness of this execution.** The ruling covers that package's witness only; it g
      caller. It does not bound expiry refunds or intent cancels.
    - v41 is attributed to the post-deploy runs by timing alone.
 
-## 14. Merging #92 into the release gate (§8 (C)): PREPARED, NOT AUTHORISED
+## 14. Merging #92 into the release gate (§8 (C)): EXECUTED 2026-09-24 (owner-authorised)
 
 **Owner instruction (2026-09-24):** prepare the exact merge command and post-merge checks for the release gate
 branch. Do not merge until separately authorised. **Never merge into `main`.**
@@ -653,3 +653,24 @@ gh pr edit 93 --repo SnatchIt-app/snatchit --base release/production-gate-202609
   F-CR-148-SHARED constraint is active on the gate; #93 is retargeted.
 - **On any FAIL:** stop and report. The merge only changes source; reverting it is a separate, owner-authorised
   `git revert -m 1`.
+
+**Execution record (owner authorisation 2026-09-24: "merge #92, then #93, into release/production-gate-20260918 only").**
+
+| Step | UTC | Result |
+|---|---|---|
+| Frozen check scripts | 18:11 | `merge92_checks.sh` sha256 = the §14 value (`3feecd8c…`); `merge93_checks.sh` frozen at `b5be87d2…` |
+| #92 title, header line, ready | 18:11 | Title changed; the "do not merge" header was superseded by the owner-authorised line (marker kept); the guard re-ran green |
+| #92 `pre` | 18:12:04 | ALL PASS: head `e73553d2`, base the gate, gate `aadf996e`, the 8 files, migration blob, all checks, marker, `main` |
+| **#92 merge** | **18:12:19** | **`374103c0add007ffc3b3d9623271697dd726a776`** (`--merge --match-head-commit e73553d2…`) |
+| #92 `post` | 18:12 | ALL PASS (13): parents (`aadf996e`, `e73553d2`); tree = head; migration blob; 6/6 gate `enforce-transfer-expiry` files = deployed v41 blobs; MERGED |
+| Gate CI on `374103c0` | 18:14 | run 36039602792 **success**: pgTAP Files=95 / Tests=5517 PASS; census 32/108/37/38 |
+| Vercel on `374103c0` | — | snatchit-web **"Canceled by Ignored Build Step"** (success), the same as #91's `aadf996e`; no other project reported; nothing built or deployed |
+| #93 retarget to the gate, title, header, ready | 18:13 | Head still `9e7006bf`. `pre` run before the retarget as a negative control: STOP on PRE-1 only (base and draft) |
+| #93 `pre` | 18:15:49 | ALL PASS (12): head `9e7006bf`; base the gate; gate = `374103c0`; merge-base `e73553d2` and gate tree = fork-point tree; exactly 6 files and the 2 reviewed commits; 3 blobs; all checks; marker; `main` |
+| **#93 merge** | **18:15:58** | **`037092f00cd46c0062c30b4a9dc70dd6928e998b`** (`--merge --match-head-commit 9e7006bf…`) |
+| #93 `post` | 18:16 | ALL PASS (9): parents (`374103c0`, `9e7006bf`); tree = head; 6 files; 3 blobs; MERGED |
+
+- **Scope:** source only. 149 is not applied, `confirm-and-release` is not deployed, no dispute was resolved and
+  `main` was not touched (still `eadd456a`).
+- **The F-CR-148-SHARED constraint is satisfied at the gate tip:** it now carries #93's truthful `payoutDeferred`.
+  Deploying `confirm-and-release` still needs its own authorisation.

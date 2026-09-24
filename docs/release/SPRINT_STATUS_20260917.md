@@ -1739,3 +1739,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - A read the tests and ran them once in `snatchit-refund`: 4/4, exit 0.
   - The test file is still uncommitted. It must land in the same batch as `5668bdab`.
   - C's full suite: 152 files / 2724 tests, exit 0 (C's run).
+- **Owner-authorised source reconciliation: done, both merges verified.** Details are in package §14.
+  - #92 merged into the gate at 18:12:19Z as `374103c0`, pre and post checks ALL PASS. Gate CI 36039602792 green
+    (95/5517). Vercel ignored the build.
+  - #93 merged at 18:15:58Z as `037092f0`, pre and post ALL PASS. Gate CI on `037092f0` is pending at the time of
+    writing.
+  - `main` is unchanged. Nothing was applied or deployed.
