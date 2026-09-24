@@ -57,7 +57,9 @@ describe('the refund read keeps its four outcomes apart', () => {
     // `formatCents` drops the cents on a whole-dollar amount, which is the app's existing
     // convention and what TR2 already pins. (The approved V3 boards show 2dp throughout — that is a
     // separate, deliberate formatting change, recorded with the visual corrections.)
-    expect(refundStateLine(st, 'reversed')).toBe('Refunded $110');
+    // RETARGETED (A's interim refund ruling, 2026-09-24): the figure is stated as INITIATED, because
+    // a refund row exists from creation and no column here distinguishes a settled one.
+    expect(refundStateLine(st, 'reversed')).toBe('Refund of $110 initiated');
   });
 
   it('RR5: the reducer maps a failed read to error, not to loaded-with-nothing', () => {

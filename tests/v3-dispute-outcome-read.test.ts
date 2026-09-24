@@ -14,6 +14,13 @@
  * Five outcomes per (c), including seller-win AFTER payout, where "released" may come only from
  * payout_released_at and the buyer reads "resolved", never "under review".
  */
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
@@ -153,8 +160,8 @@ describe("the owner's obligation rule — 'due' needs a source AND a captured, u
   });
   it('B4 never: a recorded refund replaces every due line with the recorded fact', () => {
     for (const ctx of ['expired', 'buyer_win', 'partial'] as const) {
-      expect(refundStateLine(loaded(FULLY_REFUNDED), ctx)).toBe('Refunded $110');
-      expect(refundStateLine(loaded(PARTLY_REFUNDED), ctx)).toBe('Partly refunded $40 of $110');
+      expect(refundStateLine(loaded(FULLY_REFUNDED), ctx)).toBe('Refund of $110 initiated');
+      expect(refundStateLine(loaded(PARTLY_REFUNDED), ctx)).toBe('Partial refund of $40 initiated');
     }
   });
   it('B5 never: expired with a payment that is not succeeded — the capture is the ground of the claim', () => {
@@ -170,7 +177,7 @@ describe("the owner's obligation rule — 'due' needs a source AND a captured, u
   });
   it('B7 MAJOR-1: expired + partly refunded shows the recorded partial — and claims no remainder', () => {
     const line = refundStateLine(loaded(PARTLY_REFUNDED), 'expired');
-    expect(line).toBe('Partly refunded $40 of $110');
+    expect(line).toBe('Partial refund of $40 initiated');
     expect(line).not.toMatch(/remaining|still owed|balance/i);
   });
 });

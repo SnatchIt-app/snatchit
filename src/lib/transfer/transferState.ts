@@ -355,8 +355,14 @@ export function refundLine(p: PaymentRefundFacts | null | undefined): string | n
   const total = p.total;
   const recorded = p.status === 'refunded' || p.refunded_at != null;
   if (amount != null && amount > 0) {
-    if (total != null && total > 0 && amount === total) return `Refunded ${formatCents(amount)}`;
-    if (total != null && total > 0 && amount < total) return `Partly refunded ${formatCents(amount)} of ${formatCents(total)}`;
+    // A's interim ruling (2026-09-24, REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md): today's columns
+    // cannot tell a REQUESTED refund from a COMPLETED one. Every refund is recorded the moment it is
+    // created, whatever Stripe's own state then does — pending, succeeded, or failed later. So
+    // "Refunded $X" and "Full refund" are claims the data does not support, and the word is
+    // "initiated" until migration 150 gives the lifecycle its own columns. The partial line drops the
+    // total: with no completion to compare against, "of $Y" implied a settled shortfall.
+    if (total != null && total > 0 && amount === total) return `Refund of ${formatCents(amount)} initiated`;
+    if (total != null && total > 0 && amount < total) return `Partial refund of ${formatCents(amount)} initiated`;
     return 'Refund recorded';
   }
   return recorded ? 'Refund recorded' : null;

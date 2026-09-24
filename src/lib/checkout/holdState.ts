@@ -128,15 +128,22 @@ export const REFUND_COPY = {
     title: 'Refund recorded',
     body: "A refund was recorded for this payment. We can't confirm the refunded amount here.",
   },
+  /*
+   * A's interim ruling (2026-09-24): a refund row exists from the moment the refund is CREATED, and
+   * nothing in today's columns distinguishes that from a completed one — so "recorded" read as
+   * settled and "Full refund" asserted an extent no completion confirms. "Initiated" is what the row
+   * establishes. No timing claim accompanies it. The unconfirmed-amount variant is unchanged, and
+   * A sends the full truth table once migration 150 lands; nothing here anticipates those columns.
+   */
   partially_refunded: {
     kicker: 'Refund',
-    title: 'Partial refund recorded',
-    body: 'A partial refund of {amount} was recorded for this payment.',
+    title: 'Partial refund initiated',
+    body: 'A partial refund of {amount} was initiated for this payment.',
   },
   refunded: {
     kicker: 'Refund',
-    title: 'Full refund recorded',
-    body: 'A full refund of {amount} was recorded for this payment.',
+    title: 'Refund initiated',
+    body: 'A refund of {amount} was initiated for this payment.',
   },
 } as const;
 

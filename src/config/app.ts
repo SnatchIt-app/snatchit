@@ -1,3 +1,5 @@
+import { BUYER_FEE_RATE, SELLER_FEE_RATE } from '@/src/lib/money';
+
 import { envValue } from './envValue';
 
 export const APP_CONFIG = {
@@ -6,8 +8,13 @@ export const APP_CONFIG = {
   // Seller receives listing × (1 − SELLER_FEE_RATE) on payout release.
   // Platform retains (BUYER_FEE_RATE + SELLER_FEE_RATE) × listing
   // (before Stripe processing fees).
-  BUYER_FEE_RATE:  0.10,
-  SELLER_FEE_RATE: 0.10,
+  //
+  // RE-EXPORTED, not restated (A's direction, 2026-09-24). These were a second pair of literals
+  // beside `src/lib/money.ts`'s, which is what every fee CALCULATION reads and what the server's own
+  // rate must agree with. Two literals for one rate can drift by one edit; a re-export cannot. The
+  // value is unchanged at 0.10 — this changes where it comes from, not what it is.
+  BUYER_FEE_RATE,
+  SELLER_FEE_RATE,
 
   // Auction timing
   RESERVATION_MINUTES: 10,          // Buy Now reservation window

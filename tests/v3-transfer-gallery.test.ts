@@ -1,3 +1,10 @@
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 /**
  * Transfer-state blocks shared by the real screens, and the sandbox-only synthetic gallery
  * (owner 2026-09-24): "Render the same components used by the real screens, with clearly labelled
@@ -90,7 +97,7 @@ describe('one implementation — the real screens render the shared blocks', () 
 });
 
 describe('the buyer blocks — order fact from the status, refund fact only from the payment row', () => {
-  it('TG2: expired + full refund reads "Order expired" and "Refunded $120"; the title wears the palette warning ink in BOTH appearances', async () => {
+  it('TG2: expired + full refund reads "Order expired" and "Refund of $120 initiated"; the title wears the palette warning ink in BOTH appearances', async () => {
     for (const [scheme, p] of [['light', light], ['dark', dark]] as const) {
       th.scheme = scheme; vi.resetModules();
       const mod = await import('@/src/components/transfer/TransferStateBlocks');
@@ -98,7 +105,7 @@ describe('the buyer blocks — order fact from the status, refund fact only from
       const t = texts(h.output);
       expect(t).toContain(BUYER_ORDER_CLOSED_COPY.expired.title);
       expect(t).toContain(BUYER_ORDER_CLOSED_COPY.expired.body);
-      expect(t).toContain('Refunded $120');
+      expect(t).toContain('Refund of $120 initiated');
       const title = findElement(expandTree(h.output), (el) => el.type === 'Text' && el.props.children === BUYER_ORDER_CLOSED_COPY.expired.title);
       expect(styleValue(title, 'color'), scheme).toBe(p.status.warning);
     }
@@ -115,7 +122,7 @@ describe('the buyer blocks — order fact from the status, refund fact only from
     expect(pending).toContain(BUYER_ORDER_CLOSED_COPY.reversed.title);
     expect(pending).toContain(REFUND_PENDING_LINE);
     expect(pending.join(' ')).not.toMatch(/reversed|released/i);
-    expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'reversed', refund: { status: null, amount_refunded_cents: 6000, refunded_at: null, total: 12000 } })).output)).toContain('Partly refunded $60 of $120');
+    expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'reversed', refund: { status: null, amount_refunded_cents: 6000, refunded_at: null, total: 12000 } })).output)).toContain('Partial refund of $60 initiated');
     expect(texts(mount(() => mod.BuyerClosedBlock({ status: 'reversed', refund: { status: 'refunded', amount_refunded_cents: null, refunded_at: '2026-09-20T10:00:00Z', total: 12000 } })).output)).toContain('Refund recorded');
     // seller_sent for the buyer: the claim, then the review deadline from the server or nothing.
     const withDeadline = texts(mount(() => mod.BuyerSellerSentBlock({ autoReleaseAt: '2026-09-26T21:00:00Z' })).output);
@@ -232,8 +239,8 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
     for (const f of mod.TRANSFER_STATE_FIXTURES) expect(t, f.id).toContain(f.label);
     expect(t.filter((x) => x === mod.SYNTHETIC_LABEL).length).toBeGreaterThanOrEqual(mod.TRANSFER_STATE_FIXTURES.length);
     // The approved combinations are all present as rendered text.
-    expect(t).toContain('Refunded $120');
-    expect(t).toContain('Partly refunded $60 of $120');
+    expect(t).toContain('Refund of $120 initiated');
+    expect(t).toContain('Partial refund of $60 initiated');
     expect(t).toContain(REFUND_DUE_POLICY);
     expect(t).toContain(REFUND_PENDING_LINE);
     expect(t).toContain(SELLER_REVERSED_COPY.title);

@@ -1,3 +1,10 @@
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 /**
  * tests/v3-transfer-gallery-cases.test.ts — the four combinations the synthetic gallery was missing
  * (A, 2026-09-24), each proven through the REAL shared block and the REAL mapping functions.
@@ -124,7 +131,7 @@ describe('(a) buyer · expired · PARTIAL refund — both figures established, b
     const lines = paint(f);
     const mapped = refundStateLine({ kind: 'loaded', facts: refund }, 'expired');
     expect(mapped).toBe(refundLine(refund));            // an EXECUTED refund: the row speaks for itself
-    expect(mapped).toBe('Partly refunded $90 of $120');  // amount AND total, from this row alone
+    expect(mapped).toBe('Partial refund of $90 initiated');  // amount AND total, from this row alone
     expect(lines).toContain(mapped);
     expect(lines).toContain(BUYER_ORDER_CLOSED_COPY.expired.title);
     expect(lines).toContain(BUYER_ORDER_CLOSED_COPY.expired.body);
@@ -167,7 +174,7 @@ describe('(b) buyer · expired · refund RECORDED with no confirmable amount', (
 });
 
 describe('(c) buyer · reversed · FULL refund', () => {
-  it('GC3: amount === total reads "Refunded $75" under the neutral closed-order words, never "reversed"', async () => {
+  it('GC3: amount === total reads "Refund of $75 initiated" under the neutral closed-order words, never "reversed"', async () => {
     const f = await fixture('buyer-reversed-full-refund');
     const refund = props(f).refund as PaymentRefundFacts;
     expect(refund.amount_refunded_cents).toBe(refund.total);
@@ -177,7 +184,7 @@ describe('(c) buyer · reversed · FULL refund', () => {
     const lines = paint(f);
     const mapped = refundStateLine({ kind: 'loaded', facts: refund }, 'reversed');
     expect(mapped).toBe(refundLine(refund));
-    expect(mapped).toBe('Refunded $75');
+    expect(mapped).toBe('Refund of $75 initiated');
     expect(lines).toContain(mapped);
     // The ORDER fact stays the buyer's neutral wording — the seller's payout event is not the
     // buyer's word, and "reversed" never reaches this screen.

@@ -1,3 +1,10 @@
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 /**
  * The checkout refund state when the refunded amount is unknown (owner's remedy (i), 2026-09-18).
  *
@@ -159,8 +166,8 @@ describe('the copy says only what the recorded amounts establish', () => {
   });
 
   it('K4: partial and full state the recorded amount, nothing more', () => {
-    expect(refundViewModel('partially_refunded', 5000).body).toBe('A partial refund of $50 was recorded for this payment.');
-    expect(refundViewModel('refunded', TOTAL).body).toBe('A full refund of $110 was recorded for this payment.');
+    expect(refundViewModel('partially_refunded', 5000).body).toBe('A partial refund of $50 was initiated for this payment.');
+    expect(refundViewModel('refunded', TOTAL).body).toBe('A refund of $110 was initiated for this payment.');
     for (const k of KINDS) expect(viewFor(k).kicker).not.toBe('Payment refunded');
   });
 });

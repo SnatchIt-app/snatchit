@@ -1,3 +1,10 @@
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 /**
  * V3 order/transfer cells — implemented against A's PAYMENT_STATE_WORDING_TABLE_20260924 (fbbe0440):
  * three facts from three columns, never derived from one another — ORDER = transfers.status,
@@ -156,8 +163,8 @@ beforeEach(() => {
 
 describe('refundLine — the recorded refund, from the payment row alone (§3)', () => {
   it('TC1: full only with a known amount equal to total; partial states both; date/status without amount = "recorded"; nothing = null', () => {
-    expect(refundLine({ status: 'refunded', amount_refunded_cents: 9900, refunded_at: '2026-09-24T00:00:00Z', total: 9900 })).toBe('Refunded $99');
-    expect(refundLine({ status: 'succeeded', amount_refunded_cents: 4000, refunded_at: null, total: 9900 })).toBe('Partly refunded $40 of $99');
+    expect(refundLine({ status: 'refunded', amount_refunded_cents: 9900, refunded_at: '2026-09-24T00:00:00Z', total: 9900 })).toBe('Refund of $99 initiated');
+    expect(refundLine({ status: 'succeeded', amount_refunded_cents: 4000, refunded_at: null, total: 9900 })).toBe('Partial refund of $40 initiated');
     expect(refundLine({ status: 'refunded', amount_refunded_cents: null, refunded_at: '2026-09-24T00:00:00Z', total: 9900 })).toBe('Refund recorded');
     expect(refundLine({ status: 'succeeded', amount_refunded_cents: null, refunded_at: '2026-09-24T00:00:00Z', total: 9900 })).toBe('Refund recorded');
     // An amount without a known total can never be called "in full".
@@ -253,18 +260,18 @@ describe('the buyer\'s receive screen — expired and reversed cells', () => {
     expect(t.some((x) => /Refunded/.test(x))).toBe(false);
   });
 
-  it('TR2: expired with a full refund recorded — "Refunded $99", and the policy line steps aside', async () => {
+  it('TR2: expired with a full refund recorded — "Refund of $99 initiated", and the policy line steps aside', async () => {
     h.payments = [{ status: 'refunded', amount_refunded_cents: 9900, refunded_at: '2026-09-24T00:00:00Z', total: 9900 }];
     const host = await mount();
     const t = texts(host);
-    expect(t).toContain('Refunded $99');
+    expect(t).toContain('Refund of $99 initiated');
     expect(t).not.toContain(REFUND_DUE_POLICY);
   });
 
   it('TR3: a partial refund is stated as partial, with both figures', async () => {
     h.payments = [{ status: 'succeeded', amount_refunded_cents: 4000, refunded_at: null, total: 9900 }];
     const host = await mount();
-    expect(texts(host)).toContain('Partly refunded $40 of $99');
+    expect(texts(host)).toContain('Partial refund of $40 initiated');
   });
 
   it('TR4: a refund with no recorded amount is "Refund recorded" — never a figure, never "in full"', async () => {
