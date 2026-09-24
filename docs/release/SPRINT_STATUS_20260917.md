@@ -1849,3 +1849,23 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     non-vacuous `payouts.ts` control.
   - Window invariants held: attempts 0→0, decisions 4→4, dispute_resolutions 0→0.
   - The execution is closed: A and D both PASS, no rollback.
+- **E audit follow-ups (A, 2026-09-24 ~20:50Z):** done at `2fd5cb4c`. Details:
+  - checklist re-synced to the 149/v38 execution;
+  - H3 / F-CR-148-SHARED closed, citing BOTH #92's `payouts.ts:319` and #93's `index.ts:347-348/:381/:383/:425/:435`
+    (D, E and A each verified that #93 did not touch `payouts.ts`);
+  - FINDINGS a1–a4 marked FIXED; the stale "draft only" line superseded;
+  - the review-notes "live Stripe keys" sentence withheld;
+  - the fixture sheet's resume note: the approval names Build 24, so the owner's "go" must name the replacement build;
+  - the 149 raw outputs of A and D archived at `docs/release/evidence/149_20260924/`, with a manifest;
+  - the local gate branch fast-forwarded to `037092f0` in the idle, clean `snatchit-prodgate` worktree.
+  - **G10 kept OPEN:** the owner's rulings cover D's witness reads for the #92 and 149 packages, not the [D-PROD] review
+    reads the checklist cites.
+- **A's rulings for C (at `0677c80e`):**
+  - (1) SELLER_WINDOW_PASSED must key on a server fact, not the device clock. It is false even with a correct clock,
+    because `buyer_dispute_transfer` (0550) accepts disputes while the status is `seller_sent` regardless of
+    `auto_release_at`. Drop it and always show the "Release decision at <date>" server-date line.
+  - (2) No buyer-refund facts on the seller's reversed block. Status `reversed` = the seller's Stripe transfer was
+    reversed (sole writer `mark_transfer_reversed`, from `transfer.reversed`). The gallery's four seller-reversed
+    refund variants are stale.
+  - (3) Finding: SELLER_REVERSED_COPY overstates. A partial reversal also marks the row reversed, and the cause is not
+    recorded. Replacement text sent.
