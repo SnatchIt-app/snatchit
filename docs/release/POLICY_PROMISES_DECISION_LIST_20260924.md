@@ -30,8 +30,13 @@ console by hand.
    `legal.tsx:187`, "Snatch It may suspend or terminate any account at its sole discretion."; `legal.tsx:247`, "violating
    listings are removed and offending accounts may be suspended or banned."
    - **Keep**; these are reserved rights.
-   - **Your decision:** is a manual ban your "ability to block abusive users" under Apple 1.2? The in-product
-     restriction only stops new listings.
+   - Apple 1.2's "ability to block abusive users" is met in-app (E's finding, verified by A at `91062ab1`).
+     - Users can block another user: `app/profile/[id].tsx` and `ListingDetailScreen.tsx` insert into
+       `public.user_blocks` (0230, created for guideline 1.2); `app/settings/blocked-users.tsx` lists and unblocks.
+     - Effect: Home and Explore drop blocked sellers' listings (`applyBlockedSellerFilter`, home.tsx:247/:271,
+       explore.tsx:169).
+     - That filter is client-side only: no RLS hides a blocked seller's listings, and A found no other screen using
+       it. A suspension or ban by the operator would still be a manual Supabase Auth action.
 6. `src/lib/transfer/transferState.ts:230` (a buyer's report on an order), "Our team typically reviews within 24 hours.
    The seller's payout is frozen until this is resolved."
    - **Remove the first sentence** unless you commit to resolving order reports within 24 hours.
@@ -103,9 +108,14 @@ console by hand.
     - Backstop: if the demo seller never marks orders sent, the 24-hour expiry refunds the purchase automatically. That
       path has not yet been observed in production.
 
+## Checked since the first version
+
+- **Fees:** "A 10% service fee is added to the buyer's total … a 10% marketplace fee is deducted from the seller's
+  payout" matches the server code at `037092f0`: `_shared/money.ts:28-29` (`BUYER_FEE_RATE = 0.10`,
+  `SELLER_FEE_RATE = 0.10`), and the payout sends `sellerNetCents = base − round(base × 0.10)` (:108). Keep.
+
 ## Not verified by A
 
 - The support inbox.
 - Whether a report creates an operator case automatically.
 - Whether any user-to-user "block" feature exists in the app.
-- The 10% fee figures in legal.tsx.
