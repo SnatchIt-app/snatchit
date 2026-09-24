@@ -400,6 +400,15 @@ normalisation is sound here.
 - The apply route does not strip comments. 147's production prosrc `06ef87b3…` has its comments, as the local replay
   does, and the 09-22 claim defn `d3cd9fdd…` equals the local commented body. So 148's post values stay reachable.
 - **Re-pin:** P3 now expects production's `b7f1122599aacaa73b9af9d9592160fc` / `c5ab888d3ad5751dc9a60f8d134ef48c`.
+  - **Provenance, different in kind from every other hash here:** these two values come from an *observation*, not
+    from the repository. They were captured from production by R0-wide at 2026-09-24T16:33Z, and D verified them as
+    semantically identical to the repo's `ref_bodies`: comments only, no code change.
+  - **Do not "fix" them back to the repo values** (`19161d7a…` / `4548b9ee…`). Production has never carried those, so
+    that would reinstate a permanent stop.
+  - **Shelf life:** valid only while production's two writer bodies are unchanged since 16:33Z. P3 enforces this
+    itself, because any change to either body stops the apply (exit 3).
+  - **After such a stop, or if the apply slips after anything has touched those functions,** re-derive the values from
+    a fresh R0 read under a new owner authorisation. Never trust them because they are written down.
 
 **Rehearsal 6, the strongest so far:**
 - Production's two writer bodies were installed into a fresh copy (`rehearsal_install_prod_writers.sql`). The local full
@@ -428,6 +437,21 @@ separately.
   `guard_listing_identity_columns` as missing its ownership guard. D read the full production body and found the guard
   present, so it was not a finding. D's literal-comparison column also has an artefact on three functions. D ran no
   production query.
-- **Not yet reviewed by D:** the P3 re-pin (`8cbd950d…`) and rehearsal 6. That review is requested, and execution of
-  (A) waits for it.
+- **D, on the P3 re-pin and rehearsal 6 (~16:50Z): PASS on both. D has no open objection to (A).**
+  - P3's purpose is change detection just before the apply ("has production moved since R0?"), not equivalence
+    checking, which R0 and D's review settled. Production's exact prosrc is therefore the tightest pin available.
+    The repo value could never pass, and a normalised pin would be looser.
+  - D independently verified the normaliser's soundness: no `"` outside comments, the only `$` inside a single-quoted
+    literal, and **zero `$$` dollar-quoted strings**, so nothing can hide a `--`. D also reproduced the 8/3/1 split.
+  - Rehearsal 6 is stronger evidence than textual identity: it tests behaviour. Production's writer code, executed,
+    produces the row shape 148 consumes (215 43/43).
+- **Limits of rehearsal 6, recorded as D asked:**
+  1. The surrounding schema is the replay's, not production's. The run assumes the tables, constraints and other
+     functions match. That is reasonable (11/12 of the drifted functions are semantically identical, and the 12th is
+     unrelated), but it is an assumption the test carries, not something it verifies.
+  2. 215 calls `public.resolve_transfer_dispute` **directly**. Production reaches it through `ops.execute_action` →
+     `ops.action_dispatch`, and that chain is not exercised. The risk is low **because of a separate guard**: the chain
+     only passes arguments positionally, and P3's binding contract pins the writer's ordered argument types.
+- **Still not reviewed by D:** §10, the regenerated diffs beyond `CONFIRM_REF` and the P3 additions, rehearsals 4–6 as
+  executed, E2E-1 to E2E-3 as executed, and `deploy --dry`.
 

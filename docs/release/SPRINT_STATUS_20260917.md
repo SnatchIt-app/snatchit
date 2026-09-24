@@ -1610,3 +1610,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - `handle_new_user` is the one real difference. Production is richer than the repo, so a rebuild or restore from the
     repo would silently regress it (a DR risk).
   - The P3 re-pin and rehearsal 6 are pending D's review.
+- **D: P3 re-pin and rehearsal 6 PASS (~16:50Z). No open objection to (A).**
+  - Recorded in package §12: the pin's provenance (a production observation at 16:33Z, D-verified semantically
+    identical); its shelf life (valid only while the bodies are unchanged; P3 enforces this; re-derive via a fresh R0 if
+    it stops); and rehearsal 6's two limits (replay schema; the direct call, not via `ops.execute_action` →
+    `action_dispatch`, covered by the binding contract).
+  - Documentation only. The frozen scripts are unchanged (apply `8cbd950d…`).
