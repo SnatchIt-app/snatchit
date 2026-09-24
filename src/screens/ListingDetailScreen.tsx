@@ -67,7 +67,7 @@ import { OutbidToast } from '@/src/components/listing/OutbidToast';
 import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
 import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { offersBid, BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, detailState, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -734,10 +734,10 @@ export default function ListingDetailScreen({ id }: Props) {
       Alert.alert('Not allowed', 'You cannot purchase your own listing.'); return;
     }
     if (!listing.buy_now_enabled || listing.buy_now_price == null) {
-      // F-29 (owner 2026-09-23): offer the bid recovery only when a bid is genuinely available —
-      // the same conditions the later guards and detailState apply — never an unavailable action.
-      const bidAvailable = !(ended || isSold) && !(isReserved && listing.reserved_by !== user.id);
-      Alert.alert('Buy Now unavailable', bidAvailable ? 'You can place a bid instead.' : "Buy Now isn't offered on this listing."); return;
+      // F-29 → R-5 (owner 2026-09-24): offer the bid recovery only when the RESOLVER offers a bid on
+      // this screen — the same actions the buttons render — never a locally re-derived guess (which
+      // said "yes" while the viewer held a reservation and the screen showed no bid at all).
+      Alert.alert('Buy Now unavailable', offersBid(state) ? 'You can place a bid instead.' : "Buy Now isn't offered on this listing."); return;
     }
     if (ended || isSold) { Alert.alert('Not available', 'This listing is no longer available.'); return; }
     if (reservedByOther) {
@@ -1283,7 +1283,7 @@ export default function ListingDetailScreen({ id }: Props) {
 
         {/* The commitment sentence, wherever a bid can actually be placed from here. De-dup:
             it carries no numbers — the panel and the CTA sub-label already do. */}
-        {state.primary.kind === 'place_bid' || state.secondary?.kind === 'place_bid' ? (
+        {offersBid(state) ? (
           <Text style={[textStyle('bodySm'), s.commitment]}>{BID_COMMITMENT_COPY}</Text>
         ) : null}
 

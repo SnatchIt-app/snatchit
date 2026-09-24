@@ -132,7 +132,8 @@ function makeStyles(p: Palette) {
     width: 36,
     height: 4,
     borderRadius: v2.radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.30)',
+    // The grabber identifies the sheet as draggable: a graded control edge, visible on both panels.
+    backgroundColor: p.border.control,
     alignSelf: 'center',
     marginBottom: v2.space.md,
   },

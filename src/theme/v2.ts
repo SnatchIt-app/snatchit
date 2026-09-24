@@ -99,6 +99,19 @@ export const status = {
   error: '#FF4D4D',
 } as const;
 
+/**
+ * The floating dock's material (owner 2026-09-24; B's A-1/A-2). Translucent by design — it
+ * floats over scrolled content — so these are the ONE place a translucent chrome value may
+ * live; the dock composites them, never a literal. `glassDim` is the 12% blend toward the
+ * dock fill that keeps an unselected avatar recognisable, never a smudge.
+ */
+export const chrome = {
+  glass: 'rgba(18,18,20,0.72)',
+  glassEdge: 'rgba(255,255,255,0.10)',
+  glassSelected: 'rgba(255,255,255,0.12)',
+  glassDim: 'rgba(18,18,20,0.12)',
+} as const;
+
 /** 4pt base. */
 export const space = {
   xs: 4,
@@ -240,6 +253,7 @@ export const brandTokens = {
   brand,
   border,
   status,
+  chrome,
   space,
   radius,
   font,

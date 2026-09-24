@@ -306,7 +306,9 @@ function makeStyles(p: Palette) {
   },
   fallbackInitial: {
     fontSize: 32,
-    color: 'rgba(255,255,255,0.20)',
+    // The plate's initial is a hint, not information, but it must survive both canvases: the
+    // palette's muted ink clears 3:1 (large text) on the plate in each appearance.
+    color: p.text.muted,
   },
   /*
    * A real gradient band, not a flat wash over the whole image.

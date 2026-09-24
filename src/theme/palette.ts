@@ -34,6 +34,8 @@ export interface Palette {
   readonly brand: Group<typeof v2.brand>;
   readonly border: Group<typeof v2.border>;
   readonly status: Group<typeof v2.status>;
+  /** The floating dock's translucent material — composited by the dock, never a literal. */
+  readonly chrome: Group<typeof v2.chrome>;
   readonly onArt: typeof ON_ART;
 }
 
@@ -44,6 +46,7 @@ export const dark: Palette = {
   brand: v2.brand,
   border: v2.border,
   status: v2.status,
+  chrome: v2.chrome,
   onArt: ON_ART,
 };
 
@@ -86,6 +89,14 @@ export const light: Palette = {
     success: '#0B7A3C',
     warning: '#8A5400',
     error: '#C41414',
+  },
+  // Light glass: the dock floats as a near-white material with a dark hairline; the selected
+  // capsule and the avatar dim blend toward the dock fill, as on Midnight, in the other direction.
+  chrome: {
+    glass: 'rgba(255,255,255,0.84)',
+    glassEdge: 'rgba(11,12,14,0.12)',
+    glassSelected: 'rgba(11,12,14,0.07)',
+    glassDim: 'rgba(255,255,255,0.12)',
   },
   onArt: ON_ART,
 };

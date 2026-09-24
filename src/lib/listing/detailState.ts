@@ -388,3 +388,13 @@ export function detailState(input: DetailStateInput): DetailState {
     showsOwnerActions: role === 'seller',
   };
 }
+
+/**
+ * Whether THIS screen offers a bid — read off the resolved actions, never re-derived (B's R-5,
+ * owner 2026-09-24). A buyer holding a reservation gets `continue_reservation` with no secondary,
+ * so no bid exists there even though the auction is live; the dialog copy and the commitment
+ * sentence must agree with the buttons, and this is the one predicate both read.
+ */
+export function offersBid(actions: { primary: ListingAction; secondary: ListingAction | null }): boolean {
+  return actions.primary.kind === 'place_bid' || actions.secondary?.kind === 'place_bid';
+}

@@ -118,7 +118,8 @@ describe('palette — one semantic shape, two appearances', () => {
     expect(dark.brand).toStrictEqual(v2.brand);
     expect(dark.border).toStrictEqual(v2.border);
     expect(dark.status).toStrictEqual(v2.status);
-    for (const group of ['surface', 'text', 'brand', 'border', 'status'] as const) {
+    expect(dark.chrome).toStrictEqual(v2.chrome);   // the floating dock's material (owner 2026-09-24, B's A-1/A-2)
+    for (const group of ['surface', 'text', 'brand', 'border', 'status', 'chrome'] as const) {
       expect(Object.keys(light[group]).sort()).toEqual(Object.keys(dark[group]).sort());
       for (const v of Object.values(light[group])) expect(typeof v).toBe('string');
     }

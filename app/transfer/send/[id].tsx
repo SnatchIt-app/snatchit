@@ -420,7 +420,10 @@ export default function TransferSendScreen() {
 
         {/* SELLER_SENT */}
         {transfer.status === 'seller_sent' ? (
-          <StateBlock title="Marked as sent" tone="neutral">
+          // F-28 (B pkg7 §6b; owner 2026-09-24): the badge above already says "Marked sent", so the
+          // block carries only the forward-looking body — no title repeating the badge. The success
+          // itself is announced for assistive tech at the tap; every failure dialog is untouched.
+          <StateBlock tone="neutral">
             <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm they received the tickets.</Text>
             {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' ? (
               // A's table 2e: at auto_release_at the payout policy DECIDES (auto-release, hold, or
@@ -511,11 +514,11 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StateBlock({ title, tone, children }: { title: string; tone: 'neutral' | 'success' | 'warning'; children: React.ReactNode }) {
+function StateBlock({ title, tone, children }: { title?: string; tone: 'neutral' | 'success' | 'warning'; children: React.ReactNode }) {
   const color = tone === 'success' ? v2.status.success : tone === 'warning' ? v2.status.warning : v2.text.primary;
   return (
     <View style={s.stateBlock}>
-      <Text style={[textStyle('title'), { color }]}>{title}</Text>
+      {title ? <Text style={[textStyle('title'), { color }]}>{title}</Text> : null}
       {children}
     </View>
   );

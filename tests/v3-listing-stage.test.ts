@@ -209,13 +209,52 @@ describe('screen wiring (source pins)', () => {
     expect(src).toContain('minBidBase');
   });
 
-  it('LS2 (F-29): the "place a bid instead" recovery is offered only when a bid is actually available', async () => {
+  it('LS2 (F-29 → R-5): the "place a bid instead" recovery reads the AUTHORITATIVE action resolver — no competing availability formula', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src).toMatch(/const bidAvailable = !\(ended \|\| isSold\) && !\(isReserved && listing\.reserved_by !== user\.id\);/);
-    expect(src).toContain("bidAvailable ? 'You can place a bid instead.' : \"Buy Now isn't offered on this listing.\"");
+    // One predicate over the resolved actions, used at BOTH sites: the dialog body and the
+    // commitment sentence. The local re-derivation (B's R-5: it said "true" while holding a
+    // reservation, where the resolver offers continue_reservation and no bid at all) is gone.
+    expect(src).not.toContain('bidAvailable');
+    expect(src).toContain("offersBid(state) ? 'You can place a bid instead.' : \"Buy Now isn't offered on this listing.\"");
+    expect(src).toMatch(/\{offersBid\(state\) \? \(\s*<Text style=\{\[textStyle\('bodySm'\), s\.commitment\]\}>\{BID_COMMITMENT_COPY\}/);
     expect(src).not.toContain("'This listing does not have Buy Now enabled.'");
+  });
+});
+
+describe('offersBid — the resolver decides whether a bid exists on this screen (R-5)', () => {
+  const SELLER = 'seller-uuid';
+  const BUYER = 'buyer-uuid';
+  type Input = import('@/src/lib/listing/detailState').DetailStateInput;
+  function input(over: Partial<Omit<Input, 'listing'>> & { listing?: Partial<Input['listing']> } = {}): Input {
+    const { listing, ...rest } = over;
+    return {
+      userId: BUYER, clockEnded: false, reservationActive: false, finalizing: false, reserving: false,
+      transfer: { id: null, status: null, buyerId: null }, isHighestBidder: false, hasBid: false, buyNowAllIn: null,
+      ...rest,
+      listing: {
+        status: 'active', auction_status: 'active', buy_now_enabled: false, buy_now_price: null,
+        seller_id: SELLER, reserved_by: null, winner_user_id: null, bid_count: 0, ...(listing ?? {}),
+      },
+    };
+  }
+
+  it('LS3: a live auction offers a bid; holding a reservation offers "Finish checkout" and NO bid; ended and the seller offer none', async () => {
+    const { listingActions, offersBid } = await import('@/src/lib/listing/detailState');
+    expect(offersBid(listingActions(input()))).toBe(true);
+    // Buy Now + auction: the bid is the secondary — still offered.
+    expect(offersBid(listingActions(input({ buyNowAllIn: '$132', listing: { buy_now_enabled: true, buy_now_price: 120 } })))).toBe(true);
+    // R-5's case: reserved by me → continue_reservation as primary with no secondary.
+    const held = listingActions(input({ reservationActive: true, listing: { reserved_by: BUYER, buy_now_enabled: true, buy_now_price: 120 } }));
+    expect(held.primary.kind).toBe('continue_reservation');
+    expect(held.secondary).toBeNull();
+    expect(offersBid(held)).toBe(false);
+    // Ended, and the seller's own listing.
+    expect(offersBid(listingActions(input({ listing: { auction_status: 'ended' } })))).toBe(false);
+    expect(offersBid(listingActions(input({ userId: SELLER })))).toBe(false);
+    // Reserved by someone else → "On hold", no bid.
+    expect(offersBid(listingActions(input({ reservationActive: true, listing: { reserved_by: 'other-uuid' } })))).toBe(false);
   });
 });

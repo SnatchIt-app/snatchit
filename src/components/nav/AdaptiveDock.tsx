@@ -153,7 +153,7 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
     >
       {/* The dock's REAL bottom anchor. An absolute child ignores the wrapper's
           padding, so the lift lives here, on the dock itself. */}
-      <Animated.View style={[styles.dock, { left: DOCK_SIDE_MARGIN, bottom: insets.bottom + DOCK_GAP }, containerStyle]}>
+      <Animated.View testID="dock-surface" style={[styles.dock, { left: DOCK_SIDE_MARGIN, bottom: insets.bottom + DOCK_GAP }, containerStyle]}>
         <Animated.View style={[styles.row, { width: FULL_W, transform: [{ translateX: rowTranslate }] }]}>
           {ITEMS.map((item) => {
             const routeIndex = state.routes.findIndex((r) => r.name === item.route);
@@ -171,7 +171,7 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
                 hitSlop={6}
               >
                 {/* Selected inner capsule — the active-state treatment (never a red frame). */}
-                {isFocused ? <View style={styles.selected} /> : null}
+                {isFocused ? <View testID="dock-selected" style={styles.selected} /> : null}
                 <Animated.View style={[styles.itemInner, isFocused ? undefined : { opacity: secondaryOpacity }]}>
                   {item.key === 'profile' && youPhoto ? (
                     // The ring is chrome — 1.6pt at 2.5pt outside the circle, selected only (§4);
@@ -231,11 +231,11 @@ function makeStyles(p: Palette) {
     // bottom is applied inline (insets.bottom + DOCK_GAP) — the real lift.
     height: DOCK_HEIGHT,
     borderRadius: DOCK_RADIUS,
-    // Dark translucent "glass" material. No red frame; a whisper of a neutral
-    // hairline gives depth against the black canvas.
-    backgroundColor: 'rgba(18,18,20,0.72)',
+    // Translucent "glass" material from the palette's chrome group — dark over Midnight, near-white
+    // over Daylight. No red frame; a whisper of a neutral hairline gives depth against the canvas.
+    backgroundColor: p.chrome.glass,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: p.chrome.glassEdge,
     overflow: 'hidden',
     paddingHorizontal: PAD,
     justifyContent: 'center',
@@ -252,13 +252,13 @@ function makeStyles(p: Palette) {
     borderRadius: v2.radius.pill,
     overflow: 'hidden',
     // The flat loading fill: visible until the image paints, no spinner, no animation.
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: p.chrome.glassSelected,
   },
   avatarImage: { width: AVATAR, height: AVATAR },
   avatarDim: {
     ...StyleSheet.absoluteFillObject,
     // 12% toward the dock fill — recognisable, never a smudge (§4).
-    backgroundColor: 'rgba(18,18,20,0.12)',
+    backgroundColor: p.chrome.glassDim,
   },
   avatarRing: {
     padding: 2.5,
@@ -275,7 +275,7 @@ function makeStyles(p: Palette) {
     marginVertical: 8,
     marginHorizontal: 9,
     borderRadius: DOCK_RADIUS - 9, // 24
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: p.chrome.glassSelected,
   },
   });
 }

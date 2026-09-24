@@ -146,7 +146,10 @@ describe('adaptive nav — shipped-source guards', () => {
     // rounded, not radius 0 (read from source to avoid importing native modules)
     const radius = Number(read('src/lib/nav/navInsets.ts').match(/DOCK_RADIUS\s*=\s*(\d+)/)?.[1]);
     expect(radius).toBeGreaterThan(16);
-    expect(dock).toMatch(/rgba\(18,18,20,0\.72\)/); // dark translucent glass
+    // Translucent glass from the palette's chrome group (owner 2026-09-24): dark over Midnight,
+    // near-white over Daylight — never a literal in the dock.
+    expect(dock).toMatch(/backgroundColor: p\.chrome\.glass,/);
+    expect(dock).not.toMatch(/rgba\(18,18,20/);
     // no brand-red rectangular frame / top marker anywhere in the dock
     expect(dock).not.toMatch(/brand\.red/);
   });

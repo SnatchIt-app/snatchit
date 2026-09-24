@@ -81,12 +81,22 @@ describe('screens use the vocabulary, not their own words', () => {
 
   it('send: the seller reads "Marked as sent" and "Tickets received", never "Transfer sent/complete"', () => {
     const send = stripComments(read('app/transfer/send/[id].tsx'));
-    expect(send).toContain('<StateBlock title="Marked as sent"');
+    // F-28 (B pkg7 §6b; owner 2026-09-24): the badge already reads "Marked sent", so the seller_sent
+    // block carries only the forward-looking body and NO title repeating the badge. The block
+    // component takes an optional title for exactly this case.
+    expect(send).toMatch(/transfer\.status === 'seller_sent' \? \(\s*<StateBlock tone="neutral">/);
+    expect(send).not.toContain('<StateBlock title="Marked as sent"');
+    expect(send).toMatch(/function StateBlock\(\{ title, tone, children \}: \{ title\?: string/);
     expect(send).toContain('<StateBlock title="Tickets received"');
-    // F-28 (owner 2026-09-23): the success is the screen's own "Marked as sent" block, announced
-    // for assistive tech - not a dialog repeating it. Failure dialogs are untouched.
+    // The success is announced for assistive tech - not a dialog repeating it.
     expect(send).not.toContain("Alert.alert('Marked as sent'");
     expect(send).toContain("announceForAccessibility('Marked as sent");
+    // Failure feedback untouched: every failure dialog of the mark-sent path is still there.
+    expect(send).toContain(`Alert.alert("Couldn't mark as sent"`);
+    expect(send).toContain("Alert.alert('Not confirmed yet'");
+    expect(send).toContain("Alert.alert('Already marked as sent'");
+    expect(send).toContain("Alert.alert('Evidence required'");
+    expect(send).toContain(`Alert.alert("Couldn't upload the transfer proof"`);
     expect(send).not.toMatch(/"Transfer sent"|"Transfer complete"|'Sent'/);
   });
 
