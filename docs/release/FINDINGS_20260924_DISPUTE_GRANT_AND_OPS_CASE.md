@@ -183,6 +183,22 @@ resolution fires both.
     alone is not enough (D).
   - **Limit:** this is a repo-source sweep. Production's bodies for a3, a4 and `admin_release_held_payout` were not
     among R0's twelve, and R0-wide showed that production can drift from the repo.
+  - **Narrowed from files, with no production read (D; A reproduced every value):**
+    - At the gate, `claim_payout_attempt`, a3 and a4 each have exactly one repo definer, the same file
+      `20260906120000`.
+    - The claim body extracted from that file hashes to `083bf9a3…`. That is production's `claim_prosrc_md5` in
+      148's P3 prestate (16:55:40Z), so production stored that file's claim text verbatim, comments included.
+    - This rules out "the whole file drifted". It does not prove a3 or a4 individually, because an out-of-band
+      replacement of one function is still possible.
+    - One query would settle it: `md5(prosrc)` for the two functions against the repo bodies
+      `6a8372b4ee470d7a6ab9c1e0754765da` (a3; 5,599 characters, 5,603 bytes, because of two em dashes) and
+      `d86c2b36f40c83835624bbacee716d38` (a4; 1,741 bytes). **Not requested and not run.**
+  - **Reading R0 correctly:**
+    - All twelve of R0-wide's functions have their last repo definer in files `000`–`065`: `000` ×5, `047`, `0564`,
+      `064` ×3, `065` ×2. None is in `20260906120000`.
+    - The twelve were chosen *because* they differed on 2026-09-23. So R0 shows that drift exists among older
+      functions; it does not show that production differs generally.
+    - Functions applied by the Management-API path (147, 148) and this file's claim read back verbatim.
 
 ## Reader sweep — everything that treats `status='buyer_confirmed'` as buyer confirmation (A's read-only subagent, 2026-09-24; SERVER = #92 head `e73553d2`, CLIENT = `404bce38`)
 
