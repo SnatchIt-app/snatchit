@@ -108,18 +108,21 @@ is authorised and none will be created.**
 
 ## 6 · Post-build — the device pass
 
-Runs only once the build exists. Results are recorded as **device** evidence; nothing in §5 is restated as
-device evidence.
+**The ordered checklist is `V3_PHONE_TEST_CHECKLIST.md`, and it is the only one.** This section no longer
+lists the checks, so the two documents cannot drift. What matters here is how that checklist is bounded:
 
-| Group | Checks |
-|---|---|
-| Appearance | D-9 (three settings, persistence across relaunch, live phone change, **no startup flash**), both status bars, keyboard appearance, native dialogs |
-| Rendered colour | Every combination in §2 **as rendered** — disabled controls, selected states, overlays, artwork. A component accepting a palette is not evidence that it renders correctly; the harness-rendered contrast tests (`v3-appearance-rendered`) are not device evidence either |
-| Type and layout | D-1 mixed-case leading · D-3 enlarged text · D-4 narrowest width · D-5 keyboard |
-| Media | D-2 contrast over real uploads and the fallback plate, both appearances |
-| Identity | D-6 avatar across account switch |
-| Transfers | reversed boards on the 4 real rows (buyer and seller) · the gallery pass for expired / held / deadline / refund combinations (§7) |
-| Tickets | D-8 on the build: the real RPC, the empty state |
+- **Steps 1–27 need no fixture approval.** Step 1 writes one `push_tokens` row for the device, which is
+  inherent to signing in and is not on A's sheet; step 19 writes a second for the seller account. Everything
+  else in that range is **none** or **device-local**. Those steps must not be held behind D1–D6, and they must
+  not be described as write-free either — the two push-token rows are named where they occur.
+- **Steps 28–34 create records** — a PaymentIntent and a pending `payments` row the moment checkout mounts
+  (W2), a bid with its counters and one inbox row (W1), transfer state changes, a push-token rebind on the
+  account switch. Each names the sheet line that governs it. None has run.
+- **Evidence class is recorded per step**, and the three are kept apart: *device-rendered* (this build painted
+  this), *data-path* (real rows retrieved for a real account), *synthetic-gallery* (a component rendered from
+  props written in code — which proves nothing about retrieval, RLS, or reachability).
+- Nothing in §5 is restated as device evidence, and the harness-rendered contrast tests are not device
+  evidence.
 
 ## 7 · Expired and held — no rows; a bounded, owner-authorised way to see them
 
