@@ -99,6 +99,60 @@ Also on that file: remove the `compareSub` all-in captions, the `bigAmount`/`ste
 
 ---
 
+## 2b · Bid summary — the owner's final direction (2026-09-23), delivered
+
+**Artifacts:** `pkg7-bid-after.png` · `pkg7-bid-after-raised.png` · `pkg7-bid-after-annotated.png`.
+**This supersedes §2 wherever the two differ.**
+
+### The screen, top to bottom
+
+Identity + quantity → **Current bid $90.00** → the editable bid (stepper, minimum hint, quick-add) →
+**one commitment sentence** → **the three-row summary** → **`Place bid`**.
+
+### The summary — exactly three rows, nothing else
+
+| Row | Weight |
+|---|---|
+| Bid | `$95.00` |
+| Fee (10%) | `$9.50` |
+| **Total** | **`$104.50` — visually strongest, above a rule** |
+
+All three derive from the existing calculation and move with the stepper. **The bid appears here a second
+time deliberately**, per the owner's instruction. Nothing else goes inside the block: no fourth figure, no
+*"all-in"* caption, no explanatory sentence.
+
+### What was removed
+
+| Removed | |
+|---|---|
+| The sticky **"Total if you win"** amount beside the button | The summary's Total is the only total |
+| The isolated service-fee row | It is now the summary's second row |
+| The large empty gap | The bid control grew into it and the summary + button anchor the foot of the screen |
+
+`Place bid` sits **directly below the summary**, full width, with nothing beside it.
+
+### R-1 resolved — the reference is a bid, not an all-in
+
+**`Current bid $90.00`** is the same unit as the stepper (`$95.00`) and the minimum. C's build showed
+`Current bid · $110.00 all-in` against a `$105.00` stepper, which read as a *lower* bid. **Keep C's
+`Starting bid` when `bid_count === 0`.** The fee and the final total are supplied by the summary.
+
+### The commitment sentence — once, outside the summary
+
+> **"A bid is a commitment. Nothing is charged now; if you win, you pay at checkout."**
+
+Placing a bid charges nobody: the winner receives `pay_now`, which only opens `/checkout/{id}`, where
+`Pay {total}` is the only charging control.
+
+### For C
+
+Preserve calculations, validation (`canPlaceBid`, the *"Bid too low"* alert), single-flight submission and
+accessibility. The summary rows need their own labels so a screen reader reads *"Bid $95.00, Fee 10% $9.50,
+Total $104.50"*. **Check small screens, large text and keyboard visibility** — with the summary and button now
+sharing the foot of the screen, the keyboard must not cover either.
+
+---
+
 ## 3 · What is NOT being cut anywhere
 
 - Price, quantity, and which listing you are acting on.
