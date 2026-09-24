@@ -50,13 +50,33 @@ owner are closed; do not reopen them.**
 - **B3.** Blocking scope (§4). Should the client fixes suffice, or should a block also be enforced by the server? The
   server option needs a migration.
 
-**C. Access steps only the owner can take.**
-- **C1.** Log into the operator console and open `/reports` and `/cases`. This confirms the queues show, and puts the
-  open items in front of you.
-- **C2.** In Cloudflare Email Routing for snatchitapp.com, check which inbox `support@` forwards to. Then send a test
-  email and confirm a person receives it.
-- **C3.** Sign into the app on a phone as one of the 2 admins, with notifications allowed. On 2026-09-22, 0 of 2
-  admins had a push token, so "New report filed" pushes reach no one.
+**C. Access steps only the owner can take** (exact steps as of 2026-09-24; each read-only).
+- **C1. Operator console:** `https://snatchit-admin.vercel.app/login`.
+  - This URL was checked on 2026-09-24 at 22:11Z: `/` redirects to login, and `/reports` and `/cases` require it. The
+    console was deployed from `ab3e17f` on 2026-09-08.
+  - Sign in with email and password, then the authenticator (TOTP) code.
+  - Open `/reports`: the filters are plain searches and change nothing. Then open `/cases` and open a case to read
+    Details, Notes and Timeline. Then sign out.
+  - **Do not click** Add note, Assign, Set status, Set priority or Set due on a case (each writes an audited action).
+    Do not confirm anything under `/actions/*`, change anything on `/system`, or resolve any dispute.
+- **C2. Support inbox:**
+  - `support@snatchitapp.com` is routed by Cloudflare Email Routing (MX route1–3.mx.cloudflare.net, checked
+    2026-09-24).
+  - In Cloudflare → snatchitapp.com → Email → Email Routing, check which inbox `support@` forwards to. Then send it a
+    test email from another account and confirm a person receives it.
+- **C3. Admin push token:** only a **production** build can register one.
+  - **The only production build that exists is Build 13:** 1.0.0 (13), EAS `cb5646b5`, commit `3c67dfc`, pk_live,
+    installed from **TestFlight**. A sandbox preview is also numbered 13 (EAS `aeb89616`): do not use it.
+  - **Builds 23/24 and every current V3 preview point at the sandbox project and cannot register a production token.**
+  - Install the TestFlight Build 13 on a physical iPhone. Sign in with the admin account, which must be one of the two
+    `public.admin_users` accounts; the console's platform role is a different list. Allow notifications.
+  - The token registers at sign-in (`usePushToken.ts:69-86`). Production accepts that path (record 2026-09-24 02:25Z).
+  - **Condition:** the phone's token must not already belong to another production account. If it does, registration
+    fails silently, and moving it needs a production data change for you to decide.
+  - **Proof:** only a real notification on that phone. `notify-report` counts any 200 from `send-push` as delivered,
+    even `{sent: 0}`.
+  - Whether Build 13 is still installable (TestFlight expiry) is unverified.
+  - Admin push tokens stood at **0 of 2 as of 2026-09-22** (dated; not current).
 
 ## 4. Verification results
 

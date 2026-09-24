@@ -1927,3 +1927,30 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       `auto_release_at` (0551; platform_admin, 115:519), so "review window passed/closed" is withdrawn on both sides.
       A's own §2e cell said it and is corrected.
     - Open-`disputed` copy: "on hold" becomes "frozen until … resolved". The "24 hours" promise is G9.
+- **Refund lifecycle — release-readiness defect (A, 2026-09-24 late; owner's instruction, from source and tests only).**
+  - **Trace and design:** `REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md`, committed at eac25308 and amended since.
+    - 6 refund paths. Every writer recorded a refund as money returned at creation, regardless of Stripe's status.
+    - The one-way guard makes a later failure unrecordable.
+    - No `refund.*` event is subscribed.
+    - Screens say "Refunded $X" / "Full refund recorded" falsely.
+    - No operator detection exists.
+  - **Fix on `fix/refund-lifecycle-accuracy`** (migration 150 = `20260925000000`, pgTAP 217, webhook + expiry edge
+    changes, retargeted tests). Evidence:
+    - pgTAP 217: RED as predicted, then 41/41.
+    - SQL mutants M1–M3: all MATCH.
+    - Edge RED 18/19, then 56/56.
+    - Edge mutants M4, M6, M7: MATCH. M5 killed one more test than predicted (A's prediction error).
+    - Full pgTAP 5578/5578 and full vitest 2560/2560, run alone.
+    - Typecheck clean. `deno check` not run locally.
+  - **Owner-gated items:** O-R1 (subscribe `refund.created/updated/failed`), O-R2 (flip
+    `refund_state_detection_enabled`), O-R3 (who handles `refund_failed` cases), O-R4 (reconcile historical rows via
+    an authorised Stripe read).
+  - **D's review is pending.** D's session disappeared mid-exchange (socket gone at about 22:20Z), so the owner routes
+    it. D registered expectations `a6324b21` at 22:12:56Z.
+  - **Also:**
+    - Blocking recommendation (`BLOCKING_SCOPE_RECOMMENDATION_20260924.md`).
+    - Legal draft §D reconciliation.
+    - Exact owner-check steps: console URL, and Build 13 as the only production build that can register an admin push
+      token.
+    - Registry: 150 recorded; 151 (b2) and 152 (blocking server) reserved.
+    - Rulings to C: E's Q1–Q3 and the interim refund wording.

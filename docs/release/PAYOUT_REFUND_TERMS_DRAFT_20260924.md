@@ -115,3 +115,43 @@ Source is the release gate `037092f0`, which production runs.
 | 6.5 (a) | §A.1 above | Not observed in production |
 | 6.5 (b) | Phase 0 unfulfillable refund | Not observed in production |
 | 6.5 (c) | Manual Dashboard refund, recorded by the webhook | No executor; no alert that a refund is owed |
+
+## D. Reconciliation with the refund-lifecycle findings (A, 2026-09-24 late). The terms stay PENDING.
+
+The refund-failure defect is fixed in the app and in operations (`REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md`), **not**
+in these terms. The terms state only commitments. The changes to §B:
+
+- **6.4 Payout: timing is not promised.** Replace its last two sentences with:
+  > Snatch It starts the payout when the order is released: straight away when the buyer confirms receipt, otherwise
+  > through a regular automated process. A payout can be delayed while it is held or reviewed, or until the seller's
+  > Stripe account can receive transfers. Snatch It does not guarantee when a payout reaches the seller's bank.
+
+  The facts behind it:
+  - confirm-and-release pays at confirmation;
+  - the sweep runs every 2 minutes and picks up released orders and anything it missed;
+  - holds, reviews and the transfers capability gate the payout;
+  - Stripe schedules the bank payout.
+
+- **6.5 Refunds: requested versus completed.** Replace "Refunds go back to the original payment method; how long they
+  take to appear depends on the buyer's bank." with:
+  > Refunds are made to the original payment method, and a refund is complete when the payment processor completes
+  > it; how long it takes to appear depends on the buyer's bank. If a refund cannot be completed to the original
+  > payment method, Snatch It will contact the buyer to return the money another way.
+
+  The last sentence is an operational commitment. It holds only if the owner adopts O-R3 (who handles `refund_failed`
+  cases). If not, drop it.
+
+- **6.5(d): mandatory rights.** Change it to:
+  > Except where the law requires otherwise, a sale is final once the order is released, and Snatch It does not offer
+  > refunds, returns or exchanges.
+
+- **6.6 (new):**
+  > Nothing in these terms limits any right you have under applicable law, including consumer-protection law and your
+  > rights with your card issuer.
+
+  Product policy cannot exclude these rights, and the §6a chargeback clause already assumes the card-issuer right
+  exists.
+
+- **Not covered, for the owner and counsel:** what happens to an order when the **event is cancelled or postponed**.
+  The terms are silent. Some jurisdictions regulate ticket resale in this situation. A has not checked any law and
+  claims none.

@@ -87,6 +87,12 @@ is P3.
 - If the order then expires, P1's amount-less POST refunds the **remaining balance**. The buyer's push still says
   "Your full refund has been issued".
 
+**P6. Settling a late payment** (`settle_verified_payment`, 20260906110000:235–271). When Stripe already shows the
+charge fully refunded at settlement time, it records a refund status-blind (source `dashboard`, newest refund id).
+- This is a rare race. After the fix no state row exists for it, so the app shows the legacy "Refund recorded", never
+  "Refunded".
+- The `refund.*` webhooks fill in the real state. The path is unchanged.
+
 **P5. Lost dispute (chargeback)** is recorded through the same writer with a dispute id. It is not a refund object and
 is unchanged by this design.
 
@@ -178,12 +184,18 @@ that correctly blocks payout. They are **no longer used for display**.
 **enforce-transfer-expiry** (deploy gated by the owner):
 - P0, P1 and P1b read `status` and `failure_reason` from the create response and call `record_refund_state(…,
   'create_response')`. P0's raw fallback is removed; a missing writer fails loudly.
-- **P1b reconciles first.** It lists `GET /v1/refunds?payment_intent=…`:
-  - If a refund that is pending, requires action or succeeded exists: record it, and **don't POST**. This fixes A.4.2.
-  - If only failed or canceled refunds exist: record them (the case opens), and **don't POST**. Per Stripe, an
-    alternative is arranged instead of an automatic re-refund.
-  - If there are none: POST.
-  - P1b's selection excludes payments with `refund_failed_cents > 0` (fixes A.4.3).
+- **P1b reconciles first** (amended during implementation). It lists `GET /v1/refunds?payment_intent=…` and records
+  **every** refund it finds (`reconcile`). Then:
+  - **no POST** if a refund of **ours** exists (`metadata.transfer_id` = this transfer), whatever its status. This fixes
+    A.4.2.
+  - **no POST** if **any** refund on the charge is `failed` or `canceled`, ours or not. Per Stripe, a person arranges
+    another way to refund; the case opens.
+  - **no POST** if refunds that haven't failed already cover the total.
+  - **Otherwise POST.** A Dashboard partial refund that isn't ours doesn't block the refund of the remaining balance.
+    The earlier "any existing refund means no POST" would have stranded that balance; test H6 pins it.
+  - P1b's selection also excludes payments with `refund_failed_cents > 0` (fixes A.4.3).
+- **P0 applies the same rule** using the refunds already expanded on the charge it fetched (no extra Stripe call).
+  "Ours" there means `metadata.payment_id` = the payment and `reason = unfulfillable`.
 - **Pushes state the amount and the stage.**
   - `succeeded`: "…We've refunded $X to your original payment method."
   - `pending` / `requires_action`: "…We've requested a refund of $X to your original payment method. It will show on
@@ -232,6 +244,40 @@ Until M150 is applied, C ships nothing that depends on these columns. C's curren
   - mutant M3: P1b POSTs without reconciling (kills the P1b cases).
 
 ---
+
+### A.8 Evidence at `fix/refund-lifecycle-accuracy` (local; CI is pending on the draft PR)
+
+**pgTAP 217 (41 assertions):**
+- **RED** on the chain without 150: S1–S4 fail, then the missing writer aborts the rest (as predicted).
+- **GREEN** on the full chain: 41/41. Census 34/111/37/40, as predicted.
+- One test bug was fixed on the way: a composite row `IS NOT NULL` is true only when every field is non-null, so D3,
+  D9 and D10 were checking the wrong thing. They now test the case `id`.
+
+**SQL mutants, all MATCH:**
+- M1 (the writer counts failed refunds) killed {W10, W11, W12}.
+- M2 (the detector ignores refund state) killed {D2, D3, D4, D5, D7, D10}.
+- M3 (a human close is not respected) killed {D6}.
+- The migration file hash was unchanged afterwards.
+
+**Full pgTAP:** only two suites needed updating, both for pinned counts: 162 (census 34/111/40) and 182 (14
+settings). Both were re-pinned with their source noted.
+
+**vitest (refund-lifecycle 22, retargeted refund-dispute-webhook and settlement-sweep):**
+- RED on the unchanged edge code: 18 of 19 new tests failed. W6 passes vacuously, because the old code acknowledges
+  unknown events.
+- GREEN: 56/56.
+
+**Edge mutants:**
+- M4 (Phase 1b skips its "don't POST" check) killed {H1, H2, H2b, H7}: MATCH.
+- M5 (charge.refunded always records `succeeded`) killed {W7, W8, the expand-refunds test}. A predicted {W7, the
+  expand test}. **This was A's prediction error:** W8 also asserts the status.
+- M6 (a failed create treated as landed) killed {E4}: MATCH.
+- M7 (the event payload trusted instead of a re-fetch) killed {W1, W2, W3}: MATCH.
+
+**Full vitest:** 130 files, 2,560 tests pass, run alone. Typecheck is clean. Lint shows 0 errors.
+
+**Not run locally:** `deno check` (deno is not installed here), so the draft PR's CI is the first compile of the edge
+files.
 
 ## B. Operational choices (the owner's; each is a production action needing its own authorisation)
 
