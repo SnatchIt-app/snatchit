@@ -10,7 +10,8 @@
  *   * a partially refunded charge is passed through as-is and settles (the
  *     contract decides; the sweep never refunds a settled row) — MAJOR-1;
  *   * an `unfulfillable` row is refunded in full EXACTLY once (deterministic
- *     idempotency key), recorded through record_payment_refund (Package 3),
+ *     idempotency key), recorded through record_refund_state (150) with the
+ *     create response's own status,
  *     and its review row is resolved; "already refunded" is keyed on
  *     status = refunded / amount_refunded_cents >= total, never on
  *     stripe_refund_id — MAJOR-1;
@@ -21,8 +22,9 @@
  *     listing (best effort; the row is failed only when Stripe canceled) — NOTE-9;
  *   * `legacy_unknown_mode` rows (stripe_livemode NULL) are counted, never
  *     fetched from Stripe — MINOR-5;
- *   * when record_payment_refund does not exist yet (PGRST202) the fallback
- *     writes payments directly, guarded on status <> refunded.
+ *   * when the writer is missing (PGRST202) the sweep fails LOUDLY: Sentry,
+ *     an error count, and NO raw payments write (150 removed that fallback —
+ *     it marked a payment refunded with no refund state at all).
  * Later phases run against empty mocks and are not under test here.
  */
 import { describe, expect, it } from 'vitest';
@@ -65,8 +67,8 @@ async function scenario(opts: {
         const outcome = opts.outcomes?.[pi] ?? 'settled';
         return { data: [{ payment_id: pi.replace(/^pi_/, ''), payment_status: 'succeeded', listing_status: 'sold', transfer_id: outcome === 'settled' ? 'tr_row' : null, outcome }] };
       }
-      if (name === 'record_payment_refund') {
-        if (opts.recordRefund === 'missing') return { data: null, error: { message: 'Could not find the function public.record_payment_refund(...) in the schema cache', code: 'PGRST202' } };
+      if (name === 'record_refund_state') {
+        if (opts.recordRefund === 'missing') return { data: null, error: { message: 'Could not find the function public.record_refund_state(...) in the schema cache', code: 'PGRST202' } };
         if (opts.recordRefund === 'error') return { data: null, error: { message: 'boom' } };
         return { data: { payment_id: 'x', status: 'refunded', recorded: true } };
       }
@@ -120,7 +122,7 @@ async function scenario(opts: {
       if (opts.cancel) return opts.cancel(pi);
       return { ok: true, data: { id: pi, status: 'canceled' } };
     }
-    if (c.method === 'POST' && c.path === '/refunds') return { ok: true, data: { id: 're_sweep_1', amount: 22000, payment_intent: (c.body as Record<string, string>).payment_intent } };
+    if (c.method === 'POST' && c.path === '/refunds') return { ok: true, data: { id: 're_sweep_1', amount: 22000, status: 'pending', payment_intent: (c.body as Record<string, string>).payment_intent } };
     return { ok: false, status: 404, data: { error: { message: `unmocked ${c.method} ${c.path}` } } };
   });
   const edge = await loadEdgeHandler('supabase/functions/enforce-transfer-expiry/index.ts', {
@@ -189,11 +191,11 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     expect(s.res.status).toBe(200);
     expect(settles(s.sb)[0].params).toMatchObject({ p_amount_refunded: 500, p_stripe_refund_id: 're_partial', p_stripe_status: 'succeeded' });
     expect(refunds(s.stripe.calls)).toHaveLength(0);
-    expect(s.sb.rpcs.some((r) => r.name === 'record_payment_refund')).toBe(false);
+    expect(s.sb.rpcs.some((r) => r.name === 'record_refund_state' || r.name === 'record_payment_refund')).toBe(false);
     expect(s.body).toMatchObject({ reconciled_settled: 1, reconciled_refunded: 0, reconciled_errors: 0 });
   });
 
-  it('an unfulfillable row is refunded in full EXACTLY once with the deterministic key, recorded via record_payment_refund, review row resolved', async () => {
+  it('an unfulfillable row is refunded in full EXACTLY once with the deterministic key, recorded via record_refund_state with its status, review row resolved', async () => {
     const s = await scenario({
       work: [row('u1', 'paid_unsettled')],
       payments: { u1: { id: 'u1', status: 'succeeded', stripe_refund_id: null, stripe_livemode: true, total: 22000, listing_id: LISTING, amount_refunded_cents: null } },
@@ -207,8 +209,9 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     expect(rf[0].body).toMatchObject({ payment_intent: 'pi_u1' });
     expect((rf[0].body as Record<string, string>).amount).toBeUndefined();   // full refund
 
-    const rec = s.sb.rpcs.find((r) => r.name === 'record_payment_refund');
-    expect(rec?.params).toEqual({ p_payment_intent_id: 'pi_u1', p_stripe_refund_id: 're_sweep_1', p_stripe_dispute_id: null, p_amount_cents: 22000, p_source: 'unfulfillable' });
+    const rec = s.sb.rpcs.find((r) => r.name === 'record_refund_state');
+    expect(rec?.params).toEqual({ p_payment_intent_id: 'pi_u1', p_stripe_refund_id: 're_sweep_1', p_status: 'pending', p_amount_cents: 22000, p_failure_reason: null, p_source: 'unfulfillable', p_observed_via: 'create_response' });
+    expect(s.sb.rpcs.some((r) => r.name === 'record_payment_refund')).toBe(false);
     // No direct payments write when the RPC exists.
     expect(s.sb.queries.filter((q) => q.table === 'payments' && q.op !== 'select')).toHaveLength(0);
     const resolve = reviewUpdates(s.sb)[0];
@@ -226,7 +229,7 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     });
     expect(s.res.status).toBe(200);
     expect(refunds(s.stripe.calls)).toHaveLength(0);
-    expect(s.sb.rpcs.some((r) => r.name === 'record_payment_refund')).toBe(false);
+    expect(s.sb.rpcs.some((r) => r.name === 'record_refund_state' || r.name === 'record_payment_refund')).toBe(false);
     expect(reviewUpdates(s.sb)[0]?.body).toEqual({ resolved: true });
   });
 
@@ -242,7 +245,7 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     expect(s.body).toMatchObject({ reconciled_refunded: 1 });
   });
 
-  it('fallback when record_payment_refund is missing (PGRST202): payments update guarded on status <> refunded', async () => {
+  it('a missing writer (PGRST202) fails LOUDLY: no raw payments write, one Sentry capture, counted as an error (150)', async () => {
     const s = await scenario({
       work: [row('u3', 'review_unfulfillable', 'pending')],
       payments: { u3: { id: 'u3', status: 'pending', stripe_refund_id: null, stripe_livemode: true, total: 22000, listing_id: LISTING } },
@@ -251,11 +254,9 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
     });
     expect(s.res.status).toBe(200);
     expect(refunds(s.stripe.calls)).toHaveLength(1);
-    const upd = s.sb.queries.find((q) => q.table === 'payments' && q.op === 'update');
-    expect(upd?.body).toMatchObject({ status: 'refunded', stripe_refund_id: 're_sweep_1' });
-    expect(typeof (upd?.body as Record<string, unknown>).refunded_at).toBe('string');
-    expect(upd?.filters).toEqual([['eq', 'stripe_payment_intent_id', 'pi_u3'], ['not', 'status', 'in', '("refunded")']]);
-    expect(s.body).toMatchObject({ reconciled_refunded: 1 });
+    expect(s.sb.queries.filter((q) => q.table === 'payments' && q.op === 'update')).toHaveLength(0);
+    expect(s.edge.sentry.filter((e) => e.tag === 'enforce-transfer-expiry:phase0-record-refund-failed')).toHaveLength(1);
+    expect(s.body).toMatchObject({ reconciled_refunded: 0, reconciled_errors: 1 });
   });
 
   it('a review_unfulfillable row that now settles is resolved without a refund', async () => {
@@ -278,7 +279,7 @@ describe('enforce-transfer-expiry — Phase 0 settlement reconciliation', () => 
       runs: 2,
     });
     expect(refunds(s.stripe.calls)).toHaveLength(0);
-    expect(s.sb.rpcs.some((r) => r.name === 'record_payment_refund')).toBe(false);
+    expect(s.sb.rpcs.some((r) => r.name === 'record_refund_state' || r.name === 'record_payment_refund')).toBe(false);
     const mark = reviewUpdates(s.sb);
     expect(mark).toHaveLength(1);
     expect(mark[0].body).toEqual({ error_message: 'unfulfillable:manual_review' });
