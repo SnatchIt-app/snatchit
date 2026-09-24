@@ -1635,3 +1635,18 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - (3) `SELLER_HELD_FALLBACK`: not true (an invented timeline); replace with "Payout on hold."
   - (4) `REFUND_DUE_POLICY`: true as written, as a labelled policy on `expired`.
 - C's single vitest run during D's window: the window had closed at about 12:00; D's run was clean, so nothing is void.
+- **Owner's refinement (~17:00Z): copy rulings sent to C, replacing A's earlier (1).**
+  - "Your payout is being processed" has **no client-queried per-transfer evidence**. `payout_attempts` is
+    service_role-only; `transfers` is written only on success (`payout_released_at` + `stripe_transfer_id`); the
+    `confirm-and-release` "processing" reply is the buyer's, unstored, and also returned on a claim `db_error`.
+  - So C uses a pending state for every payout branch, regardless of deployment. "Released" comes only from
+    `payout_released_at`; held and manual review come from the review fields.
+  - **"A refund is due" = obligation**, supported only when:
+    - (expired, or dispute_resolution ∈ {`resolved_buyer_refunded`, `resolved_partial_refund`})
+    - AND the payment is `succeeded`
+    - AND no refund is recorded.
+  - A **decision** is `dispute_resolution` alone. **Execution** is a recorded refund on the payment, and is the only
+    source of "Refunded".
+  - Expiry execution is automatic once, live-mode only, with no retry. Dispute execution is manual.
+  - Test scope sent to C.
+  - The fixture pause stays; the existing approvals stand and are not re-requested.
