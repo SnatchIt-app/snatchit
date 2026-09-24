@@ -182,11 +182,28 @@ describe('status words and copy per role', () => {
     expect(REFUND_DUE_POLICY).toBe("A refund is due; it will show here once it's confirmed.");
     expect(BUYER_ORDER_CLOSED_COPY.reversed).toEqual({ title: 'Order closed', body: 'This order is closed.' });
     expect(REFUND_PENDING_LINE).toBe("If a refund is issued, it will show here.");   // A: strictly conditional — a reversal implies no refund by itself
-    expect(SELLER_REVERSED_COPY).toEqual({ title: 'Payout reversed', body: "This order's payout was reversed after a dispute or operator review." });
+    /*
+     * RETARGETED (A's finding, 2026-09-24; owner: "use A's neutral wording"). The old body said
+     * "This order's payout was reversed after a dispute or operator review" and claimed two things
+     * the row does not record:
+     *   - HOW MUCH. `mark_transfer_reversed` is called from the stripe-webhook `transfer.reversed`
+     *     handler with the transfer id alone (index.ts:810-818). `amount_reversed` is logged and
+     *     never compared with the transfer amount, so a PARTIAL reversal marks the row 'reversed'
+     *     too, and "the payout was reversed" implies all of it.
+     *   - WHY. No cause is stored anywhere on the row; "after a dispute or operator review" is a
+     *     narrative the data cannot support.
+     */
+    expect(SELLER_REVERSED_COPY).toEqual({
+      title: 'Payout reversed',
+      body: "A reversal was recorded on this order's payout. Contact support for details.",
+    });
     expect(SELLER_NO_PAYOUT_LINE).toBe('No payout for this order.');
     for (const s of [BUYER_ORDER_CLOSED_COPY.expired.body, BUYER_ORDER_CLOSED_COPY.reversed.body, SELLER_REVERSED_COPY.body]) {
       expect(s.toLowerCase()).not.toMatch(/refunded|\$|released/);
     }
+    // No cause and no amount, in either direction: the seller's reversal copy names neither.
+    expect(SELLER_REVERSED_COPY.body.toLowerCase()).not.toMatch(/dispute|review|operator|fraud|chargeback/);
+    expect(SELLER_REVERSED_COPY.title.toLowerCase() + SELLER_REVERSED_COPY.body.toLowerCase()).not.toMatch(/\bfull|entire|all of|partial|\d/);
   });
 
   it('TC4: the buyer\'s review deadline is the server timestamp, or nothing — never assumed', () => {

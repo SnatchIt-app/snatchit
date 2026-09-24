@@ -147,20 +147,49 @@ describe('the seller blocks — no payout claim before payout_released_at; the h
     expect(release.join(' ')).not.toMatch(/has been released/);
   });
 
-  it('TG4b (owner ruling 2026-09-24): no seller payout sentence promises automatic release or invents a timeline', async () => {
+  it("TG4b (A's ruling 2026-09-24, owner-applied): the review window's END is a STATUS change, so no sentence claims it passed", async () => {
     const mod = await import('@/src/components/transfer/TransferStateBlocks');
-    // The window-passed state: the window is a FACT (the server's auto_release_at has passed and the
-    // screen's own countdown says so). What follows it is not: the release decision may hold the
-    // payout, and `payout_released_at` is written only after Stripe confirms the transfer, which the
-    // job can retry indefinitely. So the state says the window passed and that the payout is
-    // pending — and nothing about when or how it moves.
-    const passed = texts(mount(() => mod.SellerSentBlock({
+    /*
+     * A's ruling, verified against the migration: `buyer_dispute_transfer` (0550) gates on
+     * `status <> 'seller_sent'` ALONE — it never looks at auto_release_at. So while the row is still
+     * seller_sent the buyer can still report an issue, whatever the clock says, and the window has
+     * NOT passed. The sentence was doubly wrong: it was keyed to the device clock, and even with a
+     * perfect clock it asserted something the server had not done. The window closes when the server
+     * moves the row (apply_auto_release in the cron, or the buyer's confirmation), and that state has
+     * its own copy.
+     *
+     * What remains for this row is the scheduled server time, which stays true after it passes
+     * because it names a DECISION, not an outcome.
+     */
+    const past = texts(mount(() => mod.SellerSentBlock({
       payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: 'Expired',
     })).output).join(' ');
-    expect(passed).toMatch(/review window has passed/);
-    expect(passed).toMatch(/Payout pending/);
-    expect(passed).not.toMatch(/automatic/i);
-    expect(passed).not.toMatch(/clears review/);
+    expect(past).not.toMatch(/window has passed/);
+    expect(past).toContain(sellerReleaseLine('2026-09-20T21:00:00Z'));
+    expect(past).toMatch(/If the buyer reports an issue/);      // still true at this status
+    // The same row with the countdown still running says exactly the same thing: no clock branch.
+    const running = texts(mount(() => mod.SellerSentBlock({
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: '2d 3h',
+    })).output).join(' ');
+    expect(running).toBe(past);
+    // And with no countdown supplied at all — the prop is no longer read.
+    const noCountdown = texts(mount(() => mod.SellerSentBlock({
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: null,
+    })).output).join(' ');
+    expect(noCountdown).toBe(past);
+    // A missing field still yields no date line, and no invented one.
+    const noField = texts(mount(() => mod.SellerSentBlock({
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null,
+    })).output).join(' ');
+    expect(noField).not.toMatch(/Release decision/);
+    expect(noField).toMatch(/Waiting for the buyer to confirm/);
+    // A hold or a manual review still suppresses the release date: the state does not warrant it.
+    for (const status of ['held', 'manual_review']) {
+      const gated = texts(mount(() => mod.SellerSentBlock({
+        payoutReviewStatus: status, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: null,
+      })).output).join(' ');
+      expect(gated, status).not.toMatch(/Release decision/);
+    }
     // And across EVERY seller payout state this block can paint: no promise, no invented clock.
     const states: Array<Parameters<typeof mod.SellerSentBlock>[0]> = [
       { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },

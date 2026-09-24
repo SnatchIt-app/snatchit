@@ -299,9 +299,17 @@ export const REFUND_PARTIAL_DUE_POLICY = "A partial refund is due; it will show 
 /** The transfer row is readable but the payment row carries no refund yet. */
 export const REFUND_PENDING_LINE = "If a refund is issued, it will show here.";
 
+/**
+ * The seller's reversed payout. A's finding (2026-09-24): the previous body — "This order's payout
+ * was reversed after a dispute or operator review" — claimed an EXTENT and a CAUSE the row does not
+ * record. `mark_transfer_reversed` is called from the stripe-webhook `transfer.reversed` handler
+ * with the Stripe transfer id alone; `amount_reversed` is logged and never compared with the
+ * transfer amount, so a partial reversal marks the row 'reversed' exactly like a full one, and
+ * nothing anywhere stores why. So: the event, no amount, no cause, and a route to a human.
+ */
 export const SELLER_REVERSED_COPY = {
   title: 'Payout reversed',
-  body: "This order's payout was reversed after a dispute or operator review.",
+  body: "A reversal was recorded on this order's payout. Contact support for details.",
 } as const;
 /** No payout ever moved for an expired order (Phase 1 runs on pending rows). */
 export const SELLER_NO_PAYOUT_LINE = 'No payout for this order.';
