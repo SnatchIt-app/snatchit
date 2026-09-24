@@ -1,5 +1,9 @@
 # V3 phone test — fixture approval sheet (A, 2026-09-24)
 
+**Revision 2 (A, 2026-09-24 ~05:10Z), after the owner's corrections of ~04:55Z:** cleanup split into independent
+tracks with their own deadlines (§5), both end-time restore outcomes handled (§5, track E), owner-unavailable rule
+(§5b), pre-session dispatch recheck (§4), and the Buy Now amount reconciled with its history (D4).
+
 **Status: NOT APPROVED. Nothing on this sheet has run.** Each line D1–D6 runs only if the owner approves that line in
 the owner's own turn. Evidence behind every value: `SANDBOX_D8_READS_20260924.md` and the deployed function bodies
 read from the sandbox at 04:36Z (`sbx_d8/fn/`, md5 per function listed in §8). Sandbox `ofaidukbieeekqaboscm` only.
@@ -12,8 +16,10 @@ All four must be true before the first write, which comes **no earlier than 15 m
 3. the owner says "go" for the session in chat;
 4. A's T0 capture (§4) has run and matches the expected values in §4.
 
-**Fallback deadline:** cleanup (§5) completes by **T0 + 2 h 30 min** whatever the session state. A starts the timer at
-the first write. Steps not run by then are recorded as not run.
+**Fallback deadlines, per track (§5):** track W1 by bid time + 60 min; tracks T and E for L-BID by T0 + 2 h 30 min,
+whatever the session state. Track C, the checkout listing and its intent, completes only when the Stripe cancellation
+is confirmed; §5b says what happens meanwhile. A starts the timers at the first write. Steps not run by their deadline
+are recorded as not run.
 
 **Listing end times decide the D1 variant.** If the session starts before 2026-09-25 02:01:44Z, the two listings are
 still live (variant A). After that, job 1 will have ended them with no bids, which gives variant B.
@@ -56,9 +62,17 @@ row-count guard of exactly 1 per row and a before/after `to_jsonb` diff, which m
 
 **D4 — quantity 2 on L-CHK.** `quantity 1 → 2` on `b1c3c478` only, with no bypass; `quantity` is not guarded.
 - Effect: the listing shows "Buy both now" and "2 tickets".
-- **Price fact to note:** `create-payment-intent` charges `buy_now_price` whatever the quantity, so checkout shows the
-  server figures $100 + $10 fee = **$110** for both tickets. The device check shows what the server says. Whether $100
-  is per listing is a product question the check exposes; it does not change it.
+- **Price semantics are settled, not new.** `buy_now_price` is charged once for the whole listing. A established it
+  as finding A-01 (`PRODUCTION_RELEASE_PACKAGE.md:2488`: `create-payment-intent` charges `buy_now_price` once, fees and
+  payout come off that base). The owner ruled whole-listing on 2026-09-22, as cited at
+  `src/lib/listing/detailState.ts:344` on C's branch. The current labels follow it at `2619b9e1`:
+  - the verb is "Buy both now" for two tickets and "Buy all N now" beyond that (`detailState.ts:348`);
+  - the quantity reads "2 × <type>" in the checkout identity (`OrderIdentity.tsx:47`) and on the bid screen, where it
+    adds "· sold together" (`PlaceBidScreen.tsx:260`);
+  - tests pin it: `listing-detail-state.test.ts:138` and `sell-state.test.ts:252` ("never says per ticket").
+- **Expected on L-CHK:** the button reads "Buy both now" with the all-in figure for **$110**, which is $100 plus the
+  $10 buyer fee; checkout shows 2 tickets and a **$110** total. The device check verifies these labels against the
+  server figure. It does not change pricing.
 
 **D2 (W1) — one bid, from the handset.** DV buyer on **L-BID only**, amount **$105**. That is the screen's preselected
 minimum: current $100 plus `MIN_BID_INCREMENT` 5. It is the only bid of the session. Verified effects, from the
@@ -135,11 +149,24 @@ The write sets `app.bypass_transfer_guard` and refuses unless the row is `seller
 | exactly one Buy Now in the session | a second Buy Now anywhere releases W2's hold (`reserve_buy_now`) |
 | exactly one bid | a second bid would create an `outbid`-class state and more cleanup |
 | device order: no-write checks, then W1, then W2 (about 12 minutes), then transfer cells (reversed ×4, F-EXP, F-HELD, deadline rows), then the buyer-to-seller account switch last | the account switch registers the seller's push token (DV-611 rule) and must not interrupt W2 |
-| W1 cleanup **before** D1 restore | restoring a past end time with the bid still present would let job 1 make the DV buyer the winner |
-| W2 intent cleanup before D4 restore | the payment row and L-CHK stay consistent until the intent is settled |
-| D5 and D6 are independent of the listings | different tables and rows |
+| L-BID's end-time restore only after track W1 is complete | restoring a past end time with the bid still present would let job 1 make the DV buyer the winner |
+| **Nothing on L-CHK or its payment row changes until the intent's cancellation is confirmed**, except that the 10-minute hold lapses on its own | a late confirmation of an open intent must meet the listing in the state it was created against |
+| tracks W1 and T never wait for Stripe | the bid, the seller's inbox row and the transfer fixtures have no link to the intent |
 
-## 4. T0 before-state capture (A, read-only, one file with md5; D witnesses if the owner authorises D's reads)
+## 4. Pre-session dispatch recheck and T0 before-state capture (A, read-only, one file with md5; D witnesses if the owner authorises D's reads)
+
+**Dispatch and executor recheck, run twice:** once at T0, immediately before the first write, and again immediately
+before W1, the only step that fires a notification trigger. Each run must match, or the session stops before the
+next write:
+- Vault secret names: exactly `project_url`; no `service_role_key`;
+- `app.settings.supabase_url` and `app.settings.service_role_key`: both unset;
+- `refund.executor_enabled` and `payout.executor_enabled`: both false;
+- `cron.job`: the same 22 jobs and active flags as read at 04:02Z; no new job;
+- deployed bodies of `notify_bid_placed`, `notify_outbid` and `notify_bid_inbox`: prosrc md5 as in §8;
+- edge function list: the same 9 functions and versions as read at 03:5xZ (`send-push` v4; `notify-transfer` not deployed);
+- `net._http_response`, last 30 minutes: status 401 only;
+- `notify.outbox`: count unchanged from T0.
+
 
 - **Rows:** L-BID, L-CHK and L-P1, full `to_jsonb` plus the D1/D4 columns. F-EXP, F-HELD, the four reversed rows,
   `8f59d37e` and `92ee5156` as row md5. Payments on the three listings (id, status, PI present). All DV-buyer
@@ -157,26 +184,77 @@ The write sets `app.bypass_transfer_guard` and refuses unless the row is `seller
   - both executor flags false;
   - outbound responses 401 only.
 
-## 5. Cleanup — order and owner
+## 5. Cleanup — four independent tracks
 
-| # | Step | Owner | Verified by |
+C's "session done or abandoned" signal starts every track that has not started yet. **Each track has its own
+deadline and none waits for another, except where this section says so.** A executes every SQL step; the owner
+executes only the Stripe cancellation; D witnesses the reads if authorised.
+
+**Track W1 — the bid, the seller's inbox row, L-BID's counters (A).** Start as soon as C reports the bid-screen
+check done, which may be mid-session. **Deadline: bid time + 60 minutes**, and in any case before L-BID's extended
+end. It never waits for Stripe.
+1. Delete the `public.notifications` row with dedupe `bid_received:<bid id>` for the DV seller: expect 1.
+2. Delete the bid by id: expect 1. `bids` has no delete trigger.
+3. With the listing bypass, set L-BID `current_bid 100, bid_count 0, highest_bidder_id NULL`.
+4. Verify: bids 0; L-BID equals T0 except `updated_at` and `ends_at`; the seller's notification count equals T0.
+
+**Track T — the transfer fixtures (A).** Start as soon as C reports the transfer-cell checks done. **Deadline: T0 +
+2 h 30 min.** It never waits for Stripe.
+1. D5: F-EXP back to `status 'pending', expired_at NULL`; verify row md5 `a4c234da…`.
+2. D6: F-HELD's four columns back to NULL; verify row md5 `d1b36045…`.
+
+**Track C — L-CHK and its intent, ordered around confirmed cancellation.**
+1. **Hold (automatic, verified by A):** the hold lapses 10 minutes after reservation and job 1 clears it within 2
+   more. A verifies `reserved_by` NULL by reservation + 15 minutes. Nothing forces it.
+2. **Identify (A):** the one DV-buyer `payments` row on L-CHK created after T0; record its id and `pi_…`; send the
+   `pi_…` to the owner at session end.
+3. **Cancel (owner):** the Stripe step in §6.
+4. **Confirm (A):** poll the row for up to 10 minutes. The deployed `stripe-webhook` moves it `pending → failed` on
+   `payment_intent.canceled`, and only from `pending`/`processing`. If it moves, cancellation is confirmed by two
+   routes, the owner's screen and Stripe's own event, and no SQL is needed.
+5. **Only if step 4 does not move it:** `update public.payments set status='failed' where id=<row> and
+   status='pending' and stripe_payment_intent_id=<pi>`, row count 1. Run it only if all hold: the owner confirmed
+   "Canceled" for exactly that id; the row still carries that id and is `pending`; L-CHK has no `succeeded` payment;
+   L-CHK is not reserved. The guard permits `pending → failed`. Record the missing webhook delivery as a finding,
+   with cancellation confirmed by one route.
+6. **Then, and only then:** D4 restore, L-CHK `quantity 2 → 1`; followed by track E for L-CHK.
+
+**Track E — end-time restore, per listing (A).** L-BID: after track W1. L-CHK: after track C step 6. Each restore
+writes back exactly the T0 values, and refuses unless `bid_count = 0`, `winner_user_id IS NULL` and the listing is not
+reserved. Three outcomes, all handled:
+
+| At T0 the listing was | At restore time R, the captured `ends_at` is | Restore writes | What follows |
 |---|---|---|---|
-| 1 | C reports the session done or abandoned; the fallback deadline applies regardless | C | — |
-| 2 | Read L-CHK: `reserved_by` NULL. If still reserved with a future `reserved_until`, wait for it to lapse (at most 12 min); never force | A | read |
-| 3 | Read the W2 row: the one DV-buyer `payments` row on L-CHK created after T0. Record its id and `pi_…` id and send the `pi_…` id to the owner | A | read |
-| 4 | **Cancel the intent in Stripe** (step below) | **owner** | owner's screen shows "Canceled" |
-| 5 | Poll the row for up to 10 minutes. The deployed `stripe-webhook` moves `pending → failed` on `payment_intent.canceled`, and only from `pending`/`processing`. If it moves, cancellation is verified by two routes and no SQL is needed | A | read |
-| 6 | If step 5 does not move it: `update public.payments set status='failed' where id=<row> and status='pending' and stripe_payment_intent_id=<pi>`, row count 1. Run it **only if all hold:** the owner confirmed "Canceled" for exactly that id; the row still carries that id and is `pending`; L-CHK has no `succeeded` payment; L-CHK is not reserved. The guard permits `pending → failed` without a bypass. Record the missing webhook delivery as a finding, with cancellation verified by one route only | A | row count, read |
-| 7 | W1: delete the `public.notifications` row with dedupe `bid_received:<bid id>` for the DV seller (expect 1); delete the bid by id (expect 1; `bids` has no delete trigger); set L-BID `current_bid 100, bid_count 0, highest_bidder_id NULL` with the listing bypass | A | L-BID equals T0 except `updated_at`; bids 0; seller notification count equals T0 |
-| 8 | D4: L-CHK `quantity 2 → 1` | A | read |
-| 9 | D5: F-EXP `status 'pending', expired_at NULL` | A | row md5 = `a4c234da…` |
-| 10 | D6: F-HELD all four columns back to NULL | A | row md5 = `d1b36045…` |
-| 11 | D1: restore the captured `ends_at` on both listings; in variant B also `auction_status 'ended'` and the captured `ended_at`, with the bypass. In variant A the restored end time is in the past, and job 1 ends the listing within 2 minutes: the same terminal state as without the test, with a later `ended_at` | A | listings equal T0 except `updated_at` (and `ended_at` in variant A) |
-| 12 | Closing read, against T0 | A, D witness | counts equal T0 plus: one `failed` W2 row; `rate_limits` rows; any push token the account switch registered, per DV-611 |
+| live (variant A) | **still in the future** | `ends_at` only | the listing stays live until the captured time, then job 1 ends it with no bids: exactly the course it was on without the test |
+| live (variant A) | **already past** | `ends_at` only | job 1 ends it within 2 minutes with no bids; `ended_at` is later than it would have been, the only difference |
+| already ended (variant B) | past | `ends_at`, `auction_status 'ended'`, `ended_at` = T0 values, with the bypass | job 1 ignores ended listings; the row equals T0 except `updated_at` |
 
-**Why the row is not marked failed earlier:** marking the row failed does not stop a charge. A live intent can still be
-confirmed, and the webhook would then move `failed → succeeded`, which the guard allows. Only cancellation is terminal
-in Stripe. `release_reservation`, the hold-expiry cleanup, cron and the edges never touch the intent or the row.
+**Closing read (A, D witness):** counts equal T0 plus the known residue:
+- the W2 row, now `failed`;
+- `rate_limits` rows;
+- any push token the account switch registered, per the DV-611 rule.
+
+**Why the row is never marked failed before cancellation:** marking the row failed does not stop a charge. A live
+intent can still be confirmed, and the webhook would then move `failed → succeeded`, which the guard allows. Only
+cancellation is terminal in Stripe. `release_reservation`, the hold-expiry cleanup, cron and the edges never touch the
+intent or the row.
+
+## 5b. If the owner is unavailable during cleanup
+
+- **Tracks W1 and T complete regardless**, by their own deadlines. The hold lapses by itself.
+- **Track C stops at step 2.** The intent stays open and the row stays `pending`. **A never marks the row failed as a
+  substitute for cancelling the intent, however long the owner is away.** L-CHK keeps quantity 2 and its extended end
+  time until cancellation is confirmed.
+- **Why that residue is contained:**
+  - no charge can occur unless someone confirms the intent with a payment method;
+  - only the handset that opened the checkout has its client secret, and the tester stops using L-CHK;
+  - the intent remains cancellable at any time;
+  - if the extended end time passes first, job 1 ends L-CHK with no bids, and track E then restores whatever T0
+    values still apply.
+- **Record:** A records the open intent in `SANDBOX_D8_READS_20260924.md` as an owner action: the `pi_…` id, the row
+  id and the time. A sends it to the owner with the other open items, and resumes at step 3 when the owner returns.
+- **Existing residue, outside this sheet:** the two older pending test intents `9f4ab181` and `fd616e02` are
+  recorded as owner items. They are not cancelled under this sheet.
 
 ## 6. The owner's Stripe step (step 4)
 
@@ -234,7 +312,7 @@ behaviour.
 
 - [ ] D1 end-time extension, L-BID and L-CHK
 - [ ] D2 W1 bid of $105 on L-BID
-- [ ] D3 W2 hold and checkout on L-CHK, with the owner's Stripe cancel at step 4
+- [ ] D3 W2 hold and checkout on L-CHK, with the owner's Stripe cancel (track C step 3); L-CHK restores only after confirmed cancellation
 - [ ] D4 quantity 2 on L-CHK
 - [ ] D5 F-EXP
 - [ ] D6 F-HELD
