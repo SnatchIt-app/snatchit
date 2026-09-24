@@ -248,7 +248,7 @@ describe('seller-win payout eligibility (payout correctness)', () => {
       await w.run();
       if (c.expect) {
         notPaid(w, ledger, `sw-${c.case}`);
-        expect(w.claimed(`sw-${c.case}`), 'the selection filters it out before any claim').toBe(0);
+        expect(w.claimed(`sw-${c.case}`), 'skipped before any claim: manual_review by the query filter, the hold cases by the Phase 2b loop').toBe(0);
       } else paidOnce(w, ledger, `sw-${c.case}`);
     });
   }
