@@ -154,7 +154,9 @@ export default function PayoutSetupScreen() {
     },
     connected: {
       title: 'Payouts connected',
-      description: 'Your account is connected. Payouts deposit automatically when your listings sell.',
+      // A's ruling (2026-09-24): a payout follows the order's RELEASE, not the sale, and eligibility
+      // applies — "deposit automatically when your listings sell" promised both away.
+      description: 'Your account is connected. After an order is released, we send your payout (the sale price minus the 10% seller fee) to your Stripe account.',
       tone: 'success', statusLabel: 'Connected', statusSub: 'Your banking details are securely managed by Stripe.', btnLabel: 'Manage payouts',
     },
   };

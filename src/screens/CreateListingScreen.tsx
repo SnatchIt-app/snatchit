@@ -65,6 +65,7 @@ import {
   sellErrors,
   sellingMethodBlurb,
   submitCtaLabel,
+  proceedsBasis,
   proceedsKicker,
 } from '@/src/lib/sell/sellState';
 import { textStyle } from '@/src/theme/typography';
@@ -801,8 +802,10 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             value={startingBid}
             onChange={setStartingBid}
             error={submitted ? errors.startingBid : undefined}
+            // "from" (A, 2026-09-24): this figure is the all-in on the STARTING bid, and an auction
+            // settles on the winning one, which can only be higher.
             helper={summary.valid && (!buyNowEnabled || buyNowPriceNum <= 0)
-              ? `Buyers pay ${summary.buyerAllInLabel}`
+              ? `Buyers pay from ${summary.buyerAllInLabel}`
               : undefined}
             sx={sx}
             p={palette}
@@ -980,8 +983,12 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
                 <Text style={[textStyle('price'), sx.stickyValue]} numberOfLines={1}>
                   {summary.sellerNet}
                 </Text>
-                {/* The one fee clause: the seller net's basis, beside the figure being decided. */}
-                <Text style={[textStyle('micro'), sx.stickyHint]} numberOfLines={1}>after the seller fee</Text>
+                {/* The one fee clause: the seller net's basis, beside the figure being decided. For an
+                    auction-only listing that basis is a FLOOR — the preview is computed on the starting
+                    bid and the server pays on the winning one (A's ruling, 2026-09-24). */}
+                <Text style={[textStyle('micro'), sx.stickyHint]} numberOfLines={2}>
+                  {proceedsBasis({ buyNowEnabled, buyNowPriceSet: buyNowPriceNum > 0 })}
+                </Text>
               </>
             ) : submitted ? (
               // §1: one validation summary, at the action, only after a submit found failures.

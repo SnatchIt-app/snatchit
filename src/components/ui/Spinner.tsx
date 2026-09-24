@@ -36,7 +36,9 @@ export function Spinner({
   const reduceMotion = useReducedMotion();
 
   const a11y = decorative
-    ? { accessibilityElementsHidden: true, importantForAccessibility: 'no' as const }
+    // 'no-hide-descendants', not 'no': the reduced-motion form renders a "• • •" Text child, and
+    // 'no' would leave that child reachable on Android (E's finding, 2026-09-24).
+    ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const }
     : { accessibilityRole: 'progressbar' as const, accessibilityLabel: label };
 
   if (reduceMotion) {

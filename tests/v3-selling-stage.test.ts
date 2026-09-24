@@ -41,12 +41,26 @@ describe('My listings — five empties that each mean something (§2)', () => {
 describe('Create — money sides once each; the summary at the action (§1)', () => {
   const src = () => code('src/screens/CreateListingScreen.tsx');
 
-  it('SL3: the inline helper states the buyer side of the value being typed — the net lives at the sticky', () => {
+  it('SL3: the inline helper states the buyer side of the value being typed — the net lives at the sticky', async () => {
     const s = src();
-    expect(s).toMatch(/helper=\{[^}]*`Buyers pay \$\{summary\.buyerAllInLabel\}`/);
+    /*
+     * RETARGETED (A's fee rulings, 2026-09-24). Two words changed, and both are claims:
+     *   - "Buyers pay FROM $X total" on the starting bid, because the figure is the all-in on the
+     *     STARTING bid and an auction settles on the winning one, which can only be higher;
+     *   - the sticky's sub-line now names the net's BASIS, through `proceedsBasis`. "after the seller
+     *     fee" alone named the deduction and left the basis unstated, so an auction-only listing read
+     *     as a promise of exactly that net.
+     */
+    expect(s).toMatch(/helper=\{[^}]*`Buyers pay from \$\{summary\.buyerAllInLabel\}`/);
     expect(s).not.toContain('`You get ${summary.sellerNet} · buyers pay ${summary.buyerAllInLabel}`');
-    // The sticky carries the seller's net with the one fee clause.
-    expect(s).toContain('after the seller fee');
+    // The sticky carries the seller's net with the one fee clause, and the clause names the basis.
+    expect(s).toContain('proceedsBasis({ buyNowEnabled, buyNowPriceSet: buyNowPriceNum > 0 })');
+    const { proceedsBasis } = await import('@/src/lib/sell/sellState');
+    expect(proceedsBasis({ buyNowEnabled: true, buyNowPriceSet: true })).toBe('at the Buy Now price, after the seller fee');
+    const auction = proceedsBasis({ buyNowEnabled: false, buyNowPriceSet: false });
+    expect(auction).toContain('after the seller fee');
+    expect(auction).toMatch(/least/);                       // the auction figure is a FLOOR
+    expect(auction).toMatch(/higher winning bid pays more/);
   });
 
   it('SL4: one validation summary, at the action, only after a submit finds failures', () => {

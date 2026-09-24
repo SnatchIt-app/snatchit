@@ -143,9 +143,12 @@ describe('the rendering path cannot mount payment setup', () => {
 
   it('CV4: the view holds no effect that reads anything, and no handler of its own', () => {
     const src = code(VIEW);
-    // Its only effect is the one-per-purchase success haptic, which touches no server.
-    expect(src.match(/useEffect\(/g)?.length).toBe(1);
+    // Two effects, and neither reads anything: the one-per-purchase success haptic, and the status
+    // announcement iOS needs now that the pay control is the only carrier of an in-flight status
+    // (`accessibilityLiveRegion` is Android-only).
+    expect(src.match(/useEffect\(/g)?.length).toBe(2);
     expect(src).toContain('hapticSuccess()');
+    expect(src).toContain('AccessibilityInfo.announceForAccessibility(status)');
     expect(src).not.toMatch(/\bfetch\(|\.rpc\(|functions\.invoke|supabase/);
     // Navigation is the one side effect it performs, and only to the two destinations the terminal
     // faces already owned.

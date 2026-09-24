@@ -244,7 +244,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(50);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error) {
       console.warn('[HomeScreen] fetch error:', error.message);
@@ -268,7 +268,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .eq('status', 'sold')
       .order('sold_at', { ascending: false })
       .limit(30);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error || !data) {
       // Rows already on screen stay: a failed refresh never empties the feed (F-BIDS-1's rule).
@@ -295,7 +295,7 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
       .neq('status', 'sold')
       .order('ends_at', { ascending: false })
       .limit(30);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error || !data) {
       console.warn('[HomeScreen] ended fetch error:', error?.message ?? 'no rows returned');
@@ -313,6 +313,25 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
   useEffect(() => {
     fetchListings().finally(() => { setLoading(false); initialLoadDone.current = true; });
   }, []);
+
+  /*
+   * THE BLOCK SET ARRIVES AFTER THE FIRST READ (A's finding, 2026-09-24). `useBlockedUserIds` starts
+   * empty and answers asynchronously, and both callers above hold the first render's `fetchListings`
+   * — `deps: []` and `deps: [expand]` — so nothing re-read when the real set landed. A blocked
+   * seller's rows were therefore on Home on every load and every return to the tab, until a
+   * pull-to-refresh, whose handler is the only one re-created each render.
+   *
+   * The reads now filter through `blockedIdsRef` (which the realtime handlers already used), so no
+   * read can hold a stale set; and this corrects what is ALREADY on screen when the set changes,
+   * without the user doing anything. It cannot loop: a fetch does not change the block set.
+   */
+  useEffect(() => {
+    if (!initialLoadDone.current || blockedIds.size === 0) return;
+    void fetchListings();
+    if (soldLoadedOnce.current) void fetchSoldListings();
+    if (endedLoadedOnce.current) void fetchEndedListings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockedIds]);
 
   useFocusEffect(
     useCallback(() => {

@@ -267,3 +267,23 @@ export function proceedsLabel(sellerNet: string, quantity: number): string {
 export function proceedsKicker(quantity: number): string {
   return quantity > 1 ? `You get for ${quantity} tickets` : 'You get';
 }
+
+/**
+ * WHAT THE PROCEEDS FIGURE IS (A's ruling, 2026-09-24). The sticky preview's net is computed from the
+ * Buy Now price, falling back to the starting bid — but an auction settles on the WINNING bid, so for
+ * an auction-only listing the figure is a FLOOR, not the amount. The old sub-line said only "after the
+ * seller fee", which named the deduction and left the basis unstated, so an auction's preview read as
+ * a promise of that exact net.
+ *
+ * The floor claim is sound: `listings` opens with `current_bid = starting_bid` (migration 072's insert
+ * guard requires it, and the create screen sets it), and `canPlaceBid` accepts only `selected >=
+ * minimum` where the minimum is the current bid plus the increment — so a winning bid can never be
+ * below the starting bid.
+ *
+ * B owns the layout; this owns the claim.
+ */
+export function proceedsBasis(i: { buyNowEnabled: boolean; buyNowPriceSet: boolean }): string {
+  return i.buyNowEnabled && i.buyNowPriceSet
+    ? 'at the Buy Now price, after the seller fee'
+    : 'the least you get, after the seller fee — a higher winning bid pays more';
+}

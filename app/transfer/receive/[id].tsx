@@ -368,7 +368,11 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   function handleDispute() {
     Alert.alert(
       'Report issue',
-      'Are you sure you want to report a problem with this transfer? This will freeze the transfer and notify support.',
+      // A's finding (2026-09-24): "notify support" was false. The report reaches notify-report, which
+      // pushes only to admins — none had a push token at the 2026-09-22 record — and emails only when
+      // EMAIL_ENABLED is on, and it is off. What DOES happen is the payout freeze (0550 sets
+      // 'disputed') and a p1 'dispute_open' case for the console (ops.detect_disputes, 117:420).
+      "Are you sure you want to report a problem with this transfer? This freezes the seller's payout and opens a case for our team.",
       [
         { text: 'Cancel', style: 'cancel' },
         {

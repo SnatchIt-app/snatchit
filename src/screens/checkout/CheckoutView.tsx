@@ -24,8 +24,8 @@
  */
 
 import { router } from 'expo-router';
-import { useEffect, useMemo, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
@@ -111,6 +111,21 @@ export default function CheckoutView({
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds).
   const topPad = useTopInset();
 
+  /*
+   * ANNOUNCE AN IN-FLIGHT STATUS ONCE, on the platform that needs it (E's finding, 2026-09-24).
+   * `accessibilityLiveRegion` is Android-only, and this screen's status is carried by the pay
+   * control alone, so on iOS a change from "Confirming payment" to "Finalizing your order" was
+   * silent. This announces the label when it changes WHILE loading — never the resting label, and
+   * never twice for the same words, so a screen reader hears one useful sentence per change.
+   */
+  const announced = useRef<string | null>(null);
+  useEffect(() => {
+    const status = pay.loading ? pay.label : null;
+    if (!status || announced.current === status) { if (!status) announced.current = null; return; }
+    announced.current = status;
+    AccessibilityInfo.announceForAccessibility(status);
+  }, [pay.loading, pay.label]);
+
   return (
     <View style={s.safe}>
       {/* V3 header, as the order and send screens draw it: the title in the screenTitle voice,
@@ -132,16 +147,17 @@ export default function CheckoutView({
           ticketType={identity.ticketType}
         />
 
-        {/* Reservation countdown (Buy Now). Tabular digits keep the m:ss from shifting width. */}
-        {reservationMsLeft != null ? (
+        {/*
+            Reservation countdown (Buy Now). Tabular digits keep the m:ss from shifting width.
+
+            At ZERO it says nothing: the pay control is already showing "Checking your hold", and this
+            row used to say the same words a second time (E's finding — with the old body status row
+            it was a third). The countdown is the row's job; the status is the control's.
+        */}
+        {reservationMsLeft != null && reservationMsLeft > 0 ? (
           <View style={s.holdRow}>
-            <Text
-              style={[textStyle('label'), reservationMsLeft === 0 ? s.holdExpired : s.hold]}
-              accessibilityLiveRegion="none"
-            >
-              {reservationMsLeft === 0
-                ? 'Checking your hold'
-                : `Held for you · ${countdown}${holdUntil ? ` · until ${holdUntil}` : ''}`}
+            <Text style={[textStyle('label'), s.hold]} accessibilityLiveRegion="none">
+              {`Held for you · ${countdown}${holdUntil ? ` · until ${holdUntil}` : ''}`}
             </Text>
           </View>
         ) : null}
@@ -171,10 +187,10 @@ export default function CheckoutView({
             treatment the transfer screens use — so a buyer meets the same shape for the same job. */}
         <View style={s.payState}>
           {preparing ? (
-            <View style={s.payStateRow}>
-              <Spinner label="Preparing secure payment" />
-              <Text style={[textStyle('body'), s.payStateText]}>Preparing secure payment</Text>
-            </View>
+            // NOTHING here while setup runs. "Preparing secure payment" was a second wording of the
+            // status the control already carries ("Setting up payment", "Authenticating"), and the
+            // body's distinct line — "Preparing your total" — is above (E's finding, 2026-09-24).
+            null
           ) : paymentMethodLine ? (
             <View style={s.payStateRow}>
               <Text style={[textStyle('body'), s.payStateText]}>{paymentMethodLine}</Text>
@@ -187,7 +203,8 @@ export default function CheckoutView({
             </View>
           ) : (
             <View style={s.payStateRow}>
-              <Spinner label="Initializing" />
+              {/* Decorative: the Text beside it says the same word. */}
+              <Spinner label="Initializing" decorative />
               <Text style={[textStyle('body'), s.payStateText]}>Initializing</Text>
             </View>
           )}

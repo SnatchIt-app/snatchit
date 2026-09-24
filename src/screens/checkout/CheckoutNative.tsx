@@ -328,7 +328,9 @@ export default function CheckoutScreen() {
         const applePayCartItems: PlatformPay.CartSummaryItem[] = [
           {
             paymentType: PlatformPay.PaymentType.Immediate,
-            label: 'Ticket',
+            // The same words as the in-app money row, and the auction's own (A, 2026-09-24). The
+            // amount is the whole-listing figure the server quoted, unchanged.
+            label: isBuyNow ? 'Tickets' : 'Winning bid',
             amount: (result.amount / 100).toFixed(2),
           },
           {
