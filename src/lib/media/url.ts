@@ -293,12 +293,20 @@ export function transformUrl(params: {
   bucket: MediaBucket;
   path: string;
   width: number;
+  /**
+   * B's harness measurement (2026-09-24): a width-ONLY request with `resize=cover` against this
+   * project returned a 56×1176 sliver — the endpoint did not preserve the source aspect, and a
+   * sliver LOADS, so no onError fires and no fallback engages. `resize` crops to a box only when
+   * both dimensions are sent, so any caller that needs a shape must say so here.
+   */
+  height?: number;
   quality: number;
   resize: 'cover' | 'contain';
 }): string {
-  const { base, bucket, path, width, quality, resize } = params;
+  const { base, bucket, path, width, height, quality, resize } = params;
   const q = new URLSearchParams({
     width: String(width),
+    ...(height != null ? { height: String(height) } : {}),
     quality: String(quality),
     resize,
   });
@@ -412,6 +420,8 @@ export function mediaUrlForStoredValue(
     bucket?: MediaBucket;
     /** Layout width in POINTS. Omit to get the untransformed object URL. */
     width?: number;
+    /** Layout height in POINTS. Send it whenever the layout is a BOX — see transformUrl. */
+    height?: number;
     devicePixelRatio?: number;
     quality?: number;
     resize?: 'cover' | 'contain';
@@ -435,6 +445,7 @@ export function mediaUrlForStoredValue(
     bucket: stored.bucket,
     path: stored.path,
     width: Math.round(opts.width * dpr),
+    height: opts.height != null ? Math.round(opts.height * dpr) : undefined,
     quality: opts.quality ?? slotQuality(dpr),
     resize: opts.resize ?? 'cover',
   });

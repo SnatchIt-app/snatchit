@@ -83,7 +83,9 @@ function makeStyles(p: Palette) {
   base: {
     minHeight: 32,
     paddingHorizontal: v2.space.md,
-    borderRadius: v2.radius.none,
+    // V3 (B's render review H2, 2026-09-24): chips carry the chrome radius — a square chip is
+    // the one V2 shape left in the header band once every neighbouring control rounded.
+    borderRadius: v2.radius.pill,
     borderWidth: 1,
     borderColor: p.border.control,
     alignItems: 'center',

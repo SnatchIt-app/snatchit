@@ -28,7 +28,7 @@ import { getAvatarUrl } from '@/src/lib/avatarImage';
 
 const PATH = 'user-1/avatar_1758600000000.jpg';
 /** What the dock passes since the fix: the painted size, with the phone's own pixel ratio. */
-const DOCK_OPTS = { width: Math.ceil(28 * 1.5), devicePixelRatio: 3 };
+const DOCK_OPTS = { width: Math.ceil(28 * 1.5), height: Math.ceil(28 * 1.5), devicePixelRatio: 3 };
 
 describe('dock and Profile derive from ONE path through the real resolver', () => {
   it('U1: the Profile screen (no width) gets the plain object URL — the endpoint the device has proven', () => {
@@ -36,13 +36,19 @@ describe('dock and Profile derive from ONE path through the real resolver', () =
     expect(url).toBe(`https://example.supabase.co/storage/v1/object/public/avatars/${PATH}`);
   });
 
-  it('U2: the dock derivative is the transform endpoint at the PAINTED size, not a 56px upscale', () => {
+  it('U2: the dock derivative is a SQUARE BOX at the painted size — width AND height', () => {
     const url = getAvatarUrl(PATH, DOCK_OPTS)!;
     expect(url).toContain('/storage/v1/render/image/public/avatars/');
     const q = new URL(url).searchParams;
     // ceil(28 * 1.5) = 42pt request × the resolver's dpr clamp (min(3,2) = 2) = 84px — exactly
     // the device pixels of a 28pt circle on a 3× phone. The old request produced width=56 here.
+    // HEIGHT is load-bearing, not decoration: B measured a width-only cover request against this
+    // project returning naturalWidth 56 × naturalHeight 1176 — a 1:21 sliver that loads cleanly,
+    // paints a smear, and never fires onError. resize=cover crops to a box only when the box has
+    // two sides.
     expect(q.get('width')).toBe('84');
+    expect(q.get('height')).toBe('84');
+    expect(q.get('resize')).toBe('cover');
     expect(Number(q.get('quality'))).toBeGreaterThan(0);
   });
 

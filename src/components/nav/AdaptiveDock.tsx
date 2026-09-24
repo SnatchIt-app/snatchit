@@ -158,7 +158,10 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
   // `getAvatarUrl` clamps dpr to 2, so a 28pt request produced a 56px file upscaled 1.5× at
   // quality 45. That soft, over-compressed disc beside the Profile screen's untouched original
   // is one of the three confirmed/possible causes behind the owner's photograph (2026-09-24).
-  const youUrl = youPath ? getAvatarUrl(youPath, { width: Math.ceil(AVATAR * 1.5), devicePixelRatio: PixelRatio.get() }) : null;
+  // BOTH dimensions, deliberately: B measured a width-only cover request returning a 56×1176
+  // sliver that LOADS — so it never error-falls-back, it just paints a smear into the circle.
+  // A square box crops centre-square server-side, the same shape every other surface shows.
+  const youUrl = youPath ? getAvatarUrl(youPath, { width: Math.ceil(AVATAR * 1.5), height: Math.ceil(AVATAR * 1.5), devicePixelRatio: PixelRatio.get() }) : null;
   // The dock is the ONLY avatar surface on the storage TRANSFORM endpoint; every other surface
   // reads the plain object URL, which the Profile screen proves works. So when the derivative
   // fails — the transform 400s, a HEIC source, a transient — the dock falls back to exactly the

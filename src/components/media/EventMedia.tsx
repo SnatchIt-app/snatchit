@@ -82,11 +82,17 @@ export interface EventMediaProps {
   children?: ReactNode;
 }
 
-/** A deterministic, brand-safe plate for when there is no renderable image. */
-function FallbackPlate({ title, height }: { title?: string; height: number }) {
+/**
+ * A deterministic, brand-safe plate for when there is no renderable image.
+ *
+ * V3 (B's H3 at 262c908b, confirmed on pkg8-home row 3): the approved fallback is the SN
+ * MONOGRAM on the plate, filling the slot's treatment — not the event's first letter floating
+ * in an empty block. The monogram is drawn as text in the display face rather than the PNG
+ * asset: the plate must not look like artwork, and the ink follows the palette.
+ */
+function FallbackPlate({ height }: { title?: string; height: number }) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
-  const initial = (title ?? '').trim().charAt(0).toUpperCase();
   return (
     <View style={[styles.fallback, { height }]}>
       <Text
@@ -95,7 +101,7 @@ function FallbackPlate({ title, height }: { title?: string; height: number }) {
         accessibilityElementsHidden
         importantForAccessibility="no"
       >
-        {initial || 'S'}
+        SN
       </Text>
     </View>
   );

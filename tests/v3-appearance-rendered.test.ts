@@ -144,7 +144,9 @@ describe('AdaptiveDock — the floating material and its inks, composited over t
 
 // ── The image fallback initial (B's A-5) ────────────────────────────────────────────────────────
 describe('EventMedia — the missing-artwork plate keeps its initial legible in both appearances', () => {
-  it('RD3: the initial is the palette\'s muted ink and clears 3:1 (large text) on the plate in BOTH appearances', async () => {
+  it('RD3: the monogram is the palette\'s muted ink and clears 3:1 (large text) on the plate in BOTH appearances', async () => {
+    // V3 (B's H3, 2026-09-24): the plate carries the SN monogram, not the event's initial.
+    // The contrast obligation is unchanged — same ink, same plate, same 3:1 floor.
     for (const [scheme, p] of palettes) {
       th.scheme = scheme as 'light' | 'dark';
       vi.resetModules();
@@ -159,7 +161,7 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
       const h2 = new HookHost(() => (plateEl!.type as (props: unknown) => unknown)(plateEl!.props), new Map());
       h2.mount(); h2.flush();
       const plate = findElement(h2.output, (el) => el.type === 'View' && JSON.stringify(el.props.style ?? '').includes('"flex":1'));
-      const initial = findElement(h2.output, (el) => el.type === 'Text' && el.props.children === 'N');
+      const initial = findElement(h2.output, (el) => el.type === 'Text' && el.props.children === 'SN');
       expect(initial, scheme).toBeDefined();
       expect(styleValue(initial, 'color'), scheme).toBe(p.text.muted);
       const plateFill = styleValue(plate, 'backgroundColor');
