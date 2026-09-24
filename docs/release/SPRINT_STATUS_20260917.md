@@ -1482,3 +1482,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Not installed, not launched:** the fixture sheet's §0 gate holds, with 1 of its 5 conditions met.
   - **Artifact and branch drift, recorded:** the branch head is `24b021a3`, one commit past the build. It restores the brand red for the Spinner arc in Light (a graphic at the 3:1 bar, not text); C reports both colours clear 3:1. **Device evidence from build 23 applies to `9c6c9bf4`, not to the branch head.** C stopped changing the branch after the build.
   - C parked two items rather than applying them: `text.faint` below 4.5:1 in both appearances, and B's N-2/N-3 design calls.
+- **F-DISPUTE-SELLERWIN-1 FIX — DRAFT PR #92 (A, 2026-09-24; owner authorisation: source, tests, reviewable PR only).**
+  - **Head and base:** `e2205bbbc1713d03677a16f485df4bbb7c07f3ff`, base the release gate.
+  - **Scope:** payout eligibility (Phase 2b (d) seller-win selection, plus the `claim_payout_attempt` hold rule) and the truthful seller notice ("Dispute resolved in your favour"; "Buyer confirmed receipt" only when `buyer_confirmed_at` is set). No manufactured timestamp. The a)+b) selection is byte-identical. The live `confirm-and-release` path now respects holds for a seller-win, as a stated fix. Migration `20260924000000` is registry 148, with guarded rollback.
+  - **Evidence:**
+    - TDD red first: vitest 12/23, pgTAP 13/43.
+    - Green: pgTAP 215 43/43, **fresh replay full pgTAP 5511/5511**, targeted vitest 89/89, full vitest 128 / 2524 (not isolated: C's suite ran concurrently), tsc 0, lint 0/29 (= gate).
+    - **CI at `e2205bbb`: all 9 checks pass**, fresh-DB census 32/108/37/38, pgTAP Files=95 / Tests=5517 Result: PASS.
+    - Mutation controls, each predicted before running: **12/12 SQL** matched. **Edge: 12/12 final.** The first-round differences (E5, E6, E9, then E11) were investigated: two redundant guards, an unreachable legacy fixture replaced by the real DAY5 B3 shape, and a test coupled to a guard, now fixed.
+    - Rollback cycle proved: it refuses on the unfixed DB, restores the pre-148 hashes, 215 then fails the same 13, and re-apply is green.
+  - The enumeration of every `buyer_confirmed` reader (server, console, app, web) is in the PR as named follow-ons.
+  - **D review pending.**
+- **F-LISTING-CRITICAL-TIER-1 (C raised, A verified at source):** the critical risk tier blocks listing creation only in the client. The 119 guard and the RLS insert policy do not read `risk_tier`. Recorded in the findings doc; the fix is an owner decision.
+- **Deployed server fact for C (source):** a seller-win (065) already leaves `buyer_confirmed_at` NULL; #92 does not change that. C's client copy fix, option (a), may proceed against current data, with the gated read coming to A.
+- **Submission checklist reconciled against Build 23** (`9c6c9bf4`, a sandbox binary, not submittable), with the consolidated owner action list G1–G10 / R1–R3 / E1–E6. Checklist commit `8a080839`.
