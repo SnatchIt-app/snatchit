@@ -127,7 +127,26 @@ screen tests prove **the mappings they exercise**; **neither proves live sandbox
 data path.** That data-path gap stays **open for a release decision** — it is not accepted for App Store
 submission by passing another state, and it closes only through D5 / D6 or real rows later.
 
-## 8 · The exact remaining owner decisions (from A's record §7; A cannot take any of them)
+## 8 · The exact remaining owner decisions — A's approval sheet governs
+
+**The one approval sheet is A's: `docs/release/SANDBOX_V3_FIXTURE_APPROVAL_SHEET_20260924.md` on
+`release/candidate-20260918` @ `20ef22b7` — full fixture ids, exact deadline extensions and held-state values,
+test dependencies, before-state capture, cleanup order and owner, the Stripe step for W2's intent, and the
+verified W1 trace (its §2 supersedes the paragraph in §3 above where they differ). It is NOT approved.** The
+table below is the summary only; the sheet is what the owner signs.
+
+**Device rules the sheet fixes (A, 2026-09-24), which §6 follows:** W1 is exactly one bid of $105 (the
+screen's preselected minimum) on `58cc00e3` only. W2 is the only Buy Now of the session, on `b1c3c478` only,
+after its quantity is set to 2 — `reserve_buy_now` releases any other active hold by the same buyer, so a second
+Buy Now anywhere kills W2's hold. `c343406e` is not extended and must not enter checkout (it carries the DV
+buyer's old pending intent `9f4ab181`). In W2 never tap Pay: capture the Light and Dark boards within the
+10-minute hold, stay on the screen, at 10:00 the countdown shows the hold-lost board, then leave with Back.
+"Buy both now" will show a $110 total because the server charges `buy_now_price` whatever the quantity — a
+product question the check exposes, not something to change. Device order: no-write checks → W1 → W2 → the
+transfer cells (reversed ×4, F-EXP `19be875b`, F-HELD `83b83858`, deadline rows `8f59d37e` and `92ee5156`) →
+the buyer-to-seller account switch last. Timing: the writes happen no earlier than 15 minutes before the first
+device step, after the build is installed and the owner says go, never while implementation is moving; cleanup
+has a fallback deadline of T0 + 2h30m; **C owns the "session done or abandoned" signal that starts cleanup.**
 
 | # | Decision | Fixture | Side effects | Cleanup |
 |---|---|---|---|---|
