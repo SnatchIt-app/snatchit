@@ -39,7 +39,8 @@ describe('Profile — the board, over an untouched data layer', () => {
   it('P4: SELLER renders the board\'s stacked label/value rows, and unknown proceeds stay "—"', () => {
     expect(src).toMatch(/<StatRow s=\{s\} label="Active"/);
     expect(src).toMatch(/<StatRow s=\{s\} label="Sold"/);
-    expect(src).toMatch(/<StatRow s=\{s\} label="Proceeds" value=\{stats\.revenue > 0 \? formatDollars\(stats\.revenue\) : '—'\}/);
+    // RETARGETED (E, 2026-09-24): 2dp, through the V3 display formatter. The "—" rule is unchanged.
+    expect(src).toMatch(/<StatRow s=\{s\} label="Proceeds" value=\{stats\.revenue > 0 \? formatDollarsV3\(stats\.revenue\) : '—'\}/);
     // The V2 three-up stat strip is gone.
     expect(src).not.toMatch(/statDivider/);
     expect(src).not.toMatch(/textStyle\('price'\), s\.statValue/);

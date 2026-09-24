@@ -34,7 +34,7 @@ import { SIGN_OUT_FAILED_COPY, signOutThisDevice } from '@/src/lib/auth/signOut'
 import type { MyProfileRPC } from '@/src/types';
 import { useAuth } from '@/src/hooks/useAuth';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { formatDollars, sellerNetDollars } from '@/src/lib/money';
+import { formatDollarsV3, sellerNetDollars } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
@@ -334,7 +334,9 @@ export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } 
           <StatRow s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
           <StatRow s={s} label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
           {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
-          <StatRow s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
+          {/* V3 money display: 2dp, like every other figure in the app (E, 2026-09-24). Display only —
+              the value and every calculation behind it are unchanged. */}
+          <StatRow s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollarsV3(stats.revenue) : '—'} />
           <SettingsRow
             label="My listings"
             value={`${totalListings} total`}

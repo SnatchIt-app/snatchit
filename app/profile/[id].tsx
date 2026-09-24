@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { allInLabel } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -66,7 +66,9 @@ function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {
       </View>
       <View style={s.listingRight}>
         <Text style={[textStyle('micro'), s.listingBidLabel]}>Current bid</Text>
-        <Text style={[textStyle('price'), s.listingBid]} numberOfLines={1}>{allInLabel(listing.current_bid)}</Text>
+        {/* V3: 2dp, and the word "total" is dropped — the label above already says what the figure is
+            (E, 2026-09-24). Display only. */}
+        <Text style={[textStyle('price'), s.listingBid]} numberOfLines={1}>{allInFromDollarsV3(listing.current_bid)}</Text>
       </View>
     </Pressable>
   );

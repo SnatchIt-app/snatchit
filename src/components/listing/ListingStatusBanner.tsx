@@ -22,7 +22,10 @@ import type { ListingStatus, StatusTone } from '@/src/lib/listing/detailState';
 
 function toneColors(p: Palette): Record<StatusTone, string> {
   return {
-    brand: p.brand.red,
+    // The GRADED red, not the signature one (E's measurement, 2026-09-24): #FF1A1A on Light's #F4F4F6
+    // is 3.53:1, and this tone paints 12pt `label` text. `brand.redText` is the ink that exists for
+    // red TEXT in both appearances; the signature red stays on fills.
+    brand: p.brand.redText,
     success: p.status.success,
     warning: p.status.warning,
     danger: p.status.error,

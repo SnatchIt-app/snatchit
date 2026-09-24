@@ -340,13 +340,17 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
           {/* Stepper and quick-add keys carry the product's press response
               (CFT-201): they are Tappable, not bare Pressables. */}
           <View style={s.stepper}>
+            {/* Frozen while a bid is in flight (E, 2026-09-24). The single-flight guard already stops
+                a second submission, but the AMOUNT could still be changed underneath one: the screen
+                would show $115 while $105 was committed, and the outcome alert — which speaks about
+                the submitted amount — would disagree with the figure on screen. */}
             <Tappable
-              style={[s.stepBtn, atFloor && s.stepBtnOff]}
+              style={[s.stepBtn, (atFloor || submitting) && s.stepBtnOff]}
               onPress={decrease}
-              disabled={atFloor}
+              disabled={atFloor || submitting}
               accessibilityRole="button"
               accessibilityLabel="Lower bid"
-              accessibilityState={{ disabled: atFloor }}
+              accessibilityState={{ disabled: atFloor || submitting }}
               hitSlop={6}
             >
               <Text style={[s.stepGlyph, s.stepGlyphMinus]} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>{'−'}</Text>
@@ -362,10 +366,12 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
               {fmt$(selectedBid)}
             </Text>
             <Tappable
-              style={s.stepBtn}
+              style={[s.stepBtn, submitting && s.stepBtnOff]}
               onPress={increase}
+              disabled={submitting}
               accessibilityRole="button"
               accessibilityLabel="Raise bid"
+              accessibilityState={{ disabled: submitting }}
               hitSlop={6}
             >
               <Text style={s.stepGlyph} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>+</Text>
@@ -383,10 +389,12 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
               <Tappable
                 key={n}
                 wrapperStyle={s.quickWrap}
-                style={s.quick}
+                style={[s.quick, submitting && s.stepBtnOff]}
                 onPress={() => addQuick(n)}
+                disabled={submitting}
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${fmtStep$(n)}`}
+                accessibilityState={{ disabled: submitting }}
                 hitSlop={4}
               >
                 <Text style={[textStyle('action'), s.quickText]}>+{fmtStep$(n)}</Text>

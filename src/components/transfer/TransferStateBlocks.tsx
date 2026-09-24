@@ -177,7 +177,11 @@ export function SellerSentBlock({
       {payoutReviewStatus === 'manual_review' ? (
         <Text style={[textStyle('bodySm'), s.sub]}>{SELLER_MANUAL_REVIEW}</Text>
       ) : null}
-      <Text style={[textStyle('bodySm'), s.warn]}>{SELLER_REPORT_WARNING}</Text>
+      {/* B's F-91-1 (2026-09-24): "your payout WILL be held for review" is a future conditional, and
+          under `held` or `manual_review` it is already true — the two lines above say so with the
+          server's own fields. Warning a seller about a consequence they are living in reads as a
+          second, weaker copy of it. */}
+      {noReview ? <Text style={[textStyle('bodySm'), s.warn]}>{SELLER_REPORT_WARNING}</Text> : null}
     </StateBlock>
   );
 }

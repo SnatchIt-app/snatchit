@@ -312,6 +312,16 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
 
   useEffect(() => {
     fetchListings().finally(() => { setLoading(false); initialLoadDone.current = true; });
+    /*
+     * A HARNESS THAT STARTS ON A LAZY CHIP MUST READ THAT DATASET (B's F-91-7 at 91062ab1: the
+     * sold-empty and ended-empty variants painted NOTHING below the header). The lazy datasets are
+     * fetched when a selection asks for them, and a fixture that SEEDS the chip never made that
+     * selection — so the dataset had no settled read, `mayShowEmptyCopy` was false, and the screen
+     * correctly refused to say the marketplace was empty. The seed now performs the read the
+     * selection would have performed. Nothing changes for a real session, which has no `fixture`.
+     */
+    if (fixture?.chip === 'recently_sold') void fetchSoldListings();
+    if (fixture?.chip === 'ended') void fetchEndedListings();
   }, []);
 
   /*

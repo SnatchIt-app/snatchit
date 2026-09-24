@@ -401,7 +401,9 @@ function makeStyles(p: Palette) {
     height: 1,
     marginHorizontal: 20,
     marginBottom: 10,
-    backgroundColor: p.border.overArt,
+    // `border.default`, like Home's row divider. `border.overArt` is white at 10% — it exists for a
+  // line drawn ON a photograph, and on Light's white canvas it is invisible (E, 2026-09-24).
+    backgroundColor: p.border.default,
   },
   resultsHeader: {
     flexDirection: 'row',

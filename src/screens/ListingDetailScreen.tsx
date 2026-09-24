@@ -1201,9 +1201,11 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   // under one eyebrow and separated by hairlines. Type and quantity are NOT repeated here: the
   // panel above already states "2 × GA tickets".
   //
-  // The breakdown rows exist only while a bid can be placed. On a closed listing there is no
-  // minimum to break down, so the eyebrow and both rows are absent rather than stale.
-  const showBreakdown = state.mode !== 'closed';
+  // The breakdown rows exist only while a bid can be placed, and `offersBid` is the one predicate
+  // that answers that — the same one the commitment sentence and the Buy Now recovery already use
+  // (R-5). `mode !== 'closed'` was a second, wider answer: it admitted the seller's own listing and a
+  // reservation the viewer is holding, where there is no bid to break down (B's F-91-4; E's item 1).
+  const showBreakdown = offersBid(state);
   const sellerName = sellerProfile?.display_name?.trim() || 'Seller';
   const detailRows: FactRow[] = [
     ...(showBreakdown

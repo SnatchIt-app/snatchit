@@ -85,7 +85,9 @@ describe('Phase 10 surfaces — shipped-source guards', () => {
     expect(profile).toContain("from('user_blocks')");
     expect(profile).toContain('/report/user/');
     expect(profile).toContain('deriveReputation(');
-    expect(profile).toContain('allInLabel('); // money via the all-in helper
+    // RETARGETED (E, 2026-09-24): the V3 all-in display, 2dp, and the trailing "total" dropped because
+    // the label above the figure already says what it is.
+    expect(profile).toContain('allInFromDollarsV3('); // money via the all-in helper
     expect(profile).toContain('EventMedia');   // shared media system
     expect(profile).toContain('!isSelf');       // actions hidden on your own profile
     expect(profile).not.toMatch(/kernel[^\n]*tickets/);

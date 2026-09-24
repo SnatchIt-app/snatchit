@@ -60,10 +60,17 @@ describe('bidOutcomeCopy — calm, exact, and honest about position', () => {
     expect(c.body).toContain('someone has already bid $90');
     expect(c.body).not.toMatch(/leading|win/i);
   });
-  it('accepted: the old "Bid placed" wording, unchanged', () => {
+  it('accepted: the old "Bid placed" wording, now in the V3 money spelling', () => {
+    /*
+     * RETARGETED (E's finding, 2026-09-24): the outcome alerts used the V2 formatters, so an alert
+     * said "$88" about a screen that said "$88.00" — one figure, two spellings, in one interaction.
+     * The V3 display formatters are what every other money figure in the app uses. Display only: the
+     * integer-cent arithmetic behind these strings is untouched.
+     */
+
     const c = bidOutcomeCopy('accepted', 80, null);
     expect(c.title).toBe('Bid placed');
-    expect(c.body).toBe("Your bid of $80 is in. If you win, you'll pay $88 total (includes the 10% service fee).");
+    expect(c.body).toBe("Your bid of $80.00 is in. If you win, you'll pay $88.00 total (includes the 10% service fee).");
   });
 });
 

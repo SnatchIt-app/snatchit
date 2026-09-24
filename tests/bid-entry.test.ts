@@ -21,7 +21,7 @@ import {
   bidPriceLines,
   bidTotalLabel,
 } from '../src/lib/bid/bidEntry';
-import { buyerFeeCents, buyerTotalCents, dollarsToCents, formatCents } from '../src/lib/money';
+import { buyerFeeCents, buyerTotalCents, dollarsToCents, formatCents, formatCentsV3 } from '../src/lib/money';
 
 // ─── Pure bid math ──────────────────────────────────────────────────────────
 
@@ -52,7 +52,13 @@ describe('bid all-in — composed from money.ts, no local fee math', () => {
     expect(lines.bid).toBe(formatCents(cents));
     expect(lines.fee).toBe(formatCents(buyerFeeCents(cents)));
     expect(lines.total).toBe(formatCents(buyerTotalCents(cents)));
-    expect(bidTotalLabel(80)).toBe(formatCents(buyerTotalCents(cents)));
+    /*
+     * RETARGETED (E's finding, 2026-09-24): `bidTotalLabel` is the figure an ALERT shows, and it now
+     * uses the V3 display spelling so it matches the screen the bidder just left. The value it
+     * displays is the same cents `buyerTotalCents` returns — asserted here through the V3 formatter,
+     * so the mirror still catches a drift in the arithmetic rather than in the spelling.
+     */
+    expect(bidTotalLabel(80)).toBe(formatCentsV3(buyerTotalCents(cents)));
   });
 });
 
@@ -125,7 +131,9 @@ describe('Profile — shipped-source guards', () => {
 
   it('keeps UNKNOWN proceeds distinct from a real zero', () => {
     // Proceeds render "—" when zero; a real $0 is never shown as a number here.
-    expect(screen).toMatch(/stats\.revenue > 0 \? formatDollars\(stats\.revenue\) : '—'/);
+    // RETARGETED (E, 2026-09-24): the figure is now the V3 display spelling, 2dp like every other
+    // money figure in the app. The "—" rule this case is about is unchanged.
+    expect(screen).toMatch(/stats\.revenue > 0 \? formatDollarsV3\(stats\.revenue\) : '—'/);
   });
 
   it('does not expose the full phone number', () => {
