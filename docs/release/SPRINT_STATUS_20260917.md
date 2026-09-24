@@ -1772,3 +1772,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     coming. A test is asked for.
   - **Clean-run request:** C's 2747/2748 run included uncommitted peer edits, so it is not a run of `dd81fb97`.
   - READFAIL fix `25b7e1f6` accepted: a silent post-reserve refresh, pinned by a test, re-verified by D.
+- **C's fourth-read follow-up at `54d5492f`** (verified by A by reading, plus C's clean worktree).
+  - **Accepted:**
+    - the decided-dispute payout sentence now comes from `payout_released_at` alone;
+    - an unpaid operator seller-win now reads "Payout pending." — a live defect C found while answering A;
+    - the clean run: a detached worktree at `54d5492f` with 0 dirty files, 154 files, 2750/2750. The file lacks the
+      exit status; C is asked to append it.
+  - **Blocking:** `send/[id].tsx:481` still says "Your payout is being processed…" on the genuine-confirmation path,
+    and P3 pins it. The owner's 16:51Z ruling covers genuine confirmations explicitly, so it must become the pending
+    state, with the Settings sentence allowed as guidance.
+  - A's audit of the remaining payout-progress copy: `settings/index.tsx:190` (a server fact) and `payout-setup.tsx:186`
+    (generic) are fine.
