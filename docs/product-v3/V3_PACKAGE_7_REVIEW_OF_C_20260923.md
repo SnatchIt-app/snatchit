@@ -100,3 +100,73 @@ now show what C built, plus the three corrections above.
 | Implemented on C's branch | Bid entry, listing, feed rows, checkout — at `d8d7be1a`. **Not shipped, not deployed** |
 | Reviewed | **This document.** 3 findings open with C |
 | Device-verified | **Nothing.** No build, no simulator, no production read |
+
+---
+
+# Round 2 — checkout `dd410da4` and selling `646361f8`
+
+## 6 · Adopted from C, and better than my design
+
+### `labelCarriesAmount` — a rule where I had made a decision
+
+```ts
+// listingSummary.ts:116 — the sticky Total renders only when the pay control's own
+// label does not already state an amount — on the action or beside it, never both.
+export function labelCarriesAmount(label: string): boolean { return /\$\d/.test(label); }
+```
+
+**My increment-2 design deleted the checkout sticky Total unconditionally.** That is right for the one state
+I was looking at — `paymentReady`, where the button reads `Pay $132.00`. **It is wrong for the other nine.**
+`payControl` has ten states, and *"Check again"*, *"Try again"*, *"Confirming payment"*, *"Setting up
+payment"* and the rest carry **no amount at all**. Under my rule the total leaves the action area in every
+one of them, surviving only in the breakdown — which scrolls.
+
+**C turned my decision into a guarantee:** the total is always adjacent to the action, and never twice.
+**Adopted.** The design now states the rule, not the outcome.
+
+*One note, not a defect:* `/\$\d/` assumes a leading `$`. Every shipped `payControl` label uses one, so it
+holds today; a label formatted as `Pay 132.00 USD` would slip past it.
+
+### Other work in these two commits
+
+- **`OrderIdentity`** extracted so checkout's identity block is built once instead of twice inline. Good.
+- **The validation summary moved into the sticky bar** when a submit has found failures — *"Fix the
+  highlighted fields before listing."* sits at the action, which is exactly what Package 3 criterion 2 asks
+  for and better than where my board had it.
+- **Create's money sides:** inline now reads `Buyers pay $99.00` only; the sticky keeps the seller net and
+  *"after the seller fee"*. **Matches increment 4 exactly.**
+- **Gated files untouched again** — `listingSummary.ts` is not on the gated list.
+
+---
+
+## 7 · R-4 — the Create review card is still rendered
+
+`CreateListingScreen.tsx:812-817` on `646361f8` still renders the review card:
+
+| Row | Value |
+|---|---|
+| Event · Tickets · Selling | restated from fields still visible above |
+| **Buyer pays** | `summary.buyerAllInLabel` — **second appearance**, the inline line has it |
+| **You receive** | `proceedsLabel(summary.sellerNet, …)` — **second appearance**, the sticky bar has it |
+
+**Both money figures still appear twice on C's Create screen.** Increment 4 deletes the card; C's commit did
+not. I checked the release source before saying so — **the card is genuinely shipped** (`ReviewRow`,
+`sx.reviewCard`, `:810`), so this is a real shipped-surface deletion and not one of my own additions.
+
+**Recommendation stands: delete the card.** It restates a one-page form the seller can still see, and a
+review step earns its place in a wizard, not here. If C disagrees, the minimum is dropping its two money rows
+so each figure appears once — but then the card is three rows of things already on screen, which is the
+weaker half of it.
+
+---
+
+## 8 · Open with C after round 2
+
+| # | Item | Status |
+|---|---|---|
+| **R-1** | Bid-screen reference in bid units | **Resolved by the owner** — implement `Current bid $90.00`, keep the `Starting bid` switch |
+| **R-2** | Listing's would-be total appears twice | Open |
+| **R-3** | `If you win / $115.50` → `Total if you win` | **Superseded** — the sticky total is gone entirely under the owner's final bid direction |
+| **R-4** | Create review card still rendered | **New** |
+| — | The bid summary (three rows, Total strongest, button below) | Designed, not yet implemented |
+| — | Your order, send transfer, search, F-28, F-29 | Designed, not yet implemented |
