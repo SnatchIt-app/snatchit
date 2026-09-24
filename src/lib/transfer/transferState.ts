@@ -133,7 +133,18 @@ export function transferReadOutcome(i: {
 }
 
 /** The canonical badge label + tone for a status. Word carries the meaning. */
-export function transferStatusMeta(status: string, role: TransferRole = 'buyer'): { label: string; tone: TransferTone } {
+export function transferStatusMeta(
+  status: string,
+  role: TransferRole = 'buyer',
+  /** See `transferStatusCopy`: a NULL `buyer_confirmed_at` on `buyer_confirmed` is an operator's
+   *  dispute decision, not a confirmation. Defaults to true so existing callers are unchanged. */
+  opts: { buyerConfirmed?: boolean } = {},
+): { label: string; tone: TransferTone } {
+  // The badge must not assert receipt to someone who reported non-receipt and lost, and it is not a
+  // success for them either.
+  if (status === 'buyer_confirmed' && opts.buyerConfirmed === false) {
+    return { label: 'Resolved', tone: 'neutral' };
+  }
   switch (status) {
     case 'pending':         return { label: 'Pending',     tone: 'neutral' };
     case 'seller_sent':     return { label: 'Marked sent', tone: 'neutral' };

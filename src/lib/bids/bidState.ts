@@ -35,6 +35,13 @@ export type TransferStatusLike =
 export interface BidRowInput {
   amount: number;                 // WHOLE DOLLARS — the user's max bid, or the sale price for a purchase row
   purchaseTransferStatus?: TransferStatusLike;
+  /**
+   * `buyer_confirmed` is reached by the buyer confirming OR by an operator resolving a dispute for
+   * the seller; only the buyer's own confirmation writes this timestamp. NULL on that status means
+   * the board must not say "Received". Absent (undefined) is treated as a confirmation, so callers
+   * that do not select the column keep their existing label.
+   */
+  purchaseBuyerConfirmedAt?: string | null;
   needsDeliveryInfo?: boolean;
   transferId?: string | null;
   listing: {
@@ -198,10 +205,18 @@ export function bidPresentation(row: BidRowInput, userId: string, now: number = 
       return base({ label: 'Winning', tone: 'success', actionHint: "You're leading", priority: 5,
         priceLabel: 'Current bid', priceDollars: l?.current_bid ?? 0,
         secondaryLabel: 'Your max', secondaryDollars: row.amount });
-    case 'purchase_confirmed':
-      return base({ label: 'Received', tone: 'success', actionHint: 'View transfer',
-        routesToTransfer: true, priority: 6,
-        priceLabel: 'Paid', priceDollars: row.amount });
+    case 'purchase_confirmed': {
+      // Same status, two causes. An operator's dispute decision is not a receipt, and it is not a
+      // success for the buyer who reported non-receipt; the row still routes to the transfer.
+      const byOperator = row.purchaseTransferStatus === 'buyer_confirmed'
+        && row.purchaseBuyerConfirmedAt === null;
+      return base({
+        label: byOperator ? 'Resolved' : 'Received',
+        tone: byOperator ? 'neutral' : 'success',
+        actionHint: 'View transfer', routesToTransfer: true, priority: 6,
+        priceLabel: 'Paid', priceDollars: row.amount,
+      });
+    }
     case 'sold':
       return base({ label: 'Sold', tone: 'neutral', actionHint: 'View listing', priority: 7,
         priceLabel: 'Sold for', priceDollars: l ? saleDollars(l) : row.amount });

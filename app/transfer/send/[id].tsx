@@ -28,6 +28,7 @@ import {
   sellerAlreadySent,
   sellerDeliveryMissing,
   sellerWindowView,
+  sellerHoldLine,
   transferReadOutcome,
   transferStatusCopy,
   transferStatusMeta,
@@ -326,7 +327,7 @@ export default function TransferSendScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status, 'seller');
+  const meta = transferStatusMeta(transfer.status, 'seller', { buyerConfirmed: transfer.buyer_confirmed_at != null });
 
   return (
     <View style={s.root}>
@@ -455,9 +456,18 @@ export default function TransferSendScreen() {
           // says only what payout_released_at states.
           const byBuyer = transfer.buyer_confirmed_at != null;
           const copy = transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer });
+          // A genuine confirmation overrides holds and pays immediately, so its wording is
+          // unchanged. An operator decision does not: the payout waits for the hold to pass or for
+          // an operator to act, and "being processed" would overstate that. So for !byBuyer the line
+          // is whatever the payout fields actually state (A's review of ca27d282, follow-on 3).
+          const heldLine = sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until);
           const payoutLine = transfer.payout_released_at
             ? 'Your payout has been released.'
-            : 'Your payout is being processed, make sure your payout account is set up in Settings.';
+            : !byBuyer && transfer.payout_review_status === 'held'
+              ? (heldLine ?? 'Payout on hold. We will tell you when it is released.')
+              : !byBuyer && transfer.payout_review_status === 'manual_review'
+                ? 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.'
+                : 'Your payout is being processed, make sure your payout account is set up in Settings.';
           return (
             <StateBlock title={copy.title} tone="success">
               <Text style={[textStyle('bodySm'), s.stateText]}>{`${copy.body} ${payoutLine}`}</Text>

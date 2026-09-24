@@ -75,6 +75,8 @@ type BidRow = {
    *  win + paid, or Buy Now). The transfer's lifecycle drives the badge.
    *  See getBidStatus(). */
   purchaseTransferStatus?: PurchaseTransferStatus;
+  /** NULL on a `buyer_confirmed` row means an operator resolved a dispute, not a confirmation. */
+  purchaseBuyerConfirmedAt?: string | null;
   /** Transfer id for purchase rows — tap routes to /transfer/receive/[id]. */
   transferId?: string;
   /** True while the buyer still has to provide delivery email/phone. */
@@ -206,6 +208,7 @@ export default function BidsScreen() {
         id,
         listing_id,
         status,
+        buyer_confirmed_at,
         created_at,
         delivery_email,
         delivery_phone,
@@ -238,6 +241,7 @@ export default function BidsScreen() {
       const needsInfo = !t.delivery_email && !t.delivery_phone;
       if (existing) {
         existing.purchaseTransferStatus = ts;
+        existing.purchaseBuyerConfirmedAt = t.buyer_confirmed_at ?? null;
         existing.transferId             = t.id;
         existing.needsDeliveryInfo      = needsInfo;
       } else {
@@ -253,6 +257,7 @@ export default function BidsScreen() {
           listing:                  listing ?? null,
           coverUrl,
           purchaseTransferStatus:   ts,
+          purchaseBuyerConfirmedAt: t.buyer_confirmed_at ?? null,
         });
       }
     }
@@ -407,6 +412,7 @@ function toInput(row: BidRow) {
   return {
     amount: row.amount,
     purchaseTransferStatus: row.purchaseTransferStatus,
+    purchaseBuyerConfirmedAt: row.purchaseBuyerConfirmedAt,
     needsDeliveryInfo: row.needsDeliveryInfo,
     transferId: row.transferId,
     listing: row.listing

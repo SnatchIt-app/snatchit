@@ -396,7 +396,7 @@ export default function TransferReceiveScreen() {
     );
   }
 
-  const meta = transferStatusMeta(transfer.status, 'buyer');
+  const meta = transferStatusMeta(transfer.status, 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null });
 
   return (
     <View style={s.root}>

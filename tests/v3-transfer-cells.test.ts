@@ -288,7 +288,10 @@ describe('the seller\'s send screen — reversed cell and the release line (sour
     expect(src).toContain('<SellerReversedBlock />');
     const blocks = readFileSync('src/components/transfer/TransferStateBlocks.tsx', 'utf8');
     expect(blocks).toContain('SELLER_REVERSED_COPY.title');
-    expect(src).toContain("transferStatusMeta(transfer.status, 'seller')");
+    // The role is still what makes `reversed` read "Payout reversed" here and "Closed" for a buyer.
+    // The call now also carries `buyerConfirmed`, so that a seller-win dispute decision is not
+    // badged "Received" — the role argument is what this pin is about and it is unchanged.
+    expect(src).toContain("transferStatusMeta(transfer.status, 'seller', { buyerConfirmed:");
   });
 
   it('TS2: the seller_sent line names the release DECISION time from the server, replacing the old "releases once it clears review" sentence', async () => {

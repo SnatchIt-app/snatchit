@@ -68,3 +68,56 @@ describe('a dispute decision is not a confirmation', () => {
     expect(block).not.toMatch(/'The buyer confirmed they received the tickets\./);
   });
 });
+
+/**
+ * A's review of ca27d282 passed the gated read and named three more surfaces asserting the same
+ * thing the body copy no longer does. The badge is the loudest of them: "Received", in success tone,
+ * shown to a buyer who reported non-receipt and lost.
+ */
+describe('the other surfaces that asserted receipt', () => {
+  it('DR7: the badge for an operator decision does not say "Received"', async () => {
+    const { transferStatusMeta } = await import('@/src/lib/transfer/transferState');
+    for (const role of ['buyer', 'seller'] as const) {
+      const meta = transferStatusMeta('buyer_confirmed', role, { buyerConfirmed: false });
+      expect(meta.label, role).toBe('Resolved');
+      // Not a success for the buyer: they asked for help and the decision went the other way.
+      expect(meta.tone, role).toBe('neutral');
+    }
+    // A real confirmation is unchanged, including the default with no option passed.
+    expect(transferStatusMeta('buyer_confirmed', 'buyer', { buyerConfirmed: true })).toEqual({ label: 'Received', tone: 'success' });
+    expect(transferStatusMeta('buyer_confirmed')).toEqual({ label: 'Received', tone: 'success' });
+  });
+
+  it('DR8: both transfer screens pass the fact to the badge, not just to the body', () => {
+    for (const rel of ['app/transfer/receive/[id].tsx', 'app/transfer/send/[id].tsx']) {
+      const src = read(rel);
+      expect(src, rel).toMatch(/transferStatusMeta\([^)]*buyerConfirmed/s);
+    }
+  });
+
+  it('DR9: the Bids board does not label an operator decision "Received"', async () => {
+    const { bidPresentation } = await import('@/src/lib/bids/bidState');
+    const ME = 'me';
+    const row = (extra: Record<string, unknown>) => ({
+      id: 'b1', amount: 10000, bidder_user_id: ME, listing_id: 'l1',
+      listing: { id: 'l1', seller_id: 's1', auction_status: 'ended', current_bid: 10000, winner_user_id: ME },
+      purchaseTransferStatus: 'buyer_confirmed', ...extra,
+    });
+    // Same status, two causes: the board must not read "Received" for the operator decision.
+    const decided = bidPresentation(row({ purchaseBuyerConfirmedAt: null }) as never, ME);
+    expect(decided.label).toBe('Resolved');
+    const confirmed = bidPresentation(row({ purchaseBuyerConfirmedAt: '2026-09-20T00:00:00Z' }) as never, ME);
+    expect(confirmed.label).toBe('Received');
+  });
+
+  it('DR10: a seller-win payout line says only what the payout fields state', async () => {
+    const src = read('app/transfer/send/[id].tsx');
+    // Under a hold or a manual review the payout is NOT being processed, so the operator-decision
+    // branch defers to the same hold/review lines the seller_sent board already uses.
+    const block = src.slice(src.indexOf("transfer.status === 'buyer_confirmed'"), src.indexOf('AUTO_RELEASED'));
+    expect(block).toMatch(/payout_review_status/);
+    expect(block).toMatch(/sellerHoldLine|SELLER_HELD|holdLine/);
+    // A genuine confirmation overrides holds and pays immediately, so its wording is untouched.
+    expect(block).toMatch(/byBuyer/);
+  });
+});
