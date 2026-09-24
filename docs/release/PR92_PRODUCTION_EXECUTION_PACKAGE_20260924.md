@@ -59,7 +59,7 @@ row that lies to the operator". This is finding **F-CR-148-SHARED**. `payoutDefe
 |---|---|---|
 | P1 | `deploy_148.sh enforce-transfer-expiry --dry` | `before` version **40**, `verify_jwt` True. The deployed source, downloaded, is byte-equal to the gate `5b255838` blobs (index + 5 shared). Proves the rollback target is the running code |
 | P2 | `apply_one_148.sh 00` (baseline read-back) | recorded, including census, grants matrix and switches; the comparison base for the post read-back |
-| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer is the repo's**. Its logic: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Its binding contract, which prosrc cannot see (D): ordered args, result type and `SECURITY DEFINER` for both, plus the admin wrapper's `search_path=public`, because it calls `resolve_transfer_dispute` unqualified (A). Informational, as an attribute-level delta: defn md5, the writer's config (its only unqualified call is `pg_catalog.set_config`), owner, volatility; dispute_resolutions, open disputes, payout_attempts, both ACLs |
+| P3 | `apply_one_148.sh 01`, starting-state block, run before the apply request is built | 148 ledger rows 0; ledger **160**, max `20260923000000`; claim defn md5 `d3cd9fdd…` and prosrc md5 `083bf9a3…`; notify defn md5 `37a46d03…` and prosrc md5 `203f7c7d…`; trigger `trg_notify_transfer_state_inbox@transfers=O`; **seller-win rows 0**; **the seller-win writer is the repo's**. Its logic: `resolve_transfer_dispute` prosrc md5 `19161d7a…` and `admin_resolve_dispute` prosrc md5 `4548b9ee…`. Its binding contract, which prosrc cannot see (D): ordered args, result type and `SECURITY DEFINER` for both. Informational, as an attribute-level delta: defn md5, config (`search_path`), owner, volatility for both. Config is informational because a qualifier-aware scan of both repo bodies finds every non-built-in reference schema-qualified (the wrapper calls `public.resolve_transfer_dispute`), so search_path cannot change what either body resolves; prosrc equality guarantees production runs those bodies; dispute_resolutions, open disputes, payout_attempts, both ACLs |
 
 **Why the writer check exists:** 148 keys on the exact row shape that `resolve_transfer_dispute` writes (status
 `buyer_confirmed`, `buyer_confirmed_at` NULL, `dispute_resolution 'resolved_seller_paid'`). The defect analysis was
@@ -163,11 +163,22 @@ sends the same request texts to a local copy of the pre-148 replay with a 160-ro
 These are three separate decisions, following D's review, so the apply can be approved without pre-authorising a
 rollback or a merge.
 
-**(R0) Recommended first, and separate: one read-only production query** of the two dispute-writer definitions:
-defn and prosrc md5, arguments, result, security, config, and the two `prosrc` texts. These are function definitions
-only; no user data is read. It answers the drift question before (A), instead of at P3 on the day.
-> "I authorise one read-only production query of the definitions of `public.resolve_transfer_dispute` and
-> `public.admin_resolve_dispute`, as in §8 R0 of the package."
+**(R0) Recommended first: one read-only production query of function definitions.** It reads definitions only, no
+table rows and no user data. It uses the frozen `r0_read.sh`, `r0_narrow.sql` / `r0_wide.sql`, and a frozen local
+reference. The comparator was self-tested: 12/12 identical against itself, and a swapped-argument tamper was flagged
+with the exact field. There are two options, deliberately not bundled, because they answer different questions:
+- **R0-narrow** answers "does 148's premise hold in production?". It reads `resolve_transfer_dispute` and
+  `admin_resolve_dispute`, and unblocks (A) and nothing else.
+  > "I authorise one read-only production query of the definitions of `public.resolve_transfer_dispute` and
+  > `public.admin_resolve_dispute` (R0-narrow in §8 of the package)."
+- **R0-wide** answers "does production match its own source history?". It reads those two plus the 10 other functions
+  whose production definition differed from the repo's on 2026-09-23 (F-PROD-REPO-DRIFT-1), ranked with the payment
+  path first: `record_transfer_payout`, `claim_/complete_/fail_stripe_webhook_event`, `finalize_auction`, then
+  `auto_finalize_expired_auctions`, `validate_and_apply_bid`, `guard_listing_identity_columns`, `handle_new_user`,
+  `handle_new_user_notification_prefs`. It is the same authorisation class, in one query.
+  > "I authorise one read-only production query of the definitions of the 12 functions in `r0_wide.sql`
+  > (R0-wide in §8 of the package)."
+- If only R0-narrow is taken, **the wide question stays recorded as open** in FINDINGS, not dropped.
 
 **(A) Required: the apply and deploy.**
 > "I authorise the PR #92 production apply and deploy as in `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` at
@@ -288,9 +299,20 @@ The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D r
   - the writer check added after D's review (rehearsal 3);
   - `deploy_148.sh --dry` (a production read).
 - **Reviewed by D after that:** the added P3 lines and the prosrc bar. D judged prosrc right but not sufficient and
-  recommended the binding contract, which A adopted in rehearsal 4. D judged search_path not to matter because the
-  writer's references are qualified. A verified that this holds for the writer but not for the admin wrapper, whose
-  unqualified call makes its config part of the contract.
+  recommended the binding contract, which A adopted in rehearsal 4.
+- **A's false positive, withdrawn:** A "corrected" D, saying the admin wrapper calls `resolve_transfer_dispute`
+  unqualified, and pinned the wrapper's search_path on that basis. D could not reproduce it. Every repo definition that
+  calls the writer calls `public.resolve_transfer_dispute(`. The cause was A's scan: `grep -o '\b[a-z_]+\s*\('`
+  extracted each token **without its schema prefix**, and the "exclude qualified" filter ran after the prefix was
+  already gone, so it manufactured the unqualified call. The line itself reads `PERFORM public.resolve_transfer_dispute(`.
+  - Fixed in rehearsal 5: config is informational for both, with the correct reason (§4).
+  - Controls: NC1' (the wrapper's search_path `''`) now proceeds; NC2 and the new NC4 (either function
+    `SECURITY INVOKER`) stop.
+  - Clean run: PASS; rollback `626db799…`; 215 43/43; request `c91cec23…`.
+  - `apply_one_148.sh` is now **`0d882f7ec8c9eeeedd0beaf9e804c4e1513f88595515b244af3219fcaeb9bcf4`** (116 changed lines,
+    diff `14666f18…`), superseding `3d74a714…`.
+  - R0 artefacts frozen: `r0_read.sh` `698db470…`, `r0_narrow.sql` `7f523d03…`, `r0_wide.sql` `a71be896…`, references
+    `0aae1d1d…` / `0ef5ac38…`.
 - **Adopted from D:** the mode gate, the rollback-order reasoning, the §8 split, and the binding contract.
 
 **Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats

@@ -1567,3 +1567,18 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - the $300 / $330 decision.
   - **Correction:** the Stripe Dashboard may not cancel a `requires_payment_method` intent, so the CLI is the primary route.
   - **A plaintext password is in `docs/product/LAUNCH_PLAN.md`** (H1).
+- **#92 package, rehearsals 3–5, and F-PROD-REPO-DRIFT-1 (A and D, ~16:10–16:25Z).**
+  - P3 now stops unless production's seller-win writer and its admin wrapper match the repo: prosrc, plus the binding
+    contract (args, result, secdef; D).
+  - Negative controls, each on a fresh copy:
+    - a writer comment changed → stops;
+    - `SECURITY INVOKER` on either function → stops;
+    - search_path only → proceeds (informational).
+  - **A's false positive withdrawn:** "the wrapper calls the writer unqualified". A lossy `grep -o` stripped the
+    `public.` prefix before the filter ran. D could not reproduce the claim and was right.
+  - Offline decomposition of the 12-function production drift is negative (no attribute-only variant matches), so the
+    bodies likely differ. This is recorded as **F-PROD-REPO-DRIFT-1 (OPEN)**, with the source-only conclusions marked
+    provisional.
+  - R0-narrow and R0-wide definitions-only reads are prepared and frozen (comparator self-tested), for the owner to
+    choose separately.
+  - Apply script `0d882f7e…`. The production request is unchanged (`c91cec23…`).

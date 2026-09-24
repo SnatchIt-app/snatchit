@@ -150,3 +150,32 @@ list be trusted where they differ.
   `payout_released_at`, as for any payout.
 - **Bearing on R1: none blocking.** #92's (d) path writes only `buyer_confirmed: false` decisions
   (`enforce-transfer-expiry:883-897`), so it adds no false record.
+
+## F-PROD-REPO-DRIFT-1 — 12 production functions differ from the repository's migration chain (A and D, 2026-09-24; OPEN)
+
+- **Evidence:** the 2026-09-23 ~03:11Z production capture `apply_5b255838/out/prod_untouched_fns.txt`, of functions
+  the 24-file release did not redefine, as md5(`pg_get_functiondef`) 8-character prefixes. Compared with the gate
+  chain's replay, **12 of 61 differ**:
+  - with 148's premise: `resolve_transfer_dispute`, `admin_resolve_dispute`;
+  - payment path: `record_transfer_payout`, `claim_stripe_webhook_event`, `complete_stripe_webhook_event`,
+    `fail_stripe_webhook_event`, `finalize_auction`;
+  - others: `auto_finalize_expired_auctions`, `validate_and_apply_bid`, `guard_listing_identity_columns`,
+    `handle_new_user`, `handle_new_user_notification_prefs`.
+- **Offline decomposition is negative.** Nine attribute-only variants of the local definitions (search_path
+  `''` / `public,pg_temp` / `public,extensions` / none; SECURITY DEFINER removed or added; a trailing newline; CRLF;
+  as-is) reproduced **none** of the twelve production prefixes. So the difference is most likely in the bodies.
+- `resolve_transfer_dispute` has exactly one definition in git: 065, `c11c8b45`, never edited. So production was not
+  built purely from this repository's chain for at least that function.
+- **What is production-verified, by hash or bytes, for tonight's work:**
+  - `claim_payout_attempt` (defn `d3cd9fdd` equal);
+  - `notify_transfer_state_inbox` (`37a46d03` equal);
+  - 147's `get_unsettled_payments` (D's production read);
+  - the deployed `enforce-transfer-expiry` source (09-22/23 byte download).
+- **Source-only, and therefore provisional until R0-wide:**
+  - the F-DISPUTE-SELLERWIN-1 writer shape;
+  - the legacy refund and payout tracing;
+  - reasoning that rests on `record_transfer_payout` (the two-generations account of the 23 transfer ids);
+  - the `finalize_auction` and webhook-claim reasoning.
+  These are not known to be wrong. They rest on an assumption this finding puts in question.
+- **Resolution path:** R0-wide (package §8), one definitions-only production read, compared by `r0_read.sh`, then a
+  ranked diff. Expect some drift to be benign, and rank it so that it does not bury the one that matters.
