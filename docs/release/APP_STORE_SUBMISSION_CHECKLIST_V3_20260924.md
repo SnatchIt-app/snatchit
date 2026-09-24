@@ -1,5 +1,8 @@
 # App Store submission checklist — V3 production candidate (A, 2026-09-24; DRAFT under D's review)
 
+**Revised 2026-09-24 ~16:10Z** after the owner's message approving D1–D6: §5, §5b P6/P7, §6, §7 and §8 were corrected
+in place. The owner's actions now live **only in §8**.
+
 **Status: DRAFT.** A owns this consolidation. D independently reviews its consequential payment and operational
 claims. **Nothing here was executed.** No key was changed, nothing was deployed, no review inventory was created, no
 charge or refund was made, no Apple response was sent, and nothing was submitted. This document **supersedes** the
@@ -156,18 +159,18 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
   anyone performs will hit this path. D confirmed the three source anchors independently.
 - A bounded fix will be prepared as a source change for review. Nothing is applied.
 
-## 5. Owner actions (all together)
+## 5. Owner actions — superseded by §8 (mapping kept for older references)
 
-| # | Action | Why | When |
-|---|---|---|---|
-| O1 | Decide D1–D6 and D's witness reads on the fixture sheet (`SANDBOX_V3_FIXTURE_APPROVAL_SHEET_20260924.md`, rev 2 `28d3cdb1`) | the phone session needs them | before the phone session |
-| O2 | V2/V3: compare the `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` digests with the live Dashboard values, locally; read the live webhook endpoint's URL, status and event list, and **whether `payment_intent.canceled` is subscribed** (recorded as an open owner decision, `PRODUCTION_RELEASE_PACKAGE.md:177`) | server-side mode, account and webhook cannot be proven from source | before any production-candidate check |
-| O3 | V4: confirm the Apple Pay certificate for `merchant.com.snatchit` in live Stripe | Apple Pay reachability | before submission |
-| O4 | Confirm the reviewer accounts still exist and their credentials still sign in; the credentials were treated as exposed and rotation is still OPEN [REC `HISTORY_EXPOSURE_MEMO.md:3,48-50`] | review login | before inventory planning |
-| O5 | Confirm the Supabase Auth test phone number is still configured, and Twilio auto-recharge (OFF, [REC `PHONE_OTP_DELIVERY_CONFIGURATION_REPORT.md:380`]) | signup OTP for reviewers and real users | before submission |
-| O6 | Read the two live `refunded` rows of 2026-08-04 in the Stripe Dashboard: refund or lost dispute, and the amount | the refund record is ambiguous (§4) | before any refund wording |
-| O8 | Plan **low-priced** review inventory that a reviewer can exercise without a real $330 charge and a manual refund: listings, prices, end dates, seller. Decide the $300 III Points listing `c8d04339…`, which already carries an uncancelled pending live $330 intent from 2026-09-03 [D-PROD] | a reviewer currently sees one listing, at $300, already encumbered | before submission |
-| O7 | Later decisions, not requested yet: V6 (non-charging production checkout plus cancel) and V7 (one $2.20 live purchase plus Dashboard refund); review inventory | each creates production state | after O2–O5 |
+| Old | Now | Status |
+|---|---|---|
+| O1 fixture decisions | §8 **G1** | **decided**: D1–D6 approved at `7dae4815`; execution awaits its three conditions |
+| O2 webhook + digests | §8 **G3**, **G4** | open |
+| O3 Apple Pay | §8 **G5** | open |
+| O4 reviewer accounts | §8 **G7** | open; rotation still OPEN |
+| O5 test phone + Twilio | §8 **E7** (optional) + **R3** | open |
+| O6 refunded rows | §8 **E4** (optional) | open |
+| O7 V6/V7 | §8 **E1–E3** (optional) | not requested |
+| O8 inventory | §8 **G6**, plan in `REVIEW_INVENTORY_PLAN_V3_20260924.md` | plan written; decisions open |
 
 ## 5b. Owner operating-policy decisions (separate from the actions)
 
@@ -183,11 +186,13 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
   refunds by the cron once confirmed in production.
 - **P5 — refunds of App Review purchases.** Decide whether to commit to refunding any purchase a reviewer completes,
   and who does it.
-- **P6 — seller-win disputes.** Until F-DISPUTE-SELLERWIN-1 is fixed, such a payout needs a manual Stripe transfer
-  outside the app. Decide who does it, or hold seller-win resolutions until the fix ships.
-- **P7 — what a seller is told after a seller-win resolution.** Today the seller is told "Buyer confirmed receipt",
-  which is false, on the same transition that leaves the payout unpaid. This is a product-copy ruling (C's lane), separate from
-  the payout fix.
+- **P6 — seller-win disputes.** The fix is PR #92. Its production package is prepared and rehearsed (§8 R1).
+  **Until R1 executes, do not resolve any of the 5 open disputes in the seller's favour.** Today such a resolution
+  has no payout path. Worse, the pre-148 claim has no hold or review check, so a buyer-triggered confirm on that row
+  would pay the seller despite any hold.
+- **P7 — what a seller is told after a seller-win resolution. DECIDED by the owner (2026-09-24):** "Dispute resolved
+  in your favour", with no claim that payout has completed. It is implemented server-side in #92 and client-side in C's
+  `ca27d282` / `aee15697` / `404bce38` (A PASS). It is live only after R1 (server) and a new build (client).
 
 ## 6. Readiness verdict
 
@@ -196,10 +201,10 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
   GA, ends 2026-10-18, Buy Now **$300** (so a reviewer could complete a $330 charge). 66 more are active with an end
   time already past [D-PROD]. A reviewer today sees one purchasable item. Owner action O8;
 - the V3 production candidate build (none exists; every build since 13 is a sandbox preview);
-- O2–O5;
-- inventory planning;
+- G3–G5 and G7 (§8);
+- the inventory decisions (G6; the plan exists);
 - the claims rewrite approved;
-- the phone-session evidence for the expired and held cells;
+- the phone-session evidence, including the expired and held cells. The decision is made (D5/D6 approved); the evidence is produced by the session (G1);
 - appearance evidence measured by **screen**, not by token count. C found three transfer-flow components (DeliveryInfoForm, PlatformInstructions, ProofImageViewer) still on the pre-v2 `colors` module, which a token-based inventory missed; they are migrated at `9c6c9bf4`, and a test now forbids that import [C's report];
 - the residual live-transaction gap (§3) decided.
 
@@ -208,65 +213,77 @@ The draft review notes and metadata are in `APP_STORE_REVIEW_NOTES_V3_DRAFT_2026
 ## 7. Build 23 reconciliation (A, 2026-09-24)
 
 **Build 23** is EAS `65cb7633-0eca-4314-b135-fd9c90db8214`, commit `9c6c9bf4`, `preview` profile. It is a **sandbox** binary:
-`pk_test`, project `ofaidukbieeekqaboscm`. **It is not a production candidate and cannot be submitted.** It is the V3 client
-the device session will exercise.
+`pk_test`, project `ofaidukbieeekqaboscm`. **It is not a production candidate and cannot be submitted.** It was the client
+planned for the device session; Build 24 replaces it (below).
 - Every client citation in §3–§4 was re-verified at `9c6c9bf4` by a read-only check. None changed in behaviour or copy;
   some line numbers moved and are updated above. The two commits after the prior candidate change colour and styling only.
 - `eas.json`, `app.json` and `envGuard.ts` are unchanged since `2619b9e1`, so V1 holds for Build 23's source.
-- **Known gaps Build 23 carries**, recorded by C in the plan's checklist: the Spinner colour (branch `24b021a3` / `2ffb10a8`
-  differ in presentation only), the seller-win copy follow-on (below), `text.faint` contrast, and the **untinted auth brand
-  mark** (blank logo on the sign-in screens in Light; see S1 in §8).
+- **Build 23 is superseded for the phone session by Build 24** [C's report]: EAS `c5b3a615-ff97-4a88-a4ce-2dae24558478`,
+  commit `404bce38`, sandbox `preview` profile, authorised by the owner, and compiling on EAS at 11:43 local. A verified
+  by ancestry that `404bce38` contains `2ffb10a8` (auth mark, dimmed text, field prompts) and the dispute-copy commits
+  `ca27d282` / `aee15697`. Build 24 is still a sandbox binary, so it is **not** a production candidate (G2).
+- **§4 citations re-verified at `404bce38` (A, 2026-09-24, read-only):** the copy is unchanged for every §4 claim. Moved
+  lines: dispute "typically within 24 hours" `transferState.ts:182` → `:213`; the 18+ checkbox `signup.tsx:71,272` →
+  `:276-288`; the listing phone gate `CreateListingScreen.tsx:427` → `:466-482`. Report, privacy and legal lines are
+  unchanged (`report/[type]/[id].tsx:78,92,134`, `privacy.tsx:144-145`, `legal.tsx:247`), and `settings/index.tsx` is
+  unchanged.
 - **New since the last revision.**
   - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92**, head `e73553d2` (all 9 checks green; pgTAP Files=95 /
     Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **It is not applied or deployed.**
   - Build 23 still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`) and shows
-    "Received" on three surfaces. C's fix is on `v3/midnight-app` (`ca27d282`, `aee15697`, `404bce38`), all A PASS;
-    **none of it is in Build 23**, and no replacement build is authorised (G2).
+    "Received" on three surfaces. C's fix is on `v3/midnight-app` (`ca27d282`, `aee15697`, `404bce38`), all A PASS. It is
+    **in Build 24, not in Build 23**. The sandbox path still cannot reach a seller-win row.
   - F-LISTING-CRITICAL-TIER-1: the critical risk tier is enforced only by the client. Not a submission claim; an
     operational finding.
 
-## 8. Owner action checklist (consolidated; required gates first)
+## 8. Owner action checklist (consolidated; required gates first; revised 2026-09-24 ~16:10Z)
 
-**Required submission gates.** Nothing is submittable until all of these are done.
+**Secrets never go into chat, the repo or a document.** Every digest below is computed on the owner's own machine, and
+only "match: yes/no" comes back. Dashboard paths were taken from the vendors' current docs on 2026-09-24. Where a doc
+names no exact label, the step says so.
 
-| # | Where, exactly | Evidence to bring back | Unblocks |
+### A. Required submission gates (nothing is submittable until all are done)
+
+| # | What, exactly | Bring back | Unblocks |
 |---|---|---|---|
-| G1 | Decide the fixture sheet `SANDBOX_V3_FIXTURE_APPROVAL_SHEET_20260924.md` rev 2 (`7dae4815`): tick D1–D6 and D's witness reads | ticks | the V3 device session on Build 23, including the **expired / held** cells (material gap, §6) |
-| G2 | **Authorise the V3 production-candidate build**: one EAS `production` build (pk_live) + TestFlight upload, commit pinned by A. **Pin requirement:** the commit must contain `2ffb10a8` (auth mark) and `404bce38` (dispute copy). A checks this with `git merge-base --is-ancestor` at pin time, because containing them is a condition to check, not a given. | the authorisation | V1 on the real binary, V4, V5, the review build number |
-| G3 | Stripe Dashboard → **Live mode** → Developers → Webhooks → the endpoint `…hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook` | URL, status, the subscribed events list — **is `payment_intent.canceled` there?** | V3, and whether V6/V6a can prove delivery |
-| G4 | In your own terminal: `supabase secrets list --project-ref hqycwntpfoztoinemqns`; in Stripe Live → Developers → API keys, copy the **secret** key and compute `printf %s "$KEY" \| shasum -a 256` locally; same for the webhook signing secret | "digest matches: yes/no" for `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` — no values | V2 (server key is live and of the build's account) |
-| G5 | Stripe Dashboard → Live → Settings → Payment methods → **Apple Pay** | `merchant.com.snatchit` certificate listed and active | any Apple Pay line in the review notes |
-| G6 | **Review inventory decision** (A prepares the plan; nothing is created without you): low-priced listings a reviewer can buy without a real $330 charge; decide the $300 listing `c8d04339…` and its stale $330 pending intent | the approved plan | the review-notes navigation; no reviewer lands on a $330 charge |
-| G7 | Reviewer accounts: confirm both still sign in (after G2, on TestFlight), and decide the credential rotation that is still OPEN (`HISTORY_EXPOSURE_MEMO.md`) | "sign-in ok" ×2 + rotation decision | review-notes credentials |
-| G8 | Supabase Dashboard → project `hqycwntpfoztoinemqns` → Authentication → Sign In / Providers → **Phone** → test phone numbers | whether `+1 800 555 0123 → 789012` is present | the review-notes phone line (omitted if absent) |
-| G9 | **Policies P1 (review times) and P3 (removal/suspension)**: the app states both today | the chosen promise, or "remove" | C aligns the in-app copy; review-notes safety line |
-| G10 | Rule on D's production reads for the App Store claims: ratify, or record them as unauthorised-source | the ruling | which figures the checklist may cite as evidence |
+| G1 | **Phone session on Build 24.** *Decision: DONE* (owner, 2026-09-24): D1–D6 approved exactly as specified at `7dae4815`. That includes D5 (F-EXP, expired) and D6 (F-HELD, held); **no separate expired/held decision exists.** *Execution* starts only when all three hold: (1) Build 24 is installed and signed in as the DV buyer; (2) the owner is available and says **"go"**; (3) A's sheet §4 preflight passes. **The fixture approval does not gate installing Build 24 or the appearance and navigation checks**, which need no fixture write. One $105 bid on L-BID, one Buy Now on L-CHK, **no Pay tap**, all cleanup deadlines as specified. The owner cancels the W2 test intent when A sends its `pi_…` id (CLI route, `REVIEW_INVENTORY_PLAN_V3_20260924.md` §5); its payment row is never marked failed as a substitute for cancellation | "go" at session time; the Canceled confirmation | device evidence for W1/W2 and the expired/held cells |
+| G2 | **Authorise the V3 production-candidate build:** one EAS `production` build (pk_live) + TestFlight upload; A pins the commit. **Pin requirement:** it must contain `2ffb10a8` and `404bce38`. A checks with `git merge-base --is-ancestor` at pin time | the authorisation | V1 on the real binary, V4, V5, G7, G6, the review build number |
+| G3 | **Live webhook.** Stripe Dashboard → switch to **Live** → Developers → **Workbench** → **Webhooks** tab (`dashboard.stripe.com/webhooks`) → select the destination `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook` → **Overview**. On the older Developers dashboard: Developers → Webhooks → the endpoint. The docs don't give the exact Overview labels | enabled yes/no; the event list, and specifically **is `payment_intent.canceled` there?** Expected set (11): `payment_intent.succeeded/.payment_failed/.canceled`, `charge.refunded`, `charge.dispute.created/.closed`, `account.updated`, `transfer.created/.reversed`, `payout.paid/.failed` | V3; whether E1/V6 can prove delivery |
+| G4 | **Secret digests, compared locally.** (1) Supabase Dashboard → project `hqycwntpfoztoinemqns` → Edge Functions → **Secrets**: note the **Digest SHA256** of `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (the same value `supabase secrets list` prints). (2) Stripe **Live** → `dashboard.stripe.com/apikeys` → Standard keys → **Reveal live key**. Only Stripe-created keys can be revealed; if yours cannot, say so and use E2 instead, **never rotate for this**. In your own terminal: `printf %s '<paste>' \| shasum -a 256`, then clear the clipboard. (3) The same for the signing secret: G3's endpoint → **Reveal secret** (the docs also say "Click to reveal"). Note that Supabase's docs don't state the digest is a plain SHA-256 of the value: a **match** is conclusive, a mismatch is inconclusive | "match: yes/no" ×2, or "not revealable" | V2 (server key live and of the build's account) |
+| G5 | **Apple Pay certificate.** Apple Developer → Certificates, Identifiers & Profiles → **Identifiers** → top-right filter **Merchant IDs** → `merchant.com.snatchit` → **Apple Pay Payment Processing Certificate**: status and expiry (valid 25 months). Then Stripe **Live** → `dashboard.stripe.com/settings/ios_certificates` (a support article gives `…/settings/payments/apple_pay` for the same page): the certificate is listed. **Stripe does not show expiry.** If renewal is ever needed: new CSR from Stripe → Apple → upload the `.cer` to Stripe **before** Activate at Apple. Not authorised here | expiry date; listed in Stripe yes/no | any Apple Pay line in the review notes (V4) |
+| G6 | **Review inventory**, per `REVIEW_INVENTORY_PLAN_V3_20260924.md`: three listings the owner creates **in the app** as the demo seller after G2 (R-BUY-1/2 at $2 → $2.20, R-BID at $1, 48 h each, re-created at about 40 h if review hasn't started). Decide the $300 listing `c8d04339…` ((a) cancel it and its $330 intent, or (b) leave it) and **P5** (auto-expiry refund vs manual Dashboard refund of any reviewer purchase) | the two decisions; later, "created" | the review-notes navigation; no reviewer lands on a $330 charge |
+| G7 | **Reviewer access.** Both passwords are burned (`HISTORY_EXPOSURE_MEMO.md`). **After G2**, on the production candidate: Login → "Use email instead" → email → **Forgot password?** → open the link in that Gmail inbox on the same phone → set a new password (the reset screen signs out all devices). Do this for `snatchitreviewbuyer@gmail.com` and `snatchitreviewseller@gmail.com`, and keep the new passwords only in your password manager. Then App Store Connect → Apps → Snatch It → the version → **App Review Information** → **Sign-in required** → User name / Password (buyer) → **Save**. A sandbox build cannot do this, because the link targets `snatchit://` and a sandbox build talks to the sandbox project | "rotated ×2; sign-in OK ×2" | review-notes credentials |
+| G9 | **Policies P1** (review times) **and P3** (removal/suspension): the app states both today | the chosen promise, or "remove" | C aligns the in-app copy; the review-notes safety line |
+| G10 | Rule on D's production reads for the App Store claims: ratify, or record them as unauthorised-source | the ruling | which figures the checklist may cite |
 
-**Required operational gates before release.** These are not App Store review items, but release depends on them.
+### B. Required operational gates before release (not App Store review items)
 
-| # | Where | Evidence | Unblocks |
+| # | What | Bring back | Unblocks |
 |---|---|---|---|
-| R1 | PR #92: authorise the production apply of migration 148 and the deploy of `enforce-transfer-expiry` (A prepares the frozen scripts; production bodies are read and matched first) | the authorisation | seller-win payouts and a truthful notice before the first of the 5 open disputes is resolved |
-| R2 | Policies **P2** (who handles disputes and reports, and how they learn of them), **P4** (refund policy), **P5** (App Review purchase refunds), **P6** (seller-win handling until R1), **P7** (seller-win copy, C) | decisions | operating process behind the promises |
-| R3 | Twilio Console → Billing → **Auto-recharge** (currently OFF) | on/off decision | signup OTPs do not fail when the balance runs out |
+| R1 | **PR #92 production execution**: package `PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md` (prepared, rehearsed locally, frozen; D reviewing). A brings the exact approval request once D's review is in. **Before the first of the 5 open disputes is resolved** | the authorisation, in the package's §8 words | seller-win payouts with holds respected; a truthful seller notice |
+| R2 | Policies **P2** (who handles disputes and reports), **P4** (refund policy), **P5** (App Review purchase refunds; also G6), **P6** (no seller-win resolution until R1) | decisions | the operating process behind the promises |
+| R3 | **Twilio auto-recharge:** `console.twilio.com/us1/billing/manage-billing/billing-overview` → **Enable auto recharge** → Auto Recharge "Enabled" → **Recharge Balance To** / **When Balance Falls Below** (minimum trigger $10) → Select Payment Method → **Save** (today: OFF). The help article is tagged "legacy Console", so use the direct URL | on/off, amounts | signup OTPs keep working when the balance runs out |
 
-**Phone-session choice (not a submission gate; G1 is still required first).**
-
-| # | Choice | Evidence | Decides |
-|---|---|---|---|
-| S1 | Run Stages 1–3 on **Build 23** and accept its known items, **or** approve one sandbox `preview` recut from `v3/midnight-app` before the session. This recut is separate from G2, which is a `production` build; the G2 pin requirement keeps this defect out of the release candidate. | the choice | Build 23's sign-in screens (login, signup, reset) show a **blank space where the logo belongs** in Light, which is the default for a phone set to Light. A verified this in source at `9c6c9bf4`: `AuthBrandMark` renders `brand/sn-logo-white.png` with no tint (every opaque pixel is #FFFFFF) on the Light canvas #FFFFFF, and the appearance setting defaults to the phone's System setting. It was not seen on a device. The fix is `2ffb10a8`, on `v3/midnight-app` only. C's view is that either option is defensible; its tracked record is `V3_PHONE_TEST_CHECKLIST.md` `629a82ba`. The dispute copy is also absent from Build 23, but no sandbox path reaches it. |
-
-**Optional additional evidence.** Each needs its own permission; none is requested here.
+### C. Optional additional evidence (each needs its own permission; none is requested here)
 
 | # | What | Residual it closes |
 |---|---|---|
-| E1 | V6a: cancel the existing stale **$2.20** live PaymentIntent in the Dashboard (Live) | proves the live webhook's subscription, signing secret and handler v42 end to end, with no new charge; needs G3 first |
-| E2 | V6: one non-charging production checkout visit + cancel | server key mode and account (alternative to G4) |
-| E3 | V7: one $2.20 live purchase + Dashboard refund | settlement and refund recording on the new code |
-| E4 | Stripe read of the two live `refunded` rows of 2026-08-04 | only needed if any refund wording is ever added |
-| E5 | A first real payout through the attempt-based executor | its first production run |
-| E6 | F-LISTING-CRITICAL-TIER-1: whether the server should also refuse the critical tier | a server-enforced listing restriction |
+| E1 | V6a: cancel the stale **$2.20** live intent: `stripe payment_intents cancel pi_… -d cancellation_reason=abandoned --live` (the Dashboard may not offer Cancel for `requires_payment_method`) | live webhook subscription, signature and handler v42, with no new charge (needs G3) |
+| E2 | V6: one non-charging production checkout visit + cancel | server key mode and account (the alternative to G4) |
+| E3 | V7: one $2.20 live purchase + refund | settlement and refund recording on the new code |
+| E4 | Stripe read of the two live `refunded` rows of 2026-08-04 | only if refund wording is ever added |
+| E5 | A first real payout through the attempt-based executor | its first production run (R1's first seller-win may be this) |
+| E6 | F-LISTING-CRITICAL-TIER-1: server-side refusal of the critical tier | a server-enforced listing restriction |
+| E7 | Supabase Dashboard → Authentication → **Sign In / Providers** → **Phone** → **Test Phone Numbers and OTPs** (format `18005550123=789012`, no `+`) and **Test OTPs Valid Until** (required; past that date the number stops working). Sign-in needs no SMS, so this only matters if the notes mention the number | the review-notes phone line (omitted unless confirmed) |
+| E8 | D's read-only sandbox witness of the phone session's T0 and cleanup reads. This was the sheet's 7th tick box and is not in the D1–D6 approval. A's captures are files with md5 that D can check without sandbox access | independent witness |
 
-**Prepared by A without these answers:** the draft review notes (`APP_STORE_REVIEW_NOTES_V3_DRAFT_20260924.md`, placeholders
-only where G-items decide), the fixture sheet, PR #92, this checklist, and the inventory plan requirements (G6).
-**Verdict unchanged: not submission-ready.**
+### D. Housekeeping (no gate)
+
+- H1: redact the plaintext password in `docs/product/LAUNCH_PLAN.md` (lines 623, 624, 665, 670, 776, 777) in a docs-only
+  PR. It stays in git history, so treat it as burned too. A can prepare the PR on request.
+- H2: about 60 stale local `*_rehears` / `snatchit_*` databases (D's note; about 11 GiB free).
+- H3: F-CR-148-SHARED: fix `payoutDeferred` before **any** future `confirm-and-release` deploy from a tree containing #92.
+- H4: the synthetic ops case `650e7344` awaits a console dismissal.
+
+**Prepared by A without these answers:** the draft review notes, the fixture sheet, PR #92 and its production package,
+the inventory plan, and this checklist. **Verdict unchanged: not submission-ready.**

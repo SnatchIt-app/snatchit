@@ -1,5 +1,19 @@
 # V3 phone test — fixture approval sheet (A, 2026-09-24)
 
+> **APPROVED by the owner, 2026-09-24 (owner's message ~12:00 local): D1–D6 exactly as specified in revision
+> `7dae4815`.** This includes D5 (F-EXP) and D6 (F-HELD); there is no separate expired/held decision. Everything below
+> this box is byte-identical to `7dae4815`. **Execution** starts only when all of these hold: C's updated sandbox build
+> (Build 24, `404bce38`) is installed and signed in as the DV buyer; the owner is available and says **"go"**; and A's
+> §4 capture and recheck pass. §0's first condition now reads as Build 24. The owner's terms: preserve the exact listing
+> assignments, one $105 bid (L-BID), one Buy Now (L-CHK), **no Pay tap**, all cleanup deadlines. The owner cancels the
+> identified test PaymentIntent when instructed, and its payment row is **never** marked failed as a substitute for
+> cancellation.
+> **Not in the approval:** the 7th box, D's sandbox witness reads (checklist §8 E8).
+> **Cancel route correction (§6):** the Stripe Dashboard may not offer Cancel for a `requires_payment_method` intent. A
+> will send the CLI form `stripe payment_intents cancel pi_… -d cancellation_reason=abandoned` (test mode, no `--live`)
+> as the primary route; see `REVIEW_INVENTORY_PLAN_V3_20260924.md` §5.
+> **Not gated by this approval:** installing Build 24, and the appearance and navigation checks that need no fixture write.
+
 **Revision 2 (A, 2026-09-24 ~05:10Z), after the owner's corrections of ~04:55Z:** cleanup split into independent
 tracks with their own deadlines (§5), both end-time restore outcomes handled (§5, track E), owner-unavailable rule
 (§5b), pre-session dispatch recheck (§4), and the Buy Now amount reconciled with its history (D4).

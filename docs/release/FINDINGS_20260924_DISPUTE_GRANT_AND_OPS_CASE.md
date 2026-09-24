@@ -105,3 +105,48 @@ resolution fires both.
 - Whether 119 is applied in production was not re-read here.
 
 **Bounded fix, proposed, NOT implemented.** Extend the 119 guard to also refuse `risk_tier = 'critical'`, matching `can_create_listing`, with a pgTAP case and a negative control. It is a listing-restriction policy change, so it is an owner decision.
+
+## F-CR-148-SHARED — `confirm-and-release` must not be redeployed from a tree containing #92 until `payoutDeferred` is fixed (A, 2026-09-24; D traced both branches independently)
+
+- `confirm-and-release` bundles `_shared/payouts.ts`. #92 adds `PAYOUT_HELD` and `PAYOUT_UNDER_REVIEW` to
+  `PAYOUT_NOT_ELIGIBLE_REASONS`.
+- With #92's file, a claim refused for a held seller-win row becomes `not_eligible` → `payoutDeferred`
+  (`confirm-and-release/index.ts:345-376`). That inserts a `payout_decisions` row with `buyer_confirmed true`,
+  `reason_codes ['BUYER_CONFIRMED', <code>]`, `dispute_open false` and `risk_tier 'low'`, all hard-coded. This is an
+  operator-facing record saying the buyer confirmed, on a transfer the buyer disputed and lost.
+- **Deployed v37, unchanged (the R1 plan):** `rpcReason` does not know the codes, so the outcome is `db_error` at stage
+  `claim`. The function logs with `console.error`, returns 200 "processing", moves no money and writes nothing. This is
+  expected log noise until the fix ships.
+- **Constraint:** no `confirm-and-release` deploy from `release/production-gate-20260918` once #92 has merged into it,
+  and none from any other tree containing #92, until `payoutDeferred` handles these two codes without a
+  confirmation claim.
+
+## Reader sweep — everything that treats `status='buyer_confirmed'` as buyer confirmation (A's read-only subagent, 2026-09-24; SERVER = #92 head `e73553d2`, CLIENT = `404bce38`)
+
+This is the enumeration behind F-DISPUTE-SELLERWIN-1. The subagent's search patterns are recorded in its report. D's
+earlier count of "five" came from D's own reads. D asked that its five be checked against this list, and that the
+list be trusted where they differ.
+
+| # | Class | Where | Status |
+|---|---|---|---|
+| a1 | (a) false record | `confirm-and-release` `payoutDeferred` (`:345-379`) → `payout_decisions` `BUYER_CONFIRMED` / `buyer_confirmed true` | unfixed; reachable only via a redeploy (F-CR-148-SHARED) |
+| a2 | (a) false record | `confirm-and-release` `:401-421`: the `release` audit row on a buyer-called payout of a seller-win, reason `BUYER_CONFIRMED`, `buyer_confirmed true` | unfixed; predates #92; direct API call only (current clients offer confirm only on `seller_sent`) |
+| a3 | (a) false record | `record_payout_attempt_result` (`20260906120000:823`): the `reversal_required` decision sets `buyer_confirmed := status='buyer_confirmed'` | unfixed |
+| a4 | (a) false record | `flag_payout_reversal_required` (`20260906120000:894`): the same expression | unfixed |
+| a5 | (a) operator label | admin `src/lib/format.ts:78` "Buyer confirmed", shown on orders list, detail, marketplace, money and filter | unfixed (D's lane) |
+| a6 | (a) operator label | admin `orders/[paymentId]/page.tsx:539-542` shows the stored `buyer_confirmed` flag, which is false only because a1–a4 wrote it | unfixed (D's lane) |
+| a7 | (a) user copy | web `TransferStatusBadge.tsx:8` "Transfer Complete", `purchases/page.tsx:28-30` "Confirmed", `BuyerTransferPanel.tsx:195-196` "Transfer complete. Enjoy the show." | unfixed. The web equivalent of C's mobile fix; the web is a private preview (Vercel builds ignored) |
+| a8 | (a) seller notice | `notify_transfer_state_inbox` (058 `:189`) | **fixed by #92** |
+| a9 | (a) mobile copy | badge, status copy, Bids, payout line | **fixed by C** (`ca27d282`, `aee15697`, `404bce38`) |
+| a10 | (a) | mobile `src/components/TransferStatusBadge.tsx:8` "Tickets Received" | dead code: not imported |
+| b1 | (b) decision | `confirm-and-release:207` treats an "already buyer_confirmed" RPC error as "the buyer's goal is met" and pays at once, skipping (d)'s 15-minute wait | partly: #92's claim now enforces holds; the inference is unchanged |
+| b2 | (b) detector | `ops.detect_release_stuck` (117 `:288-300`) treats the status as a due release with no hold or manual-review exclusion. After #92 it would open false "Seller funds release stuck" cases for **held** seller-win rows (dated by `coalesce(buyer_confirmed_at, auto_release_at)`, never checked when that is NULL) | unfixed |
+| b3 | (b) | `claim_payout_attempt`: seller-win inherited the genuine-confirmation hold override | **fixed by #92** |
+| b4 | (b) | Phase 2b (a)+(b) never selected seller-win rows | **fixed by #92** with (d). Legacy runbook rows (no timestamp, no resolution) remain unselected |
+
+- **Class (c)** is about 20 benign uses, listed in the subagent report and not repeated here.
+- One adjacent copy question for C and the owner: after a seller-win payout, the losing buyer receives "Order complete …"
+  (push, `enforce-transfer-expiry:917-921`) and the in-app "…Enjoy the event!" (148 `:250-255`). Both fire on
+  `payout_released_at`, as for any payout.
+- **Bearing on R1: none blocking.** #92's (d) path writes only `buyer_confirmed: false` decisions
+  (`enforce-transfer-expiry:883-897`), so it adds no false record.

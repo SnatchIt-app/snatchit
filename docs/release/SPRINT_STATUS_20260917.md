@@ -1535,3 +1535,35 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
 - **A self-correction:** A earlier wrote that the G2 pin "will carry the fix anyway". That overstated it, and C propagated it at `4b983d86` as "never of a release candidate".
   - It holds only if the pinned commit contains `2ffb10a8` and `404bce38`. The first is an ancestor of the second; neither is in `9c6c9bf4`.
   - The G2 row now makes this an explicit pin requirement, which A checks with `git merge-base --is-ancestor`.
+- **Owner, 2026-09-24 ~12:00 local: D1–D6 APPROVED exactly as at `7dae4815`**, including D5/D6 (the expired/held
+  decision). Execution waits for three things: Build 24 installed, the owner's "go", and A's preflight. The approval is
+  recorded as a banner on the sheet; the spec below it is byte-identical to `7dae4815` (diff-checked). D's witness reads
+  (7th box) are not in the approval. Production execution and dispute resolution are **not** authorised.
+- **D's independent reproduction of #92 (owner-authorised machine window):**
+  - edge mutants 12/12 and SQL 12/12 against `predictions.json` (sha256 `dba54f11…`);
+  - unmutated baseline 43/43;
+  - Q5 = [28,29];
+  - D ran in an isolated tree and DB, and left A's evidence files untouched (mtimes checked).
+  - Two harness improvements are noted for next time: an unmutated-baseline row, and the ok+fail sum control (43/26).
+- **#92 production execution package** (`PR92_PRODUCTION_EXECUTION_PACKAGE_20260924.md`, A): prepared, rehearsed and
+  frozen. **Not executed.**
+  - It is derived from the 147 and 09-22 precedents, with the diffs as the review surface. It adds a `LOCALDB`
+    rehearsal mode and the `CONFIRM_REF` production opt-in and banner (D).
+  - Rehearsal: P3 PASS → POST PASS; the negative control refused (exit 3); rollback restored the pre-hashes and 160 rows;
+    re-apply identical; 215 43/43; the production request is byte-identical to the rehearsed one (`c91cec23…`).
+  - Deploy set: `enforce-transfer-expiry` only. `confirm-and-release` stays at v37 (F-CR-148-SHARED).
+  - D passed the artefacts, the anchor read-back, the `LOCALDB` safety and the rollback order. D has not reviewed the
+    document, nor independently verified the P3 and post hashes.
+- **Reader sweep** (F-DISPUTE-SELLERWIN-1 enumeration, recorded in FINDINGS):
+  - class (a): 7 unfixed, 2 fixed, 1 dead code;
+  - class (b): 2 unfixed or partly fixed, 2 fixed by #92.
+  - #92 adds no new false record: (d) writes `buyer_confirmed: false` only.
+- **Checklist corrected in place** (§5 → mapping, P6/P7, §6, §7 with Build 24 and the §4 citations re-verified at
+  `404bce38`, and §8 rewritten with exact dashboard steps: required gates G1–G10, operational R1–R3, optional E1–E8,
+  housekeeping H1–H4).
+- **Reviewer inventory plan** written (`REVIEW_INVENTORY_PLAN_V3_20260924.md`):
+  - app-only creation, max 48 h per listing, $2 → $2.20;
+  - both refund paths safe by source;
+  - the $300 / $330 decision.
+  - **Correction:** the Stripe Dashboard may not cancel a `requires_payment_method` intent, so the CLI is the primary route.
+  - **A plaintext password is in `docs/product/LAUNCH_PLAN.md`** (H1).

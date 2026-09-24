@@ -68,6 +68,11 @@ Only 147 (`get_unsettled_payments`) has been applied since. The same four values
 
 ## 5. Execution (A runs every step; owner authorises; D witnesses the reads if the owner authorises D)
 
+Every production invocation carries `CONFIRM_REF=hqycwntpfoztoinemqns`. Without it, each script refuses (exit 2)
+before reading the token or making any network call. The first printed line always names the mode and target
+(`### MODE=PRODUCTION target=hqycwntpfoztoinemqns`, `MODE=REHEARSAL …`, `MODE=DRY …`). This makes production a
+deliberate choice in both directions (D's review, 2026-09-24).
+
 1. **P1, P2** (reads).
 2. **Apply:** `apply_one_148.sh 01`. This runs the P3 guard, then POSTs the migration text plus the ledger insert as one
    request to the Management API (`POST /v1/projects/hqycwntpfoztoinemqns/database/query`, the 147 route), then the
@@ -103,9 +108,11 @@ needs to be quiet.
 | Deploy failure, or byte mismatch after deploy | DB at 148; edge at v40 or at an unverified v41 | rollback the edge with the **frozen** `deploy_one.sh enforce-transfer-expiry` (sha256 `029c6af7…`) from the `5b255838` worktree, which byte-verifies the gate source. The DB can stay at 148: the claim is only stricter, and seller-win rows stay unpaid as today |
 | Run check FAIL | both applied | edge rollback as above, then report. The DB decision is the owner's |
 
-**Rollback order when both must go: edge first, then the DB.** A new edge over a pre-148 claim would pay seller-win rows
-without the database's hold rule. The (d) loop's inline hold check would still skip them, but that is one layer, not
-two. The rollback reverses code only. It cannot reverse a payout already made, which is why the post-assert and run
+**Rollback order when both must go: edge first, then the DB. Do not simplify this.** The pre-148 claim already admits a
+seller-win row but has no hold rule. If the DB were rolled back first, the new edge's (d) selection would still find
+seller-win candidates while the authority no longer enforced holds: a window in which a held or manual-review row
+could be paid, guarded only by (d)'s inline check. Edge first removes the candidates before the authority weakens
+(A's reasoning; D confirmed it independently). The rollback reverses code only. It cannot reverse a payout already made, which is why the post-assert and run
 check come before any seller-win resolution.
 
 ## 7. Local rehearsal (production-shaped for the objects 148 touches)
@@ -179,17 +186,54 @@ columns. Two healthy post-deploy runs gave PASS. One post-deploy run with `error
 sha256 `f9f45ae4…`, blob `2b6e54d7…`; rollback sha256 `8c5e34c4…`, md5 `b72d4104…`, 11,271 B, blob `584af1b8…`. All
 equal A's. `d_md5.txt` holds it in the script's one-line format: `20260924000000 4eb38855e9eb2dcbbdb45a13b50beeff 13567`.
 
+**Rehearsal 2, after the mode gate was added** (~16:04Z; fresh copy of the same template): banner
+`MODE=REHEARSAL`; P3 PASS; apply → POST-ASSERTION PASS; the negative control refused (exit 3); rollback request sha256
+`626db799…` (unchanged) → pre-hashes restored and 160 rows; re-apply → PASS; pgTAP 215 43/43. The DRY production
+request is still sha256 `c91cec23…`, byte-identical. Negative controls for the gate: with no `CONFIRM_REF`, all four
+scripts print `### REFUSED …` and exit 2.
+
 **Frozen (read-only), sha256:**
 
 | File | sha256 | Bytes |
 |---|---|---|
-| `apply_one_148.sh` | `8977efae8b9f7e5e328eb420489b58ae574ed3ed3646ff51311f98566e3f7a8d` | 15,403 |
-| `rollback_148.sh` | `f33ade583ea9c31b131c834868c84ac86c38ea82ab8c6b1ef8e3de07e58f8d3f` | 4,501 |
-| `deploy_148.sh` | `4db0969b5b02ddb36c38e5a1a76c132d78001af7cfc8a7d2962e39a44cbcb511` | 6,410 |
-| `runcheck_148.sh` | `c1b9abf9093d1aee636dc970353db518df0252e5c2dbfdd47bc05e7205056e12` | 3,448 |
+| `apply_one_148.sh` | `0bf97b89c15d12d2d784a21fa1c720069b58ac7c30427b46508d4266b328eaa0` | 16,007 |
+| `rollback_148.sh` | `1419f12fcc0ffecf7c0cb2a9915494ac2b7d119af66706d21da1ad69e5b3d0c6` | 5,018 |
+| `deploy_148.sh` | `142899c83dd3a864a45a5a8f31788af8b44864d07a052cf523dbf04d4457eebf` | 6,919 |
+| `runcheck_148.sh` | `14e0b918ee424ff3f7e246b19050d4b85fd973d99d3518a1948c750e1a20fc5b` | 3,889 |
 | `migrations/20260924000000_…sql` | `f9f45ae4aeaf86f843cb41da0db362188f6d073a89fff689ee291c375fe99a2d` | 13,567 |
 | `rollbacks/20260924000000_…_rollback.sql` | `8c5e34c403f964261064cf12f162a329db3f4606adba46bbec1f1c33cc3abaeb` | 11,271 |
 | `d_md5.txt` (= `a_md5.txt`) | `b7f8961747ecf1b3cbdb5a2aaba771bbf09db6db8e797404d0182924663b5385` | 54 |
-| review surfaces: `diff_vs_apply_one_147.patch` (93 changed lines), `diff_vs_rollback_147.patch` (50), `diff_vs_deploy_one.patch` (44) | `c7d4e1ca…`, `0a3d458f…`, `74886138…` | |
+| review surfaces: `diff_vs_apply_one_147.patch` (99 changed lines), `diff_vs_rollback_147.patch` (55), `diff_vs_deploy_one.patch` (48) | `8287d7fa…`, `7b9d52a8…`, `bac20588…` | |
 
+The first freeze (`8977efae…` / `f33ade58…` / `4db0969b…` / `c1b9abf9…`) is superseded. The only change is the mode gate
+and banner.
 The full list is `apply_148/FROZEN_SHA256.txt`. Any change means disclosure, D re-review and a new hash.
+
+## 11. Review status and bearing of the reader sweep (2026-09-24 ~16:10Z)
+
+**D's review so far:**
+- **Reviewed and passed:** the frozen artefacts (scripts, anchor files, directory and hashes); the anchor read-back (an
+  exact match, recomputed from the ref); the anchor guard (before any request, in every mode); `LOCALDB` safety (D
+  checked four properties, the strongest being that no token is ever fetched in rehearsal); the rollback order.
+- **Not verified by D, and not claimed:** the P3 pre-state and post hashes (no production read is authorised; D offered
+  to recompute them on a fresh replay copy); `deploy_148.sh --dry` (diff only, same limit as A's); **this document**
+  (§8 wording and the §10 narrative have not been reviewed yet).
+- **Adopted from D:** the mode gate (§5) and the rollback-order reasoning (§6).
+
+**Reader sweep** (A's read-only subagent, SERVER = #92 head, CLIENT = `404bce38`): every place that treats
+`status='buyer_confirmed'` as proof the buyer confirmed.
+- **Class (a), a false claim to someone, 10 entries:** 7 unfixed, 2 fixed (the 058 trigger by #92; mobile by C's three
+  commits), 1 dead code.
+- **Class (b), a decision that acts on it, 4 entries:** 2 fixed by #92; 2 unfixed or partly fixed.
+- **Bearing on R1, checked by A in source:** #92's new (d) path reuses `payReleasedTransfer`. Its only decision write
+  records `buyer_confirmed: false` (`enforce-transfer-expiry/index.ts:883-897`). **So #92 adds no new false record.**
+- **Every unfixed item predates #92.** None is made reachable by it, except `payoutDeferred` (a1), which is reachable
+  only if `confirm-and-release` is redeployed. That is excluded (F-CR-148-SHARED).
+- The unfixed items are recorded in `FINDINGS_20260924_DISPUTE_GRANT_AND_OPS_CASE.md` for follow-up owners:
+  - the web copy (a7);
+  - the admin labels (a5, a6);
+  - three decision writers (a2–a4);
+  - `confirm-and-release`'s already-confirmed inference (b1);
+  - `ops.detect_release_stuck`, which would open false "stuck" cases for held seller-win rows (b2).
+- **None of them blocks R1.**
+
