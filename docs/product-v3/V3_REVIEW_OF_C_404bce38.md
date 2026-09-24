@@ -23,6 +23,19 @@ the commit message and not against the older report.
 | **Misleading transient copy** | A new client-only reason, `check_unavailable`: *"We couldn't check your account status just now. You can still publish."* Submission behaviour is preserved — the branch still `return true` (`:416`) | — |
 | **New-state styling** | `riskBannerNeutral: { borderColor: p.border.control }` (`:1159`) — the new reason is styled, not left on an unset border | 3.40:1 Daylight, 3.61:1 Midnight |
 
+### 1b · The brand mark (the "logo" defect) — closed, and I swept for recurrences
+
+Not one of mine; verified independently. `brand/sn-logo-white.png` is **white on transparent** and was
+rendered untinted, which was correct while every screen was Midnight and makes the monogram **invisible on
+Daylight's white canvas**. Fixed at `AuthBrandMark.tsx:48` with `tintColor: p.text.primary` — `#FFFFFF` on
+Midnight, `#0B0C0E` on Daylight (19.57:1 against the light canvas; the 3:1 graphical bar is cleared many
+times over).
+
+I swept the tree for the same asset used anywhere else: exactly two call sites exist,
+`AuthBrandMark.tsx:25` and `HomeHeader.tsx:39`, and **both tint to `p.text.primary`**
+(`HomeHeader.tsx:87`). No untinted use of a white-on-transparent brand asset remains. The mark reaches
+every auth screen through `AuthScreen.tsx`, so sign-in and all four signup steps are covered by the one fix.
+
 On the transient copy I had recommended showing nothing; C chose a true neutral sentence instead. **C's
 choice is the better one and I withdraw mine** — it carries real uncertainty ("the check didn't answer")
 and tells the seller publishing continues, which silence does not. It adds one short line to a screen that
