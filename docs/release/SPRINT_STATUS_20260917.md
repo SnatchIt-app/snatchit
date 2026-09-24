@@ -1676,3 +1676,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   nor the release audit may assert a confirmation when `buyer_confirmed_at` is NULL). It is prospective (0 seller-win
   rows; current clients don't offer the call). D stopped production reads pending the owner's ruling on the scope of
   D's witness authorisation, which D quoted in full.
+- **Owner ruling on D's #92 witness reads:** authorised, under the owner's wording "I directly authorise your
+  read-only witness checks of P1–P3 and the apply/deploy/run-check results for package 05c4f5fa". D's PASS is recorded
+  as the authorised independent witness (package §13). The ruling grants no further production reads.
+- **The owner's next instructions:**
+  - Prepare the audit-record fix (a1–a4) as a draft PR only.
+  - Prepare #92's gate-merge command and checks; the merge itself is not authorised.
+  - No apply, deploy, merge, dispute resolution or production change.

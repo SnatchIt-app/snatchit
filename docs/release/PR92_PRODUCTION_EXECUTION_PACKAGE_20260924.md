@@ -545,3 +545,11 @@ D also states that it read production at 17:03:51Z and 17:04:53Z "under the owne
 
 A cannot see that authorisation from A's session. The owner's (A)+(B) authorisation named A's steps, and §8 lists
 D's witness as a separate optional item. **Owner confirmation requested.**
+
+**Owner ruling (2026-09-24, in A's session): D's reads were authorised.** In the owner's words, D's read-only P1–P3
+and post-run witness reads count as authorised under this wording:
+> "I directly authorise your read-only witness checks of P1–P3 and the apply/deploy/run-check results for package
+> 05c4f5fa."
+
+So D's reads at 17:03:51Z and 17:04:53Z were in scope, and **D's PASS is recorded as the authorised independent
+witness of this execution.** The ruling covers that package's witness only; it grants no further production reads.
