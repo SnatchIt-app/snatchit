@@ -50,3 +50,21 @@ component role (A-1/A-2/A-3); and the four `midnight-*-clean` screens plus the "
 - **Listing:** the pkg7 removal ledger and the rendered `pkg7-listing-after.png` disagree about the commitment sentence and whether the "IF YOU BID THE MINIMUM" eyebrow survives. Both are in the record; I am not guessing which is final.
 - **Search:** the **"Any date" chip** is drawn; its semantics are undefined.
 - **Order:** whether the unreachable variant is a panel inside `pkg8-order-{dark,light}.png` is not stated anywhere.
+
+---
+
+## Consumer-screen rows added 2026-09-24 (B)
+
+Reviewed-commit convention: every review names the commit it captured. **C's `app/_dev/v3-*` harness
+screens take no board and are never consumer surfaces** — they are a review instrument only.
+
+| Screen | Reference (dark / light) | Later ruling that governs |
+|---|---|---|
+| **Tickets** | `pkg8-account-tickets-dark.png` / `-light.png` | Populated/Past rendering is **not coverable** — `kernel.tickets` is 0 |
+| **Appearance** (Settings → Appearance) | `pkg8-appearance-dark.png` / `-light.png` | System / Light / Dark, default System; selection carries four cues, not colour alone |
+| **Edit listing** | `pkg3-create-*` geometry + `pkg8-create-dark/light` tokens | Required-field prompts must be readable (owner 2026-09-24) |
+| **Payout setup** | `pkg6-settings-surfaces.png` (dark only) | **No light board exists** — light is derived from the palette, not from a board |
+| **Report a listing / user** | `pkg4-dispute-support.png` (dark only) | **No light board.** The 0/1000 counter must not sit at `faint` |
+| **Public profile** | `pkg8-account-tickets-light.png` (it draws own + public profile) | Trust row shows "unavailable" rather than inventing a figure |
+| **Settings sub-screens** (notifications, security notice, blocked users, legal, privacy, preferences, support) | `pkg8-account-settings-dark.png` / `-light.png`; earlier `pkg6-settings-surfaces.png` | Persistent visible label on the 6-digit code field; a working support route; do not differentiate the two blocked reasons |
+| **Checkout display page** (`app/_dev/v3-checkout.tsx`) | **none — harness only** | Review instrument. Never a consumer surface, never a board row |
