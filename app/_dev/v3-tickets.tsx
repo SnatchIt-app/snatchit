@@ -30,6 +30,7 @@ import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAppearancePreference } from '@/src/theme/appearance';
 import TicketsScreen, { type TicketsFixture } from '@/app/(tabs)/tickets';
 import TransferReceiveScreen, { type OrderFixture } from '@/app/transfer/receive/[id]';
+import TransferSendScreen, { type SendFixture } from '@/app/transfer/send/[id]';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 
 declare const __DEV__: boolean;
@@ -128,6 +129,9 @@ export default function V3TicketsHarness() {
       // The board's order state: seller_sent, mobile transfer via DICE, a $99.00 settled charge,
       // the review deadline from the server. Reads only; every action still needs the real server.
       return <TransferReceiveScreen fixture={ORDER_FIXTURE} />;
+    case 'send':
+      // The seller's marked-sent state from pkg8-send. Read short-circuit only.
+      return <TransferSendScreen fixture={SEND_FIXTURE} />;
     default:
       return <Redirect href="/" />;
   }
@@ -162,4 +166,17 @@ const ORDER_FIXTURE: OrderFixture = {
     },
   },
   settled: [{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 9900 }],
+};
+
+/** The seller's side of the same sample order (pkg8-send: marked sent, phone delivery). */
+const SEND_FIXTURE: SendFixture = {
+  transfer: {
+    ...ORDER_FIXTURE.transfer,
+    status: 'seller_sent',
+    delivery_email: null,
+    delivery_phone: '(305) 555-4417',
+    payout_review_status: null,
+    payout_hold_until: null,
+    buyer: { display_name: 'Buyer One' },
+  } as SendFixture['transfer'],
 };
