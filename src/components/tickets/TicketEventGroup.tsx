@@ -131,16 +131,18 @@ function makeStyles(p: Palette) {
   rowTextQuiet: { color: p.text.secondary, flexShrink: 1 },
   badges: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xs, flexShrink: 0 },
 
-  // Past — quieter row.
+  // Past — quieter row. The dim belongs on the ARTWORK, not on the card: an ancestor opacity is a
+  // contrast multiplier on everything below it, and 0.92 over the Daylight canvas took `text.muted`
+  // — the date line and the venue name — from 5.27:1 to 4.44:1, under the bar the token was solved
+  // for. The recession is carried by the layout swap and the quieter ink tokens anyway (TP1/TP2).
   pastCard: {
     flexDirection: 'row',
     gap: v2.space.md,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
     borderBottomColor: p.border.default,
-    opacity: 0.92,
   },
-  pastThumb: { width: 64, height: 64, overflow: 'hidden' },
+  pastThumb: { width: 64, height: 64, overflow: 'hidden', opacity: 0.92 },
   pastBody: { flex: 1, gap: 2 },
   pastTitle: { color: p.text.primary },
   metaQuiet: { color: p.text.muted },

@@ -14,6 +14,8 @@
  *
  * Client-only. No auth, payment, database or server change.
  */
+import { readFileSync } from 'node:fs';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HookHost } from './helpers/nav-stack-harness';
@@ -302,5 +304,20 @@ describe('F-AVATAR-2 — Edit Profile keeps every avatar control busy until the 
     expect(ringBusy(host)).toBe(false);
     expect(h.writes.length).toBe(0);
     expect(h.alerts).toContain('Upload failed');
+  });
+});
+
+describe('the bio counter can actually warn', () => {
+  it('EP-CAP: the over-state threshold matches the field\'s maxLength, so it is reachable', () => {
+    const src = readFileSync('app/settings/edit-profile.tsx', 'utf8');
+    // It used to be `> 200` on a field with maxLength={200}: trim() only shortens, so the
+    // status.error state could never render and the counter stayed at the decoration ink forever.
+    // The BIO field's cap, not the display name's (which is 50): take the maxLength that follows
+    // `value={bio}`, so this stays tied to the field the counter actually counts.
+    const bioBlock = src.slice(src.indexOf('value={bio}'));
+    const cap = bioBlock.match(/maxLength=\{(\d+)\}/)?.[1];
+    expect(cap).toBe('200');
+    expect(src).toContain(`bio.trim().length >= ${cap} ? s.countOver : s.count`);
+    expect(src).not.toMatch(/bio\.trim\(\)\.length > 200/);
   });
 });

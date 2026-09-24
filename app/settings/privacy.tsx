@@ -188,7 +188,7 @@ function makeStyles(p: Palette) {
 
   pageTitle:    { fontFamily: v2.font.display, fontSize: 26, lineHeight: 33, letterSpacing: -0.5,
                   textTransform: 'uppercase', color: p.text.primary, marginBottom: v2.space.xs },
-  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
+  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                   marginBottom: v2.space.md },
 
   section:      { marginBottom: v2.space.lg },
@@ -205,7 +205,7 @@ function makeStyles(p: Palette) {
 
   contactEmail: { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                   marginBottom: v2.space.sm },
-  footerNote:   { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
+  footerNote:   { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                   marginTop: v2.space.lg, textAlign: 'center' },
 
   bottomPad:    { height: v2.space.xxxl },

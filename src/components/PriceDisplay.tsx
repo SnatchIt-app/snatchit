@@ -100,7 +100,7 @@ function makeStyles(p: Palette) {
   label: {
     fontSize: fontSize.xs,
     fontWeight: '700',
-    color: p.text.faint,
+    color: p.text.muted,
     letterSpacing: 1.0,
     textTransform: 'uppercase',
     marginBottom: 2,
@@ -112,7 +112,7 @@ function makeStyles(p: Palette) {
   },
   amountMuted: { color: p.text.muted },
   suffix: {
-    color: p.text.faint,
+    color: p.text.muted,
     fontWeight: '500',
     flexShrink: 0,
   },

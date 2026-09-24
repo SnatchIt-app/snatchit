@@ -155,7 +155,7 @@ function makeStyles(p: Palette) {
   reasonLabel: { flex: 1, color: p.text.primary },
 
   notes: { minHeight: 96, color: p.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
-  charCount: { color: p.text.faint, alignSelf: 'flex-end', marginTop: v2.space.xs, fontVariant: ['tabular-nums'] },
+  charCount: { color: p.text.muted, alignSelf: 'flex-end', marginTop: v2.space.xs, fontVariant: ['tabular-nums'] },
 
   submit: { marginTop: v2.space.xl },
   fineprint: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.lg },

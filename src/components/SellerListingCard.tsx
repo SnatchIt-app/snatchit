@@ -168,7 +168,7 @@ function makeStyles(p: Palette) {
 
   bottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.sm },
   bottomLeft: { flexShrink: 1, minWidth: 0 },
-  dim: { color: p.text.faint },
+  dim: { color: p.text.muted },
   urgent: { color: p.status.error },
   ok: { color: p.status.success },
   action: { color: p.status.warning },

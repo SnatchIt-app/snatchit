@@ -267,22 +267,27 @@ describe('over-artwork and on-fill inks — the cases a pure rename gets wrong',
 
 // ── B's measured failures, closed at the rendered level ─────────────────────────────────────────
 describe("the fixes for B's Daylight failures, as composited colour", () => {
-  it('RD11: F-34 — the risk banners are translucent tints, and their safety copy clears 4.5:1 over the composited tint in BOTH appearances', async () => {
+  it('RD11: F-34 — the risk banners take graded status edges, and their safety copy clears 4.5:1 in BOTH appearances', async () => {
     const src = await stripped('src/screens/CreateListingScreen.tsx');
     const styles = src.slice(src.indexOf('function makeStyles'));
-    // #FFDDBB measured 1.29:1 on white — the old label was invisible in Daylight on a component
-    // that tells a seller their account is blocked.
+    // First attempt: #FFDDBB on opaque browns, measured 1.29:1 on white — the copy telling a seller
+    // their account is blocked was invisible in Daylight. Second attempt (mine): translucent tints,
+    // which composite over either canvas but are UNGRADED literals — the three 0.45 edges measure
+    // 1.32 / 1.56 / 1.75:1 against the Daylight canvas, all under the 3:1 non-text bar, and the
+    // three fills are 1.03–1.07:1 against EACH OTHER, so the severity they claim to rank is not
+    // visible in either appearance. The tier is carried by three different sentences; the colour
+    // layer only has to be a legible edge, so it now comes from the status tokens.
     expect(styles).not.toMatch(/#FFDDBB|#332B00|#331A00|#330000/);
+    expect(styles).not.toMatch(/riskBanner\w*: \{[^}]*rgba\(/);
+    expect(styles).toMatch(/riskBannerMedium:\s*\{ borderColor: p\.status\.warning \}/);
+    expect(styles).toMatch(/riskBannerHigh:\s*\{ borderColor: p\.status\.error \}/);
+    expect(styles).toMatch(/riskBannerCritical:\s*\{ borderColor: p\.status\.error \}/);
     expect(styles).toMatch(/riskBannerText: \{ color: p\.text\.primary \}/);
-    const tints = ['rgba(255,176,32,0.12)', 'rgba(255,120,32,0.12)', 'rgba(255,77,77,0.12)'];
     for (const [scheme, p] of palettes) {
-      for (const tint of tints) {
-        const fill = over(tint, p.surface.canvas);
-        expect(contrast(p.text.primary, fill), `${scheme} risk copy on ${tint}`).toBeGreaterThanOrEqual(4.5);
-        // …and the banner is still visibly a banner: its edge separates it from the canvas.
-        const edge = over(tint.replace('0.12', '0.45'), p.surface.canvas);
-        expect(contrast(edge, p.surface.canvas), `${scheme} risk edge`).toBeGreaterThanOrEqual(1.2);
+      for (const edge of [p.status.warning, p.status.error]) {
+        expect(contrast(edge, p.surface.canvas), `${scheme} risk edge`).toBeGreaterThanOrEqual(3);
       }
+      expect(contrast(p.text.primary, p.surface.canvas), `${scheme} risk copy`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -318,5 +323,43 @@ describe("the fixes for B's Daylight failures, as composited colour", () => {
     for (const bg of [light.surface.canvas, light.surface.surface, light.surface.elevated]) {
       expect(contrast(light.brand.red, bg)).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+// ── text.faint is a decoration ink, and the token says so ────────────────────────────────────────
+/**
+ * `text.faint` composites to 2.36–2.67:1 on every surface in both appearances, and the token block
+ * states its own contract: "Anything at `muted` or dimmer may not carry task-critical information."
+ * Nine sites were carrying exactly that — three-way select-sheet group headings that are the only
+ * label distinguishing a neighbourhood from a venue, two character counters that are the only signal
+ * of a hard `maxLength`, the price eyebrow that says whether a figure is "Current bid" or "Sold for",
+ * the " total" suffix that makes a price all-in, a seller card's live deadline, and the effective
+ * dates of the privacy and legal agreements.
+ *
+ * RD15 keeps `faint` for what it is for. Placeholders (which vanish on the first keystroke, sit under
+ * a visible label and are repeated in the accessibility label) and the redundant row chevron are
+ * decoration; anything else must be at least `muted`.
+ */
+describe('text.faint carries no task-relevant information', () => {
+  it('RD15: faint is used only for placeholders and named decoration', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const fs = await import('node:fs');
+    const files = execFileSync('git', ['ls-files', 'app', 'src'], { encoding: 'utf8' })
+      .split('\n').filter((f) => /\.tsx?$/.test(f) && !f.startsWith('src/theme/'));
+    // Style keys that are genuinely decorative, each justified: a placeholder's empty state, the
+    // redundant chevron glyph on a row that is itself the labelled control, and a __DEV__-only toggle.
+    const DECORATIVE = ['selectPlaceholder', 'chevron', 'devToggle'];
+    const offenders: string[] = [];
+    for (const f of files) {
+      const code = fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+      for (const line of code.split('\n')) {
+        if (!/(p|palette)\.text\.faint/.test(line)) continue;
+        if (/placeholderTextColor/.test(line)) continue;                       // a placeholder prop
+        const key = line.match(/^\s*([A-Za-z0-9_]+)\s*:/)?.[1];
+        if (key && DECORATIVE.includes(key)) continue;
+        offenders.push(`${f}: ${line.trim().slice(0, 90)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

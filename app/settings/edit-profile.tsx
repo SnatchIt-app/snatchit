@@ -199,7 +199,7 @@ export default function EditProfileScreen() {
           <View>
             <View style={s.bioLabelRow}>
               <Text style={[textStyle('micro'), s.bioLabel]}>Bio</Text>
-              <Text style={[textStyle('bodySm'), bio.trim().length > 200 ? s.countOver : s.count]}>{bio.trim().length}/200</Text>
+              <Text style={[textStyle('bodySm'), bio.trim().length >= 200 ? s.countOver : s.count]}>{bio.trim().length}/200</Text>
             </View>
             <TextInput
               style={[textStyle('body') as TextStyle, s.bio, { borderBottomColor: submitted && errors.bio ? palette.status.error : bioFocused ? palette.brand.red : palette.border.strong }]}
@@ -252,7 +252,7 @@ function makeStyles(p: Palette) {
   fields: { gap: v2.space.lg },
   bioLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: v2.space.xs },
   bioLabel: { color: p.text.muted },
-  count: { color: p.text.faint, fontVariant: ['tabular-nums'] },
+  count: { color: p.text.muted, fontVariant: ['tabular-nums'] },
   countOver: { color: p.status.error, fontVariant: ['tabular-nums'] },
   bio: { minHeight: 96, color: p.text.primary, borderBottomWidth: 1, paddingVertical: v2.space.sm, textAlignVertical: 'top' },
   fieldError: { color: p.status.error, marginTop: v2.space.xs },

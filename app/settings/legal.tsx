@@ -326,7 +326,7 @@ function makeStyles(p: Palette) {
 
   pageTitle:    { fontFamily: v2.font.display, fontSize: 26, lineHeight: 33, letterSpacing: -0.5,
                   textTransform: 'uppercase', color: p.text.primary, marginBottom: v2.space.xs },
-  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
+  effectiveDate:{ fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                   marginBottom: v2.space.lg },
 
   section:      { marginBottom: v2.space.lg },
@@ -349,7 +349,7 @@ function makeStyles(p: Palette) {
   ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                      marginTop: v2.space.md, marginBottom: v2.space.xs },
   ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.muted },
-  ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.faint,
+  ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                      marginTop: v2.space.lg, textAlign: 'center' },
 
   privacyLink:     { borderWidth: 1, borderColor: p.border.strong, paddingVertical: v2.space.md,

@@ -151,16 +151,6 @@ describe('complete appearance migration', () => {
           'A 10% warning tint. Being translucent it composites over whichever canvas is behind it, ' +
           'so one value is correct in both appearances; its border and text come from status.warning.',
       },
-      'src/screens/CreateListingScreen.tsx': {
-        literals: [
-          'rgba(255,176,32,0.12)', 'rgba(255,176,32,0.45)',
-          'rgba(255,120,32,0.12)', 'rgba(255,120,32,0.45)',
-          'rgba(255,77,77,0.12)', 'rgba(255,77,77,0.45)',
-        ],
-        reason:
-          'Risk-banner tints, graded by severity. Translucent for the same reason: they composite ' +
-          'over the Midnight canvas and the Daylight canvas alike; their text is text.primary.',
-      },
     };
 
     const found = new Map<string, Set<string>>();

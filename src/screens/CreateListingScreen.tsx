@@ -1129,11 +1129,14 @@ function makeStyles(p: Palette) {
   reviewVal: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
   riskBanner: { padding: v2.space.md, marginTop: v2.space.md, borderWidth: 1 },
-  // Graded by severity and translucent by design: a tint composites over the Midnight canvas and
-  // the Daylight canvas alike, where the old opaque browns were dark-only (AM5 classifies them).
-  riskBannerMedium:   { backgroundColor: 'rgba(255,176,32,0.12)', borderColor: 'rgba(255,176,32,0.45)' },
-  riskBannerHigh:     { backgroundColor: 'rgba(255,120,32,0.12)', borderColor: 'rgba(255,120,32,0.45)' },
-  riskBannerCritical: { backgroundColor: 'rgba(255,77,77,0.12)',  borderColor: 'rgba(255,77,77,0.45)' },
+  // The edge is a status token, so it is graded in both appearances (6.07–11.48:1 on the canvas).
+  // My first pass used translucent literals: they composite over either canvas, but ungraded they
+  // measured 1.32–1.75:1 in Daylight, and the three fills were 1.03–1.07:1 against EACH OTHER — a
+  // severity ranking that nobody could see. The tier is carried by three different sentences
+  // (RISK_COPY) inside an accessibilityRole="alert", so the colour layer only owes a legible edge.
+  riskBannerMedium:   { borderColor: p.status.warning },
+  riskBannerHigh:     { borderColor: p.status.error },
+  riskBannerCritical: { borderColor: p.status.error },
   riskBannerText: { color: p.text.primary },
 
   validationMsg: { color: p.status.error, textAlign: 'center', marginTop: v2.space.md },
@@ -1144,7 +1147,7 @@ function makeStyles(p: Palette) {
   stickySummary: { color: p.status.error },
 
   sheetList: { marginTop: v2.space.sm, maxHeight: 380 },
-  sheetGroup: { color: p.text.faint, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
+  sheetGroup: { color: p.text.muted, paddingTop: v2.space.md, paddingBottom: v2.space.xs },
   sheetRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     minHeight: 48, paddingVertical: v2.space.sm,
