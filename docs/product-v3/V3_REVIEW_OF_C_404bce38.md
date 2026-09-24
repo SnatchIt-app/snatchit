@@ -34,7 +34,9 @@ times over).
 I swept the tree for the same asset used anywhere else: exactly two call sites exist,
 `AuthBrandMark.tsx:25` and `HomeHeader.tsx:39`, and **both tint to `p.text.primary`**
 (`HomeHeader.tsx:87`). No untinted use of a white-on-transparent brand asset remains. The mark reaches
-every auth screen through `AuthScreen.tsx`, so sign-in and all four signup steps are covered by the one fix.
+three screens through `AuthScreen.tsx` — **sign-in, sign-up and reset-password** — so the one fix covers
+all of them. (`settings/verify-phone` does not use it.) A single asset serves both appearances; only the
+tint flips, which is the right construction.
 
 On the transient copy I had recommended showing nothing; C chose a true neutral sentence instead. **C's
 choice is the better one and I withdraw mine** — it carries real uncertainty ("the check didn't answer")
@@ -195,3 +197,54 @@ is **an authoritative-state read**, so it goes through A's review of the gated s
 `auto_released`, a resolved dispute and a failed refund read have no fixture, and A's sheet proposes none.
 These are **source-review findings**, recorded as such — no computed contrast applies and there is no
 device observation to make.
+
+---
+
+## 5 · The tree-wide opacity sweep — clean, with one case left
+
+I swept every `opacity:` in `app/` and `src/` at `404bce38` (20 sites) and classified each by whether text
+sits inside the dimmed subtree.
+
+**All five card components are clean.** `FeedRow`, `SellerListingCard`, `DiscoveryCard`, `BidCard` and
+`TicketEventGroup` now carry the dim on `EventMedia` itself, with every `Text`, `Badge` and `NameText` as a
+sibling. `DiscoveryCard` is the subtlest of them — its status Badge is absolutely positioned *over* the
+artwork but is a **sibling** of it, so the dim that recedes a sold cover never scales the word that says so.
+
+The general rule is now **enforced structurally**, which closes the concern I raised at `d981727e` that the
+test was scoped to one component: `tests/v3-dimmed-layers.test.ts` renders each card dimmed, walks the tree
+multiplying every ancestor's opacity, and fails any `Text | Badge | NameText | PriceDisplay` under an
+effective opacity below 1 — while also asserting each card still dims *something*.
+
+The seven disabled-control primitives (`Button`, `Chip`, `IconButton`, `Input`, `MediaUpload`, and the two
+stepper glyphs) put text under `opacity: 0.4`, and that is **correct** — WCAG exempts inactive components
+from the contrast minimum, and C recorded the exemption explicitly. Transient animation opacities
+(the dock, toast, skeleton, pulse, home filter bar) are not in scope.
+
+### 5.1 · One case sits in both categories — the listing CTA carries *listing* state, not control state
+
+`ListingDetailScreen.tsx:1334-1336` renders the primary CTA with `variant="primary"` and
+`disabled={… || kind === 'unavailable'}`, so `Button`'s `opacity: 0.4` applies. The labels it carries in
+that state are not control words — they are **listing state** (`detailState.ts:308-324`):
+
+> **Sold · Cancelled · On hold · Ended · Your listing**
+
+Measured, black label on `brand.red` at 0.4 over each canvas:
+
+| | fill | label | label vs fill |
+|---|---|---|---|
+| Midnight | `#660A0A` | `#000000` | **1.61:1** |
+| Daylight | `#FFA3A3` | `#999999` | **1.50:1** |
+
+**This is not a WCAG violation** — the control is genuinely inactive and exempt, and I am not asking for the
+disabled treatment to change. It is an **information** defect: the button is doing double duty as a status
+line, and a dim that is right for a control is wrong for a status.
+
+**Another cue exists for two of the five.** `ListingDetailScreen.tsx:1198` swaps the price label to
+**"Sold for"** when sold and **"Final bid"** when closed, at full strength, and the clock is suppressed. So
+*Sold* and *Ended* are carried elsewhere. **`Cancelled`, `On hold` and `Your listing` are not** — for those
+three the illegible button label is the only place the state is stated. "On hold" is the one that costs a
+buyer most: it is the reason they cannot buy.
+
+**Fix, using what is already there:** `:1326-1328` renders `state.primary.subLabel` in a `Text` **outside**
+the `Button`, at full strength, immediately above it. Populate it for the three uncovered states. No new
+component, no change to the disabled treatment, and the CTA keeps its word.
