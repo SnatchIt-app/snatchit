@@ -353,3 +353,15 @@ the nearby total stays removed; the route estimate is never promoted (nothing to
 Evidence: tsc 0 · lint 0/29 · full run 2628/2628 (139 files), inspected before the commit message.
 
 **A verified 6f116c8e from source (2026-09-24):** sellerHoldLine branches, select + call, conditional fallback, gated surface unchanged; cells + deadline recorded done pending B's visual review.
+
+---
+
+# Appearance — shared primitives migrated (C, 2026-09-24) — `3f295bca`
+
+Button/IconButton/Chip/Badge/StateView/Spinner/Skeleton/StickyBar/Input/MediaUpload/Sheet/PriceDisplay/
+AdaptiveDock/EventMedia now read useTheme(); makeStyles(palette) memoised per scheme; Light inks
+witnessed on StateView/Button/Badge (PR1–PR3), no static colour groups left in them (PR4). Controls 3/3.
+Evidence inspected before commit: tsc 0 · lint 0/29 · full 2632/2632 (140 files) clean. Remaining
+inventory: the screens themselves (static refs remain in ~55 files: Create 51, profile/[id] 26,
+Checkout 25, send/receive 25 each, notifications 24, …) plus 8 legacy-palette imports — next slices,
+screen by screen, same pattern. Still no rendered/device evidence for Light (D-9).
