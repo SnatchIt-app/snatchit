@@ -1515,3 +1515,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Follow-ons for C:**
     - the "Received" badge (`transferStatusMeta`) and the Bids board label still key on status alone; the Bids fix needs a gated read;
     - after #92 deploys, a held or manual-review seller-win should show the hold or review line instead of "being processed".
+- **C's follow-ons at `aee15697`: A PASS on the third gated read** (`buyer_confirmed_at` in the Bids transfer select; value never rendered; gated payment surface unchanged, `signOut.ts` +5).
+  - The badge and the Bids board now show "Resolved" (neutral) for an operator's decision. Real confirmations keep "Received".
+  - For an operator's decision, the seller payout line follows the payout fields: the hold line, the existing manual-review sentence, or else "being processed".
+  - **Optional wording change:** the new held-no-date fallback "…We will tell you when it is released." promises a notification. Delivery depends on a push token, so dropping the second sentence is recommended.
+  - Not in Build 23 (`9c6c9bf4`), which still shows a seller-win as "Received" on three surfaces; no replacement build is authorised.
