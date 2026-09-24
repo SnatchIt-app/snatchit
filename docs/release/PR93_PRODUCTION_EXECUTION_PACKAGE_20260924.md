@@ -1,6 +1,6 @@
 # Production execution package — migration 149 + `confirm-and-release` (A, 2026-09-24)
 
-**Status: PREPARED AND FROZEN; NOT AUTHORISED. Nothing in this package has touched production.**
+**Status: EXECUTED 2026-09-24 20:29–20:31Z under the owner's authorisation (A-149 + B-149 + V-3). All PASS; no rollback. See §12.**
 - **Source:** the release gate `release/production-gate-20260918` at `037092f00cd46c0062c30b4a9dc70dd6928e998b`, which is
   #93 merged on top of #92. Both merges were owner-authorised and verified; see the #92 package §14.
 - **What it does:**
@@ -225,3 +225,45 @@ texts, sent to a local database.
     - switches and grants as pass/fail;
     - the probe fingerprint with an INCONCLUSIVE outcome.
   - The doc notes D asked for are in §5.5 and §7. Re-rehearsed as v2 and re-frozen (`8305d966…`).
+
+## 12. Execution record (owner authorisation 2026-09-24: A-149 + B-149 rollback + V-3 probe, package `dddb93a7`)
+
+**Before any step:**
+- Frozen artefacts: `FROZEN_SHA256.txt` `8305d966…`, 16/16 on sha256 and size.
+- The package doc is unchanged since `dddb93a7`.
+- Gate tip `037092f0` and `main` `eadd456a`, both unchanged. `gate149` clean at `037092f0`; `gate5b` clean at `5b255838`.
+- `deploy_one.sh` `029c6af7…`; CLI 2.115.0.
+- Dry-run leftovers moved out of `out/`.
+- A's predictions registered at 20:27:48Z (`exec_predictions.txt` `528eb22f…`), including the defn-only-mismatch
+  contingency.
+- **D registered its expectations blind at 20:29:36Z** (sha256 `10942503…`).
+- **D's W0 PASS at 20:30:14Z** came from D's own production reads: every stop value, the 14 function versions and
+  `payout_decisions` 4.
+
+| Step | UTC | Result | vs prediction |
+|---|---|---|---|
+| P1 `deploy_149.sh --dry` | 20:29:58 | v37, ezbr `3b033bb8…`, `verify_jwt` True; pre-download 5/5 = `5b255838` | match |
+| P2 `00` | 20:30:12 | ledger 161, no 149 row; census 32/108/37/38; 69 grant rows (`00_grants.txt` `9955f5d9…`, byte-identical to 148's post-apply read); switches detectors true, refund-detector false, alert delivery false | match |
+| P3 `01 prestate` | 20:30:20 | **11/11 STOP keys equal.** This is the first production read of a3/a4: prosrc `6a8372b4…`/`d86c2b36…` = the repo, and **the replay-derived defn pins `f8ffef47…`/`e26a538c…` matched production** (n=2 with 148). Info: ACLs postgres + service_role; dispute_resolutions 0; open disputes 5; payout_attempts 0; **payout_decisions 4** (not predicted, never read before; D read the same 4); seller-win rows 0 | match |
+| **Apply `01`** | **20:31:03** | P3 re-run 11/11 PASS; the request `01_apply.sql` `f1bb0489…` = the rehearsed request, byte for byte; **HTTP 201** | match |
+| POST assertion | 20:31:05 | **PASS**, 15 checks plus grants. Ledger row `20260924120000 \| payout_decisions_buyer_confirmed_truth \| created_by=claude-a/owner-authorised-149 \| stmts=1`; ledger **162**; `stmt_md5` `7e4d3b2d…` = D's anchor; a3 `255e9022…`/`62f74728…`, a4 `0d692f32…`/`03ea4589…`, secdef, search_path=public, service_role only; claim148 and notify148 intact; census and switches unchanged; grants `01` == `00` | match |
+| **Deploy** | **20:31:13–20:31:30** | before v37 (guard passed); pre-download 5/5 = `5b255838`; deploy rc 0; **after v38**, ezbr `f4b61150…`, `verify_jwt` True, updated_at 1790281880378 ms; **post-download 5/5 = `037092f0`** | match |
+| **V-3 probe** | **20:31:39** | HTTP 200, body `ok`, `access-control-allow-methods: POST, OPTIONS`, `x-frame-options: DENY` → **PASS** | match |
+
+- **Rollback: not needed.** B-149 was not exercised.
+- **Not done, outside the authorisation:** no dispute was resolved; no payment, payout or refund path was invoked; no
+  other function was deployed; no other migration was applied; `main` is untouched; no app build.
+- Output sha256 values are in the sprint status and in D's W2 request. The outputs are in `scratchpad/apply_149/out/`
+  and `edge/out/`.
+
+**Evidence limits:**
+1. The changed code paths are deployed but not exercised in production. a1/a2 run only on a buyer's POST for a row
+   with no buyer confirmation; a3/a4 run only on a reversal. None occurs on its own, and none was triggered, since the
+   authorisation excluded invoking payment or payout paths. Their evidence stays pgTAP 216 (with D's independent
+   red/green), vitest BC-* / SW-AUDIT-*, and the mutants.
+2. The probe proves the v38 bundle boots. It exercises none of the changed code, and attributes the version by timing
+   (after the deploy read-back).
+3. Stripe was not read. No payout attempt and no Stripe-calling path was invoked by any step.
+4. The 4 existing `payout_decisions` rows were counted, not inspected. The migration does not rewrite existing audit
+   rows; any past row with a false `buyer_confirmed` stays as written.
+5. D's independent post-execution measurement (W2) is pending at the time of writing.

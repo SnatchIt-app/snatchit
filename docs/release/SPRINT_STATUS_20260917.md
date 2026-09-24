@@ -1828,3 +1828,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - "held for review if the buyer reports an issue" → supportable.
   - Send's listing embed widened to the same 8 columns: approved.
   - D's derived second leg accepted.
+- **149 + `confirm-and-release` PRODUCTION EXECUTION: ALL PASS, no rollback** (owner authorisation A-149 + B-149 +
+  V-3, package `dddb93a7`; record in package §12).
+  - Frozen 16/16. A's predictions at 20:27:48Z; D's blind expectations at 20:29:36Z; **D's W0 PASS** at 20:30:14Z.
+  - P1 at 20:29:58Z, P2 at 20:30:12Z, P3 at 20:30:20Z: 11/11, with the replay-derived defn pins matching production
+    (n=2).
+  - **Apply at 20:31:03Z:** HTTP 201, request `f1bb0489…` = the rehearsed one. POST PASS, ledger 162, `stmt_md5` =
+    D's anchor.
+  - **`confirm-and-release` v38 at 20:31:30Z:** byte-verified 5/5 against `037092f0`.
+  - **V-3 probe PASS** at 20:31:39Z.
+  - payout_decisions 4 and payout_attempts 0 before, as the baseline.
+  - Nothing else changed. Evidence limit: the changed paths are not yet exercised in production. D's W2 is pending.
+  - Output sha256: 01_apply.sql `f1bb0489`, APPLY_01.txt `fe12a490`, 01_readback.json `379057cb`,
+    01_post149.json `93754f7a`, 00/01_grants `9955f5d9`, DEPLOY.txt `55f4de8d`, PROBE.txt `b593dde7`,
+    P1 `97efdb5b`, P3 `df14974c`.
