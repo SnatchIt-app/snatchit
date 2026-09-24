@@ -214,7 +214,8 @@ the device session will exercise.
   some line numbers moved and are updated above. The two commits after the prior candidate change colour and styling only.
 - `eas.json`, `app.json` and `envGuard.ts` are unchanged since `2619b9e1`, so V1 holds for Build 23's source.
 - **Known gaps Build 23 carries**, recorded by C in the plan's checklist: the Spinner colour (branch `24b021a3` / `2ffb10a8`
-  differ in presentation only), the seller-win copy follow-on (below), and `text.faint` contrast.
+  differ in presentation only), the seller-win copy follow-on (below), `text.faint` contrast, and the **untinted auth brand
+  mark** (blank logo on the sign-in screens in Light; see S1 in §8).
 - **New since the last revision.**
   - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92**, head `e73553d2` (all 9 checks green; pgTAP Files=95 /
     Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **It is not applied or deployed.**
@@ -248,6 +249,12 @@ the device session will exercise.
 | R1 | PR #92: authorise the production apply of migration 148 and the deploy of `enforce-transfer-expiry` (A prepares the frozen scripts; production bodies are read and matched first) | the authorisation | seller-win payouts and a truthful notice before the first of the 5 open disputes is resolved |
 | R2 | Policies **P2** (who handles disputes and reports, and how they learn of them), **P4** (refund policy), **P5** (App Review purchase refunds), **P6** (seller-win handling until R1), **P7** (seller-win copy, C) | decisions | operating process behind the promises |
 | R3 | Twilio Console → Billing → **Auto-recharge** (currently OFF) | on/off decision | signup OTPs do not fail when the balance runs out |
+
+**Phone-session choice (not a submission gate; G1 is still required first).**
+
+| # | Choice | Evidence | Decides |
+|---|---|---|---|
+| S1 | Run Stages 1–3 on **Build 23** and accept its known items, **or** approve one sandbox `preview` recut from `v3/midnight-app` before the session. This recut is separate from G2, which is a `production` build. | the choice | Build 23's sign-in screens (login, signup, reset) show a **blank space where the logo belongs** in Light, which is the default for a phone set to Light. A verified this in source at `9c6c9bf4`: `AuthBrandMark` renders `brand/sn-logo-white.png` with no tint (every opaque pixel is #FFFFFF) on the Light canvas #FFFFFF, and the appearance setting defaults to the phone's System setting. It was not seen on a device. The fix is `2ffb10a8`, on `v3/midnight-app` only. C's view is that either option is defensible; its tracked record is `V3_PHONE_TEST_CHECKLIST.md` `629a82ba`. The dispute copy is also absent from Build 23, but no sandbox path reaches it. |
 
 **Optional additional evidence.** Each needs its own permission; none is requested here.
 

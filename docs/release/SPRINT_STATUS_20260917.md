@@ -1527,3 +1527,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - DR11's predicate discriminates: A evaluated it on both sides. It FAILs on the parent (the promise matched, the new string was absent) and PASSes at `404bce38`. Both slice indices resolve.
   - C's gates are C's report and were not re-run by A: 149 / 2704, tsc 0, lint 0 / 29.
   - Not in Build 23.
+- **C's G2 input (auth brand mark), verified by A at source; owner choice S1 added to checklist §8.**
+  - Build 23 (`9c6c9bf4`): `src/components/auth/AuthBrandMark.tsx` renders `brand/sn-logo-white.png` untinted. All 230,668 opaque pixels are #FFFFFF. The Light canvas is `#FFFFFF`, and appearance defaults to System. So a phone set to Light shows a blank logo on login, signup and reset. This is verified at source, not on a device.
+  - Fixed by `2ffb10a8` (tinted to primary ink), on `origin/v3/midnight-app` only.
+  - A correction to C's framing: a sandbox `preview` recut is not G2, which is the `production` build. It is recorded as the separate choice S1.
+  - The two §7s are distinct: A's is the submission checklist, `be2a4577`. C and B's phone checklist is `docs/product-v3/V3_PHONE_TEST_CHECKLIST.md` at `629a82ba` on `origin/design/frontend-audit-20260917`, which A resolved and which lists the three dispute commits.
