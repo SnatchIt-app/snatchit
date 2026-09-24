@@ -59,7 +59,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <AuthScreen>
-        <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">New password</Text>
+        <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">New password</Text>
 
         <View style={s.fields}>
           <Input

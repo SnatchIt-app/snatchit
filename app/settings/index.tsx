@@ -12,6 +12,16 @@
  * The settings SUB-screens (edit profile, notifications, preferences, blocked
  * users, payout setup, legal, privacy, support) are separate routes and keep their
  * current UI this batch; the hub only links to them.
+ *
+ * V3 (pkg8-account-settings boards): the pushed-screen header (circular back chip,
+ * centred sentence-case title, no hairline), and the two deletion banners become the
+ * boards' accent-bar panels — a warning bar on the pending banner with an OUTLINED
+ * "Withdraw deletion request" pill, an error bar on the failed-probe banner with a
+ * stacked bold "Retry". Every action, confirm and edge-function call is unchanged.
+ *
+ * The `deletionFixture` prop exists for the `_dev/v3-account` rendering harness only:
+ * it seeds the deletion tri-state as a literal and skips the probe (and its AppState
+ * re-check) so no read leaves the app; the live route passes no fixture.
  */
 
 import { router } from 'expo-router';
@@ -41,7 +51,10 @@ type SettingsRoute = | '/_dev/transfer-states' | '/settings/edit-profile'
   | '/settings/blocked-users'
   | '/settings/appearance';
 
-export default function SettingsScreen() {
+/** Harness-only literal in place of the deletion-state probe. */
+export type SettingsDeletionFixture = 'active' | 'pending' | 'probe_failed';
+
+export default function SettingsScreen({ deletionFixture }: { deletionFixture?: SettingsDeletionFixture } = {}) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -83,6 +96,12 @@ export default function SettingsScreen() {
   }
 
   useEffect(() => {
+    // Harness fixture: the tri-state is a literal and the probe never runs — no read leaves the app.
+    if (deletionFixture) {
+      setDeletionView(deletionFixture === 'probe_failed' ? 'unknown' : deletionFixture);
+      setDeletionProbeFailed(deletionFixture === 'probe_failed');
+      return;
+    }
     refreshDeletionState();
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') refreshDeletionState();
@@ -288,10 +307,10 @@ export default function SettingsScreen() {
 
   return (
     <View style={s.root}>
-      {/* ── Header ──────────────────────────────────────────── */}
+      {/* ── Header — V3 pushed-screen pattern: circular back chip, centred title ── */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Settings</Text>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Settings</Text>
         <View style={s.headerSpacer} />
       </View>
 
@@ -301,7 +320,7 @@ export default function SettingsScreen() {
           <View style={s.probeBanner} accessibilityRole="alert">
             <Text style={[textStyle('bodySm'), s.probeText]}>We could not check your account status.</Text>
             <Pressable onPress={refreshDeletionState} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retry">
-              <Text style={[textStyle('label'), s.retry]}>Retry</Text>
+              <Text style={[textStyle('action'), s.retry]}>Retry</Text>
             </Pressable>
           </View>
         ) : null}
@@ -312,8 +331,10 @@ export default function SettingsScreen() {
             <Text style={[textStyle('bodySm'), s.pendingBody]}>
               Your account deletion request is pending. You can withdraw it to keep your account.
             </Text>
+            {/* The board draws this OUTLINED: a non-destructive exit, never a red block. */}
             <Button
               label="Withdraw deletion request"
+              variant="secondary"
               onPress={handleWithdrawDeletion}
               loading={withdrawing}
               disabled={withdrawing}
@@ -378,24 +399,25 @@ function makeStyles(p: Palette) {
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
+  // The boards' accent-bar banner: a filled panel with a status-coloured left bar.
   probeBanner: {
-    marginTop: v2.space.lg, padding: v2.space.md,
-    borderWidth: 1, borderColor: p.border.strong,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: v2.space.md,
+    marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
+    backgroundColor: p.surface.surface, borderRadius: v2.radius.sm,
+    borderLeftWidth: 3, borderLeftColor: p.status.error,
   },
-  probeText: { color: p.text.secondary, flex: 1 },
-  retry: { color: p.brand.redText },
+  probeText: { color: p.text.secondary },
+  retry: { color: p.text.primary },
 
   pendingBanner: {
     marginTop: v2.space.lg, padding: v2.space.lg, gap: v2.space.sm,
-    backgroundColor: p.surface.surface, borderWidth: 1, borderColor: p.brand.red,
+    backgroundColor: p.surface.surface, borderRadius: v2.radius.sm,
+    borderLeftWidth: 3, borderLeftColor: p.status.warning,
   },
   pendingTitle: { color: p.text.primary },
   pendingBody: { color: p.text.secondary, marginBottom: v2.space.xs },

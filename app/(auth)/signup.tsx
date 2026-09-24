@@ -25,6 +25,16 @@
  *
  * The 18+ gate and the Terms / Privacy disclosure are unchanged and still gate the
  * account-creation step.
+ *
+ * V3 (pkg8-account-auth boards): sentence-case screen titles; the step eyebrow in
+ * the boards' warning ink; the legal disclosure BELOW the step-1 CTA; the 18+
+ * checkbox rounded with a primary-ink fill (red stays actions — the same treatment
+ * Create's commitment checkbox carries); Back on steps 3 and 4 sits at the leading
+ * edge. The password rule STAYS a persistent helper under the field, although the
+ * board letters it inside the field: the owner's 2026-09-24 required-field ruling
+ * (tests/v3-field-prompts FP2) forbids a rule that vanishes on the first keystroke,
+ * and the ruling governs the board. Every supabase.auth call keeps its exact call
+ * and ordering.
  */
 
 import { Link, router } from 'expo-router';
@@ -230,12 +240,12 @@ export default function SignUpScreen() {
 
   const backRow = canGoBack(step) ? (
     <Pressable onPress={() => { setMessage(null); setStep(prevStep(step)); }} style={s.alt} hitSlop={8} accessibilityRole="button">
-      <Text style={[textStyle('bodySm'), s.altText]}>Back</Text>
+      <Text style={[textStyle('action'), s.altText]}>Back</Text>
     </Pressable>
   ) : null;
 
   const progress = stepIndex(step) >= 0 ? (
-    <Text style={[textStyle('micro'), s.progress]}>Step {stepIndex(step) + 1} of {SIGNUP_STEP_COUNT}</Text>
+    <Text style={[textStyle('sectionLabel'), s.progress]}>Step {stepIndex(step) + 1} of {SIGNUP_STEP_COUNT}</Text>
   ) : null;
 
   return (
@@ -244,7 +254,7 @@ export default function SignUpScreen() {
 
       {step === 'account' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Create account</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Create account</Text>
 
           <View style={s.fields}>
             <Input
@@ -288,14 +298,6 @@ export default function SignUpScreen() {
             <Text style={[textStyle('bodySm'), s.ageText]}>I confirm I am 18 years of age or older.</Text>
           </Pressable>
 
-          {/* Legal disclosure — App Store Guideline 5.1.1 */}
-          <Text style={[textStyle('bodySm'), s.legal]}>
-            By creating an account you agree to our{' '}
-            <Text style={s.legalLink} onPress={() => router.push('/settings/legal')} accessibilityRole="link">Terms of Service</Text>
-            {' '}and{' '}
-            <Text style={s.legalLink} onPress={() => router.push('/settings/privacy')} accessibilityRole="link">Privacy Policy</Text>.
-          </Text>
-
           <Button
             label="Continue"
             onPress={submitAccount}
@@ -304,6 +306,14 @@ export default function SignUpScreen() {
             block
             style={s.cta}
           />
+
+          {/* Legal disclosure — App Store Guideline 5.1.1. The boards set it under the CTA. */}
+          <Text style={[textStyle('bodySm'), s.legal]}>
+            By creating an account you agree to our{' '}
+            <Text style={s.legalLink} onPress={() => router.push('/settings/legal')} accessibilityRole="link">Terms of Service</Text>
+            {' '}and{' '}
+            <Text style={s.legalLink} onPress={() => router.push('/settings/privacy')} accessibilityRole="link">Privacy Policy</Text>.
+          </Text>
 
           <Link href="/(auth)/login" asChild>
             <Pressable style={s.link} accessibilityRole="button">
@@ -317,7 +327,7 @@ export default function SignUpScreen() {
 
       {step === 'about' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">About you</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">About you</Text>
 
           <View style={s.fields}>
             <Input
@@ -342,7 +352,7 @@ export default function SignUpScreen() {
 
       {step === 'phone' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Mobile number</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Mobile number</Text>
           <Text style={[textStyle('body'), s.subtitle]}>
             We text you a 6-digit code. Your number is how you sign in from now on.
           </Text>
@@ -369,7 +379,7 @@ export default function SignUpScreen() {
 
       {step === 'verify' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Verify number</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Verify number</Text>
           <Text style={[textStyle('body'), s.subtitle]}>Code sent to {formatPhoneDisplay(phone)}</Text>
 
           <Input
@@ -408,7 +418,7 @@ export default function SignUpScreen() {
 
       {step === 'check_email' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Check your email</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Check your email</Text>
           {messageRow}
           <Button label="Go to sign in" onPress={() => router.replace('/(auth)/login')} block style={s.cta} />
         </>
@@ -419,7 +429,7 @@ export default function SignUpScreen() {
 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
-  progress: { color: p.text.muted, marginBottom: v2.space.sm },
+  progress: { color: p.status.warning, marginBottom: v2.space.sm },
   title: { color: p.text.primary, marginBottom: v2.space.xl },
   subtitle: { color: p.text.secondary, marginBottom: v2.space.lg, marginTop: -v2.space.md },
   fields: { gap: v2.space.lg },
@@ -427,17 +437,20 @@ function makeStyles(p: Palette) {
   success: { color: p.status.success, marginTop: v2.space.md },
   ageRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, marginTop: v2.space.lg },
   checkbox: {
-    width: 22, height: 22, borderWidth: 2, borderColor: p.border.strong,
+    width: 24, height: 24, borderRadius: v2.radius.sm,
+    borderWidth: 2, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center', marginRight: v2.space.sm,
   },
-  checkboxOn: { backgroundColor: p.brand.red, borderColor: p.brand.red },
-  checkMark: { color: p.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  // Primary-ink fill: red stays actions (the same treatment Create's checkbox carries).
+  checkboxOn: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  checkMark: { color: p.surface.canvas, fontSize: 14, fontWeight: '700', lineHeight: 18 },
   ageText: { flex: 1, color: p.text.secondary },
-  legal: { color: p.text.muted, marginTop: v2.space.sm, marginBottom: v2.space.xs },
+  legal: { color: p.text.muted, marginTop: v2.space.lg },
   legalLink: { color: p.brand.redText, textDecorationLine: 'underline' },
   cta: { marginTop: v2.space.lg },
-  alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
-  altText: { color: p.text.muted },
+  // The boards set Back at the leading edge on steps 3 and 4.
+  alt: { alignItems: 'flex-start', marginTop: v2.space.xl, minHeight: 44, justifyContent: 'center' },
+  altText: { color: p.text.primary },
   link: { alignItems: 'center', marginTop: v2.space.lg },
   linkText: { color: p.text.muted },
   linkAccent: { color: p.brand.redText },

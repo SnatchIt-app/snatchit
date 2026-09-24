@@ -17,6 +17,11 @@
  * it is how they get in until they add a number.
  *
  * The session is always the provider's. Nothing here fabricates one.
+ *
+ * V3 (pkg8-account-auth boards): sentence-case screen titles, the marked sign-out
+ * notice as the boards' warning accent-bar banner ABOVE the title, and the method
+ * switches ("Use email instead" / "Use mobile number instead") as outlined pill
+ * buttons. Every supabase.auth call keeps its exact call and ordering.
  */
 
 import { Link, router } from 'expo-router';
@@ -174,8 +179,11 @@ export default function LoginScreen() {
     <Text style={[textStyle('bodySm'), s.error]} accessibilityRole="alert">{error}</Text>
   ) : null;
 
+  // The boards' marked sign-out notice: a warning accent-bar panel above the title.
   const noticeRow = sessionNotice ? (
-    <Text style={[textStyle('bodySm'), s.notice]} accessibilityRole="alert">{sessionNotice}</Text>
+    <View style={s.noticeBanner} accessibilityRole="alert">
+      <Text style={[textStyle('bodySm'), s.noticeText]}>{sessionNotice}</Text>
+    </View>
   ) : null;
 
   const signUpLink = (
@@ -192,8 +200,8 @@ export default function LoginScreen() {
     <AuthScreen>
       {method === 'phone' && step === 'enter_phone' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Sign in</Text>
           {noticeRow}
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Sign in</Text>
 
           <Input
             label="Mobile number"
@@ -216,9 +224,7 @@ export default function LoginScreen() {
 
           <Button label="Continue" onPress={handleSendCode} loading={loading} disabled={loading} block style={s.cta} />
 
-          <Pressable onPress={() => switchMethod('email')} style={s.alt} hitSlop={8} accessibilityRole="button">
-            <Text style={[textStyle('bodySm'), s.altText]}>Use email instead</Text>
-          </Pressable>
+          <Button label="Use email instead" variant="secondary" onPress={() => switchMethod('email')} block style={s.altBtn} />
 
           {signUpLink}
         </>
@@ -226,7 +232,7 @@ export default function LoginScreen() {
 
       {method === 'phone' && step === 'enter_code' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Verify number</Text>
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Verify number</Text>
           <Text style={[textStyle('body'), s.subtitle]}>Code sent to {maskE164(sentTo)}</Text>
 
           <Input
@@ -260,8 +266,8 @@ export default function LoginScreen() {
 
       {method === 'email' ? (
         <>
-          <Text style={[textStyle('displayLg'), s.title]} accessibilityRole="header">Sign in</Text>
           {noticeRow}
+          <Text style={[textStyle('screenTitle'), s.title]} accessibilityRole="header">Sign in</Text>
 
           <View style={s.fields}>
             <Input
@@ -297,9 +303,7 @@ export default function LoginScreen() {
 
           <Button label="Sign in" onPress={handleEmailSignIn} loading={loading} disabled={loading} block style={s.cta} />
 
-          <Pressable onPress={() => switchMethod('phone')} style={s.alt} hitSlop={8} accessibilityRole="button">
-            <Text style={[textStyle('bodySm'), s.altText]}>Use mobile number instead</Text>
-          </Pressable>
+          <Button label="Use mobile number instead" variant="secondary" onPress={() => switchMethod('phone')} block style={s.altBtn} />
 
           {signUpLink}
         </>
@@ -316,11 +320,15 @@ function makeStyles(p: Palette) {
   forgot: { alignSelf: 'flex-end', marginTop: v2.space.md },
   forgotText: { color: p.text.muted },
   error: { color: p.status.error, marginTop: v2.space.md },
-  notice: { color: p.status.warning, marginBottom: v2.space.md },
+  noticeBanner: {
+    marginBottom: v2.space.xl, padding: v2.space.lg,
+    backgroundColor: p.surface.surface, borderRadius: v2.radius.sm,
+    borderLeftWidth: 3, borderLeftColor: p.status.warning,
+  },
+  noticeText: { color: p.text.secondary },
   cta: { marginTop: v2.space.xl },
   secondaryCta: { marginTop: v2.space.lg },
-  alt: { alignItems: 'center', marginTop: v2.space.lg, minHeight: 44, justifyContent: 'center' },
-  altText: { color: p.text.muted },
+  altBtn: { marginTop: v2.space.lg },
   link: { alignItems: 'center', marginTop: v2.space.lg },
   linkText: { color: p.text.muted },
   linkAccent: { color: p.brand.redText },

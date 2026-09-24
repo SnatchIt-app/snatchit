@@ -1,12 +1,23 @@
 /**
- * app/(tabs)/profile.tsx — Profile (V2).
+ * app/(tabs)/profile.tsx — Profile (V3, pkg8-account-tickets boards).
  *
- * PRESENTATION rebuilt on the V2 system; the DATA LAYER is unchanged. The same
+ * PRESENTATION on the approved boards; the DATA LAYER is unchanged. The same
  * get_my_profile() fetch, the same active/sold/proceeds computation (proceeds via
  * the canonical sellerNetDollars — money is untouched), the same non-blocking
- * payout-status probe with its 6s timeout, the same avatar pick+upload, sign out,
- * focus refetch and pull-to-refresh. Proceeds still render "—" when zero so an
- * UNKNOWN total stays distinct from a real $0 (the seller-trust false-zero rule).
+ * payout-status probe with its 6s timeout, the same avatar pick+upload (and its
+ * setDockAvatar publication), sign out, focus refetch and pull-to-refresh.
+ * Proceeds still render "—" when zero so an UNKNOWN total stays distinct from a
+ * real $0 (the seller-trust false-zero rule).
+ *
+ * V3 board mapping: tab-root header (sentence-case screen title, quiet trailing
+ * "Settings"); identity is avatar-left with the display name in the display face
+ * beside it and the masked number beneath; the red avatar ring is gone (A-1: red
+ * is never passive decoration); SELLER is the boards' stacked label/value rows —
+ * bold value at the trailing edge, no chevron — in place of the V2 stat strip.
+ *
+ * The `fixture` prop exists for the `_dev/v3-account` rendering harness only: it
+ * supplies profile/stats/payout literals in place of every read, so no RPC leaves
+ * the app; the live route passes no fixture and never fabricates a session.
  *
  * The public seller profile (app/profile/[id].tsx) is a separate surface and is
  * out of this batch's scope; it is not touched here.
@@ -80,7 +91,16 @@ const PAYOUT_COPY: Record<PayoutStatus, { title: string; state: string; tone: 's
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
 
-export default function ProfileScreen() {
+/** Harness-only literals in place of the reads: profile row, counts, payout state. */
+export type ProfileFixture = {
+  profile: Profile;
+  stats: SellerStats;
+  payoutStatus: PayoutStatus;
+  /** A bundled/data uri for the with-avatar case; null renders the initials fallback. */
+  avatarUri: string | null;
+};
+
+export default function ProfileScreen({ fixture }: { fixture?: ProfileFixture } = {}) {
   const { user } = useAuth();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -179,12 +199,22 @@ export default function ProfileScreen() {
   }
 
   useEffect(() => {
+    // Harness fixture: literals in place of every read — no RPC leaves the app.
+    if (fixture) {
+      setProfile(fixture.profile);
+      setStats(fixture.stats);
+      setPayoutStatus(fixture.payoutStatus);
+      setAvatarUrl(fixture.avatarUri);
+      setPageLoading(false);
+      return;
+    }
     loadData().finally(() => setPageLoading(false));
   }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       expandDock(); // arrive with the full dock
+      if (fixture) return; // the fixture replaced the read; nothing to refetch
       if (!user?.id) return;
       if (pageLoading) return;
       loadData();
@@ -254,11 +284,11 @@ export default function ProfileScreen() {
 
   return (
     <View style={s.root}>
-      {/* ── Header ──────────────────────────────────────────── */}
+      {/* ── Header — V3 tab-root pattern: sentence-case title, quiet trailing action ── */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <Text style={[textStyle('displayMd'), s.headerTitle]} accessibilityRole="header">Profile</Text>
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Profile</Text>
         <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Settings">
-          <Text style={[textStyle('label'), s.headerAction]}>Settings</Text>
+          <Text style={[textStyle('action'), s.headerAction]}>Settings</Text>
         </Pressable>
       </View>
 
@@ -269,9 +299,9 @@ export default function ProfileScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
       >
-        {/* ── Identity ──────────────────────────────────────── */}
+        {/* ── Identity — the board's avatar-left row: name in the display face, number beneath ── */}
         <View style={s.identity}>
-          <Pressable style={s.avatarRing} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo">
+          <Pressable style={s.avatarPress} onPress={handleAvatarPress} disabled={avatarUploading} accessibilityRole="button" accessibilityLabel="Change profile photo">
             {avatarUrl ? (
               <Image source={{ uri: avatarUrl }} style={s.avatarImage} contentFit="cover" />
             ) : (
@@ -286,27 +316,25 @@ export default function ProfileScreen() {
             )}
           </Pressable>
 
-          <Text style={s.name} numberOfLines={1}>{displayName}</Text>
-          <Text style={[textStyle('bodySm'), s.phone]}>{maskedPhone}</Text>
-
-          {(profile?.is_verified_buyer || profile?.is_verified_seller) ? (
-            <View style={s.badges}>
-              {profile?.is_verified_buyer ? <Badge label="Verified buyer" tone="success" /> : null}
-              {profile?.is_verified_seller ? <Badge label="Verified seller" tone="neutral" /> : null}
-            </View>
-          ) : null}
+          <View style={s.identityText}>
+            <Text style={[textStyle('nameState'), s.name]} numberOfLines={1}>{displayName}</Text>
+            <Text style={[textStyle('bodySm'), s.phone]}>{maskedPhone}</Text>
+          </View>
         </View>
 
-        {/* ── Seller ────────────────────────────────────────── */}
-        <AccountSection title="Seller">
-          <View style={s.stats}>
-            <Stat s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
-            <View style={s.statDivider} />
-            <Stat s={s} label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
-            <View style={s.statDivider} />
-            {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
-            <Stat s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
+        {(profile?.is_verified_buyer || profile?.is_verified_seller) ? (
+          <View style={s.badges}>
+            {profile?.is_verified_buyer ? <Badge label="Verified buyer" tone="success" /> : null}
+            {profile?.is_verified_seller ? <Badge label="Verified seller" tone="neutral" /> : null}
           </View>
+        ) : null}
+
+        {/* ── Seller — the board's stacked label/value rows, not the V2 stat strip ── */}
+        <AccountSection title="Seller">
+          <StatRow s={s} label="Active" value={String(stats.active)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'active' } })} />
+          <StatRow s={s} label="Sold" value={String(stats.sold)} onPress={() => router.push({ pathname: '/my-listings', params: { filter: 'sold' } })} />
+          {/* Proceeds: "—" when zero keeps unknown distinct from a real $0. */}
+          <StatRow s={s} label="Proceeds" value={stats.revenue > 0 ? formatDollars(stats.revenue) : '—'} />
           <SettingsRow
             label="My listings"
             value={`${totalListings} total`}
@@ -334,16 +362,17 @@ export default function ProfileScreen() {
   );
 }
 
-function Stat({ s, label, value, onPress }: { s: Styles; label: string; value: string; onPress?: () => void }) {
+/** The board's SELLER row: quiet label at the left, bold value at the trailing edge, no chevron. */
+function StatRow({ s, label, value, onPress }: { s: Styles; label: string; value: string; onPress?: () => void }) {
   const body = (
-    <View style={s.stat}>
-      <Text style={[textStyle('price'), s.statValue]} numberOfLines={1}>{value}</Text>
-      <Text style={[textStyle('micro'), s.statLabel]}>{label}</Text>
-    </View>
+    <>
+      <Text style={[textStyle('title'), s.statLabel]} numberOfLines={1}>{label}</Text>
+      <Text style={[textStyle('title'), s.statValue]} numberOfLines={1}>{value}</Text>
+    </>
   );
-  if (!onPress) return body;
+  if (!onPress) return <View style={s.statRow}>{body}</View>;
   return (
-    <Pressable style={s.statPressable} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}, ${value}`}>
+    <Pressable style={s.statRow} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}, ${value}`}>
       {body}
     </Pressable>
   );
@@ -351,8 +380,8 @@ function Stat({ s, label, value, onPress }: { s: Styles; label: string; value: s
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const AVATAR = 92;
-const RING = AVATAR + 8;
+/** Board avatar: ~52pt, no ring (A-1: red is never passive decoration). */
+const AVATAR = 56;
 
 type Styles = ReturnType<typeof makeStyles>;
 
@@ -362,49 +391,48 @@ function makeStyles(p: Palette) {
   centered: { alignItems: 'center', justifyContent: 'center' },
 
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
     paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md,
-    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
-  headerAction: { color: p.brand.redText },
+  headerAction: { color: p.text.secondary },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
-  identity: { alignItems: 'center', paddingTop: v2.space.xl, paddingBottom: v2.space.lg },
-  avatarRing: {
-    width: RING, height: RING, borderRadius: RING / 2,
-    borderWidth: 1, borderColor: p.brand.red,
-    alignItems: 'center', justifyContent: 'center', marginBottom: v2.space.md,
+  identity: {
+    flexDirection: 'row', alignItems: 'center', gap: v2.space.lg,
+    paddingTop: v2.space.xl,
   },
+  avatarPress: { width: AVATAR, height: AVATAR },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
   avatarFallback: {
     width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2,
     backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center',
   },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 30, color: p.brand.redText },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.brand.redText },
   avatarOverlay: {
-    ...StyleSheet.absoluteFillObject, borderRadius: RING / 2,
+    ...StyleSheet.absoluteFillObject, borderRadius: AVATAR / 2,
     backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center',
   },
   avatarEditBadge: {
-    position: 'absolute', bottom: 0, right: 4,
-    width: 26, height: 26, borderRadius: 13,
+    position: 'absolute', bottom: -2, right: -2,
+    width: 22, height: 22, borderRadius: 11,
     backgroundColor: p.brand.red, alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: p.surface.canvas,
   },
-  avatarEditGlyph: { color: p.text.inverse, fontSize: 13, fontWeight: '700', lineHeight: 15 },
+  avatarEditGlyph: { color: p.text.inverse, fontSize: 11, fontWeight: '700', lineHeight: 13 },
 
-  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.text.primary, textAlign: 'center' },
-  phone: { color: p.text.muted, marginTop: v2.space.xs },
-  badges: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.md },
+  identityText: { flex: 1, minWidth: 0 },
+  name: { color: p.text.primary },
+  phone: { color: p.text.muted, marginTop: 2 },
+  badges: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.lg },
 
-  stats: { flexDirection: 'row', alignItems: 'stretch', paddingVertical: v2.space.md },
-  statPressable: { flex: 1 },
-  stat: { flex: 1, alignItems: 'center', gap: v2.space.xs },
-  statValue: { color: p.text.primary },
-  statLabel: { color: p.text.muted },
-  statDivider: { width: 1, backgroundColor: p.border.default, marginVertical: v2.space.xs },
+  statRow: {
+    minHeight: 52, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', gap: v2.space.md,
+  },
+  statLabel: { color: p.text.primary, flexShrink: 1 },
+  statValue: { color: p.text.primary, fontFamily: v2.font.bodyBold },
 
   signOut: { marginTop: v2.space.xxl },
   });
