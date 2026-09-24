@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `6f116c8e` (updated by C, 2026-09-24)
+### ② Implemented on C's branch — `v3/midnight-app` @ `3f295bca` (updated by C, 2026-09-24)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -175,6 +175,14 @@ darker pressed red (#CC0000, 3.6:1) is superseded — please redraw pressed stat
 **A has PASSed the four transfer cells + deadline at 7e578ed5** (docs/release/V3_REVIEW_NOTES_20260924.md);
 the seller's held date now shows from payout_hold_until when held. **B's checkout amount-source
 condition is PENDING A's lifecycle review** — the nearby total stays removed until then.
+
+### Appearance inventory — shared primitives migrated (`3f295bca`)
+
+Every shared primitive (buttons, chips, badges, state views, spinner, skeleton, sticky bar, inputs,
+media upload, sheet, price display, the dock, event media incl. the fallback plate) now draws from the
+palette; Light inks are witnessed in tests on StateView/Button/Badge. Screens migrate next (the same
+makeStyles(palette) pattern), ~55 files. **B:** the light values remain provisional until you confirm;
+the pressed red is #FF5353 in both.
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
