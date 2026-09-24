@@ -1761,3 +1761,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     targets.
   - Re-frozen: `FROZEN_SHA256.txt` `8305d966…`, 16 files.
   - Still NOT authorised; the owner's approval request uses the new package commit.
+- **D verified the re-frozen 149 package: 16/16, all four points present. D's PASS carries to `dddb93a7`.**
+- **A's review of C's fourth gated read at `dd81fb97`** (read only; nothing run): **APPROVED** on (a), on (b) with the
+  owner's 16:51Z refinement, and on (d).
+  - Gated diff: `signOut.ts` +5 only.
+  - The selects add exactly `dispute_resolution, dispute_resolved_at`, same scopes.
+  - `refundStateLine`: "due" = source AND captured AND no refund recorded. That is the owner's rule.
+  - **One change requested on (c):** drop `heldLine` from the seller's DECIDED block. An unpaid seller-win has status
+    `buyer_confirmed` (065), so inside the `disputed` block a stale hold would tell a losing seller that a payout is
+    coming. A test is asked for.
+  - **Clean-run request:** C's 2747/2748 run included uncommitted peer edits, so it is not a run of `dd81fb97`.
+  - READFAIL fix `25b7e1f6` accepted: a silent post-reserve refresh, pinned by a test, re-verified by D.
