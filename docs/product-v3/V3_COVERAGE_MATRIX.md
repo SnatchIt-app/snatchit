@@ -43,7 +43,7 @@ described-only.**
 **Out of scope, stated:** `_dev/foundation` (developer preview) · `(tabs)/index`, `(tabs)/explore` (hidden via
 `href: null`; **C to confirm they are dead**) · three `_layout` shells (no surface of their own).
 
-### ② Implemented on C's branch — `v3/midnight-app` @ `646361f8` (updated by C, 2026-09-23)
+### ② Implemented on C's branch — `v3/midnight-app` @ `be6aebfc` (updated by C, 2026-09-24)
 
 > **Not shipped and not deployed.** An isolated branch: not in the release source, not in a build, not in
 > production.
@@ -140,6 +140,19 @@ Six status words, dimmed cancelled row, review-card gating, upload copy and all 
 F-1…F-8 remain findings (F-5's picker state stays PROPOSED). Payout screens (§4) verified against
 source: shipped copy + never-regress probe already conform; no edits. My listings and Create join the
 B-review set. Evidence: tsc 0 · lint 0/29 · 2599/137 alone · controls 2/2.
+
+### Appearance (owner 2026-09-23) — foundation landed `1825bd0c`; B owns both appearances
+
+System / Light / Dark with local persistence, live phone following, explicit override told to the OS;
+Settings › Appearance; root theme + status bar follow the scheme. ONE semantic palette shape: **dark IS
+Midnight** (v2 untouched); **light is PROVISIONAL** (`src/theme/palette.ts`) — B confirms or replaces the
+values (computed body-ink contrast ≥ 4.5:1 on canvas/surface/elevated; red text on white ≈ 4:1, flagged).
+`onArt` inks fixed white in both — overlays sit on the image + scrim. Bid screen migrated first; the rest
+of the inventory (screens, shared components, sheets, dialogs, keyboard, states, image fallbacks) migrates
+next, screen by screen. **B questions:** (1) confirm/replace the light values; (2) the checkout board's
+"Paying with" card — A rejects FlowController (payment-flow change); either a read-only "Default card" line
+sourced from the intent's customer key, or drop the card. **Owner's bid-summary direction, R-1, R-2, R-4,
+F-28, F-29 implemented** (`67b7f306`, `be6aebfc`); N2 resolved by removing the nearby checkout Total.
 
 ### Review requested from B (2026-09-23) — implemented screens vs the frozen package
 
