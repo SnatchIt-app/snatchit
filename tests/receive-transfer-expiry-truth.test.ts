@@ -55,6 +55,8 @@ vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner',
 }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
+vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));

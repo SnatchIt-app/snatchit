@@ -19,7 +19,14 @@ export type RefundRead =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'error' }
-  | { kind: 'loaded'; facts: PaymentRefundFacts | null };
+  /**
+   * `rowCount` is how many settled rows the read returned, BEFORE the reduction to one row of
+   * facts. "You paid <total>" needs exactly one (A, 2026-09-24): with two settled rows the select
+   * carries no payment id to match transfers.payment_id, so the figure would be a guess. Optional
+   * so hand-built states (the gallery's fixtures) still typecheck — an absent count is treated as
+   * unproven, never as one.
+   */
+  | { kind: 'loaded'; facts: PaymentRefundFacts | null; rowCount?: number };
 
 /** Shown while the read is in flight: a description of what the app is doing, not of the payment. */
 export const REFUND_CHECKING_LINE = 'Checking for a refund…';
@@ -42,9 +49,10 @@ export function refundReadState(read: SettledRead): RefundRead {
   const rows = read.rows ?? [];
   // The row that carries a refund if any does, else the first row, else nothing was found.
   const withRefund = rows.find((r) => r.refunded_at != null || (r.amount_refunded_cents ?? 0) > 0) ?? rows[0] ?? null;
-  if (!withRefund) return { kind: 'loaded', facts: null };
+  if (!withRefund) return { kind: 'loaded', facts: null, rowCount: 0 };
   return {
     kind: 'loaded',
+    rowCount: rows.length,
     facts: {
       status: withRefund.status ?? null,
       amount_refunded_cents: withRefund.amount_refunded_cents ?? null,

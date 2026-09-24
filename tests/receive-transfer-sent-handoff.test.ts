@@ -57,6 +57,8 @@ vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner',
 }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
+vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));
@@ -106,7 +108,8 @@ async function mountReceive(): Promise<HookHost> {
 
 /** Positive anchor on THIS transfer's details (Row props; Row's text is not in the flattened output). */
 const renderedTransfer = (host: HookHost) =>
-  findElement(host.output, (el) => el.props.label === 'Event' && el.props.value === 'Sandbox S8only') !== undefined;
+  // V3: the event name leads the summary block (NameText), not an "Event" detail row.
+  findElement(host.output, (el) => el.type === 'NameText' && el.props.children === 'Sandbox S8only') !== undefined;
 const openButton = (host: HookHost) =>
   findElement(host.output, (el) => el.type === 'Button' && typeof el.props.label === 'string' && (el.props.label as string).startsWith('Open '));
 const instructions = (host: HookHost) => findElement(host.output, (el) => el.type === 'PlatformInstructions');

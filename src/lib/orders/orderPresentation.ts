@@ -78,11 +78,16 @@ function parseLocalDate(iso: string | null | undefined): Date | null {
  * price row must never outrun the payment row behind it.
  */
 export function youPaidAmount(read: RefundRead): string | null {
+  // A's rulings (2026-09-24): the figure needs the read to have succeeded with EXACTLY ONE
+  // settled row (two rows are ambiguous — the select has no payment id to match), the row to be
+  // SETTLED (succeeded, or refunded: "'You paid' stays true and the existing refund line says
+  // the rest" — total is the card charge, amount + buyer_fee), and a known positive total.
+  // Never the listing price, never a client computation, never an implied "unpaid" on zero rows.
   if (read.kind !== 'loaded' || !read.facts) return null;
-  const { status, total, amount_refunded_cents, refunded_at } = read.facts;
-  if (status !== 'succeeded') return null;
+  if (read.rowCount !== 1) return null;
+  const { status, total } = read.facts;
+  if (status !== 'succeeded' && status !== 'refunded') return null;
   if (total == null || total <= 0) return null;
-  if (refunded_at != null || (amount_refunded_cents ?? 0) > 0) return null;
   return formatCentsV3(total);
 }
 

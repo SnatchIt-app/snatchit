@@ -62,7 +62,7 @@ describe('the refund read keeps its four outcomes apart', () => {
 
   it('RR5: the reducer maps a failed read to error, not to loaded-with-nothing', () => {
     expect(refundReadState({ error: 'nope' } as never)).toEqual({ kind: 'error' });
-    expect(refundReadState({ rows: [] })).toEqual({ kind: 'loaded', facts: null });
+    expect(refundReadState({ rows: [] })).toEqual({ kind: 'loaded', facts: null, rowCount: 0 });
     const withRefund = refundReadState({ rows: [{ status: 'refunded', amount_refunded_cents: 11000, refunded_at: 'x', total: 11000 }] as never });
     expect(withRefund.kind).toBe('loaded');
     expect(withRefund.kind === 'loaded' && withRefund.facts?.amount_refunded_cents).toBe(11000);
@@ -70,7 +70,7 @@ describe('the refund read keeps its four outcomes apart', () => {
 
   it('RR6: a row that carries no refund still loads as "no refund", not as an error', () => {
     const st = refundReadState({ rows: [{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 11000 }] as never });
-    expect(st).toEqual({ kind: 'loaded', facts: { status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 11000 } });
+    expect(st).toEqual({ kind: 'loaded', rowCount: 1, facts: { status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 11000 } });
     // …and its line is the policy line, because the payment row WAS read.
     expect(refundStateLine(st, 'expired')).toBe(REFUND_DUE_POLICY);
   });

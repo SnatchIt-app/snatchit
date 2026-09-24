@@ -1,17 +1,20 @@
 /**
  * Owner's decision 2 (2026-09-18) — confirming receipt asks first.
  *
- * Owner: "Add confirmation before 'I got my tickets': clearly explain that confirming receipt releases payment, with
+ * Owner: "Add confirmation before 'I have my tickets': clearly explain that confirming receipt releases payment, with
  * Cancel and an explicit confirmation action. Preserve existing payment and server rules."
  *
- * Before this, one tap on "I got my tickets" invoked `confirm-and-release` straight away (guarded only against a
- * double tap); "I haven't received them" already asked first. Now the tap opens a dialog that says what confirming
+ * Before this, one tap on "I have my tickets" invoked `confirm-and-release` straight away (guarded only against a
+ * double tap); "Report a problem" already asked first. Now the tap opens a dialog that says what confirming
  * does, and ONLY its explicit action sends anything. What that action sends — `confirm-and-release` with the transfer
  * id, inside the same single-flight lock — and every server rule behind it are unchanged.
  *
  * These run on the NORMAL sent state (delivery details on file) so they stand without decision 1; X5/X6 in
  * receive-transfer-sent-controls.test.ts cover the same path on sent-WITHOUT-delivery.
  */
+// V3 CTA copy (map row "Order", pkg7-order-after, 2026-09-24): the confirm control reads
+// "I have my tickets" and the report control "Report a problem" (secondary — the dialog that
+// follows carries the severity). Same handlers, same dialogs, same single-flight rules.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RETURN_PROMPT } from '@/src/lib/transfer/providerHandoff';
@@ -67,6 +70,8 @@ vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner',
 }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
+vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));
@@ -99,7 +104,7 @@ vi.mock('@/src/lib/supabase', () => {
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 
-const CONFIRM = 'I got my tickets';
+const CONFIRM = 'I have my tickets';
 // The copy is pinned literally: a change to what this dialog says about money must change this file too.
 const DIALOG = {
   title: 'Confirm you received the tickets?',
@@ -132,7 +137,7 @@ async function mountReceive(): Promise<HookHost> {
 const dialogs = () => h.alerts.filter((a) => a.title === DIALOG.title);
 const action = (i: number, text: string) => h.alerts[i]?.buttons?.find((b) => b.text === text);
 
-/** Tap "I got my tickets" once, as a person would. */
+/** Tap "I have my tickets" once, as a person would. */
 async function tapConfirm(host: HookHost): Promise<void> {
   const confirm = buttonByLabel(host.output, CONFIRM);
   expect(confirm, 'the confirm-received control').toBeDefined();
@@ -148,7 +153,7 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-describe('Decision 2 — "I got my tickets" asks before it releases', () => {
+describe('Decision 2 — "I have my tickets" asks before it releases', () => {
   it('C1: the first tap sends nothing; it opens one dialog that says confirming releases payment', async () => {
     const host = await mountReceive();
     await tapConfirm(host);
@@ -267,7 +272,7 @@ describe('Decision 2 — "I got my tickets" asks before it releases', () => {
 
   it('C10: after a FAILED release, a later tap asks again — the lock re-arms on the confirm path too', async () => {
     // D's review: C9 pinned the re-arm after Cancel only. Dropping answered() from the explicit action left
-    // "I got my tickets" enabled but dead after a failed release, and passed every suite.
+    // "I have my tickets" enabled but dead after a failed release, and passed every suite.
     const host = await mountReceive();
     await tapConfirm(host);
     action(0, DIALOG.confirm)?.onPress?.();

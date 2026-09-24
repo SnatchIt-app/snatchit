@@ -132,28 +132,41 @@ describe('the summary lines — absent columns drop out, nothing prints blank', 
   });
 });
 
-describe('youPaidAmount — repeats the payment row or says nothing', () => {
-  const loaded = (facts: Record<string, unknown> | null): RefundRead =>
-    ({ kind: 'loaded', facts } as RefundRead);
+describe("youPaidAmount — A's rulings (2026-09-24): exactly one settled row, refunds keep the line", () => {
+  const one = (facts: Record<string, unknown> | null, rowCount = facts ? 1 : 0): RefundRead =>
+    ({ kind: 'loaded', facts, rowCount } as RefundRead);
 
   it('OY1: a succeeded, unrefunded row with a total renders through the V3 money display', () => {
-    expect(youPaidAmount(loaded({ status: 'succeeded', total: 9900, amount_refunded_cents: null, refunded_at: null })))
+    expect(youPaidAmount(one({ status: 'succeeded', total: 9900, amount_refunded_cents: null, refunded_at: null })))
       .toBe('$99.00');
     expect(YOU_PAID_LABEL).toBe('You paid');
+  });
+
+  it("OY1b: a REFUNDED row keeps the line — 'You paid' stays true; the refund line says the rest", () => {
+    // A, verbatim: "With a refunded row, 'You paid' stays true and the existing refund line says
+    // the rest." total is the card charge (amount + buyer_fee).
+    expect(youPaidAmount(one({ status: 'refunded', total: 9900, amount_refunded_cents: 9900, refunded_at: 'x' })))
+      .toBe('$99.00');
+    expect(youPaidAmount(one({ status: 'succeeded', total: 9900, amount_refunded_cents: 500, refunded_at: 'x' })))
+      .toBe('$99.00');
   });
 
   it('OY2: every state that has not earned the figure says nothing', () => {
     expect(youPaidAmount({ kind: 'idle' })).toBeNull();
     expect(youPaidAmount({ kind: 'loading' })).toBeNull();
     expect(youPaidAmount({ kind: 'error' })).toBeNull();
-    expect(youPaidAmount(loaded(null))).toBeNull();
-    // Never captured: a row that did not succeed asserts nothing about money paid.
-    expect(youPaidAmount(loaded({ status: 'requires_action', total: 9900 }))).toBeNull();
-    // No known total: no figure to repeat.
-    expect(youPaidAmount(loaded({ status: 'succeeded', total: null }))).toBeNull();
-    expect(youPaidAmount(loaded({ status: 'succeeded', total: 0 }))).toBeNull();
-    // A refund on the row: the money story belongs to the refund lines, not a quiet price row.
-    expect(youPaidAmount(loaded({ status: 'succeeded', total: 9900, refunded_at: '2026-10-01T00:00:00Z' }))).toBeNull();
-    expect(youPaidAmount(loaded({ status: 'succeeded', total: 9900, amount_refunded_cents: 500 }))).toBeNull();
+    // Zero rows: a processing payment is not settled — and no claim of "unpaid" either.
+    expect(youPaidAmount(one(null))).toBeNull();
+    // Never captured: a row that did not settle asserts nothing about money paid.
+    expect(youPaidAmount(one({ status: 'requires_action', total: 9900 }))).toBeNull();
+    // No known total: no figure to repeat — and NEVER the listing price or a client computation.
+    expect(youPaidAmount(one({ status: 'succeeded', total: null }))).toBeNull();
+    expect(youPaidAmount(one({ status: 'succeeded', total: 0 }))).toBeNull();
+  });
+
+  it('OY3: MORE THAN ONE settled row is ambiguous — the select carries no payment id to match, so no line', () => {
+    expect(youPaidAmount({ kind: 'loaded', facts: { status: 'succeeded', total: 9900 }, rowCount: 2 } as RefundRead)).toBeNull();
+    // …and a hand-built loaded state with no count is treated as unproven, not as one.
+    expect(youPaidAmount({ kind: 'loaded', facts: { status: 'succeeded', total: 9900 } } as RefundRead)).toBeNull();
   });
 });

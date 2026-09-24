@@ -29,6 +29,7 @@ import { useEffect, useMemo } from 'react';
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 import { useAppearancePreference } from '@/src/theme/appearance';
 import TicketsScreen, { type TicketsFixture } from '@/app/(tabs)/tickets';
+import TransferReceiveScreen, { type OrderFixture } from '@/app/transfer/receive/[id]';
 import type { MyTicketGroup } from '@/src/lib/tickets/types';
 
 declare const __DEV__: boolean;
@@ -123,7 +124,42 @@ export default function V3TicketsHarness() {
   switch (screen) {
     case 'tickets':
       return <TicketsScreen fixture={fixture} />;
+    case 'order':
+      // The board's order state: seller_sent, mobile transfer via DICE, a $99.00 settled charge,
+      // the review deadline from the server. Reads only; every action still needs the real server.
+      return <TransferReceiveScreen fixture={ORDER_FIXTURE} />;
     default:
       return <Redirect href="/" />;
   }
 }
+
+/** The board's sample order (sample content, not production data). */
+const ORDER_FIXTURE: OrderFixture = {
+  transfer: {
+    id: 'fixture-order',
+    listing_id: 'fixture-listing',
+    status: 'seller_sent',
+    transfer_method: 'mobile_transfer',
+    expires_at: null,
+    auto_release_at: new Date(Date.now() + 40 * 3600_000).toISOString(),
+    buyer_confirmed_at: null,
+    payout_released_at: null,
+    dispute_resolution: null,
+    dispute_resolved_at: null,
+    delivery_email: 'buyer@example.test',
+    delivery_phone: null,
+    transfer_evidence_path: 'fixtures/proof.jpg',
+    seller: { display_name: 'the seller' },
+    listing: {
+      event_name: 'Neon Choir',
+      ticket_platform: 'dice',
+      event_date: '2026-10-24',
+      event_time: '19:30',
+      venue: 'Lantern Room',
+      quantity: 2,
+      ticket_type: 'GA',
+      cover_image_path: null,
+    },
+  },
+  settled: [{ status: 'succeeded', amount_refunded_cents: null, refunded_at: null, total: 9900 }],
+};

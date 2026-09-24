@@ -1,7 +1,16 @@
 /**
- * app/transfer/receive/[id].tsx — Buyer transfer receive (V2).
+ * app/transfer/receive/[id].tsx — the buyer's order ("Your order", V3).
  *
- * PRESENTATION rebuilt on the V2 system; the transfer path is unchanged: the
+ * V3 (map row "Order": `midnight-order-clean.png` composition, `pkg7-order-after-*.png` copy,
+ * `pkg8-order-{dark,light}.png` tokens). The screen leads with the event summary and the
+ * four-step PROGRESS track (src/lib/orders/orderPresentation.ts), prices state only what the
+ * buyer's own settled payment row records, and the unapproved auto-release sentence (O-1)
+ * stays out. The unreachable state remains the app's LIVE error/offline state — the board's
+ * cached-order panel is out of scope by the map's own ruling ("live data only").
+ * The `fixture` prop exists for the `_dev/v3-tickets` harness only and short-circuits ONLY
+ * the network reads; every action still needs the real server.
+ *
+ * PRESENTATION previously rebuilt on the V2 system; the transfer path is unchanged: the
  * owner-scoped fetch, `mark_transfer_viewed`, the seller's signed proof URL, the
  * countdown, the delivery-info gate (`set_transfer_delivery_info` via
  * DeliveryInfoForm), confirm (`confirm-and-release` edge function) and dispute
@@ -35,10 +44,22 @@ import { hapticSuccess } from '@/src/lib/feedback/haptics';
 import DeliveryInfoForm from '@/src/components/DeliveryInfoForm';
 import { ProofImageViewer } from '@/src/components/ProofImageViewer';
 import PlatformInstructions from '@/src/components/PlatformInstructions';
+import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
-import { Badge, Button, IconButton, Spinner } from '@/src/components/ui';
+import { Badge, Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { EventMedia } from '@/src/components/media/EventMedia';
+import {
+  CONFIRMATION_PENDING,
+  orderProgress,
+  orderProgressA11y,
+  orderTicketsLine,
+  orderWhenWhereLine,
+  youPaidAmount,
+  YOU_PAID_LABEL,
+  type OrderStep,
+} from '@/src/lib/orders/orderPresentation';
 import {
   formatCountdown,
   buyerAutoReleasedCopy,
@@ -91,10 +112,27 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   seller: { display_name: string | null };
-  listing: { event_name: string | null; ticket_platform: TicketPlatform | null };
+  listing: {
+    event_name: string | null;
+    ticket_platform: TicketPlatform | null;
+    /** V3 summary columns — the same live listings columns Home selects with `*`. */
+    event_date: string | null;
+    event_time: string | null;
+    venue: string | null;
+    quantity: number | null;
+    ticket_type: string | null;
+    cover_image_path: string | null;
+      };
 };
 
-export default function TransferReceiveScreen() {
+/** Harness-only literals in place of the network reads (rows supplied, actions still real). */
+export type OrderFixture = {
+  transfer: TransferData;
+  /** The buyer's own settled payment rows, as readSettledPayments would return them. */
+  settled?: { status?: string | null; amount_refunded_cents?: number | null; refunded_at?: string | null; total?: number | null }[];
+};
+
+export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixture } = {}) {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -121,8 +159,13 @@ export default function TransferReceiveScreen() {
   const closedForRefund = transfer?.status === 'expired' || transfer?.status === 'reversed' || dueContext != null;
   useEffect(() => {
     let alive = true;
+    // Harness: the same state machine, fed literal rows — nothing leaves the app.
+    if (fixture) { setRefundRead(refundReadState({ rows: fixture.settled ?? [] })); return; }
     const listingId = transfer?.listing_id ?? null;
-    if (!closedForRefund || !listingId || !userId) { setRefundRead({ kind: 'idle' }); return; }
+    // V3: the read runs for every loaded order, not only closedForRefund — the summary's
+    // "You paid" row states the buyer's own recorded charge on the open order too. The
+    // closed/dispute blocks read the same result they always did.
+    if (!listingId || !userId) { setRefundRead({ kind: 'idle' }); return; }
     setRefundRead({ kind: 'loading' });
     void readSettledPayments(supabase, listingId, userId).then((read) => {
       if (!alive) return;
@@ -131,7 +174,7 @@ export default function TransferReceiveScreen() {
       if (alive) setRefundRead({ kind: 'error' });
     });
     return () => { alive = false; };
-  }, [closedForRefund, transfer?.listing_id, transfer?.status, transfer?.dispute_resolution, userId]);
+  }, [fixture, closedForRefund, transfer?.listing_id, transfer?.status, transfer?.dispute_resolution, userId]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -158,14 +201,17 @@ export default function TransferReceiveScreen() {
   useEffect(() => {
     const path = transfer?.transfer_evidence_path;
     if (!path || transfer?.status !== 'seller_sent') { setProofUrl(null); return; }
+    if (fixture) return;   // harness: no storage read; the row renders without a signed URL
     let active = true;
     supabase.storage.from('proof-docs').createSignedUrl(path, 60 * 60)
       .then(({ data }) => { if (active) setProofUrl(data?.signedUrl ?? null); })
       .catch(() => { if (active) setProofUrl(null); });
     return () => { active = false; };
-  }, [transfer?.transfer_evidence_path, transfer?.status]);
+  }, [transfer?.transfer_evidence_path, transfer?.status, fixture]);
 
   const fetchTransfer = useCallback(async (opts?: { quiet?: boolean }): Promise<TransferData | null> => {
+    // Harness: the fixture replaces this one read and nothing else — no query leaves the app.
+    if (fixture) { setTransfer(fixture.transfer); setError(''); setLoading(false); return fixture.transfer; }
     if (!userId || !id) return null;
     // Quiet: re-read behind the content (a return from the provider) instead
     // of replacing the order with a spinner.
@@ -176,7 +222,8 @@ export default function TransferReceiveScreen() {
         'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'seller:profiles!seller_id(display_name), ' +
-        'listing:listings!listing_id(event_name, ticket_platform)',
+        // V3 summary columns: all live `listings` columns (Home selects `*` from the same table).
+        'listing:listings!listing_id(event_name, ticket_platform, event_date, event_time, venue, quantity, ticket_type, cover_image_path)',
       )
       .eq('id', id)
       .eq('buyer_id', userId)
@@ -201,7 +248,7 @@ export default function TransferReceiveScreen() {
     }
     setLoading(false);
     return fresh;
-  }, [id, userId]);
+  }, [id, userId, fixture]);
 
   useEffect(() => { fetchTransfer(); }, [fetchTransfer]);
 
@@ -379,8 +426,8 @@ export default function TransferReceiveScreen() {
   function Header() {
     return (
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">Receive transfer</Text>
+        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Your order</Text>
         <View style={s.headerSpacer} />
       </View>
     );
@@ -415,6 +462,76 @@ export default function TransferReceiveScreen() {
       <Header />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+        {/* V3 order board: the screen leads with WHAT WAS BOUGHT — thumb, name, when/where,
+            tickets/method — then the four-step progress track and the recorded charge. Every
+            line is a server fact through orderPresentation's derivations. */}
+        <View style={s.summaryBlock}>
+          <View style={s.summaryThumb}>
+            <EventMedia
+              asset={{ path: transfer.listing?.cover_image_path ?? null }}
+              slot="FEED_ROW_ART"
+              title={transfer.listing?.event_name ?? undefined}
+              decorative
+            />
+          </View>
+          <View style={s.summaryLines}>
+            <NameText token="nameOrder" maxLines={2} style={s.summaryName}>
+              {transfer.listing?.event_name || 'Untitled'}
+            </NameText>
+            {orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue) ? (
+              <Text style={[textStyle('bodySm'), s.summaryMeta]} numberOfLines={1}>
+                {orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue)}
+              </Text>
+            ) : null}
+            {orderTicketsLine(transfer.listing?.quantity, transfer.listing?.ticket_type, transfer.transfer_method, link?.name ?? null) ? (
+              <Text style={[textStyle('bodySm'), s.summaryMeta]} numberOfLines={1}>
+                {orderTicketsLine(transfer.listing?.quantity, transfer.listing?.ticket_type, transfer.transfer_method, link?.name ?? null)}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {(() => {
+          const steps = orderProgress({
+            status: transfer.status,
+            buyerConfirmedAt: transfer.buyer_confirmed_at,
+            payoutReleasedAt: transfer.payout_released_at,
+            autoReleaseAt: transfer.auto_release_at,
+          });
+          if (!steps) return null;
+          const paid = youPaidAmount(refundRead);
+          return (
+            <>
+              <View style={s.progressBlock} accessible accessibilityLabel={orderProgressA11y(steps)}>
+                <Text style={[textStyle('micro'), s.sectionLabel]}>Progress</Text>
+                <View style={s.progressRow}>
+                  {steps.map((step) => (
+                    <View key={step.key} style={s.progressCol}>
+                      <View style={[
+                        s.progressDot,
+                        step.state === 'done' && s.progressDotDone,
+                        step.state === 'current' && s.progressDotCurrent,
+                      ]} />
+                      <Text style={[textStyle('navLabel'), step.state === 'current' ? s.progressLabelCurrent : s.progressLabel]} numberOfLines={1}>
+                        {step.label}
+                      </Text>
+                      {step.sub ? (
+                        <Text style={[textStyle('navLabel'), s.progressDetail]} numberOfLines={1}>{step.sub}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+              {paid ? (
+                <View style={s.paidRow}>
+                  <Text style={[textStyle('body'), s.paidLabel]}>{YOU_PAID_LABEL}</Text>
+                  <Text style={[textStyle('price'), s.paidValue]}>{paid}</Text>
+                </View>
+              ) : null}
+            </>
+          );
+        })()}
+
         {/* Delivery info: required before a PENDING transfer can proceed. On one already marked sent it is still
             asked for, but it never hides the confirm / report controls below (F-XFER-3). */}
         {needsDeliveryInfo ? (
@@ -463,11 +580,14 @@ export default function TransferReceiveScreen() {
             <Text style={[textStyle('micro'), s.sectionLabel]}>Transfer</Text>
             <Badge label={meta.label} tone={meta.tone} />
           </View>
-          <Row label="Event" value={transfer.listing?.event_name || 'Untitled'} s={s} />
+          {/* pkg7-order copy: the summary block above carries event and method, so this section
+              holds the seller and WHERE THE TICKETS GO. */}
           <Row label="Seller" value={transfer.seller?.display_name || 'Unknown'} s={s} />
-          <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
-          {transfer.delivery_email ? <Row label="Delivery email" value={transfer.delivery_email} s={s} /> : null}
-          {transfer.delivery_phone ? <Row label="Delivery phone" value={transfer.delivery_phone} s={s} /> : null}
+          {transfer.delivery_email ? <Row label="Your delivery details" value={transfer.delivery_email} s={s} /> : null}
+          {transfer.delivery_phone ? <Row label={transfer.delivery_email ? ' ' : 'Your delivery details'} value={transfer.delivery_phone} s={s} /> : null}
+          {(transfer.delivery_email || transfer.delivery_phone) ? (
+            <Text style={[textStyle('bodySm'), s.hint]}>where your tickets should be sent</Text>
+          ) : null}
         </View>
 
         {/* PENDING */}
@@ -500,13 +620,20 @@ export default function TransferReceiveScreen() {
             ) : null}
 
             {proofUrl ? (
-              <View style={s.proofBlock}>
-                <Text style={[textStyle('micro'), s.sectionLabel]}>{"Seller's proof of transfer"}</Text>
-                <Pressable onPress={() => setProofViewerOpen(true)} accessibilityRole="imagebutton" accessibilityLabel="View proof of transfer full screen">
-                  <Image source={{ uri: proofUrl }} style={s.proofImage} resizeMode="contain" />
-                </Pressable>
-                <Text style={[textStyle('bodySm'), s.hint]}>Tap to view full screen. Review it before confirming.</Text>
-              </View>
+              /* The board's collapsed row: the screenshot is a tap away, not an inline image the
+                 buyer must scroll past. Same viewer, same review-before-confirming intent. */
+              <Tappable
+                style={s.proofRow}
+                onPress={() => setProofViewerOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Seller's screenshot. Attached by the seller. Opens full screen — review it before confirming."
+              >
+                <View style={s.proofRowLines}>
+                  <Text style={[textStyle('title'), s.proofRowTitle]}>{"Seller's screenshot"}</Text>
+                  <Text style={[textStyle('bodySm'), s.hint]}>Attached by the seller · tap to view</Text>
+                </View>
+                <Text style={[textStyle('title'), s.proofRowChevron]}>{'\u203A'}</Text>
+              </Tappable>
             ) : null}
 
             <View style={[s.confirmPrompt, confirmHighlight && s.confirmPromptHighlight]}>
@@ -516,18 +643,21 @@ export default function TransferReceiveScreen() {
             </View>
 
             <Button
-              label="I got my tickets"
+              label="I have my tickets"
               pendingLabel="Confirming receipt…"
               onPress={handleConfirm}
               loading={confirming}
               disabled={busy}
+              size="lg"
               block
               style={s.cta}
             />
+            {/* True: handleConfirm opens the release dialog first; nothing is sent on this tap. */}
+            <Text style={[textStyle('bodySm'), s.ctaCaption]}>you'll confirm on the next step</Text>
             <Button
-              label="I haven't received them"
+              label="Report a problem"
               pendingLabel="Reporting…"
-              variant="destructive"
+              variant="secondary"
               onPress={handleDispute}
               loading={disputing}
               disabled={busy}
@@ -608,6 +738,34 @@ function makeStyles(p: Palette) {
     borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
+
+  // ── V3 order summary / progress / paid (the board's lead) ──
+  summaryBlock: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center', marginBottom: v2.space.lg },
+  summaryThumb: { borderRadius: v2.radius.sm, overflow: 'hidden' },
+  summaryLines: { flex: 1, gap: 2 },
+  summaryName: { color: p.text.primary },
+  summaryMeta: { color: p.text.secondary },
+  progressBlock: { marginBottom: v2.space.lg },
+  progressRow: { flexDirection: 'row', gap: v2.space.sm, marginTop: v2.space.sm },
+  progressCol: { flex: 1, alignItems: 'center', gap: 4 },
+  progressDot: { width: 12, height: 12, borderRadius: v2.radius.pill, borderWidth: 2, borderColor: p.border.control },
+  progressDotDone: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  progressDotCurrent: { borderColor: p.status.warning },
+  progressLabel: { color: p.text.secondary },
+  progressLabelCurrent: { color: p.status.warning },
+  progressDetail: { color: p.text.muted },
+  paidRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: v2.space.lg },
+  paidLabel: { color: p.text.secondary },
+  paidValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  proofRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: p.border.default, borderRadius: v2.radius.md,
+    paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md, marginBottom: v2.space.lg,
+  },
+  proofRowLines: { flex: 1, gap: 2 },
+  proofRowTitle: { color: p.text.primary },
+  proofRowChevron: { color: p.text.muted, fontSize: 24, lineHeight: 26 },
+  ctaCaption: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.xs, marginBottom: v2.space.sm },
   headerSpacer: { width: 44 },
 
   content: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg },

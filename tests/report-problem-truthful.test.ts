@@ -6,6 +6,9 @@
  * submitted action with an UNKNOWN result — the screen re-reads first, and only when the server
  * still shows no report does it say the report is unconfirmed, never that it failed.
  */
+// V3 CTA copy (map row "Order", pkg7-order-after, 2026-09-24): the confirm control reads
+// "I have my tickets" and the report control "Report a problem" (secondary — the dialog that
+// follows carries the severity). Same handlers, same dialogs, same single-flight rules.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as Record<string, unknown>).__DEV__ = false;
@@ -44,6 +47,8 @@ vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOf
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({ Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner' }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
+vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));
@@ -100,7 +105,7 @@ async function mountThenTapReport(): Promise<HookHost> {
   host.flush();
   const { findElement } = await import('./helpers/nav-stack-harness');
   const btn = findElement(host.output, (el) =>
-    el.type === 'Button' && el.props.label === "I haven't received them");
+    el.type === 'Button' && el.props.label === "Report a problem");
   expect(btn, 'the Report control').toBeDefined();
   (btn?.props.onPress as () => void)();
   await flush();
@@ -134,7 +139,7 @@ describe('O-3 — the three states are never blurred', () => {
     host.flush();
     const { findElement } = await import('./helpers/nav-stack-harness');
     const btn = findElement(host.output, (el) =>
-      el.type === 'Button' && el.props.label === "I haven't received them");
+      el.type === 'Button' && el.props.label === "Report a problem");
     (btn?.props.onPress as () => void)();
     await flush();
     const confirm = h.alerts.find((a) => a.title === 'Report issue');
@@ -161,7 +166,7 @@ describe('O-3 — the three states are never blurred', () => {
     await flush();
     host.flush();
     const { findElement } = await import('./helpers/nav-stack-harness');
-    const btn = findElement(host.output, (el) => el.type === 'Button' && el.props.label === "I haven't received them");
+    const btn = findElement(host.output, (el) => el.type === 'Button' && el.props.label === "Report a problem");
     expect(btn, 'the Report control').toBeDefined();
     h.transfer = transfer({ status: 'disputed' });
     (btn?.props.onPress as () => void)();

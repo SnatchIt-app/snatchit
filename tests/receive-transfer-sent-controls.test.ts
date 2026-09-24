@@ -3,8 +3,8 @@
  * confirm-received or report-a-problem controls.
  *
  * `buyerNeedsDelivery` is true for `pending` OR `seller_sent` with no email and no phone, and the receive screen
- * rendered the whole `seller_sent` block — the seller's claim, the release warning, "I got my tickets" and
- * "I haven't received them" — only when that was false. So a sent transfer with no delivery info showed the
+ * rendered the whole `seller_sent` block — the seller's claim, the release warning, "I have my tickets" and
+ * "Report a problem" — only when that was false. So a sent transfer with no delivery info showed the
  * buyer a delivery form and nothing to confirm or dispute with. The server does not require delivery info to
  * mark a transfer sent (`mark_transfer_sent` in 0553 and 140 gates on status alone), and marking sent starts
  * `auto_release_at = now() + 72h` (0553:37). The owner's device report on "Sandbox S8only" (Build 20, 11:58) is
@@ -16,6 +16,9 @@
  * away to make room for them, and that every existing safeguard on the two controls still holds — the release
  * warning, the dispute confirmation, the single-flight lock, and no success before the server says so.
  */
+// V3 CTA copy (map row "Order", pkg7-order-after, 2026-09-24): the confirm control reads
+// "I have my tickets" and the report control "Report a problem" (secondary — the dialog that
+// follows carries the severity). Same handlers, same dialogs, same single-flight rules.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { transferStatusCopy } from '@/src/lib/transfer/transferState';
@@ -67,6 +70,8 @@ vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner',
 }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
+vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));
@@ -102,8 +107,8 @@ vi.mock('@/src/lib/supabase', () => {
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 
-const CONFIRM = 'I got my tickets';
-const DISPUTE = "I haven't received them";
+const CONFIRM = 'I have my tickets';
+const DISPUTE = "Report a problem";
 const RELEASE_WARNING = 'By confirming, you release payment to the seller.';
 const DELIVERY_PROMPT = 'Please provide your delivery info so the seller knows where to send your tickets.';
 
@@ -134,7 +139,8 @@ async function mountReceive(): Promise<HookHost> {
  * Read from the details Row's props — `Row` is a local component, and its text is not in the flattened output.
  */
 function renderedTransfer(host: HookHost): boolean {
-  return findElement(host.output, (el) => el.props.label === 'Event' && el.props.value === 'Sandbox S8only') !== undefined;
+  // V3: the event name leads the summary block (NameText), not an "Event" detail row.
+  return findElement(host.output, (el) => el.type === 'NameText' && el.props.children === 'Sandbox S8only') !== undefined;
 }
 
 const deliveryForm = (host: HookHost) => findElement(host.output, (el) => el.type === 'DeliveryInfoForm');
