@@ -182,30 +182,36 @@ describe('the V3 rendering the boards ask for (pkg8-checkout-dark / -light)', ()
     expect(src).toMatch(/notice\.action \?[\s\S]*?<Button/);
   });
 
-  it("CV9 (B's review of d374bd3f): every payControl outcome has a fixture, so a rendered review can be complete", async () => {
-    // A reviewer cannot tell a complete set from a partial one by looking at a page. This derives
-    // the outcome list from payControl itself and checks the harness covers all of it — so adding a
-    // twelfth outcome later fails here instead of quietly going uncaptured.
-    const control = code('src/lib/checkout/payControl.ts');
-    const labels = [...control.matchAll(/label: (?:'([^']+)'|`([^`]+)`)/g)].map((m) => m[1] ?? m[2]).filter((l) => l !== 'string');
-    expect(labels.length, 'payControl outcomes').toBeGreaterThanOrEqual(11);
+  it("CV9: the fixture set's coverage is checked where the fixtures can be RESOLVED, not read as text", () => {
+    /*
+     * This case used to assert that each payControl label appeared somewhere in the harness FILE, and
+     * it passed while one label — "Setting up payment" — appeared only in the table in that file's
+     * header and in no fixture at all (E's finding). A file-text check cannot tell a fixture from a
+     * comment, so the real coverage assertion moved to `tests/v3-harness-variants.test.ts`, where the
+     * route's exported fixture map is imported and every `pay` is the output of the REAL payControl.
+     *
+     * What stays here is the property that made the drift possible, closed at the source: the harness
+     * may not hand-type a pay control.
+     */
     const harness = read('app/_dev/v3-checkout.tsx');
-    for (const label of labels) {
-      // `Pay ${i.formattedTotal}` is the one templated label; the fixture spells a sample total.
-      const needle = label.startsWith('Pay ') ? 'Pay $99.00' : label;
-      expect(harness, `no fixture renders "${label}"`).toContain(needle);
-      // And the table in the header documents where to find it.
-      expect(harness.slice(0, harness.indexOf('const STATES')), `the table omits "${label}"`).toContain(label.startsWith('Pay ') ? 'Pay <total>' : label);
-    }
+    expect(harness).toContain("import { payControl, type PayControlInput } from '@/src/lib/checkout/payControl';");
+    expect(harness).toMatch(/const pay = \(over: Partial<PayControlInput> = \{\}\) => payControl\(\{/);
+    // No fixture builds a control by hand — every one of them calls through.
+    expect(harness).not.toMatch(/pay: \{\s*label:/);
+    expect(harness.match(/pay: pay\(/g)?.length, 'every state resolves its control').toBeGreaterThanOrEqual(11);
+    expect(harness).toContain('export const CHECKOUT_STATES');
   });
 
   it("CV10 (B's review of d374bd3f): an in-flight status is stated at full strength, not only on the dimmed control", () => {
     // A disabled control renders at 40% opacity, so a state whose only words were the pay label put
     // the news in the faintest thing on the screen — worst in Light. The control keeps its label;
     // the same words also appear in the body.
-    expect(src).toMatch(/\{!preparing && pay\.loading \?/);
+    expect(src).toMatch(/\{!preparing && !notice && pay\.loading \?/);
     expect(src).toMatch(/payStatus: \{ color: p\.text\.primary/);
-    expect(src).toMatch(/<Spinner label=\{pay\.label\} \/>/);
+    // ONE announcement of one fact (E's follow-up): the row is suppressed where the slot above it
+    // already states the status, and the spinner beside the visible text is decorative so a screen
+    // reader does not read the same words twice.
+    expect(src).toMatch(/<Spinner label=\{pay\.label\} decorative \/>/);
   });
 
   it('CV8: the view formats no money, and states no payout STATE or refund figure of its own', () => {

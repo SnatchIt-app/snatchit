@@ -80,3 +80,30 @@ describe('an unavailable listing states why, outside the dimmed button', () => {
     expect(region).not.toMatch(/<Button[^>]*>\s*<Text/);
   });
 });
+
+describe('a BUSY control states progress, so its label is not dimmed either', () => {
+  it('LR5 (B\'s checkout review, 2026-09-24; E\'s rule 3c): a pending label keeps full strength', () => {
+    /*
+     * The same principle as LR1–LR4, one state over. `payControl` returns loading AND disabled
+     * together for its six in-flight branches, so "Confirming payment", "Finalizing your order" and
+     * "Checking your payment" were rendered through `Button`'s disabled `opacity: 0.4` — the faintest
+     * thing on the screen, worst in Light, and B measured exactly that on checkout. A dim that is
+     * right for a control is wrong for a status, and a pending label IS the status.
+     *
+     * Fixed at the primitive, so every screen gets it: the listing footer's "Reserving…", the bid
+     * screen's "Submitting bid…" and checkout's six in-flight labels all keep full contrast. The
+     * control is still inert — `disabled={inert}` is unchanged — and a screen reader still hears
+     * `busy`, so nothing about interactivity moved.
+     */
+    const src = readFileSync('src/components/ui/Button.tsx', 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(src).toContain('const showPending = loading && !!pendingLabel;');
+    expect(src).toContain('disabled && !showPending && styles.disabled,');
+    // The control does not become interactive: both of these are unchanged.
+    expect(src).toContain('const inert = disabled || loading;');
+    expect(src).toContain('disabled={inert}');
+    expect(src).toMatch(/accessibilityState=\{\{ disabled: inert, busy: loading \}\}/);
+    // A spinner-only loading state is not text, so it keeps the dim.
+    expect(src).toMatch(/\{loading && !showPending \? \(/);
+  });
+});

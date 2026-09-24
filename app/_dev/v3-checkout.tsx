@@ -29,6 +29,7 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { payControl, type PayControlInput } from '@/src/lib/checkout/payControl';
 import CheckoutView, {
   CheckoutShell,
   ConfirmationView,
@@ -53,7 +54,20 @@ const IDENTITY: CheckoutIdentity = {
 
 /** The shape the server's breakdown arrives in, already formatted by the screen's money module. */
 const BREAKDOWN = { item: 'Tickets', amount: '$90.00', fee: '$9.00', total: '$99.00' };
-const ESCROW = 'Payment is held until your ticket reaches you. Secured by Stripe.';
+// A's §2f wording, the same string `ESCROW_NOTE_COPY` now holds.
+const ESCROW = "You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's payout.";
+
+/**
+ * Every fixture's pay control is produced by the REAL `payControl`, from the inputs that select its
+ * branch — never hand-typed (E's finding on `7e08d4d7`: a hand-typed 'Preparing…' meant payControl's
+ * own `paymentLoading` label, "Setting up payment", was rendered by no fixture at all, while the
+ * coverage test passed on the table in this header. A harness that retypes the function's output can
+ * drift from it silently; one that calls it cannot).
+ */
+const pay = (over: Partial<PayControlInput> = {}) => payControl({
+  authLoading: false, paymentLoading: false, confirming: false, paymentReady: false,
+  paymentError: false, formattedTotal: '$99.00', ...over,
+});
 
 const BASE: CheckoutViewProps = {
   identity: IDENTITY,
@@ -67,7 +81,7 @@ const BASE: CheckoutViewProps = {
   notice: null,
   errorLine: null,
   escrowNote: ESCROW,
-  pay: { label: 'Pay $99.00', loading: false, disabled: false },
+  pay: pay({ paymentReady: true }),
   onPay: () => {},
   acceptTotal: null,
   onBack: () => {},
@@ -99,7 +113,7 @@ const BASE: CheckoutViewProps = {
  * complete · pending · settle-failed · refund. And `price-changed`, where the accept control
  * REPLACES the pay control entirely.
  */
-const STATES: Record<string, CheckoutViewProps> = {
+export const CHECKOUT_STATES: Record<string, CheckoutViewProps> = {
   // Setup running: no figure anywhere, and the control says what it is doing.
   preparing: {
     ...BASE,
@@ -109,7 +123,7 @@ const STATES: Record<string, CheckoutViewProps> = {
     reservationMsLeft: null,
     countdown: null,
     escrowNote: ESCROW,
-    pay: { label: 'Preparing…', loading: true, disabled: true },
+    pay: pay({ paymentLoading: true }),
   },
   // Ready, Buy Now: the hold counts down and the control carries the server's total.
   ready: BASE,
@@ -132,7 +146,7 @@ const STATES: Record<string, CheckoutViewProps> = {
       title: 'Your hold has expired',
       body: 'The reservation ran out before payment completed. Nothing was charged. You can try again if the listing is still available.',
     },
-    pay: { label: 'Back to listing', loading: false, disabled: false },
+    pay: pay({ holdLost: true }),
   },
   // A new total awaits acceptance: the rows are withheld and the action carries the only figure.
   'price-changed': {
@@ -155,7 +169,7 @@ const STATES: Record<string, CheckoutViewProps> = {
       body: "Your last attempt may or may not have gone through. Please don't pay again. We'll keep checking; you can also check now.",
       action: { label: 'Check status', onPress: () => {}, loading: false },
     },
-    pay: { label: 'Checking your payment', loading: true, disabled: true },
+    pay: pay({ checking: true }),
   },
   // A setup failure: the safe sentence, with the retry on the control itself.
   failed: {
@@ -164,7 +178,7 @@ const STATES: Record<string, CheckoutViewProps> = {
     paymentMethodLine: null,
     escrowNote: null,
     errorLine: "We couldn't start payment. Please try again.",
-    pay: { label: 'Try again', loading: false, disabled: false },
+    pay: pay({ paymentError: true }),
   },
   // The hold hit zero while the screen re-checks it with the server.
   'hold-checking': {
@@ -172,19 +186,19 @@ const STATES: Record<string, CheckoutViewProps> = {
     reservationMsLeft: 0,
     countdown: '0:00',
     paymentMethodLine: null,
-    pay: { label: 'Checking your hold', loading: true, disabled: true },
+    pay: pay({ paymentReady: true, reservationMsLeft: 0 }),
   },
   // The charge is in flight. The sheet is up over the app on a device, so this is what is behind it.
   confirming: {
     ...BASE,
     paymentMethodLine: null,
-    pay: { label: 'Confirming payment', loading: true, disabled: true },
+    pay: pay({ confirming: true }),
   },
   // Charged, and the settlement record is being written (CFT-306: its own step, its own words).
   finalizing: {
     ...BASE,
     paymentMethodLine: null,
-    pay: { label: 'Finalizing your order', loading: true, disabled: true },
+    pay: pay({ finalizing: true }),
   },
   // The session is still resolving, so nothing about this buyer is known yet.
   authenticating: {
@@ -194,7 +208,7 @@ const STATES: Record<string, CheckoutViewProps> = {
     escrowNote: null,
     reservationMsLeft: null,
     countdown: null,
-    pay: { label: 'Authenticating', loading: true, disabled: true },
+    pay: pay({ authLoading: true }),
   },
   // The settled-payment read failed, so whether this buyer already paid is UNKNOWN: no Pay is
   // offered, the escrow line is withheld, and the only action re-runs the check.
@@ -206,7 +220,7 @@ const STATES: Record<string, CheckoutViewProps> = {
       title: "We couldn't check your payment status",
       body: "We could not confirm whether this order has already been paid. Please don't pay again — check again in a moment.",
     },
-    pay: { label: 'Check again', loading: false, disabled: false },
+    pay: pay({ statusUnknown: true }),
   },
   // The floor of the precedence: nothing is ready and nothing failed loudly.
   unavailable: {
@@ -216,7 +230,7 @@ const STATES: Record<string, CheckoutViewProps> = {
     escrowNote: null,
     reservationMsLeft: null,
     countdown: null,
-    pay: { label: 'Payment unavailable', loading: false, disabled: true },
+    pay: pay(),
   },
 };
 
@@ -268,5 +282,5 @@ export default function V3CheckoutHarness() {
     );
   }
 
-  return <CheckoutView {...(STATES[state ?? 'ready'] ?? STATES.ready)} />;
+  return <CheckoutView {...(CHECKOUT_STATES[state ?? 'ready'] ?? CHECKOUT_STATES.ready)} />;
 }

@@ -198,12 +198,18 @@ export default function CheckoutView({
             control drops to 40% opacity, so a state whose only words were the pay control's label —
             "Checking your payment", "Confirming payment", "Finalizing your order" — put the news in
             the faintest thing on the screen, worst in Light. The control keeps its label and stays
-            disabled; the same words also appear here at full strength. `preparing` already has its
-            own spinner row above, so it is not repeated.
+            disabled; the same words also appear here at full strength.
+
+            AND ONLY ONCE (E's follow-up). The row is suppressed when the slot above it already
+            states the status: `preparing` has its own spinner row, and a titled notice states its
+            own state and carries its own action — in `unconfirmed` the status was appearing three
+            times over.
         */}
-        {!preparing && pay.loading ? (
+        {!preparing && !notice && pay.loading ? (
           <View style={s.payStateRow} accessibilityLiveRegion="polite">
-            <Spinner label={pay.label} />
+            {/* Decorative: the Text beside it says the same words, and a progressbar carrying the
+                same label would make a screen reader read the status twice. */}
+            <Spinner label={pay.label} decorative />
             <Text style={[textStyle('body'), s.payStatus]}>{pay.label}</Text>
           </View>
         ) : null}

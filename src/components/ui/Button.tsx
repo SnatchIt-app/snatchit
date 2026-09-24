@@ -117,7 +117,13 @@ export function Button({
           // label keeps ≥ 4.5:1 in both appearances) on top of the scale feedback.
           variant === 'primary' && pressed && !inert ? { backgroundColor: palette.brand.redPressed } : null,
           block && styles.block,
-          disabled && styles.disabled,
+          // A dim that is right for a control is wrong for a STATUS. `payControl` (and the reserve and
+          // bid flows) return loading AND disabled together, so an in-flight label — "Confirming
+          // payment", "Reserving…", "Submitting bid…" — was being rendered at 40% opacity, the
+          // faintest thing on the screen and worst in Light (B measured it on checkout, 2026-09-24).
+          // The control stays inert and still reports `busy`; only the dim goes, and only while a
+          // pending LABEL is carrying the news. A spinner-only loading state keeps it.
+          disabled && !showPending && styles.disabled,
           style,
         ]}
         accessibilityRole="button"

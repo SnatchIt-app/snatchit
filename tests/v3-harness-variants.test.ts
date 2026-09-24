@@ -66,6 +66,12 @@ vi.mock('@/app/(tabs)/home', () => ({ default: 'HomeScreen' }));
 vi.mock('@/app/(tabs)/profile', () => ({ default: 'ProfileScreen' }));
 vi.mock('@/app/settings/index', () => ({ default: 'SettingsScreen' }));
 vi.mock('@/app/settings/appearance', () => ({ default: 'AppearanceScreen' }));
+// Checkout's presentation is its own suite's subject; here only the route's fixture map matters, and
+// stubbing the view keeps its component graph out of a node test.
+vi.mock('@/src/screens/checkout/CheckoutView', () => ({
+  default: 'CheckoutView', CheckoutShell: 'CheckoutShell',
+  ConfirmationView: 'ConfirmationView', RefundView: 'RefundView',
+}));
 
 import { detailState, type DetailStateInput } from '@/src/lib/listing/detailState';
 import { activeFilterCount, DEFAULT_FILTERS } from '@/src/lib/home/filterModel';
@@ -75,12 +81,14 @@ const ROUTES = {
   listing: () => import('@/app/_dev/v3-listing'),
   home: () => import('@/app/_dev/v3-home'),
   account: () => import('@/app/_dev/v3-account'),
+  checkout: () => import('@/app/_dev/v3-checkout'),
 } as const;
 
 const FILES: Record<keyof typeof ROUTES, string> = {
   listing: 'app/_dev/v3-listing.tsx',
   home: 'app/_dev/v3-home.tsx',
   account: 'app/_dev/v3-account.tsx',
+  checkout: 'app/_dev/v3-checkout.tsx',
 };
 
 /** Source with comments removed: these rules are about what the file DOES, not what it says. */
@@ -502,5 +510,71 @@ describe('no variant introduces a write', () => {
     expect(strip(FILES.listing)).toContain("import { useAuth } from '@/src/hooks/useAuth';");
     expect(strip(FILES.home)).not.toContain('useAuth');
     expect(strip(FILES.account)).not.toContain('useAuth');
+  });
+});
+
+describe('v3-checkout — the fixture set is complete, and one status is stated once', () => {
+  it('HV15: every payControl branch is RESOLVED by some fixture — checked on the output, not on the file text', async () => {
+    /*
+     * The coverage claim has to be checked where the fixtures can be resolved. Its first version read
+     * the harness FILE for each label and passed while "Setting up payment" existed only in a comment
+     * table and in no fixture (E's finding on 7e08d4d7) — a file-text check cannot tell a fixture from
+     * a comment. Here the route's own fixture map is imported and every `pay` in it is whatever the
+     * REAL payControl returned, so a twelfth branch, or a fixture that stops selecting its branch,
+     * fails this test.
+     */
+    const { payControl } = await import('@/src/lib/checkout/payControl');
+    const { CHECKOUT_STATES } = await import('@/app/_dev/v3-checkout');
+    const base = {
+      authLoading: false, paymentLoading: false, confirming: false, paymentReady: false,
+      paymentError: false, formattedTotal: '$99.00',
+    };
+    // Every branch of payControl, by the input that selects it — the same precedence the function has.
+    const branches = {
+      finalizing: { finalizing: true },
+      confirming: { confirming: true },
+      checking: { checking: true },
+      authLoading: { authLoading: true },
+      paymentLoading: { paymentLoading: true },
+      statusUnknown: { statusUnknown: true },
+      holdLost: { holdLost: true },
+      holdMargin: { paymentReady: true, reservationMsLeft: 0 },
+      ready: { paymentReady: true },
+      error: { paymentError: true },
+      idle: {},
+    } as const;
+    const rendered = new Set(Object.values(CHECKOUT_STATES).map((st) => st.pay.label));
+    const labels = new Set<string>();
+    for (const [name, over] of Object.entries(branches)) {
+      const control = payControl({ ...base, ...over });
+      labels.add(control.label);
+      expect(rendered, `payControl branch "${name}" (${control.label}) has no fixture`).toContain(control.label);
+    }
+    // Eleven branches, eleven distinct labels: the witness that the branch table above is not
+    // collapsing two branches onto one and passing for the wrong reason.
+    expect(labels.size).toBe(11);
+    // And nothing rendered is a label payControl cannot produce.
+    for (const label of rendered) expect(labels, `no branch produces "${label}"`).toContain(label);
+  });
+
+  it('HV16: the status row appears only where nothing else states the status', async () => {
+    const { CHECKOUT_STATES } = await import('@/app/_dev/v3-checkout');
+    // The view renders the row when `!preparing && !notice && pay.loading`. These are the states
+    // where that is true — a bare loading control with no panel above it.
+    for (const key of ['confirming', 'finalizing', 'hold-checking']) {
+      const st = CHECKOUT_STATES[key];
+      expect(st.notice, key).toBeNull();
+      expect(st.preparing, key).toBe(false);
+      expect(st.pay.loading, key).toBe(true);
+    }
+    // And these are the states that already say it, so the row must not repeat them: `unconfirmed`
+    // has a titled panel with its own action (three copies of one status, before E's follow-up), and
+    // `preparing` has its own spinner row.
+    expect(CHECKOUT_STATES.unconfirmed.notice?.title).toBeTruthy();
+    expect(CHECKOUT_STATES.unconfirmed.pay.loading).toBe(true);
+    expect(CHECKOUT_STATES.preparing.preparing).toBe(true);
+    // The rule itself, at the one place that implements it.
+    const view = readFileSync('src/screens/checkout/CheckoutView.tsx', 'utf8');
+    expect(view).toMatch(/\{!preparing && !notice && pay\.loading \?/);
   });
 });
