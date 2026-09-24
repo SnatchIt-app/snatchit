@@ -20,9 +20,11 @@ earlier than 15 minutes before the first device step, with A's T0 capture matchi
 **One server write is unavoidable and is not on A's sheet: step 1.** Launching the build while signed in
 registers this device's push token (`register_push_token`, or a legacy insert into `push_tokens`). If that
 token was previously bound to another account the server opens a *challenge*; on this sandbox, dispatch is
-refused by configuration (A's option (b)), so no notification is delivered. Everything from step 2 to step 24
-is **none** or **device-local** — those are the fixture-free checks, and they must not be described as
-needing approval. Steps 25+ create records and wait on the owner.
+refused by configuration (A's option (b)), so no notification is delivered. **Step 19 writes a second such row**,
+because it signs in as the seller account. Every other step from 2 to 27 is **none** or **device-local** —
+those are the fixture-free checks, and they must not be held behind D1–D6. **Steps 28–34** are the ones that
+create records and wait on the owner. So: two unavoidable push-token rows, and nothing else, for a complete
+appearance and rendering pass.
 
 **Evidence class.** What a passing step actually proves:
 
