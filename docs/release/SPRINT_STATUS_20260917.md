@@ -1783,3 +1783,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     state, with the Settings sentence allowed as guidance.
   - A's audit of the remaining payout-progress copy: `settings/index.tsx:190` (a server fact) and `payout-setup.tsx:186`
     (generic) are fine.
+- **A's gated sign-off: C's `b220ec20`** (`v3/midnight-app`), covering the fourth gated read and its follow-ups.
+  - Gated diff: `signOut.ts` +5 only.
+  - Zero rendered "being processed". Every unreleased, unheld payout reads "Payout pending", with manual review from
+    the review field; this is the owner's 16:51Z rule.
+  - Clean run `full-run-14`: 2750/2750, exit=0, commit=`b220ec20`, dirty_files=0.
+  - The sign-off covers the gate only; the visual review and the build remain separate.
+  - Next to A: `sellState.ts` priceSummary display (seller-money wording).
