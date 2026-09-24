@@ -216,10 +216,11 @@ the device session will exercise.
 - **Known gaps Build 23 carries**, recorded by C in the plan's checklist: the Spinner colour (branch `24b021a3` / `2ffb10a8`
   differ in presentation only), the seller-win copy follow-on (below), and `text.faint` contrast.
 - **New since the last revision.**
-  - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92** at `e2205bbb`. CI is green: pgTAP Files=95 / Tests=5517 PASS,
-    census 32/108/37/38. **It is not applied or deployed.**
-  - The client still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`). C's fix
-    (option (a): select `buyer_confirmed_at`, branch the copy) is agreed in principle and comes to A before merge.
+  - F-DISPUTE-SELLERWIN-1 now has a fix: **draft PR #92**, head `e73553d2` (all 9 checks green; pgTAP Files=95 /
+    Tests=5517 PASS at `e2205bbb`, census 32/108/37/38). **It is not applied or deployed.**
+  - Build 23 still tells a losing buyer "You confirmed receipt" after a seller-win (`transferState.ts:174-175`) and shows
+    "Received" on three surfaces. C's fix is on `v3/midnight-app` (`ca27d282`, `aee15697`, `404bce38`), all A PASS;
+    **none of it is in Build 23**, and no replacement build is authorised (G2).
   - F-LISTING-CRITICAL-TIER-1: the critical risk tier is enforced only by the client. Not a submission claim; an
     operational finding.
 

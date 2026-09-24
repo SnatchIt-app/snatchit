@@ -1520,3 +1520,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - For an operator's decision, the seller payout line follows the payout fields: the hold line, the existing manual-review sentence, or else "being processed".
   - **Optional wording change:** the new held-no-date fallback "…We will tell you when it is released." promises a notification. Delivery depends on a push token, so dropping the second sentence is recommended.
   - Not in Build 23 (`9c6c9bf4`), which still shows a seller-win as "Received" on three surfaces; no replacement build is authorised.
+- **C's wording fix at `404bce38` (parent `aee15697`, on `origin/v3/midnight-app`): A PASS, copy only.**
+  - Held-no-date fallback is now just "Payout on hold." The dated held line is unchanged.
+  - A verified C's reason for not saying "this screen updates": `app/transfer/send/[id].tsx` has no `useFocusEffect` or subscription. It refetches only on `RefreshControl`, and its two `setInterval`s only redraw countdowns.
+  - Diff touches 2 files: the send screen (+4/−1) and DR11 in `tests/v3-dispute-resolution-copy.test.ts`. There are no select/rpc/from changes, and `git diff --stat aee15697..404bce38` over the gated files is empty.
+  - DR11's predicate discriminates: A evaluated it on both sides. It FAILs on the parent (the promise matched, the new string was absent) and PASSes at `404bce38`. Both slice indices resolve.
+  - C's gates are C's report and were not re-run by A: 149 / 2704, tsc 0, lint 0 / 29.
+  - Not in Build 23.
