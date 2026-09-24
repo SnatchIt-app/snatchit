@@ -140,7 +140,17 @@ submission by passing another state, and it closes only through D5 / D6 or real 
 ## 8 · The exact remaining owner decisions — A's approval sheet governs
 
 **The one approval sheet is A's: `docs/release/SANDBOX_V3_FIXTURE_APPROVAL_SHEET_20260924.md` on
-`release/candidate-20260918` @ `20ef22b7` — full fixture ids, exact deadline extensions and held-state values,
+`release/candidate-20260918` @ **`7dae4815`** (revision 2) — full fixture ids, exact deadline extensions and held-state values,
+**Revision 2 (A, after the owner's corrections) changed five things, verified by C against the sheet at that
+commit:** cleanup runs as independent tracks with their own deadlines, and the bid, the seller notice and the
+transfer rows never wait for Stripe · L-CHK and its payment row change only after a **confirmed** cancellation ·
+both end-time restore outcomes are handled · if the owner is unavailable the intent stays open, and a row is
+never marked failed as a substitute for cancelling · the dispatch and executor state is rechecked immediately
+before the session and again before W1. It also corrects the Buy Now wording to the settled whole-listing rule.
+**Still NOT APPROVED**, and its §0 adds a gate this plan must respect: the first write comes no earlier than 15
+minutes before the first device step, and only after the authorised build is **FINISHED**, installed, signed in
+as the DV buyer, the owner says "go", and A's T0 capture matches.
+
 test dependencies, before-state capture, cleanup order and owner, the Stripe step for W2's intent, and the
 verified W1 trace (its §2 supersedes the paragraph in §3 above where they differ). It is NOT approved.** The
 table below is the summary only; the sheet is what the owner signs.
