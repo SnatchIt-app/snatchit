@@ -2,10 +2,9 @@
 
 **B + C · updated in place 2026-09-24 for the new artifact.** Supersedes the Build 23 version entirely.
 
-**Artifact under test:** the sandbox `preview` build from commit **`404bce38969780f1db057e96dec71609c6795ed4`**
-(`v3/midnight-app`). C is authorised to create this one build; **build id and number to be filled in on
-creation**. Build 23 / `9c6c9bf4` is **retired as a test artifact** — the defects it was kept to demonstrate
-are fixed in this commit.
+**Artifact under test: Build 24** — full identity in Stage 0. **Independently verified by B** against the EAS build record on 2026-09-24: id, build number, status FINISHED and commit `404bce38` all read back, not assumed.
+
+**This is the pin for the authorised phone session, and it does not change silently.** Any change to the build under test is announced in its own commit, with the reason, before the session uses it. Build 23 / `9c6c9bf4` is retired as a test artifact.
 
 **A's fixture sheet at `7dae4815` governs every fixture action and cleanup.** D1–D6 are **approved by the
 owner**, conditional on: the build installed, the owner's explicit session **"go"**, and **A's preflight**.
