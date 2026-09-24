@@ -54,7 +54,7 @@ Notation: **Order** = `transfers.status`; **Refund** = `payments.amount_refunded
   - **RULING, A → C 2026-09-24 20:56Z:** never "The buyer review window has passed" (`SELLER_WINDOW_PASSED`), and no branch on the device clock or on a countdown reading "Expired".
     - The device clock is not an authority.
     - The sentence is false even with a correct clock: `buyer_dispute_transfer` (0550, latest definer) accepts a report while `status = 'seller_sent'` regardless of `auto_release_at`. The window closes by a **status change** (`apply_auto_release` in the cron, or a buyer confirmation), not by the clock.
-  - Keep `SELLER_REPORT_WARNING` while `seller_sent`. The post-window state is the server's `auto_released`/`buyer_confirmed` status with its own copy. `payout_review_status='held'`: "Payout held until <payout_hold_until>"; `'manual_review'`: "Payout under review" (no date — none exists); `auto_released` without `payout_released_at`: "Review window passed" (existing send screen :458); with `payout_released_at`: "Payout released".
+  - Keep `SELLER_REPORT_WARNING` while `seller_sent`. The post-window state is the server's `auto_released`/`buyer_confirmed` status with its own copy. `payout_review_status='held'`: "Payout held until <payout_hold_until>"; `'manual_review'`: "Payout under review" (no date — none exists); `auto_released`: see §2g. This cell's earlier "Review window passed" is withdrawn, because `auto_released` does not establish that the window passed.
 - **Must not say:** a countdown after `disputed` (excluded from auto paths); "Payout released" from `auto_released` alone; a date for `manual_review`.
 
 ### 2f. Buyer: what happens to the payment after purchase (RULING, A, 2026-09-24 ~21:45Z)
@@ -71,8 +71,9 @@ Notation: **Order** = `transfers.status`; **Refund** = `payments.amount_refunded
   - "Held" / "on hold" reads as a card authorisation, but the card is charged at checkout.
 - **True, and usable:** a report freezes the seller's payout.
   - `buyer_dispute_transfer` (0550) accepts a report only while the order is `seller_sent`.
-  - Every release path either needs the row to still be `seller_sent` with no open dispute (144:813–819) or needs a
-    status the buyer's report prevents.
+  - Every release path either needs the row to still be `seller_sent` (operator: 0551's guard, also 144:813 where
+    applied; cron decision) or needs `buyer_confirmed`/`auto_released`, which the buyer's report prevents. A report
+    sets `disputed` (0550).
   - So an accepted report always comes before any release, and the payout stays frozen until the report is resolved.
 - **Compliant example** (C and B may adjust the voice, not the claims). Confirmation face: "Your order is confirmed. The
   seller sends the tickets next. If they don't arrive, report it from your order; a report freezes the seller's payout."
@@ -81,6 +82,34 @@ Notation: **Order** = `transfers.status`; **Refund** = `payments.amount_refunded
 - **Must not say:** that the payment waits for the ticket to arrive; "on hold"; a deadline stated as a guarantee. An
   operator can release before `auto_release_at`, so "you have until <date>" is not a promise the server keeps; "before
   <date>" as an instruction is fine.
+
+### 2g. Seller payout lines and the release cause (RULINGS, A, 2026-09-24 ~22:10Z)
+- **`auto_released` states no cause.**
+  - It is written by the cron's release decision at `auto_release_at`, **and** by an operator's release of any
+    unreleased `seller_sent` row (`admin_release_held_payout`, 0551; `payout_release` is platform_admin only,
+    115:519). The operator path works at any time, so it can run before `auto_release_at`.
+  - The row records neither which path ran nor that the window passed.
+  - What is true for both paths: the order was released without a confirmation or a report. Both need `seller_sent`
+    (0551's guard; the cron's decision), while a confirmation sets `buyer_confirmed` and a report sets `disputed` (0550).
+  - **Seller:** title "Payout released" only when `payout_released_at` is set, otherwise "Payout pending" (the owner's
+    16:51Z rule). Body: "This order was released without a confirmation or a report from the buyer." Then, when
+    released: "Your payout has been released."; otherwise guidance such as "Make sure your payout account is set up
+    in Settings."
+  - **Buyer:** "This order was released to the seller without a confirmation or a report from you." Add "The seller has
+    been paid." only when `payout_released_at` is set.
+  - **Must not say:** "the review window passed/closed" for `auto_released`.
+- **Seller, `pending` (buyer paid, not yet sent):** "The buyer has paid. Payout pending."
+  - **Withdrawn:** "Payment is held until they confirm (receipt)" (`transferState.ts:190`, `detailState.ts:228`). It
+    states one of four release paths as the rule, and "held" collides with `payout_review_status='held'`, which has
+    its own dated copy.
+  - C's proposal "…follows the buyer's confirmation or the release decision after the review window" also leaves
+    out operator release and a seller-win, so it is not adopted.
+- **`disputed`, open (rendered via `disputeOutcome.ts:66`).**
+  - The "on hold" wording is withdrawn now. Buyer: "The seller's payout is frozen until this is resolved." Seller: "Your
+    payout is frozen until the report is resolved." No "pending review", which asserts a process not evidenced
+    (checklist §4).
+  - "Our team typically reviews within 24 hours" is **G9 (P1)**, the owner's decision: keep it only if the owner
+    commits to it, otherwise remove it.
 
 ## 3. When evidence is missing — the truthful minimum
 

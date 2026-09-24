@@ -1908,3 +1908,22 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - True replacement: "a report freezes the seller's payout" (0550; 144:813–819; 0551).
     - Pre-existing, so not a d374bd3f blocker.
   - **Disputes:** the 5 stay unresolved; no action on them.
+- **C's db3dbe16 / ed344659 reviewed (A, ~22:15Z).**
+  - **§2f applied: CONFIRMED.**
+    - A re-ran the gated proof from `e079fcc1`: signOut +5 and listingSummary +9/−1 are the earlier sign-offs.
+    - holdState: the comment and `ESCROW_NOTE_COPY` changed; `showEscrowNote` and its callers are untouched. The new
+      text is verbatim §2f.
+    - The confirmation face (CheckoutView) and provenance.ts carry the same true claim.
+  - **ed344659:** `releaseCountdown` is gone from `src`/`app`. One stale comment remains at send/[id].tsx:465
+    ("window passed").
+  - **E's question answered.**
+    - A report is accepted only while `seller_sent` (0550:221–223).
+    - Payouts need `buyer_confirmed`/`auto_released` (enforce-transfer-expiry :1177/:1182; confirm-and-release :306,
+      and :297 refuses disputed). An operator release needs `seller_sent` and sets `auto_released` (0551).
+    - So no accepted report can follow a release, and "a report freezes the seller's payout" needs no bound.
+  - **New rulings, §2g.**
+    - Seller `pending`: "The buyer has paid. Payout pending." (withdraws "Payment is held until they confirm").
+    - `auto_released` states no cause. An operator can release any unreleased `seller_sent` row before
+      `auto_release_at` (0551; platform_admin, 115:519), so "review window passed/closed" is withdrawn on both sides.
+      A's own §2e cell said it and is corrected.
+    - Open-`disputed` copy: "on hold" becomes "frozen until … resolved". The "24 hours" promise is G9.
