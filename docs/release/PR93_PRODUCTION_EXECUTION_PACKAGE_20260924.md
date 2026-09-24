@@ -266,4 +266,34 @@ texts, sent to a local database.
 3. Stripe was not read. No payout attempt and no Stripe-calling path was invoked by any step.
 4. The 4 existing `payout_decisions` rows were counted, not inspected. The migration does not rewrite existing audit
    rows; any past row with a false `buyer_confirmed` stays as written.
-5. D's independent post-execution measurement (W2) is pending at the time of writing.
+5. ~~D's W2 pending~~ **D's W2 PASS at 20:32:18Z**, from D's own reads, below.
+
+**D's independent witness.** D registered its expectations blind at 20:29:36Z, and W0 passed at 20:30:14Z.
+**W2 PASS at 20:32:18Z**; no stop condition fired, and every blind expectation was met. D's own reads:
+- **Database:**
+  - ledger 162, max `20260924120000`; the 149 row with `created_by=claude-a/owner-authorised-149`, `stmts=1` and
+    `stmt_md5` `7e4d3b2d…`, which is D's anchor. So reviewed blob → applied text → recorded text is closed in A's
+    script and in D's read independently.
+  - 148's row and both its bodies are untouched.
+  - a3 `255e9022…`/`62f74728…` and a4 `0d692f32…`/`03ea4589…`, with bindings, secdef, search_path, service_role-only
+    ACLs and owner as expected.
+  - Census 32/108/37/38; grants md5 identical to D's W0 (D's own serialisation); switches unchanged; alert delivery off.
+- **Window invariants, counted rather than inferred from intent:** payout_attempts 0→0, payout_decisions 4→4,
+  dispute_resolutions 0→0, seller-win rows 0→0.
+- **Edge**, from D's GET and D's **own** download:
+  - Exactly one of the 14 functions changed: `confirm-and-release` v37→v38, `verify_jwt` True, ACTIVE, updated
+    20:31:20.378Z (= A's 1790281880378 ms). ezbr `f4b61150…`.
+  - D's download is 5/5 sha256-identical to the `037092f0` blobs, with no extra `_shared` file.
+  - D's control: the deployed `payouts.ts` differs from `5b255838`'s, so the comparison is non-vacuous.
+  - `enforce-transfer-expiry` is still v41; the other 12 are byte-stable.
+- **GitHub:** `main` `eadd456a` has not moved; the gate tip is `037092f0`.
+- **The probe** is witnessed from A's recorded output only. D did not call the endpoint, which is outside D's scope,
+  so the probe line carries A's evidence class.
+- **D's evidence boundary, quoted:**
+  - (1) nothing establishes that v38 has served a request beyond A's probe, which is attributed by timing;
+  - (2) a1–a4 and the hold refusal remain unexercised in production (zero seller-win rows, zero attempts). Their
+    evidence is 216's two-party red/green, CI 96/5543 and vitest. The first production exercise is E-5;
+  - (3) Stripe is unread, bounded by attempts 0→0 and claim-before-POST;
+  - (4) the 4 `payout_decisions` rows were counted, never inspected.
+- **Method note (D):** the replay-derived defn pins are now measured true against production for both functions at 148
+  and again at 149 (n=2).

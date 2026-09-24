@@ -1842,3 +1842,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Output sha256: 01_apply.sql `f1bb0489`, APPLY_01.txt `fe12a490`, 01_readback.json `379057cb`,
     01_post149.json `93754f7a`, 00/01_grants `9955f5d9`, DEPLOY.txt `55f4de8d`, PROBE.txt `b593dde7`,
     P1 `97efdb5b`, P3 `df14974c`.
+- **D's W2 PASS at 20:32:18Z** for the 149 + `confirm-and-release` execution. It came from D's own database read, D's
+  functions GET and D's own source download.
+  - Every blind expectation was met, including exactly one function changed, 5/5 against `037092f0`, and a
+    non-vacuous `payouts.ts` control.
+  - Window invariants held: attempts 0→0, decisions 4→4, dispute_resolutions 0→0.
+  - The execution is closed: A and D both PASS, no rollback.
