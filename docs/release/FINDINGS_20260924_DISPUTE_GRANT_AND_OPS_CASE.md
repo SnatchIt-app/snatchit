@@ -177,7 +177,8 @@ resolution fires both.
   | `enforce-transfer-expiry:825-846` (`logDecision`) and `:883-892` (`recordManualReviewOnce`) | hard-coded `false` | truthful |
   | `admin_release_held_payout`, `039:304`, redefined `0551:94` (the latest definer) | omitted, so the default `false` applies (`039:88`) | unreachable: `0551:88` returns false unless `status = 'seller_sent'` |
 
-  **The fix scope a1–a4 is complete.**
+  **The fix scope a1–a4 is complete.** **Fix drafted: SnatchIt-app/snatchit#93** (head `9fb450eb`, registry 149 and
+  pgTAP 216, plus the `confirm-and-release` edge change). Draft only; nothing is applied or deployed.
   - a3 and a4 already have `buyer_confirmed_at` in `v_t`.
   - a1 and a2 also need the column **added to §5's select** (`5b255838:233` does not select it). Swapping the literal
     alone is not enough (D).
