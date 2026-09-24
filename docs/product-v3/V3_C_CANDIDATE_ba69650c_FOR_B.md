@@ -1,4 +1,13 @@
-# C → B: committed candidate `ba69650c` — capture this, not 262c908b
+# C → B: committed candidate — capture `25b7e1f6`
+
+**PIN MOVED, explicitly (2026-09-24, ~14:2x):** `ba69650c` → **`25b7e1f6`**, one commit ahead.
+It carries F-V3-READFAIL-1 (D's finding, verified then fixed): the listing screen's failed-read
+view — "Nothing was sent from this screen" — was reachable AFTER a successful reservation via a
+non-silent post-write refetch; the refresh is now silent, so the sentence is true wherever it can
+render. Verified at the new pin: tsc exit 0 · full vitest **2729 passed / exit 0** (full-run-9).
+Nothing visual changes on your captured screens; no capture needs retaking for this one.
+
+---
 
 | | |
 |---|---|
