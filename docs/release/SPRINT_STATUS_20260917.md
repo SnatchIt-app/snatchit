@@ -1814,3 +1814,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The payout step comes from `payout_released_at` only. The confirm caption is true: the dialog comes first.
   - The gated diff, including `settledRead.ts`: `signOut.ts` +5 only.
   - Clean run `full-run-20`: 2784/2784, exit=0, dirty_files=0.
+- **Scope correction (A).** The gated-diff proof A and C used named five files. It missed
+  `src/lib/checkout/listingSummary.ts` +9/−1: `ticket_type` added to the checkout summary read in C's `dd410da4` /
+  `7d44f87d`, 2026-09-23.
+  - A's earlier "signOut.ts +5 only" statements held for the named files, not for the checkout directory.
+  - Reviewed now and APPROVED: a real column, display only, the same row.
+  - The proof command is now the whole `src/lib/checkout/` directory, plus `payments.ts` and `signOut.ts`.
+- **A approved C's send screen at `58c3c348`** for the gate: presentation only, with 0 payout or refund strings
+  changed.
+  - Truth ruling on the board's payout paragraphs, recorded for the deviation:
+    - the countdown → show the server deadline date instead;
+    - "releases once it clears review…" → not supportable (039 holds, manual review and onboarding still apply);
+    - "held for review if the buyer reports an issue" → supportable.
+  - Send's listing embed widened to the same 8 columns: approved.
+  - D's derived second leg accepted.
