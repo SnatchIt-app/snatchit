@@ -239,10 +239,16 @@ describe('the seller is told a payout moved only when the payout itself was reco
     expect(shown).not.toContain('Your payout is being processed');
     expect(shown).toContain('Payout pending.');
     vi.resetModules();
+    // RETARGETED again same day (A, owner 16:51Z verbatim): the rule "applies to genuine
+    // confirmations and to auto-released rows too" — no unreleased, unheld payout may read
+    // "being processed" from ANY path. The genuine confirmation keeps the Settings line as
+    // separate GUIDANCE beside the pending state, not as a progress claim.
     h.transfer = transfer({ status: 'buyer_confirmed', payout_released_at: null, buyer_confirmed_at: new Date().toISOString() });
     const confirmed = texts(await mount('send'));
     expect(confirmed).not.toContain(RELEASED);
-    expect(confirmed).toContain('Your payout is being processed');
+    expect(confirmed).not.toContain('Your payout is being processed');
+    expect(confirmed).toContain('Payout pending.');
+    expect(confirmed).toContain('Make sure your payout account is set up in Settings.');
   });
 
   it('B1 (witness): the buyer, auto_released WITH payout_released_at — the existing money sentence stands', async () => {

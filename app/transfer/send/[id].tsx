@@ -465,8 +465,13 @@ export default function TransferSendScreen() {
           const copy = transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer });
           // A genuine confirmation overrides holds and pays immediately, so its wording is
           // unchanged. An operator decision does not: the payout waits for the hold to pass or for
-          // an operator to act, and "being processed" would overstate that. So for !byBuyer the line
-          // is whatever the payout fields actually state (A's review of ca27d282, follow-on 3).
+          // an operator to act, and "being processed" would overstate that. And per the owner's
+          // 16:51Z refinement (relayed verbatim by A, 2026-09-24), the same is true of a GENUINE
+          // confirmation: the only per-transfer evidence of a payout in flight is payout_attempts
+          // (service_role-only), and confirm-and-release's 'processing' reply is unstored — so no
+          // path may claim motion. Released comes from payout_released_at, holds from the review
+          // fields, and otherwise BOTH paths state the pending fact; the Settings line survives
+          // on the confirmed path as guidance, a separate sentence, never a progress claim.
           const heldLine = sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until);
           const payoutLine = transfer.payout_released_at
             ? 'Your payout has been released.'
@@ -478,7 +483,7 @@ export default function TransferSendScreen() {
               : !byBuyer && transfer.payout_review_status === 'manual_review'
                 ? 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.'
                 : byBuyer
-                  ? 'Your payout is being processed, make sure your payout account is set up in Settings.'
+                  ? 'Payout pending. Make sure your payout account is set up in Settings.'
                   : 'Payout pending.';
           return (
             <StateBlock title={copy.title} tone={byBuyer ? 'success' : 'neutral'}>

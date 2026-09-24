@@ -194,17 +194,19 @@ describe('(d) the read itself — both screens, exactly two new columns, and the
     expect(derivation).not.toMatch(/held|review/i);
   });
 
-  it("R4: the UNPAID operator seller-win (buyer_confirmed branch) says 'Payout pending.' — never 'being processed'", () => {
-    // A's adjacent question, answered and fixed: the branch's final else used to serve BOTH the
-    // genuine confirmation (whose wording a prior ruling keeps) and the operator decision with no
-    // payout facts — telling a seller 'being processed' when nothing is processing. The owner's
-    // rule: released from payout_released_at, held/manual review from the review fields,
-    // otherwise a pending state, never 'being processed'.
+  it("R4: NO unreleased, unheld payout ever reads 'being processed' — genuine confirmation included", () => {
+    // RETARGETED (A, 2026-09-24, owner 16:51Z verbatim): "This applies to genuine confirmations
+    // and to auto-released rows too." The only per-transfer evidence of a payout in flight is
+    // payout_attempts, which is service_role-only; confirm-and-release's 'processing' reply is
+    // unstored and also returned on a claim db_error. So BOTH paths render the pending state;
+    // the genuine confirmation may keep the Settings nudge as GUIDANCE, a separate sentence,
+    // never as a progress claim.
     const src = strip('app/transfer/send/[id].tsx');
     const idx = src.indexOf("'buyer_confirmed'");
-    const block = src.slice(idx, idx + 3000);
-    expect(block).toMatch(/byBuyer\s*\n?\s*\? 'Your payout is being processed/);
+    const block = src.slice(idx, idx + 3200);
+    expect(block).not.toMatch(/being processed/);
     expect(block).toContain("'Payout pending.'");
+    expect(block).toMatch(/Make sure your payout account is set up in Settings\./);
   });
 
   it('R2: the buyer screen runs the settled read for a decided buyer-win or partial dispute', () => {
