@@ -90,13 +90,17 @@ export interface EventMediaProps {
  * in an empty block. The monogram is drawn as text in the display face rather than the PNG
  * asset: the plate must not look like artwork, and the ink follows the palette.
  */
-function FallbackPlate({ height }: { title?: string; height: number }) {
+function FallbackPlate({ height, overlaid }: { title?: string; height: number; overlaid?: boolean }) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
-    <View style={[styles.fallback, { height }]}>
+    <View style={[styles.fallback, overlaid && styles.fallbackOverlaid, { height }]}>
       <Text
-        style={[styles.fallbackInitial, { fontFamily: fontFamily('display') }]}
+        style={[
+          styles.fallbackInitial,
+          overlaid && styles.fallbackInitialOverlaid,
+          { fontFamily: fontFamily('display') },
+        ]}
         // The plate is decoration; the accessible name comes from the wrapper.
         accessibilityElementsHidden
         importantForAccessibility="no"
@@ -183,6 +187,12 @@ function EventMediaImpl({
         accessibilityLabel: title ? `Artwork for ${title}` : 'Event artwork',
       };
 
+  // Content layered over the media draws in the over-artwork inks, which are white in BOTH
+  // appearances (palette.ts). So every surface that can end up BEHIND those inks — the frame while
+  // the image loads, and the fallback plate when there is no image — takes the invariant plate
+  // instead of the appearance-following one. B measured the Light consequence at 911f65fd §3.
+  const overlaid = !!children;
+
   const frame: ViewStyle = {
     // Fluid frames keep a percentage width so they reflow on rotation; the
     // measured width still drives the pixel request above.
@@ -190,7 +200,7 @@ function EventMediaImpl({
     height: boxHeight,
     borderRadius: spec.radius,
     overflow: 'hidden',
-    backgroundColor: palette.surface.surface,
+    backgroundColor: overlaid ? palette.onArt.plate : palette.surface.surface,
   };
 
   // A load failure takes the same branch as "no renderable image": same frame,
@@ -200,7 +210,7 @@ function EventMediaImpl({
   if (resolved.kind === 'fallback' || failed) {
     return (
       <View style={[frame, styles.edge, style]} onLayout={fluid ? onLayout : undefined} {...a11y}>
-        <FallbackPlate title={title} height={boxHeight} />
+        <FallbackPlate title={title} height={boxHeight} overlaid={overlaid} />
         {children ? (
           <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
             {children}
@@ -304,6 +314,13 @@ function makeStyles(p: Palette) {
     justifyContent: 'center',
     backgroundColor: p.surface.surface,
   },
+  /**
+   * The plate WITH content layered over it (B's review at 911f65fd §3). Whatever a caller layers on
+   * the media draws in the over-artwork vocabulary, which is white in both appearances by contract;
+   * so the plate under it cannot follow the appearance, or Light paints white on near-white. One
+   * value, both schemes — the same reason `onArt` itself has one value.
+   */
+  fallbackOverlaid: { backgroundColor: p.onArt.plate },
   scrimBase: {
     position: 'absolute',
     left: 0,
@@ -316,6 +333,8 @@ function makeStyles(p: Palette) {
     // palette's muted ink clears 3:1 (large text) on the plate in each appearance.
     color: p.text.muted,
   },
+  /** On the invariant plate the monogram joins the inks that sit on artwork. */
+  fallbackInitialOverlaid: { color: p.onArt.muted },
   /*
    * A real gradient band, not a flat wash over the whole image.
    *

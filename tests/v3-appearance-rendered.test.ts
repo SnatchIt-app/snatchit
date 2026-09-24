@@ -170,6 +170,62 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
     }
   });
 
+  it("RD3b (B's review at 911f65fd §3): when content is layered OVER the media, the fallback plate is dark in BOTH appearances — the over-artwork inks are white in both", async () => {
+    // B measured this on the app: Light, feature slot, no artwork. The name rendered
+    // rgb(255,255,255) — `onArt.primary`, correctly, because it sits over the media — on
+    // rgb(244,244,246), the plate's Light fill. 1.10:1. The name, date, quantity, clock and price
+    // were all invisible. The contract that breaks is stated in palette.ts: "onArt is deliberately
+    // identical in both appearances: text over artwork sits on the image AND ITS SCRIM, never on the
+    // canvas." A fallback plate that follows the appearance is a canvas, so the premise fails.
+    //
+    // The component already knows the case: `children` is documented as "content layered over the
+    // artwork". So an OVERLAID fallback takes the appearance-invariant plate, and a bare one (row
+    // thumbnails, which carry no text — B: "fine as they are") keeps the palette surface.
+    for (const [scheme, p] of palettes) {
+      th.scheme = scheme as 'light' | 'dark';
+      vi.resetModules();
+      const mod = await import('@/src/components/media/EventMedia');
+      const Media = ((mod.EventMedia as { type?: unknown }).type ?? mod.EventMedia) as (props: unknown) => unknown;
+      const h = new HookHost(() => Media({
+        asset: { path: null }, slot: 'HOME_FEATURE_V3', width: 390, title: 'Neon Choir',
+        children: 'Neon Choir',
+      }), new Map());
+      h.mount(); h.flush();
+      const plateEl = findElement(h.output, (el) => typeof el.type === 'function' && (el.type as { name?: string }).name === 'FallbackPlate');
+      expect(plateEl, `${scheme} plate element`).toBeDefined();
+      const h2 = new HookHost(() => (plateEl!.type as (props: unknown) => unknown)(plateEl!.props), new Map());
+      h2.mount(); h2.flush();
+      const plate = findElement(h2.output, (el) => el.type === 'View' && JSON.stringify(el.props.style ?? '').includes('"flex":1'));
+      const fill = styleValue(plate, 'backgroundColor');
+      expect(fill, `${scheme} overlaid plate fill`).toBeDefined();
+      // Every over-artwork ink the feature uses must be readable on it, in BOTH appearances.
+      for (const ink of [p.onArt.primary, p.onArt.secondary, p.onArt.urgent] as const) {
+        expect(contrast(ink, over(fill!, p.surface.canvas)), `${scheme}: ${ink} on the overlaid plate`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Appearance-invariant, like the inks that sit on it: one value, both schemes.
+      expect(fill, `${scheme} overlaid plate is invariant`).toBe(dark.onArt.plate);
+      // The monogram behind the content is decoration, but it must not vanish either.
+      const initial = findElement(h2.output, (el) => el.type === 'Text' && el.props.children === 'SN');
+      expect(contrast(styleValue(initial, 'color')!, over(fill!, p.surface.canvas)), `${scheme} monogram`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('RD3c: a plate with NOTHING over it still follows the appearance — the row thumbnails are unchanged', async () => {
+    for (const [scheme, p] of palettes) {
+      th.scheme = scheme as 'light' | 'dark';
+      vi.resetModules();
+      const mod = await import('@/src/components/media/EventMedia');
+      const Media = ((mod.EventMedia as { type?: unknown }).type ?? mod.EventMedia) as (props: unknown) => unknown;
+      const h = new HookHost(() => Media({ asset: { path: null }, slot: 'FEED_ROW_ART', width: 62, title: 'Neon Choir' }), new Map());
+      h.mount(); h.flush();
+      const plateEl = findElement(h.output, (el) => typeof el.type === 'function' && (el.type as { name?: string }).name === 'FallbackPlate');
+      const h2 = new HookHost(() => (plateEl!.type as (props: unknown) => unknown)(plateEl!.props), new Map());
+      h2.mount(); h2.flush();
+      const plate = findElement(h2.output, (el) => el.type === 'View' && JSON.stringify(el.props.style ?? '').includes('"flex":1'));
+      expect(styleValue(plate, 'backgroundColor'), `${scheme} bare plate`).toBe(p.surface.surface);
+    }
+  });
+
   it('RD4: the only white literals left in EventMedia are the scrim gradients over artwork (which do not invert)', async () => {
     const src = await stripped('src/components/media/EventMedia.tsx');
     expect(src).not.toMatch(/rgba\(255,255,255/);

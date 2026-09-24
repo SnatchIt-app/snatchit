@@ -27,6 +27,17 @@ export const ON_ART = {
   muted: 'rgba(255,255,255,0.62)',
   /** The plate BEHIND a contained image: fixed and dark, so a screenshot is not framed in near-white. */
   letterbox: '#0A0A0A',
+  /**
+   * The MISSING-ARTWORK plate, when something is layered over it. B's foundations value
+   * (`surface.plate` #141519), kept here rather than in `surface` because it must NOT follow the
+   * appearance: the inks above belong to this group and are white in both.
+   *
+   * Why it is its own token (B's review at 911f65fd §3): the fallback used the appearance-following
+   * `surface.surface`, so in Light a feature with no photograph painted `onArt.primary` white on
+   * #F4F4F6 — 1.10:1, and the name, date, quantity, clock and price were all invisible. Every board
+   * shows a photograph there, so no comparison could have caught it.
+   */
+  plate: '#141519',
   /** Urgency over artwork (a closing clock on a flyer): the Midnight amber, kept in both. */
   urgent: '#FFB020',
 } as const;
