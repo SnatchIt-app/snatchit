@@ -1797,3 +1797,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The gated diff is still `signOut.ts` +5.
   - Pending: the tickets/orders agent's uncommitted edits to `receive/[id].tsx` come to A if they touch the select,
     the dispute or refund lines, or payout wording.
+- **A's rulings on the tickets/orders agent's frozen `receive/[id].tsx` edits** (uncommitted, C's worktree):
+  - **(1) Listing embed widening: approved minus `cover_image_url`, which does not exist on `listings`.** It is in no
+    migration, so production lacks it too. Selecting it would make PostgREST reject the whole transfer read, and every
+    buyer's order screen would fail. It must be dropped and pinned by a schema-level column test.
+  - **(2) Settled-payments read on every loaded order: approved.** "You paid <total>" only from exactly one settled
+    row (total = amount + buyer_fee, the card charge). Zero rows, several rows or an error → no amount. Never the
+    listing price. `readSettledPayments`' select stays unchanged.
+  - **(3) Tickets/fee breakdown:** not needed now. If the owner wants it, `payments.amount` and `buyer_fee` exist,
+    via a separately reviewed select.
