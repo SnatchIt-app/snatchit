@@ -1722,3 +1722,13 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - `money.ts`, `bidEntry.ts` and `detailState.ts` are display-only V3 formatting over the canonical cent helpers.
     Nothing submitted or charged changes.
   - `authStateHandler` clears the dock avatar on every SIGNED_OUT, which protects privacy. No objection.
+- **A's gated sign-off: `src/lib/auth/signOut.ts` +5** (C's `5668bdab`, `v3/midnight-app` at `262c908b`).
+  - **Approved, with one test condition.** The change is an additive optional `clearDockAvatar`, called only after
+    success, inside a try/catch that never blocks. Ordering and failure paths are unchanged. The avatar store has no
+    dependencies, and its owner guard makes a missed clear harmless. D's review was also no-objection.
+  - **The condition:** the only ordering test is a source-text `indexOf` check. C must add a behavioural test
+    through `revokeThenSignOut(deps)`:
+    - a failed sign-out does not clear;
+    - a successful one clears once;
+    - a throwing clear still returns signed out;
+    - with a negative control.
