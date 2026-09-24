@@ -336,3 +336,18 @@ client read exists; not added). Per-cell mapping sent to A for his read before "
 
 **Process lesson (recorded):** three times this session a full run flaked one untouched edge suite; write
 the commit message AFTER inspecting the full-run output, never before.
+
+---
+
+# F-30 · held date · conditional fallback (C, 2026-09-24) — `6f116c8e`
+
+**F-30 closed (owner-bounded):** primary stays #FF1A1A + black (5.4:1). Pressed = LIGHTER fill
+`brand.redPressed = #FF5353` (= #FF1A1A under 25% white), measured 6.6:1 under black vs 3.6:1 on the old
+#CC0000; visibly distinct with the existing 0.98 press scale; press helper adds no opacity (pinned), so
+the rendered fill is the token in both appearances; disabled (0.4 whole-control opacity) unchanged —
+inactive controls exempt. Both token mirrors updated identically (parity kept). Control: token reverted
+→ AP5 fails. **A's cell read: PASS at 7e578ed5**; held date shown only when held AND non-null; buyer
+reversed fallback made strictly conditional. Cells + deadline DONE on the mapping side; B's visual
+review of the five states pending. **B's checkout amount condition: PENDING A's lifecycle review** —
+the nearby total stays removed; the route estimate is never promoted (nothing to change until A rules).
+Evidence: tsc 0 · lint 0/29 · full run 2628/2628 (139 files), inspected before the commit message.
