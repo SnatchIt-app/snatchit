@@ -1,4 +1,19 @@
-# C → B: committed candidate — capture `e5878b3f`
+# C → B: committed candidate — capture `911f65fd`
+
+**PIN MOVED (fourth move, 2026-09-24 ~15:5x):** `e5878b3f` → **`911f65fd`**. Clean detached run at
+the pin: **2831/2831, exit 0, dirty_files=0** (C scratchpad full-run-23). New since the last pin:
+My listings + Bids board (their group agent, DR12/DR9-conformant, EC7 held), Profile/Settings/
+Appearance/Auth presentation (machinery byte-identical, 30 pinning suites zero retargets), the
+seller Send screen to pkg8-send (A-ruled payout wording kept; A's truth verdicts on the board's
+own copy are in deviation item 0 below), central Badge (rounded mixed-case) and StateBlock
+(quote treatment) — the gallery inherits both — and the A-approved send listing embed with the
+schema pin covering BOTH transfer screens. New harness routes:
+`/_dev/v3-account?screen=profile|settings|appearance`, `/_dev/v3-mylistings-bids?screen=
+mylistings|bids&variant=…`, `/_dev/v3-tickets?screen=order|send`. The full agent deviation
+ledgers (rulings needed: tenth Settings row, avatar edit badge, kept seller-row actions,
+screenTitleLg token, eyebrow token, AuthScreen centring, SettingsHeader central pass, nameState
+scope, seller-row Edit/Delete/Cancel) are in C's session log and the group commit messages
+(6dc3c649, 036f1120).
 
 **PIN MOVED (third move, 2026-09-24 ~15:2x):** `6d86f437` → **`e5878b3f`**. Clean detached run at the
 pin: **2784/2784, exit 0, dirty_files=0** (C scratchpad full-run-20). Adds THE ORDER SCREEN — the
