@@ -27,6 +27,7 @@ vi.mock('react-native', () => {
   }
   return {
     AccessibilityInfo: { isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove: () => {} }) },
+    AppState: { addEventListener: () => ({ remove: () => {} }) },
     Animated: { View: 'Animated.View', Value, timing: () => ({ start: (cb?: () => void) => cb?.() }) },
     Keyboard: { addListener: () => ({ remove: () => {} }) },
     Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios },

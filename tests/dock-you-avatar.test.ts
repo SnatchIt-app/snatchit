@@ -31,6 +31,7 @@ vi.mock('react-native', () => {
       isReduceMotionEnabled: async () => true,
       addEventListener: () => ({ remove: () => {} }),
     },
+    AppState: { addEventListener: () => ({ remove: () => {} }) },
     Animated: { View: 'Animated.View', Value, timing: () => ({ start: (cb?: () => void) => cb?.() }) },
     Keyboard: { addListener: () => ({ remove: () => {} }) },
     Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios },
@@ -122,12 +123,15 @@ describe('labels and accessibility (O-5; acceptance 12)', () => {
 });
 
 describe('the four image states — one 28pt circle, no reflow (acceptance 7–9)', () => {
-  it('Y2: with a photo for the CURRENT user, the circle renders it, cover-cropped at 28pt from a 28pt request', async () => {
+  it('Y2: with a photo for the CURRENT user, the circle renders it, cover-cropped at 28pt from a 42pt request', async () => {
+    // 42 = ceil(AVATAR * 1.5): the derivative matches the PAINTED pixels (84 device px on a 3x
+    // phone with the resolver's dpr-2 clamp), instead of a 56px file upscaled 1.5x (avatar
+    // diagnosis, 2026-09-24). Still never the full-size original.
     setDockAvatar('user-1', 'user-1/a.jpg');
     const host = await mountDock(0);
     const img = avatarImage(host);
     expect(img).toBeDefined();
-    expect((img?.props.source as { uri: string }).uri).toBe('mock://avatars/user-1/a.jpg?w=28');
+    expect((img?.props.source as { uri: string }).uri).toBe('mock://avatars/user-1/a.jpg?w=42');
     expect(img?.props.contentFit).toBe('cover');
     expect(personIcon(host)).toBeUndefined();
   });
@@ -151,11 +155,20 @@ describe('the four image states — one 28pt circle, no reflow (acceptance 7–9
     expect(personIcon(host)).toBeDefined();
   });
 
-  it('Y5: a failed image falls back to the person icon — never a broken-image glyph', async () => {
+  it('Y5: a failed DERIVATIVE retries the untransformed original; only a second failure shows the person icon', async () => {
+    // The dock is the only avatar surface on the transform endpoint, and the Profile screen
+    // proves the plain object URL works. So one failure must not cost the photo — it falls back
+    // to exactly the URL Profile renders, and only that URL failing too yields the icon.
     setDockAvatar('user-1', 'user-1/broken.jpg');
     const host = await mountDock(0);
-    const img = avatarImage(host);
+    let img = avatarImage(host);
     expect(img).toBeDefined();
+    expect((img?.props.source as { uri: string }).uri).toBe('mock://avatars/user-1/broken.jpg?w=42');
+    (img?.props.onError as () => void)();
+    host.flush();
+    img = avatarImage(host);
+    expect(img).toBeDefined();
+    expect((img?.props.source as { uri: string }).uri).toBe('mock://avatars/user-1/broken.jpg?w=undefined');
     (img?.props.onError as () => void)();
     host.flush();
     expect(avatarImage(host)).toBeUndefined();
@@ -202,6 +215,7 @@ describe('the dock never fetches (source pin)', () => {
     expect(src).not.toMatch(/supabase|rpc\(|fetch\(|setDockAvatar/);
     expect(src).toContain('subscribeDockAvatar');
     expect(src).toContain('dockAvatarPathFor');
-    expect(src).toContain('width: AVATAR');   // the 28pt request, never full size
+    expect(src).toContain('width: Math.ceil(AVATAR * 1.5)');   // the painted-size request, never full size
+    expect(src).toContain('const youOriginal');                 // the proven fallback URL exists
   });
 });

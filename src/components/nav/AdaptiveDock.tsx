@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Keyboard, Platform, PixelRatio, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AccessibilityInfo, Animated, AppState, Keyboard, Platform, PixelRatio, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
@@ -140,11 +140,32 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
   const { user } = useAuth();
   const [, setAvatarTick] = useState(0);
   useEffect(() => subscribeDockAvatar(() => setAvatarTick((t) => t + 1)), []);
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  // A failed avatar URL is retried when the app comes back to the foreground: without this, one
+  // offline moment at launch left the person icon in place for the whole session while the
+  // Profile screen (which refetches on focus) showed the photo — the photographed divergence.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setFailedUrls([]);
+    });
+    return () => sub.remove();
+  }, []);
+  // Every URL that has failed this foreground period — a SET, not a single latch: with one
+  // latched URL, the second failure un-latches the first and the two URLs alternate forever.
+  const [failedUrls, setFailedUrls] = useState<readonly string[]>([]);
   const youPath = dockAvatarPathFor(user?.id);
-  // The 28pt request (§4): never the full-size original for a 28pt circle.
-  const youUrl = youPath ? getAvatarUrl(youPath, { width: AVATAR, devicePixelRatio: PixelRatio.get() }) : null;
-  const youPhoto = youUrl != null && youUrl !== failedUrl ? youUrl : null;
+  // §4 still holds — never the full-size original for a 28pt circle — but the derivative is now
+  // requested at the size it is PAINTED: 28pt in an 84-device-pixel circle on a 3× phone, while
+  // `getAvatarUrl` clamps dpr to 2, so a 28pt request produced a 56px file upscaled 1.5× at
+  // quality 45. That soft, over-compressed disc beside the Profile screen's untouched original
+  // is one of the three confirmed/possible causes behind the owner's photograph (2026-09-24).
+  const youUrl = youPath ? getAvatarUrl(youPath, { width: Math.ceil(AVATAR * 1.5), devicePixelRatio: PixelRatio.get() }) : null;
+  // The dock is the ONLY avatar surface on the storage TRANSFORM endpoint; every other surface
+  // reads the plain object URL, which the Profile screen proves works. So when the derivative
+  // fails — the transform 400s, a HEIC source, a transient — the dock falls back to exactly the
+  // URL the Profile screen renders, and only shows the person icon when THAT fails too. The
+  // failure latch is per-URL, so a new upload (timestamped path) always retries fresh.
+  const youOriginal = youPath ? getAvatarUrl(youPath) : null;
+  const youPhoto = [youUrl, youOriginal].find((u) => u != null && !failedUrls.includes(u)) ?? null;
 
   return (
     <Animated.View
@@ -183,7 +204,7 @@ export function AdaptiveDock({ state, navigation }: BottomTabBarProps) {
                           source={{ uri: youPhoto }}
                           style={styles.avatarImage}
                           contentFit="cover"
-                          onError={() => setFailedUrl(youPhoto)}
+                          onError={() => setFailedUrls((prev) => (youPhoto && !prev.includes(youPhoto) ? [...prev, youPhoto] : prev))}
                         />
                         {/* Unselected: blended only 12% toward the dock fill — recognisable, never a smudge. */}
                         {!isFocused ? <View testID="dock-you-dim" style={styles.avatarDim} pointerEvents="none" /> : null}

@@ -23,6 +23,7 @@
  */
 
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { clearDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 export interface AuthStateDeps {
   setSession(session: Session | null): void;
@@ -40,6 +41,12 @@ export interface AuthStateDeps {
 
 export function handleAuthStateChange(event: AuthChangeEvent, session: Session | null, deps: AuthStateDeps): void {
   deps.setSession(session);
+  // EVERY sign-out drops the dock's published avatar, including the SIGNED_OUT events auth-js
+  // originates itself (a failed background refresh), which never pass through performSignOut's
+  // own clear. The store's render guard already refuses a mismatched user id, so this closes a
+  // retention residue, not a rendering hole (avatar diagnosis, 2026-09-24). `dockAvatar` is
+  // dependency-free by design, so this import adds nothing behind the auth path.
+  if (event === 'SIGNED_OUT' && session === null) clearDockAvatar();
   if (event === 'SIGNED_OUT' && session === null) deps.markExpired();
   if (event === 'SIGNED_OUT' && session === null && !deps.staleHandled.current && !deps.warnEmitted()) {
     // Never awaited here: see the header. Runs after the auth lock is released.
