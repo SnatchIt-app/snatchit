@@ -1706,3 +1706,19 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The optional `dispute_open` read was declined: its true branch is unreachable after §5's 409.
   - D's independent red/green of 216 has been requested (a two-party check).
 - **#93 CI at `9e7006bf` (run 36037548673): green, 9/9 checks.** pgTAP Files=96 / Tests=5543 PASS; census 32/108/37/38.
+- **D's independent red/green of 216: identical to A's, test by test (a two-party computation).**
+  - D registered its prediction before running.
+  - RED (chain `e73553d2` + 216 from `9e7006bf`): 21/26, failing 6,10,13,17,18.
+  - GREEN (`9e7006bf`): 26/26. Replay 165/165; census 32/108/37/38 on both databases.
+  - D checked the body hashes in each database, so the difference is the one expression and not the harness.
+  - D verified that `9fb450eb..9e7006bf` changes comments only. D's databases were dropped afterwards.
+  - Limit: D ran only `000_helpers` and 216. The mutants, rollback cycle and vitest remain A's evidence.
+- **A reviewed C's V3 batch** (`v3/midnight-app`, uncommitted, in `snatchit-refund`), by reading only:
+  - Gated files: only `signOut.ts` +5, as C stated.
+  - The `_dev` auth-gate exemption requires `__DEV__` or `IS_SANDBOX_BUILD`. That is false for a production pairing,
+    because the env guard requires a sandbox environment, a sandbox host and paired keys. The `_dev` segment layout
+    redirects home on its own.
+  - The harness screens make no direct server or payment calls.
+  - `money.ts`, `bidEntry.ts` and `detailState.ts` are display-only V3 formatting over the canonical cent helpers.
+    Nothing submitted or charged changes.
+  - `authStateHandler` clears the dock avatar on every SIGNED_OUT, which protects privacy. No objection.
