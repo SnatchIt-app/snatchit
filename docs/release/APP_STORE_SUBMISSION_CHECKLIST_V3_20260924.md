@@ -185,6 +185,9 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
   and who does it.
 - **P6 — seller-win disputes.** Until F-DISPUTE-SELLERWIN-1 is fixed, such a payout needs a manual Stripe transfer
   outside the app. Decide who does it, or hold seller-win resolutions until the fix ships.
+- **P7 — what a seller is told after a seller-win resolution.** Today the seller is told "Buyer confirmed receipt",
+  which is false, on the same transition that leaves the payout unpaid. This is a product-copy ruling (C's lane), separate from
+  the payout fix.
 
 ## 6. Readiness verdict
 

@@ -72,5 +72,16 @@ The three "present but inert" features (native dispute wiring; b2 push challenge
 3. **Optional, console:** let `payout_release` accept status `'buyer_confirmed'` with `resolved_seller_paid`, as a
    manual path.
 
-**Owner decisions:** whether to implement 1 (and 2, 3); interim handling of any seller-win resolution before the fix
-ships (checklist P6).
+**The compound, D's point, verified at source by both A and D (058:189-191, 065:129).** One transition does both
+things at once: the seller is told the *buyer* confirmed receipt, and the transfer lands in the one state nothing
+pays. The false reassurance gives the seller a specific reason not to chase the missing payout, which makes this the
+combination most likely to go unreported. Both defects are at 0 instances for the same reason; the first seller-win
+resolution fires both.
+
+**Two separate owner decisions, not one:**
+- **(a) Payout selection**, fix 1 (with the optional 3). A payouts stop-and-ask decision, plus interim handling
+  (checklist P6).
+- **(b) Truthful notification**, fix 2. A product-copy ruling that touches C's lane: either the trigger distinguishes
+  an operator-resolved transition from a genuine buyer confirmation, or the resolution uses a status that does not mean
+  "the buyer confirmed". Established only server-side at 058:191; whether any client code also hardcodes the string was
+  not checked.
