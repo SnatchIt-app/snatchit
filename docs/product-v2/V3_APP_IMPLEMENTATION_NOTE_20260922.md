@@ -319,3 +319,20 @@ dock, sheets, dialogs, keyboard appearance) still carries static dark tokens —
 screen by screen. Simulator/device evidence: none (blocker stands); all three settings, persistence,
 live system change, contrast on device, large text, keyboard appearance and photo fallbacks are device
 checks (add D-9: appearance).
+
+---
+
+# Order/transfer cells (C, 2026-09-24) — `7e578ed5`
+
+Built against A's table (fbbe0440). Buyer expired / reversed blocks; seller reversed block (before any
+payout claim) + "No payout for this order." on expired; refund line from the buyer's own payments row via
+readSettledPayments (full only with amount = total; partial; "Refund recorded"; else policy/pending line);
+buyer review deadline from auto_release_at (omitted when absent); seller "Release decision at <t>."
+Badges by role ("Closed" for the buyer, "Payout reversed" for the seller). Evidence: 24 RED→green;
+controls 5/5; tsc 0; lint 0/29; full run flaked ONE untouched edge suite (credential-sign; passes alone) —
+disclosed in the commit, not claimed green. Follow-ups: the seller "held" line lacks payout_hold_until
+(client-only select widening, A to confirm the date may be shown); dispute-record outcome not read (no
+client read exists; not added). Per-cell mapping sent to A for his read before "done".
+
+**Process lesson (recorded):** three times this session a full run flaked one untouched edge suite; write
+the commit message AFTER inspecting the full-run output, never before.
