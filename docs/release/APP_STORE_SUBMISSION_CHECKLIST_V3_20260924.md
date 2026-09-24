@@ -197,6 +197,7 @@ not paid yet, not that payouts never happened. Unknown: whether a legacy lost-re
 - inventory planning;
 - the claims rewrite approved;
 - the phone-session evidence for the expired and held cells;
+- appearance evidence measured by **screen**, not by token count. C found three transfer-flow components (DeliveryInfoForm, PlatformInstructions, ProofImageViewer) still on the pre-v2 `colors` module, which a token-based inventory missed; they are migrated at `9c6c9bf4`, and a test now forbids that import [C's report];
 - the residual live-transaction gap (§3) decided.
 
 The draft review notes and metadata are in `APP_STORE_REVIEW_NOTES_V3_DRAFT_20260924.md`.

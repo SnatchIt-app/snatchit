@@ -1467,3 +1467,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - standing set unmoved: markers 568, latest 2026-09-23 22:46:04.98Z; listing sold; transfers with a Stripe id 23; payout_attempts 0; payment_refunds 0; alerts 15 firing / 2 recovered, 0 delivered / acknowledged / notify_request_id; cases open 19; switches unchanged; cron 24; 0 referencing dispatch_alerts.
 
   No setting was changed, and nothing was deployed or merged to main. D's independent post-merge verification is pending.
+- **Gate CI after the #91 merge: GREEN.** Run 35960357963 (push, `release/production-gate-20260918`, head `aadf996e`), completed 05:34:32Z, conclusion success. All 5 jobs passed: Web build; Migrations apply cleanly (fresh DB); Typecheck / Lint / Unit tests; Admin console; Deno type-check.
