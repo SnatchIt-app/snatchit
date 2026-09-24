@@ -1790,3 +1790,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Clean run `full-run-14`: 2750/2750, exit=0, commit=`b220ec20`, dirty_files=0.
   - The sign-off covers the gate only; the visual review and the build remain separate.
   - Next to A: `sellState.ts` priceSummary display (seller-money wording).
+- **A approved C's `sellState.ts` priceSummary change at `c19c91eb`** (display-only seller-money wording).
+  - The buyer total uses the same cents path.
+  - Seller net goes through `sellerNetDollars`, then `formatDollarsV3`. Over every whole-dollar base from $1 to
+    $100,000 the round trip gives the same cents as `sellerNetCents` (helpers modelled from source).
+  - The gated diff is still `signOut.ts` +5.
+  - Pending: the tickets/orders agent's uncommitted edits to `receive/[id].tsx` come to A if they touch the select,
+    the dispute or refund lines, or payout wording.
