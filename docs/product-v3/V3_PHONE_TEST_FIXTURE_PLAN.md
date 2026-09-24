@@ -16,13 +16,21 @@ No production project is touched; no store submission; no second build.
 
 ## 0 · Implementation coverage this plan is measured against
 
-`v3/midnight-app` @ **`212783f2`** (A-1 hairlines and the gallery land in the next commit). By **actual static
-colour access** (comments stripped; `v2.space` / `v2.radius` / type need no conversion): **54 files, 546
-references** still read Midnight-only colour tokens; 14 files read the palette only; 1 is partial
-(`app/_layout.tsx`, 2 refs). Largest: Create 58 · `_dev/foundation` 32 · receive 30 · send 29 · notifications
-27 · profile/[id] 27 · Checkout 25. **Design coverage is not implementation:** B has drawn ten surfaces in
-both appearances; the implemented-in-both set is the primitives, the dock, the bid screen and the Appearance
-setting. The current matrix is `V3_COVERAGE_MATRIX.md` (one file, kept current by B and C).
+`v3/midnight-app` @ **`9c6c9bf4`** (pushed). **The appearance migration is complete**: by actual static colour
+access, comments stripped, **0 consumer files** still read Midnight-only colour tokens, down from 53 files /
+546 refs. The only static readers left are the palette definition and the dev-only foundation screen, and
+`AM1`/`AM2` scan the whole tree so a third exemption cannot appear quietly. The candidate carries complete
+System / Light / Dark support — **there is no longer a "Light-appearance exception", and this plan no longer
+records one** (owner 2026-09-24: it "must not become permission to build a knowingly incomplete light mode").
+
+Four defect classes that a static-token count cannot see were found and closed as part of it: three
+transfer-flow components that were never on v2 and still imported the pre-v2 `colors` module; text over
+artwork renamed to canvas inks; the ink on a saturated status fill, which must flip with the scheme; and the
+brand red used as text at 3.88:1. B measured four of these independently (F-31…F-34) plus six judgement calls
+(N-1…N-6); F-31, F-32, F-33, F-34, N-1, N-4 and N-5 are implemented, and N-2, N-3 and the colour-alone
+findings are recorded as design or copy decisions that do not block the build. Detail and the evidence states
+(designed / implemented / tested / device-verified) are in `V3_COVERAGE_MATRIX.md`, which is the one current
+coverage list.
 
 ## 1 · Accounts and fixtures reused — A's reads, nothing new created
 
@@ -80,10 +88,11 @@ before any query. Nothing was written.
 
 | | |
 |---|---|
-| Commit | _pinned here, full sha from `git rev-parse`, before `eas build`_ |
-| Checks at that commit | `npm run typecheck` 0 · `npm run lint` 0 errors · full `vitest` **run alone**, clean · predicted mutants killed |
-| Implementation closed | A-1…A-5 rendered literals (`212783f2`) · R-5 via the resolver (`212783f2`) · F-28 (`212783f2`) · A-1 neutral hairlines (`6c7fc18b`) · the synthetic gallery, sandbox-gated, with its tested Settings entry (`6c7fc18b` + the hardening commit) · **OPEN: the remaining static-colour files — 53 consumer-build files at `6c7fc18b`, listed by count in `V3_COVERAGE_MATRIX.md` ("Appearance matrix, corrected"). Until they are migrated, those surfaces render Midnight colours in the Light appearance; the build ships with that list recorded as the Light-appearance exception, not as completion** |
-| Review closed | **B:** inventory reconciled against §0; pressed value agreed (`#FF5353`); light designs delivered for every surface C has implemented · **A:** checkout ruling implemented (`016087ea`); transfer cells PASS (`7e578ed5`); D-8 closed |
+| Commit | **`9c6c9bf4e6f9c201efe1fe760d2bf6ae12175d7f`** (`v3/midnight-app`, pushed) — pinned before `eas build` |
+| Checks at that commit | `npx vitest run` **144 files, 2675/2675, run alone** at load average 4.16 with no peer vitest · `npx tsc --noEmit` **0** · `npm run lint` **0 errors, 29 warnings** (baseline) · negative controls: **three mutants, each killed by exactly the predicted gate** (AM1 / RD8 / AM4), clean baseline, digest-verified restore |
+| Implementation closed | A-1…A-5 rendered literals (`212783f2`) · R-5 via the resolver (`212783f2`) · F-28 (`212783f2`) · A-1 neutral hairlines (`6c7fc18b`) · the synthetic gallery, sandbox-gated, with its tested Settings entry (`6c7fc18b`, hardened `2619b9e1`) · **the complete appearance migration (`4d1e4b3d`)** · **B's measured Daylight failures F-31/F-32/F-33/F-34/N-1/N-4/N-5 (`9c6c9bf4`)** |
+| Owner's four acceptance conditions | **1.** No reachable consumer surface unintentionally uses the dark-only palette in Light — AM1/AM2 over the whole tree, AM4 for the legacy module, RD13 for red-as-text. **2.** Root layout responds correctly — splash inside the provider gate reading the palette (AM3), navigation theme and status bar already following the scheme, no dead token import. **3.** Literal colours individually classified — AM5, one written reason each, and the one reason that is a claim about the codebase is checked rather than asserted. **4.** Previously closed behavioural fixes intact — full suite green, including the R-5, F-28, gallery, transfer-cell and checkout-stage suites |
+| Review | **B:** inventory reconciled; pressed value agreed (`#FF5353`); light designs delivered for the account group (`04220c3f`); review of C at `2619b9e1` closed (`ea4d7f88`); **independent traces of both remaining groups delivered and their measured failures now implemented** — B's group-by-group review of the migration commits themselves (`4d1e4b3d`, `9c6c9bf4`) is **outstanding**, and is a peer review, not an owner gate · **A:** checkout ruling implemented (`016087ea`); transfer cells PASS (`7e578ed5`); D-8 closed |
 | Profile | `preview` · iOS internal · one build |
 
 **Not a pre-build gate:** D-1…D-9 and every row in §2. Those are what the build is *for*.
