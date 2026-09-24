@@ -13,6 +13,21 @@
 > will send the CLI form `stripe payment_intents cancel pi_… -d cancellation_reason=abandoned` (test mode, no `--live`)
 > as the primary route; see `REVIEW_INVENTORY_PLAN_V3_20260924.md` §5.
 > **Not gated by this approval:** installing Build 24, and the appearance and navigation checks that need no fixture write.
+>
+> **PAUSED by the owner, 2026-09-24 ~16:45Z: Build 24 failed visual acceptance.** B and C are correcting the
+> implementation against the approved V3 mockups. **No D1–D6 step ran.** A's read-only sandbox check at 16:43:56Z
+> (ledger 144, signing keys 0, so the sandbox) found:
+> - L-BID, L-CHK and L-P1 unwritten since 2026-09-11, with `bid_count 0`, not reserved, quantity 1;
+> - **bids 0** in the whole sandbox;
+> - **no payment row created since 04:00Z**, so no new PaymentIntent and **no cancellation needed**;
+> - no new notification rows;
+> - F-EXP / F-HELD row md5 unchanged (`a4c234da…` / `d1b36045…`).
+>
+> **Nothing to clean up.** Resuming needs a replacement build that passes visual acceptance, the owner's "go", and A's
+> §4 preflight re-run from scratch. L-BID / L-CHK end at 2026-09-25 02:01:44Z, so a later session will likely be
+> variant B.
+> The DV buyer's two older pending intents (`9f4ab181` on L-P1, `fd616e02`) predate this sheet and remain owner items
+> (§5b).
 
 **Revision 2 (A, 2026-09-24 ~05:10Z), after the owner's corrections of ~04:55Z:** cleanup split into independent
 tracks with their own deadlines (§5), both end-time restore outcomes handled (§5, track E), owner-unavailable rule

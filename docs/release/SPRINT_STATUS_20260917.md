@@ -1616,3 +1616,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     it stops); and rehearsal 6's two limits (replay schema; the direct call, not via `ops.execute_action` →
     `action_dispatch`, covered by the binding contract).
   - Documentation only. The frozen scripts are unchanged (apply `8cbd950d…`).
+- **Owner, ~16:45Z: Build 24 FAILED visual acceptance. Phone-session fixture mutations are PAUSED.**
+  - A's read-only sandbox check at 16:43:56Z: no D1–D6 step ran; bids 0; no payment or PaymentIntent created since
+    04:00Z; no new notifications; the fixtures are unchanged. **No cleanup is needed and no cancellation is owed.**
+  - Checklist gate G0 added. Not submission-ready while it is open.
+  - R0 and the #92 decisions are unaffected (backend, separately authorised).
