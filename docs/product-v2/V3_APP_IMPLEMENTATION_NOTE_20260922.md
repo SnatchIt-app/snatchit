@@ -365,3 +365,26 @@ Evidence inspected before commit: tsc 0 · lint 0/29 · full 2632/2632 (140 file
 inventory: the screens themselves (static refs remain in ~55 files: Create 51, profile/[id] 26,
 Checkout 25, send/receive 25 each, notifications 24, …) plus 8 legacy-palette imports — next slices,
 screen by screen, same pattern. Still no rendered/device evidence for Light (D-9).
+
+---
+
+# Reconciliation with B and A (C, 2026-09-24) — `016087ea`, `212783f2`
+
+**`016087ea`:** one pressed value #FF5353 in both mirrors (B adopted it at c1e23125; B's #FF4C4C also
+passed — settled without another round); Daylight = B's token board on the v2 key shape; `border.control`
+(3:1) in both mirrors on Input/Chip/secondary Button; startup gate (provider withholds until the stored
+choice is read, bounded 400 ms; root holds the splash until fonts + choice — AP14/AP15; AP6's fixture built
+a store per render and wrote System back over a newer choice — fixed); checkout per A's ruling Q1–Q3
+(rows only when `serverBreakdown && !priceChange`, server figures only, "Preparing your total" while setup
+runs, lost hold keeps only a server figure; CS4/CS5; gated surface unchanged). Controls RC1–RC5 as predicted.
+**`212783f2`:** B's A-1…A-5 rendered defects (dock `chrome` tokens, grabber, StatCardStrip, fallback
+initial) verified by mounting the real components under each palette and computing contrast on the
+emitted styles (RD1–RD7); R-5 via `offersBid(actions)` (LS3); F-28 body-only block. Controls RC6–RC11 as
+predicted. Evidence each: tsc 0 · lint 0/29 · full run alone clean (2639 then 2647). One full run with a
+survey script for company failed 8 timeouts and was voided; the five files pass alone.
+**Owner directives absorbed:** build authorised (one sandbox EAS preview, once pre-build gates pass —
+no re-asking); W1/W2 NOT executed, side effects traced in the plan; A-1 neutral hairlines approved → next;
+synthetic transfer-state gallery authorised (sandbox-only, read-only, same components as the real screens)
+→ in progress; the three transfer states stay unverified on device until then, and the data path stays open.
+**Inventory at 212783f2 by actual colour access:** 54 files / 546 static refs; 14 palette-only; 1 partial
+(app/_layout). B's 55+15 counts imports (space/radius/type included).
