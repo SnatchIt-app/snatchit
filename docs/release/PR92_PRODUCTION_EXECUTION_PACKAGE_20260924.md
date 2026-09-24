@@ -588,3 +588,68 @@ witness of this execution.** The ruling covers that package's witness only; it g
    - The claim writes a payout_attempts row before any Stripe call, so 0 rules out a payout transfer from either
      caller. It does not bound expiry refunds or intent cancels.
    - v41 is attributed to the post-deploy runs by timing alone.
+
+## 14. Merging #92 into the release gate (§8 (C)): PREPARED, NOT AUTHORISED
+
+**Owner instruction (2026-09-24):** prepare the exact merge command and post-merge checks for the release gate
+branch. Do not merge until separately authorised. **Never merge into `main`.**
+
+**Why it matters.** Production has run 148 and `enforce-transfer-expiry` v41 since 16:55–16:57Z, but the gate has
+neither. Until the merge, any redeploy of `enforce-transfer-expiry` from the gate (including a bulk redeploy)
+silently reinstates F-DISPUTE-SELLERWIN-1, and a `db push` from the gate would meet an unknown remote version.
+**Effect of the merge:**
+- Source only; nothing is applied or deployed. The gate is not `main`, and AUTODEPLOY-1 binds `main` only.
+- Merging activates the F-CR-148-SHARED constraint on the gate: **no `confirm-and-release` deploy from the gate
+  until #93 (the a1–a4 audit fix) has merged too.**
+
+**Checks script.** `scratchpad/apply_148/merge92_checks.sh` (sha256 `3feecd8c26df08a42b425cd07fa2557225c2fcdc79d45433207dfdecc50b55b5`). It reads git and GitHub only:
+no production access and no writes.
+- `pre`: 7 checks.
+  - #92's head is `e73553d2…`, its base is the gate, and it is MERGEABLE and OPEN.
+  - The gate tip is still `aadf996e…` and is an ancestor of the head.
+  - The diff is exactly the reviewed 8 files.
+  - The migration blob is `2b6e54d7…`, the applied file (production's ledger statements md5 is `4eb38855…`).
+  - Every check is SUCCESS or SKIPPED, and the AUTODEPLOY-VERIFIED-OFF marker is present.
+  - `main` is unchanged at `eadd456a…`.
+  - **Dry run at 2026-09-24 ~18:05Z: ALL PASS.**
+- `post <sha>`: the gate tip is the merge commit; its parents are exactly (`aadf996e…`, `e73553d2…`); the diff is
+  exactly the 8 files; its tree equals the head's tree; the migration blob is the applied file.
+  - **Every `enforce-transfer-expiry` bundle file on the gate equals the deployed v41 blob**: index `432b4898…`,
+    payouts `2d1da2f9…`, payout-logic `923c70b4…`, payout-policy `6a1ea192…`, sentry `dc349604…`, stripe
+    `141b3b61…`.
+  - #92 is MERGED with that commit, and `main` is unchanged.
+  - Negative control: `post e73553d2…` (not a merge commit) → STOP on POST-1, POST-2 and POST-7.
+
+**Exact sequence, after the owner's separate authorisation only:**
+```bash
+/private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/apply_148/merge92_checks.sh pre
+```
+```bash
+gh pr edit 92 --repo SnatchIt-app/snatchit --title "fix(disputes): seller-win payout eligibility and truthful seller notice (148)"
+```
+```bash
+gh pr ready 92 --repo SnatchIt-app/snatchit
+```
+```bash
+gh pr merge 92 --repo SnatchIt-app/snatchit --merge --match-head-commit e73553d26636ca2faa6ec846eba0dc19ee31a538
+```
+- `--merge` makes a merge commit, as #91 did (`aadf996e`).
+- `--match-head-commit` makes GitHub refuse the merge if the head has moved.
+- **Never `--auto`, `--admin` or `--delete-branch`.** #93 is stacked on #92's branch.
+- The base is enforced by PRE-1; `gh pr merge` merges into the PR's base, which is the gate.
+
+**Post-merge, read-only except the retarget:**
+```bash
+M=$(gh pr view 92 --repo SnatchIt-app/snatchit --json mergeCommit --jq .mergeCommit.oid); /private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/apply_148/merge92_checks.sh post "$M"
+```
+```bash
+gh run list --repo SnatchIt-app/snatchit --branch release/production-gate-20260918 --limit 3
+```
+```bash
+gh pr edit 93 --repo SnatchIt-app/snatchit --base release/production-gate-20260918
+```
+- **CI on the gate push must be green:** census 32/108/37/38, pgTAP Files=95 / Tests=5517 (as at #92's head).
+- **Then update the records:** registry row 148 gets "SOURCE MERGED INTO THE RELEASE GATE <time> as <sha>"; the
+  F-CR-148-SHARED constraint is active on the gate; #93 is retargeted.
+- **On any FAIL:** stop and report. The merge only changes source; reverting it is a separate, owner-authorised
+  `git revert -m 1`.

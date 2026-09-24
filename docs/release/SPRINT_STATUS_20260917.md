@@ -1683,3 +1683,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Prepare the audit-record fix (a1–a4) as a draft PR only.
   - Prepare #92's gate-merge command and checks; the merge itself is not authorised.
   - No apply, deploy, merge, dispute resolution or production change.
+- **Audit-record fix (a1–a4): draft PR SnatchIt-app/snatchit#93**, head `9fb450eb`, stacked on #92. Registry 149
+  (`20260924120000`), pgTAP 216.
+  - pgTAP: RED on the unfixed chain as predicted; 26/26 green. Mutant kill sets are distinct; the guarded rollback
+    brings back the RED set.
+  - Fresh replay 165/165; census unchanged; full pgTAP 5537/5537.
+  - vitest: BC-* RED 7, then green; five edge mutants each kill a distinct set; full vitest 2538/2538.
+  - Nothing is applied or deployed. D's review has been requested.
+- **#92 gate-merge package prepared** (package §14): the exact commands, and `merge92_checks.sh` pre (dry run ALL
+  PASS) and post. The merge is NOT authorised, and #92 must never go to `main`.
