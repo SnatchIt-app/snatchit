@@ -60,6 +60,10 @@ export const CLEAR_ALL_LABEL = 'Clear all';
 /**
  * The §5 empty state — only when filters are active, because its heading blames them. With no
  * filters the screen keeps its existing plain no-match state.
+ *
+ * BODY COPY (V3 board map, Search row): composition comes from `midnight-search-empty.png`, but
+ * copy is pkg7's scope and `pkg7-search-after.png` reduced the body to ONE sentence — "Try the
+ * venue name, or a shorter word." The midnight board's older two-clause sentence is superseded.
  */
 export function searchEmptyState(
   query: string,
@@ -68,7 +72,7 @@ export function searchEmptyState(
   if (activeSearchFilterCount(f) === 0) return null;
   return {
     title: `Nothing matched “${query}” with these filters`,
-    body: 'Clear a filter to widen the search, or edit the words above.',
+    body: 'Try the venue name, or a shorter word.',
     clearPrice: f.under150,
   };
 }

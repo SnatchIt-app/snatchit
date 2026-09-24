@@ -28,11 +28,22 @@
  * counts what is on screen against the order the query really uses; and the §5 empty state
  * appears only when active filters can honestly be blamed. No count of excluded listings — no
  * read returns one (§7). The mockup's "Any date" chip is not built: no spec text; flagged for B.
+ *
+ * V3 SURFACE (pkg8-search-dark/light over midnight-search-clean, 2026-09-24): the header is the
+ * pushed-screen pattern the bid screen set — circular back chip, centred sentence-case title —
+ * and the query lives in a rounded field with the magnifier glyph, not the underline Input. The
+ * empty state's two actions are sentence-case pill Buttons (the board draws actions, not filter
+ * chips, and the V2 Chip's uppercase label is an action label there). Colours are palette roles
+ * only, so both appearances come from the one stylesheet.
+ *
+ * HARNESS FIXTURE (`fixture` prop): passed only by `app/_dev/v3-search-create.tsx`. It
+ * short-circuits ONLY the network read — `runSearch` returns the fixture rows instead of
+ * querying — and seeds the query/filter state the board draws. The live route never passes it.
  */
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollarsV3 } from '@/src/lib/money';
@@ -40,7 +51,7 @@ import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBloc
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import ScreenState from '@/src/components/ScreenState';
-import { Chip, IconButton, Input, StateView } from '@/src/components/ui';
+import { Button, Chip, IconButton, StateView } from '@/src/components/ui';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
 import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { cardPresentation } from '@/src/lib/listing/cardState';
@@ -91,23 +102,33 @@ function SearchFailureNotice({ s, kind, onRetry }: { s: Styles; kind: 'offline' 
   );
 }
 
-export default function SearchScreen() {
+/**
+ * Harness-only fixture (see the header note). `rows` stands in for the one network read;
+ * `query`/`filters` seed the state the board draws so a capture is deterministic.
+ */
+export interface SearchFixture {
+  rows: Listing[];
+  query: string;
+  filters?: SearchFilters;
+}
+
+export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = {}) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const dockClearance = useDockClearance();
   const { blockedIds } = useBlockedUserIds();
 
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Listing[]>([]);
-  const [filters, setFilters] = useState<SearchFilters>(NO_SEARCH_FILTERS);
+  const [query, setQuery] = useState(fixture?.query ?? '');
+  const [results, setResults] = useState<Listing[]>(fixture ? fixture.rows : []);
+  const [filters, setFilters] = useState<SearchFilters>(fixture?.filters ?? NO_SEARCH_FILTERS);
   const [searching, setSearching] = useState(false);
   const { isOffline } = useNetworkStatus();
   const offlineRef = useRef(false);
   offlineRef.current = isOffline;
   const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched] = useState(fixture != null);
 
   // One shared clock for every countdown on screen, as on Home.
   useEffect(() => {
@@ -116,6 +137,15 @@ export default function SearchScreen() {
   }, []);
 
   const runSearch = useCallback(async (term: string) => {
+    if (fixture) {
+      // Harness: the one network read is short-circuited. Chip narrowing, the results
+      // header, the empty state and the row presentation all still run for real.
+      setSearching(false);
+      setSearched(true);
+      setLoadError(null);
+      setResults(fixture.rows);
+      return;
+    }
     const clean = sanitize(term);
     if (clean.length < 2) {
       setResults([]);
@@ -149,7 +179,7 @@ export default function SearchScreen() {
       return;
     }
     setResults((data ?? []) as Listing[]);
-  }, [blockedIds]);
+  }, [blockedIds, fixture]);
 
   // A failure takes over the screen only when there is nothing to keep on it. Keyed on the RAW
   // results: rows hidden by a chip are kept data, not a loss.
@@ -168,18 +198,32 @@ export default function SearchScreen() {
 
   return (
     <View style={s.container}>
+      {/* V3 header — the pushed-screen pattern: circular back chip, centred title, 44pt
+          spacer so the title stays optically centred. */}
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" accessibilityLabel="Go back" onPress={() => router.back()} />
-        <View style={s.field}>
-          <Input
-            label="Search"
+        <IconButton glyph="back" chip accessibilityLabel="Go back" onPress={() => router.back()} />
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Search</Text>
+        <View style={s.headerSpacer} />
+      </View>
+
+      {/* The query field is the board's rounded pill with the magnifier glyph — a surface,
+          not the underline Input, because this field IS the screen rather than one row of a
+          form. The glyph is typographic so it inherits face and colour. */}
+      <View style={s.searchFieldWrap}>
+        <View style={s.searchField}>
+          <Text style={s.searchGlyph} importantForAccessibility="no" accessible={false}>{'⌕'}</Text>
+          <TextInput
+            style={[textStyle('body'), s.searchInput]}
             value={query}
             onChangeText={setQuery}
             placeholder="Event or venue"
+            placeholderTextColor={palette.text.faint}
+            selectionColor={palette.brand.red}
             autoFocus
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
+            accessibilityLabel="Search"
             accessibilityHint="Searches live listings by event name and venue"
           />
         </View>
@@ -243,14 +287,23 @@ export default function SearchScreen() {
                   <View style={s.emptyWrap}>
                     <Text style={[textStyle('nameState'), s.emptyTitle]}>{empty.title}</Text>
                     <Text style={[textStyle('bodySm'), s.emptyBody]}>{empty.body}</Text>
+                    {/* V3: these are ACTIONS, so they are sentence-case pill Buttons, not
+                        uppercase filter chips. The board draws the specific one brighter
+                        than "Clear all"; the emphasis is the border, a palette role. */}
                     <View style={s.emptyActions}>
                       {empty.clearPrice ? (
-                        <Chip
+                        <Button
                           label={CLEAR_PRICE_LABEL}
+                          variant="secondary"
+                          style={{ borderColor: palette.text.primary }}
                           onPress={() => setFilters((f) => ({ ...f, under150: false }))}
                         />
                       ) : null}
-                      <Chip label={CLEAR_ALL_LABEL} onPress={() => setFilters(NO_SEARCH_FILTERS)} />
+                      <Button
+                        label={CLEAR_ALL_LABEL}
+                        variant="secondary"
+                        onPress={() => setFilters(NO_SEARCH_FILTERS)}
+                      />
                     </View>
                   </View>
                 ) : (
@@ -313,12 +366,26 @@ function makeStyles(p: Palette) {
   container: { flex: 1, backgroundColor: p.surface.canvas },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: v2.space.sm,
-    paddingHorizontal: v2.space.lg,
-    paddingBottom: v2.space.md,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: v2.space.md,
+    paddingBottom: v2.space.sm,
   },
-  field: { flex: 1 },
+  headerTitle: { color: p.text.primary },
+  headerSpacer: { width: 44 },
+  searchFieldWrap: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.md },
+  // The board's rounded query field: an elevated surface, pill-ended, glyph inside.
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: v2.space.sm,
+    minHeight: 52,
+    borderRadius: v2.radius.pill,
+    backgroundColor: p.surface.elevated,
+    paddingHorizontal: v2.space.lg,
+  },
+  searchGlyph: { color: p.text.muted, fontSize: 22, lineHeight: 26 },
+  searchInput: { flex: 1, color: p.text.primary, paddingVertical: v2.space.md },
   list: { paddingTop: v2.space.md },
   chips: {
     flexDirection: 'row',

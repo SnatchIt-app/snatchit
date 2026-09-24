@@ -17,9 +17,8 @@
  */
 
 import {
-  allInFromDollars,
-  allInLabel,
-  sellerNetFromDollars,
+  allInFromDollarsV3,
+  formatDollarsV3,
   sellerNetDollars,
 } from '@/src/lib/money';
 import type {
@@ -128,13 +127,13 @@ export function submitCtaLabel(quantity: number): string {
 export interface PriceSummary {
   /** False when the dollar amount is not a usable positive number. */
   valid: boolean;
-  /** What the seller nets per ticket after the seller fee, e.g. "$90". */
+  /** What the seller nets for the listing after the seller fee, e.g. "$81.00". */
   sellerNet: string;
   /** Seller net as a number, for the sticky bar's "You get" line. */
   sellerNetValue: number;
-  /** What a buyer pays all-in per ticket, e.g. "$110". */
+  /** What a buyer pays all-in for the listing, e.g. "$99.00". */
   buyerAllIn: string;
-  /** The all-in with its trailing word, e.g. "$110 total". */
+  /** The all-in with its trailing word, e.g. "$99.00 total". */
   buyerAllInLabel: string;
 }
 
@@ -143,6 +142,12 @@ export interface PriceSummary {
  * NO arithmetic of its own: it names which money helper produces each line, so the
  * preview can never drift from what the seller is actually paid or the buyer
  * actually charged. An unusable amount returns `valid: false` and empty strings.
+ *
+ * V3 (pkg8-create boards, 2026-09-24): the DISPLAY faces go through the V3
+ * formatters — every shown amount carries its two decimals ("Buyers pay $99.00
+ * total", "$81.00"). Display only: the amounts are the same seller-net and
+ * buyer-all-in numbers as before, the listing is still validated, previewed and
+ * submitted as whole dollars, and nothing stored or sent changes shape.
  */
 export function priceSummary(dollars: number): PriceSummary {
   if (!Number.isFinite(dollars) || dollars < 1) {
@@ -150,10 +155,10 @@ export function priceSummary(dollars: number): PriceSummary {
   }
   return {
     valid: true,
-    sellerNet: sellerNetFromDollars(dollars),
+    sellerNet: formatDollarsV3(sellerNetDollars(dollars)),
     sellerNetValue: sellerNetDollars(dollars),
-    buyerAllIn: allInFromDollars(dollars),
-    buyerAllInLabel: allInLabel(dollars),
+    buyerAllIn: allInFromDollarsV3(dollars),
+    buyerAllInLabel: `${allInFromDollarsV3(dollars)} total`,
   };
 }
 

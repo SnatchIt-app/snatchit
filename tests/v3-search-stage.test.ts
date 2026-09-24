@@ -71,7 +71,11 @@ describe('searchFilters — three real-column chips', () => {
   it('SF6: the §5 empty state, exactly, and only when filters are active', () => {
     const s = searchEmptyState('neon', { ga: true, under150: true, mobileTransfer: false });
     expect(s?.title).toBe('Nothing matched “neon” with these filters');
-    expect(s?.body).toBe('Clear a filter to widen the search, or edit the words above.');
+    // RETARGETED 2026-09-24: copy scope belongs to pkg7, and `pkg7-search-after.png` reduced
+    // the body to one sentence. The previous pin held the midnight board's older two-clause
+    // sentence ("Clear a filter to widen the search, or edit the words above.") — superseded,
+    // not deleted: the board map's Search row names the pkg7 board as the copy authority.
+    expect(s?.body).toBe('Try the venue name, or a shorter word.');
     expect(s?.clearPrice).toBe(true);
     expect(searchEmptyState('neon', { ga: true, under150: false, mobileTransfer: false })?.clearPrice).toBe(false);
     expect(CLEAR_PRICE_LABEL).toBe('Clear price filter');
@@ -114,5 +118,34 @@ describe('search screen — §5 wiring pins', () => {
     for (const marker of ['applyBlockedSellerFilter', '.ilike.', 'failureSurface', 'stageCardHandoff']) {
       expect(s, marker).toContain(marker);
     }
+  });
+
+  // ── V3 surface (pkg8-search-dark/light over midnight-search-clean, 2026-09-24) ──
+
+  it('SP4: the header is the pushed-screen pattern — back chip, centred sentence-case title', async () => {
+    const s = await src();
+    expect(s).toContain('glyph="back" chip');
+    expect(s).toMatch(/textStyle\('screenTitle'\)[^>]*>Search</);
+    // The V2 underline Input is gone from this screen; the query lives in the rounded field.
+    expect(s).not.toMatch(/<Input\b/);
+    expect(s).toContain('borderRadius: v2.radius.pill');
+  });
+
+  it('SP5: the empty-state actions are sentence-case pill Buttons, not uppercase chips', async () => {
+    const s = await src();
+    // Both actions render through the central Button (textStyle('action') inside), and the
+    // CLEAR_* labels no longer pass through Chip's uppercase `label` token.
+    expect(s).toMatch(/<Button\s+label=\{CLEAR_PRICE_LABEL\}/);
+    expect(s).toMatch(/<Button\s+label=\{CLEAR_ALL_LABEL\}/);
+    expect(s).not.toMatch(/<Chip\s+label=\{CLEAR_/);
+  });
+
+  it('SP6: the harness fixture short-circuits only the network read', async () => {
+    const s = await src();
+    // The fixture branch returns the fixture rows before the query is built…
+    expect(s).toMatch(/if \(fixture\) \{[\s\S]{0,400}setResults\(fixture\.rows\);[\s\S]{0,60}return;/);
+    // …and everything downstream (narrowing, header, empty state) stays the live code path:
+    // there is exactly one fixture gate inside runSearch, none around matchesSearchFilters.
+    expect(s).not.toMatch(/fixture[\s\S]{0,80}matchesSearchFilters/);
   });
 });

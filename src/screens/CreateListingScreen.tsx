@@ -1,18 +1,31 @@
 /**
- * src/screens/CreateListingScreen.tsx — Sell your ticket (V2).
+ * src/screens/CreateListingScreen.tsx — Sell your ticket (V3 surface, V2 logic).
  *
- * PRESENTATION rebuilt on the V2 primitives; the SUBMISSION path is unchanged.
+ * PRESENTATION on the V3 boards (`pkg7-create-after.png` composition, `pkg8-create-dark/light`
+ * tokens, `pkg3-create-invalid.png` validation states); the SUBMISSION path is unchanged.
  * Every gate in `handlePublish` — verified-phone, connected-payout, the
  * `can_create_listing` risk check, content moderation, the cover + proof uploads,
  * the `public.listings` insert and the navigate-to-detail — is the same logic in
  * the same order it has always run. The whole-dollars listing contract, the fee
  * math and the RPC/edge-function calls are untouched.
  *
- * What changed is the surface: legacy cards and rounded wells become sections,
- * hairlines and the Input / Chip / Sheet / StickyBar set; the pure decisions
- * (validation, moderation, risk parsing, money preview) move to
+ * V3 (2026-09-24): sentence-case title in the screen-title voice; section heads are quiet
+ * uppercase eyebrows (the boards keep eyebrows uppercase — the display voice left this screen);
+ * transfer method is a picker ROW opening a sheet, like neighborhood and platform (board
+ * annotation ②: "pickers are rows, not dropdowns"); date and time stack full-width; quantity
+ * sits on the ticket-type row with a rounded stepper; money DISPLAY faces carry cents through
+ * sellState's V3 formatters; panels and controls take the role radii. All colours are palette
+ * roles, so both appearances render from the one stylesheet.
+ *
+ * The pure decisions (validation, moderation, risk parsing, money preview) live in
  * src/lib/sell/sellState.ts where they are tested. Imported by the thin route
  * wrapper app/(tabs)/create.tsx.
+ *
+ * HARNESS FIXTURE (`fixture` prop): passed only by `app/_dev/v3-search-create.tsx`. It seeds
+ * form state so the board's filled/invalid/risk-banner states render, and it makes the screen
+ * PREVIEW-ONLY: `handlePublish` returns before its first gate, so the harness can never walk
+ * the submit chain against a server. The live route (`app/(tabs)/create.tsx`) passes no
+ * fixture, and the live submit path is untouched.
  */
 
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -126,14 +139,14 @@ function toTimeStr(d: Date) { return d.toTimeString().split(' ')[0]; }
 type SellStyles = ReturnType<typeof makeStyles>;
 
 function Section({ title, children, sx }: { title: string; children: React.ReactNode; sx: SellStyles }) {
+  // V3: the section head is a quiet uppercase EYEBROW (`label`), not the V2 Oswald display —
+  // the boards keep eyebrows and tabs uppercase while every action went sentence case. The
+  // rule above it is gone; sections separate with space.
   return (
     <View style={sx.section}>
-      <View style={sx.sectionHead}>
-        <View style={sx.sectionRule} />
-        <Text style={[textStyle('displaySm'), sx.sectionTitle]} accessibilityRole="header">
-          {title}
-        </Text>
-      </View>
+      <Text style={[textStyle('label'), sx.sectionTitle]} accessibilityRole="header">
+        {title}
+      </Text>
       <View style={sx.sectionBody}>{children}</View>
     </View>
   );
@@ -220,7 +233,11 @@ function MoneyField({
       {error ? (
         <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{error}</Text>
       ) : helper ? (
-        <Text style={[textStyle('bodySm'), sx.fieldHelper]}>{helper}</Text>
+        // V3: the buyer-side line sits in the board's filled rounded panel, not as bare
+        // helper text — it is the other party's number, so it gets its own surface.
+        <View style={sx.helperPanel}>
+          <Text style={[textStyle('bodySm'), sx.fieldHelper]}>{helper}</Text>
+        </View>
       ) : null}
     </View>
   );
@@ -295,7 +312,31 @@ function ReviewRow({ label, value, sx }: { label: string; value: string; sx: Sel
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
 
-export default function CreateListingScreen() {
+/**
+ * Harness-only fixture (see the header note). Seeds presentation state so the dev route can
+ * render the board's filled, invalid and risk-banner states; its presence makes the screen
+ * preview-only. Never passed by the live route.
+ */
+export interface CreateFixture {
+  form?: {
+    eventName?: string;
+    venue?: string;
+    neighborhood?: Neighborhood | null;
+    eventDate?: Date;
+    eventTime?: Date;
+    ticketType?: TicketType | null;
+    quantity?: number;
+    transferMethod?: TransferMethod | null;
+    ticketPlatform?: TicketPlatform;
+    startingBid?: string;
+    durationHours?: DurationHours | null;
+    commitmentAccepted?: boolean;
+  };
+  submitted?: boolean;
+  riskBanner?: { reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null };
+}
+
+export default function CreateListingScreen({ fixture }: { fixture?: CreateFixture } = {}) {
   const { user } = useAuth();
   const { palette } = useTheme();
   const sx = useMemo(() => makeStyles(palette), [palette]);
@@ -308,33 +349,35 @@ export default function CreateListingScreen() {
   // Create participates in the universal adaptive collapse (device revision).
   const { onScroll: onDockScroll } = useDockScroll('create');
 
-  // A — Event
-  const [eventName,        setEventName]        = useState('');
-  const [venue,            setVenue]            = useState('');
-  const [neighborhood,     setNeighborhood]     = useState<Neighborhood | null>(null);
+  // A — Event. Initializers may come from the harness fixture; the live route passes none.
+  const fx = fixture?.form;
+  const [eventName,        setEventName]        = useState(fx?.eventName ?? '');
+  const [venue,            setVenue]            = useState(fx?.venue ?? '');
+  const [neighborhood,     setNeighborhood]     = useState<Neighborhood | null>(fx?.neighborhood ?? null);
   const [neighborhoodOpen, setNeighborhoodOpen] = useState(false);
   const [neighborhoodQuery, setNeighborhoodQuery] = useState('');
   const [category,         setCategory]         = useState<EventCategory>('nightlife');
   const [platformOpen,     setPlatformOpen]     = useState(false);
   const [platformQuery,    setPlatformQuery]    = useState('');
-  const [eventDate,        setEventDate]        = useState<Date>(defaultDate);
-  const [eventTime,        setEventTime]        = useState<Date>(defaultTime);
+  const [eventDate,        setEventDate]        = useState<Date>(fx?.eventDate ?? defaultDate);
+  const [eventTime,        setEventTime]        = useState<Date>(fx?.eventTime ?? defaultTime);
 
   // B — Ticket
-  const [ticketType,     setTicketType]     = useState<TicketType | null>(null);
-  const [quantity,       setQuantity]       = useState(1);
-  const [transferMethod, setTransferMethod] = useState<TransferMethod | null>(null);
+  const [ticketType,     setTicketType]     = useState<TicketType | null>(fx?.ticketType ?? null);
+  const [quantity,       setQuantity]       = useState(fx?.quantity ?? 1);
+  const [transferMethod, setTransferMethod] = useState<TransferMethod | null>(fx?.transferMethod ?? null);
+  const [transferOpen,   setTransferOpen]   = useState(false);
   const [restrictions,   setRestrictions]   = useState('');
 
   // C — Pricing
-  const [startingBid,   setStartingBid]   = useState('');
+  const [startingBid,   setStartingBid]   = useState(fx?.startingBid ?? '');
   const [buyNowEnabled, setBuyNowEnabled] = useState(false);
   const [buyNowPrice,   setBuyNowPrice]   = useState('');
-  const [durationHours, setDurationHours] = useState<DurationHours | null>(null);
+  const [durationHours, setDurationHours] = useState<DurationHours | null>(fx?.durationHours ?? null);
 
   // D — Platform & Trust
-  const [ticketPlatform,           setTicketPlatform]           = useState<TicketPlatform>('other');
-  const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(false);
+  const [ticketPlatform,           setTicketPlatform]           = useState<TicketPlatform>(fx?.ticketPlatform ?? 'other');
+  const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(fx?.commitmentAccepted ?? false);
 
   // E — Media
   const coverUpload = useImageUpload({ userId: user?.id ?? '', folder: 'covers', aspect: [16, 9], quality: 0.85 });
@@ -358,11 +401,11 @@ export default function CreateListingScreen() {
   // The banner shows either a server verdict or the client's own "the check did not answer" state.
   // `check_unavailable` is deliberately NOT added to CanCreateListingReason: the server never sends
   // it, and widening the server contract to carry a client state is how the two got confused.
-  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null } | null>(null);
+  const [riskBanner,         setRiskBanner]         = useState<{ reason: CanCreateListingReason | 'check_unavailable'; tier: RiskTier | null } | null>(fixture?.riskBanner ?? null);
   const [riskCheckPassed,    setRiskCheckPassed]    = useState(false);
 
   // UI
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(fixture?.submitted ?? false);
   const [loading,   setLoading]   = useState(false);
 
   const startingBidNum = parseAmount(startingBid);
@@ -454,6 +497,10 @@ export default function CreateListingScreen() {
 
   // ── Publish (gate chain unchanged) ──────────────────────────────────────────
   async function handlePublish() {
+    // Harness renders are preview-only: with a fixture mounted, the submit chain is never
+    // entered, so the dev route cannot fire the gates or the insert against a server. The
+    // live route passes no fixture and takes the unchanged path below.
+    if (fixture) return;
     setSubmitted(true);
     if (!isValid || !user) return;
 
@@ -621,7 +668,9 @@ export default function CreateListingScreen() {
   return (
     <KeyboardAvoidingView style={sx.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[sx.header, { paddingTop: topPad + v2.space.sm }]}>
-        <Text style={[textStyle('displayMd'), sx.pageTitle]} accessibilityRole="header">Sell your ticket</Text>
+        {/* V3: the title speaks the screen-title voice — sentence case, bold sans — as the
+            boards draw it. The display voice (Oswald) now belongs to event names only. */}
+        <Text style={[textStyle('screenTitle'), sx.pageTitle]} accessibilityRole="header">Sell your ticket</Text>
       </View>
 
       <ScrollView
@@ -659,14 +708,10 @@ export default function CreateListingScreen() {
             sx={sx}
             p={palette}
           />
-          <View style={sx.dateRow}>
-            <View style={sx.dateCol}>
-              <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} sx={sx} p={palette} />
-            </View>
-            <View style={sx.dateCol}>
-              <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
-            </View>
-          </View>
+          {/* V3 (pkg7-create-after): date and time stack full width like every other picker
+              row — the two-column pair was the V2 layout. */}
+          <SelectRow label="Date" value={fmtDate(eventDate)} placeholder="Pick a date" onPress={() => openPicker('date')} sx={sx} p={palette} />
+          <SelectRow label="Time" value={fmtTime(eventTime)} placeholder="Pick a time" onPress={() => openPicker('time')} sx={sx} p={palette} />
         </Section>
 
         {/* ── TICKET ────────────────────────────────────────── */}
@@ -679,48 +724,54 @@ export default function CreateListingScreen() {
           </ChipRow>
 
           <FieldLabel text="Ticket type" sx={sx} />
-          <View style={sx.inlineChips}>
-            {TICKET_TYPES.map((t) => (
-              <Chip key={t} label={t} selected={ticketType === t} onPress={() => setTicketType(t)} />
-            ))}
+          {/* V3 (pkg8-create): quantity shares the ticket-type row, right-aligned. The board's
+              static "Quantity 2" gains its working stepper here — rounded per the role radii —
+              because a mock does not need to change the number and a seller does. */}
+          <View style={sx.ticketTypeRow}>
+            <View style={sx.inlineChips}>
+              {TICKET_TYPES.map((t) => (
+                <Chip key={t} label={t} selected={ticketType === t} onPress={() => setTicketType(t)} />
+              ))}
+            </View>
+            <View style={sx.quantityGroup}>
+              <Text style={[textStyle('bodySm'), sx.quantityWord]}>Quantity</Text>
+              <Pressable
+                style={[sx.stepBtn, quantity <= 1 && sx.stepDisabled]}
+                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+                disabled={quantity <= 1}
+                accessibilityRole="button"
+                accessibilityLabel="Decrease quantity"
+                hitSlop={8}
+              >
+                <Text style={sx.stepGlyph}>{'−'}</Text>
+              </Pressable>
+              <Text style={[textStyle('price'), sx.stepVal]} accessibilityLabel={`Quantity ${quantity}`}>{quantity}</Text>
+              <Pressable
+                style={sx.stepBtn}
+                onPress={() => setQuantity((q) => q + 1)}
+                accessibilityRole="button"
+                accessibilityLabel="Increase quantity"
+                hitSlop={8}
+              >
+                <Text style={sx.stepGlyph}>+</Text>
+              </Pressable>
+            </View>
           </View>
           {submitted && errors.ticketType ? (
             <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.ticketType}</Text>
           ) : null}
 
-          <FieldLabel text="Quantity" sx={sx} />
-          <View style={sx.stepper}>
-            <Pressable
-              style={[sx.stepBtn, quantity <= 1 && sx.stepDisabled]}
-              onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-              disabled={quantity <= 1}
-              accessibilityRole="button"
-              accessibilityLabel="Decrease quantity"
-              hitSlop={6}
-            >
-              <Text style={sx.stepGlyph}>{'−'}</Text>
-            </Pressable>
-            <Text style={[textStyle('price'), sx.stepVal]} accessibilityLabel={`Quantity ${quantity}`}>{quantity}</Text>
-            <Pressable
-              style={sx.stepBtn}
-              onPress={() => setQuantity((q) => q + 1)}
-              accessibilityRole="button"
-              accessibilityLabel="Increase quantity"
-              hitSlop={6}
-            >
-              <Text style={sx.stepGlyph}>+</Text>
-            </Pressable>
-          </View>
-
-          <FieldLabel text="Transfer method" sx={sx} />
-          <View style={sx.inlineChips}>
-            {TRANSFER_METHODS.map(({ value, label }) => (
-              <Chip key={value} label={label} selected={transferMethod === value} onPress={() => setTransferMethod(value)} />
-            ))}
-          </View>
-          {submitted && errors.transferMethod ? (
-            <Text style={[textStyle('bodySm'), sx.fieldError]} accessibilityRole="alert">{errors.transferMethod}</Text>
-          ) : null}
+          {/* V3 (board annotation ②): pickers are rows, not inline choices — transfer method
+              opens a sheet like neighborhood and platform. Same two values, same state. */}
+          <SelectRow
+            label="Transfer method"
+            value={TRANSFER_METHODS.find((m) => m.value === transferMethod)?.label ?? null}
+            placeholder="Select transfer method"
+            error={submitted ? errors.transferMethod : undefined}
+            onPress={() => setTransferOpen(true)}
+            sx={sx}
+            p={palette}
+          />
 
           <SelectRow
             label="Ticket platform"
@@ -945,6 +996,7 @@ export default function CreateListingScreen() {
       >
         <Button
           label={submitCtaLabel(quantity)}
+          size="lg"
           onPress={() => { void publishFlight.run(handlePublish); }}
           loading={busy}
           disabled={busy}
@@ -1035,6 +1087,31 @@ export default function CreateListingScreen() {
         </ScrollView>
       </Sheet>
 
+      {/* ── Transfer method sheet (V3: picker row, like platform) ── */}
+      <Sheet
+        visible={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        title="Transfer method"
+      >
+        <ScrollView style={sx.sheetList} keyboardShouldPersistTaps="handled">
+          {TRANSFER_METHODS.map(({ value, label }) => {
+            const on = transferMethod === value;
+            return (
+              <Pressable
+                key={value}
+                style={[sx.sheetRow, on && sx.sheetRowOn]}
+                onPress={() => { setTransferMethod(value); setTransferOpen(false); }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[textStyle('body'), on ? sx.sheetRowTextOn : sx.sheetRowText]}>{label}</Text>
+                {on ? <Text style={sx.sheetCheck}>{'✓'}</Text> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </Sheet>
+
       {/* ── Date / time picker ──────────────────────────────── */}
       {Platform.OS === 'ios' ? (
         <Sheet
@@ -1087,15 +1164,22 @@ function makeStyles(p: Palette) {
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 
   section: { marginTop: v2.space.xl },
-  sectionHead: { marginBottom: v2.space.lg },
-  sectionRule: { height: 1, backgroundColor: p.border.default, marginBottom: v2.space.md },
-  sectionTitle: { color: p.text.primary },
+  // V3: the eyebrow head — uppercase `label`, muted, no rule; sections separate with space.
+  sectionTitle: { color: p.text.muted, marginBottom: v2.space.lg },
   sectionBody: { gap: v2.space.lg },
 
   field: { alignSelf: 'stretch' },
   fieldLabel: { color: p.text.muted, marginBottom: v2.space.xs },
   fieldError: { color: p.status.error, marginTop: v2.space.xs },
-  fieldHelper: { color: p.text.muted, marginTop: v2.space.xs },
+  fieldHelper: { color: p.text.secondary },
+  // V3: the buyer-side money line's filled rounded panel (pkg8-create boards).
+  helperPanel: {
+    backgroundColor: p.surface.elevated,
+    borderRadius: v2.radius.sm,
+    paddingVertical: v2.space.md,
+    paddingHorizontal: v2.space.lg,
+    marginTop: v2.space.md,
+  },
   groupLabel: { color: p.text.muted, marginBottom: v2.space.sm },
 
   selectRow: {
@@ -1109,9 +1193,6 @@ function makeStyles(p: Palette) {
   selectValue: { color: p.text.primary, flex: 1 },
   selectPlaceholder: { color: p.text.muted, flex: 1 },
   chevron: { color: p.text.muted, fontSize: 22, marginLeft: v2.space.sm },
-
-  dateRow: { flexDirection: 'row', gap: v2.space.lg },
-  dateCol: { flex: 1 },
 
   moneyRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingVertical: v2.space.sm },
   moneyPrefix: { color: p.text.muted, marginRight: v2.space.xs },
@@ -1128,15 +1209,26 @@ function makeStyles(p: Palette) {
   chipRow: { gap: v2.space.sm, paddingRight: v2.space.lg },
   inlineChips: { flexDirection: 'row', gap: v2.space.sm },
 
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: v2.space.xl },
+  // V3: quantity shares the ticket-type row; the stepper keys are rounded (`md`, the stepper
+  // radius the bid screen set) — the 44pt squares were V2. hitSlop restores the 44pt target.
+  ticketTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: v2.space.sm,
+    flexWrap: 'wrap',
+  },
+  quantityGroup: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm, marginLeft: 'auto' },
+  quantityWord: { color: p.text.secondary, marginRight: v2.space.xs },
   stepBtn: {
-    width: 44, height: 44,
+    width: 36, height: 36,
+    borderRadius: v2.radius.md,
     borderWidth: 1, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
   },
   stepDisabled: { opacity: 0.35 },
-  stepGlyph: { color: p.text.primary, fontSize: 24, lineHeight: 28 },
-  stepVal: { color: p.text.primary, minWidth: 32, textAlign: 'center' },
+  stepGlyph: { color: p.text.primary, fontSize: 20, lineHeight: 24 },
+  stepVal: { color: p.text.primary, minWidth: 28, textAlign: 'center' },
 
   blurb: { color: p.text.secondary },
 
@@ -1150,25 +1242,29 @@ function makeStyles(p: Palette) {
   toggleHint: { color: p.text.muted, marginTop: 2 },
 
   commitRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  // V3: rounded, and checked is the board's high-contrast fill — primary ink with canvas
+  // check, which flips with the appearance. Red stays for actions, not acknowledgements.
   checkbox: {
-    width: 22, height: 22,
+    width: 24, height: 24,
+    borderRadius: v2.radius.sm,
     borderWidth: 2, borderColor: p.border.control,
     alignItems: 'center', justifyContent: 'center',
     marginRight: v2.space.sm, marginTop: 1,
   },
-  checkboxOn: { backgroundColor: p.brand.red, borderColor: p.brand.red },
-  checkMark: { color: p.text.inverse, fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  checkboxOn: { backgroundColor: p.text.primary, borderColor: p.text.primary },
+  checkMark: { color: p.surface.canvas, fontSize: 14, fontWeight: '700', lineHeight: 18 },
   commitText: { flex: 1, color: p.text.secondary },
 
   reviewCard: {
     borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
+    borderRadius: v2.radius.md,
     padding: v2.space.md, gap: v2.space.sm, marginTop: v2.space.md,
   },
   reviewRow: { flexDirection: 'row', justifyContent: 'space-between', gap: v2.space.md },
   reviewKey: { color: p.text.muted },
   reviewVal: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
-  riskBanner: { padding: v2.space.md, marginTop: v2.space.md, borderWidth: 1 },
+  riskBanner: { padding: v2.space.md, marginTop: v2.space.md, borderWidth: 1, borderRadius: v2.radius.md },
   // The edge is a status token, so it is graded in both appearances (6.07–11.48:1 on the canvas).
   // My first pass used translucent literals: they composite over either canvas, but ungraded they
   // measured 1.32–1.75:1 in Daylight, and the three fills were 1.03–1.07:1 against EACH OTHER — a

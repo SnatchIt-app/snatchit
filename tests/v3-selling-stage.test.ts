@@ -71,3 +71,46 @@ describe('Create — money sides once each; the summary at the action (§1)', ()
     expect(s).not.toMatch(/helper:\s*\{[^}]*status\.success/);
   });
 });
+
+/**
+ * The V3 surface (2026-09-24): composition `pkg7-create-after.png`, tokens `pkg8-create-dark/
+ * light.png`, validation states `pkg3-create-invalid.png`. Presentation only — the sell-state
+ * shipped-source guards keep pinning the gate chain and the whole-dollar insert.
+ */
+describe('Create — the V3 surface', () => {
+  const s = () => code('src/screens/CreateListingScreen.tsx');
+
+  it('SL7: the title speaks the screen-title voice; sections are uppercase eyebrows, not Oswald display', () => {
+    const src = s();
+    expect(src).toMatch(/textStyle\('screenTitle'\), sx\.pageTitle/);
+    expect(src).toMatch(/textStyle\('label'\), sx\.sectionTitle/);
+    expect(src).not.toContain("textStyle('displaySm')");
+    expect(src).not.toContain("textStyle('displayMd')");
+  });
+
+  it('SL8: no square controls remain — stepper, checkbox, panels take the role radii', () => {
+    const src = s();
+    expect(src).toMatch(/stepBtn: \{[^}]*borderRadius: v2\.radius\.md/);
+    expect(src).toMatch(/checkbox: \{[^}]*borderRadius: v2\.radius\.sm/);
+    expect(src).toMatch(/reviewCard: \{[^}]*borderRadius: v2\.radius\.md/);
+    expect(src).toMatch(/riskBanner: \{[^}]*borderRadius: v2\.radius\.md/);
+    expect(src).toMatch(/helperPanel: \{[^}]*borderRadius: v2\.radius\.sm/);
+  });
+
+  it('SL9: transfer method is a picker row opening a sheet (board annotation ②), same two values', () => {
+    const src = s();
+    expect(src).toMatch(/label="Transfer method"/);
+    expect(src).toContain('setTransferOpen(true)');
+    expect(src).toMatch(/<Sheet\s+visible=\{transferOpen\}/);
+    // The V2 inline chips for transfer method are gone; ticket type keeps its chips.
+    expect(src).not.toMatch(/TRANSFER_METHODS\.map\(\(\{ value, label \}\) => \(\s*<Chip/);
+    expect(src).toMatch(/TICKET_TYPES\.map\(\(t\) => \(\s*<Chip/);
+  });
+
+  it('SL10: the CTA is the tall pill, and a fixture makes the screen preview-only before the first gate', () => {
+    const src = s();
+    expect(src).toMatch(/label=\{submitCtaLabel\(quantity\)\}\s+size="lg"/);
+    // The harness can never walk the submit chain: the guard precedes setSubmitted and every gate.
+    expect(src).toMatch(/async function handlePublish\(\) \{\s*if \(fixture\) return;\s*setSubmitted\(true\);/);
+  });
+});
