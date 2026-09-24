@@ -1188,6 +1188,55 @@ serve(async (req: Request) => {
       }
 
       for (const s of stuck ?? []) await sweepOne(s);
+
+      // d) Seller-win dispute resolutions (F-DISPUTE-SELLERWIN-1, 2026-09-24).
+      //    065 resolve_transfer_dispute(seller_win) leaves status 'buyer_confirmed'
+      //    with buyer_confirmed_at NULL — the buyer never confirmed — so the b)
+      //    quiet-period filter above can never match it. This separate, additive
+      //    selection keys on the OPERATOR'S decision (dispute_resolution,
+      //    dispute_resolved_at); it never reads or writes a confirmation timestamp,
+      //    and the a)+b) query above is unchanged. The same 15-minute quiet period
+      //    applies, measured from the resolution.
+      //    Holds: an operator's decision does NOT inherit a genuine confirmation's
+      //    override of risk holds. manual_review is excluded in the query (a row
+      //    that can never be paid by automation must not hold a batch slot), and a
+      //    payout_hold_until still in the future (or 'held' with no end) is skipped
+      //    before any claim. claim_payout_attempt enforces the same rule as the
+      //    authority (migration 20260924000000). A held row can occupy one of these
+      //    20 slots until its hold passes; that bounded wait is accepted.
+      //    This selection has its own limit, so one tick can surface up to 20 more
+      //    candidates than before; every candidate goes through the same sequential
+      //    sweepOne (dedupe via `swept`), so nothing downstream assumes one batch.
+      const { data: sellerWins, error: sellerWinErr } = await supabase
+        .from('transfers')
+        .select('id, payment_id, listing_id, seller_id, buyer_id, status, dispute_resolved_at, payout_review_status, payout_hold_until, payments!inner(status)')
+        .eq('status', 'buyer_confirmed')
+        .is('buyer_confirmed_at', null)
+        .eq('dispute_resolution', 'resolved_seller_paid')
+        .lt('dispute_resolved_at', staleIso)
+        .eq('payments.status', 'succeeded')
+        .is('stripe_transfer_id', null)
+        .is('payout_released_at', null)
+        .is('disputed_at', null)
+        .or('payout_review_status.is.null,payout_review_status.eq.held')
+        .order('dispute_resolved_at', { ascending: true })
+        .limit(20);
+      if (sellerWinErr) {
+        console.error('enforce-transfer-expiry: Phase 2b seller-win query failed:', sellerWinErr);
+        errorCount++;
+      }
+      const nowMs = Date.now();
+      for (const s of (sellerWins ?? []) as {
+        id: string; payment_id: string; listing_id: string; seller_id: string; buyer_id: string;
+        payout_review_status: string | null; payout_hold_until: string | null;
+      }[]) {
+        const holdUntilMs = s.payout_hold_until ? Date.parse(s.payout_hold_until) : null;
+        const held = s.payout_review_status === 'manual_review'
+          || (holdUntilMs !== null && holdUntilMs > nowMs)
+          || (s.payout_review_status === 'held' && holdUntilMs === null);
+        if (held) continue;
+        await sweepOne(s);
+      }
     } catch (err) {
       console.error('enforce-transfer-expiry: Phase 2b sweep failed (non-fatal):', err);
     }

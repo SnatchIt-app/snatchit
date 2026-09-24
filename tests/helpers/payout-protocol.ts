@@ -142,6 +142,8 @@ export interface TransferRow {
   status: TransferStatus; payout_released_at: string | null; stripe_transfer_id: string | null;
   disputed_at: string | null; dispute_resolution: string | null; buyer_confirmed_at: string | null;
   payout_review_status: string | null;
+  /** 065 seller-win resolution time; 039 hold end (optional: older fixtures omit them) */
+  dispute_resolved_at?: string | null; payout_hold_until?: string | null;
 }
 export interface PaymentRow {
   id: string; status: string; stripe_livemode: boolean | null; stripe_payment_intent_id: string;
@@ -233,6 +235,14 @@ export class AttemptLedger {
     }
     if (t.disputed_at !== null && t.dispute_resolution !== 'resolved_seller_paid') throw new Error('DISPUTED');
     if (!['buyer_confirmed', 'auto_released'].includes(t.status)) throw new Error('TRANSFER_NOT_RELEASABLE');
+    // 20260924000000: an operator's seller-win decision does not override risk holds
+    if (t.status === 'buyer_confirmed' && t.buyer_confirmed_at === null && t.dispute_resolution === 'resolved_seller_paid') {
+      if (t.payout_review_status === 'manual_review') throw new Error('PAYOUT_UNDER_REVIEW');
+      const holdUntil = t.payout_hold_until ?? null;
+      if ((holdUntil !== null && Date.parse(holdUntil) > Date.now()) || (t.payout_review_status === 'held' && holdUntil === null)) {
+        throw new Error('PAYOUT_HELD');
+      }
+    }
     const p = this.payments.get(t.payment_id);
     if (!p || p.status !== 'succeeded') throw new Error('PAYMENT_NOT_SUCCEEDED');
     if (p.stripe_livemode !== true && !(p.stripe_livemode === false && this.allowTestModeMoney)) throw new Error('PAYMENT_NOT_LIVE');
