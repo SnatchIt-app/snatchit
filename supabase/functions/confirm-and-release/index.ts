@@ -230,7 +230,7 @@ serve(async (req: Request) => {
     // exists to answer the buyer precisely (403/409/400) before any attempt.
     const { data: transfer, error: transferErr } = await supabase
       .from('transfers')
-      .select('id, seller_id, buyer_id, payment_id, listing_id, status, payout_released_at, disputed_at, payout_risk_tier')
+      .select('id, seller_id, buyer_id, payment_id, listing_id, status, payout_released_at, disputed_at, payout_risk_tier, buyer_confirmed_at, dispute_resolution')
       .eq('id', transfer_id)
       .single();
 
@@ -333,6 +333,23 @@ serve(async (req: Request) => {
     // had in fact succeeded.
     // ─────────────────────────────────────────────────────────────────────
 
+    // Audit basis — what actually happened on THIS row. payout_decisions'
+    // buyer_confirmed and the BUYER_CONFIRMED code assert that the BUYER
+    // confirmed receipt; only confirm_transfer_received records that act
+    // (buyer_confirmed_at). The "already confirmed" path above also admits a
+    // seller-win resolution (065: status buyer_confirmed, buyer_confirmed_at
+    // NULL) and an auto-released row, so the status is never evidence of it
+    // (F-CR-148-SHARED follow-up, writers a1/a2). ONE basis code, deliberately:
+    // the buyer's own confirmation is the primary basis when it exists, so a
+    // confirmed row later resolved seller-win reports BUYER_CONFIRMED; the
+    // resolution stays on the transfer row. dispute_open stays a literal false
+    // at both writes below: §5 has already answered 409 for any disputed_at.
+    const buyerConfirmed = Boolean(transfer.buyer_confirmed_at);
+    const basisCode = buyerConfirmed ? 'BUYER_CONFIRMED'
+      : transfer.dispute_resolution === 'resolved_seller_paid' ? 'DISPUTE_RESOLVED_SELLER'
+      : transfer.status === 'auto_released' ? 'AUTO_RELEASED'
+      : 'NO_BUYER_CONFIRMATION';
+
     const respond = (body: Record<string, unknown>) => new Response(
       JSON.stringify(body),
       { status: 200, headers: { 'Content-Type': 'application/json', ...getResponseHeaders(req) } },
@@ -361,9 +378,9 @@ serve(async (req: Request) => {
           buyer_id:   transfer.buyer_id,
           risk_tier:  'low',
           decision:   'manual_review',
-          reason_codes: ['BUYER_CONFIRMED', reasonCode],
+          reason_codes: [basisCode, reasonCode],
           evidence,
-          buyer_confirmed: true,
+          buyer_confirmed: buyerConfirmed,
           dispute_open: false,
           actor: 'edge:confirm-and-release',
         });
@@ -405,7 +422,7 @@ serve(async (req: Request) => {
           buyer_id: transfer.buyer_id,
           risk_tier: 'low',
           decision: 'release',
-          reason_codes: ['BUYER_CONFIRMED'],
+          reason_codes: [basisCode],
           evidence: {
             base_cents: payment?.amount ?? null,
             seller_fee_cents: payment?.seller_fee ?? null,
@@ -415,7 +432,7 @@ serve(async (req: Request) => {
             attempt_no: outcome.attemptNo,
             destination_suffix: outcome.destination.slice(-4),
           },
-          buyer_confirmed: true,
+          buyer_confirmed: buyerConfirmed,
           dispute_open: false,
           actor: 'edge:confirm-and-release',
         });
