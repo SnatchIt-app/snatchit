@@ -30,11 +30,8 @@ import {
   sellerWindowView,
   transferReadOutcome,
   transferStatusMeta,
-  SELLER_NO_PAYOUT_LINE,
-  SELLER_REVERSED_COPY,
-  sellerReleaseLine,
-  sellerHoldLine,
 } from '@/src/lib/transfer/transferState';
+import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { TicketPlatform, TransferMethod } from '@/src/types';
@@ -335,22 +332,12 @@ export default function TransferSendScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
       >
         {/* Server-confirmed expiry: don't transfer (owner, 2026-09-19) */}
-        {windowView.kind === 'closed' ? (
-          <StateBlock title={windowView.title} tone="warning">
-            <Text style={[textStyle('bodySm'), s.stateSub]}>{windowView.body}</Text>
-            {/* A's table 2b: no payout ever moved for an expired order; the buyer's refund is theirs. */}
-            <Text style={[textStyle('bodySm'), s.stateSub]}>{SELLER_NO_PAYOUT_LINE}</Text>
-          </StateBlock>
-        ) : null}
+        {windowView.kind === 'closed' ? <SellerClosedBlock title={windowView.title} body={windowView.body} /> : null}
 
         {/* REVERSED — checked BEFORE any payout claim (A's precedence: reversed > payout_released_at;
             the row keeps payout_released_at/stripe_transfer_id as history and would otherwise read as
             paid out). No amount is stored, so none is shown. */}
-        {transfer.status === 'reversed' ? (
-          <StateBlock title={SELLER_REVERSED_COPY.title} tone="warning">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{SELLER_REVERSED_COPY.body}</Text>
-          </StateBlock>
-        ) : null}
+        {transfer.status === 'reversed' ? <SellerReversedBlock /> : null}
 
         {/* Buyer delivery target. The details themselves are unchanged: whether fulfilment details (phone/email) show
             follows the final fulfilment policy (owner, 2026-09-19). On a closed order the heading is neutral, because
@@ -423,27 +410,14 @@ export default function TransferSendScreen() {
           // F-28 (B pkg7 §6b; owner 2026-09-24): the badge above already says "Marked sent", so the
           // block carries only the forward-looking body — no title repeating the badge. The success
           // itself is announced for assistive tech at the tap; every failure dialog is untouched.
-          <StateBlock tone="neutral">
-            <Text style={[textStyle('bodySm'), s.stateText]}>Waiting for the buyer to confirm they received the tickets.</Text>
-            {transfer.payout_review_status == null && releaseCountdown && releaseCountdown !== 'Expired' ? (
-              // A's table 2e: at auto_release_at the payout policy DECIDES (auto-release, hold, or
-              // review); the line names that time and claims no payout.
-              <Text style={[textStyle('bodySm'), s.stateSub]}>{sellerReleaseLine(transfer.auto_release_at)}</Text>
-            ) : null}
-            {transfer.payout_review_status == null && releaseCountdown === 'Expired' ? (
-              <Text style={[textStyle('bodySm'), s.stateSub]}>The buyer review window has passed. Payout pending, it releases automatically once it clears review.</Text>
-            ) : null}
-            {transfer.payout_review_status === 'held' ? (
-              <Text style={[textStyle('bodySm'), s.stateSub]}>
-                {sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until)
-                  ?? 'Payout pending, funds are held until shortly after the event as a standard protection. No action needed unless the buyer reports an issue.'}
-              </Text>
-            ) : null}
-            {transfer.payout_review_status === 'manual_review' ? (
-              <Text style={[textStyle('bodySm'), s.stateSub]}>Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.</Text>
-            ) : null}
-            <Text style={[textStyle('bodySm'), s.stateWarn]}>If the buyer reports an issue, your payout will be held for review.</Text>
-          </StateBlock>
+          // The payout lines (release decision / window passed / HELD with the server's date /
+          // manual review) live in the shared block, which the sandbox gallery renders too.
+          <SellerSentBlock
+            payoutReviewStatus={transfer.payout_review_status}
+            payoutHoldUntil={transfer.payout_hold_until}
+            autoReleaseAt={transfer.auto_release_at}
+            releaseCountdown={releaseCountdown}
+          />
         ) : null}
 
         {/* SELLER_SENT without a screenshot — 140's explicit recovery */}
@@ -510,16 +484,6 @@ function Row({ label, value }: { label: string; value: string }) {
     <View style={s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
       <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-function StateBlock({ title, tone, children }: { title?: string; tone: 'neutral' | 'success' | 'warning'; children: React.ReactNode }) {
-  const color = tone === 'success' ? v2.status.success : tone === 'warning' ? v2.status.warning : v2.text.primary;
-  return (
-    <View style={s.stateBlock}>
-      {title ? <Text style={[textStyle('title'), { color }]}>{title}</Text> : null}
-      {children}
     </View>
   );
 }

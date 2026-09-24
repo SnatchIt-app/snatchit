@@ -17,7 +17,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TRANSFER_EXPIRY_COPY } from '@/src/lib/transfer/transferState';
-import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 
 // The screen reads __DEV__ for its dev-only fixtures; these tests assert the release path.
 (globalThis as Record<string, unknown>).__DEV__ = false;
@@ -27,6 +27,11 @@ const h = vi.hoisted(() => ({
   focus: { current: null as null | (() => void) },
 }));
 
+// V3 appearance: the shared transfer-state blocks read the palette; pin the shipped dark one here.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
 vi.mock('react-native', () => ({
   Alert: { alert: () => {} },
   ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', RefreshControl: 'RefreshControl',
@@ -97,7 +102,7 @@ function texts(host: HookHost): string[] {
     if (typeof el.props.children === 'string') out.push(el.props.children);
     walk(el.props.children);
   };
-  walk(host.output);
+  walk(expandTree(host.output));
   return out;
 }
 

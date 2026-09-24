@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { transferStatusCopy } from '@/src/lib/transfer/transferState';
-import { findElement, HookHost } from './helpers/nav-stack-harness';
+import { expandTree, findElement, HookHost } from './helpers/nav-stack-harness';
 import { buttonByLabel, screenText } from './helpers/screen-view';
 
 (globalThis as Record<string, unknown>).__DEV__ = false;
@@ -43,6 +43,11 @@ const h = vi.hoisted(() => {
   };
 });
 
+// V3 appearance: the shared transfer-state blocks read the palette; pin the shipped dark one here.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
 vi.mock('react-native', () => ({
   Alert: {
     alert: (title: string, message?: string, buttons?: AlertButton[]) => { h.alerts.push({ title, message, buttons }); },
@@ -151,7 +156,7 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
 
   it("X2: the seller's claim and the release warning come with them — confirming is never offered bare", async () => {
     const host = await mountReceive();
-    const text = screenText(host.output);
+    const text = screenText(expandTree(host.output));
 
     expect(text).toContain(transferStatusCopy('seller_sent', 'buyer').title);
     expect(text).toContain(RELEASE_WARNING);
@@ -161,7 +166,7 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
     const host = await mountReceive();
 
     expect(renderedTransfer(host)).toBe(true);
-    expect(screenText(host.output)).toContain(DELIVERY_PROMPT);
+    expect(screenText(expandTree(host.output))).toContain(DELIVERY_PROMPT);
     expect(deliveryForm(host)).toBeDefined();
   });
 
@@ -227,7 +232,7 @@ describe('F-XFER-3 — sent without delivery details: the buyer can still confir
     host.flush();
 
     expect(h.alerts.map((a) => a.title)).toEqual([DIALOG_TITLE, 'Error']);
-    expect(screenText(host.output)).not.toContain(transferStatusCopy('buyer_confirmed', 'buyer').body);
+    expect(screenText(expandTree(host.output))).not.toContain(transferStatusCopy('buyer_confirmed', 'buyer').body);
     expect(buttonByLabel(host.output, CONFIRM)?.props.disabled).toBe(false);
     expect(buttonByLabel(host.output, DISPUTE)?.props.disabled).toBe(false);
   });
@@ -242,7 +247,7 @@ describe('F-XFER-3 — negative controls: every other state (all five statuses, 
     expect(deliveryForm(host)).toBeDefined();
     expect(buttonByLabel(host.output, CONFIRM)).toBeUndefined();
     expect(buttonByLabel(host.output, DISPUTE)).toBeUndefined();
-    expect(screenText(host.output)).not.toContain(transferStatusCopy('pending', 'buyer').body);
+    expect(screenText(expandTree(host.output))).not.toContain(transferStatusCopy('pending', 'buyer').body);
   });
 
   it('X8: sent WITH delivery details — controls present, no delivery form (regression guard)', async () => {

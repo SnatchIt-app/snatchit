@@ -67,9 +67,13 @@ describe('vocabulary: claim ≠ possession', () => {
 describe('screens use the vocabulary, not their own words', () => {
   it('receive: pending/sent/confirmed/released/disputed all come from transferStatusCopy', () => {
     const receive = stripComments(read('app/transfer/receive/[id].tsx'));
-    for (const st of ['pending', 'seller_sent', 'buyer_confirmed', 'disputed']) {
+    for (const st of ['pending', 'buyer_confirmed', 'disputed']) {
       expect(receive, st).toContain(`transferStatusCopy('${st}', 'buyer')`);
     }
+    // seller_sent moved into the shared block the screen renders (owner 2026-09-24, one implementation
+    // for the screens and the sandbox gallery): the vocabulary is still the shared copy.
+    expect(receive).toContain('<BuyerSellerSentBlock autoReleaseAt={transfer.auto_release_at} />');
+    expect(stripComments(read('src/components/transfer/TransferStateBlocks.tsx'))).toContain("transferStatusCopy('seller_sent', 'buyer')");
     // Updated 2026-09-19 (owner/A): auto_released goes through buyerAutoReleasedCopy, which returns exactly this
     // shared copy once `payout_released_at` is set, and claims nothing about the money before that.
     expect(receive).toContain('buyerAutoReleasedCopy(transfer.payout_released_at)');
@@ -84,9 +88,12 @@ describe('screens use the vocabulary, not their own words', () => {
     // F-28 (B pkg7 §6b; owner 2026-09-24): the badge already reads "Marked sent", so the seller_sent
     // block carries only the forward-looking body and NO title repeating the badge. The block
     // component takes an optional title for exactly this case.
-    expect(send).toMatch(/transfer\.status === 'seller_sent' \? \(\s*<StateBlock tone="neutral">/);
+    expect(send).toMatch(/transfer\.status === 'seller_sent' \? \(\s*<SellerSentBlock/);
     expect(send).not.toContain('<StateBlock title="Marked as sent"');
-    expect(send).toMatch(/function StateBlock\(\{ title, tone, children \}: \{ title\?: string/);
+    // The block itself (shared with the sandbox gallery) renders body only, no title, for seller_sent.
+    const blocks = stripComments(read('src/components/transfer/TransferStateBlocks.tsx'));
+    expect(blocks).toMatch(/function StateBlock\(\{ title, tone, children \}: \{ title\?: string/);
+    expect(blocks).toMatch(/export function SellerSentBlock[\s\S]*?<StateBlock tone="neutral">/);
     expect(send).toContain('<StateBlock title="Tickets received"');
     // The success is announced for assistive tech - not a dialog repeating it.
     expect(send).not.toContain("Alert.alert('Marked as sent'");

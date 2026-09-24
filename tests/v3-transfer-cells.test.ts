@@ -35,13 +35,22 @@ vi.mock('@react-navigation/native', () => ({ useFocusEffect: () => {} }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'buyer-1' }, session: { user: { id: 'buyer-1' } } }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOffline: false }), isNetworkError: () => false }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
-vi.mock('@/src/components/ui', () => ({ Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner' }));
+vi.mock('@/src/components/ui', () => ({ Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', MediaUpload: 'MediaUpload', Spinner: 'Spinner' }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
 vi.mock('@/src/components/ProofImageViewer', () => ({ ProofImageViewer: 'ProofImageViewer' }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSuccess: () => {} }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+// The shared transfer-state blocks read the palette; pin the shipped dark one at the boundary.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
+// The send screen's upload hook and single-flight guard: inert here — nothing is picked or sent.
+vi.mock('@/src/hooks/useImageUpload', () => ({
+  useImageUpload: () => ({ localUri: null, status: 'idle', error: null, busy: false, pickImage: () => {}, reset: () => {}, readError: () => null, uploadImage: async () => null }),
+}));
 vi.mock('@/src/lib/supabase', () => {
   const transfers = () => {
     const q: Record<string, unknown> = {};
@@ -80,7 +89,7 @@ import {
   transferStatusMeta,
 } from '@/src/lib/transfer/transferState';
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
-import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -105,6 +114,17 @@ async function mount(): Promise<HookHost> {
   return host;
 }
 
+/** The REAL send screen, driven by the same mocked row (A's gap, 2026-09-24: the held branch was never rendered). */
+async function mountSend(): Promise<HookHost> {
+  const mod = await import('@/app/transfer/send/[id]');
+  const Screen = (mod.default ?? mod) as () => unknown;
+  const host = new HookHost(() => Screen(), new Map());
+  host.mount();
+  await flush();
+  host.flush();
+  return host;
+}
+
 const collect = (node: unknown, out: string[]) => {
   if (Array.isArray(node)) { node.forEach((n) => collect(n, out)); return; }
   const el = node as Element | null;
@@ -114,7 +134,8 @@ const collect = (node: unknown, out: string[]) => {
   if (typeof el.props.title === 'string') out.push(el.props.title);
   collect(el.props.children, out);
 };
-const texts = (host: HookHost) => { const out: string[] = []; collect(host.output, out); return out; };
+// The screens compose shared block components; expand them so their text is asserted through the screen.
+const texts = (host: HookHost) => { const out: string[] = []; collect(expandTree(host.output), out); return out; };
 
 // The deadline line formats the server timestamp in LOCAL time through the shared row formatter.
 function expectedDeadline(iso: string): string {
@@ -262,17 +283,41 @@ describe('the seller\'s send screen — reversed cell and the release line (sour
     const released = src.indexOf("transfer.status === 'auto_released'");
     expect(reversed).toBeGreaterThan(-1);
     expect(reversed).toBeLessThan(released);
-    expect(src).toContain('SELLER_REVERSED_COPY');
+    // The reversed cell is the shared block (owner 2026-09-24: one implementation for the screens and
+    // the sandbox gallery); the copy lives with the block.
+    expect(src).toContain('<SellerReversedBlock />');
+    const blocks = readFileSync('src/components/transfer/TransferStateBlocks.tsx', 'utf8');
+    expect(blocks).toContain('SELLER_REVERSED_COPY.title');
     expect(src).toContain("transferStatusMeta(transfer.status, 'seller')");
   });
 
   it('TS2: the seller_sent line names the release DECISION time from the server, replacing the old "releases once it clears review" sentence', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/transfer/send/[id].tsx', 'utf8');
-    expect(src).toContain('sellerReleaseLine(transfer.auto_release_at)');
+    const blocks = readFileSync('src/components/transfer/TransferStateBlocks.tsx', 'utf8');
+    // The screen wires the server's columns into the shared block; the block names the lines.
+    expect(src).toMatch(/<SellerSentBlock[\s\S]*?autoReleaseAt=\{transfer\.auto_release_at\}[\s\S]*?\/>/);
+    expect(blocks).toContain('sellerReleaseLine(autoReleaseAt)');
+    expect(blocks).not.toContain('Your payout releases once it clears review');
     expect(src).not.toContain('Your payout releases once it clears review');
     // A (2026-09-24): payout_hold_until is read and shown only in the held branch.
     expect(src).toMatch(/payout_review_status, payout_hold_until, /);
-    expect(src).toContain("sellerHoldLine(transfer.payout_review_status, transfer.payout_hold_until)");
+    expect(src).toMatch(/<SellerSentBlock[\s\S]*?payoutHoldUntil=\{transfer\.payout_hold_until\}[\s\S]*?\/>/);
+    expect(blocks).toContain('sellerHoldLine(payoutReviewStatus, payoutHoldUntil)');
+  });
+
+  it('TS3: RENDERED through the real send screen — held with a date shows the hold line and neither countdown line (A\'s gap, 2026-09-24)', async () => {
+    h.transfer = transfer({
+      status: 'seller_sent', seller_id: 'buyer-1', buyer_id: 'other-1',
+      payout_review_status: 'held', payout_hold_until: '2026-10-02T12:00:00Z',
+      auto_release_at: '2026-09-30T12:00:00Z', buyer: { display_name: 'DV buyer' },
+    });
+    const host = await mountSend();
+    const t = texts(host);
+    expect(t).toContain(sellerHoldLine('held', '2026-10-02T12:00:00Z'));
+    expect(t).not.toContain(sellerReleaseLine('2026-09-30T12:00:00Z'));
+    expect(t.join(' ')).not.toMatch(/review window has passed/);
+    expect(t.join(' ')).not.toMatch(/funds are held until shortly after the event/);   // the dated line, not the fallback
+    expect(t).toContain('Marked sent');                                                 // the badge carries the status
   });
 });

@@ -8,8 +8,8 @@
  * (v2 carries no plate key; the difference is 0.04 in luminance), and B's `border.control` is a
  * new key in BOTH appearances. Contrast is computed in tests, not estimated.
  *
- * B's board also proposes different MIDNIGHT values (canvas #08090A, neutral hairlines — the
- * pkg1 A-1 amendment). Those remain an open owner decision and are NOT adopted here.
+ * Midnight's hairlines are the approved neutral `#28292D` (A-1, owner 2026-09-22) and its canvas
+ * stays `#000000` — B withdrew the `#08090A` on the boards as a rendering artefact.
  *
  * `onArt` is deliberately identical in both appearances: text over artwork sits on the image
  * and its scrim, never on the canvas, so it stays white however the canvas flips.

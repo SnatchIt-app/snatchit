@@ -281,6 +281,22 @@ describe('reconciliation with B (owner 2026-09-24) — one pressed value, B\'s D
   });
 });
 
+describe('A-1 — neutral hairlines, approved (owner 2026-09-22, restated 2026-09-24)', () => {
+  it('AP17: Midnight dividers are the approved neutral #28292D, the stronger rule is the graded control edge, no red-tinted hairline survives in either mirror; the canvas stays #000000', async () => {
+    const mirror = await import('../packages/design-tokens/src/brand');
+    for (const b of [v2.border, mirror.border]) {
+      expect(b.default).toBe('#28292D');
+      expect(b.strong).toBe('#64656A');
+      for (const v of Object.values(b)) expect(v).not.toMatch(/255,\s*26,\s*26/);
+    }
+    for (const v of Object.values(light.border)) expect(v).not.toMatch(/255,\s*26,\s*26/);
+    expect(v2.surface.canvas).toBe('#000000');
+    expect(mirror.surface.canvas).toBe('#000000');
+    // The brand's red stays on actions and the selected tint — not on passive rules.
+    expect(v2.brand.redSoft).toMatch(/255,26,26/);
+  });
+});
+
 describe('startup — no flash of the wrong appearance before the stored choice is read', () => {
   it('AP14: the provider withholds the tree until the persisted choice loads, then renders the CHOSEN scheme; a silent store is bounded', async () => {
     const mod = await import('@/src/theme/appearance');

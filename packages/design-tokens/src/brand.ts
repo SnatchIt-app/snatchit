@@ -72,12 +72,15 @@ export const brand = {
 } as const;
 
 /**
- * Hairlines are RED-TINTED on this brand, not gray. `overArt` is the exception:
- * over artwork a red hairline fights the image, so a neutral one is used.
+ * Hairlines are NEUTRAL (V3 amendment A-1, approved by the owner 2026-09-22, restated
+ * 2026-09-24): red marks primary actions, destructive actions and the brand mark, never passive
+ * decoration — and a red-tinted divider was passive decoration in red. `default` is the approved
+ * `#28292D`; `strong`, the heavier rule (sheet and sticky-bar tops, emphasised edges), is the
+ * same neutral as the graded control edge. `overArt` stays a white hairline over artwork.
  */
 export const border = {
-  default: 'rgba(255,26,26,0.15)',
-  strong: 'rgba(255,26,26,0.30)',
+  default: '#28292D',
+  strong: '#64656A',
   overArt: 'rgba(255,255,255,0.10)',
   /**
    * The edge that IDENTIFIES a control — an input's underline at rest, a chip's outline, a

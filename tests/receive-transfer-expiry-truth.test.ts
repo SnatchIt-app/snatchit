@@ -30,6 +30,11 @@ const h = vi.hoisted(() => ({
   appState: { current: null as null | ((s: string) => void) },
 }));
 
+// V3 appearance: the shared transfer-state blocks read the palette; pin the shipped dark one here.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
 vi.mock('react-native', () => ({
   Alert: { alert: () => {} },
   AppState: {

@@ -49,13 +49,9 @@ import {
   transferStatusMeta,
   TRANSFER_EXPIRY_COPY,
   CONFIRM_RECEIPT_DIALOG,
-  BUYER_ORDER_CLOSED_COPY,
-  buyerReviewDeadlineLine,
-  REFUND_DUE_POLICY,
-  REFUND_PENDING_LINE,
-  refundLine,
   type PaymentRefundFacts,
 } from '@/src/lib/transfer/transferState';
+import { BuyerClosedBlock, BuyerSellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import {
   HANDOFF_IDLE,
   leaveForProvider,
@@ -392,9 +388,6 @@ export default function TransferReceiveScreen() {
 
   const meta = transferStatusMeta(transfer.status, 'buyer');
 
-  const refund = refundLine(refundFacts);
-  const reviewDeadline = transfer.status === 'seller_sent' ? buyerReviewDeadlineLine(transfer.auto_release_at) : null;
-
   return (
     <View style={s.root}>
       <Header />
@@ -467,15 +460,9 @@ export default function TransferReceiveScreen() {
             phone number must never stand between the buyer and "I haven't received them". */}
         {transfer.status === 'seller_sent' ? (
           <>
-            <View style={s.stateBlock}>
-              <Text style={[textStyle('title'), s.claimTitle]}>{transferStatusCopy('seller_sent', 'buyer').title}</Text>
-              <Text style={[textStyle('bodySm'), s.stateText]}>{transferStatusCopy('seller_sent', 'buyer').body}</Text>
-              {reviewDeadline ? (
-                // A's table 2e / B-5: the server's auto_release_at is the buyer's review window; the
-                // release decision runs then. Omitted entirely when the server does not give it.
-                <Text style={[textStyle('bodySm'), s.stateText]}>{reviewDeadline}</Text>
-              ) : null}
-            </View>
+            {/* The seller's claim and the review deadline (A's 2e / B-5) — the shared block, so the
+                sandbox gallery renders exactly this. Confirm / report stay here, below. */}
+            <BuyerSellerSentBlock autoReleaseAt={transfer.auto_release_at} />
 
             {arrivalPrompt ? (
               <View style={s.arrival} accessibilityLiveRegion="polite">
@@ -531,18 +518,8 @@ export default function TransferReceiveScreen() {
         {/* CONFIRMED — the buyer's own statement of possession */}
         {/* EXPIRED / REVERSED — the buyer's cells (A's table 2a/2c). The ORDER fact from the status;
             the REFUND fact only from the payment row; nothing about the seller's payout event. */}
-        {transfer.status === 'expired' ? (
-          <StateBlock title={BUYER_ORDER_CLOSED_COPY.expired.title} tone="warning">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{BUYER_ORDER_CLOSED_COPY.expired.body}</Text>
-            <Text style={[textStyle('bodySm'), s.stateText]}>{refund ?? REFUND_DUE_POLICY}</Text>
-          </StateBlock>
-        ) : null}
-        {transfer.status === 'reversed' ? (
-          <StateBlock title={BUYER_ORDER_CLOSED_COPY.reversed.title} tone="neutral">
-            <Text style={[textStyle('bodySm'), s.stateText]}>{BUYER_ORDER_CLOSED_COPY.reversed.body}</Text>
-            <Text style={[textStyle('bodySm'), s.stateText]}>{refund ?? REFUND_PENDING_LINE}</Text>
-          </StateBlock>
-        ) : null}
+        {transfer.status === 'expired' ? <BuyerClosedBlock status="expired" refund={refundFacts} /> : null}
+        {transfer.status === 'reversed' ? <BuyerClosedBlock status="reversed" refund={refundFacts} /> : null}
 
         {transfer.status === 'buyer_confirmed' ? (
           <StateBlock title={transferStatusCopy('buyer_confirmed', 'buyer').title} tone="success">
@@ -579,16 +556,6 @@ function Row({ label, value }: { label: string; value: string }) {
     <View style={s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
       <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
-    </View>
-  );
-}
-
-function StateBlock({ title, tone, children }: { title: string; tone: 'success' | 'warning' | 'neutral'; children: React.ReactNode }) {
-  const color = tone === 'success' ? v2.status.success : tone === 'warning' ? v2.status.warning : v2.text.primary;
-  return (
-    <View style={s.stateBlock}>
-      <Text style={[textStyle('title'), { color }]}>{title}</Text>
-      {children}
     </View>
   );
 }

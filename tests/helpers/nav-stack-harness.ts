@@ -199,6 +199,40 @@ export function findElement(node: unknown, match: (el: Element) => boolean): Ele
 
 // ── A stack navigator with the native layer modelled ─────────────────────
 
+/**
+ * The host renders ONE component; a nested function component appears in `output` as an element whose
+ * `type` is that function, with its own output unrendered. `expandTree` renders each such element with
+ * its props in its own host (hooks included) and splices the result in, recursively — so a text that a
+ * shared block renders can be asserted from the screen that composes it. Host strings ('View', 'Text'),
+ * fragments and memo / forwardRef wrappers are handled; class components are left as they are.
+ */
+export function expandTree(node: unknown, depth = 0): unknown {
+  if (depth > 16) return node;
+  if (Array.isArray(node)) return node.map((n) => expandTree(n, depth));
+  const el = node as Element | null;
+  if (!el || typeof el !== 'object' || !('props' in el)) return node;
+  const t = el.type as unknown;
+  let fn: ((p: unknown) => unknown) | null = null;
+  if (typeof t === 'function' && !(t as { prototype?: { isReactComponent?: unknown } }).prototype?.isReactComponent) {
+    fn = t as (p: unknown) => unknown;
+  } else if (t && typeof t === 'object') {
+    const inner = (t as { type?: unknown; render?: unknown }).type ?? (t as { render?: unknown }).render;
+    if (typeof inner === 'function') fn = inner as (p: unknown) => unknown;
+  }
+  if (fn) {
+    const render = fn;
+    const host = new HookHost(() => render(el.props), new Map());
+    host.mount();
+    host.flush();
+    const rendered = expandTree(host.output, depth + 1);
+    host.unmount();
+    return rendered;
+  }
+  const children = el.props.children;
+  if (children === undefined) return el;
+  return { ...el, props: { ...el.props, children: expandTree(children, depth) } };
+}
+
 type Action = { type: string; payload?: object; source?: string; target?: string };
 interface Route { key: string; name: string; params?: object }
 interface StackState { key: string; index: number; routes: Route[]; routeNames: string[] }

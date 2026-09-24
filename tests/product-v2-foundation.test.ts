@@ -61,7 +61,8 @@ describe('brand token parity', () => {
     expect(t.radius.none).toBe(0);
     expect(Object.values(t.radius)).not.toContain(6);
     // Red-tinted hairlines, never gray.
-    expect(t.border.default).toContain('255,26,26');
+    // V3 A-1 (owner 2026-09-22 / 2026-09-24): hairlines are the approved neutral, no longer red-tinted.
+    expect(t.border.default).toBe('#28292D');
     // Metadata must clear the 4.5:1 minimum: it carries dates and venue names.
     expect(t.text.muted).toBe('rgba(255,255,255,0.55)');
     // A destructive action must not share a color with a primary action.

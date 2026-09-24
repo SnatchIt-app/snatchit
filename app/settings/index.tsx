@@ -26,8 +26,9 @@ import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 
-type SettingsRoute = | '/settings/edit-profile'
+type SettingsRoute = | '/_dev/transfer-states' | '/settings/edit-profile'
   | '/settings/notifications'
   | '/settings/payout-setup'
   | '/settings/verify-phone'
@@ -346,6 +347,14 @@ export default function SettingsScreen() {
           <SettingsRow label="Terms of service" onPress={() => nav('/settings/legal')} />
           <SettingsRow label="Privacy policy" onPress={() => nav('/settings/privacy')} />
         </AccountSection>
+
+        {/* Sandbox-only (owner 2026-09-24): the synthetic transfer-state gallery. The row exists only in a
+            paired sandbox build; the route itself redirects home anywhere else. Read-only, no actions. */}
+        {IS_SANDBOX_BUILD ? (
+          <AccountSection title="Sandbox">
+            <SettingsRow label="Transfer states (sandbox gallery)" description="Synthetic fixtures, both appearances" onPress={() => nav('/_dev/transfer-states')} />
+          </AccountSection>
+        ) : null}
 
         {/* ── Account actions ───────────────────────────────── */}
         <View style={s.actions}>
