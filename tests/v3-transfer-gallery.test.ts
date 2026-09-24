@@ -134,14 +134,52 @@ describe('the seller blocks — no payout claim before payout_released_at; the h
     expect(reversed).toContain(SELLER_REVERSED_COPY.body);
     const held = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null, releaseCountdown: null })).output);
     expect(held).toContain(sellerHoldLine('held', '2026-10-02T12:00:00Z'));
+    // RETARGETED with TG9's sibling assertion (owner ruling 2026-09-24): held without a date states
+    // the hold, not an event-relative timeline.
     const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
-    expect(heldNoDate).toMatch(/funds are held until shortly after the event/);
+    expect(heldNoDate).toMatch(/held for review/);
+    expect(heldNoDate).not.toMatch(/shortly after the event/);
     expect(heldNoDate).not.toMatch(/Payout held until/);
     const manual = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
     expect(manual).toMatch(/manual review/);
     const release = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z', releaseCountdown: '2d 3h' })).output);
     expect(release).toContain(sellerReleaseLine('2026-09-26T21:00:00Z'));
     expect(release.join(' ')).not.toMatch(/has been released/);
+  });
+
+  it('TG4b (owner ruling 2026-09-24): no seller payout sentence promises automatic release or invents a timeline', async () => {
+    const mod = await import('@/src/components/transfer/TransferStateBlocks');
+    // The window-passed state: the window is a FACT (the server's auto_release_at has passed and the
+    // screen's own countdown says so). What follows it is not: the release decision may hold the
+    // payout, and `payout_released_at` is written only after Stripe confirms the transfer, which the
+    // job can retry indefinitely. So the state says the window passed and that the payout is
+    // pending — and nothing about when or how it moves.
+    const passed = texts(mount(() => mod.SellerSentBlock({
+      payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: 'Expired',
+    })).output).join(' ');
+    expect(passed).toMatch(/review window has passed/);
+    expect(passed).toMatch(/Payout pending/);
+    expect(passed).not.toMatch(/automatic/i);
+    expect(passed).not.toMatch(/clears review/);
+    // And across EVERY seller payout state this block can paint: no promise, no invented clock.
+    const states: Array<Parameters<typeof mod.SellerSentBlock>[0]> = [
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-26T21:00:00Z', releaseCountdown: '2d 3h' },
+      { payoutReviewStatus: null, payoutHoldUntil: null, autoReleaseAt: '2026-09-20T21:00:00Z', releaseCountdown: 'Expired' },
+      { payoutReviewStatus: 'held', payoutHoldUntil: '2026-10-02T12:00:00Z', autoReleaseAt: null, releaseCountdown: null },
+      { payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
+      { payoutReviewStatus: 'manual_review', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null },
+    ];
+    for (const props of states) {
+      const lines = texts(mount(() => mod.SellerSentBlock(props)).output);
+      expect(lines.join(' '), JSON.stringify(props)).not.toMatch(/automatic|shortly after|business day|within \d|once it clears/i);
+      // A date, when one appears, is the SERVER's, formatted by one of the two helpers and by
+      // nothing else: any line naming a time must be exactly what a helper returned for this row.
+      const fromServer = [sellerHoldLine('held', props.payoutHoldUntil), sellerReleaseLine(props.autoReleaseAt)];
+      for (const line of lines.filter((l) => /\d{1,2}:\d{2}|\b\d{1,2} [A-Z][a-z]{2}\b/.test(l))) {
+        expect(fromServer, `${line} — ${JSON.stringify(props)}`).toContain(line);
+      }
+    }
   });
 });
 
@@ -215,8 +253,15 @@ describe('the gallery — sandbox-only, read-only, synthetic and labelled', () =
     expect(t.join(' ')).not.toMatch(/Release decision/);
     expect(findElement(expandTree(noDate.output), (el) => el.type === 'Text' && el.props.children == null)).toBeUndefined();
     // Held without a date: the hold's status sentence stays; only the dated line is absent.
+    // RETARGETED (owner ruling 2026-09-24, payout copy): the old fallback said "funds are held
+    // until shortly after the event as a standard protection" — a TIMELINE with no server field
+    // behind it. `apply_payout_hold` takes the hold end as a parameter of the risk decision
+    // (039_risk_based_payout.sql), so "shortly after the event" is not a fact this row carries.
+    // Missing date ⇒ omit the date; the status sentence and the no-action guidance stay.
     const heldNoDate = texts(mount(() => mod.SellerSentBlock({ payoutReviewStatus: 'held', payoutHoldUntil: null, autoReleaseAt: null, releaseCountdown: null })).output).join(' ');
-    expect(heldNoDate).toMatch(/funds are held until shortly after the event/);
+    expect(heldNoDate).toMatch(/held for review/);
+    expect(heldNoDate).toMatch(/No action needed unless the buyer reports an issue/);
+    expect(heldNoDate).not.toMatch(/shortly after the event/);
     expect(heldNoDate).not.toMatch(/Payout held until/);
     // The buyer's claim without a server deadline: the claim stays, no deadline sentence, no empty line.
     const claim = mount(() => mod.BuyerSellerSentBlock({ autoReleaseAt: null }));

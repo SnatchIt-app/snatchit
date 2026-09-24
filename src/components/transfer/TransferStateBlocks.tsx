@@ -18,12 +18,9 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import {
   BUYER_ORDER_CLOSED_COPY,
-  REFUND_DUE_POLICY,
-  REFUND_PENDING_LINE,
   SELLER_NO_PAYOUT_LINE,
   SELLER_REVERSED_COPY,
   buyerReviewDeadlineLine,
-  refundLine,
   sellerHoldLine,
   sellerReleaseLine,
   transferStatusCopy,
@@ -122,8 +119,22 @@ export function SellerReversedBlock(_props: Record<string, never>) {
 }
 
 const SELLER_SENT_BODY = 'Waiting for the buyer to confirm they received the tickets.';
-const SELLER_WINDOW_PASSED = 'The buyer review window has passed. Payout pending, it releases automatically once it clears review.';
-const SELLER_HELD_FALLBACK = 'Payout pending, funds are held until shortly after the event as a standard protection. No action needed unless the buyer reports an issue.';
+/**
+ * OWNER RULING 2026-09-24 (payout copy): "Do not promise automatic release or invent a payout
+ * timeline. Show a review end date only from an appropriate server field, with missing dates
+ * omitted." Both sentences below used to break it, and both are on the SELLER's live screen:
+ *
+ *  - the window-passed line said "it releases automatically once it clears review". The window
+ *    passing is a server fact (`auto_release_at`); what happens next is not. The release decision
+ *    can hold the payout, and `payout_released_at` is written only after Stripe confirms the
+ *    transfer — a job that can skip and retry indefinitely (A's verdict: unsupportable).
+ *  - the held-without-a-date fallback said "funds are held until shortly after the event as a
+ *    standard protection". The hold's end is `payout_hold_until`, chosen per row by the risk
+ *    decision that calls `apply_payout_hold` (039_risk_based_payout.sql) — not an event-relative
+ *    rule. With that column NULL there is no date to state, so the line states the hold instead.
+ */
+const SELLER_WINDOW_PASSED = 'The buyer review window has passed. Payout pending.';
+const SELLER_HELD_FALLBACK = 'Payout pending, held for review. No action needed unless the buyer reports an issue.';
 const SELLER_MANUAL_REVIEW = 'Payout pending, this transfer is under manual review. Our team may contact you; you can also reach support@snatchitapp.com.';
 const SELLER_REPORT_WARNING = 'If the buyer reports an issue, your payout will be held for review.';
 
