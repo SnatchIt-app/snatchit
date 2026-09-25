@@ -67,7 +67,7 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   processing: "Processing",
   succeeded: "Captured",
   failed: "Failed",
-  refunded: "Refunded",
+  refunded: "Refund recorded (not confirmed settled)",
   canceled: "Canceled",
   cancelled: "Cancelled",
 };
@@ -193,6 +193,22 @@ export const DISPUTE_OUTCOME_LABELS: Record<string, string> = {
   partial_refund: "Partial refund (refund required — not executed here)",
 };
 
+/**
+ * `transfers.dispute_resolution` — the OPERATOR'S decision, never a money fact.
+ *
+ * `resolved_seller_paid` is a standing misnomer: 065 writes the decision and clears
+ * `disputed_at`; the payout happens later and only if `claim_payout_attempt` admits it
+ * (a live `payout_hold_until` or `manual_review` refuses it, migration 148), the sweep
+ * may not have run, the Stripe transfer can fail, and `flag_payout_reversal_required`
+ * can owe it back afterwards. Payout evidence is `payout_released_at` with `reversed`
+ * taking precedence (A's ratified ruling 2) — never this column.
+ */
+export const DISPUTE_RESOLUTION_LABELS: Record<string, string> = {
+  resolved_seller_paid: "Resolved — seller (decision; payout not implied)",
+  resolved_buyer_refunded: "Resolved — buyer (refund required)",
+  resolved_partial_refund: "Resolved — partial refund (refund required)",
+};
+
 export const ACTION_TYPE_LABELS: Record<string, string> = {
   case_create: "Create case",
   case_assign: "Assign case",
@@ -221,6 +237,7 @@ export type Vocab =
   | "approval"
   | "report"
   | "dispute_outcome"
+  | "dispute_resolution"
   | "action_type";
 
 const VOCABS: Record<Vocab, Record<string, string>> = {
@@ -233,8 +250,177 @@ const VOCABS: Record<Vocab, Record<string, string>> = {
   approval: APPROVAL_STATE_LABELS,
   report: REPORT_STATUS_LABELS,
   dispute_outcome: DISPUTE_OUTCOME_LABELS,
+  dispute_resolution: DISPUTE_RESOLUTION_LABELS,
   action_type: ACTION_TYPE_LABELS,
 };
+
+/**
+ * Row-aware transfer state. `TRANSFER_STATUS_LABELS` maps a bare status and therefore
+ * CANNOT tell a buyer's confirmation from an operator's seller-win decision: 065 sets
+ * status `buyer_confirmed` while leaving `buyer_confirmed_at` NULL. The only record that
+ * the buyer confirmed receipt is that timestamp, written by `confirm_transfer_received`
+ * (0550:204, and 002:228-229 before it — both eras set status and timestamp together).
+ * Use this wherever the label is a claim about what happened; the bare map stays correct
+ * for a filter control, which selects on the status column itself.
+ */
+export function transferStateLabel(row: {
+  status?: string | null;
+  buyer_confirmed_at?: string | null;
+  dispute_resolution?: string | null;
+}): string {
+  const status = row.status ?? "";
+  if (status !== "buyer_confirmed") return labelFor("transfer", status);
+  if (row.buyer_confirmed_at) return "Buyer confirmed";
+  if (row.dispute_resolution === "resolved_seller_paid") return "Resolved — seller (no buyer confirmation)";
+  return "Confirmed status, no confirmation record";
+}
+
+/**
+ * Payout state for a transfer row. Ratified ruling 2: `payout_released_at` is the
+ * evidence — every writer sets it with `stripe_transfer_id` and only after Stripe
+ * accepted the transfer — and `reversed` takes precedence over it, so a reversed
+ * transfer must never read as released. Never the word "received": what is observed is
+ * a transfer to the seller's connected account, not money reaching their bank.
+ *
+ * `status = 'reversed'` is written by `mark_transfer_reversed` (0561:114-127) from Stripe's
+ * own `transfer.reversed` event, so the reversal has ALREADY happened — nothing is owed
+ * back. Money owed back is `payout_attempts.state = 'reversal_required'`, a different fact
+ * from a different writer. The reversed amount is not stored and a reversal can be partial,
+ * so no amount is implied here (wording table §2d).
+ */
+export function payoutStateLabel(row: {
+  status?: string | null;
+  payout_released_at?: string | null;
+  payout_review_status?: string | null;
+}): string {
+  if (row.status === "reversed") return "Reversed (a reversal was recorded; amount not stored)";
+  if (row.payout_released_at) return "Released to connected account";
+  if (row.payout_review_status === "manual_review") return "Not released — manual review";
+  if (row.payout_review_status === "held") return "Not released — held";
+  return "Not released";
+}
+
+/**
+ * Provenance of `payout_decisions.buyer_confirmed`, per WRITER. The flag means different
+ * things depending on who wrote it and when, so the console annotates rather than rewrites.
+ *
+ * Fixed by 149 + v38 — these derived the flag from `transfers.status`, so a seller-win row
+ * recorded a confirmation that never happened:
+ *   - `edge:confirm-and-release` (a1/a2) — fixed when **v38 deployed**, not when the
+ *     migration applied. The platform recorded the switchover at 2026-09-24T20:31:20.378Z
+ *     (D's own W2 read); A's deploy step completed at 20:31:30Z. The later value is used on
+ *     purpose: a v37 invocation already in flight could still write after the switchover, and
+ *     over-annotating a few seconds of good rows only asks an operator to look twice, while
+ *     under-annotating lets a false record pass as trustworthy.
+ *   - `edge:stripe-webhook` (a4) and the `record_payout_attempt_result` reversal_required row
+ *     (a3) — fixed when migration 149 applied, 2026-09-24T20:31:03Z.
+ *
+ * NOT affected, and not annotated: `cron:enforce-transfer-expiry`'s risk-tiering rows and
+ * `admin:<uuid>` releases (039:304 / 0551:94, which leave the column's `false` default). Both
+ * run only on `seller_sent` rows, where `false` is simply accurate.
+ *
+ * Never fixed, and annotated with NO time boundary: `edge:enforce-transfer-expiry`
+ * (F-PD-EXPIRY-1, A's finding 2026-09-25). `recordManualReviewOnce` writes a literal `false`
+ * while serving the Phase 2b sweep, whose rows are `buyer_confirmed` / `auto_released` — so a
+ * manual-review decision on a genuinely confirmed row records "not confirmed". A owns the
+ * source fix; until it lands every row from this writer is unreliable on this column.
+ */
+/**
+ * `confirm-and-release` v38 became current at the platform's own switchover; A's deploy step
+ * completed 10 s later. Neither instant bounds the risk on its own: a v37 invocation that
+ * started just before the switchover may still be running, and a Supabase edge function's
+ * wall-clock limit on a paid plan is 400 s (supabase.com/docs/guides/functions/limits; the
+ * project is Pro per the 2026-09-22 preflight). So there are three regions, not two, and the
+ * middle one is reported as uncertain rather than guessed either way.
+ */
+export const CONFIRM_AND_RELEASE_SWITCHOVER_AT = "2026-09-24T20:31:20.378Z";
+export const CONFIRM_AND_RELEASE_DRAIN_END_AT = "2026-09-24T20:38:00.378Z"; // switchover + 400 s
+
+/**
+ * Migration 149 applied here. A SQL function replacement is transactional, so the SQL writers
+ * flip atomically and need no drain window; the only residual is a transaction whose `now()`
+ * predates the commit that installed the new body, which is negligible.
+ */
+export const SQL_WRITER_FIX_AT = "2026-09-24T20:31:03Z";
+
+export type DecisionProvenance =
+  | "reliable"
+  | "status_derived"
+  | "maybe_status_derived"
+  | "never_reads_confirmation";
+
+/**
+ * What a stored `buyer_confirmed` flag is worth, from the row itself.
+ *
+ * ORDER MATTERS, and not in the order the writers were discovered:
+ *
+ * 1. `edge:enforce-transfer-expiry` first. `recordManualReviewOnce` writes a literal `false`
+ *    and TWO of its evidence objects carry `attempt_id` (index.ts:976-977 and :984), so the
+ *    a3 test below would otherwise capture those rows and hand them a boundary — silently
+ *    un-annotating the one writer that is wrong at every time (F-PD-EXPIRY-1).
+ * 2. Then a3, by the row's own evidence rather than its actor. `record_payout_attempt_result`
+ *    writes `v_a.actor` — the ATTEMPT's actor — so an a3 row reads `cron:enforce-transfer-expiry`
+ *    or `edge:confirm-and-release` depending on who claimed it (payouts.ts:363;
+ *    confirm-and-release:407, enforce-transfer-expiry:929), never `edge:stripe-webhook`.
+ *    Classifying it by actor would let a pre-fix a3 row from the cron pass as reliable.
+ *    Its own signature is `decision = 'manual_review'` with `evidence.attempt_id`
+ *    (20260924120000:139-141), and it is a SQL writer, so it takes the migration boundary.
+ * 3. Then the remaining actor-keyed writers.
+ *
+ * An affected writer with an unreadable timestamp is treated as status-derived: the safe
+ * direction is to ask the operator to look.
+ */
+export function decisionProvenance(
+  actor: string | null | undefined,
+  decidedAt: string | null | undefined,
+  row?: { decision?: unknown; evidence?: unknown },
+): DecisionProvenance {
+  const a = actor ?? "";
+  if (a === "edge:enforce-transfer-expiry") return "never_reads_confirmation";
+
+  const at = decidedAt ? Date.parse(decidedAt) : NaN;
+  const isA3 =
+    row?.decision === "manual_review" &&
+    typeof row?.evidence === "object" && row.evidence !== null &&
+    "attempt_id" in (row.evidence as Record<string, unknown>);
+
+  if (isA3) {
+    if (!Number.isFinite(at)) return "status_derived";
+    return at < Date.parse(SQL_WRITER_FIX_AT) ? "status_derived" : "reliable";
+  }
+
+  if (a === "edge:stripe-webhook") {
+    if (!Number.isFinite(at)) return "status_derived";
+    return at < Date.parse(SQL_WRITER_FIX_AT) ? "status_derived" : "reliable";
+  }
+
+  if (a === "edge:confirm-and-release") {
+    if (!Number.isFinite(at)) return "status_derived";
+    if (at < Date.parse(CONFIRM_AND_RELEASE_SWITCHOVER_AT)) return "status_derived";
+    if (at < Date.parse(CONFIRM_AND_RELEASE_DRAIN_END_AT)) return "maybe_status_derived";
+    return "reliable";
+  }
+
+  return "reliable";
+}
+
+/** The operator-facing caveat for a flag, or null when the flag stands on its own. */
+export function decisionProvenanceNote(
+  actor: string | null | undefined,
+  decidedAt: string | null | undefined,
+  row?: { decision?: unknown; evidence?: unknown },
+): string | null {
+  switch (decisionProvenance(actor, decidedAt, row)) {
+    case "status_derived":
+      return "recorded before the 2026-09-24 fix (derived from status, not the confirmation record)";
+    case "maybe_status_derived":
+      return "recorded while the fixed function was rolling out — may have been written by the pre-fix version";
+    case "never_reads_confirmation":
+      return "this writer does not read the confirmation record (always recorded false)";
+    default:
+      return null;
+  }
+}
 
 /** Human label for a status value; falls back to the humanized raw value; "—" for empty. */
 export function labelFor(vocab: Vocab, value: unknown): string {
