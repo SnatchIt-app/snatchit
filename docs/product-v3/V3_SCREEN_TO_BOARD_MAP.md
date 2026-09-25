@@ -68,3 +68,36 @@ screens take no board and are never consumer surfaces** — they are a review in
 | **Public profile** | `pkg8-account-tickets-light.png` (it draws own + public profile) | Trust row shows "unavailable" rather than inventing a figure |
 | **Settings sub-screens** (notifications, security notice, blocked users, legal, privacy, preferences, support) | `pkg8-account-settings-dark.png` / `-light.png`; earlier `pkg6-settings-surfaces.png` | Persistent visible label on the 6-digit code field; a working support route; do not differentiate the two blocked reasons |
 | **Checkout display page** (`app/_dev/v3-checkout.tsx`) | **none — harness only** | Review instrument. Never a consumer surface, never a board row |
+
+---
+
+## SETTLED — listing footer action presentation (owner, 2026-09-25)
+
+**Approved from `comparisons/footer_arrangements_91062ab1.png`, Option B, in both appearances.**
+**This supersedes the 2026-09-24 Buy-Now-first visual hierarchy ruling.**
+
+When **bidding and Buy Now are both available** (`detailState` mode `auction_and_buy_now`, and
+only that mode):
+
+1. **Place a bid** — first, full-width, **red (filled)**. Its minimum all-in amount sits beneath
+   the label **inside** the button.
+2. **Buy Now** — second, full-width, **outlined**. Its quantity-aware label ("Buy both now",
+   "Buy all N now"), its price and its sub-line are preserved exactly as rendered in Option B.
+
+**Scope limits, as ruled.** This pair is **not** forced onto reserved, sold, ended, cancelled,
+own-listing, won, not-found or any other state with different valid actions. Those keep the
+single state control and the sentence outside the pill.
+
+**Behavioural invariants, unchanged by the paint.** Opening bid entry submits no bid. Buy Now does
+not establish a successful charge. Action **eligibility** is unchanged: which actions exist, and
+which are disabled, is still the resolver's decision.
+
+**The boards remain superseded here.** `pkg8-listing-dark` / `-light` draw the bid filled with Buy
+Now beneath it; the 2026-09-24 ruling inverted that to Buy-Now-filled; this ruling returns the
+fill to the bid while keeping Buy Now's V3 label, price and sub-line, which the boards predate.
+The board rows in this map stay marked known-wrong for the footer, now against **this** ruling.
+
+**Status:** C implements in the app's action-presentation logic (never as a harness patch) ·
+B verifies the committed result · E updates the reference map and the acceptance record.
+Verification owed on native: Dynamic Type, wrapping, safe areas, both appearances, with no
+essential label or price truncated.
