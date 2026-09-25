@@ -649,12 +649,17 @@ jobs:
           # guard_listing_seller_not_blocked). A textual merge silently keeps 87;
           # the tree carries both, so the value below is read from the catalog of
           # an actual replay, never inherited from either side.
-          EXPECT_TABLES: 31
+          # 2026-09-15 migration 132 (fresh-mint double charge, B): tables 31 -> 32 —
+          # +1 public.checkout_group_claim (RLS on, no policies, service_role only).
+          EXPECT_TABLES: 32
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
           # (on top of 129's revoke_push_token). Two nullable columns on payments;
           # no table, policy or trigger.
-          EXPECT_FUNCS: 96
+          # 2026-09-15 migration 132: functions 96 -> 99 — +3 public.claim_checkout_group,
+          # public.release_checkout_group, public.record_checkout_attempt (D review,
+          # reuse-order). No policy or trigger.
+          EXPECT_FUNCS: 99
           EXPECT_POLICIES: 37
           EXPECT_TRIGGERS: 35
 
