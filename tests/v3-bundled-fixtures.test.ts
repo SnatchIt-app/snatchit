@@ -118,9 +118,18 @@ describe('the bundled posters are a dev-only affordance', () => {
     // crop, a square, a dense flyer, and a photograph.
     for (const name of [
       'markers-4x5', 'markers-9x16', 'markers-16x9', 'markers-1x1', 'flyer-dense-4x5', 'photo-3x2',
+      // Subject framing, so a review can judge the SUBJECT and not only the edges.
+      'photo-subject-4x5', 'photo-subject-16x9',
     ]) {
       expect(src).toContain(`'${name}'`);
     }
+    /*
+     * The two lists must not drift: this one is written out so a fixture that is added to the module
+     * without a deliberate look here fails, and DEV_POSTER_NAMES is what the budget below sums. A
+     * file sitting in the directory but missing from the module would otherwise be invisible to both
+     * the budget and the harness — which is exactly what had happened before this was registered.
+     */
+    expect(DEV_POSTER_NAMES).toHaveLength(8);
     // Every named shape exists on disk, and the set stays small: these files ship INSIDE the binary
     // (Expo Router registers every app/ route statically, so a dev route's assets are bundled even
     // though the route itself redirects in production).

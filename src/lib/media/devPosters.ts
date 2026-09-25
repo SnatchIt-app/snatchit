@@ -37,7 +37,7 @@
  * crosshair — an ellipse means something scaled non-uniformly. If a bracket is missing from a
  * render, that frame cropped, and which bracket is gone says which edge lost.
  *
- * Total added to the binary: ~132 KB for six files.
+ * Total added to the binary: ~277 KB for eight files, budgeted by tests/v3-bundled-fixtures.test.ts.
  */
 
 declare const __DEV__: boolean | undefined;
@@ -56,6 +56,21 @@ export const DEV_POSTER_NAMES = [
   'markers-1x1',
   'flyer-dense-4x5',
   'photo-3x2',
+  /*
+   * SUBJECT-FRAMING fixtures (B's proposal, owner-accepted 2026-09-25). Not photographs — synthetic
+   * scenes carrying a hard-edged ring around a marked subject plus a 4px marker frame, so a review
+   * can judge whether the SUBJECT survives being fitted rather than only whether the edges do. The
+   * 16:9 one is the case that matters: fitted into a 4:5 frame it bands, and the question is whether
+   * the ring still reads.
+   *
+   * Optimised to 8-bit palette PNGs (59 KB and 48 KB) with the marker colours PINNED into the
+   * palette. That pinning is not tidiness: plain quantisation at small palette sizes mapped the
+   * spring-green marker to a pale cyan and left ZERO green pixels, which would have made the
+   * fixtures look fine and measure wrong. Subject ring pixel counts, centroid, bounding box and
+   * radial histogram are bit-identical to the unoptimised originals.
+   */
+  'photo-subject-4x5',
+  'photo-subject-16x9',
 ] as const;
 
 export type DevPosterName = (typeof DEV_POSTER_NAMES)[number];
@@ -92,6 +107,8 @@ function bundledModule(name: string): BundledAsset | null {
     case 'markers-1x1': return require('../../../assets/qa-posters/markers-1x1.png');
     case 'flyer-dense-4x5': return require('../../../assets/qa-posters/flyer-dense-4x5.png');
     case 'photo-3x2': return require('../../../assets/qa-posters/photo-3x2.png');
+    case 'photo-subject-4x5': return require('../../../assets/qa-posters/photo-subject-4x5.png');
+    case 'photo-subject-16x9': return require('../../../assets/qa-posters/photo-subject-16x9.png');
     default: return null;
   }
 }

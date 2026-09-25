@@ -156,10 +156,8 @@ describe('media slots', () => {
   it('puts a scrim behind every slot that carries text over artwork, and ONLY those', () => {
     // If text sits on the image, an unscrimmed slot would be unreadable over
     // bright artwork and invisible over dark artwork.
+    // FEATURED_EVENT is the V2 rail slot and still overlays its title, so it still needs a scrim.
     expect(MEDIA_SLOTS.FEATURED_EVENT.scrim).not.toBe('none');
-    // The listing hero still overlays its date and name, so it still needs the curve. Its identity
-    // placement is the one piece of this the owner has NOT ruled on yet.
-    expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).not.toBe('none');
     // The discovery card deliberately places text BELOW the image, so it needs none.
     expect(MEDIA_SLOTS.DISCOVERY_CARD.scrim).toBe('none');
     // And the converse, which this suite used to assert backwards for TICKET_ART: a scrim with no
@@ -169,11 +167,27 @@ describe('media slots', () => {
     expect(MEDIA_SLOTS.TICKET_ART.scrim).toBe('none');
     const ticket = readFileSync(resolve(root, 'src/components/tickets/TicketEventGroup.tsx'), 'utf8');
     expect(ticket).toMatch(/<EventMedia asset=\{asset\} slot="TICKET_ART" fluid \/>/);
-    // The Home feature joined them (owner 2026-09-25): identity beneath the poster, gradient gone.
-    // Same source-level check, so a re-introduced overlay would fail here and not only in a render.
+    /*
+     * The Home feature and then the listing hero joined them (owner 2026-09-25): identity beneath
+     * the poster, gradient gone. Checked at the SOURCE as well as the slot, so a re-introduced
+     * overlay fails here rather than only in a render someone has to look at.
+     */
     expect(MEDIA_SLOTS.HOME_FEATURE_V3.scrim).toBe('none');
     const feature = readFileSync(resolve(root, 'src/components/discovery/HomeFeature.tsx'), 'utf8');
     expect(feature).not.toMatch(/<\/EventMedia>/);
+
+    expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).toBe('none');
+    /*
+     * The hero is the one slot that still has CHILDREN — its back and overflow controls, which the
+     * owner classes as navigation rather than app text. So the check here is not "no children" but
+     * "nothing but navigation": no Text, no NameText and no Badge inside the frame.
+     */
+    const hero = readFileSync(resolve(root, 'src/components/listing/ListingHero.tsx'), 'utf8');
+    const inFrame = hero.slice(hero.indexOf('<EventMedia'), hero.indexOf('</EventMedia>'));
+    expect(inFrame).toContain('IconButton');
+    for (const forbidden of ['<Text', '<NameText', 'FromAFanBadge']) {
+      expect(inFrame, `${forbidden} must not be inside the hero frame`).not.toContain(forbidden);
+    }
   });
 
   it('derives height from width and ratio rather than hard-coding it', () => {

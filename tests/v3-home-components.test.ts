@@ -119,12 +119,14 @@ describe('slot system — V3 slots carry the §3 geometry and the curve', () => 
     expect(s.scrim).toBe('none');
   });
 
-  it('SL2: LISTING_HERO_V3 — curve scrim, a 4:5 poster, fitted', () => {
+  it('SL2: LISTING_HERO_V3 — a 4:5 poster, fitted, preloaded, and NO gradient', () => {
     const s = MEDIA_SLOTS.LISTING_HERO_V3;
-    expect(s.scrim).toBe('curve');
     expect(s.aspectRatio).toBe(v2.ratio.portrait);
     expect(s.defaultFit).toBe('fit');
     expect(s.preload).toBe(true);
+    // Owner 2026-09-25: the identity moved beneath the poster, so the gradient that supported it
+    // has nothing to support. The navigation chips left on the artwork carry their own plate.
+    expect(s.scrim).toBe('none');
   });
 
   it('SL3: FEED_ROW_ART — a 50 × 62 poster, radius 8, no scrim (text sits beside it)', () => {

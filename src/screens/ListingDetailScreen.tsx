@@ -74,6 +74,7 @@ import {
   detailState,
   listingAllInV3,
   listingPriceLinesV3,
+  reserveBusy,
   type ActionKind,
 } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
@@ -1272,8 +1273,14 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     }
   }
 
-  const primaryBusy =
-    (state.primary.kind === 'buy_now' || state.primary.kind === 'continue_reservation') && reserving;
+  /*
+   * BUSY FOLLOWS THE ACTION, NOT ITS POSITION (B's finding at 3c6f15a4, owner-confirmed).
+   *
+   * The rule lives in `reserveBusy` so both buttons read one predicate and neither can drift from
+   * the other again — see that function for what broke and why repeat-tap protection was a separate
+   * question that was already sound.
+   */
+  const busy = reserveBusy(state, reserving);
 
   // The live action's sub-line, read off the resolved action. Destructured so the ONE place that
   // spells `state.primary.subLabel` is the unavailable-state sentence in the footer, which is the
@@ -1453,12 +1460,12 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           label={state.primary.label}
           // V3 (O-2): informational — a minimum or a consequence, never the amount a tap submits.
           subLabel={state.primary.disabled || state.primary.kind === 'unavailable' ? undefined : primarySubLabel}
-          // Visible while the reserve call is in flight (CFT-203); Buy Now is the
-          // only primary that sets `reserving`.
+          // Visible while the reserve call is in flight (CFT-203), on whichever button carries the
+          // reserve action — see `isReserveAction` above.
           pendingLabel="Reserving…"
           variant="primary"
           disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
-          loading={primaryBusy}
+          loading={busy.primary}
           onPress={() => runAction(state.primary.kind)}
         />
         {state.secondary ? (
@@ -1466,7 +1473,11 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
             label={state.secondary.label}
             subLabel={state.secondary.subLabel}
             variant="secondary"
+            // The same pending treatment as the primary: under Option B this is the button that
+            // reserves, and a control that starts a network call must say so wherever it sits.
+            pendingLabel="Reserving…"
             disabled={state.secondary.disabled}
+            loading={busy.secondary}
             onPress={() => runAction(state.secondary!.kind)}
           />
         ) : null}

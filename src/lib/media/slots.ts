@@ -243,15 +243,24 @@ export const MEDIA_SLOTS = {
     scrim: 'none',
     preload: true,
   },
-  /** V3 listing hero: full-bleed poster, the curve scrim under date/name/price. Same retirement
-   *  of the w × 0.62 + 24 formula, same reason, and HERO_DATE_BOTTOM still anchors from the
-   *  bottom. */
+  /**
+   * Listing hero: a full-bleed 4:5 poster, and NO scrim.
+   *
+   * The w x 0.62 + 24 formula is retired for the same reason as the feature's — a formula and a
+   * ratio cannot both decide the height.
+   *
+   * SCRIM 'none' (owner 2026-09-25): the identity block moved beneath the poster, so the gradient
+   * that existed to make overlaid text readable has nothing left to make readable. The navigation
+   * controls that remain over the artwork do not rely on it: `IconButton onArt` paints its own
+   * rgba(0,0,0,0.55) chip. Third slot to lose a scrim on this rule — a scrim follows overlaid TEXT,
+   * never a slot's size or importance.
+   */
   LISTING_HERO_V3: {
     aspectRatio: v2.ratio.portrait,
     layoutWidth: { mobile: 390, tablet: 768, web: 560 },
     defaultFit: 'fit',
     radius: v2.radius.none,
-    scrim: 'curve',
+    scrim: 'none',
     preload: true,
   },
   /**

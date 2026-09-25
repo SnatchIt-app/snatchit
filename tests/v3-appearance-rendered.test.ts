@@ -251,19 +251,30 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
       const Icon = ((IconButton as { type?: unknown }).type ?? IconButton) as (p: unknown) => unknown;
       const B = ((Badge as { type?: unknown }).type ?? Badge) as (p: unknown) => unknown;
 
-      // The two chips on the hero. Their plate is what they paint over the media.
+      /*
+       * The two chips on the hero. Their plate is what they paint over the media.
+       *
+       * The marks are VECTORS now (owner 2026-09-25), so the ink is a `color` PROP on the icon
+       * rather than a style on a Text. The assertion is unchanged in substance — this test exists
+       * because a Light listing hero had no visible back chevron, which is a navigation defect, and
+       * that is just as possible with a vector as with a glyph.
+       */
       for (const glyph of ['back', 'more'] as const) {
         const h = new HookHost(() => Icon({ glyph, onArt: true, accessibilityLabel: 'x', onPress: () => {} }), new Map());
         h.mount(); h.flush();
         const pressable = findElement(h.output, (el) => el.type === 'Pressable');
-        const text = findElement(h.output, (el) => el.type === 'Text');
+        const mark = findElement(h.output, (el) => typeof el.props.name === 'string' && typeof el.props.color === 'string');
+        expect(mark, `${scheme} ${glyph} draws a vector mark`).toBeDefined();
+        const ink = mark!.props.color as string;
         const plate = styleValue(pressable, 'backgroundColor')!;
         expect(plate, `${scheme} ${glyph} plate`).toBeDefined();
         // Composited over the darkest and the lightest thing the media can be: legible on both.
         for (const behind of [dark.onArt.plate, '#FFFFFF']) {
           const fill = over(plate, behind);
-          expect(contrast(styleValue(text, 'color')!, fill), `${scheme} ${glyph} glyph on ${behind}`).toBeGreaterThanOrEqual(4.5);
+          expect(contrast(ink, fill), `${scheme} ${glyph} mark on ${behind}`).toBeGreaterThanOrEqual(4.5);
         }
+        // Invariant over artwork, like every other ink that sits on it.
+        expect(ink, `${scheme} ${glyph} ink`).toBe(dark.onArt.primary);
       }
 
       // The provenance badge, in its over-artwork form.
@@ -282,11 +293,22 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
     }
   });
 
-  it('RD3e: the hero passes the over-artwork form to every control it draws on the media', async () => {
+  it('RD3e: the hero declares over-art form for its NAVIGATION, and for nothing else', async () => {
+    /*
+     * INVERTED (owner ruling 2026-09-25). This used to require the From-a-fan badge to declare
+     * itself over-art, which was right while the identity block sat on the poster. The owner treats
+     * that badge as APP TEXT, so it moved beneath the artwork with the date line and the name — and
+     * an `onArt` badge down there would be white-on-near-white in Light.
+     *
+     * What still draws on the media is the back and overflow navigation, and those keep `onArt`:
+     * each paints its own rgba(0,0,0,0.55) chip, which is also why removing the hero's scrim did
+     * not strand them.
+     */
     const hero = await stripped('src/components/listing/ListingHero.tsx');
-    // Both chips already declared themselves over-art; the badge must too.
-    expect(hero.match(/onArt/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(hero).toMatch(/<FromAFanBadge onArt/);
+    expect(hero).toMatch(/glyph="back"[\s\S]{0,120}onArt/);
+    expect(hero).toMatch(/glyph="more"[\s\S]{0,160}onArt/);
+    // The badge must NOT claim the over-art vocabulary any more.
+    expect(hero).not.toMatch(/<FromAFanBadge onArt/);
   });
 
   it('RD4: the only white literals left in EventMedia are the scrim gradients over artwork (which do not invert)', async () => {
@@ -367,12 +389,17 @@ describe('over-artwork and on-fill inks — the cases a pure rename gets wrong',
     expect(src).toMatch(/<EventMedia[^>]*\/>/s);
     expect(src).not.toMatch(/<\/EventMedia>/);
 
-    // The listing hero's identity lines are the same case: B's measured 15.91 / 5.94 for that band
-    // are white-on-artwork figures, which only hold if the ink is artwork-side.
+    /*
+     * The listing hero followed the Home feature (owner 2026-09-25), so its identity lines invert
+     * the same way. B's measured 15.91 / 5.94 for that band were white-on-artwork figures against a
+     * scrim we had added — true, and about a band that no longer exists.
+     */
     const hero = await stripped('src/components/listing/ListingHero.tsx');
     const heroStyles = hero.slice(hero.indexOf('function makeStyles'));
-    expect(heroStyles).toMatch(/when: \{ color: p\.onArt\.secondary/);
-    expect(heroStyles).toMatch(/title: \{ color: p\.onArt\.primary/);
+    expect(heroStyles).toMatch(/when: \{ color: p\.text\.muted/);
+    expect(heroStyles).toMatch(/title: \{ color: p\.text\.primary/);
+    // The chips are the exception, and they are IN the frame rather than in this style block.
+    expect(heroStyles).not.toMatch(/onArt\.(primary|secondary)/);
   });
 
   it('RD9: the ink on a saturated status fill contrasts with the FILL, not with the canvas — in both appearances', async () => {

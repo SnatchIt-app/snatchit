@@ -233,6 +233,10 @@ const ART: Record<string, { feature: string | null; rows: string | null }> = {
   wide: { feature: devPosterPath('markers-16x9'), rows: null },
   square: { feature: devPosterPath('markers-1x1'), rows: null },
   all: { feature: devPosterPath('flyer-dense-4x5'), rows: devPosterPath('markers-4x5') },
+  // Subject framing: does the marked subject survive being fitted? `subject` is already 4:5, so it
+  // fills the frame; `subject-wide` is 16:9 and bands, which is the case worth looking at.
+  subject: { feature: devPosterPath('photo-subject-4x5'), rows: null },
+  'subject-wide': { feature: devPosterPath('photo-subject-16x9'), rows: null },
 };
 
 export const ART_KEYS = Object.keys(ART);

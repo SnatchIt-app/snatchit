@@ -465,3 +465,32 @@ export function detailState(input: DetailStateInput): DetailState {
 export function offersBid(actions: { primary: ListingAction; secondary: ListingAction | null }): boolean {
   return actions.primary.kind === 'place_bid' || actions.secondary?.kind === 'place_bid';
 }
+
+/** The kinds that dispatch the reserve call, and therefore the kinds that can be busy. */
+export function isReserveAction(action: ListingAction | null | undefined): boolean {
+  return !!action && (action.kind === 'buy_now' || action.kind === 'continue_reservation');
+}
+
+/**
+ * Which BUTTON shows "Reserving…", derived from the resolved actions rather than from either
+ * button's position (B's finding at 3c6f15a4, owner-confirmed 2026-09-25).
+ *
+ * The screen used to compute this for the PRIMARY alone, which was true for exactly as long as Buy
+ * Now was the primary. The owner's Option B ruling made the bid primary and Buy Now the secondary,
+ * and the busy state did not move with it: Buy Now still started a reservation and still showed no
+ * pending label. Putting the rule here means the two buttons read the same predicate, and a future
+ * re-ordering carries the busy state with whichever button owns the reserve call.
+ *
+ * NOT the same thing as repeat-activation protection, which was never broken: both buttons dispatch
+ * into one `useSingleFlight` lock held in a ref, so a second tap in the same tick is dropped by the
+ * lock rather than by a React state that has not re-rendered yet. This function is about FEEDBACK.
+ */
+export function reserveBusy(
+  actions: { primary: ListingAction; secondary: ListingAction | null },
+  reserving: boolean,
+): { primary: boolean; secondary: boolean } {
+  return {
+    primary: reserving && isReserveAction(actions.primary),
+    secondary: reserving && isReserveAction(actions.secondary),
+  };
+}

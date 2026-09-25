@@ -1,25 +1,34 @@
 /**
- * src/components/listing/ListingHero.tsx — artwork, controls, identity.
+ * src/components/listing/ListingHero.tsx — the poster, its navigation, and the identity beneath it.
  *
- * V3 (owner 2026-09-22; §3 + the midnight-listing mockup). The artwork runs full-bleed, and the
- * IDENTITY — the dated line and the name in the display voice — sits over its bottom band, under
- * the measured curve scrim the slot carries (B measured the name band at 3:1 worst 15.91 and the
- * date line at 4.5:1 worst 5.94 with this curve; real uploads are device check D-2).
+ * OWNER RULING 2026-09-25, the listing half of the Home ruling a day earlier: the event name, the
+ * date line and the From-a-fan provenance label go BENEATH the complete 4:5 poster; no app text or
+ * badges over the printed content; the text-supporting gradient is removed; navigation stays
+ * reachable without obscuring important poster content.
  *
- * THE FRAME IS A 4:5 POSTER (owner 2026-09-24), not the retired §3 formula. `heroHeight(w) =
- * w × 0.62 + 24` is deleted from featureMetrics, so LISTING_HERO_V3's ratio is the only height
- * authority: at a 393pt device the frame is ~491pt tall where the formula gave ~268.
+ * WHY THE OVERLAY WAS WRONG, and it is the same argument as the Home feature's. A flyer prints its
+ * own name, date, venue and lineup, usually set at the bottom edge — so an overlaid identity block
+ * put our type on theirs, and the gradient existed to darken theirs enough for ours to read. B's
+ * comparison panels showed exactly that collision. The measured contrast figures this file used to
+ * quote (name band 15.91, date line 5.94) were true and beside the point: they measured our text
+ * against a scrim we had added, not against the poster we were covering.
  *
- * NO GEOMETRY HERE MOVED, and that is the point of how it was written. The frame has always been
- * `fluid` — it measures the real width and takes its height from the slot — so this file never held
- * the formula to begin with. And every identity value is measured from the image's BOTTOM edge, so
- * a taller frame only moves the artwork's TOP up: the approved date/name block stays exactly where
- * it was approved (HERO_DATE_BOTTOM 78, HERO_NAME_GAP 19).
+ * WHAT STAYS ON THE ARTWORK: the back and overflow controls, which the owner classes as NAVIGATION
+ * rather than app text. They keep their `onArt` treatment, and they do not depend on the deleted
+ * scrim for legibility — `IconButton onArt` paints its own `rgba(0,0,0,0.55)` chip behind the
+ * glyph, so each control carries its own contrast floor. That was checked before the scrim was
+ * removed, not assumed.
  *
- * NOTHING TRANSACTIONAL IS OVER THE IMAGE — that V2 rule survives. The price, the breakdown
- * and the actions all live below in solid type; only identity moved onto the artwork, and only
- * because the scrim now guarantees it a floor. Provenance stays on the artwork too (a label,
- * not a decision), stacked above the date line so nothing collides.
+ * A CONSEQUENCE TO LOOK AT RATHER THAN HIDE: the controls sit at the poster's top-left and
+ * top-right, so on a flyer whose type reaches those corners they cover printed content. The
+ * `markers-*` and `flyer-dense-4x5` fixtures deliberately print a word in every corner so a review
+ * can see precisely what a chip covers.
+ *
+ * THE INK FAMILY CHANGED with the position: `onArt` is white in BOTH appearances by contract, so
+ * the moved block uses canvas inks. Left as `onArt` it would have been white-on-near-white in
+ * Light and would have passed every Dark capture — the same trap as the Home feature.
+ *
+ * NOTHING TRANSACTIONAL IS OVER THE IMAGE — that V2 rule survives, and now nothing at all is.
  */
 
 import { useMemo } from 'react';
@@ -29,7 +38,7 @@ import { useTopInset } from '@/src/lib/nav/navInsets';
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { FromAFanBadge, IconButton } from '@/src/components/ui';
-import { FEATURE_GUTTER, HERO_DATE_BOTTOM, HERO_NAME_GAP } from '@/src/lib/design/featureMetrics';
+import { FEATURE_GUTTER, HERO_NAME_GAP } from '@/src/lib/design/featureMetrics';
 import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 import type { MediaAsset } from '@/src/lib/media/url';
 import { textStyle } from '@/src/theme/typography';
@@ -49,10 +58,11 @@ export interface ListingHeroProps {
   onOverflow?: () => void;
 }
 
-// §3: the date line sits HERO_DATE_BOTTOM above the image bottom and the name HERO_NAME_GAP
-// below it. Bottom-anchoring the stack with the remainder as padding lets a two-line name grow
-// UPWARD instead of running off the image; the name's own line step comes from its token.
-const CONTENT_BOTTOM = HERO_DATE_BOTTOM - HERO_NAME_GAP - v2.type.nameDetail.lineHeight;
+/*
+ * HERO_DATE_BOTTOM is gone from this file with the overlay it positioned: it measured a distance
+ * from the IMAGE's bottom edge, which is not a thing a block below the image has. HERO_NAME_GAP
+ * survives because it is a gap between two lines of OUR type, which is unchanged by where they sit.
+ */
 
 export function ListingHero({
   asset,
@@ -72,30 +82,37 @@ export function ListingHero({
   const topPad = useTopInset();
 
   return (
-    <EventMedia asset={asset} slot="LISTING_HERO_V3" title={eventName} fluid>
-      <View
-        style={[styles.controls, { top: topPad + v2.space.sm }]}
-        pointerEvents="box-none"
-      >
-        <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} onArt />
-        {onOverflow ? (
-          <IconButton
-            glyph="more"
-            accessibilityLabel="More actions"
-            onPress={onOverflow}
-            onArt
-          />
-        ) : null}
-      </View>
+    <>
+      {/* The poster, carrying NAVIGATION only. Nothing else is a child of the frame, because a
+          child of EventMedia draws inside it. */}
+      <EventMedia asset={asset} slot="LISTING_HERO_V3" title={eventName} fluid>
+        <View
+          style={[styles.controls, { top: topPad + v2.space.sm }]}
+          pointerEvents="box-none"
+        >
+          <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} onArt />
+          {onOverflow ? (
+            <IconButton
+              glyph="more"
+              accessibilityLabel="More actions"
+              onPress={onOverflow}
+              onArt
+            />
+          ) : null}
+        </View>
+      </EventMedia>
 
-      <View style={styles.identity} pointerEvents="none">
+      {/* The app's identity for this listing, in its own area beneath the poster. */}
+      <View style={styles.identity}>
         {/*
           Provenance says "From a fan" and never "Direct from event": migration 093 is not
           deployed and every native rail flag is false, so no venue-issued ticket exists for
-          that claim to be true about.
+          that claim to be true about. The owner treats this label as APP TEXT, so it moved off the
+          artwork with the rest of the block — and it drops `onArt` for the same reason the lines
+          below it do.
         */}
         <View style={styles.badge}>
-          <FromAFanBadge onArt />
+          <FromAFanBadge />
         </View>
         <Text style={[textStyle('bodySm'), styles.when]} numberOfLines={1}>
           {`${rowWhenLabel(eventDate, eventTime)} · ${venue}`}
@@ -104,7 +121,7 @@ export function ListingHero({
           {eventName}
         </NameText>
       </View>
-    </EventMedia>
+    </>
   );
 }
 
@@ -117,16 +134,18 @@ function makeStyles(p: Palette) {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  /*
+   * Beneath the poster now, so it is a normal block rather than an absolutely positioned overlay.
+   * It keeps the poster's gutter so the type still lines up with the artwork's edges.
+   */
   identity: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: FEATURE_GUTTER,
-    paddingBottom: CONTENT_BOTTOM,
+    paddingTop: v2.space.md,
+    paddingBottom: v2.space.sm,
   },
   badge: { alignSelf: 'flex-start', marginBottom: v2.space.sm },
-  when: { color: p.onArt.secondary, marginBottom: HERO_NAME_GAP - v2.space.xs },
-  title: { color: p.onArt.primary },
+  /* CANVAS inks — `onArt` is white in both appearances and would vanish on Light's canvas. */
+  when: { color: p.text.muted, marginBottom: HERO_NAME_GAP - v2.space.xs },
+  title: { color: p.text.primary },
   });
 }
