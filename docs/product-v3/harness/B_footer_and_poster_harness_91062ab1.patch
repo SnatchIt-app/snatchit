@@ -1,0 +1,194 @@
+diff --git a/app/_dev/v3-home.tsx b/app/_dev/v3-home.tsx
+index b2382ba4..5d98ec5f 100644
+--- a/app/_dev/v3-home.tsx
++++ b/app/_dev/v3-home.tsx
+@@ -96,7 +96,10 @@ function fixtureRow(n: number, over: Partial<Listing>): Listing {
+     bid_count: 6,
+     buy_now_enabled: false,
+     buy_now_price: null,
+-    cover_image_path: null,
++    // B HARNESS ONLY (owner 2026-09-25): ?art=poster|poster45 feeds every row the SAMPLE 4:5
++    // flyer so Home's feature and rows can be judged against a real poster. Sample content.
++    cover_image_path: (typeof location !== 'undefined' && /[?&]art=poster/.test(location.search))
++      ? '__B_POSTER__' : null,
+     created_at: new Date().toISOString(),
+     ...over,
+   } as Listing;
+@@ -238,6 +241,7 @@ function fixtureFor(variant: string | undefined): HomeFixture | null {
+ 
+ export default function V3HomeHarness() {
+   const { variant, appearance } = useLocalSearchParams<{ variant?: string; appearance?: string }>();
++  (globalThis as unknown as { __B_POSTER?: string }).__B_POSTER = 'http://localhost:8083/poster-neon.jpg';
+   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
+   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
+   // dark and a light capture differ only in the value the app resolved.
+diff --git a/app/_dev/v3-listing.tsx b/app/_dev/v3-listing.tsx
+index 2d83fcd6..05a196b5 100644
+--- a/app/_dev/v3-listing.tsx
++++ b/app/_dev/v3-listing.tsx
+@@ -97,7 +97,7 @@ const LISTING_FIXTURE = {
+   reserved_by: null,
+   reserved_until: null,
+   winner_user_id: null,
+-  cover_image_path: null,
++  cover_image_path: null as string | null,
+   cover_image_url: null,
+   restrictions: null,
+   proof_status: null,
+@@ -286,9 +286,19 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined):
+ }
+ 
+ export default function V3ListingHarness() {
+-  const { screen, variant, appearance } = useLocalSearchParams<{
+-    screen?: string; variant?: string; appearance?: string;
++  const { screen, variant, appearance, footer, art } = useLocalSearchParams<{
++    screen?: string; variant?: string; appearance?: string; footer?: string; art?: string;
+   }>();
++  // B HARNESS ONLY (owner 2026-09-24): ?footer=A|B selects a comparison arrangement for the
++  // listing footer. Anything else, including absent, renders the shipping footer unchanged.
++  (globalThis as unknown as { __B_FOOTER?: string }).__B_FOOTER = footer === 'A' || footer === 'B' ? footer : undefined;
++  // B HARNESS ONLY (owner 2026-09-25, 4:5 poster direction): ?art= supplies SAMPLE 4:5 flyer
++  // artwork (1000x1250, the Posh static-flyer spec) from the dev server so the slots can be
++  // compared against a real poster. `poster-fit` additionally asks the media layer to CONTAIN
++  // the asset, which is an existing capability (MediaAsset.fit), not a new one.
++  (globalThis as unknown as { __B_ART_FIT?: string }).__B_ART_FIT = art === 'poster-fit' ? 'fit' : undefined;
++  (globalThis as unknown as { __B_POSTER?: string }).__B_POSTER = 'http://localhost:8083/poster-neon.jpg';
++  (globalThis as unknown as { __B_SLOT_45?: boolean }).__B_SLOT_45 = art === 'poster45';
+   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
+   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
+   // dark and a light capture differ only in the value the app resolved.
+@@ -305,7 +315,11 @@ export default function V3ListingHarness() {
+ 
+   // Stable per variant and per viewer: the screen's effects close over the fixture, so an identity
+   // that changed every render would re-run them for nothing.
+-  const fixture = useMemo(() => fixtureFor(variant, user?.id), [variant, user?.id]);
++  const base = useMemo(() => fixtureFor(variant, user?.id), [variant, user?.id]);
++  // Sample artwork, not production data: a 4:5 flyer served by the dev server.
++  const fixture = useMemo(() => base && (art === 'poster' || art === 'poster-fit' || art === 'poster45')
++    ? { ...base, listing: { ...base.listing, cover_image_path: '__B_POSTER__' } as typeof base.listing }
++    : base, [base, art]);
+ 
+   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
+ 
+diff --git a/src/components/media/EventMedia.tsx b/src/components/media/EventMedia.tsx
+index dfdbc756..7548380d 100644
+--- a/src/components/media/EventMedia.tsx
++++ b/src/components/media/EventMedia.tsx
+@@ -169,7 +169,7 @@ function EventMediaImpl({
+   // §3 heights are formulas of the real width; a slot that carries one wins over its ratio.
+   const boxHeight = Math.round(spec.heightFor ? spec.heightFor(boxWidth) : boxWidth / spec.aspectRatio);
+ 
+-  const resolved = resolveImage(asset, slot, {
++  const resolvedReal = resolveImage(asset, slot, {
+     breakpoint,
+     // The real laid-out width and the real screen density, so the request
+     // matches the box instead of the slot default.
+@@ -177,6 +177,27 @@ function EventMediaImpl({
+     devicePixelRatio: PixelRatio.get(),
+   });
+ 
++  /*
++   * B HARNESS ONLY (owner 2026-09-25, 4:5 poster direction). A sentinel path swaps in a SAMPLE
++   * flyer served by the dev server, so the real slot geometry can be compared against a real
++   * poster. It does NOT touch `isTrustedMediaUrl` — the http: refusal and the host allow-list are
++   * untouched, because weakening a shipping safeguard to take a screenshot is not a trade B makes.
++   * Reverted with `git checkout -- src app` after the captures.
++   */
++  const bHarnessPoster = (globalThis as unknown as { __B_POSTER?: string }).__B_POSTER;
++  const resolved = bHarnessPoster && asset.path === '__B_POSTER__'
++    ? {
++        kind: 'image' as const,
++        uri: bHarnessPoster,
++        backdropUri: bHarnessPoster,
++        width: 1000,
++        height: 1250,
++        fit: ((globalThis as unknown as { __B_ART_FIT?: string }).__B_ART_FIT === 'fit'
++          ? 'fit' : 'cover') as typeof resolvedReal extends { fit: infer F } ? F : never,
++        focal: { x: 0.5, y: 0.5 },
++      }
++    : resolvedReal;
++
+   // Accessibility: artwork that duplicates adjacent text is decorative. Artwork
+   // that IS the information gets a real label.
+   const a11y = decorative
+diff --git a/src/lib/media/slots.ts b/src/lib/media/slots.ts
+index 1f5d62ca..c16ee6de 100644
+--- a/src/lib/media/slots.ts
++++ b/src/lib/media/slots.ts
+@@ -250,3 +250,21 @@ export function slotPixelWidth(
+ export function slotQuality(devicePixelRatio = 2): number {
+   return devicePixelRatio >= 2 ? 45 : 80;
+ }
++
++/**
++ * B HARNESS ONLY (owner 2026-09-25, 4:5 poster direction). The two V3 slots take their LANDSCAPE
++ * shape from a formula height, not from a ratio, which is what crops a portrait flyer. With
++ * `__B_SLOT_45` set, the formula is dropped and all three artwork slots take the 4:5 portrait
++ * ratio `v2.ratio.portrait` already defines. This renders the PROPOSAL; it ships nothing.
++ * Reverted with `git checkout -- src app`.
++ */
++const B_WANTS_45 =
++  (globalThis as unknown as { __B_SLOT_45?: boolean }).__B_SLOT_45 === true ||
++  (typeof location !== 'undefined' && /[?&]art=poster45\b/.test(location.search));
++if (B_WANTS_45) {
++  for (const name of ['LISTING_HERO_V3', 'HOME_FEATURE_V3', 'FEED_ROW_ART'] as const) {
++    const spec = MEDIA_SLOTS[name] as unknown as { aspectRatio: number; heightFor?: unknown };
++    spec.aspectRatio = v2.ratio.portrait;
++    delete spec.heightFor;
++  }
++}
+diff --git a/src/screens/ListingDetailScreen.tsx b/src/screens/ListingDetailScreen.tsx
+index f7a1f182..1bf68b2b 100644
+--- a/src/screens/ListingDetailScreen.tsx
++++ b/src/screens/ListingDetailScreen.tsx
+@@ -62,6 +62,7 @@ import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+ // `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
+ // the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
+ import { BarAction } from '@/src/components/ui/StickyBar';
++import { FooterVariants, type FooterVariant } from '@/src/components/listing/__FooterVariants'; // B HARNESS ONLY
+ import { BidActivity } from '@/src/components/listing/BidActivity';
+ import { ListingHero } from '@/src/components/listing/ListingHero';
+ import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
+@@ -1298,6 +1299,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
+             // covers its formula-height frame and the curve scrim keeps the identity legible.
+             contract: 'legacy',
+             bucket: 'auction-media',
++            // B HARNESS ONLY (owner 2026-09-25): compare cover against contain for a 4:5 poster.
++            ...((globalThis as unknown as { __B_ART_FIT?: 'fit' }).__B_ART_FIT
++              ? { fit: 'fit' as const } : {}),
+           }}
+           eventName={listing.event_name}
+           venue={listing.venue}
+@@ -1422,6 +1426,24 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
+         The price is not repeated here. The panel at the top of the screen states it once, which
+         is what the board draws and what "each number once" has meant on this screen since §5.
+       */}
++      {/* B HARNESS ONLY (owner 2026-09-24, footer comparison). A and B are drawn by
++          __FooterVariants from this same resolver output; C and the unset case fall through to
++          the real StickyBar below, so the baseline is the shipping code, not a copy of it. */}
++      {((globalThis as unknown as { __B_FOOTER?: FooterVariant }).__B_FOOTER === 'A' ||
++        (globalThis as unknown as { __B_FOOTER?: FooterVariant }).__B_FOOTER === 'B') && state.secondary ? (
++        <FooterVariants
++          variant={(globalThis as unknown as { __B_FOOTER: FooterVariant }).__B_FOOTER}
++          pair={{
++            buyLabel: state.primary.label,
++            buyVerb: state.primary.label.split(' \u00b7 ')[0],
++            buyPrice: state.primary.label.split(' \u00b7 ')[1] ?? null,
++            buySub: state.primary.subLabel ?? '',
++            bidLabel: state.secondary.label,
++            bidSub: state.secondary.subLabel,
++            disabled: state.primary.disabled,
++          }}
++        />
++      ) : (
+       <StickyBar layout="stack">
+         {/* A dimmed control may not be the only place a listing's STATE is written: Button drops a
+             disabled pill to 0.4. So an unavailable primary keeps its sentence OUTSIDE the pill, at
+@@ -1462,6 +1484,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
+           />
+         ) : null}
+       </StickyBar>
++      )}
+     </View>
+   );
+ }
