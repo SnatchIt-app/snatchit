@@ -33,15 +33,19 @@ describe('resolution — a renderable URL is a render URL, so failure is a load 
   it('resolves the seller thumbnail to the transformation endpoint, not the raw object', () => {
     // This is the URL the sandbox answers with 400 for fixture paths. The
     // resolver cannot know that; the component has to handle the failure.
+    // The box the CARD actually asks for: 76pt of row height, 61pt of derived poster width.
     const r = resolveImage({ path: 'uuid/covers/1715000000000.jpg', contract: 'legacy' }, 'SEARCH_RESULT', {
-      layoutWidth: 76,
+      layoutWidth: 61,
+      layoutHeight: 76,
       devicePixelRatio: 2,
     });
     expect(r.kind).toBe('image');
     if (r.kind !== 'image') return;
     expect(r.uri).toMatch(/\/storage\/v1\/render\/image\/public\/auction-media\//);
-    expect(r.width).toBe(152);
+    expect(r.width).toBe(122);
+    // The requested box is the FRAME's shape, not a square and not the slot's nominal ratio.
     expect(r.height).toBe(152);
+    expect(r.width / r.height).toBeCloseTo(61 / 76, 2);
   });
 
   it('still reports a missing path as a fallback before any request is made', () => {
@@ -87,10 +91,16 @@ describe('SellerListingCard — the cover goes through EventMedia', () => {
     expect(src).not.toMatch(/<Image[\s>]/);
   });
 
-  it('uses a square slot at the row\'s own edge, on the raw stored path', () => {
+  it('uses the poster slot at the row\'s own HEIGHT, on the raw stored path', () => {
     expect(src).toMatch(/slot="SEARCH_RESULT"/);
-    expect(src).toMatch(/width=\{THUMB\}/);
-    expect(src).toMatch(/const THUMB = 76;/);
+    // Under the 4:5 poster direction the row gives the media its HEIGHT and the width is derived,
+    // so a `width` here would be a defect rather than an equivalent spelling: 76 as a width makes a
+    // 95pt-tall poster and grows every My Listings row by 19pt.
+    expect(src).toMatch(/height=\{SELLER_THUMB_H\}/);
+    expect(src).not.toMatch(/width=\{SELLER_THUMB_H\}/);
+    expect(src).toMatch(/export const SELLER_THUMB_H = 76;/);
+    // The derived width comes from the slot the card actually renders, not a second copy of 4:5.
+    expect(src).toMatch(/SELLER_THUMB_W = Math\.round\(SELLER_THUMB_H \* MEDIA_SLOTS\.SEARCH_RESULT\.aspectRatio\)/);
     expect(src).toMatch(/asset=\{\{ path: listing\.cover_image_path, contract: 'legacy', bucket: 'auction-media' \}\}/);
     // No hand-built URL and no pre-resolved one: the card no longer takes a coverUrl.
     expect(src).not.toMatch(/coverUrl/);

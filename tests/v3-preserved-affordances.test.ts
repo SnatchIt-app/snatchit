@@ -46,7 +46,12 @@ describe('required-field helpers survive the boards that letter them inside the 
 
   it('PA2: the create-listing fields keep their helpers, including the two that state a constraint', () => {
     const src = code('src/screens/CreateListingScreen.tsx');
-    pinned(src, 'helper="JPG or PNG, 16:9"', (s) => s.replace('helper="JPG or PNG, 16:9"', ''), 'cover-image constraint');
+    // The 16:9 constraint is retired with the crop that produced it (owner's 4:5 poster direction,
+    // 2026-09-24). The helper now states the target shape AND what happens to any other shape,
+    // because the picker no longer crops and a seller has to be told their flyer arrives whole.
+    pinned(src, 'helper="JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."', (s) => s.replace('helper="JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."', ''), 'cover-image constraint');
+    // The retired promise must not come back: it described a destructive crop the upload no longer does.
+    expect(src).not.toContain('JPG or PNG, 16:9');
     pinned(src, 'helper="Screenshot of the ticket or the confirmation email"',
       (s) => s.replace('helper="Screenshot of the ticket or the confirmation email"', ''), 'proof helper');
     // The price helpers are computed (they answer the buy-now/auction combination), so pin the wiring.

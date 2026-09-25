@@ -5,7 +5,8 @@
  * behaviour contract (localUri / status / error from useImageUpload):
  *
  *  - `cover`   — a compact media picker. Empty: a tappable row (icon + label +
- *                helper + add). Selected: a real 16:9 preview with Replace / Remove.
+ *                helper + add). Selected: the 4:5 POSTER frame the buyer will see, with the whole
+ *                image contained inside it, and Replace / Remove.
  *  - `compact` — for functional evidence (proof of ownership, transfer proof).
  *                Empty: a single slim row (icon + label + helper + Add). Selected:
  *                a small thumbnail + "Image added" + Replace / Remove.
@@ -72,7 +73,7 @@ export function MediaUpload({
     </View>
   ) : null;
 
-  // ── Cover: compact row when empty, 16:9 preview when selected ────────────────
+  // ── Cover: compact row when empty, the 4:5 poster preview when selected ──────
   if (variant === 'cover') {
     if (!hasImage) {
       return (
@@ -99,7 +100,19 @@ export function MediaUpload({
     }
     return (
       <View style={[s.coverWrap, { borderColor }]}>
-        <Image source={{ uri: localUri! }} style={s.coverImage} contentFit="cover" transition={200} />
+        {/*
+          `contain`, not `cover`. Nothing crops on the way in any more, so a preview that cropped
+          would be the only place in the flow that lied about the upload — a seller would trim a
+          flyer to satisfy a frame the product never applies. Contained, the preview answers the
+          two questions it exists for: is this the right photo, and is any of it being cut off (no).
+
+          The buyer's frame fills the slack with a blurred copy of the same artwork (EventMedia's
+          `fit`). That is deliberately NOT reproduced here: EventMedia blurs a small CDN derivative,
+          whereas this control only has the full-size local original, and we cannot measure that
+          blur on a device right now. The honest preview of the poster's SHAPE is worth more than an
+          unmeasured imitation of its backdrop.
+        */}
+        <Image source={{ uri: localUri! }} style={s.coverImage} contentFit="contain" transition={200} />
         {working ? (
           <View style={s.overlay} accessibilityLabel={picking ? UPLOAD_COPY.opening : `Uploading ${label}`}><Spinner color={palette.text.primary} /></View>
         ) : (
@@ -157,7 +170,9 @@ function makeStyles(p: Palette) {
 
   // cover selected
   coverWrap: { borderWidth: 1, backgroundColor: p.surface.surface },
-  coverImage: { width: '100%', aspectRatio: 16 / 9 },
+  // The buyer's frame, from the token rather than a literal: every poster slot in the consumer app
+  // is `v2.ratio.portrait`, so the seller previews the shape the artwork will actually be shown in.
+  coverImage: { width: '100%', aspectRatio: v2.ratio.portrait },
   coverBar: {
     flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
     paddingHorizontal: v2.space.md, paddingVertical: v2.space.sm,

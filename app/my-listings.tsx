@@ -25,10 +25,11 @@ import { Alert, FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } f
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
-import SellerListingCard from '@/src/components/SellerListingCard';
+import SellerListingCard, { SELLER_THUMB_H, SELLER_THUMB_W } from '@/src/components/SellerListingCard';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
+import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -254,7 +255,11 @@ export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixt
         <View style={s.list}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={s.skelRow}>
-              <Skeleton width={76} height={76} />
+              {/* The row's artwork box, taken from the card rather than typed again: a 76×76 square
+                  here and a 61×76 poster there would shift every row sideways the moment the real
+                  art arrived. MEDIA_RADIUS for the same reason in the other direction — the
+                  placeholder's corners must not change shape when the poster replaces it. */}
+              <Skeleton width={SELLER_THUMB_W} height={SELLER_THUMB_H} style={{ borderRadius: MEDIA_RADIUS }} />
               <View style={s.skelBody}>
                 <Skeleton height={16} width="70%" />
                 <Skeleton height={12} width="45%" style={{ marginTop: 8 }} />

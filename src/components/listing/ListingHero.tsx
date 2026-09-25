@@ -1,11 +1,20 @@
 /**
  * src/components/listing/ListingHero.tsx — artwork, controls, identity.
  *
- * V3 (owner 2026-09-22; §3 + the midnight-listing mockup). The artwork runs full-bleed at the
- * hero formula height, and the IDENTITY — the dated line and the name in the display voice —
- * now sits over its bottom band, under the measured curve scrim the slot carries (B measured
- * the name band at 3:1 worst 15.91 and the date line at 4.5:1 worst 5.94 with this curve;
- * real uploads are device check D-2).
+ * V3 (owner 2026-09-22; §3 + the midnight-listing mockup). The artwork runs full-bleed, and the
+ * IDENTITY — the dated line and the name in the display voice — sits over its bottom band, under
+ * the measured curve scrim the slot carries (B measured the name band at 3:1 worst 15.91 and the
+ * date line at 4.5:1 worst 5.94 with this curve; real uploads are device check D-2).
+ *
+ * THE FRAME IS A 4:5 POSTER (owner 2026-09-24), not the retired §3 formula. `heroHeight(w) =
+ * w × 0.62 + 24` is deleted from featureMetrics, so LISTING_HERO_V3's ratio is the only height
+ * authority: at a 393pt device the frame is ~491pt tall where the formula gave ~268.
+ *
+ * NO GEOMETRY HERE MOVED, and that is the point of how it was written. The frame has always been
+ * `fluid` — it measures the real width and takes its height from the slot — so this file never held
+ * the formula to begin with. And every identity value is measured from the image's BOTTOM edge, so
+ * a taller frame only moves the artwork's TOP up: the approved date/name block stays exactly where
+ * it was approved (HERO_DATE_BOTTOM 78, HERO_NAME_GAP 19).
  *
  * NOTHING TRANSACTIONAL IS OVER THE IMAGE — that V2 rule survives. The price, the breakdown
  * and the actions all live below in solid type; only identity moved onto the artwork, and only

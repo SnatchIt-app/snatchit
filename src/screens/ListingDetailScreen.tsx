@@ -1296,8 +1296,11 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         <ListingHero
           asset={{
             path: coverPath,
-            // Legacy assets were cropped destructively to 16:9 before upload; the V3 hero slot
-            // covers its formula-height frame and the curve scrim keeps the identity legible.
+            // Legacy assets were cropped destructively to 16:9 before upload, and those portrait
+            // pixels cannot be recovered. Under the 4:5 poster direction the hero FITS the asset
+            // into a portrait frame rather than cropping it again — so a legacy cover shows as a
+            // contained band over the blurred copy of itself, and the curve scrim keeps the
+            // identity legible either way.
             contract: 'legacy',
             bucket: 'auction-media',
           }}

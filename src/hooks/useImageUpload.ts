@@ -6,6 +6,9 @@
  *  - One picker at a time, with a visible 'picking' state; cancel, denial and a
  *    thrown picker error always end the picking state (1a, 1b). A final denial
  *    offers Open Settings (1g).
+ *  - The ORIGINAL is uploaded. No crop happens at pick time unless a caller asks for
+ *    one by passing `aspect` (owner 2026-09-24) — see that option's note for why the
+ *    default had to stop being `[16, 9]`.
  *  - iOS is asked for the most compatible representation (a HEIC photo should arrive
  *    as JPEG — to be OBSERVED on a device, DV-IMG-9), and the stored type and
  *    extension come from the file's own bytes, never its name (1h; A/B review). The
@@ -39,6 +42,19 @@ export type UploadStatus = 'idle' | 'picking' | 'ready' | 'uploading' | 'done' |
 export type UseImageUploadOptions = {
   userId: string;
   folder: string;
+  /**
+   * A fixed crop box for the picker, or `null` (the DEFAULT) to upload the original untouched.
+   *
+   * Passing a pair turns on `allowsEditing`, which is a DESTRUCTIVE crop: the pixels outside the
+   * box are discarded in the picker and never reach storage, so they cannot be recovered later.
+   * The option is kept because a caller may one day genuinely want that (a fixed-shape avatar, say),
+   * but it must be asked for explicitly — see the default's note below.
+   *
+   * It is also not the cross-platform control it looks like: expo-image-picker documents `aspect`
+   * as ANDROID-ONLY. On iOS `allowsEditing` opens the system editor, which crops to a SQUARE
+   * regardless of the pair. So a pair here means "crop to this on Android, to a square on iOS" —
+   * never "guarantee this shape".
+   */
   aspect?: [number, number] | null;
   quality?: number;
   bucket?: 'auction-media' | 'proof-docs';
@@ -62,7 +78,17 @@ export type UseImageUploadReturn = {
 export function useImageUpload({
   userId,
   folder,
-  aspect  = [16, 9],
+  /**
+   * DEFAULT `null` — no crop (owner 2026-09-24, the 4:5 poster direction).
+   *
+   * This default used to be `[16, 9]`, which meant a caller that said nothing about shape silently
+   * got a destructive 16:9 crop at pick time. That is how portrait pixels stopped existing for
+   * every listing created before this change, and it is the one part of the poster direction no
+   * later fix can undo: the media layer can fit, scale and frame an original, but it cannot
+   * recover pixels the picker threw away before the upload. A silent default must therefore be the
+   * non-destructive one; a crop is now something a caller has to ask for by name.
+   */
+  aspect  = null,
   quality = 0.85,
   bucket  = 'auction-media',
   reuseKey,
@@ -114,6 +140,9 @@ export function useImageUpload({
       launch: async () => {
         const r = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ['images'],
+          // No `aspect` means no editor at all, which is what sends the ORIGINAL to storage. With an
+          // `aspect` this is a destructive crop, and only on Android does it use the pair (see the
+          // option's note): iOS's editor crops to a square. Nothing downstream can undo either.
           allowsEditing: aspect !== null,
           aspect: aspect ?? undefined,
           quality,

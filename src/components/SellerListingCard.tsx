@@ -44,6 +44,7 @@ import {
   timeLeftLabel,
   type SellerBadge,
 } from '@/src/lib/listing/sellerListing';
+import { MEDIA_SLOTS } from '@/src/lib/media/slots';
 import { formatDollars } from '@/src/lib/money';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -51,8 +52,23 @@ import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 
-/** The row's thumbnail edge, in points. Passed to EventMedia as the laid-out width. */
-const THUMB = 76;
+/**
+ * The row's thumbnail box — 76 is its HEIGHT, not its edge (owner 2026-09-24, the 4:5 poster).
+ *
+ * `THUMB = 76` was passed to EventMedia as `width` and read as a 76pt square. Under the poster
+ * direction only one of the two edges can stay fixed, and it has to be the height: 76 is the row's
+ * VERTICAL budget — the row's height is content-driven from this image plus its padding, and every
+ * My Listings row the owner accepted was measured against a 76pt-tall thumbnail. Holding the width
+ * instead would make the poster 95 tall and grow every row by 19pt. So the height stays 76 and the
+ * width comes down to 61.
+ *
+ * The width is DERIVED from the slot this card actually renders, using the same expression
+ * EventMedia uses internally (`round(height × aspectRatio)`), so the skeleton that stands in for
+ * this box cannot drift from the box by a rounding point. Exported for that skeleton
+ * (app/my-listings.tsx) — the screen must not compute a poster edge of its own.
+ */
+export const SELLER_THUMB_H = 76;
+export const SELLER_THUMB_W = Math.round(SELLER_THUMB_H * MEDIA_SLOTS.SEARCH_RESULT.aspectRatio);
 
 type Props = {
   listing: Listing;
@@ -120,14 +136,15 @@ export default function SellerListingCard({ listing, onPress, onDelete, onEdit, 
   return (
     // The row carries the product's press response like every other tappable (CFT-201).
     <Tappable style={s.card} onPress={onPress} accessibilityRole="button" accessibilityLabel={a11yLabel}>
-      {/* A dense list: recognition, not persuasion — the SEARCH_RESULT slot at
-          the row's own 76pt edge. Decorative: the row text already names the event. */}
+      {/* A dense list: recognition, not persuasion — the SEARCH_RESULT poster at the row's own
+          76pt HEIGHT, the width taken from the 4:5 ratio. Decorative: the row text already names
+          the event. */}
       {/* Cancelled recedes by dimming the artwork and shifting the name to secondary ink; the
           words never sit under an opacity layer (owner 2026-09-24, v3-dimmed-layers). */}
       <EventMedia
         asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }}
         slot="SEARCH_RESULT"
-        width={THUMB}
+        height={SELLER_THUMB_H}
         title={listing.event_name}
         decorative
         style={cancelled ? s.cardCancelled : undefined}

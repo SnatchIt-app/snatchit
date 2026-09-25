@@ -381,7 +381,12 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
   const [sellerCommitmentAccepted, setSellerCommitmentAccepted] = useState(fx?.commitmentAccepted ?? false);
 
   // E — Media
-  const coverUpload = useImageUpload({ userId: user?.id ?? '', folder: 'covers', aspect: [16, 9], quality: 0.85 });
+  // `aspect: null` — the cover is uploaded WHOLE (owner 2026-09-24). It used to be `[16, 9]`, which
+  // cropped the flyer in the picker: the discarded pixels never reached storage, so a portrait
+  // poster could not enter the app at all. The consumer app now fits the original into a 4:5 frame,
+  // and fitting needs the original to still have its edges. Stated rather than defaulted, so the
+  // one screen that uploads event artwork says out loud that it does not crop it.
+  const coverUpload = useImageUpload({ userId: user?.id ?? '', folder: 'covers', aspect: null, quality: 0.85 });
   const proofUpload = useImageUpload({
     userId: user?.id ?? '',
     folder: 'proofs',
@@ -871,7 +876,9 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
             onPress={coverUpload.pickImage}
             onRemove={coverUpload.reset}
             label="Cover image"
-            helper="JPG or PNG, 16:9"
+            // States the target shape AND what happens to anything else, because nothing crops any
+            // more: an off-ratio flyer is contained in the 4:5 frame, not trimmed to fit it.
+            helper="JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."
             icon="photo"
             hasError={submitted && !!errors.coverImage}
             disabled={busy}
