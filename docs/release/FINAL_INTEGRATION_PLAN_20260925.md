@@ -1,4 +1,4 @@
-# Final integration plan: DRAFT (A owns; D verifies; E supplies frontend acceptance evidence), 2026-09-25
+# Final integration plan: DRAFT, **verified by D against D's independent inventory `f740ab73`** (A owns; D verifies; E supplies frontend acceptance evidence), 2026-09-25
 
 **What this is:** a planning and repository review. It authorises nothing: no merge, apply, deploy, feature switch
 or production read. Exact release commits are frozen only after implementation and the independent native review are
@@ -143,8 +143,12 @@ table is on the gate.
 ## 4. Compatibility requirements (these fix the ordering)
 
 - **C1:** 150 is applied before the #94 functions are deployed, because they call `record_refund_state`.
-- **C2:** 150 is backward-compatible with the deployed v41/v42. `record_payment_refund` is unchanged, the new columns
-  have their own writer-only guard, and detection is seeded off. So apply, then deploy, is a safe window.
+- **C2:** 150 is backward-compatible with the deployed v41/v42.
+  - **150 does not redefine `record_payment_refund`**, the writer v41/v42 call. That can be checked with one grep of
+    the migration.
+  - The three new columns are `NOT NULL DEFAULT 0`, behind their own writer-only guard.
+  - Detection is seeded off.
+  - So apply, then deploy, is a safe window (D verified).
 - **C3:** the Stripe `refund.*` subscription (O-R1) comes after the new stripe-webhook is live. The deployed v42
   acknowledges unknown events and discards them.
 - **C4:** no client selects a column before it exists in production.
@@ -170,6 +174,12 @@ table is on the gate.
 
 The release line is **the gate branch**, because production matches it (§1A).
 
+**Precondition P0, before S1: a live hazard today, not a scope choice (D's finding).** `main` has no branch
+protection, and nothing but draft status stops #54 (39 migrations, 09-09 marker) or #43 (not a draft, carries a
+migration, no marker) from being merged. Under AUTODEPLOY-1 that would be an unreviewed production apply. The owner:
+- protects `main` (required reviews, plus the required checks including migrations-guard);
+- closes the superseded PRs #43, #52, #54, #56, #58, #62, #63, #64, #70, #87 and #11.
+
 | Step | Merge | Notes |
 |---|---|---|
 | S1 | #94 → gate | 150 plus its edge changes |
@@ -185,9 +195,9 @@ The release line is **the gate branch**, because production matches it (§1A).
 | Step | Kind | Action | Constraint |
 |---|---|---|---|
 | X1 | owner check | AUTODEPLOY visual confirmation; backup status | before X2 |
-| X2 | database | apply **151** (targeted) | before the first seller-win resolution |
-| X3 | database | apply **150** (targeted) | C2 |
-| X4 | functions | deploy stripe-webhook and enforce-transfer-expiry from the frozen commit | after X3 (C1) |
+| X2 | database | apply **150** (targeted) | C2. File order (D's finding): the ledger's insertion order then matches the LC_ALL=C replay order |
+| X3 | database | apply **151** (targeted) | independent (C5); before the first seller-win resolution |
+| X4 | functions | deploy stripe-webhook and enforce-transfer-expiry from the frozen commit | after X2 (C1) |
 | X5 | configuration | O-R1: add `refund.created`, `refund.updated` and `refund.failed`; read the endpoint (G3) | after X4 (C3) |
 | X6 | configuration | O-R2: turn on `refund_state_detection_enabled` | after X5; O-R3 decided |
 | X7 | database / Stripe | O-R4: the historical reconciliation read, then `record_refund_state(…,'reconcile')` | optional follow-on |
@@ -203,8 +213,12 @@ The release line is **the gate branch**, because production matches it (§1A).
     - (a) Apply them before S7. 121 needs PFA-18C.
     - (b) Remove them, and the pgTAP they couple to (184, 186, 189, 190, 193), from the line merged to `main`.
     - (c) Merge them as **known-pending, targeted-apply-only** files.
-  - **Recommendation: (c).** `main` then equals the gate: the tested replay world, CI-green. The deployed code reaches
-    `main` without a `main`-only tree that nobody has tested. The three stay deferred, each with its owner (121 and 125
+  - **Recommendation: (c).**
+    - **Decisive (D):** under migrations-guard rule 4 (migrations-guard.yml:377-395), a migration added later must be
+      above the latest of its scheme, and the numbered tip is 146. So (b) does not defer 121, 125 and 126; it makes
+      them **unrevivable under their numbers**, returnable only as renamed timestamp files.
+    - `main` then also equals the gate: the tested replay world, CI-green. The deployed code reaches `main` without a
+      `main`-only tree that nobody has tested. The three stay deferred, each with its owner (121 and 125
     with B's signing track, 126 with D).
   - **Condition:** the fresh AUTODEPLOY confirmation at S7, and the release record listing them as the only files on
     `main` not in the ledger.
@@ -224,10 +238,8 @@ The release line is **the gate branch**, because production matches it (§1A).
   - Operator suspension (BS §2e) is then the next backend package after 152.
 - **D6: operator alerting and queues (CL R2).** Name who works `/cases` and `/reports`, and how often. **Required before
   submission.** O-R3 (failed refunds) is part of the same answer.
-- **D7: repository safety before S7.**
-  - **Recommended:** protect `main` (required reviews, plus the required checks including migrations-guard).
-  - Close the superseded PRs: #43, #52, #54, #56, #58, #62, #63, #64, #70, #87, #11.
-  - Today nothing but draft status stops #54 (39 migrations) from merging to `main`.
+- **D7: repository safety. Moved to §5.1 as precondition P0, and urgent now:** a live hazard before any release
+  step, not a scope choice.
 - **D8: deferred list confirmed as deferred:** 137, 138, 141, venue_api, F-LISTING-CRITICAL-TIER-1, handle_new_user
   parity, F-PD-EXPIRY-1, the onboarding flag, admin analytics, and #89 (unless O-R3 needs it).
 - **D9: the losing buyer's "Order complete".** **Recommended:** include the copy fix with 151's timing, before any
