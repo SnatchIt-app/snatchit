@@ -6,8 +6,9 @@
 //   PHASE 0 — Settlement reconciliation (Package 2, migration 20260906110000):
 //     get_unsettled_payments() -> re-fetch each PaymentIntent from Stripe ->
 //     settle_verified_payment(); unfulfillable captures are refunded once and
-//     recorded (record_payment_refund, or a guarded payments update until it
-//     exists); an unfulfillable capture that already carries a transfer is
+//     recorded with Stripe's own refund status through record_refund_state
+//     (150; a refund of ours already at Stripe is recorded, never re-created);
+//     an unfulfillable capture that already carries a transfer is
 //     parked as 'unfulfillable:manual_review' (one Sentry capture); a first
 //     settlement retires every other pending PaymentIntent on the listing;
 //     legacy_unknown_mode rows (stripe_livemode NULL) are counted, never
@@ -117,6 +118,50 @@ function getResponseHeaders(req: Request): Record<string, string> {
 }
 
 // ── Stripe helper ────────────────────────────────────────────────────────────
+// ── 150: refund lifecycle ────────────────────────────────────────────────────
+// A Stripe refund has its own status that can change in any direction for ~30
+// days; a card refund can report succeeded and later fail (docs.stripe.com/refunds,
+// /testing). Every refund fact goes through record_refund_state (migration
+// 20260925000000) with the refund's own status; the SQL writer counts it toward
+// the one-way payments record only while it is not failed/canceled.
+interface StripeRefund {
+  id: string;
+  amount?: number;
+  status?: string;
+  failure_reason?: string | null;
+  metadata?: Record<string, string> | null;
+  payment_intent?: string | null;
+}
+const REFUND_STATUSES_150 = new Set(['pending', 'requires_action', 'succeeded', 'failed', 'canceled']);
+const NOT_FAILED_150 = new Set(['pending', 'requires_action', 'succeeded']);
+/** Stripe always returns a status; an unknown one is treated as requested, never as done. */
+function refundStatusOf(r: StripeRefund): string {
+  return r.status && REFUND_STATUSES_150.has(r.status) ? r.status : 'pending';
+}
+function refundSourceOf(r: StripeRefund): 'expiry' | 'unfulfillable' | 'dashboard' {
+  if (!(r.metadata?.source ?? '').startsWith('enforce-transfer-expiry')) return 'dashboard';
+  return r.metadata?.reason === 'unfulfillable' ? 'unfulfillable' : 'expiry';
+}
+const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+/** The one method used — the same structural shape as _shared/payouts.ts PayoutDb (a real client satisfies it). */
+interface RefundStateDb {
+  rpc(name: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
+async function recordRefundState(
+  sb: RefundStateDb, pi: string, r: StripeRefund, source: string,
+  via: 'create_response' | 'reconcile',
+) {
+  return await sb.rpc('record_refund_state', {
+    p_payment_intent_id: pi,
+    p_stripe_refund_id:  r.id,
+    p_status:            refundStatusOf(r),
+    p_amount_cents:      typeof r.amount === 'number' ? r.amount : null,
+    p_failure_reason:    r.failure_reason ?? null,
+    p_source:            source,
+    p_observed_via:      via,
+  });
+}
+
 // Thin wrapper over shared stripeFetch (Stripe-Version pinned centrally).
 async function stripePost(path: string, body: Record<string, string>) {
   return stripeFetch(path, { method: 'POST', body });
@@ -194,9 +239,9 @@ serve(async (req: Request) => {
     // and settled through settle_verified_payment(p_source 'sweep'), the same
     // contract the webhook and confirm-payment use. An `unfulfillable`
     // capture is refunded in full EXACTLY once (deterministic idempotency
-    // key) and recorded through record_payment_refund (Package 3) — or, until
-    // that RPC exists, a status-guarded payments update — then its review
-    // row is resolved. Bounded: 50 rows, one Stripe GET each, fetch failures
+    // key) and recorded with Stripe's own status through record_refund_state
+    // (150; the refunds already on the charge are reconciled first, and a missing
+    // writer fails loudly) — then its review row is resolved. Bounded: 50 rows, one Stripe GET each, fetch failures
     // are skipped and counted. No DB lock is held across a network call.
     // =====================================================================
     let reconciledSettled  = 0;
@@ -261,7 +306,7 @@ serve(async (req: Request) => {
     };
     try {
       type UnsettledRow = { payment_id: string; stripe_payment_intent_id: string; listing_id: string; mode: string; status: string; paid_at: string | null; kind: string };
-      type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: Array<{ id?: string }> } };
+      type StripeCharge = { id?: string; amount_refunded?: number; refunds?: { data?: StripeRefund[] } };
       type StripePI = {
         id?: string; status?: string; amount_received?: number; currency?: string; livemode?: boolean;
         payment_method_types?: string[]; metadata?: Record<string, string>; latest_charge?: StripeCharge | string | null;
@@ -441,10 +486,42 @@ serve(async (req: Request) => {
               continue;
             }
 
+            // 150: reconcile with the refunds Stripe already holds for this charge
+            //      (fetched above with latest_charge.refunds expanded) BEFORE
+            //      creating one. A refund of OURS that exists is recorded, never
+            //      re-created (a lost write after a successful create); nothing is
+            //      created when refunds that have not failed already cover the total.
+            //      A failed refund (ours or not) is recorded and NOT retried: Stripe asks
+            //      for another way to refund (docs.stripe.com/refunds#failed-refunds),
+            //      and ops.detect_refunds opens a refund_failed case.
+            const chargeObj = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
+            const listed = (chargeObj?.refunds?.data ?? []).filter((lr) => !!lr?.id);
+            let listedErr = false;
+            for (const lr of listed) {
+              const { error: lrErr } = await recordRefundState(supabase, row.stripe_payment_intent_id, lr, refundSourceOf(lr), 'reconcile');
+              if (lrErr) {
+                listedErr = true;
+                console.error('enforce-transfer-expiry: Phase 0 reconcile write failed:', { payment_id: row.payment_id, refund_id: lr.id, error: lrErr });
+              }
+            }
+            if (listedErr) { reconciledErrors++; continue; }
+            const ours = listed.filter((lr) => lr.metadata?.payment_id === row.payment_id && lr.metadata?.reason === 'unfulfillable');
+            const anyFailed = listed.some((lr) => !NOT_FAILED_150.has(refundStatusOf(lr)));
+            const coveredCents = listed.filter((lr) => NOT_FAILED_150.has(refundStatusOf(lr)))
+              .reduce((sum, lr) => sum + (typeof lr.amount === 'number' ? lr.amount : 0), 0);
+            if (ours.length > 0 || anyFailed || (payRow.total != null && coveredCents >= payRow.total)) {
+              const landed = !anyFailed && (ours.some((lr) => NOT_FAILED_150.has(refundStatusOf(lr))) || (payRow.total != null && coveredCents >= payRow.total));
+              console.log('enforce-transfer-expiry: Phase 0 refund already at Stripe — recorded, not re-created:', {
+                payment_id: row.payment_id, ours: ours.map((lr) => `${lr.id}:${refundStatusOf(lr)}`), any_failed: anyFailed, covered_cents: coveredCents,
+              });
+              if (landed) { await resolveReview(); reconciledRefunded++; }
+              continue;
+            }
+
             console.warn('enforce-transfer-expiry: Phase 0 refunding unfulfillable capture:', {
               payment_id: row.payment_id, pi_id: row.stripe_payment_intent_id, kind: row.kind,
             });
-            const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
+            const refund = await stripeFetch<StripeRefund>('/refunds', {
               method: 'POST',
               idempotencyKey: `refund_unfulfillable_${row.payment_id}`,
               body: {
@@ -455,38 +532,26 @@ serve(async (req: Request) => {
               },
             });
 
-            // Record through Package 3's monotonic refund writer; until it is
-            // deployed, fall back to a status-guarded payments update.
-            const { error: recordErr } = await supabase.rpc('record_payment_refund', {
-              p_payment_intent_id: row.stripe_payment_intent_id,
-              p_stripe_refund_id:  refund.id,
-              p_stripe_dispute_id: null,
-              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
-              p_source:            'unfulfillable',
-            });
+            // 150: record the refund with the status Stripe returned. A missing or
+            // failing writer fails LOUDLY (Sentry + error count): the old fallback
+            // wrote payments.status = 'refunded' with no refund state at all.
+            const { error: recordErr } = await recordRefundState(supabase, row.stripe_payment_intent_id, refund, 'unfulfillable', 'create_response');
             if (recordErr) {
-              const missing = recordErr.code === 'PGRST202' || recordErr.code === '42883'
-                || /record_payment_refund/.test(recordErr.message ?? '') && /not find|does not exist/i.test(recordErr.message ?? '');
-              if (!missing) {
-                console.error('enforce-transfer-expiry: Phase 0 record_payment_refund FAILED after Stripe refund:', {
-                  payment_id: row.payment_id, stripe_refund_id: refund.id, error: recordErr,
-                });
-                await captureException('enforce-transfer-expiry:phase0-record-refund-failed',
-                  new Error(`record_payment_refund failed for payment ${row.payment_id} (refund ${refund.id}): ${recordErr.message}`),
-                  { payment_id: row.payment_id, stripe_refund_id: refund.id });
-                reconciledErrors++;
-                continue;   // next run re-selects the row (not yet refunded by its money facts) and replays the same idempotent refund
-              }
-              const { error: fallbackErr } = await supabase
-                .from('payments')
-                .update({ status: 'refunded', refunded_at: new Date().toISOString(), stripe_refund_id: refund.id })
-                .eq('stripe_payment_intent_id', row.stripe_payment_intent_id)
-                .not('status', 'in', '("refunded")');
-              if (fallbackErr) {
-                console.error('enforce-transfer-expiry: Phase 0 fallback refund write failed:', { payment_id: row.payment_id, stripe_refund_id: refund.id, error: fallbackErr });
-                reconciledErrors++;
-                continue;
-              }
+              console.error('enforce-transfer-expiry: Phase 0 record_refund_state FAILED after Stripe refund:', {
+                payment_id: row.payment_id, stripe_refund_id: refund.id, error: recordErr,
+              });
+              await captureException('enforce-transfer-expiry:phase0-record-refund-failed',
+                new Error(`record_refund_state failed for payment ${row.payment_id} (refund ${refund.id}): ${recordErr.message}`),
+                { payment_id: row.payment_id, stripe_refund_id: refund.id });
+              reconciledErrors++;
+              continue;   // next run re-lists the row and reconciles with Stripe first (never a second refund)
+            }
+            if (!NOT_FAILED_150.has(refundStatusOf(refund))) {
+              console.error('enforce-transfer-expiry: Phase 0 refund created but FAILED at Stripe:', {
+                payment_id: row.payment_id, stripe_refund_id: refund.id, status: refund.status, failure_reason: refund.failure_reason ?? null,
+              });
+              reconciledErrors++;
+              continue;   // recorded; ops.detect_refunds opens refund_failed; not retried automatically
             }
             await resolveReview();
             reconciledRefunded++;
@@ -598,7 +663,7 @@ serve(async (req: Request) => {
           // Deterministic idempotency key: a crash-and-retry (or the Phase
           // 1b self-heal sweep below) replays the SAME refund instead of
           // relying solely on Stripe's full-refund dedup semantics.
-          const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
+          const refund = await stripeFetch<StripeRefund>('/refunds', {
             method: 'POST',
             idempotencyKey: `refund_expiry_${t.transfer_id}`,
             body: {
@@ -609,17 +674,11 @@ serve(async (req: Request) => {
             },
           });
 
-          // ── 2e. Record the refund fact (record_payment_refund, 20260906120000):
-          // append-only payment_refunds row, monotonic amount_refunded_cents,
-          // status 'refunded' once the refunded amount reaches total.
-          const { error: updateErr } = await supabase
-            .rpc('record_payment_refund', {
-              p_payment_intent_id: payment.stripe_payment_intent_id,
-              p_stripe_refund_id:  refund.id,
-              p_stripe_dispute_id: null,
-              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
-              p_source:            'expiry',
-            });
+          // ── 2e. Record the refund fact through record_refund_state (150), with
+          // the status Stripe returned (create_response). The SQL writer counts it
+          // toward the one-way record (record_payment_refund) only while it is not
+          // failed/canceled, and keeps the per-refund state the app reads.
+          const { error: updateErr } = await recordRefundState(supabase, payment.stripe_payment_intent_id, refund, 'expiry', 'create_response');
 
           if (updateErr) {
             // Refund was issued via Stripe but DB update failed.
@@ -633,31 +692,52 @@ serve(async (req: Request) => {
             // Still count as refunded — money has been returned to buyer
           }
 
-          refundedCount++;
+          const refundStatus = refundStatusOf(refund);
+          const refundLanded = NOT_FAILED_150.has(refundStatus);
+          if (refundLanded) refundedCount++; else errorCount++;
 
           // ── 2f. Send push notifications ────────────────────────────────
-          // Look up listing name for human-readable notification text
+          // 150: the buyer is told the STAGE (requested vs refunded) and THIS
+          // refund's amount — never "full" (after an earlier partial refund the
+          // amount-less POST refunds only the remaining balance). A refund that
+          // failed at creation sends no refund push: ops.detect_refunds opens a
+          // refund_failed case and a person arranges another way to refund.
           const { data: listing } = await supabase
             .from('listings')
             .select('event_name')
             .eq('id', t.listing_id)
             .maybeSingle();
-
           const listingTitle = listing?.event_name || 'your listing';
+          const amountText = typeof refund.amount === 'number' ? ` of ${usd(refund.amount)}` : '';
 
-          // Notify buyer: refund processed
-          sendPush(
-            t.buyer_id,
-            'Refund Processed',
-            `The seller didn't send the ticket for ${listingTitle} in time. Your full refund has been issued.`,
-            { listingId: t.listing_id, type: 'transfer_expired_refund' },
-          );
+          if (refundStatus === 'succeeded') {
+            sendPush(
+              t.buyer_id,
+              'Refunded',
+              `The seller didn't send the ticket for ${listingTitle} in time. We've refunded${typeof refund.amount === 'number' ? ` ${usd(refund.amount)}` : ' your payment'} to your original payment method.`,
+              { listingId: t.listing_id, type: 'transfer_expired_refund' },
+            );
+          } else if (refundLanded) {
+            sendPush(
+              t.buyer_id,
+              'Refund requested',
+              `The seller didn't send the ticket for ${listingTitle} in time. We've requested a refund${amountText} to your original payment method. It will show on your order when it's complete.`,
+              { listingId: t.listing_id, type: 'transfer_expired_refund' },
+            );
+          } else {
+            console.error('enforce-transfer-expiry: expiry refund FAILED at Stripe — no buyer push:', {
+              transfer_id: t.transfer_id, payment_id: t.payment_id, stripe_refund_id: refund.id,
+              status: refund.status, failure_reason: refund.failure_reason ?? null,
+            });
+          }
 
           // Notify seller: transfer expired
           sendPush(
             t.seller_id,
             'Transfer Expired',
-            `You didn't send the ticket for ${listingTitle} in time. The buyer has been refunded.`,
+            refundLanded
+              ? `You didn't send the ticket for ${listingTitle} in time. The order has expired and the buyer is being refunded.`
+              : `You didn't send the ticket for ${listingTitle} in time. The order has expired.`,
             { listingId: t.listing_id, type: 'transfer_expired_seller' },
           );
 
@@ -708,7 +788,10 @@ serve(async (req: Request) => {
         .from('transfers')
         .select('id, payment_id, listing_id, buyer_id, seller_id, payments!inner(id, status, stripe_payment_intent_id, stripe_refund_id, stripe_livemode, total, amount_refunded_cents)')
         .eq('status', 'expired')
-        .eq('payments.status', 'succeeded');
+        .eq('payments.status', 'succeeded')
+        // 150: a payment carrying a failed refund is handled by a person (refund_failed
+        // case), never retried here — and must not occupy the 20-row window.
+        .eq('payments.refund_failed_cents', 0);
       // Sandbox switch (payout-logic.allowTestModeMoney): test-mode rows are
       // admitted only under ALLOW_TEST_MODE_MONEY=1; NULL never.
       const { data: unrefunded } = await (allowTestModeMoney()
@@ -725,11 +808,53 @@ serve(async (req: Request) => {
         try {
           if (!row.payments?.stripe_payment_intent_id) continue;
           if (fullyRefunded(row.payments)) continue;   // money facts say nothing is owed (MAJOR-1 predicate)
+          // 150: reconcile with Stripe BEFORE creating a refund. The row is here
+          // because nothing has been counted — which is also what a LOST WRITE
+          // after a successful create looks like. A refund of OURS (metadata
+          // transfer_id) that exists is recorded, never re-created; a failed one
+          // is recorded and NOT retried, and neither is ANY charge carrying a
+          // failed or canceled refund (a person arranges another way —
+          // docs.stripe.com/refunds#failed-refunds). Refunds that are not ours
+          // (a Dashboard partial) are recorded too, and the POST below refunds only
+          // what remains; nothing is created when non-failed refunds cover the total.
+          let listed: StripeRefund[];
+          try {
+            const page = await stripeFetch<{ data?: StripeRefund[] }>(
+              `/refunds?payment_intent=${encodeURIComponent(row.payments.stripe_payment_intent_id)}&limit=100`);
+            listed = (page?.data ?? []).filter((lr) => !!lr?.id);
+          } catch (listErr) {
+            console.warn('enforce-transfer-expiry: Phase 1b refund list failed — row skipped this run:', {
+              transfer_id: row.id, error: listErr instanceof Error ? listErr.message : String(listErr),
+            });
+            errorCount++;
+            continue;
+          }
+          let listedErr = false;
+          for (const lr of listed) {
+            const { error: lrErr } = await recordRefundState(supabase, row.payments.stripe_payment_intent_id, lr, refundSourceOf(lr), 'reconcile');
+            if (lrErr) {
+              listedErr = true;
+              console.error('enforce-transfer-expiry: Phase 1b reconcile write failed:', { transfer_id: row.id, refund_id: lr.id, error: lrErr });
+            }
+          }
+          if (listedErr) { errorCount++; continue; }
+          const ours = listed.filter((lr) => lr.metadata?.transfer_id === row.id);
+          const anyFailed = listed.some((lr) => !NOT_FAILED_150.has(refundStatusOf(lr)));
+          const coveredCents = listed.filter((lr) => NOT_FAILED_150.has(refundStatusOf(lr)))
+            .reduce((sum, lr) => sum + (typeof lr.amount === 'number' ? lr.amount : 0), 0);
+          if (ours.length > 0 || anyFailed || (row.payments.total != null && coveredCents >= row.payments.total)) {
+            console.log('enforce-transfer-expiry: Phase 1b refund already at Stripe — recorded, not re-created:', {
+              transfer_id: row.id, ours: ours.map((lr) => `${lr.id}:${refundStatusOf(lr)}`), any_failed: anyFailed, covered_cents: coveredCents,
+            });
+            if (!anyFailed && ours.some((lr) => NOT_FAILED_150.has(refundStatusOf(lr)))) refundedCount++;
+            continue;
+          }
+
           console.warn('enforce-transfer-expiry: Phase 1b — re-attempting dropped expiry refund:', {
             transfer_id: row.id,
             payment_id:  row.payment_id,
           });
-          const refund = await stripeFetch<{ id: string; amount?: number }>('/refunds', {
+          const refund = await stripeFetch<StripeRefund>('/refunds', {
             method: 'POST',
             idempotencyKey: `refund_expiry_${row.id}`,
             body: {
@@ -739,15 +864,8 @@ serve(async (req: Request) => {
               'metadata[source]':      'enforce-transfer-expiry-selfheal',
             },
           });
-          // record_payment_refund (20260906120000): idempotent on the refund id.
-          const { error: healErr } = await supabase
-            .rpc('record_payment_refund', {
-              p_payment_intent_id: row.payments.stripe_payment_intent_id,
-              p_stripe_refund_id:  refund.id,
-              p_stripe_dispute_id: null,
-              p_amount_cents:      typeof refund.amount === 'number' ? refund.amount : null,
-              p_source:            'expiry',
-            });
+          // 150: recorded with the status Stripe returned (create_response).
+          const { error: healErr } = await recordRefundState(supabase, row.payments.stripe_payment_intent_id, refund, 'expiry', 'create_response');
           if (healErr) {
             console.error('enforce-transfer-expiry: Phase 1b DB update failed after refund:', {
               payment_id: row.payment_id, stripe_refund_id: refund.id, error: healErr,

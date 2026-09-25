@@ -4,6 +4,37 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { captureException } from '../_shared/sentry.ts';
 import { stripeFetchRaw } from '../_shared/stripe.ts';
 
+// ── 150: refund lifecycle ────────────────────────────────────────────────────
+// A Stripe refund has its own status (pending, requires_action, succeeded,
+// failed, canceled) that can change in any direction for ~30 days; a card
+// refund can report succeeded and later fail (docs.stripe.com/refunds,
+// /testing). Every refund fact is written through record_refund_state
+// (migration 20260925000000) with the refund's OWN status — the SQL writer
+// counts a refund toward the one-way payments record only while it is not
+// failed/canceled. Nothing here calls record_payment_refund for a refund.
+interface StripeRefund {
+  id?: string;
+  status?: string | null;
+  amount?: number | null;
+  payment_intent?: string | null;
+  failure_reason?: string | null;
+  metadata?: Record<string, string> | null;
+}
+const REFUND_STATUSES = new Set(['pending', 'requires_action', 'succeeded', 'failed', 'canceled']);
+/** Our own refunds carry metadata.source = 'enforce-transfer-expiry…' (reason tells expiry from unfulfillable). */
+function refundSource(r: StripeRefund): 'expiry' | 'unfulfillable' | 'dashboard' {
+  if (!(r.metadata?.source ?? '').startsWith('enforce-transfer-expiry')) return 'dashboard';
+  return r.metadata?.reason === 'unfulfillable' ? 'unfulfillable' : 'expiry';
+}
+/** The latest refund object from Stripe (events arrive out of order: docs.stripe.com/webhooks). */
+async function fetchRefund(id: string): Promise<{ ok: true; refund: StripeRefund } | { ok: false; error: string }> {
+  const probe = await stripeFetchRaw(`/refunds/${id}`);
+  if (!probe.ok) {
+    return { ok: false, error: (probe.data as { error?: { message?: string } })?.error?.message ?? `HTTP ${probe.status}` };
+  }
+  return { ok: true, refund: probe.data as StripeRefund };
+}
+
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY')!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -702,9 +733,11 @@ serve(async (req: Request) => {
     } else if (event.type === 'charge.refunded') {
       // ── Package 3 (20260906120000): refund sync ───────────────────────
       // Fires for partial AND full refunds. Each Stripe refund object is
-      // recorded through record_payment_refund (idempotent on re_ id, monotonic
-      // amount_refunded_cents); the payment becomes 'refunded' only when the
-      // refunded amount reaches its total — i.e. when charge.refunded is true.
+      // recorded through record_refund_state (150) with its own status: the SQL
+      // writer counts it toward the one-way payments record (record_payment_refund,
+      // idempotent on re_ id) only while it is not failed/canceled, and keeps the
+      // truthful per-refund state beside it. refund.created/updated/failed carry
+      // every later change (branch below).
       // Recent API versions omit charge.refunds: fetch the charge with
       // expand[]=refunds rather than guessing. DB/Stripe failures → non-2xx.
       const charge = event.data.object as {
@@ -712,7 +745,7 @@ serve(async (req: Request) => {
         payment_intent?: string | null;
         refunded?: boolean;
         amount_refunded?: number;
-        refunds?: { data?: Array<{ id?: string; amount?: number; metadata?: Record<string, string> }> };
+        refunds?: { data?: StripeRefund[] };
       };
       if (!charge.payment_intent) {
         console.warn('Webhook: charge.refunded with no payment_intent', { event_id: event.id });
@@ -728,28 +761,35 @@ serve(async (req: Request) => {
           }
           refunds = (probe.data as typeof charge).refunds?.data ?? [];
         }
+        // 150: each refund is written with ITS OWN status — a failed or canceled
+        // refund in this list is never recorded as money returned. A listed
+        // refund without a status is re-read from Stripe first.
         const results: unknown[] = [];
-        for (const r of refunds) {
-          if (!r?.id) continue;
-          const source = r.metadata?.source?.startsWith('enforce-transfer-expiry') ? 'expiry' : 'dashboard';
-          const { data: res, error: refErr } = await supabase.rpc('record_payment_refund', {
+        for (const listed of refunds as StripeRefund[]) {
+          if (!listed?.id) continue;
+          let r: StripeRefund = listed;
+          if (!r.status || !REFUND_STATUSES.has(r.status) || typeof r.amount !== 'number') {
+            const got = await fetchRefund(listed.id);
+            if (!got.ok) {
+              console.error('Webhook: charge.refunded — refund fetch failed:', { refund_id: listed.id, error: got.error });
+              return await finish(false, { charge_id: charge.id, refund_id: listed.id }, `refund fetch: ${got.error}`);
+            }
+            r = got.refund;
+          }
+          const { data: res, error: refErr } = await supabase.rpc('record_refund_state', {
             p_payment_intent_id: charge.payment_intent,
-            p_stripe_refund_id:  r.id,
-            p_stripe_dispute_id: null,
-            p_amount_cents:      typeof r.amount === 'number' ? r.amount : null,
-            p_source:            source,
+            p_stripe_refund_id:  listed.id,
+            p_status:            r.status,
+            p_amount_cents:      r.amount,
+            p_failure_reason:    r.failure_reason ?? null,
+            p_source:            refundSource(r),
+            p_observed_via:      'webhook',
           });
           if (refErr) {
-            console.error('Webhook: refund sync failed:', { refund_id: r.id, error: refErr });
-            return await finish(false, { charge_id: charge.id, refund_id: r.id }, `refund sync: ${refErr.message}`);
+            console.error('Webhook: refund sync failed:', { refund_id: listed.id, error: refErr });
+            return await finish(false, { charge_id: charge.id, refund_id: listed.id }, `refund sync: ${refErr.message}`);
           }
           results.push(res);
-        }
-        const last = results.at(-1) as { status?: string; payment_id?: string | null } | undefined;
-        if (charge.refunded === true && last?.payment_id && last.status !== 'refunded') {
-          console.warn('Webhook: charge fully refunded on Stripe but the recorded amount is below total', {
-            pi_id: charge.payment_intent, amount_refunded: charge.amount_refunded, result: last,
-          });
         }
         console.log('Webhook: refunds recorded', { pi_id: charge.payment_intent, count: results.length, refunded: charge.refunded === true });
         await markProcessed();
@@ -918,6 +958,45 @@ serve(async (req: Request) => {
           matched_profiles:     updatedProfiles?.length ?? 0,
         });
         await markProcessed();
+      }
+
+    } else if (event.type === 'refund.created' || event.type === 'refund.updated' || event.type === 'refund.failed') {
+      // ── 150: refund lifecycle ────────────────────────────────────────
+      // Re-read the refund and record Stripe's CURRENT state (events can arrive
+      // out of order; docs.stripe.com/webhooks). A failure here answers non-2xx
+      // so Stripe redelivers.
+      const evRefund = event.data.object as StripeRefund;
+      if (!evRefund?.id) {
+        console.warn('Webhook: refund event with no id', { event_id: event.id, event_type: event.type });
+        await markProcessed();
+      } else {
+        const got = await fetchRefund(evRefund.id);
+        if (!got.ok) {
+          console.error('Webhook: refund fetch failed:', { refund_id: evRefund.id, error: got.error });
+          return await finish(false, { refund_id: evRefund.id }, `refund fetch: ${got.error}`);
+        }
+        const r = got.refund;
+        if (!r.payment_intent) {
+          // A refund with no PaymentIntent is not one of our charges: acknowledged, never retried.
+          console.warn('Webhook: refund without payment_intent (ack only)', { refund_id: evRefund.id });
+          await markProcessed();
+        } else {
+          const { error: refErr } = await supabase.rpc('record_refund_state', {
+            p_payment_intent_id: r.payment_intent,
+            p_stripe_refund_id:  evRefund.id,
+            p_status:            r.status,
+            p_amount_cents:      r.amount,
+            p_failure_reason:    r.failure_reason ?? null,
+            p_source:            refundSource(r),
+            p_observed_via:      'webhook',
+          });
+          if (refErr) {
+            console.error('Webhook: refund state write failed:', { refund_id: evRefund.id, error: refErr });
+            return await finish(false, { refund_id: evRefund.id }, `refund state: ${refErr.message}`);
+          }
+          console.log('Webhook: refund state recorded', { refund_id: evRefund.id, status: r.status, event_type: event.type });
+          await markProcessed();
+        }
       }
 
     } else {
