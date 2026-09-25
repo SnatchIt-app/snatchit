@@ -1976,3 +1976,23 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - The out-of-date §2a refund lines are superseded.
   - **Blocking:** final approval request in BLOCKING_SCOPE_RECOMMENDATION_20260924.md §5. A direction-free profile check
     (`user_view_state`) was added after reading the profile's reads. Awaiting the owner; nothing built.
+- **D's admin label change: A PASS (2026-09-25). Branch `admin/label-truth-conditions` @ `004af0b0`, based on the gate, one commit, 3 files.**
+  - **Scope:**
+    - transfer and payout labels follow the truth conditions (§2i);
+    - the `dispute_resolution` wording treats `resolved_seller_paid` as a decision, not a payout;
+    - the refund note is corrected (F1-ADMIN-1);
+    - each payout decision carries a note on where its `buyer_confirmed` flag came from, per writer (a6).
+  - **Where the flag comes from, in the order the code checks it:**
+    1. `edge:enforce-transfer-expiry` never reads the confirmation (F-PD-EXPIRY-1), at any time.
+    2. An a3 row, identified by `manual_review` with `attempt_id` in its evidence, is status-derived before 20:31:03Z.
+    3. `edge:stripe-webhook` (a4): the same boundary.
+    4. `edge:confirm-and-release`: status-derived before the v38 switchover at 20:31:20.378Z; "may be" status-derived
+       up to 20:38:00.378Z (+400 s, the Pro-plan wall-clock limit); reliable after that.
+  - **Review rounds:**
+    - R1: the branch was based on #94 and so carried pre-F2 migration 150. Rebased.
+    - R2: "owed back" was wrong for `reversed`.
+    - R3/R4: the notes were over-broad, and a3 was classified by actor. D then corrected A's check order: the expiry
+      writer's `PAYOUT_UNMATCHED_TRANSFER` rows also carry `attempt_id` (index.ts:975-977).
+    - R5: the confirm-and-release boundary now covers the whole drain window.
+  - **A's evidence:** scratch checkout, 21/21 and admin 117/117, `tsc` 0, eslint 0. The check-order mutant, re-applied
+    by A, killed exactly 1 test; restore verified by sha. No deploy.
