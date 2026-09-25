@@ -50,6 +50,8 @@ import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
 import { Badge, Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { EventMedia } from '@/src/components/media/EventMedia';
+// The row poster's height — the one value both transfer summaries measure their artwork by.
+import { ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   orderProgress,
   orderProgressA11y,
@@ -468,14 +470,21 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
             tickets/method — then the four-step progress track and the recorded charge. Every
             line is a server fact through orderPresentation's derivations. */}
         <View style={s.summaryBlock}>
-          <View style={s.summaryThumb}>
-            <EventMedia
-              asset={{ path: transfer.listing?.cover_image_path ?? null }}
-              slot="FEED_ROW_ART"
-              title={transfer.listing?.event_name ?? undefined}
-              decorative
-            />
-          </View>
+          {/*
+            The poster, at the row's approved HEIGHT (owner's 4:5 direction, 2026-09-24). FEED_ROW_ART's
+            reference width is now the DERIVED edge (50), so a caller that says nothing gets the poster
+            the feed row draws — but only a caller that names the constrained edge is safe when the
+            reference changes again, and on a summary row that edge is the height. No wrapper: the slot
+            owns the radius (8) and its own clipping, and the 10pt `radius.sm` frame that used to sit
+            here cut a second, larger arc through the artwork's corners.
+          */}
+          <EventMedia
+            asset={{ path: transfer.listing?.cover_image_path ?? null }}
+            slot="FEED_ROW_ART"
+            height={ROW_ART}
+            title={transfer.listing?.event_name ?? undefined}
+            decorative
+          />
           <View style={s.summaryLines}>
             <NameText token="nameOrder" maxLines={2} style={s.summaryName}>
               {transfer.listing?.event_name || 'Untitled'}
@@ -743,7 +752,7 @@ function makeStyles(p: Palette) {
 
   // ── V3 order summary / progress / paid (the board's lead) ──
   summaryBlock: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center', marginBottom: v2.space.lg },
-  summaryThumb: { borderRadius: v2.radius.sm, overflow: 'hidden' },
+  // `summaryThumb` is gone with the wrapper it styled — the slot owns the poster's radius and clip.
   summaryLines: { flex: 1, gap: 2 },
   summaryName: { color: p.text.primary },
   summaryMeta: { color: p.text.secondary },

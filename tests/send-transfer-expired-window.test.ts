@@ -121,6 +121,11 @@ vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} }, useL
 vi.mock('@react-navigation/native', () => ({ useFocusEffect: () => {} }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'seller-1' }, session: { user: { id: 'seller-1' } } }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOffline: false }), isNetworkError: () => false }));
+// The send summary now renders the event poster (owner's 4:5 direction, 2026-09-24). These suites
+// mock `react-native` down to the handful of exports they need, which does not include PixelRatio,
+// and EventMedia is not what they are testing — so it is stubbed the way the receive-screen suites
+// already stub it (tests/v3-transfer-cells.test.ts).
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner', StickyBar: 'StickyBar',

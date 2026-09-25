@@ -55,11 +55,19 @@ export function OrderIdentity({
 
   return (
     <View style={s.row}>
+      {/*
+        72 is the row's HEIGHT budget, not its width (owner's 4:5 poster direction, 2026-09-24).
+        Spent as a width it made a 72 × 90 frame: under the poster ratio the derived edge is the
+        tall one, so the thumbnail grew 18pt past the space this summary row was approved with — on
+        checkout, the refund face and the confirmation alike. Passed as `height` the row keeps its
+        72pt of vertical rhythm and the poster takes the 58pt the ratio gives it. EventMedia does
+        that arithmetic; this file states only the edge it owns.
+      */}
       <EventMedia
         asset={{ path: cover, contract: 'legacy', bucket: 'auction-media' }}
         slot="CHECKOUT_THUMBNAIL"
         title={name}
-        width={72}
+        height={72}
         decorative
       />
       <View style={s.text}>
@@ -77,6 +85,10 @@ export function OrderIdentity({
 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
+  // No edge of the poster appears here, which is why the taller-and-narrower shape needed no
+  // other change: the text column takes whatever width the artwork leaves (`flex: 1`), and
+  // `flex-start` keeps the name's first line level with the poster's top edge rather than
+  // floating it against a frame whose height the row no longer dictates.
   row: { flexDirection: 'row', gap: v2.space.md, alignItems: 'flex-start' },
   text: { flex: 1, minWidth: 0, gap: 2 },
   name: { color: p.text.primary },

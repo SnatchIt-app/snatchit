@@ -26,6 +26,9 @@ import { orderWhenWhereLine } from '@/src/lib/orders/orderPresentation';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
+import { EventMedia } from '@/src/components/media/EventMedia';
+// The row poster's height — the same value the buyer's order summary measures its artwork by.
+import { ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   formatCountdown,
   sellerAlreadySent,
@@ -371,24 +374,45 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
             paid out). No amount is stored, so none is shown. */}
         {transfer.status === 'reversed' ? <SellerReversedBlock /> : null}
 
-        {/* V3 (pkg8-send): the screen leads with the EVENT in the display voice, the state badge
-            beside it — not a labelled "Transfer" details table. Buyer and method stay as facts
-            below; the meta line joins when the send read gains the listing columns (A-gated,
-            requested — the receive embed's approval is the precedent). */}
+        {/* V3 (pkg8-send): the screen leads with the EVENT — the poster, the name in the display
+            voice, the state badge beside it — not a labelled "Transfer" details table. Buyer and
+            method stay as facts below; the meta line and the artwork both come from the listing
+            columns this read already selects. */}
         <View style={s.section}>
-          <View style={s.leadRow}>
-            <NameText token="nameOrder" maxLines={2} style={s.leadName}>
-              {transfer.listing?.event_name || 'Untitled'}
-            </NameText>
-            <Badge label={meta.label} tone={meta.tone} />
+          {/*
+            The POSTER joins the lead (owner named Transfers in the 4:5 direction, 2026-09-24). This
+            summary is the seller's mirror of the buyer's order screen, and that screen leads with the
+            artwork — a seller about to hand over tickets was the one party asked to recognise the event
+            from its name alone. Same slot, same `height={ROW_ART}`, so the two read as one pattern.
+
+            Presentation only, and it costs no read: `cover_image_path` is already in the select above
+            (and already in TransferData), so no query, no state and no permission changes — the same
+            owner-scoped row, drawn more completely. A row with no artwork renders EventMedia's plate.
+          */}
+          <View style={s.leadBlock}>
+            <EventMedia
+              asset={{ path: transfer.listing?.cover_image_path ?? null }}
+              slot="FEED_ROW_ART"
+              height={ROW_ART}
+              title={transfer.listing?.event_name ?? undefined}
+              decorative
+            />
+            <View style={s.leadLines}>
+              <View style={s.leadRow}>
+                <NameText token="nameOrder" maxLines={2} style={s.leadName}>
+                  {transfer.listing?.event_name || 'Untitled'}
+                </NameText>
+                <Badge label={meta.label} tone={meta.tone} />
+              </View>
+              {(() => {
+                const when = orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue);
+                const qty = transfer.listing?.quantity && transfer.listing?.ticket_type
+                  ? `${transfer.listing.quantity} × ${transfer.listing.ticket_type}` : '';
+                const line = [when, qty].filter(Boolean).join(' · ');
+                return line ? <Text style={[textStyle('bodySm'), s.leadMeta]} numberOfLines={1}>{line}</Text> : null;
+              })()}
+            </View>
           </View>
-          {(() => {
-            const when = orderWhenWhereLine(transfer.listing?.event_date, transfer.listing?.event_time, transfer.listing?.venue);
-            const qty = transfer.listing?.quantity && transfer.listing?.ticket_type
-              ? `${transfer.listing.quantity} × ${transfer.listing.ticket_type}` : '';
-            const line = [when, qty].filter(Boolean).join(' · ');
-            return line ? <Text style={[textStyle('bodySm'), s.leadMeta]} numberOfLines={1}>{line}</Text> : null;
-          })()}
           <Row label="Buyer" value={transfer.buyer?.display_name || 'Unknown'} s={s} />
           <Row label="Method" value={transfer.transfer_method.replace('_', ' ')} s={s} />
         </View>
@@ -601,6 +625,12 @@ function makeStyles(p: Palette) {
     borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
   headerTitle: { color: p.text.primary },
+  // The poster beside the name block, the buyer's order screen's summaryBlock in the seller's
+  // words: same direction, same gap, same centred cross-axis. It carries NO bottom margin — the
+  // name row and the meta line inside it keep the ones they were approved with, so adding the
+  // artwork did not move a single line of text.
+  leadBlock: { flexDirection: 'row', gap: v2.space.md, alignItems: 'center' },
+  leadLines: { flex: 1 },
   leadRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: v2.space.md, marginBottom: v2.space.sm },
   leadName: { color: p.text.primary, flex: 1 },
   leadMeta: { color: p.text.secondary, marginBottom: v2.space.sm },

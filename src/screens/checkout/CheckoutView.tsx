@@ -495,10 +495,13 @@ function makeStyles(p: Palette) {
   confirmKickerPending: { color: p.status.warning },
   confirmKickerFailed: { color: p.status.error },
   confirmTitle: { color: p.text.primary },
+  // A frame around the identity block, and nothing more. It used to restate the row that
+  // OrderIdentity already draws (`row` + `gap` + centred cross-axis), left over from when the
+  // artwork and the text were laid out here; as a row it also sized the block to its content, so
+  // the text column measured itself against the artwork's width instead of the card's. With the
+  // poster now narrower than the square it replaced, that width is the thing the text should
+  // inherit — so this holds only the card's own borders and spacing and lets the block stretch.
   confirmCard: {
-    flexDirection: 'row',
-    gap: v2.space.md,
-    alignItems: 'center',
     marginTop: v2.space.md,
     borderTopWidth: 1,
     borderBottomWidth: 1,

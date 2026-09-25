@@ -57,7 +57,11 @@ function memberSince(iso: string | null): string {
 function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {
   return (
     <Pressable style={s.listingRow} onPress={() => router.push(`/listing/${listing.id}`)} accessibilityRole="button" accessibilityLabel={listing.event_name}>
-      <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" width={64} title={listing.event_name} decorative />
+      {/* 64 is the listing row's HEIGHT allowance, not a square's side (owner's 4:5 poster
+          direction, 2026-09-24): spent as a width the poster stood 80 tall and set the height of
+          every row in this list. Passed as `height` the rows keep their rhythm and the artwork
+          takes the 51pt the ratio derives. */}
+      <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" height={64} title={listing.event_name} decorative />
       <View style={s.listingInfo}>
         <Text style={[textStyle('title'), s.listingName]} numberOfLines={1}>{listing.event_name}</Text>
         <Text style={[textStyle('bodySm'), s.listingVenue]} numberOfLines={1}>
