@@ -223,20 +223,24 @@ export const MEDIA_SLOTS = {
     preload: false,
   },
   /**
-   * V3 home feature: full-bleed poster, the curve scrim under its text.
+   * Home feature: a full-bleed 4:5 poster, and NO scrim.
    *
-   * The §3 height FORMULA — (w − 40) × 0.49 + 34, a landscape band — is retired here, because a
-   * formula and a poster ratio cannot both decide the height and the owner's direction is the
-   * ratio. The formula's companion metrics survive untouched: the feature's text is positioned
-   * from the image BOTTOM (FEATURE_NAME_BLOCK_BOTTOM and friends), so a taller frame moves the
-   * artwork's top edge up and leaves the text block exactly where it was approved.
+   * The §3 height FORMULA — (w − 40) × 0.49 + 34, a landscape band — is retired, because a formula
+   * and a poster ratio cannot both decide the height and the owner's direction is the ratio.
+   *
+   * SCRIM 'none' (owner 2026-09-25): "Remove the gradient used to support the old text overlay."
+   * The gradient was never decoration — it existed to darken a flyer's own printed type enough for
+   * ours to sit on top of it. With the identity block moved beneath the poster there is nothing to
+   * make legible, so the gradient would only be dimming the artwork the feature exists to show.
+   * Note this is the same reasoning that took TICKET_ART's scrim off a day earlier; the rule is
+   * that a scrim follows overlaid text, never a slot's size or importance.
    */
   HOME_FEATURE_V3: {
     aspectRatio: v2.ratio.portrait,
     layoutWidth: { mobile: 390, tablet: 768, web: 1080 },
     defaultFit: 'fit',
     radius: v2.radius.none,
-    scrim: 'curve',
+    scrim: 'none',
     preload: true,
   },
   /** V3 listing hero: full-bleed poster, the curve scrim under date/name/price. Same retirement

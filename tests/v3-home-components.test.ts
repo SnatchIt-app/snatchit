@@ -103,14 +103,20 @@ const media = (host: HookHost) => findElement(host.output, (el) => el.type === '
 beforeEach(() => { vi.resetModules(); });
 
 describe('slot system — V3 slots carry the §3 geometry and the curve', () => {
-  it('SL1: HOME_FEATURE_V3 — curve scrim, a 4:5 poster, fitted, preloaded', () => {
+  it('SL1: HOME_FEATURE_V3 — a 4:5 poster, fitted, preloaded, and NO gradient', () => {
     const s = MEDIA_SLOTS.HOME_FEATURE_V3;
-    expect(s.scrim).toBe('curve');
     expect(s.aspectRatio).toBe(v2.ratio.portrait);
     // `fit`, not `cover`: the feature is the largest poster in the product and the one where a
     // crop would cut the most type off a flyer.
     expect(s.defaultFit).toBe('fit');
     expect(s.preload).toBe(true);
+    /*
+     * The curve scrim is GONE (owner ruling 2026-09-25: "Remove the gradient used to support the
+     * old text overlay"). It was never decoration — it darkened a flyer's own printed type so ours
+     * could sit on top. With the identity block beneath the poster there is nothing to make
+     * legible, so a gradient would only dim the artwork the feature exists to show.
+     */
+    expect(s.scrim).toBe('none');
   });
 
   it('SL2: LISTING_HERO_V3 — curve scrim, a 4:5 poster, fitted', () => {

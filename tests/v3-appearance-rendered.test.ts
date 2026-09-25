@@ -343,19 +343,29 @@ describe('Sheet — the grabber identifies the sheet as draggable in both appear
  * "Zero static-token counts alone do not prove correct rendering").
  */
 describe('over-artwork and on-fill inks — the cases a pure rename gets wrong', () => {
-  it('RD8: the over-artwork vocabulary is one set of inks for BOTH appearances, and HomeFeature draws from it alone', async () => {
+  it('RD8: ink follows the SURFACE — onArt on artwork, canvas inks off it, and the Home feature moved', async () => {
     // Text inside EventMedia sits on the photograph and its scrim, not on the canvas. Light's
     // near-black title (#0B0C0E) over a dark flyer is the defect; onArt is the group that exists
     // for this, deliberately identical in both appearances.
     expect(light.onArt).toEqual(dark.onArt);
     expect(dark.onArt.urgent).toBe('#FFB020');   // the Midnight amber, kept over artwork
+    /*
+     * INVERTED for HomeFeature (owner ruling 2026-09-25). Its identity block moved OFF the poster
+     * into its own area beneath it, so the rule points the other way: `onArt` is white in both
+     * appearances by contract, and on the canvas that is white-on-near-white in Light. This is the
+     * half of that ruling a Dark-mode screenshot would pass while Light rendered an invisible
+     * block — which is why it is asserted on the ink family and not on the layout.
+     */
     const src = await stripped('src/components/discovery/HomeFeature.tsx');
     const styles = src.slice(src.indexOf('function makeStyles'));
-    expect(styles).toMatch(/color: p\.onArt\.primary/);
-    expect(styles).toMatch(/color: p\.onArt\.urgent/);
-    // Nothing in the overlay may take a canvas-side ink.
-    expect(styles).not.toMatch(/color: p\.text\./);
-    expect(styles).not.toMatch(/color: p\.status\./);
+    expect(styles).not.toMatch(/color: p\.onArt\./);
+    expect(styles).toMatch(/color: p\.text\.primary/);
+    expect(styles).toMatch(/color: p\.text\.muted/);
+    expect(styles).toMatch(/color: p\.status\.warning/);
+    // And the component draws nothing inside the frame any more: a child of EventMedia is drawn
+    // over the artwork, which is what the ruling forbids.
+    expect(src).toMatch(/<EventMedia[^>]*\/>/s);
+    expect(src).not.toMatch(/<\/EventMedia>/);
 
     // The listing hero's identity lines are the same case: B's measured 15.91 / 5.94 for that band
     // are white-on-artwork figures, which only hold if the ink is artwork-side.

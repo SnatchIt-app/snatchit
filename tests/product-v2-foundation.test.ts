@@ -157,7 +157,8 @@ describe('media slots', () => {
     // If text sits on the image, an unscrimmed slot would be unreadable over
     // bright artwork and invisible over dark artwork.
     expect(MEDIA_SLOTS.FEATURED_EVENT.scrim).not.toBe('none');
-    expect(MEDIA_SLOTS.HOME_FEATURE_V3.scrim).not.toBe('none');
+    // The listing hero still overlays its date and name, so it still needs the curve. Its identity
+    // placement is the one piece of this the owner has NOT ruled on yet.
     expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).not.toBe('none');
     // The discovery card deliberately places text BELOW the image, so it needs none.
     expect(MEDIA_SLOTS.DISCOVERY_CARD.scrim).toBe('none');
@@ -168,6 +169,11 @@ describe('media slots', () => {
     expect(MEDIA_SLOTS.TICKET_ART.scrim).toBe('none');
     const ticket = readFileSync(resolve(root, 'src/components/tickets/TicketEventGroup.tsx'), 'utf8');
     expect(ticket).toMatch(/<EventMedia asset=\{asset\} slot="TICKET_ART" fluid \/>/);
+    // The Home feature joined them (owner 2026-09-25): identity beneath the poster, gradient gone.
+    // Same source-level check, so a re-introduced overlay would fail here and not only in a render.
+    expect(MEDIA_SLOTS.HOME_FEATURE_V3.scrim).toBe('none');
+    const feature = readFileSync(resolve(root, 'src/components/discovery/HomeFeature.tsx'), 'utf8');
+    expect(feature).not.toMatch(/<\/EventMedia>/);
   });
 
   it('derives height from width and ratio rather than hard-coding it', () => {
