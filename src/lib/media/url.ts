@@ -38,6 +38,7 @@
  *     bucket path so that legacy rows get transformations too.
  */
 
+import { devPosterModule } from './devPosters';
 import {
   MEDIA_SLOTS,
   slotPixelWidth,
@@ -88,6 +89,13 @@ export type ResolvedImage =
   | {
       kind: 'image';
       uri: string;
+      /**
+       * A BUNDLED source for the visual-QA fixtures only (src/lib/media/devPosters.ts). When it is
+       * present the component passes it to expo-image instead of `uri`, because a required module is
+       * the only asset form that resolves on both native and web. `uri` then carries the marker that
+       * asked for it, and is never fetched.
+       */
+      moduleSource?: unknown;
       /** A tiny blurred copy for the `fit` backdrop and for placeholder use. */
       backdropUri: string;
       width: number;
@@ -351,6 +359,28 @@ export function resolveImage(
 
   const base = storageBase();
   if (!base) return { kind: 'fallback', reason: 'no-storage-base' };
+
+  /*
+   * The visual-QA branch, before anything storage-shaped happens (src/lib/media/devPosters.ts): a
+   * bundled asset has no transform endpoint, so there is nothing to size, encode or crop — the
+   * client's own `contentFit` is exactly what these fixtures exist to exercise. Returns null for
+   * every real stored value, and for everything at all outside a dev bundle.
+   */
+  const devModule = devPosterModule(asset.path);
+  if (devModule != null) {
+    const px = slotPixelWidth(slot, breakpoint, dpr, opts.layoutWidth);
+    return {
+      kind: 'image',
+      // The marker, for identification only — `moduleSource` is what gets rendered.
+      uri: asset.path as string,
+      backdropUri: asset.path as string,
+      moduleSource: devModule,
+      width: px,
+      height: Math.max(1, Math.round(px / spec.aspectRatio)),
+      fit: asset.fit ?? spec.defaultFit,
+      focal: asset.focal ?? DEFAULT_FOCAL,
+    };
+  }
 
   const stored = classifyStoredMedia(asset.path, bucket);
   if (stored.kind === 'unsafe') return { kind: 'fallback', reason: stored.reason };

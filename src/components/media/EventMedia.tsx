@@ -250,7 +250,7 @@ function EventMediaImpl({
       */}
       {isFit ? (
         <Image
-          source={{ uri: resolved.backdropUri }}
+          source={resolved.moduleSource ?? { uri: resolved.backdropUri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           blurRadius={54}
@@ -263,7 +263,7 @@ function EventMediaImpl({
       ) : null}
 
       <Image
-        source={{ uri: resolved.uri }}
+        source={resolved.moduleSource ?? { uri: resolved.uri }}
         style={StyleSheet.absoluteFill}
         contentFit={isFit ? 'contain' : 'cover'}
         // Focal point: keeps the subject rather than the geometric centre.

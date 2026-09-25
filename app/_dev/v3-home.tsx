@@ -57,6 +57,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import HomeScreen, { type HomeFixture } from '@/app/(tabs)/home';
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { devPosterPath } from '@/src/lib/media/devPosters';
 import { useAppearancePreference, useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import { textStyle } from '@/src/theme/typography';
@@ -213,6 +214,39 @@ const UNREACHABLE: Record<string, string> = {};
  * lazy datasets, a first-load failure and a starting chip, so all three are reachable by URL and
  * nothing about how the screen decides what to paint changed.
  */
+/**
+ * `?art=` — the artwork the fixture rows carry, for the owner's 4:5 poster review (2026-09-25).
+ *
+ * The rows default to no cover, which renders the missing-artwork plate; that is one of the three
+ * cases the owner asked to see, and the other two need real pixels. `dev-bundled:` markers name a
+ * poster compiled into the app (src/lib/media/devPosters.ts), so the artwork travels through the
+ * same row field, screen and slot as a real cover. Only the FEATURE row is given artwork by default
+ * for `flyer` and `photo`, because the feature is what the ruling is about and a feed where every
+ * row carries the same poster reads as a bug; `all` paints every row for the row-thumbnail check.
+ */
+const ART: Record<string, { feature: string | null; rows: string | null }> = {
+  missing: { feature: null, rows: null },
+  flyer: { feature: devPosterPath('flyer-dense-4x5'), rows: null },
+  photo: { feature: devPosterPath('photo-3x2'), rows: null },
+  markers: { feature: devPosterPath('markers-4x5'), rows: null },
+  tall: { feature: devPosterPath('markers-9x16'), rows: null },
+  wide: { feature: devPosterPath('markers-16x9'), rows: null },
+  square: { feature: devPosterPath('markers-1x1'), rows: null },
+  all: { feature: devPosterPath('flyer-dense-4x5'), rows: devPosterPath('markers-4x5') },
+};
+
+export const ART_KEYS = Object.keys(ART);
+
+/** Applies `?art=` to a fixture's rows. The first row is the feature. */
+function withArt(rows: Listing[], art: string | undefined): Listing[] {
+  const pick = art ? ART[art] : undefined;
+  if (!pick) return rows;
+  return rows.map((r, i) => {
+    const cover = i === 0 ? pick.feature : pick.rows;
+    return cover == null ? r : ({ ...r, cover_image_path: cover } as Listing);
+  });
+}
+
 function fixtureFor(variant: string | undefined): HomeFixture | null {
   switch (variant) {
     case 'empty':
@@ -237,7 +271,7 @@ function fixtureFor(variant: string | undefined): HomeFixture | null {
 }
 
 export default function V3HomeHarness() {
-  const { variant, appearance } = useLocalSearchParams<{ variant?: string; appearance?: string }>();
+  const { variant, appearance, art } = useLocalSearchParams<{ variant?: string; appearance?: string; art?: string }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
   // dark and a light capture differ only in the value the app resolved.
@@ -250,7 +284,11 @@ export default function V3HomeHarness() {
 
   // Stable per variant: the screen's fetch closes over the fixture, so an identity that changed
   // every render would re-run its focus effect for nothing.
-  const fixture = useMemo(() => fixtureFor(variant), [variant]);
+  const fixture = useMemo(() => {
+    const base = fixtureFor(variant);
+    if (!base?.rows) return base;
+    return { ...base, rows: withArt(base.rows, art) };
+  }, [variant, art]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 
