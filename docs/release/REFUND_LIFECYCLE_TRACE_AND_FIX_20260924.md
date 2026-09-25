@@ -279,6 +279,50 @@ settings). Both were re-pinned with their source noted.
 **Not run locally:** `deno check` (deno is not installed here), so the draft PR's CI is the first compile of the edge
 files.
 
+### A.9 CI and D's independent review (2026-09-25)
+
+**CI at `2b1e45d8`** (run 36069115525; headSha matches; every job succeeded):
+- pgTAP: Files=97, Tests=5584, PASS. That is 5543 at the base plus 217's 41.
+- The local run's 5578 was 6 lower because the local harness loads `000_helpers.sql` (plan 6) as helpers, while CI runs
+  it as a test file. Decomposed per file; no other difference.
+- vitest 2560 + 108; lint 0 errors; Deno type-check passed.
+
+**D's review against D's registered expectations `a6324b21`** (registered 22:12:56Z, before A's design existed; source
+review only):
+- **PASS:** R1–R11 all met. D accepted R2, the terminality question, as answered by keeping the one-way record as
+  "requested".
+- **F1 (HIGH as filed): partly verified by A.**
+  - `isRefundConfirmed` (setupDecision.ts:123-128) does stay true after a later failure.
+  - But on the release branch (`v3/midnight-app`, C `90235b74`/`a5c0bfc6`) that kind renders "Refund initiated"
+    (holdState.ts:143-146), not "Refunded $X". D conceded.
+  - The residual is that a failed refund reads "initiated". **Ruling:** the kind contract over
+    `refund_*_cents` (wording table §2i) ships only after 150 is applied in production, because a missing selected
+    column returns a 400. Until then the buyer learns of a failure from the operator (O-R3).
+- **F2 (MEDIUM): verified and fixed at `2eebc5bf`.**
+  - The problem: two deliveries re-fetch concurrently, and the earlier fetch can commit last; the unconditional
+    `SET status` then erases a recorded failure.
+  - Stripe documents `succeeded → requires_action` (bank refunds), so the lifecycle is not forward-only. The fix
+    therefore fences only `failed` and `canceled`, which have no documented exit.
+  - A disagreeing observation is refused whole and never reaches `record_payment_refund`. The result carries
+    `stale_ignored`.
+  - pgTAP 217 went to 45 (W19–W22). RED on the old body: {W19, W20, W21}; W22 passes.
+  - **A's test bug, caught before it counted as evidence:** W20/W21 first asserted `amount_refunded_cents = 0` on a
+    nullable column. That RED was void and was re-run after the fix.
+  - GREEN 45/45.
+  - Mutants, with the DB body hash checked applied and restored:
+    - guard removed → {W19, W20, W21};
+    - stale observation still counted → {W20, W21};
+    - over-block of succeeded→non-final → {W22}.
+    - All as predicted.
+  - Full local pgTAP 5582/5582. **CI at `2eebc5bf`** (run 36093357933; headSha matches; every job succeeded): pgTAP
+    Files=97, Tests=5588, PASS.
+  - **Accepted residual:** a stale non-final replay (e.g. pending after succeeded) can still land. It can only
+    under-state, and the pending detector surfaces it.
+- **Rollback note (D):** 150's rollback has no body guard, unlike 149's. 150 is create-only, and its rollback drops
+  the refund-state tables, which loses their data; the header says so. Stated here for the package.
+- **D's further findings** (web surfaces, admin note): ruled in the wording table §2h (web) and carried by D (admin
+  console note). Both are outside #94.
+
 ## B. Operational choices (the owner's; each is a production action needing its own authorisation)
 
 - **O-R1.** Add `refund.created`, `refund.updated` and `refund.failed` to the live Stripe webhook endpoint. This is a

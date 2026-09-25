@@ -1954,3 +1954,25 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       token.
     - Registry: 150 recorded; 151 (b2) and 152 (blocking server) reserved.
     - Rulings to C: E's Q1–Q3 and the interim refund wording.
+- **Backend lane, A with D (2026-09-25; the owner's instruction; no production read, deploy or live transaction).**
+  - **#94 (refund lifecycle, 150):**
+    - CI at `2b1e45d8`: success (pgTAP 97/5584; vitest 2560).
+    - D's independent review: PASS (R1–R11).
+    - F1 partly verified: the release branch already says "initiated". The kind contract over the new sums waits for
+      150 in production.
+    - F2 fixed at `2eebc5bf`: failed/canceled are final; 217 goes to 45; three mutants MATCH. CI success (pgTAP
+      97/5588).
+    - Record: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md §A.9.
+  - **#95 (stuck seller-win detector, 151)**, kept separate from #94:
+    - The b2 finding was re-verified and corrected. "Both NULL" holds only for a Stripe dispute frozen before sending;
+      buyer reports were misdated.
+    - pgTAP 218: RED 11 as predicted, then GREEN 17/17; three mutants MATCH; guarded rollback exercised; full local
+      5554/5554.
+    - Draft; D review pending.
+  - **Rulings to D (and via D to C):**
+    - Payout evidence = `payout_released_at` with `reversed` taking precedence; never "received".
+    - The losing buyer is told the decision only.
+    - The web surfaces' status lines are ruled in wording table §2h/§2i.
+    - The out-of-date §2a refund lines are superseded.
+  - **Blocking:** final approval request in BLOCKING_SCOPE_RECOMMENDATION_20260924.md §5. A direction-free profile check
+    (`user_view_state`) was added after reading the profile's reads. Awaiting the owner; nothing built.

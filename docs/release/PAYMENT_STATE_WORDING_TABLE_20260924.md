@@ -23,9 +23,10 @@ Notation: **Order** = `transfers.status`; **Refund** = `payments.amount_refunded
 ### 2a. Buyer, transfer `expired`
 - **Server facts:** `status='expired'`, `expired_at` set (0551:27) because the seller never marked sent before `expires_at` (0551:23; the window is the value in `transfers.expires_at`, written at creation by `ensure_transfer_exists` 061:109 — read it from the row, do not assume a constant; 039 header line 26 calls it "the 24h unsent-transfer refund"). The refund is issued by the same cron run (enforce-transfer-expiry Phase 1, index.ts:517 onward) with an idempotent Stripe refund and recorded via `record_payment_refund` (fallback: `payments.status='refunded'`, `refunded_at`, `stripe_refund_id`, index.ts:482).
 - **May say from `expired` alone:** "Order expired — the seller didn't send the tickets in time." and "A refund is due; it will show here once it's confirmed." (a stated policy, not an asserted fact).
-- **May say "Refunded $X":** only when `amount_refunded_cents` is not NULL and equals `total` (or `status='refunded'` AND `amount_refunded_cents = total`).
-- **May say "Refund recorded":** when `status='refunded'` or `refunded_at` is set but `amount_refunded_cents` is NULL — no amount, no "in full".
-- **May say "Partly refunded $X of $Y":** when `0 < amount_refunded_cents < total` (status will still read `succeeded`).
+- **SUPERSEDED 2026-09-24 by A's interim refund ruling (ruling 3, §2i):** today's columns cannot tell a requested
+  refund from a completed one, so "Refunded $X" and "Partly refunded $X of $Y" are withdrawn. May say: "Refund of $X
+  initiated" when `amount_refunded_cents = total`; "Partial refund of $X initiated" when `0 < amount_refunded_cents <
+  total`; "Refund recorded" when `status='refunded'` or `refunded_at` is set but the amount is NULL. No timing.
 - **Must not say:** "Refunded" on `expired` alone; any amount when the amount is NULL; "Payment refunded" for a refund the payment row does not show (product truth: "Payment refunded only for a confirmed refund").
 
 ### 2b. Seller, transfer `expired`
@@ -129,3 +130,58 @@ Rules of precedence when the row carries several facts: `reversed` beats `payout
 - `record_payment_refund` is now the production refund writer for stripe-webhook v42 (`charge.refunded`, lost disputes) and the sweep: amounts are recorded monotonically and `refunded`/`refunded_at` mean "reached total". Rows refunded BEFORE 2026-09-23 keep the old shape (status + date, amount NULL).
 - `enforce-transfer-expiry` v40 + migration 147: a payment under manual review is never re-swept; no client-visible change.
 - Refund detection and alert delivery remain OFF; nothing in this table depends on them.
+
+## 2h. Web marketplace status lines (RULING, A, 2026-09-25; D's findings F1-WEB-1/2, verified by A at source)
+
+Scope: `web/src/app/account/purchases/page.tsx` (buyer, `statusLine`) and `web/src/lib/sales.ts` (seller,
+`payoutLabel`), at gate `037092f0`. They derive money facts from the transfer status alone. The rules are the same as
+the app's; only the surface differs.
+
+- **Buyer, `expired`:** "Expired — refunded in full" (:32) is withdrawn: an expiry is not a refund. Say "Order expired
+  — the seller didn't send the tickets in time." The refund line comes separately from the payment row, under
+  ruling 3 (§2a). If the page does not read the payment row, it makes no refund statement.
+- **Buyer, `disputed`:** "Disputed — support is reviewing" asserts a process the row does not record. Say "Issue
+  reported — the seller's payout is frozen until this is resolved." After a decision (`dispute_resolved_at` set), state
+  the decision only: `buyer_win` "Resolved in your favour"; `partial_refund` "Resolved"; seller-win "Resolved in the
+  seller's favour". Refund facts come only from the payment row.
+- **Buyer, `auto_released`:** "Confirmed" is withdrawn, because the buyer confirmed nothing. Say "Released"
+  (the app's label). `buyer_confirmed` keeps "Confirmed", unless it came from a seller-win (buyer_confirmed_at NULL
+  and `resolved_seller_paid`), which reads "Resolved in the seller's favour".
+- **Seller (`payoutLabel`), in this order of precedence:**
+  1. `reversed` → "Payout reversed";
+  2. `disputed` with no decision → "Payout frozen — the buyer reported an issue". The withdrawn "On hold" wording
+     is not used;
+  3. `disputed` decided for the buyer → "Resolved for the buyer — no payout for this order";
+  4. `expired` → "Order expired — no payout for this order", never "buyer refunded";
+  5. `pending` → "Send the tickets";
+  6. payout evidence (§2i) → "Payout released", replacing "Paid out";
+  7. `manual_review` → "Payout under review";
+  8. `held` → "Payout held until <payout_hold_until>", or "Payout held" when there is no end;
+  9. `seller_sent` → "Release decision at <auto_release_at>" (§2e);
+  10. `buyer_confirmed` / `auto_released` without payout evidence → "Release approved — payout pending".
+- **Reads:** all of these columns already exist in production. None depends on migration 150.
+- **Owner of the change:** the web surface. It is not C's; C's app already follows these rules.
+
+## 2i. Payout-completion evidence and the losing buyer (RULINGS, A, 2026-09-25; owner's correction adopted)
+
+- **Payout evidence**, for any audience: `transfers.payout_released_at IS NOT NULL` and `status <> 'reversed'`, with
+  `reversed` taking precedence.
+  - Every payout writer sets `payout_released_at` together with `stripe_transfer_id`, and only after Stripe accepted
+    the transfer (0561:89, 0564:59, 20260906120000:782, 20260924120000:105).
+  - So either column is the evidence, and code may check both.
+  - A seller-win decision (`resolved_seller_paid`), `buyer_confirmed` or `auto_released` is never payout evidence.
+- **Never "received":** we observe the transfer to the seller's Stripe account, not the money arriving at their bank.
+  The allowed forms:
+  - seller: "Payout released";
+  - buyer: "The seller has been paid" / "The seller's payout was released".
+- **Losing buyer (seller-win):** the decision only, e.g. "The dispute was resolved in the seller's favour."
+  - No payout clause from the decision.
+  - A payout clause only from payout evidence.
+  - `resolved_seller_paid` is a misnomer: it records a decision, and no copy derives "paid" from it.
+- **Refund after 150 is live** (not in this release): kind derived from the three sums.
+  - failed: `refund_failed_cents > 0`;
+  - completed: `refund_succeeded_cents` covers the amount and `refund_failed_cents = 0`;
+  - otherwise: initiated.
+  - Failure copy waits on the owner's O-R3 (who contacts the buyer).
+  - No client selects `refund_*_cents` before 150 is applied in production. A missing selected column returns a 400.
+

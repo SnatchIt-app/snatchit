@@ -35,7 +35,7 @@ already committed.
 |---|---|
 | Home, Explore/Search, event sections, "more listings", and the web marketplace | The other person's listings don't appear. **This filter lives in the READ, on the server** (2d): a both-directions hide cannot be computed on the client |
 | Listing detail reached directly (link, push, old tab) | "This listing isn't available to you." No bid, no Buy Now, no emphasis on the price panel; Report stays. **Only when I am the blocker** do I also see "You blocked this seller." with **Unblock** (my own list is the one thing I may read). The other direction is identical minus that line, so the two cases can't be told apart from the copy |
-| Profile | A blocked notice; no listings or stats (exists today for the blocker) |
+| Profile | **Blocker:** the existing "You've blocked X" notice with Unblock and Report user. **Blocked person:** "This profile isn't available to you." with Report user, keyed on `user_view_state` (2d). No listings, no stats, in either direction. Today the profile reads the seller's listings straight from `listings` (`profile/[id].tsx:144`), so without this check the blocked person would still see them, and hiding them through the feed alone would show a false "No active listings" |
 | Bid history on a listing | The other person's bids stay (amounts and order are the auction's facts). A user **I** blocked appears as "Blocked user". Bid rows are not navigable today and stay that way: making them link to profiles would expose bidders to every viewer, which is a product decision outside this scope |
 | Push notifications | Nothing new can arrive, because new bids between the two are refused (2b) |
 
@@ -78,6 +78,9 @@ already committed.
       listing.
     - Listing content is public anyway (`listings_select_all using (true)`, 070:43), so hiding on detail is a display
       rule and the refusal is the safety rule;
+  - **profile uses `public.user_view_state(p_user_id)` → `'ok' | 'blocked'`** (`SECURITY DEFINER`, no direction, no
+    content). It is the profile's counterpart of `listing_view_state`: a profile has no listing to ask about. Added
+    2026-09-25 (A), after checking the profile's reads;
   - the order screens and checkout keep reading `listings` directly (2c);
   - **Do not add a payment-time block check** to `create-payment-intent`, for either mode. The paths are correct by
     construction:
@@ -96,6 +99,7 @@ already committed.
     they do. The client list stays for Unblock and the optimistic hide;
   - the unavailable-listing state, keyed on `listing_view_state`: `blocked` shows the unavailable state, `missing` the
     existing not-found;
+  - the unavailable-profile state, keyed on `user_view_state` (2a);
   - the "Blocked user" row;
   - block entry points on listing detail's overflow and the profile (which exist), plus **the two order screens**
     (`transfer/receive`, `transfer/send`), made safe by 2c;
@@ -139,3 +143,54 @@ ops action `user_suspend` enforced at sign-in, via a Supabase Auth ban, and in R
 2. The server package (A; migration number 152 reserved), after refund 150 and b2 151.
 3. C's client half against the server contract.
 4. D verifies both.
+
+## 5. Approval request (final; A, 2026-09-25)
+
+**Decision asked of the owner:** approve the scope in §2 (2a–2d, including the profile check added today) for
+implementation. If approved, A writes the server package (migration 152, pgTAP 219) and C writes the client half, with D
+verifying both. Applying 152, deploying and building remain separate owner approvals. §2e (operator-level suspension)
+is not part of this request. Nothing is built until the owner approves.
+
+**Privacy**
+- `user_blocks` stays readable only by the blocker (0230:88-92). Nobody can list who has blocked them.
+- Every server answer is direction-free: `BLOCKED_PARTY`, `listing_view_state` and `user_view_state` say "blocked"
+  and never who blocked whom. The helpers only answer about pairs that include the caller.
+- **Accepted residual:** the blocked person knows they did not block, so an unavailable state lets them infer that the
+  other person blocked them. The alternative, showing "not found", would be a false statement. Recommendation: accept.
+- No push, email or in-app notice ever reports a block.
+- Bid history keeps every bidder's bids, because the amounts and their order are the auction's facts. Only the
+  blocker's own view relabels the people they blocked as "Blocked user".
+- Operators get no new view of blocks in this package.
+
+**Existing reservations, winning bids and orders (2c)**
+- **Orders:** an order that already exists stays fully usable for both people: the order and its listing, sending and
+  confirming tickets, reporting a problem, refunds, payouts, support and the order's own notifications.
+- **Reservations:** a live Buy Now reservation taken before the block completes. Checkout reads stay on `listings`,
+  and payment has no block check (2d). Once that reservation ends, a new one is refused.
+- **Bids:** bids placed before the block stand, but the blocked person cannot bid again, including to raise.
+- **Winning bids:** if a pre-block bid wins, the sale settles and becomes an order under the first rule. **The
+  consequence:** a seller who blocks a high bidder mid-auction still sells to them if that bid wins. Removing the bid
+  would change the outcome for other bidders and would need a new seller feature. Recommendation: accept for this
+  release.
+
+**Server refusals (2b)**
+- Placing a bid, from any client including web, is refused by a `BEFORE INSERT` trigger on `bids` with `BLOCKED_PARTY`.
+- Taking a Buy Now reservation is refused by `reserve_buy_now` with `BLOCKED_PARTY`.
+- Nothing else is refused: listing content stays public (070:43), reports are unaffected, and so are order actions
+  and exempt payments.
+- The app shows "This listing isn't available to you." with no "Try again".
+- **Old clients:** a build that predates C's half still reads `listings` directly, so it hides nothing new. A refused
+  bid shows as its generic error. Nothing breaks.
+
+**Reporting access**
+- Reporting stays open in both directions: from a listing (including its unavailable state) and from a profile
+  (including its unavailable state). A report insert checks only that the reporter is the caller (0230:57-59), so no
+  block can stop one.
+- A reporter sees only their own reports (0230:63-65). The reported person never sees a report or who filed it.
+- Operators see every report: console `/reports`, plus the cases `ops.detect_reports` opens. **Today nothing notifies
+  an operator.** Reports are seen only when someone works the queue. That is owner item B1 in
+  POLICY_PROMISES_DECISION_LIST_20260924.md, and it is unaffected by this request.
+
+**What approval does not claim:** Apple compliance. Apple decides that. §3 states only the behaviour the code would
+have.
+
