@@ -2,7 +2,8 @@
  * src/components/bids/BidCard.tsx — one row on the Bids screen (V3).
  *
  * Board: `pkg6-bids-{clean,active,past}.png` (dark only; Daylight is the same composition
- * through palette roles). Event artwork on the left; the event name in the display voice with
+ * through palette roles). Event artwork on the left — a 4:5 poster since the owner's 2026-09-24
+ * direction, filling the row's height rather than a square; the event name in the display voice with
  * the state word (Badge) and, inside the closing hour, the amber urgency beside it; on the
  * right the one price that matters, its "all-in" basis, and the state's action hint in the
  * uppercase eyebrow voice — the board draws the hint on every row ("the hint says what the row
@@ -28,6 +29,7 @@ import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { Badge, usePressScale } from '@/src/components/ui';
 import type { BidPresentation, BidTone } from '@/src/lib/bids/bidState';
+import { MEDIA_SLOTS } from '@/src/lib/media/slots';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -46,6 +48,21 @@ export interface BidCardProps {
   urgencyLabel?: string | null;
   onPress: () => void;
 }
+
+/**
+ * The row's artwork box (owner's 4:5 poster direction, 2026-09-24).
+ *
+ * 72 is the row's HEIGHT budget — the board's thumbnail edge, and the number the row's vertical
+ * rhythm was drawn against — so it goes to EventMedia as `height` and the poster takes whatever
+ * width the ratio gives it. Passed as `width` it would have been a 72-wide, 90-tall poster: 18pt
+ * taller than the row it sits in, which moves every divider on a screen the owner has accepted.
+ *
+ * The width is DERIVED, from the slot's own ratio rather than a number typed here, and exported so
+ * the Bids screen's loading placeholder is the same box: a skeleton whose shape is not the shape of
+ * the thing it stands for shifts the row the moment the artwork arrives.
+ */
+export const BID_ROW_ART_H = 72;
+export const BID_ROW_ART_W = Math.round(BID_ROW_ART_H * MEDIA_SLOTS.CHECKOUT_THUMBNAIL.aspectRatio);
 
 // Board tone for 'brand': "Won" wears the buying-path red — "red marks the buying path…
 // not a claim that money moves when you tap it" — and Badge has no brand slot, so the red
@@ -83,7 +100,8 @@ function BidCardImpl({
             asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
             slot="CHECKOUT_THUMBNAIL"
             title={eventName}
-            width={72}
+            // The HEIGHT is this row's constrained edge; EventMedia derives the poster's width.
+            height={BID_ROW_ART_H}
             decorative
           />
         </View>

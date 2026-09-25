@@ -48,7 +48,8 @@ import { classifyLoadFailure } from '@/src/lib/ui/loadState';
 import { Chip, EmptyState, Skeleton } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance, useTopInset } from '@/src/lib/nav/navInsets';
-import { BidCard } from '@/src/components/bids/BidCard';
+import { BidCard, BID_ROW_ART_H, BID_ROW_ART_W } from '@/src/components/bids/BidCard';
+import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
 import { BIDS_REFRESH_FAILED_COPY, bidPresentation, bidGroupOf, bidStatusOf, compareBidRows, endingSoonLabel, type BidGroup } from '@/src/lib/bids/bidState';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -352,7 +353,11 @@ export default function BidsScreen({ fixture }: { fixture?: BidsFixture } = {}) 
         <View style={s.list}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={s.skeletonRow}>
-              <Skeleton width={72} height={72} />
+              {/* The artwork's own box, from the row that owns it (BID_ROW_ART_*): the poster's
+                  height budget with the width derived from the slot's ratio, not a square typed
+                  here. A placeholder exists to hold the exact geometry the artwork will occupy —
+                  a 72-square one would hand back 14pt of row width when the poster loaded. */}
+              <Skeleton width={BID_ROW_ART_W} height={BID_ROW_ART_H} style={s.skeletonArt} />
               <View style={s.skeletonBody}>
                 <Skeleton height={14} width="40%" />
                 <Skeleton height={16} width="80%" style={{ marginTop: 8 }} />
@@ -478,6 +483,10 @@ function makeStyles(p: Palette) {
   noticeText: { color: p.text.secondary, flex: 1 },
   noticeAction: { color: p.text.primary },
   skeletonRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.md },
+  // The poster frame is rounded at the media step now, so the box standing in for it is too —
+  // otherwise the corners visibly change shape at the moment the artwork arrives. MEDIA_RADIUS is
+  // imported rather than restated: the slot and this placeholder must not drift apart.
+  skeletonArt: { borderRadius: MEDIA_RADIUS },
   skeletonBody: { flex: 1, justifyContent: 'center' },
   });
 }

@@ -88,8 +88,15 @@ describe('screen and card — the V3 voice and geometry (source pins)', () => {
     expect(g).toMatch(/textStyle\('nameOrder'\)/);   // loud upcoming card
     expect(g).toMatch(/textStyle\('nameRow'\)/);     // quiet past row
     expect(g).toMatch(/borderRadius: v2\.radius\.md/);
-    expect(g).toMatch(/borderRadius: v2\.radius\.sm/);
-    // Rounding must clip the artwork, or the card corners square themselves back.
+    /*
+     * The `radius.sm` this used to require was the past-row thumbnail WRAPPER's radius, and it was
+     * a defect the 4:5 poster direction removed (2026-09-24): the wrapper clipped the poster back
+     * to a square at a 10pt arc, inside a frame whose own radius is 8. Media radius now comes from
+     * the slot, so the screen must NOT carry a second one — the absence is the rule, and this
+     * asserts it rather than requiring the thing that was wrong.
+     */
+    expect(g).not.toMatch(/borderRadius: v2\.radius\.sm/);
+    // Rounding must still clip the CARD's artwork, or the card corners square themselves back.
     expect(g).toMatch(/overflow: 'hidden'/);
     // Badge visibility goes through the tested rule, both families, no hand-rolled condition.
     expect(g).toMatch(/showOwnershipBadge\(row\.ownership_status, row\.fulfillment_status\)/);
