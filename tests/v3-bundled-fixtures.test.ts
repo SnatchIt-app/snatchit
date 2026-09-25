@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { DEV_POSTER_NAMES } from '../src/lib/media/devPosters';
+import { DEV_POSTER_NAMES, devPosterModule } from '../src/lib/media/devPosters';
 import { ADDITIONAL_TRUSTED_MEDIA_HOSTS, isTrustedMediaUrl } from '../src/lib/media/url';
 
 const root = resolve(__dirname, '..');
@@ -48,16 +48,41 @@ function sourceFiles(): string[] {
 }
 
 describe('the bundled posters are a dev-only affordance', () => {
-  it('BF1: the resolver consults them only under __DEV__', () => {
+  it('BF1: the lookup returns null when __DEV__ is not set — and the GATE is why', () => {
+    /*
+     * The assertion E asked for, behavioural rather than a source pin. A release bundle has
+     * `__DEV__ === false`; this suite runs with it undefined, and both take the same branch.
+     */
+    for (const name of DEV_POSTER_NAMES) {
+      expect(devPosterModule(`dev-bundled:${name}`), name).toBeNull();
+    }
+    // And a non-marker value is null for its own reason, in both worlds.
+    expect(devPosterModule('uuid/covers/1715000000000.jpg')).toBeNull();
+    expect(devPosterModule(null)).toBeNull();
+
+    /*
+     * POSITIVE CONTROL, because a null that is always null proves nothing about the gate. With the
+     * gate opened, control flow reaches the `require` and the behaviour DIFFERS — under vitest it
+     * throws, because vitest cannot transform a PNG (Metro can, which is why the app is fine). The
+     * throw is an artefact of this environment; what it establishes is that the gate, and not some
+     * unrelated early return, is what produced the nulls above.
+     */
+    const g = globalThis as Record<string, unknown>;
+    try {
+      g.__DEV__ = true;
+      expect(() => devPosterModule('dev-bundled:markers-4x5')).toThrow();
+    } finally {
+      delete g.__DEV__;
+    }
+    // Back to the closed gate, so the difference is the flag and nothing else.
+    expect(devPosterModule('dev-bundled:markers-4x5')).toBeNull();
+
+    // The gate is also FIRST in the source, so a later edit cannot read the value before checking.
     const src = read('src/lib/media/devPosters.ts');
-    // The gate is the FIRST thing the lookup does, before it even inspects the value.
     expect(src).toMatch(/if \(typeof __DEV__ === 'undefined' \|\| !__DEV__\) return null;/);
     const fn = src.slice(src.indexOf('export function devPosterModule'));
     expect(src).toContain('export function devPosterModule');
-    const gateAt = fn.indexOf('__DEV__');
-    const prefixAt = fn.indexOf('DEV_POSTER_PREFIX');
-    expect(gateAt).toBeGreaterThan(-1);
-    expect(gateAt).toBeLessThan(prefixAt);
+    expect(fn.indexOf('__DEV__')).toBeLessThan(fn.indexOf('DEV_POSTER_PREFIX'));
   });
 
   it('BF2: no screen outside app/_dev mentions the bundled mechanism', () => {
