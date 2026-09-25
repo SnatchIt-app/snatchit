@@ -355,9 +355,12 @@ export type DecisionProvenance =
  * ORDER MATTERS, and not in the order the writers were discovered:
  *
  * 1. `edge:enforce-transfer-expiry` first. `recordManualReviewOnce` writes a literal `false`
- *    and TWO of its evidence objects carry `attempt_id` (index.ts:976-977 and :984), so the
- *    a3 test below would otherwise capture those rows and hand them a boundary — silently
- *    un-annotating the one writer that is wrong at every time (F-PD-EXPIRY-1).
+ *    and ONE of its three call sites puts `attempt_id` in the evidence — `PAYOUT_UNMATCHED_TRANSFER`
+ *    at index.ts:975-977; the other two (:995, :1006) do not. One is enough: the a3 test below
+ *    would otherwise capture those rows and hand them a boundary, silently un-annotating the one
+ *    writer that is wrong at every time (F-PD-EXPIRY-1). The reverse collision cannot happen —
+ *    an a3 row carries the ATTEMPT's actor, `cron:enforce-transfer-expiry` or
+ *    `edge:confirm-and-release`, never `edge:enforce-transfer-expiry`.
  * 2. Then a3, by the row's own evidence rather than its actor. `record_payout_attempt_result`
  *    writes `v_a.actor` — the ATTEMPT's actor — so an a3 row reads `cron:enforce-transfer-expiry`
  *    or `edge:confirm-and-release` depending on who claimed it (payouts.ts:363;

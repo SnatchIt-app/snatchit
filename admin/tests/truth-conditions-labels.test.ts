@@ -142,7 +142,8 @@ describe("a6 — provenance is per WRITER, ordered so the permanent case wins", 
   });
 
   it("the permanently-unreliable writer is checked FIRST, even when its evidence looks like a3", () => {
-    // recordManualReviewOnce puts attempt_id in evidence at index.ts:976-977 and :984.
+    // recordManualReviewOnce puts attempt_id in evidence at index.ts:975-977 (one of its three
+    // call sites; :995 and :1006 do not).
     // If the a3 test ran first, these rows would be handed a boundary and pass as reliable.
     const looksLikeA3 = { decision: "manual_review", evidence: { attempt_id: "att-9", unmatched_stripe_transfer_ids: ["tr_1"] } };
     for (const when of [BEFORE_MIGRATION, BETWEEN, IN_DRAIN, AFTER_DRAIN, null]) {
