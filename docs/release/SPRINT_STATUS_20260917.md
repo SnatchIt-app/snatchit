@@ -1976,7 +1976,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - The out-of-date §2a refund lines are superseded.
   - **Blocking:** final approval request in BLOCKING_SCOPE_RECOMMENDATION_20260924.md §5. A direction-free profile check
     (`user_view_state`) was added after reading the profile's reads. Awaiting the owner; nothing built.
-- **D's admin label change: A PASS (2026-09-25). Branch `admin/label-truth-conditions` @ `004af0b0`, based on the gate, one commit, 3 files.**
+- **D's admin label change: A PASS (2026-09-25). Branch `admin/label-truth-conditions` @ `004af0b0`, based on the gate, one commit, 3 files.** Head is now `789025f3`: one comment-only commit on top (+8/−4 in 2 files; A checked that no non-comment line changed). It corrects D's `:984` citation, which was a `console.warn`: only :975-977, of the three `recordManualReviewOnce` sites, carries `attempt_id`. The PASS carries over.
   - **Scope:**
     - transfer and payout labels follow the truth conditions (§2i);
     - the `dispute_resolution` wording treats `resolved_seller_paid` as a decision, not a payout;
