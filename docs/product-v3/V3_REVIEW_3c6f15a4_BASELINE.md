@@ -79,7 +79,7 @@ am not asserting it.
 
 ---
 
-## 3. The footer regression I predicted has shipped — reservation feedback is gone
+## 3. The footer regression I predicted is present in the candidate — reservation feedback is gone
 
 `12be25d6` implements the owner's Option B **in the resolver**, which is the approach I warned
 against, and its only change to `ListingDetailScreen.tsx` was **the comment**. Verified at
@@ -92,7 +92,7 @@ against, and its only change to `ListingDetailScreen.tsx` was **the comment**. V
 * `:1464`–`:1470` — the secondary `BarAction`, now **Buy Now**, has **no `loading` and no
   `pendingLabel`**.
 
-Buy Now is the only action that sets `reserving`. So on this candidate, **pressing Buy Now starts
+Buy Now is the only action that sets `reserving`. So in this candidate, **pressing Buy Now starts
 the reserve call and nothing on screen says so.** Both pills dim, because the resolver sets
 `disabled: reserving` on both, and neither explains why. CFT-203 — "visible while the reserve call
 is in flight" — is dropped in exactly the one mode the ruling touched.
@@ -157,3 +157,44 @@ range, noise or focal ambiguity; if that matters before acceptance it needs a re
 | Reservation feedback | **defect found in source** (§3); rendering it needs a `reserving` fixture |
 | F-91-6 Filters glyph | **open**, with a larger cause found (§2) |
 | Photographic 4:5 with a subject | **proposed** (§4), awaiting C moving it into the shared set |
+
+---
+
+## 6. Addendum — wording correction, and the optimised fixtures
+
+**Correction (owner, 2026-09-25).** §3 said the footer defect "has shipped". It has not: it is
+**present in the candidate `3c6f15a4`**. Nothing is distributed, no build exists on the device, and
+"shipped" claims a reach the evidence does not support. The section above is corrected; the commit
+message of `4882cd6a` carries the original word and is left as written, with this note as the
+correction of record.
+
+**The proposed fixtures are optimised and within the existing budget.** They are **synthetic
+subject-framing fixtures, not photographs** — the owner's description, and the accurate one.
+
+| file | before | after | colours | dimensions |
+|---|---|---|---|---|
+| `photo-subject-4x5.png` | 567,510 | **63,311** (11.2 %) | 32 | 1200 × 1500, ratio 0.800 |
+| `photo-subject-16x9.png` | 444,421 | **62,448** (14.1 %) | 64 | 1600 × 900, ratio 1.778 |
+
+| | bytes |
+|---|---|
+| proposed additions | **125,759** |
+| existing `assets/qa-posters/` (6 files) | 176,302 |
+| **combined** | **302,061** |
+| budget, `tests/v3-bundled-fixtures.test.ts` BF4 | 409,600 |
+| **headroom remaining** | **107,539** |
+
+**The budget is not raised.** Median-cut quantisation with dithering off, then `optimize=True`.
+
+**Every marker verified on the written files, not assumed:** the subject's head at 36 % / 30 % is
+still dark ink, the green ring is intact (4 310 and 3 932 sampled pixels), all four edge borders
+are present at mid-edge, and the crowd silhouette survives at the bottom edge.
+
+**One result worth passing to C:** at 24 and 32 colours the **16:9** file lost the marker colour
+entirely — median cut dropped it from the palette, so the ring and all four borders vanished while
+the image still looked plausible. It passes at 48 and is written at 64 for margin. **If these are
+re-encoded, re-run the marker check rather than trusting the file's appearance** — a fixture whose
+markers are silently gone is worse than no fixture, because it reports a pass.
+
+Files: `fixtures-proposed/`. They are C's to move into `assets/qa-posters/`, with `DEV_POSTER_NAMES`
+and BF4's shape list updated, so one set exists.
