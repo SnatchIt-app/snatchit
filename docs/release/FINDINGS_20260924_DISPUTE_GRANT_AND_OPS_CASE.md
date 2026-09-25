@@ -285,3 +285,19 @@ list be trusted where they differ.
     a restore and disaster-recovery risk, not only a test-fidelity one.
 - D reviewed the R0 result independently and gave a PASS, with the same classification (§12 of the #92 package).
 
+## F-PD-EXPIRY-1: the expiry job records "buyer not confirmed" on confirmed rows (A, 2026-09-25; source at gate `037092f0`)
+
+- **Object.** `enforce-transfer-expiry` → `payReleasedTransfer` → `recordManualReviewOnce` inserts `payout_decisions` with
+  the literal `buyer_confirmed: false` and actor `edge:enforce-transfer-expiry` (index.ts:883-895).
+- `payReleasedTransfer` serves the Phase 2b sweep, whose rows are `buyer_confirmed` / `auto_released`. So a
+  manual_review decision on a row the buyer genuinely confirmed records that they did not.
+- **Not covered by 149**, which fixed a1–a4 only. This is current behaviour.
+- **Found by** A, while checking D's a6 annotation: that annotation's claim of "derived from status" does not hold for
+  this writer.
+- **Consequence:** the audit record, and the console's payout-decisions table, show "not confirmed" for a confirmed
+  buyer. No money moves: the flag feeds no payout decision.
+- **Fix, proposed and not implemented:** `buyer_confirmed: Boolean(<row>.buyer_confirmed_at)`, with the sweep selects
+  carrying `buyer_confirmed_at`. It needs an edge deploy (owner-gated).
+  - It will be a separate change from #94, although #94 edits the same file.
+  - Until then the console annotates these rows as "confirmation not read by this writer (recorded false)".
+

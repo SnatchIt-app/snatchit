@@ -161,6 +161,20 @@ the app's; only the surface differs.
   10. `buyer_confirmed` / `auto_released` without payout evidence → "Release approved — payout pending".
 - **Reads:** all of these columns already exist in production. None depends on migration 150.
 - **Owner of the change:** the web surface. It is not C's; C's app already follows these rules.
+- **Acceptance bar (D's criteria, adopted by A 2026-09-25; D verifies):**
+  1. No string containing "refund" is reachable from a path whose only input is `transfer.status`.
+  2. Refund wording stays at ruling 3's ceiling. After 150 is live, the kind contract in §2i applies.
+  3. Payout completion requires `payout_released_at IS NOT NULL` and `status <> 'reversed'`. No payout string says
+     "received".
+  4. "Confirmed" requires `buyer_confirmed_at`. `auto_released` has its own wording. A seller-win is never shown as
+     completion, and nothing derives a payout from `resolved_seller_paid`.
+  5. No copy asserts a human activity that no record establishes.
+  6. A resolved dispute does not render as open.
+  7. One asserting test per finding (W-1a/b … W-6). Each predicate gets a positive control showing its compliant branch
+     is reachable, and a negative control: revert the predicate and the test fails.
+  8. No newly selected column may be one that doesn't yet exist in production.
+- **Why W-1a/b is not a brief window:** #94 parks a payment whose refund failed (`refund_failed_cents > 0`) until a
+  person handles it. For that whole time, both web lines would tell the buyer and seller the money went back.
 
 ## 2i. Payout-completion evidence and the losing buyer (RULINGS, A, 2026-09-25; owner's correction adopted)
 
