@@ -80,7 +80,7 @@ table is on the gate.
 | Admin labels (a5/a6, F1-ADMIN-1) | `admin/label-truth-conditions @ 789025f3`, based on the gate; **A PASS** | console pinned to `ab3e17f` (DEPLOYMENT_RECORD_2026-09-08:29,78) | the owner changes the console pin | **REQ** (operators will work refunds and disputes with it) |
 | Admin refund console | PR #89 @`3dab1614` (draft); never run against a live database | — | O-R3 | **COND** on O-R3 choosing console execution; otherwise **DEF** |
 | Admin analytics redesign (supersedes three older admin branches) | `admin/analytics-redesign @ 64f26f90` | — | — | **DEF** |
-| Stripe SDK interop patch (Xcode 26.6) | `e7af5242`, on C's local `v3/midnight-app` (unpushed) | build-time only | A's review completes on C's build evidence | **REQ** for any Xcode 26.6 build |
+| Stripe SDK interop patch (Xcode 26.6) | `e7af5242`, on C's local `v3/midnight-app` (unpushed); **A review PASS 2026-09-25** (SPRINT_STATUS) | build-time only | none | **REQ** for any Xcode 26.6 build |
 | V3 app: successor candidate | local `v3/midnight-app @ f3f08930`, 57 commits ahead of origin `404bce38`; the gate is 34 commits ahead of v3 | Build 24 failed G0; no production candidate (G2) | native review, G0, then G2 | **REQ** |
 | Blocking, client and web halves | BS §2d | only C's Home fix | D2 | **COND** on D2 |
 | F-PD-EXPIRY-1: the expiry job writes `buyer_confirmed: false` | FD §F-PD-EXPIRY-1; source only | live in v41 | an edge deploy; kept separate from #94 | **DEF** (audit record only; the console annotates it) |

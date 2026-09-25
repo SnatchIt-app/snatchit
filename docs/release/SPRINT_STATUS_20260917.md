@@ -1996,3 +1996,32 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - R5: the confirm-and-release boundary now covers the whole drain window.
   - **A's evidence:** scratch checkout, 21/21 and admin 117/117, `tsc` 0, eslint 0. The check-order mutant, re-applied
     by A, killed exactly 1 test; restore verified by sha. No deploy.
+- **Stripe SDK interop patch for Xcode 26.6: A review PASS (2026-09-25; the owner authorised the compatibility
+  implementation and local simulator verification only).**
+  - **Commit:** `e7af5242` (C), exactly `package.json` (+1 `postinstall`) and `scripts/patch-stripe-interop.mjs`.
+    `package-lock.json` is untouched.
+  - **The change** is `@stripe/stripe-react-native` 0.50.3 `ios/StripeSwiftInterop.h:14`, `NS_ENUM(NSUInteger, …)` →
+    `NS_ENUM(NSInteger, STPPaymentStatus)`. It is upstream's own fix `b613850f` (#2355), first released in v0.61.0.
+  - **Whole-file pins:** the upstream file at `b613850f^` equals v0.50.3's (`ba0d6791…`), so the patched file must be
+    upstream's post-fix bytes (`b3b5c856…`). The script asserts both hashes.
+  - **A's independent check**, in a detached checkout of `e7af5242`:
+    - a fresh `npm ci` exits 0, the postinstall reports `ba0d6791… → b3b5c856…`, and the header is byte-identical to
+      upstream's `b613850f` file;
+    - a rerun reports "already applied" and exits 0;
+    - with the version set to 0.50.4 it exits 1 ("REFUSING TO CONTINUE");
+    - `git status` is clean after install.
+  - **C's build:** tree `f3f08930` (= `e7af5242` + one UI commit, clean); xcodebuild Debug for "SN V3 393x852" (udid
+    `52282259…`, iPhone-16 device type, iOS 26.5; Xcode 26.6 17F113); `XCODEBUILD_EXIT=0`; 0 error lines; 0
+    `STPPaymentStatus` diagnostics; `SnatchIt.app` produced and installed. The log (14,845 lines, sha256 `e80db417…`)
+    was captured in quiet mode, so it has no BUILD SUCCEEDED banner; success rests on the exit status, the zero
+    errors and the product.
+  - **Payment implication, scoped:**
+    - the generated `stripe_react_native-Swift.h` has `SWIFT_ENUM_FWD_DECL(NSInteger, STPPaymentStatus)` (:627),
+      which now agrees with the patched declaration, and the type's only use is the Apple Pay delegate signature
+      (:638);
+    - the nine `.mm` files that include the private header (podspec :25) never reference the type or that method;
+    - the Swift callback (`ApplePayViewController.swift:193`) uses the SDK's own enum;
+    - both types are 64-bit, and the values 0/1/2 are unchanged.
+    **So no compiled code reads a value through the changed declaration.**
+  - **Not established:** any runtime Apple Pay or PaymentSheet behaviour (no payment run was authorised); and Xcode
+    26.6 is itself a toolchain change from the shipped builds. No EAS build, production change or transaction.
