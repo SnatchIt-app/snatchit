@@ -5,9 +5,10 @@
 -- docs/release/REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md (release/candidate-20260918).
 --
 -- A Stripe refund has its own status (pending, requires_action, succeeded,
--- failed, canceled) that can change in any direction for up to ~30 days; a card
--- refund can report succeeded and later fail (docs.stripe.com/testing,
--- /refunds). Until now the only writer, record_payment_refund (20260906120000),
+-- failed, canceled) that keeps changing for up to ~30 days: a card refund can
+-- report succeeded and later fail (docs.stripe.com/testing, /refunds), and a
+-- bank refund can go from succeeded back to requires_action. Failed and canceled
+-- have no documented exit, so the writer never leaves them. Until now the only writer, record_payment_refund (20260906120000),
 -- took no status: every writer called it the moment a refund was created, so a
 -- pending, failed or canceled refund was recorded as money returned, and the
 -- one-way guard on payments made a later failure unrecordable.
@@ -175,6 +176,26 @@ BEGIN
   IF v_had AND v_prev.payment_id <> v_pay.id THEN
     RAISE EXCEPTION 'REFUND_PAYMENT_MISMATCH' USING DETAIL = p_stripe_refund_id;
   END IF;
+
+  -- Failed and canceled are final at Stripe (docs.stripe.com/refunds documents no
+  -- exit from either). An observation that disagrees is older than the one
+  -- recorded: two deliveries each re-fetch the refund, and the earlier fetch can
+  -- commit last. Refuse it whole: no state change, no log row, and never the
+  -- one-way record, or a refund first seen failed would be counted as returned.
+  -- Other statuses are not ordered: a bank refund goes succeeded -> requires_action.
+  IF v_had AND v_prev.status IN ('failed','canceled') AND p_status <> v_prev.status THEN
+    RETURN jsonb_build_object(
+      'recorded',        false,
+      'reason',          'stale_observation',
+      'stale_ignored',   true,
+      'payment_id',      v_pay.id,
+      'refund_status',   v_prev.status,
+      'requested_cents', v_pay.refund_requested_cents,
+      'succeeded_cents', v_pay.refund_succeeded_cents,
+      'failed_cents',    v_pay.refund_failed_cents
+    );
+  END IF;
+
   v_changed := NOT v_had
             OR v_prev.status         IS DISTINCT FROM p_status
             OR v_prev.failure_reason IS DISTINCT FROM p_failure_reason
@@ -224,6 +245,7 @@ BEGIN
     'payment_id',      v_pay.id,
     'refund_status',   p_status,
     'counted',         v_counted,
+    'stale_ignored',   false,
     'requested_cents', v_req,
     'succeeded_cents', v_ok,
     'failed_cents',    v_fail

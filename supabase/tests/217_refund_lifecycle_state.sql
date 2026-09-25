@@ -3,8 +3,10 @@
 -- 20260925000000, registry 150). Design: docs/release/REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
 --
 -- A Stripe refund has its own state (pending, requires_action, succeeded,
--- failed, canceled) that can move in any direction for ~30 days; a card refund
--- can report succeeded and later fail (docs.stripe.com/testing). Before 150 the
+-- failed, canceled) that keeps moving for ~30 days: a card refund can report
+-- succeeded and later fail (docs.stripe.com/testing), and a bank refund can go
+-- from succeeded back to requires_action (docs.stripe.com/refunds). Failed and
+-- canceled have no documented exit. Before 150 the
 -- only writer, record_payment_refund, took no status: a pending, failed or
 -- canceled refund was recorded as money returned, and the one-way guard on
 -- payments (20260906120000) made a later failure unrecordable.
@@ -13,7 +15,8 @@
 --   S  objects, grants, RLS, the seeded switch (off);
 --   W  record_refund_state: counting only pending/requires_action/succeeded,
 --      the three sums, a failure after success, first-seen failures never
---      counted, idempotency, unknown payments, input validation;
+--      counted, idempotency, unknown payments, input validation, and a stale
+--      observation never moving a refund out of failed/canceled (D's F2);
 --   G  the payments refund-state columns move only through the writer; the
 --      state log is append-only;
 --   D  ops.detect_refunds: the new branches are off by default; on, a failed
@@ -24,7 +27,7 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(41);
+SELECT plan(45);
 SELECT tap.seed_core();
 SELECT tap.logout();
 
@@ -158,6 +161,36 @@ SELECT throws_ok($$ SELECT tap._rs(1, 're_rl_bad', 'pending', 100, NULL, 'expiry
   'W17: an unknown observed_via raises INVALID_OBSERVATION_SOURCE');
 SELECT throws_ok($$ SELECT tap._rs(1, NULL, 'pending', 100) $$, 'P0001', 'REFUND_REFERENCE_REQUIRED',
   'W18: a missing refund id raises REFUND_REFERENCE_REQUIRED');
+-- Stale observations (D's F2). Two deliveries for one refund, each re-fetching
+-- from Stripe, can commit in the opposite order to their fetches: the earlier
+-- fetch lands last. Failed and canceled are final at Stripe, so an observation
+-- that disagrees with one of them is older than the recorded state.
+SELECT tap._p217(7);
+SELECT tap._rs(7, 're_rl_7', 'succeeded', 11000);
+SELECT tap._rs(7, 're_rl_7', 'failed', 11000, 'declined');
+SELECT ok((SELECT (tap._rs(7, 're_rl_7', 'succeeded', 11000) ->> 'stale_ignored') = 'true')
+      AND (SELECT status || '/' || coalesce(failure_reason, '-') FROM public.payment_refund_state WHERE stripe_refund_id = 're_rl_7') = 'failed/declined'
+      AND (SELECT refund_failed_cents = 11000 AND refund_succeeded_cents = 0 FROM tap._pay217(7)),
+  'W19: a stale succeeded after failed is refused: the refund stays failed and the sums do not move');
+SELECT tap._p217(8);
+SELECT tap._rs(8, 're_rl_8', 'failed', 5000, 'declined', 'expiry', 'create_response');
+SELECT tap._rs(8, 're_rl_8', 'pending', 5000);
+SELECT ok((SELECT amount_refunded_cents IS NULL AND status = 'succeeded' AND refund_requested_cents = 0 AND refund_failed_cents = 5000
+             FROM tap._pay217(8))
+      AND (SELECT count(*) FROM public.payment_refunds WHERE stripe_refund_id = 're_rl_8') = 0,
+  'W20: a refund first seen failed is never counted by a stale pending replay (no one-way record, no payment_refunds row)');
+SELECT tap._p217(9);
+SELECT tap._rs(9, 're_rl_9', 'canceled', 11000, 'merchant_request', 'dashboard');
+SELECT tap._rs(9, 're_rl_9', 'requires_action', 11000, NULL, 'dashboard');
+SELECT ok((SELECT status FROM public.payment_refund_state WHERE stripe_refund_id = 're_rl_9') = 'canceled'
+      AND (SELECT amount_refunded_cents IS NULL AND refund_requested_cents = 0 AND refund_failed_cents = 11000 FROM tap._pay217(9)),
+  'W21: a stale requires_action after canceled is refused and never counted');
+SELECT tap._p217(10);
+SELECT tap._rs(10, 're_rl_10', 'succeeded', 6000, NULL, 'dashboard');
+SELECT tap._rs(10, 're_rl_10', 'requires_action', 6000, NULL, 'dashboard');
+SELECT ok((SELECT status FROM public.payment_refund_state WHERE stripe_refund_id = 're_rl_10') = 'requires_action'
+      AND (SELECT refund_requested_cents = 6000 AND refund_succeeded_cents = 0 FROM tap._pay217(10)),
+  'W22: succeeded -> requires_action (bank returned the funds; docs.stripe.com/refunds) is still accepted');
 
 -- ── G — guards ──────────────────────────────────────────────────────────────
 SELECT throws_ok($$ UPDATE public.payments SET refund_succeeded_cents = 11000 WHERE id = tap._pid217(2) $$,
