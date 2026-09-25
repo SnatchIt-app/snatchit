@@ -232,7 +232,7 @@ describe('screen wiring (source pins)', () => {
     expect(src).not.toContain("'This listing does not have Buy Now enabled.'");
   });
 
-  it('LS4 (owner ruling 2026-09-24): the RESOLVED PRIMARY carries the filled emphasis and leads the column — the board-first flip is gone', async () => {
+  it('LS4 (owner rulings 2026-09-24, 2026-09-25): the RESOLVED PRIMARY carries the filled emphasis and leads the column, whichever action that is', async () => {
     const { readFileSync } = await import('node:fs');
     const raw = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
     const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');

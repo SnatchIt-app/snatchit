@@ -96,14 +96,64 @@ describe('transaction mode', () => {
   });
 });
 
-describe('actions — the Buy Now hierarchy', () => {
-  it('leads with Buy Now and offers bidding beside it', () => {
-    // THE REGRESSION THIS LOCKS DOWN: Buy Now used to be the grey outlined
-    // button and Place Bid the red one.
-    const { primary, secondary } = listingActions(withBuyNow());
-    expect(primary.kind).toBe('buy_now');
-    expect(primary.label).toContain('$66');
-    expect(secondary?.kind).toBe('place_bid');
+describe('actions — the hierarchy when both are available', () => {
+  it('leads with the BID and offers Buy Now beneath it (owner ruling 2026-09-25, Option B)', () => {
+    /*
+     * SETTLED, and it supersedes the earlier Buy-Now-first hierarchy this suite used to lock down:
+     * "Place a bid is first, full-width and red. Its minimum all-in amount sits beneath the label
+     * inside the button. Buy Now is second, full-width and outlined."
+     *
+     * Asserted on the RESOLVER rather than on the screen because that is where the owner required
+     * it to live: the footer paints `primary` filled-red first and `secondary` outlined below, so
+     * a screen-level override would let other consumers of the resolver disagree with the footer.
+     */
+    const { primary, secondary } = listingActions(withBuyNow({ nextBidAllIn: '$104.50' }));
+    expect(primary.kind).toBe('place_bid');
+    // The minimum rides INSIDE the leading button, as its sub-label.
+    expect(primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(secondary?.kind).toBe('buy_now');
+    // Buy Now keeps its quantity-aware label, its price and its subline, exactly as approved.
+    expect(secondary?.label).toContain('$66');
+    expect(secondary?.subLabel).toBe('all-in, ends the auction');
+    // And the superseded arrangement is gone, not merely unasserted.
+    expect(primary.kind).not.toBe('buy_now');
+  });
+
+  it('the ruling reaches ONLY the both-available state — every other state keeps its action', () => {
+    /*
+     * The owner was explicit: "Do not force this pair onto reserved, sold, ended, own-listing or
+     * other states with different valid actions." A hierarchy change is the kind of edit that
+     * leaks, so each state is named and pinned rather than covered by a sweep.
+     */
+    const states: [string, DetailStateInput][] = [
+      ['auction only', input()],
+      ['reserved by me', input({ listing: { status: 'reserved' }, reservationActive: true })],
+      ['reserved by someone else', input({ listing: { reserved_by: 'other' }, reservationActive: true })],
+      ['own listing', input({ listing: { seller_id: 'me' }, userId: 'me' })],
+      ['sold', input({ listing: { status: 'sold' } })],
+      ['auction ended', input({ listing: { auction_status: 'ended' } })],
+      ['cancelled', input({ listing: { auction_status: 'cancelled' } })],
+      ['clock ended', input({ clockEnded: true })],
+      ['won it', input({ listing: { auction_status: 'ended', winner_user_id: 'me' }, userId: 'me' })],
+      // The pair itself, as the control: the invariant below must be able to find it.
+      ['both available', withBuyNow()],
+    ];
+    for (const [name, i] of states) {
+      const actions = listingActions(i);
+      const isThePair = actions.primary.kind === 'place_bid' && actions.secondary?.kind === 'buy_now';
+      expect(isThePair, `${name}: the pair appears iff both actions are valid`)
+        .toBe(transactionMode(i) === 'auction_and_buy_now');
+      // Outside that one mode the screen offers a single action, so nothing sits beside it.
+      if (transactionMode(i) !== 'auction_and_buy_now') {
+        expect(actions.secondary, `${name} has no second button`).toBeNull();
+      }
+    }
+    /*
+     * NOT asserted, because it does not exist: a "buy-now-only" state. `transactionMode` has no
+     * branch that drops bidding — every row carries an auction (`starting_bid` and `ends_at` are
+     * NOT NULL), so Buy Now is always an addition. A first draft of this test asserted such a
+     * state and failed, which is the useful kind of failure: the state was mine, not the product's.
+     */
   });
 
   it('leads with bidding, and offers nothing else, when there is no Buy Now', () => {
@@ -122,50 +172,56 @@ describe('actions — the Buy Now hierarchy', () => {
     expect(bidOnly.primary.subLabel).toBe('minimum $104.50 all-in');
     expect(bidOnly.primary.label).not.toMatch(/\$/);
 
+    // Beside Buy Now the bid now LEADS (owner 2026-09-25), and it still submits nothing — the
+    // label is the same verb and the minimum is still an informational sub-line.
     const both = listingActions(withBuyNow({ nextBidAllIn: '$104.50' }));
-    expect(both.secondary?.kind).toBe('place_bid');
-    expect(both.secondary?.label).toBe('Place a bid');
-    expect(both.secondary?.subLabel).toBe('minimum $104.50 all-in');
+    expect(both.primary.kind).toBe('place_bid');
+    expect(both.primary.label).toBe('Place a bid');
+    expect(both.primary.subLabel).toBe('minimum $104.50 all-in');
+    expect(both.primary.label).not.toMatch(/\$/);
 
     // No all-in supplied (e.g. closed, or the price is still loading): no number is invented.
     expect(listingActions(input()).primary.subLabel).toBeUndefined();
 
     // §5: Buy Now beside a live auction carries its truth — all-in, and it ends the auction.
-    expect(both.primary.kind).toBe('buy_now');
-    expect(both.primary.subLabel).toBe('all-in, ends the auction');
+    expect(both.secondary?.kind).toBe('buy_now');
+    expect(both.secondary?.subLabel).toBe('all-in, ends the auction');
   });
 
   it('V3 (owner ruling 2026-09-22): the buy-now verb counts the tickets — the price is the WHOLE listing', () => {
     // "Buy both now" for two; other quantities named accurately; one ticket needs no counting.
+    // Beside a live auction the buy-now action is the SECONDARY (owner 2026-09-25); its label,
+    // price and subline are unchanged by that ruling, which is what these assertions protect.
     const two = listingActions(withBuyNow({ listing: { quantity: 2 } }));
-    expect(two.primary.label).toBe('Buy both now · $66');
+    expect(two.secondary?.label).toBe('Buy both now · $66');
     const three = listingActions(withBuyNow({ listing: { quantity: 3 } }));
-    expect(three.primary.label).toBe('Buy all 3 now · $66');
+    expect(three.secondary?.label).toBe('Buy all 3 now · $66');
     const one = listingActions(withBuyNow({ listing: { quantity: 1 } }));
-    expect(one.primary.label).toBe('Buy now · $66');
+    expect(one.secondary?.label).toBe('Buy now · $66');
     // Quantity unknown to the caller: no count is invented.
-    expect(listingActions(withBuyNow()).primary.label).toBe('Buy now · $66');
+    expect(listingActions(withBuyNow()).secondary?.label).toBe('Buy now · $66');
     // The whole-listing identification also survives a missing price string. (Built via input():
     // withBuyNow force-sets buyNowAllIn after its overrides.)
     const priceless = listingActions(input({
       listing: { buy_now_enabled: true, buy_now_price: 60, quantity: 2 },
       buyNowAllIn: null,
     }));
-    expect(priceless.primary.label).toBe('Buy both now');
-    // Buy Now stays PRIMARY beside bidding — the owner reaffirmed the hierarchy.
-    expect(two.primary.kind).toBe('buy_now');
-    expect(two.secondary?.kind).toBe('place_bid');
+    expect(priceless.secondary?.label).toBe('Buy both now');
+    // The bid leads beside Buy Now (owner 2026-09-25).
+    expect(two.primary.kind).toBe('place_bid');
+    expect(two.secondary?.kind).toBe('buy_now');
   });
 
   it('never shows an auction price as the Buy Now price', () => {
     // No all-in string supplied means no number is invented for the label.
-    const { primary } = listingActions(
+    const { secondary } = listingActions(
       input({
         listing: { ...input().listing, buy_now_enabled: true, buy_now_price: 60 },
         buyNowAllIn: null,
       }),
     );
-    expect(primary.label).toBe('Buy now');
+    // The buy-now action is the SECONDARY beside a live auction (owner 2026-09-25).
+    expect(secondary?.label).toBe('Buy now');
   });
 });
 

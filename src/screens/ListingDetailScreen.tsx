@@ -1436,9 +1436,13 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         ) : null}
 
         {/*
-          HIERARCHY COMES FROM THE RESOLVER (owner ruling 2026-09-24): "Buy Now leads whenever the
-          resolver selects it as primary." `detailState` rule 1 makes Buy Now the primary on a
-          listing that offers both, so the primary is the FILLED action and it leads the column;
+          HIERARCHY COMES FROM THE RESOLVER (owner rulings 2026-09-24, then 2026-09-25). The screen
+          paints whatever the resolver selects: the primary is the FILLED red action and it leads
+          the column, the secondary is outlined below it. On a listing that offers BOTH actions the
+          resolver now selects the bid as primary (owner 2026-09-25, Option B), superseding the
+          earlier Buy-Now-first hierarchy — and because the emphasis is read off the selection
+          rather than overridden here, that ruling took one change in `detailState` and none in
+          this file;
           the bid follows, outlined. The earlier reading — pkg8-listing-{dark,light} draws the bid
           filled with Buy Now outlined beneath it — pinned the emphasis to the board and inverted
           the resolver; that flip is what this ruling closes. The board's remaining footer facts

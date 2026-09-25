@@ -303,11 +303,22 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
 /**
  * The actions the sticky bar offers.
  *
- * TWO RULES, both of which the old screen broke:
- *  1. Buy Now leads when it exists. Instant purchase is the stronger offer and
- *     was styled as the weaker button.
+ * TWO RULES:
+ *  1. When bidding and Buy Now are BOTH available, the bid leads. OWNER RULING 2026-09-25,
+ *     settled, on Option B of B's footer comparison: "Place a bid is first, full-width and red.
+ *     Its minimum all-in amount sits beneath the label inside the button. Buy Now is second,
+ *     full-width and outlined." This SUPERSEDES the 2026-09-22/24 rulings that made Buy Now the
+ *     leading action, and it lives here rather than in the screen so every consumer of the
+ *     resolver agrees — the footer paints `primary` filled-red first and `secondary` outlined
+ *     below, so the emphasis follows from the selection instead of a paint override.
  *  2. Nothing is offered that cannot work. A seller was shown an enabled bid
  *     button; the database refuses that bid by design.
+ *
+ * The ruling reaches ONE state. Buy-now-only, auction-only, reserved, won/pay-now, sold,
+ * cancelled, ended, own-listing and not-found each have a single valid action and are untouched by
+ * it — the owner was explicit that the pair must not be forced onto states with different valid
+ * actions. Eligibility, handlers, single-flight and the reserving lock are unchanged; opening bid
+ * entry still submits nothing, and Buy Now still establishes no charge.
  */
 export function listingActions(input: DetailStateInput): {
   primary: ListingAction;
@@ -397,22 +408,22 @@ export function listingActions(input: DetailStateInput): {
   };
 
   if (mode === 'auction_and_buy_now') {
-    // V3 (owner ruling 2026-09-22): the verb counts the tickets, so the price reads as the
-    // WHOLE-LISTING total it is — "Buy both now" for two, "Buy all N now" beyond that. An
-    // unknown quantity invents no count, and Buy Now stays primary beside bidding (reaffirmed).
+    // V3 (owner ruling 2026-09-22, still in force): the verb counts the tickets, so the price reads
+    // as the WHOLE-LISTING total it is — "Buy both now" for two, "Buy all N now" beyond that. An
+    // unknown quantity invents no count. The owner's 2026-09-25 ruling preserved this label, its
+    // price and its subline exactly; it changed only which of the two actions leads.
     const qty = listing.quantity ?? null;
     const verb = qty === 2 ? 'Buy both now' : qty != null && qty >= 3 ? `Buy all ${qty} now` : 'Buy now';
-    return {
-      primary: {
-        kind: 'buy_now',
-        label: input.buyNowAllIn ? `${verb} · ${input.buyNowAllIn}` : verb,
-        disabled: reserving,
-        // §5 (V3): both facts a buyer needs beside a live auction — the price is all-in,
-        // and taking it ends the auction. True only in this mode.
-        subLabel: 'all-in, ends the auction',
-      },
-      secondary: bid,
+    const buyNowAction: ListingAction = {
+      kind: 'buy_now',
+      label: input.buyNowAllIn ? `${verb} · ${input.buyNowAllIn}` : verb,
+      disabled: reserving,
+      // §5 (V3): both facts a buyer needs beside a live auction — the price is all-in,
+      // and taking it ends the auction. True only in this mode.
+      subLabel: 'all-in, ends the auction',
     };
+    // Bid first (filled red, with its minimum inside the button), Buy Now second (outlined).
+    return { primary: bid, secondary: buyNowAction };
   }
 
   return { primary: bid, secondary: null };

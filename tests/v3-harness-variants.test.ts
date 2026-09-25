@@ -210,7 +210,12 @@ describe('v3-listing — the states that had no capture', () => {
     // live
     const live = await listingFixture('live');
     expect(live.fixture?.listing?.status).toBe('active');
-    expect(resolve(live.fixture!.listing!).primary.kind).toBe('buy_now');
+    // The live fixture offers both actions, so the bid leads (owner ruling 2026-09-25, Option B)
+    // and Buy Now sits beneath it. Pinned on the harness's own resolve so a fixture that stopped
+    // offering both would be caught here rather than in a capture.
+    const liveActions = resolve(live.fixture!.listing!);
+    expect(liveActions.primary.kind).toBe('place_bid');
+    expect(liveActions.secondary?.kind).toBe('buy_now');
 
     // sold / cancelled (already captured; pinned so a variant rename cannot drop them)
     expect((await listingFixture('sold')).fixture?.listing?.status).toBe('sold');
