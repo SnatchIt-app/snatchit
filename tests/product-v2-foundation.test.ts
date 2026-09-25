@@ -9,6 +9,12 @@
 
 import { describe, expect, it, beforeAll } from 'vitest';
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// The media radius is read from its one home, so this suite cannot pass against a number a slot
+// invented — only against the value B's radius table assigns to the media role.
+import { MEDIA_RADIUS } from '../src/lib/design/featureMetrics';
 import {
   MEDIA_SLOTS,
   slotHeight,
@@ -43,6 +49,8 @@ import { inventoryKindOf, provenanceLabel, provenanceSortWeight } from '../src/l
 // The approved V3 radii are read as TOKENS, so this suite cannot pass against a number a screen
 // invented — it can only pass against the scale the owner ratified.
 import * as v2 from '../src/theme/v2';
+
+const root = resolve(__dirname, '..');
 
 beforeAll(() => {
   process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
@@ -120,16 +128,24 @@ describe('media slots', () => {
       // corners, and the boards draw both of these square.
       HOME_FEATURE_V3: v2.radius.none,
       LISTING_HERO_V3: v2.radius.none,
-      // Not on the V3 home/listing boards. They keep the V2 square until a board rounds them.
-      DISCOVERY_CARD: v2.radius.none,
-      FEATURED_EVENT: v2.radius.none,
+      /*
+       * The rest follow B's radius table §4.1 by ROLE (rules 0 · media 8 · chrome 22 · dock 33 ·
+       * full-bleed 0 · panels 0), applied when the 4:5 poster direction landed. A media frame is 8
+       * — the same 8 the row thumbnail was already drawn at, now read from one constant so the two
+       * cannot drift. Zero is not "unrounded by default" here: each zero below is the full-bleed
+       * row of the same table, or a frame whose corners are owned by the parent that clips it.
+       */
+      DISCOVERY_CARD: MEDIA_RADIUS,
+      FEATURED_EVENT: MEDIA_RADIUS,
+      EVENT_GALLERY: MEDIA_RADIUS,
+      CHECKOUT_THUMBNAIL: MEDIA_RADIUS,
+      SEARCH_RESULT: MEDIA_RADIUS,
+      DASHBOARD_THUMBNAIL: MEDIA_RADIUS,
+      // Full-bleed to the screen edges, or clipped by the card it is flush with (TICKET_ART).
       EVENT_HERO: v2.radius.none,
-      EVENT_GALLERY: v2.radius.none,
       VENUE_HERO: v2.radius.none,
-      CHECKOUT_THUMBNAIL: v2.radius.none,
       TICKET_ART: v2.radius.none,
-      SEARCH_RESULT: v2.radius.none,
-      DASHBOARD_THUMBNAIL: v2.radius.none,
+      // Rendered server-side at a fixed square; the platforms crop it, so a radius is meaningless.
       PROMOTER_SHARE: v2.radius.none,
     };
     for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(APPROVED[n]);
@@ -137,18 +153,28 @@ describe('media slots', () => {
     expect(MEDIA_SLOTS.FEED_ROW_ART.radius).toBeGreaterThan(0);
   });
 
-  it('puts a scrim behind every slot that carries text over artwork', () => {
+  it('puts a scrim behind every slot that carries text over artwork, and ONLY those', () => {
     // If text sits on the image, an unscrimmed slot would be unreadable over
     // bright artwork and invisible over dark artwork.
     expect(MEDIA_SLOTS.FEATURED_EVENT.scrim).not.toBe('none');
-    expect(MEDIA_SLOTS.TICKET_ART.scrim).not.toBe('none');
+    expect(MEDIA_SLOTS.HOME_FEATURE_V3.scrim).not.toBe('none');
+    expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).not.toBe('none');
     // The discovery card deliberately places text BELOW the image, so it needs none.
     expect(MEDIA_SLOTS.DISCOVERY_CARD.scrim).toBe('none');
+    // And the converse, which this suite used to assert backwards for TICKET_ART: a scrim with no
+    // text over it is not a margin of safety, it is just darker artwork. Read from the SOURCE so
+    // the two facts cannot drift — the slot's only consumer must still put its text in the card
+    // body rather than on the poster.
+    expect(MEDIA_SLOTS.TICKET_ART.scrim).toBe('none');
+    const ticket = readFileSync(resolve(root, 'src/components/tickets/TicketEventGroup.tsx'), 'utf8');
+    expect(ticket).toMatch(/<EventMedia asset=\{asset\} slot="TICKET_ART" fluid \/>/);
   });
 
   it('derives height from width and ratio rather than hard-coding it', () => {
     // 4:5 portrait at 168 wide is 210 tall.
     expect(slotHeight('DISCOVERY_CARD', 'mobile')).toBe(210);
+    // The row thumbnail round-trips: its reference WIDTH is derived from the 64pt row height the
+    // rows actually budget, so the height comes back out at 64 (51 / 0.8 = 63.75).
     expect(slotHeight('SEARCH_RESULT', 'mobile')).toBe(64);
   });
 
@@ -323,7 +349,9 @@ describe('media path encoding', () => {
     // remains of a filename.
     expect(r.uri).toContain('rock%26roll%3F.jpg');
     expect(r.uri).toContain('width=');
-    expect(r.uri.split('?')[1]).toMatch(/^width=\d+&quality=\d+&resize=(cover|contain)$/);
+    // The height is part of the request now, and deliberately: a width-only request returned a
+    // 56x1176 sliver against this project, and a sliver loads, so nothing downstream could catch it.
+    expect(r.uri.split('?')[1]).toMatch(/^width=\d+&height=\d+&quality=\d+&resize=(cover|contain)$/);
   });
 });
 

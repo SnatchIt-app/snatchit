@@ -59,6 +59,17 @@ export interface EventMediaProps {
    */
   width?: number;
   /**
+   * The HEIGHT this instance is laid out at, in points, with the width derived from the slot's
+   * ratio. Use this wherever the height is the constrained edge — a list row, a summary line —
+   * which under the 4:5 poster direction is every thumbnail: a row's rhythm is vertical, so the
+   * poster has to fit the row's height and take whatever width the ratio gives it.
+   *
+   * Exactly one of `width` / `height` / `fluid` decides the box. When both are passed `height`
+   * wins, because a caller that knows its row height is the one that would otherwise overflow it.
+   * The ratio arithmetic stays here so no screen computes a poster edge for itself.
+   */
+  height?: number;
+  /**
    * Fill the parent's width and derive the height from the slot ratio, measuring
    * the real width before any image is requested. This is the correct mode for
    * anything full-bleed or grid-sized, and it is why no screen has to know a
@@ -116,6 +127,7 @@ function EventMediaImpl({
   slot,
   breakpoint = 'mobile',
   width,
+  height,
   fluid = false,
   title,
   style,
@@ -124,7 +136,7 @@ function EventMediaImpl({
 }: EventMediaProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
-  // Widened to the spec type: the literal slot table omits optional fields like `heightFor`.
+  // Widened to the spec type so a slot literal never narrows the contract at a call site.
   const spec: SlotSpec = MEDIA_SLOTS[slot];
 
   // Fluid frames measure themselves. Nothing is requested until the real width is
@@ -136,7 +148,11 @@ function EventMediaImpl({
     if (w > 0 && w !== measured) setMeasured(w);
   };
 
-  const resolvedWidth = fluid ? measured : (width ?? spec.layoutWidth[breakpoint]);
+  const resolvedWidth = fluid
+    ? measured
+    : height != null
+      ? Math.round(height * spec.aspectRatio)
+      : (width ?? spec.layoutWidth[breakpoint]);
 
   // The URI that failed to load, if any. A URI rather than a boolean: this
   // instance is recycled across list rows, and a new asset must start clean.
@@ -166,14 +182,17 @@ function EventMediaImpl({
   }
 
   const boxWidth = resolvedWidth as number;
-  // §3 heights are formulas of the real width; a slot that carries one wins over its ratio.
-  const boxHeight = Math.round(spec.heightFor ? spec.heightFor(boxWidth) : boxWidth / spec.aspectRatio);
+  // A caller-given height is used EXACTLY, not re-derived from the rounded width: round-tripping
+  // 62 → 50 → 62.5 would put a half-point of poster outside an approved row.
+  const boxHeight = !fluid && height != null ? height : Math.round(boxWidth / spec.aspectRatio);
 
   const resolved = resolveImage(asset, slot, {
     breakpoint,
-    // The real laid-out width and the real screen density, so the request
-    // matches the box instead of the slot default.
+    // The real laid-out box and the real screen density, so the request matches the frame instead
+    // of the slot default — and carries a height, without which this endpoint returns a sliver
+    // that loads successfully and defeats every fallback we have.
     layoutWidth: boxWidth,
+    layoutHeight: boxHeight,
     devicePixelRatio: PixelRatio.get(),
   });
 

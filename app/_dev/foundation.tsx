@@ -613,7 +613,7 @@ export default function FoundationPreview() {
           </Text>
           <View style={styles.grid}>
             <View style={styles.gridItem}>
-              <Skeleton aspectRatio={v2.ratio.portrait} />
+              <Skeleton aspectRatio={MEDIA_SLOTS.DISCOVERY_CARD.aspectRatio} />
               <Skeleton height={14} style={{ marginTop: v2.space.sm }} />
               <Skeleton height={12} width="60%" style={{ marginTop: 6 }} />
             </View>

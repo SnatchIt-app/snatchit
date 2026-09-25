@@ -1,10 +1,10 @@
 /**
  * src/components/discovery/FeedRow.tsx — the §3 feed/search row (owner 2026-09-22; V3 package).
  *
- * 62×62 artwork at the approved thumbnail radius on the left (`ROW_ART_RADIUS`, B's drawn 8
- * since the owner's 2026-09-24 finding that row thumbnails must read as ROUNDED, not square —
- * the value lives in featureMetrics and reaches the artwork through the FEED_ROW_ART slot, never
- * from this file), the name in the display voice beside it, the all-in
+ * A 4:5 POSTER 62pt TALL on the left (owner 2026-09-24) at the approved thumbnail radius
+ * (`ROW_ART_RADIUS`, B's drawn 8 since the owner's 2026-09-24 finding that row thumbnails must
+ * read as ROUNDED, not square — the value lives in featureMetrics and reaches the artwork through
+ * the FEED_ROW_ART slot, never from this file), the name in the display voice beside it, the all-in
  * price right-aligned. The row GROWS with its contents: no height is hard-coded anywhere here,
  * and the last metadata line keeps ROW_META_CLEARANCE of clear space before whatever is drawn
  * below (the list's own divider). Same truth rules as DiscoveryCard: cardState decides what the
@@ -94,7 +94,11 @@ function FeedRowImpl({
             style={dimmed ? s.dimmed : undefined}
             asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
             slot="FEED_ROW_ART"
-            width={ROW_ART}
+            // The row's constrained edge is VERTICAL, so the poster is given the approved ROW_ART
+            // as its height and EventMedia derives the 50pt width from the 4:5 ratio. Passing this
+            // as `width` (what it was) made a 62-wide poster 78 tall, which pushes the approved
+            // one-line row past 80pt and re-opens a rhythm the owner has accepted.
+            height={ROW_ART}
             title={eventName}
             decorative
           />
@@ -141,6 +145,10 @@ export const FeedRow = memo(FeedRowImpl);
 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
+  // The gutter, the poster and the gap ARE the text column's offset: 20 + 50 + 12 is ROW_TEXT_X,
+  // so the 82 arrives from the poster's own width instead of being typed here — and the 94 this
+  // row used to start at moved on its own when the artwork became 50 wide. Nothing else in this
+  // sheet carries a width, so there was no second place to correct.
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',

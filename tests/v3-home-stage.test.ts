@@ -13,13 +13,13 @@ import {
   FEATURE_NAME_BLOCK_BOTTOM,
   FEATURE_META1_BELOW_NAME,
   FEATURE_META2_BELOW_NAME,
-  featureHeight,
-  heroHeight,
   HERO_DATE_BOTTOM,
   HERO_NAME_GAP,
   ROW_ART,
   ROW_ART_RADIUS,
+  ROW_ART_W,
   ROW_GUTTER,
+  ROW_TEXT_X,
 } from '@/src/lib/design/featureMetrics';
 import { scrimBackgroundImage } from '@/src/lib/design/scrim';
 // The thumbnail radius is read as the ratified TOKEN, not as a number this suite copied.
@@ -32,16 +32,26 @@ import {
   rowWhenLabel,
 } from '@/src/lib/listing/feedRowState';
 
-describe('featureMetrics — §3 formulas, never constants', () => {
-  it('M1: feature height follows (w − 40) × 0.49 + 34 at every width', () => {
-    expect(featureHeight(390)).toBeCloseTo(205.5, 5);
-    expect(featureHeight(375)).toBeCloseTo((375 - 40) * 0.49 + 34, 5);
-    expect(featureHeight(430)).toBeCloseTo((430 - 40) * 0.49 + 34, 5);
+describe('featureMetrics — the poster box, and the formulas it retired', () => {
+  it('M1: the two §3 height formulas are GONE, so no screen can reach for a landscape height', async () => {
+    const fm = await import('@/src/lib/design/featureMetrics');
+    expect('featureHeight' in fm).toBe(false);
+    expect('heroHeight' in fm).toBe(false);
+    // The witness for those two absences: a name the module really does export, proving the
+    // membership test can return true and is not just misspelling the module.
+    expect('ROW_ART' in fm).toBe(true);
   });
 
-  it('M2: hero height follows w × 0.62 + 24', () => {
-    expect(heroHeight(390)).toBeCloseTo(265.8, 5);
-    expect(heroHeight(320)).toBeCloseTo(320 * 0.62 + 24, 5);
+  it('M2: the row poster holds the approved 62pt HEIGHT and derives its 50pt width', () => {
+    expect(ROW_ART).toBe(62);
+    expect(ROW_ART_W).toBe(50);
+    expect(ROW_ART_W).toBe(Math.round(ROW_ART * v2.ratio.portrait));
+    // The rejected alternative, as a number: holding the WIDTH at 62 makes the poster 78 tall,
+    // which cannot sit inside the approved 80pt one-line row. Holding the height can.
+    expect(Math.round(ROW_ART / v2.ratio.portrait)).toBe(78);
+    // The text column moves with the poster instead of being re-typed per screen.
+    expect(ROW_TEXT_X).toBe(ROW_GUTTER + ROW_ART_W + 12);
+    expect(ROW_TEXT_X).toBe(82);
   });
 
   it('M3: the §3 constants are the drawn values', () => {

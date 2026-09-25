@@ -20,8 +20,14 @@
  *
  * V3 (owner 2026-09-22; B's package §3). Presentation only, again: the two-up grid becomes one
  * full-bleed FEATURE (the first live listing, name over the curve-scrimmed artwork) above
- * single-column ROWS — 62pt artwork, name in the display voice, all-in price right-aligned,
+ * single-column ROWS — artwork 62pt tall, name in the display voice, all-in price right-aligned,
  * content-driven heights. The data layer is still byte-for-byte the V2 one.
+ *
+ * V3 POSTERS (owner 2026-09-24): every piece of event artwork on this screen is a 4:5 portrait
+ * poster, so the feature's frame is as tall as the ratio makes it (~491pt at 393pt wide, where the
+ * retired §3 formula gave ~205pt) and each row's artwork is 50 wide by the approved 62 tall. Both
+ * shapes are decided in the media layer and reached through it — this screen carries no ratio, no
+ * height and no item size, and its FlatList measures every cell, so nothing here needed the number.
  *
  * V3 SECTION HEADINGS (owner 2026-09-24, on the pkg8 home boards). The previous revision left the
  * boards' "Tonight" / "This week" headings UNDRAWN because their grouping rule was not written
@@ -555,7 +561,13 @@ export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}
           />
         }
         ListHeaderComponent={
-          loading || datasetBusy ? <DiscoveryGridSkeleton /> :
+          // The placeholder holds the geometry THIS feed is about to paint: the live feed opens
+          // with the full-bleed 4:5 feature above rows, while a lazy dataset (sold, ended) never
+          // features a row that cannot be bought, so its placeholder is rows only. It used to draw
+          // a two-up card grid, which no longer exists on this screen at all.
+          loading || datasetBusy ? (
+            <DiscoveryGridSkeleton shape={datasetBusy ? 'rows' : 'feature-then-rows'} />
+          ) :
           datasetFailure === 'inline' && datasetState?.error ? (
             <View style={s.notice} accessibilityRole="alert">
               <Text style={[textStyle('bodySm'), s.noticeText]}>

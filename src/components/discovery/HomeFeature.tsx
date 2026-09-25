@@ -2,8 +2,15 @@
  * src/components/discovery/HomeFeature.tsx — the §3 full-bleed home feature (owner 2026-09-22).
  *
  * One listing, artwork edge to edge, its name in the feature voice over the measured curve scrim
- * (the slot carries both the height formula and the scrim — nothing here sizes or darkens
- * anything). The name block's bottom sits FEATURE_NAME_BLOCK_BOTTOM above the image bottom with
+ * (the slot carries both the poster RATIO and the scrim — nothing here sizes or darkens anything).
+ *
+ * THE FRAME IS A 4:5 POSTER (owner 2026-09-24), not the retired §3 band. `featureHeight(w) =
+ * (w − 40) × 0.49 + 34` is gone from featureMetrics, so this feature is as tall as the ratio makes
+ * it: ~491pt on a 393pt screen instead of ~205pt. Nothing here had to move for that, and that is
+ * the point of the next paragraph — every position below is measured from the image's BOTTOM edge,
+ * so a taller frame lifts the artwork's top and leaves the approved text block where it was.
+ *
+ * The name block's bottom sits FEATURE_NAME_BLOCK_BOTTOM above the image bottom with
  * the two metadata lines below it; the price and its §5 caption ("current bid, all-in") sit
  * right-aligned on the same band. Same division of truth as FeedRow: cardState decides, the
  * feedRowState vocabulary speaks, this file draws.
@@ -125,7 +132,8 @@ function makeStyles(p: Palette) {
   return StyleSheet.create({
   // Bottom-anchored per §3: the name block's bottom lands FEATURE_NAME_BLOCK_BOTTOM above the
   // image bottom because the two 17pt meta lines and this padding sit under it. All arithmetic
-  // lives in featureMetrics; the slot's formula sets the frame, so no height appears here.
+  // lives in featureMetrics; the slot's RATIO sets the frame, so no height appears here — which is
+  // why the poster direction changed the frame by ~286pt and this block by nothing.
   content: {
     position: 'absolute',
     left: 0,

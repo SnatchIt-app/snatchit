@@ -36,7 +36,8 @@ vi.mock('@/src/components/ui', () => ({
 }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
 
-import { featureHeight, heroHeight, ROW_ART, ROW_ART_RADIUS } from '@/src/lib/design/featureMetrics';
+import { ROW_ART, ROW_ART_RADIUS, ROW_ART_W } from '@/src/lib/design/featureMetrics';
+import * as v2 from '@/src/theme/v2';
 import { cardPresentation } from '@/src/lib/listing/cardState';
 import { rowMeta } from '@/src/lib/listing/feedRowState';
 import { MEDIA_SLOTS, type SlotSpec } from '@/src/lib/media/slots';
@@ -102,31 +103,35 @@ const media = (host: HookHost) => findElement(host.output, (el) => el.type === '
 beforeEach(() => { vi.resetModules(); });
 
 describe('slot system — V3 slots carry the §3 geometry and the curve', () => {
-  it('SL1: HOME_FEATURE_V3 — curve scrim, formula-driven height, preloaded cover', () => {
+  it('SL1: HOME_FEATURE_V3 — curve scrim, a 4:5 poster, fitted, preloaded', () => {
     const s = MEDIA_SLOTS.HOME_FEATURE_V3;
     expect(s.scrim).toBe('curve');
-    expect(s.heightFor).toBe(featureHeight);
-    expect(s.defaultFit).toBe('cover');
+    expect(s.aspectRatio).toBe(v2.ratio.portrait);
+    // `fit`, not `cover`: the feature is the largest poster in the product and the one where a
+    // crop would cut the most type off a flyer.
+    expect(s.defaultFit).toBe('fit');
     expect(s.preload).toBe(true);
   });
 
-  it('SL2: LISTING_HERO_V3 — curve scrim and the hero formula', () => {
+  it('SL2: LISTING_HERO_V3 — curve scrim, a 4:5 poster, fitted', () => {
     const s = MEDIA_SLOTS.LISTING_HERO_V3;
     expect(s.scrim).toBe('curve');
-    expect(s.heightFor).toBe(heroHeight);
+    expect(s.aspectRatio).toBe(v2.ratio.portrait);
+    expect(s.defaultFit).toBe('fit');
     expect(s.preload).toBe(true);
   });
 
-  it('SL3: FEED_ROW_ART — 62pt square reference, radius 8, no scrim (text sits beside it)', () => {
+  it('SL3: FEED_ROW_ART — a 50 × 62 poster, radius 8, no scrim (text sits beside it)', () => {
     const s: SlotSpec = MEDIA_SLOTS.FEED_ROW_ART;
-    expect(s.aspectRatio).toBe(1);
-    expect(s.layoutWidth.mobile).toBe(ROW_ART);
+    expect(s.aspectRatio).toBe(v2.ratio.portrait);
+    // The REFERENCE width is the derived poster width, not the row height.
+    expect(s.layoutWidth.mobile).toBe(ROW_ART_W);
+    expect(s.layoutWidth.mobile).not.toBe(ROW_ART);
     expect(s.radius).toBe(ROW_ART_RADIUS);
     expect(s.scrim).toBe('none');
-    expect(s.heightFor).toBeUndefined();
   });
 
-  it('SL4: EventMedia consumes both — the curve string and the heightFor override (source pin)', async () => {
+  it('SL4: EventMedia consumes the curve, and uses a caller height EXACTLY (source pin)', async () => {
     const { readFileSync } = await import('node:fs');
     // Comments stripped: B15 survived the first run because a COMMENT contained the word
     // "heightFor" and satisfied the bare regex while the code no longer called it.
@@ -134,8 +139,12 @@ describe('slot system — V3 slots carry the §3 geometry and the curve', () => 
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     expect(src).toContain('scrimBackgroundImage(');
-    expect(src).toContain('spec.heightFor(boxWidth)');
     expect(src).toMatch(/scrim === 'curve'/);
+    // The retired landscape escape hatch must not come back.
+    expect(src).not.toContain('heightFor');
+    // A caller-given height is the box height verbatim, and the width is derived from it.
+    expect(src).toContain('!fluid && height != null ? height');
+    expect(src).toContain('Math.round(height * spec.aspectRatio)');
   });
 });
 
@@ -189,11 +198,15 @@ describe('FeedRow — the §3 row', () => {
     expect(byText(host, 'sold for, all-in')).toBeUndefined();
   });
 
-  it('FR6: artwork goes through EventMedia at the row slot and the row width', async () => {
+  it('FR6: artwork goes through EventMedia at the row slot and the row HEIGHT, never a width', async () => {
     const host = await mountRow();
     const art = media(host);
     expect(art?.props.slot).toBe('FEED_ROW_ART');
-    expect(art?.props.width).toBe(ROW_ART);
+    // The poster direction inverts which edge the row gives the media. Handing 62 as a WIDTH is
+    // now a defect, not a synonym: EventMedia would derive a 78pt height and overflow the approved
+    // 80pt one-line row. So the absence of `width` is asserted as well as the presence of `height`.
+    expect(art?.props.height).toBe(ROW_ART);
+    expect(art?.props.width).toBeUndefined();
   });
 
   it('FR7: one spoken label for the whole row; the row is a single button', async () => {

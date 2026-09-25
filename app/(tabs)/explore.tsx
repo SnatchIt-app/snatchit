@@ -249,7 +249,10 @@ export default function SearchScreen({ fixture }: { fixture?: SearchFixture } = 
       </View>
 
       {searching && results.length === 0 ? (
-        <DiscoveryGridSkeleton rows={2} />
+        // Results are §3 rows, so the placeholder is rows — a 50 × 62 poster and its three lines,
+        // derived from the same constants FeedRow uses. It drew a two-up card grid before, which is
+        // not what this screen paints and is now nearly twice as tall per cell under the 4:5 frame.
+        <DiscoveryGridSkeleton rows={2} shape="rows" />
       ) : failure === 'screen' && loadError ? (
         <ScreenState state={loadError} onRetry={() => runSearch(query)} />
       ) : (

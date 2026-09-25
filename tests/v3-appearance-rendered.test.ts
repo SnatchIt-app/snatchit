@@ -216,7 +216,9 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
       vi.resetModules();
       const mod = await import('@/src/components/media/EventMedia');
       const Media = ((mod.EventMedia as { type?: unknown }).type ?? mod.EventMedia) as (props: unknown) => unknown;
-      const h = new HookHost(() => Media({ asset: { path: null }, slot: 'FEED_ROW_ART', width: 62, title: 'Neon Choir' }), new Map());
+      // 62 is the row's HEIGHT under the 4:5 poster direction; the width derives from it. Passing
+      // it as a width would measure the plate in a 62×78 frame that no row renders.
+      const h = new HookHost(() => Media({ asset: { path: null }, slot: 'FEED_ROW_ART', height: 62, title: 'Neon Choir' }), new Map());
       h.mount(); h.flush();
       const plateEl = findElement(h.output, (el) => typeof el.type === 'function' && (el.type as { name?: string }).name === 'FallbackPlate');
       const h2 = new HookHost(() => (plateEl!.type as (props: unknown) => unknown)(plateEl!.props), new Map());
