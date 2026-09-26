@@ -21,6 +21,14 @@ complete (§7). The owner decisions are consolidated in §6.0, with the detail i
   fresh read. One fresh `count(*)` would turn that chain of records into a single measurement. That read is an owner
   call.
 
+**Provenance (D's addition A-2):**
+- This plan, BLOCKING_SCOPE_RECOMMENDATION_20260924.md and registry row 152 exist **only on
+  `release/candidate-20260918`** (the records line), not on the gate. Anyone executing from a gate checkout reads them
+  from the candidate.
+- The candidate's `ci.yml` census is stale (31|96|37|35), because the candidate is a docs line. The CI census that
+  counts is the gate's: 32|108|37|38 at `037092f0`, and 34|111|37|40 after S1 (151 adds no object).
+- XB0's census deltas are computed from the gate as it stands when 152 is written.
+
 **Authority rule adopted for this plan:** when a registry row's status contradicts an execution record, the execution
 record wins. Rows should cite the record rather than restate it (§2). D reached the same rule independently.
 
@@ -197,14 +205,21 @@ The release line is **the gate branch**, because production matches it (§1A).
 
 **Precondition P0, before S1: a live hazard today, not a scope choice (D's finding, sharpened).**
 - `main` has no branch protection (API: "Branch not protected").
-- **Four open PRs target `main`:**
-  - #43 (not a draft; adds `20260902003623`; no marker);
-  - #54 (draft; 39 migration files; 09-09 marker);
+- **Ten open PRs target `main`** (`gh pr list --base main`; D counted them, A confirmed):
+  - #43 (not a draft; version `20260902003623`; no marker);
+  - #54 (draft; 39 migration files);
   - #87 (draft; enforce-transfer-expiry);
-  - #11 (not a draft; docs deletions).
-- Nothing mechanical stops those merges. Required checks are not enforced without protection, so #43's failing guard
-  does not block it. Merging #43 or #54 would put migration files on `main`, and whether they execute depends on the
-  auto-deploy state (§3).
+  - #11 (not a draft; docs deletions);
+  - six dependabot bumps, **none a draft**: #9, #53, #57, #59, #60, #61.
+- Nothing mechanical stops any of those merges: required checks are not enforced without protection.
+- **Per the records, neither #43 nor #54 would apply anything under either auto-deploy setting.**
+  - #54's 39 migration files are byte-identical to the gate's (39/39); none is 121, 125 or 126, so every version is in
+    the recorded ledger.
+  - #43's version `20260902003623` is also in the ledger.
+- **The hazard is repository safety** (D's correction C-2):
+  - #43 would put a second, divergent copy of an applied migration on `main` (§8);
+  - #54 is an unreviewed 516-file merge onto the default branch;
+  - six non-draft dependency bumps could land on the default branch outside the release line.
 - **The owner protects `main`**: required reviews, plus the required checks including migrations-guard. That alone
   removes the hazard.
 - Closing the superseded PRs is separate hygiene, disposed of per PR in §8, with every head kept recoverable.
@@ -381,6 +396,10 @@ always releases absent a dispute", payout-policy header). A later chargeback the
 
 **Why defer rather than add the guard now.**
 - The tier is recomputed only by `get_auto_release_candidates`; there is no scheduler (FD:100).
+- That recompute (039:161) runs **only for sellers already inside the auto-release candidate window**: `seller_sent`,
+  `auto_release_at` past, no hold, not manual_review (D's addition A-1).
+- So a seller whose sales are all buyer-confirmed may **never** have their tier recomputed. The one unprotected case
+  (buyer confirms) is also the case that never triggers a refresh.
 - So a guard would enforce a possibly stale value. It could refuse a seller whose tier has since healed, or miss one
   whose tier has since risen.
 - The meaningful fix is **one package**: a refresh scheduler plus the guard.
@@ -431,11 +450,12 @@ package.
 | #54 | `fix/payments-reliability @a77d3686` → **main** | **yes** | 516 files: 454 same, 62 later gate edits | fully in the gate; reaches `main` via S7 | close after P0 |
 | #43 | `chore/admin-relist-rpc @fba3b515` → **main** | no | its `20260902003623` blob **differs** from the gate's; the rollback is absent from the gate | version `20260902003623` is in production's pre-apply ledger (one of the 5 timestamped rows, SS:1393), and the gate carries a copy that CI replays. **Which copy matches production's applied body is not established** (the ledger records the version, not the file). Either way #43 is not the vehicle: merging it would put a second, divergent copy on `main`. Before S7, D compares the gate copy's function body with the recorded production baseline, where one exists | close after P0 |
 | #87 | `fix/payout-fairness-v38-backport @f5e91e74` → **main** | no | enforce-transfer-expiry differs; its test is absent from the gate | a `main`-based hotfix, deployed as v39 on 09-22 (SS:1376), then superseded by the gate's v40/v41, which carry the fairness predicates ("FAIRNESS … owner item 1, 2026-09-19" in Phase 2b) | close after P0; keep the branch (the v39 source) |
-| #11 | `repo/purge-obsolete-admin @eec7a717` → **main** | no | 48 deletions; **the gate still has all 48 files** | **not incorporated**: an unreviewed docs purge made before the docs reorganisation | close as stale (not merged); a docs cleanup can be redone later against the current tree |
+| #11 | `repo/purge-obsolete-admin @eec7a717` → **main** | no | 48 changed files: 41 deletions, 7 modifications; **the gate still has all 41 deleted files** | **not incorporated**: an unreviewed docs purge made before the docs reorganisation | close as stale (not merged); a docs cleanup can be redone later against the current tree |
 | #56 | `publish/ui-v2-integration @597533e1` → `release/payments-converged-rc` | yes | 183 files: 110 same, 72 later edits, 1 deleted later | fully in the gate | close |
 | #58 | `fix/121-… @030a922b` → `admin/operating-console` | yes | 3/3 identical | 121 is in the gate, blob-identical (D1) | close |
 | #62 | `fix/125-… @fc4f1130` → `admin/operating-console` | yes | 3/3 identical | 125 is in the gate, blob-identical (D1) | close |
 | #63 | `fix/126-… @db2f95f1` → `release/convergence-135` | yes | 4 same; test 193 differs (the gate has the CI-safe version) | 126 is in the gate (D-INV-2) | close |
 | #64 | `fix/l1-edge-coupling @5bcea692` → `fix/127-…` | yes | 1 same, 4 later gate edits | in the gate | close |
 | #70 | `fix/132-pending-before-intent @74a43712` → the candidate | yes | 8 same, 3 later edits | 132 is in the gate and applied (MAN #8) | close |
+| #9, #53, #57, #59, #60, #61 | dependabot bumps → **main** (not drafts) | no | no migration files | not superseded: routine dependency updates against `main`. Merging them now would move `main` off the release line | **keep open; do not merge before S7.** After the freeze, re-evaluate each against the release line through review (P0 then enforces review) |
 | #52 | `feature/venue-native-and-product-v2 @9aed686c` → `phase2/consolidation` | no | 334 files: 264 same, 43 differ, **27 absent from the gate**, all records: B's PFA-18C execution records and `PHASE2_PRODUCTION_STATE_20260912.md` | **not purely superseded, and not a `main` hazard.** It is the venue/Phase-2 vehicle, and venue production integration is separate | **keep open**. Before any closure, copy the 27 records onto the records line (A) |
