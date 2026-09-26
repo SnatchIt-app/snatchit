@@ -157,6 +157,51 @@ describe('repeat activation, and recovery — driven through the real lock', () 
   });
 });
 
+describe('the harness can SHOW the busy state, without a reservation existing', () => {
+  const screen = code('src/screens/ListingDetailScreen.tsx');
+  const harness = code('app/_dev/v3-listing.tsx');
+
+  it('RF10: the fixture seeds the screen\'s own reserving state, defaulting to false', () => {
+    /*
+     * WHY THIS SEAM EXISTS. B's native review of f3f08930 could not render "Reserving…" at all:
+     * there was no control for it, and the only way to produce it would have been tapping Buy Now
+     * against live data — i.e. making a real reservation, which nobody authorised. A state that
+     * cannot be looked at is a state that regresses unnoticed, which is precisely what happened.
+     */
+    expect(screen).toMatch(/reserving\?: boolean;/);
+    // It seeds the screen's OWN state rather than painting a footer, which is what makes the
+    // harness exercise the real path: that one value feeds the resolver (where it disables each
+    // action) and `reserveBusy` (where it picks the button). Faking the footer would have proved
+    // only that the footer can draw a label.
+    expect(screen).toContain('useState(fixture?.reserving ?? false)');
+    // In the product there is no fixture, so this is `useState(false)` for every real buyer.
+    expect(screen).not.toMatch(/useState\(true\)[^)]*reserving/);
+  });
+
+  it('RF11: the harness control is opt-in, and it starts nothing', () => {
+    expect(harness).toMatch(/reserving\?: string;/);
+    expect(harness).toContain("reserving === '1'");
+    // Opt-in: any other value (or none) leaves the fixture exactly as the variant built it.
+    expect(harness).toMatch(/reserving === '1' \? \{ \.\.\.base, reserving: true \} : base/);
+    /*
+     * And the seam must not have grown a way to actually reserve. The harness may not call the
+     * reserve RPC, mount a single flight, or touch the handler — it sets a flag and nothing else.
+     */
+    for (const forbidden of ['reserve_buy_now', 'useSingleFlight', 'handleBuyNow', 'setReserving']) {
+      expect(harness, `${forbidden} must not appear in the harness`).not.toContain(forbidden);
+    }
+  });
+
+  it('RF12: with the flag set, the busy state lands on the button that reserves', () => {
+    // The seam's whole point, asserted through the same predicate the screen uses: under Option B
+    // that is the SECOND button, and a fixture that seeded the flag but left the primary busy would
+    // be reproducing the original defect rather than exposing it.
+    const busy = reserveBusy(listingActions(bothAvailable({ reserving: true })), true);
+    expect(busy.secondary).toBe(true);
+    expect(busy.primary).toBe(false);
+  });
+});
+
 describe('the screen is wired to both of the above', () => {
   const screen = code('src/screens/ListingDetailScreen.tsx');
 

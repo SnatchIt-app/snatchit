@@ -286,8 +286,8 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined): 
 }
 
 export default function V3ListingHarness() {
-  const { screen, variant, appearance } = useLocalSearchParams<{
-    screen?: string; variant?: string; appearance?: string;
+  const { screen, variant, appearance, reserving } = useLocalSearchParams<{
+    screen?: string; variant?: string; appearance?: string; reserving?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -305,7 +305,24 @@ export default function V3ListingHarness() {
 
   // Stable per variant and per viewer: the screen's effects close over the fixture, so an identity
   // that changed every render would re-run them for nothing.
-  const fixture = useMemo(() => fixtureFor(variant, user?.id), [variant, user?.id]);
+  /*
+   * `?reserving=1` — the reserve-in-flight PRESENTATION, which had no control at all before
+   * (B's native review of f3f08930 could not render it, and tapping Buy Now against live data to
+   * produce it is not something anyone should be doing).
+   *
+   * It seeds the screen's own `reserving` state. That one value feeds both the resolver, which
+   * disables each action, and `reserveBusy`, which decides WHICH button shows "Reserving…" — so
+   * this drives the real path rather than painting a fake footer. Under the owner's Option B
+   * ordering the busy button is the SECOND one, which is exactly the regression that shipped
+   * unnoticed, so it is worth being able to look at.
+   *
+   * Nothing is requested: no reservation, no single flight, no handler changed.
+   */
+  const fixture = useMemo(() => {
+    const base = fixtureFor(variant, user?.id);
+    if (!base) return base;
+    return reserving === '1' ? { ...base, reserving: true } : base;
+  }, [variant, user?.id, reserving]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 

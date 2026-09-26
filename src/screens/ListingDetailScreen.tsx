@@ -106,6 +106,20 @@ export interface ListingDetailFixture {
   bids?: Bid[];
   /** Which of those bids reads as "You". Display only — it is never an identity for a transaction. */
   viewerId?: string;
+  /**
+   * Seeds the reserve-in-flight state, so the "Reserving…" treatment can be RENDERED without a
+   * reservation existing (B's native review of f3f08930 could not see it at all).
+   *
+   * It seeds the screen's own `reserving` state rather than faking the footer, which matters: that
+   * one value feeds BOTH the resolver — where it disables each action — and `reserveBusy`, where it
+   * decides which button shows the pending label. So the harness exercises the real path from one
+   * flag, and a regression in either half still shows up here.
+   *
+   * It does NOT start, simulate or stand in for a reserve call. Nothing is requested, no single
+   * flight is taken, and the screen's handlers are untouched — this is the busy PRESENTATION only.
+   * Repeat-tap protection lives in `useSingleFlight` and is covered by tests/v3-reserve-feedback.
+   */
+  reserving?: boolean;
 }
 
 type Props = { id: string; fixture?: ListingDetailFixture };
@@ -242,7 +256,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   }, [navigation, user?.id, id]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
-  const [reserving,  setReserving]  = useState(false);
+  // Seeded from the fixture in the sandbox harness only; `undefined` in the product, so this is
+  // `useState(false)` everywhere a real buyer sees it.
+  const [reserving,  setReserving]  = useState(fixture?.reserving ?? false);
   const [finalizing, setFinalizing] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null>(null);
   const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
