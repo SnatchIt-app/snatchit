@@ -173,20 +173,18 @@ export function sellerPayoutLine(s: SellerLineInput): Line {
 
   // 2-3. An open dispute, then the decision. "On hold" is withdrawn: the
   //      payout is frozen, and no copy asserts who is reviewing it.
-  if (s.status === "disputed") {
+  // A seller-win decision is a decision, never payout evidence (§2i). It does
+  // not short-circuit the precedence either: a seller-win still under manual
+  // review, or on a live hold, reads items 7 and 8 — not "payout pending"
+  // (A's review, 2026-10-05).
+  const sellerWin =
+    s.status === "disputed" && !!s.dispute_resolved_at && s.dispute_resolution === "resolved_seller_paid";
+
+  if (s.status === "disputed" && !sellerWin) {
     if (!s.dispute_resolved_at) {
       return { text: "Payout frozen — the buyer reported an issue", urgent: true };
     }
-    if (
-      s.dispute_resolution === "resolved_buyer_refunded" ||
-      s.dispute_resolution === "resolved_partial_refund"
-    ) {
-      return { text: "Resolved for the buyer — no payout for this order", urgent: false };
-    }
-    // A seller-win decision is a decision, never payout evidence (§2i). If a
-    // payout followed, it shows below from payout_released_at.
-    if (s.payout_released_at) return { text: "Payout released", urgent: false };
-    return { text: "Resolved in your favour — payout pending", urgent: false };
+    return { text: "Resolved for the buyer — no payout for this order", urgent: false };
   }
 
   // 4. W-1b. "Expired — buyer refunded" is withdrawn: the seller's row does
@@ -214,6 +212,9 @@ export function sellerPayoutLine(s: SellerLineInput): Line {
     const until = fmtMoment(s.payout_hold_until ?? null);
     return { text: until ? `Payout held until ${until}` : "Payout held", urgent: false };
   }
+
+  // A seller-win that reached none of items 6-8 has no payout fact yet.
+  if (sellerWin) return { text: "Resolved in your favour — payout pending", urgent: false };
 
   // 9. §2e: a scheduled server time, stated whether or not it has passed.
   //    Never a countdown and never a device-clock branch.
@@ -262,12 +263,16 @@ function disputeDecided(r: OrderRowInput): boolean {
  * (§2c: not a buyer money fact), and "Disputed" for a decided dispute
  * (criterion 6). It now reads the same row the lines do.
  */
-export function transferBadgeLabel(r: OrderRowInput): string {
+export type Audience = "buyer" | "seller";
+
+export function transferBadgeLabel(r: OrderRowInput, audience: Audience): string {
   switch (r.status) {
     case "pending":
       return "Transfer Pending";
     case "seller_sent":
-      return "Transfer Sent";
+      // The status is the seller's own update, not a delivery fact. The app
+      // says "Marked sent" for the same reason (transferState.ts:49).
+      return "Marked sent";
     case "buyer_confirmed":
       // Only a confirmation record makes this complete. A seller-win and the
       // unruled no-record cell both read "Closed" (A's ruling, 2026-10-05).
@@ -279,7 +284,9 @@ export function transferBadgeLabel(r: OrderRowInput): string {
     case "auto_released":
       return "Released";
     case "reversed":
-      return "Payout Reversed";
+      // §2c: a reversal is the SELLER's payout event and is never a
+      // buyer-facing money fact. The buyer sees only that the order is closed.
+      return audience === "seller" ? "Payout Reversed" : "Closed";
     default:
       return "";
   }
@@ -359,8 +366,21 @@ export function sellerStateAlert(r: OrderRowInput): Alert {
     ) {
       return { tone: "error", text: "Resolved for the buyer — no payout for this order." };
     }
+    // Same precedence as the sales line: review and hold outrank "pending".
     if (hasPayoutEvidence(r)) {
       return { tone: "success", text: "Resolved in your favour. Payout released." };
+    }
+    if (r.payout_review_status === "manual_review") {
+      return { tone: "success", text: "Resolved in your favour. Payout under review." };
+    }
+    if (r.payout_review_status === "held") {
+      const until = fmtMoment(r.payout_hold_until ?? null);
+      return {
+        tone: "success",
+        text: until
+          ? `Resolved in your favour. Payout held until ${until}.`
+          : "Resolved in your favour. Payout held.",
+      };
     }
     return { tone: "success", text: "Resolved in your favour — payout pending." };
   }
@@ -369,7 +389,7 @@ export function sellerStateAlert(r: OrderRowInput): Alert {
   if (r.status === "expired") {
     return {
       tone: "error",
-      text: "The 24-hour window passed without a transfer, so this order was cancelled. No payout for this order.",
+      text: "The transfer window passed without a transfer, so this order was cancelled. No payout for this order.",
     };
   }
 
@@ -398,13 +418,15 @@ export function sellerPayoutParagraph(r: OrderRowInput): string {
     return "This payout is under manual review. Contact support@snatchitapp.com if you have questions.";
   }
   if (r.payout_review_status === "held") {
+    // "standard protection" characterises the hold; no record establishes
+    // that it is standard (A's review, 2026-10-05).
     const until = fmtMoment(r.payout_hold_until ?? null);
-    return until
-      ? `Funds are held until ${until} as a standard protection.`
-      : "Funds are held as a standard protection.";
+    return until ? `Your payout is held until ${until}.` : "Your payout is held.";
   }
+  // §2e allows exactly this sentence, and NOTHING when auto_release_at is
+  // absent. The decision at that time can be a release, a hold or manual
+  // review, so no clause may promise a payout — and a buyer confirmation
+  // does not guarantee one either.
   const at = fmtMoment(r.auto_release_at ?? null);
-  return at
-    ? `Release decision at ${at}. Your payout releases then — sooner if the buyer confirms.`
-    : "Your payout releases once the buyer confirms, or at the scheduled release decision.";
+  return at ? `Release decision at ${at}.` : "";
 }

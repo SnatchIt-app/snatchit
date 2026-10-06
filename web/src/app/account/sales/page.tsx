@@ -72,7 +72,7 @@ export default async function SalesPage() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <TransferStatusBadge row={saleRow(s)} />
+                    <TransferStatusBadge row={saleRow(s)} audience="seller" />
                     {s.netCents != null ? (
                       <span className="text-[12.5px] tabular-nums text-white/60">
                         {formatCents(s.netCents)} to you

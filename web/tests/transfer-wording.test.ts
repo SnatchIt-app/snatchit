@@ -24,6 +24,7 @@ import {
   sellerStateAlert,
   transferBadgeLabel,
   type BuyerLineInput,
+  type Audience,
   type OrderRowInput,
   type SellerLineInput,
   type WordingTransferStatus,
@@ -286,6 +287,8 @@ describe("fmtMoment", () => {
 
 // ─── The two transfer panels and the badge (A's rulings, 2026-10-05) ──────
 
+const AUDIENCES: Audience[] = ["buyer", "seller"];
+
 const row = (o: Partial<OrderRowInput> = {}): OrderRowInput => ({
   status: "pending",
   buyer_confirmed_at: null,
@@ -307,12 +310,15 @@ describe("W-1c — the buyer panel must not assert a refund from 'expired'", () 
 });
 
 describe("W-1d — the seller panel must not assert the buyer's refund from 'expired'", () => {
-  it("states the cancellation and that no payout is owed", () => {
+  it("states the cancellation and that no payout is owed, with no assumed window length", () => {
     const a = sellerStateAlert(row({ status: "expired" }));
     expect(a?.text).toBe(
-      "The 24-hour window passed without a transfer, so this order was cancelled. No payout for this order.",
+      "The transfer window passed without a transfer, so this order was cancelled. No payout for this order.",
     );
     expect(a?.text.toLowerCase()).not.toContain("refund");
+    // §2a: the window is transfers.expires_at, read from the row — never a
+    // constant baked into copy.
+    expect(a?.text).not.toMatch(/\d+\s*-?\s*hour|24/i);
   });
 });
 
@@ -342,6 +348,16 @@ describe("the panels: no asserted human activity, and no decided dispute shown a
       .toBe("Resolved in your favour. Payout released.");
   });
 
+  it("seller: a seller-win under review or on a hold reads items 7-8, not 'pending'", () => {
+    const d = { status: "disputed" as const, dispute_resolved_at: "2026-09-24T20:00:00Z", dispute_resolution: "resolved_seller_paid" };
+    expect(sellerStateAlert(row({ ...d, payout_review_status: "manual_review" }))?.text)
+      .toBe("Resolved in your favour. Payout under review.");
+    expect(sellerStateAlert(row({ ...d, payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" }))?.text)
+      .toBe("Resolved in your favour. Payout held until Oct 2, 7:00 PM.");
+    expect(sellerStateAlert(row({ ...d, payout_review_status: "held" }))?.text)
+      .toBe("Resolved in your favour. Payout held.");
+  });
+
   it("seller: completion claims a payout only with payout evidence", () => {
     expect(sellerStateAlert(row({ status: "auto_released" }))?.text)
       .toBe("Transfer complete. No payout has been recorded yet — make sure payouts are set up in Settings.");
@@ -356,29 +372,48 @@ describe("the panels: no asserted human activity, and no decided dispute shown a
   });
 });
 
-describe("the badge reads the row, not the status alone", () => {
+describe("the badge reads the row and the audience, not the status alone", () => {
   it("buyer_confirmed is complete only with the confirmation record", () => {
-    expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" })))
-      .toBe("Transfer Complete");
-    expect(transferBadgeLabel(row({ status: "buyer_confirmed" }))).toBe("Closed");
-    expect(transferBadgeLabel(row({ status: "buyer_confirmed", dispute_resolution: "resolved_seller_paid" })))
-      .toBe("Closed");
+    for (const aud of AUDIENCES) {
+      expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" }), aud))
+        .toBe("Transfer Complete");
+      expect(transferBadgeLabel(row({ status: "buyer_confirmed" }), aud)).toBe("Closed");
+      expect(transferBadgeLabel(row({ status: "buyer_confirmed", dispute_resolution: "resolved_seller_paid" }), aud))
+        .toBe("Closed");
+    }
+  });
+
+  it("seller_sent is the seller's own update, not a delivery fact", () => {
+    for (const aud of AUDIENCES) expect(transferBadgeLabel(row({ status: "seller_sent" }), aud)).toBe("Marked sent");
   });
 
   it("auto_released is a release decision, never payout evidence (§2i)", () => {
-    expect(transferBadgeLabel(row({ status: "auto_released" }))).toBe("Released");
-    expect(transferBadgeLabel(row({ status: "auto_released" }))).not.toMatch(/Payout/);
+    for (const aud of AUDIENCES) {
+      expect(transferBadgeLabel(row({ status: "auto_released" }), aud)).toBe("Released");
+      expect(transferBadgeLabel(row({ status: "auto_released" }), aud)).not.toMatch(/Payout/);
+    }
   });
 
-  it("reversed is the seller's payout event, not the buyer's payment (§2c)", () => {
-    expect(transferBadgeLabel(row({ status: "reversed" }))).toBe("Payout Reversed");
-    expect(transferBadgeLabel(row({ status: "reversed" }))).not.toMatch(/Payment/);
+  it("reversed is the SELLER's payout event; the buyer is never told it (§2c)", () => {
+    expect(transferBadgeLabel(row({ status: "reversed" }), "seller")).toBe("Payout Reversed");
+    expect(transferBadgeLabel(row({ status: "reversed" }), "buyer")).toBe("Closed");
+    expect(transferBadgeLabel(row({ status: "reversed" }), "buyer")).not.toMatch(/Payout|Payment|Reversed/);
+  });
+
+  it("no buyer-facing badge states a payout fact, over every input", () => {
+    for (const status of STATUSES)
+      for (const dispute_resolution of RESOLUTIONS)
+        for (const payout_released_at of TIMES)
+          expect(transferBadgeLabel(row({ status, dispute_resolution, payout_released_at }), "buyer"),
+                 `${status}/${dispute_resolution}`).not.toMatch(/Payout|Paid|Reversed/);
   });
 
   it("a decided dispute does not badge as open", () => {
-    expect(transferBadgeLabel(row({ status: "disputed" }))).toBe("Disputed");
-    expect(transferBadgeLabel(row({ status: "disputed", dispute_resolved_at: "2026-09-24T20:00:00Z" })))
-      .toBe("Dispute Resolved");
+    for (const aud of AUDIENCES) {
+      expect(transferBadgeLabel(row({ status: "disputed" }), aud)).toBe("Disputed");
+      expect(transferBadgeLabel(row({ status: "disputed", dispute_resolved_at: "2026-09-24T20:00:00Z" }), aud))
+        .toBe("Dispute Resolved");
+    }
   });
 
   it("no badge asserts completion without the record, over every input", () => {
@@ -387,17 +422,25 @@ describe("the badge reads the row, not the status alone", () => {
     // survived the mutant. Match the claim, not the word.
     for (const status of STATUSES)
       for (const dispute_resolution of RESOLUTIONS)
-        expect(transferBadgeLabel(row({ status, dispute_resolution })), `${status}/${dispute_resolution}`)
-          .not.toMatch(/Confirmed|Complete/);
-    expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" })))
+        for (const aud of AUDIENCES)
+          expect(transferBadgeLabel(row({ status, dispute_resolution }), aud), `${status}/${dispute_resolution}/${aud}`)
+            .not.toMatch(/Confirmed|Complete/);
+    expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" }), "seller"))
       .toBe("Transfer Complete");
   });
 });
 
 describe("the seller payout paragraph (§2e): a scheduled time, never a countdown", () => {
-  it("states the release decision time and stays true after it passes", () => {
-    expect(sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at: "2026-09-27T16:30:00Z" })))
-      .toBe("Release decision at Sep 27, 12:30 PM. Your payout releases then — sooner if the buyer confirms.");
+  it("states exactly the scheduled decision, and promises no outcome", () => {
+    const t = sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at: "2026-09-27T16:30:00Z" }));
+    expect(t).toBe("Release decision at Sep 27, 12:30 PM.");
+    // The decision can be a release, a hold or manual review, and a buyer
+    // confirmation does not guarantee a payout either (§2e, A 2026-10-05).
+    expect(t).not.toMatch(/releases|payout|confirm/i);
+  });
+
+  it("says nothing at all when auto_release_at is absent", () => {
+    expect(sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at: null }))).toBe("");
   });
 
   it("never says the window has passed, and never reads a countdown", () => {
@@ -407,11 +450,13 @@ describe("the seller payout paragraph (§2e): a scheduled time, never a countdow
     }
   });
 
-  it("a hold names its stored end, or implies none", () => {
+  it("a hold names its stored end, or implies none, and does not characterise it", () => {
     expect(sellerPayoutParagraph(row({ payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" })))
-      .toBe("Funds are held until Oct 2, 7:00 PM as a standard protection.");
-    expect(sellerPayoutParagraph(row({ payout_review_status: "held" })))
-      .toBe("Funds are held as a standard protection.");
+      .toBe("Your payout is held until Oct 2, 7:00 PM.");
+    expect(sellerPayoutParagraph(row({ payout_review_status: "held" }))).toBe("Your payout is held.");
+    for (const payout_hold_until of TIMES)
+      expect(sellerPayoutParagraph(row({ payout_review_status: "held", payout_hold_until })))
+        .not.toMatch(/standard|protection|after the event/i);
   });
 
   it("manual review carries no date", () => {
@@ -430,7 +475,8 @@ describe("criterion 1 over the panels and the badge too", () => {
           for (const payout_released_at of TIMES)
             for (const buyer_confirmed_at of TIMES) {
               const r = row({ status, dispute_resolution, dispute_resolved_at, payout_released_at, buyer_confirmed_at });
-              out.push(buyerStateAlert(r)?.text ?? "", sellerStateAlert(r)?.text ?? "", transferBadgeLabel(r), sellerPayoutParagraph(r));
+              out.push(buyerStateAlert(r)?.text ?? "", sellerStateAlert(r)?.text ?? "",
+                       transferBadgeLabel(r, "buyer"), transferBadgeLabel(r, "seller"), sellerPayoutParagraph(r));
             }
     expect(out.length).toBeGreaterThan(500);
     expect(out.filter((t) => /refund/i.test(t))).toEqual([]);
