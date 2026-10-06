@@ -102,9 +102,11 @@ not a stop.
 
 - **E-26.** Every production step carries a **separate** owner authorisation point. One approval does
   not cover the sequence.
-- **E-27.** A fresh `AUTODEPLOY-VERIFIED-OFF` confirmation is required for the **`main` merge**, and the
-  package does not claim it is required for a targeted apply (it is not — the integration fires on a
-  push to `main`). *Fails if* the two gates are conflated in either direction.
+- **E-27.** A fresh `AUTODEPLOY-VERIFIED-OFF` confirmation is required for the **`main` merge**. A
+  targeted apply has no such requirement — the integration fires on a push to `main`, not on a direct
+  database operation — so if the package checks the setting before the apply as well (plan X1 does),
+  that is prudence against a concurrent push, and D records it as prudence. *Fails only if* the package
+  states the confirmation is **required** for the apply, or omits it for the merge.
 - **E-28.** O-R1, O-R2, O-R3 and O-R4 each appear as a decision with **no default taken**.
 
 ## I. Evidence quality (non-blocking, recorded)
