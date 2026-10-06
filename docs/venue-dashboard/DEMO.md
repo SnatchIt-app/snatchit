@@ -22,7 +22,8 @@ ticket moved, no money moved, nobody was emailed."**
 | Branch | `venue/demo-integration` |
 | Data source | `NEXT_PUBLIC_VENUE_DATA_SOURCE=fixtures`, set explicitly on every environment |
 | Supabase variables | **none set** — the project has no `NEXT_PUBLIC_SUPABASE_URL` and no key of any kind |
-| URL and deployed commit | recorded in `DEPLOYMENT.md` beside this file |
+| **URL** | **https://snatchit-venue-demo.vercel.app** (Vercel Authentication on — see `DEPLOYMENT.md`) |
+| **Deployed commit** | `512e01e3a4f2eebdb8446c2f0c6e278fa8304e06` |
 
 The build carries a self-only Content-Security-Policy with no `connect-src` entry for
 Supabase or Stripe, and `X-Robots-Tag: noindex, nofollow`. There is no Supabase client in the
