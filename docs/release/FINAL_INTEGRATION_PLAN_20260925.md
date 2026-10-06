@@ -1,6 +1,6 @@
 # Final integration plan: DRAFT, revision 2 (A owns; D verifies; E supplies frontend acceptance evidence), 2026-09-26
 
-Revision 1 was verified by D against D's independent inventory `f740ab73`. **Revision 2 addresses the owner's six
+Revision 1 was verified by D against D's independent inventory (originally `f740ab73`, now lost; D's labelled reconstruction is on `review/d-records-20261005 @ 7554d913`). **Revision 2 addresses the owner's six
 corrections of 2026-09-26** (§5.1 point 1 wording, §5.2B 152, §5.1 merge method, §5.3 combined-candidate verification,
 §6.2 critical-tier deferral, §8 PR dispositions). D is verifying revision 2.
 
@@ -203,25 +203,26 @@ table is on the gate.
 
 The release line is **the gate branch**, because production matches it (§1A).
 
-**Precondition P0, before S1: a live hazard today, not a scope choice (D's finding, sharpened).**
-- `main` has no branch protection (API: "Branch not protected").
-- **Ten open PRs target `main`** (`gh pr list --base main`; D counted them, A confirmed):
-  - #43 (not a draft; version `20260902003623`; no marker);
-  - #54 (draft; 39 migration files);
-  - #87 (draft; enforce-transfer-expiry);
-  - #11 (not a draft; docs deletions);
-  - six dependabot bumps, **none a draft**: #9, #53, #57, #59, #60, #61.
-- Nothing mechanical stops any of those merges: required checks are not enforced without protection.
-- **Per the records, neither #43 nor #54 would apply anything under either auto-deploy setting.**
-  - #54's 39 migration files are byte-identical to the gate's (39/39); none is 121, 125 or 126, so every version is in
-    the recorded ledger.
-  - #43's version `20260902003623` is also in the ledger.
-- **The hazard is repository safety** (D's correction C-2):
-  - #43 would put a second, divergent copy of an applied migration on `main` (§8);
-  - #54 is an unreviewed 516-file merge onto the default branch;
-  - six non-draft dependency bumps could land on the default branch outside the release line.
-- **The owner protects `main`**: required reviews, plus the required checks including migrations-guard. That alone
-  removes the hazard.
+**Precondition P0, before S1: repository safety. CORRECTED 2026-10-05; see MAIN_PROTECTION_PROPOSAL_20261005.md.**
+- **`main` is protected,** by the repository ruleset `main-protection` (id 21624091), active since 2026-08-27 with no
+  bypass actors. A and D had read only the classic protection API, which returns 404, so revision 2's "nothing
+  mechanical stops those merges" was **wrong**.
+- **The ruleset enforces:**
+  - a PR is required (0 approvals);
+  - five required checks: `Immutability + ordering`, `Migrations apply cleanly (fresh DB)`,
+    `Typecheck / Lint / Unit tests`, `Web build (Next.js)`, `Secret scan (TruffleHog)`;
+  - linear history;
+  - squash or rebase merges only;
+  - no deletion and no force-push.
+- **Eleven open PRs target `main` today,** dependabot #96 included:
+  - #43 and #11 are **blocked** by failing required checks;
+  - #54 and #87 are drafts;
+  - dependabot #53, #57, #59, #60, #61 and #96 are mergeable with one click.
+- **Per the records, neither #43 nor #54 would apply anything** under either auto-deploy setting: #54's 39 migration
+  files equal the gate's, and #43's version is in the ledger.
+- **The residual risk** is a deliberate merge of a dependency bump, or an un-drafted #54, outside the release line.
+- **Decisions:** the owner's PR-1–PR-7 in the proposal (required checks, strict policy, merge method, reviews, bypass,
+  and rulesets for the gate and the two deploy branches).
 - Closing the superseded PRs is separate hygiene, disposed of per PR in §8, with every head kept recoverable.
 
 **Integration method, for every step:**
@@ -257,7 +258,7 @@ order:
 | S4 | web wording branch → gate | written by the assigned owner; D verifies against the WT §2h bar. The web production branch's `web/` equals the gate's (verified), so the same commits also deploy the web (X9) |
 | S5 | `v3/midnight-app` → gate (merge commit) | after B's review of `f3f08930` and the combined-candidate verification (§5.3). C pushes the 57 local commits first. v3 changes nothing under `supabase/` |
 | S6 | (if D2) the 152 package, then C's client half, then the web read switch | their own PRs; D reviews; §5.2B |
-| **S7** | **gate → `main`**, one PR | migration-bearing. It **adds 76 files to `main`, plus 150/151 and 152 if merged**. Whether any of them **executes** depends on the auto-deploy setting and the ledger at that moment (§3). **Precondition: a fresh owner visual confirmation that auto-deploy is off**, recorded as `AUTODEPLOY-VERIFIED-OFF`, together with the owner's authorisation and D's pre-merge check. Merge it **after X2–X4** (and XB1 if D2), so that everything it carries is already in the ledger except D1's known-pending files. Post-merge check: the `Supabase Preview` check reads `skipped`, and a ledger read (owner-authorised) is unchanged |
+| **S7** | **gate → `main`**, one PR. **The current ruleset allows only squash or rebase, with linear history; a merge commit needs the owner's PR-3** (MAIN_PROTECTION_PROPOSAL §2) | migration-bearing. It **adds 76 files to `main`, plus 150/151 and 152 if merged**. Whether any of them **executes** depends on the auto-deploy setting and the ledger at that moment (§3). **Precondition: a fresh owner visual confirmation that auto-deploy is off**, recorded as `AUTODEPLOY-VERIFIED-OFF`, together with the owner's authorisation and D's pre-merge check. Merge it **after X2–X4** (and XB1 if D2), so that everything it carries is already in the ledger except D1's known-pending files. Post-merge check: the `Supabase Preview` check reads `skipped`, and a ledger read (owner-authorised) is unchanged |
 
 **Admin console release path**, separate from S3 and from the larger admin work.
 - The console serves `ab3e17f`.
@@ -321,7 +322,7 @@ order:
 
 ### 6.0 Consolidated list
 
-1. **P0, now:** protect `main`. §8 is the closure list, every head kept recoverable.
+1. **P0 (corrected):** `main` is already protected by a ruleset. Decide PR-1–PR-7 in MAIN_PROTECTION_PROPOSAL_20261005.md. **PR-3 (allowing a merge commit for S7) is needed before S7.** The closures are in the proposal's §3 table, with every head kept recoverable.
 2. **D1:** merge 121, 125 and 126 into `main` as known-pending, targeted-apply-only files. Recommended: (c).
 3. **D2:** blocking. Approve and include, with the 152 sequence in §5.2B. Recommended.
 4. **D3:** assign the web wording fixes. Recommended: E, with D verifying.
@@ -422,7 +423,7 @@ package.
   - the console commit for X8: `ab3e17f` + the label cherry-picks, patch-identical to `004af0b0`/`789025f3`;
   - the web commit for X9;
   - the EAS source commit for X11, which equals the combined candidate.
-- **D verifies** the plan against D's independent inventory (`f740ab73`), then each frozen package.
+- **D verifies** the plan against D's independent inventory (reconstruction at `7554d913`; the original `f740ab73` is lost), then each frozen package. The 150/151 package is `docs/release/packages/150_151_20261005/`.
 - **E supplies** the frontend acceptance evidence:
   - G0 on the successor build;
   - the native-review record;
