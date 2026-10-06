@@ -65,6 +65,9 @@ result. PR volume is low, so the cost is small.
     already absorbed.
 - **Alternative,** if you prefer linear history: squash S7 into one commit. The lineage then stays only on the gate
   branch, and `main` holds the content but not the cited commits.
+  - **D1 survives a squash:** `main` becomes **tree-equal** to the gate, the tested replay world, and that equality is
+    what D1 rests on (D's note).
+  - What a squash loses is only the commit lineage.
 - Rebase is not proposed: it rewrites about 900 commits, including merge commits.
 
 **PR-4. Reviews: keep 0 required approvals for now.**
@@ -81,7 +84,8 @@ result. PR volume is low, so the cost is small.
 
 **PR-6. Keep** the deletion and force-push rules.
 
-**PR-7. New rulesets for the release and deploy branches.**
+**PR-7. New rulesets for the release and deploy branches.** **The most urgent is `feature/web-accounts-foundation`:**
+any push to it deploys the live web, and nothing stands in the way (D).
 
 | Branch | Why | Proposed rules |
 |---|---|---|

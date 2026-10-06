@@ -352,6 +352,8 @@ order:
     with B's signing track, 126 with D).
   - **Condition:** the fresh AUTODEPLOY confirmation at S7, and the release record listing them as the only files on
     `main` not in the ledger.
+  - **Merge method (2026-10-05):** the current `main` ruleset allows only squash or rebase. **D1 holds under either a
+    merge commit (PR-3) or a squash:** both leave `main` tree-equal to the gate. A squash loses only the lineage.
   - (b) makes `main` equal the ledger exactly, but rewrites five test suites outside A's lane just before release.
 - **D2: blocking.** Approve BS §5 and include 152, C's client half and the web read switch in this release.
   **Recommended.** The app claims block tools (CL:115). Today a block only hides the seller's listings, and Apple 1.2
