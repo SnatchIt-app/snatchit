@@ -27,17 +27,31 @@ there was no B document, no committed capture and no file in any session scratch
 captures (`home-flyer-{light,dark}.png`) were in a temp scratchpad and are gone. Only E's written
 description of the Light capture remains (below). **Acceptance remains pending.**
 
-**Successor:** not yet named. Expected: a clean commit containing `168e794a` (the `fix/reserving-seam`
-`?reserving=1` harness seam, which seeds the screen's own `reserving` state) **plus corrected
-artwork selection on the Listing harness**. At `168e794a`, `app/_dev/v3-listing.tsx` has no `?art=`
-and the cover is always null (`:100-101`), so Listing can show only the missing-artwork plate. Home
-already has `?art=` (`missing flyer photo markers tall wide square all subject subject-wide`). E
-asked C on 2026-10-05.
+**Successor:** not yet named. It must contain all three of the following (owner, 2026-10-05):
+1. **Listing artwork selection.** At `168e794a`, `app/_dev/v3-listing.tsx` has no `?art=` and the
+   cover is always null (`:100-101`), so Listing shows only the missing-artwork plate.
+2. **Home feature selection.** A bug has been *reported*, but E has not reproduced it. C reproduces
+   it and corrects it if present. Home's harness accepts `?art=`; accepting the parameter is not
+   the acceptance test. For each key (`flyer subject subject-wide tall wide square missing`), the
+   named poster must visibly appear in the **featured** frame. Source note, not a diagnosis:
+   `withArt` assigns the art to `rows[0]`, while `app/(tabs)/home.tsx:635` features `flat[0]`
+   after `groupByEventDate` and any filtering. Wherever those two differ, the art lands on a
+   plain row.
+3. **The reserving seam** (`168e794a`).
 
-**Metro ownership (explicit):** C owns `:8081`. On 2026-10-05 it served
-`/Users/josetascon/snatchit-refund` at `f3f08930` (clean). C hands over to the successor and states
-the serving path, sha and clean status. Nobody else restarts or edits that tree until B reports
-done. B's web harness on `:8083` (`/Users/josetascon/snatchit-v3render`) is never native evidence.
+C delivers one clean commit (full sha) and completes the owner-authorised feature-branch push.
+Native code is rebuilt only if a native file changed.
+
+**Metro: one operator for the review window, agreed between B and C before any restart.**
+`:8081` is pid 2172 (`expo start --port 8081`), started 2026-09-26 16:56. Its cwd is
+`/Users/josetascon/snatchit-refund`, at `f3f08930` and clean on 2026-10-05. The owner reports that
+B started it. The process itself does not show who started it. Nobody restarts or repoints it until
+B and C agree on the operator. E's proposal: C operates Metro and the simulator connection, and B
+operates the app only. After the repoint, C confirms the serving directory, the sha, clean status
+and that the dev client on `SN V3 393x852` is connected to that server. If the serving tree changes
+during the review, B pauses, lists which captures became uncertain, and keeps every capture whose
+provenance (sha, start/end check) is established. B's `:8083` web harness
+(`/Users/josetascon/snatchit-v3render`) is never native evidence.
 
 **Ownership of files:** B owns the review documents and captures. E owns this record and edits
 nothing else. Captures go to `docs/product-v3/native/<successor-sha8>/` during the review, named
@@ -46,23 +60,28 @@ sha, the device (`SN V3 393x852`, iPhone 16, UDID `52282259-…48`), iOS 26.5 23
 E commits only `V3_ACCEPTANCE_RECORD.md`, by explicit path, after `git status` shows no staged
 B files.
 
-**Carry-forward rule (per check, by diff, never wholesale):** native evidence taken at an earlier
-commit carries to the successor only when `git diff <old>..<successor>` touches no file in that
-surface's render path. E states the result for each surface. `f3f08930..168e794a` touches only
-`app/_dev/v3-listing.tsx`, `tests/v3-reserve-feedback.test.ts` and `ListingDetailScreen.tsx`. In
-that file the only runtime change is `useState(fixture?.reserving ?? false)`, which is `false` in
-the product. So for that diff: Home, icons and the footer at rest would carry; reservation
-feedback must be taken at the successor. (No B native evidence exists to carry yet. The rule
-applies from now on.)
+**Carry-forward rule:** no surviving native evidence closes any check below, so the full native
+review is re-run at the successor and every capture is preserved. Later, evidence carries to a new
+commit only if both of the following hold:
+- **It is durable and attributable.** The file is committed under `docs/product-v3/native/<sha8>/`
+  and states its sha, device, runtime, fixture, appearance and capturer.
+- **Nothing in its render path changed** between the two commits. That covers the screen file,
+  every shared component, layout or metric it uses (for example `HomeFeature`, `FeedRow`,
+  `EventMedia`, `slots.ts`, `url.ts`, `featureMetrics`, `sections.ts`, the theme tokens,
+  `IconSymbol` and the footer `BarAction`), and the harness and fixture files that select its
+  data (`app/_dev/*`, `assets/qa-posters/*`, `devPosters.ts`).
+
+E checks the diff per check and records the result. An unchanged screen file alone is not
+sufficient.
 
 | Check (both appearances) | Implementation (C) | B independent review | Native evidence (sim) | Repeat at successor? |
 |---|---|---|---|---|
-| Home: 4:5 feature, identity below, no gradient, next section measured; `flyer`, `subject`, `subject-wide`, `tall`, `wide`, `square`, `missing` | `e902f59a`, `ec61bfa7` | pending | pending (C's `f3f08930` captures lost) | yes, nothing survives |
-| Listing: 4:5 poster, info beneath (R-4), navigation reachable; same artwork cases | `f3f08930` (`ListingHero`) | pending | pending | yes; **blocked** until Listing `?art=` lands |
-| Footer Option B at rest | `12be25d6` | pending | pending | yes |
+| Home: 4:5 feature, identity below, no gradient, next section measured; **each** of `flyer`, `subject`, `subject-wide`, `tall`, `wide`, `square`, `missing` visibly in the featured frame | `e902f59a`, `ec61bfa7`; feature-selection fix pending (C) | pending | pending (C's `f3f08930` captures lost) | full re-run |
+| Listing: 4:5 poster, info beneath (R-4), navigation reachable; same artwork cases | `f3f08930` (`ListingHero`) | pending | pending | full re-run; **blocked** until Listing `?art=` lands |
+| Footer Option B at rest | `12be25d6` | pending | pending | full re-run |
 | Reservation feedback (`?reserving=1`, second-position `Reserving…`) | `f3f08930` + seam `168e794a` | pending | pending | at successor only |
-| Icons (native rendering, separate from B's source cmap finding) | `f3f08930` (IconSymbol) | pending | pending | yes |
-| Dynamic Type (largest standard + accessibility sizes), scrolling, safe areas | n/a | pending | pending | yes |
+| Icons (native rendering, separate from B's source cmap finding) | `f3f08930` (IconSymbol) | pending | pending | full re-run |
+| Dynamic Type (largest standard + accessibility sizes), scrolling, safe areas | n/a | pending | pending | full re-run |
 | Event-name truncation (B's recollection) | — | B to reproduce before reporting | — | finding only if reproduced |
 
 **After this priority review:** E reconciles the remaining consumer-screen coverage (Search,
