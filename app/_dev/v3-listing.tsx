@@ -46,6 +46,7 @@ import { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listingArt } from '@/src/lib/media/harnessArt';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useAppearancePreference, useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -286,8 +287,8 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined): 
 }
 
 export default function V3ListingHarness() {
-  const { screen, variant, appearance, reserving } = useLocalSearchParams<{
-    screen?: string; variant?: string; appearance?: string; reserving?: string;
+  const { screen, variant, appearance, reserving, art } = useLocalSearchParams<{
+    screen?: string; variant?: string; appearance?: string; reserving?: string; art?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -318,11 +319,26 @@ export default function V3ListingHarness() {
    *
    * Nothing is requested: no reservation, no single flight, no handler changed.
    */
+  /*
+   * `?art=` — the listing's cover, which this harness could not set at all (E, 2026-10-05). Every
+   * fixture hard-coded `cover_image_path: null`, so the listing review could only ever see the
+   * missing-artwork plate. That blocks the whole point of R-4: the owner's ruling moved the
+   * identity BENEATH the poster, and you cannot judge that against no poster.
+   *
+   * Same keys and the same bundled posters as the Home harness, so one vocabulary covers both
+   * surfaces and a reviewer does not have to learn two. `missing` stays reachable by omitting the
+   * param — the plate is still one of the cases worth looking at.
+   */
   const fixture = useMemo(() => {
     const base = fixtureFor(variant, user?.id);
     if (!base) return base;
-    return reserving === '1' ? { ...base, reserving: true } : base;
-  }, [variant, user?.id, reserving]);
+    const withReserving = reserving === '1' ? { ...base, reserving: true } : base;
+    // `listingArt` returns null for an unknown key, so a crafted `?art=` is dropped rather than
+    // forwarded into the cover field.
+    const cover = listingArt(art);
+    if (!cover) return withReserving;
+    return { ...withReserving, listing: { ...withReserving.listing, cover_image_path: cover } };
+  }, [variant, user?.id, reserving, art]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 

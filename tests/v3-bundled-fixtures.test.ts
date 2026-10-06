@@ -86,17 +86,38 @@ describe('the bundled posters are a dev-only affordance', () => {
   });
 
   it('BF2: no screen outside app/_dev mentions the bundled mechanism', () => {
-    const ALLOWED = ['src/lib/media/devPosters.ts', 'src/lib/media/url.ts'];
+    /*
+     * `harnessArt.ts` joined this list when the `?art=` selection moved out of the route files
+     * (2026-10-05). It had to move: the rule was duplicated across two harnesses and, living in a
+     * `.tsx` route, could not be imported by a behavioural test — which is how a real selection bug
+     * survived a native capture that looked correct.
+     *
+     * Allowing a module to NAME the mechanism is not the same as letting a product screen REACH it,
+     * so the allowance is paired with the import assertion below. Without that pairing this entry
+     * would be a loophole rather than a location.
+     */
+    const ALLOWED = ['src/lib/media/devPosters.ts', 'src/lib/media/url.ts', 'src/lib/media/harnessArt.ts'];
     const offenders = sourceFiles().filter((f) => {
       if (f.startsWith(join('app', '_dev')) || ALLOWED.includes(f)) return false;
       return /devPoster|dev-bundled|DEV_POSTER/.test(read(f));
     });
     expect(offenders).toEqual([]);
 
+    /*
+     * And the pairing that keeps the allowance honest: `harnessArt` may be named in src/, but only
+     * the dev routes may IMPORT it. A product screen importing it would be a path from the product
+     * to a bundled fixture, which is the thing this suite exists to prevent.
+     */
+    const importers = sourceFiles().filter((f) => /from '@\/src\/lib\/media\/harnessArt'/.test(read(f)));
+    expect(importers.length, 'something imports the harness art module').toBeGreaterThan(0);
+    for (const f of importers) {
+      expect(f.startsWith(join('app', '_dev')), `${f} must not import harnessArt`).toBe(true);
+    }
+
     // POSITIVE CONTROL: the scan must be able to see the mechanism where it legitimately lives, or
     // an empty offender list would only prove the walk found nothing.
     const harnessUses = sourceFiles().filter(
-      (f) => f.startsWith(join('app', '_dev')) && /devPosterPath/.test(read(f)),
+      (f) => f.startsWith(join('app', '_dev')) && /harnessArt|devPosterPath/.test(read(f)),
     );
     expect(harnessUses.length).toBeGreaterThan(0);
   });
