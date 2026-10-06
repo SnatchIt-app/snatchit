@@ -161,6 +161,19 @@ the app's; only the surface differs.
   10. `buyer_confirmed` / `auto_released` without payout evidence → "Release approved — payout pending".
 - **Reads:** all of these columns already exist in production. None depends on migration 150.
 - **Owner of the change:** the web surface. It is not C's; C's app already follows these rules.
+- **Implemented (D, owner's 2026-10-05 assignment):** `web/wording-truth-conditions @ e7130f04`, **unpushed**; a push
+  to the web production branch deploys and is the owner's call.
+  - **A PASS 2026-10-06** after one round of changes:
+    - §2e "Release decision at <auto_release_at>." only;
+    - the window read from the row;
+    - a role-aware badge (buyer "Closed" for `reversed`);
+    - seller-win precedence through review and hold;
+    - "Your payout is held until X.";
+    - "Marked sent".
+  - **Scope widened by ruling:** the two transfer panels (W-1c/W-1d). The unruled cell is "Order closed" / "Closed".
+  - **Composed alerts accepted:** "Resolved in your favour. Payout under review." / "…Payout held until X."
+  - **Evidence (A, own checkout):** `tsc` 0, 218 tests, the role-blind badge mutant killed by 2. D: eslint 0, build
+    green, 22 mutants all killed.
 - **Acceptance bar (D's criteria, adopted by A 2026-09-25; D verifies):**
   1. No string containing "refund" is reachable from a path whose only input is `transfer.status`.
   2. Refund wording stays at ruling 3's ceiling. After 150 is live, the kind contract in §2i applies.

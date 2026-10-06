@@ -2070,3 +2070,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Small:** seller-win precedence for holds and review; the held wording.
   - **Verified:** web-only, no writes or RPCs, new columns readable by `authenticated` (replay), 214 tests, tsc 0, one A
     mutant killed.
+- **D's web wording: A PASS at `e7130f04` (2026-10-06)**, after one round of changes.
+  - The branch `web/wording-truth-conditions` stays **unpushed**: a push to `feature/web-accounts-foundation` deploys
+    the live web, and that is the owner's call. Its protection is PR-7, the most urgent in the proposal.
+  - A verified in its own checkout: `tsc` 0, 218 tests, the role-blind badge mutant killed.
