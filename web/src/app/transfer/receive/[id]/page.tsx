@@ -42,7 +42,7 @@ export default async function ReceiveTransferPage({ params }: { params: Promise<
       </Link>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <TransferStatusBadge status={transfer.status} />
+        <TransferStatusBadge row={transfer} />
         {transfer.counterpartyName ? (
           <span className="text-[12.5px] text-white/50">from {transfer.counterpartyName}</span>
         ) : null}

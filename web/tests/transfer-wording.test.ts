@@ -17,9 +17,14 @@ import { describe, expect, it } from "vitest";
 import {
   DISPUTE_RESOLUTIONS,
   buyerPurchaseLine,
+  buyerStateAlert,
   fmtMoment,
   sellerPayoutLine,
+  sellerPayoutParagraph,
+  sellerStateAlert,
+  transferBadgeLabel,
   type BuyerLineInput,
+  type OrderRowInput,
   type SellerLineInput,
   type WordingTransferStatus,
 } from "@/lib/transfer-wording";
@@ -73,7 +78,7 @@ describe("W-1b — seller 'expired' must not assert the buyer's refund", () => {
   });
 });
 
-describe("W-2 — 'disputed' must not assert a review process, nor render a decided dispute as open", () => {
+describe("W-4 — \"Disputed — support is reviewing\" asserts a process the row does not record", () => {
   it("open dispute: states the payout freeze, not who is reviewing", () => {
     const line = buyerPurchaseLine(buyer({ status: "disputed" }));
     expect(line.text).toBe("Issue reported — the seller's payout is frozen until this is resolved.");
@@ -81,6 +86,12 @@ describe("W-2 — 'disputed' must not assert a review process, nor render a deci
     expect(line.text.toLowerCase()).not.toContain("support");
   });
 
+  it("the open-dispute line is reachable (positive control for W-4)", () => {
+    expect(buyerPurchaseLine(buyer({ status: "disputed" })).text).toContain("Issue reported");
+  });
+});
+
+describe("W-6 — a decided dispute must not render as open", () => {
   it.each([
     ["resolved_buyer_refunded", "Resolved in your favour"],
     ["resolved_partial_refund", "Resolved"],
@@ -101,15 +112,13 @@ describe("W-2 — 'disputed' must not assert a review process, nor render a deci
   });
 });
 
-describe("W-3 — 'auto_released' is not a buyer confirmation", () => {
-  it("reads 'Released', never 'Confirmed'", () => {
+describe("W-3 — \"Confirmed\" for auto_released, and for buyer_confirmed without the record", () => {
+  it("auto_released reads 'Released', never 'Confirmed'", () => {
     const line = buyerPurchaseLine(buyer({ status: "auto_released" }));
     expect(line.text).toBe("Released");
     expect(line.text).not.toContain("Confirmed");
   });
-});
 
-describe("W-4 — 'Confirmed' requires the confirmation record", () => {
   it("buyer_confirmed WITH buyer_confirmed_at reads 'Confirmed'", () => {
     expect(buyerPurchaseLine(buyer({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" })).text)
       .toBe("Confirmed");
@@ -123,12 +132,12 @@ describe("W-4 — 'Confirmed' requires the confirmation record", () => {
     expect(line.text).not.toContain("Confirmed");
   });
 
-  it("buyer_confirmed with neither record nor decision asserts nothing", () => {
-    expect(buyerPurchaseLine(buyer({ status: "buyer_confirmed" })).text).toBe("");
+  it("buyer_confirmed with neither record nor decision reads 'Order closed' (A, 2026-10-05)", () => {
+    expect(buyerPurchaseLine(buyer({ status: "buyer_confirmed" })).text).toBe("Order closed");
   });
 });
 
-describe("W-5 — a reversed payout must not read as paid", () => {
+describe("W-2 — \"Paid out\" from payoutReleasedAt alone, on a reversed row", () => {
   it("'reversed' outranks payout_released_at", () => {
     const line = sellerPayoutLine(
       seller({ status: "reversed", payout_released_at: "2026-09-20T10:00:00Z" }),
@@ -146,7 +155,7 @@ describe("W-5 — a reversed payout must not read as paid", () => {
   });
 });
 
-describe("W-6 — payout completion wording and the remaining precedence", () => {
+describe("W-5 — \"On hold\" and \"Payout processing\", and the rest of the precedence", () => {
   it("payout evidence reads 'Payout released', never 'Paid out' or 'received'", () => {
     const { text } = sellerPayoutLine(
       seller({ status: "buyer_confirmed", payout_released_at: "2026-09-24T21:00:00Z" }),
@@ -272,5 +281,163 @@ describe("fmtMoment", () => {
     expect(fmtMoment(null)).toBeNull();
     expect(fmtMoment("")).toBeNull();
     expect(fmtMoment("not-a-date")).toBeNull();
+  });
+});
+
+// ─── The two transfer panels and the badge (A's rulings, 2026-10-05) ──────
+
+const row = (o: Partial<OrderRowInput> = {}): OrderRowInput => ({
+  status: "pending",
+  buyer_confirmed_at: null,
+  dispute_resolved_at: null,
+  dispute_resolution: null,
+  payout_released_at: null,
+  payout_review_status: null,
+  payout_hold_until: null,
+  auto_release_at: null,
+  ...o,
+});
+
+describe("W-1c — the buyer panel must not assert a refund from 'expired'", () => {
+  it("states the cancellation only", () => {
+    const a = buyerStateAlert(row({ status: "expired" }));
+    expect(a?.text).toBe("The seller didn't send the tickets in time, so this order was cancelled.");
+    expect(a?.text.toLowerCase()).not.toContain("refund");
+  });
+});
+
+describe("W-1d — the seller panel must not assert the buyer's refund from 'expired'", () => {
+  it("states the cancellation and that no payout is owed", () => {
+    const a = sellerStateAlert(row({ status: "expired" }));
+    expect(a?.text).toBe(
+      "The 24-hour window passed without a transfer, so this order was cancelled. No payout for this order.",
+    );
+    expect(a?.text.toLowerCase()).not.toContain("refund");
+  });
+});
+
+describe("the panels: no asserted human activity, and no decided dispute shown as open", () => {
+  it("buyer: an open dispute names the payout freeze, not a team or an SLA", () => {
+    const a = buyerStateAlert(row({ status: "disputed" }));
+    expect(a?.text).toBe("Issue reported. The seller's payout is frozen until this is resolved.");
+    expect(a?.text).not.toMatch(/our team|typically|24 hours/i);
+  });
+
+  it("seller: an open dispute says frozen, never 'on hold while our team reviews'", () => {
+    const a = sellerStateAlert(row({ status: "disputed" }));
+    expect(a?.text).toBe("The buyer reported a problem. Your payout is frozen until this is resolved.");
+    expect(a?.text).not.toMatch(/our team|on hold/i);
+  });
+
+  it.each(DISPUTE_RESOLUTIONS)("a decided dispute (%s) never renders as open on either panel", (res) => {
+    const d = { status: "disputed" as const, dispute_resolved_at: "2026-09-24T20:00:00Z", dispute_resolution: res };
+    expect(buyerStateAlert(row(d))?.text).not.toMatch(/Issue reported/);
+    expect(sellerStateAlert(row(d))?.text).not.toMatch(/reported a problem/);
+  });
+
+  it("seller: a seller-win claims a payout only with payout evidence", () => {
+    const d = { status: "disputed" as const, dispute_resolved_at: "2026-09-24T20:00:00Z", dispute_resolution: "resolved_seller_paid" };
+    expect(sellerStateAlert(row(d))?.text).toBe("Resolved in your favour — payout pending.");
+    expect(sellerStateAlert(row({ ...d, payout_released_at: "2026-09-25T10:00:00Z" }))?.text)
+      .toBe("Resolved in your favour. Payout released.");
+  });
+
+  it("seller: completion claims a payout only with payout evidence", () => {
+    expect(sellerStateAlert(row({ status: "auto_released" }))?.text)
+      .toBe("Transfer complete. No payout has been recorded yet — make sure payouts are set up in Settings.");
+    expect(sellerStateAlert(row({ status: "auto_released", payout_released_at: "2026-09-25T10:00:00Z" }))?.text)
+      .toBe("Transfer complete and payout released.");
+  });
+
+  it("buyer: the no-record cell is closed, and a seller-win states the decision", () => {
+    expect(buyerStateAlert(row({ status: "buyer_confirmed" }))?.text).toBe("This order is closed.");
+    expect(buyerStateAlert(row({ status: "buyer_confirmed", dispute_resolution: "resolved_seller_paid" }))?.text)
+      .toBe("The dispute was resolved in the seller's favour.");
+  });
+});
+
+describe("the badge reads the row, not the status alone", () => {
+  it("buyer_confirmed is complete only with the confirmation record", () => {
+    expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" })))
+      .toBe("Transfer Complete");
+    expect(transferBadgeLabel(row({ status: "buyer_confirmed" }))).toBe("Closed");
+    expect(transferBadgeLabel(row({ status: "buyer_confirmed", dispute_resolution: "resolved_seller_paid" })))
+      .toBe("Closed");
+  });
+
+  it("auto_released is a release decision, never payout evidence (§2i)", () => {
+    expect(transferBadgeLabel(row({ status: "auto_released" }))).toBe("Released");
+    expect(transferBadgeLabel(row({ status: "auto_released" }))).not.toMatch(/Payout/);
+  });
+
+  it("reversed is the seller's payout event, not the buyer's payment (§2c)", () => {
+    expect(transferBadgeLabel(row({ status: "reversed" }))).toBe("Payout Reversed");
+    expect(transferBadgeLabel(row({ status: "reversed" }))).not.toMatch(/Payment/);
+  });
+
+  it("a decided dispute does not badge as open", () => {
+    expect(transferBadgeLabel(row({ status: "disputed" }))).toBe("Disputed");
+    expect(transferBadgeLabel(row({ status: "disputed", dispute_resolved_at: "2026-09-24T20:00:00Z" })))
+      .toBe("Dispute Resolved");
+  });
+
+  it("no badge asserts completion without the record, over every input", () => {
+    // Checking only the literal "Confirmed" was vacuous here: the badge says
+    // "Transfer Complete", which asserts the same thing in other words and
+    // survived the mutant. Match the claim, not the word.
+    for (const status of STATUSES)
+      for (const dispute_resolution of RESOLUTIONS)
+        expect(transferBadgeLabel(row({ status, dispute_resolution })), `${status}/${dispute_resolution}`)
+          .not.toMatch(/Confirmed|Complete/);
+    expect(transferBadgeLabel(row({ status: "buyer_confirmed", buyer_confirmed_at: "2026-09-24T20:31:03Z" })))
+      .toBe("Transfer Complete");
+  });
+});
+
+describe("the seller payout paragraph (§2e): a scheduled time, never a countdown", () => {
+  it("states the release decision time and stays true after it passes", () => {
+    expect(sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at: "2026-09-27T16:30:00Z" })))
+      .toBe("Release decision at Sep 27, 12:30 PM. Your payout releases then — sooner if the buyer confirms.");
+  });
+
+  it("never says the window has passed, and never reads a countdown", () => {
+    for (const auto_release_at of [null, "2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z"]) {
+      const t = sellerPayoutParagraph(row({ status: "seller_sent", auto_release_at }));
+      expect(t).not.toMatch(/window has passed|being processed|remaining|left\b/i);
+    }
+  });
+
+  it("a hold names its stored end, or implies none", () => {
+    expect(sellerPayoutParagraph(row({ payout_review_status: "held", payout_hold_until: "2026-10-02T23:00:00Z" })))
+      .toBe("Funds are held until Oct 2, 7:00 PM as a standard protection.");
+    expect(sellerPayoutParagraph(row({ payout_review_status: "held" })))
+      .toBe("Funds are held as a standard protection.");
+  });
+
+  it("manual review carries no date", () => {
+    const t = sellerPayoutParagraph(row({ payout_review_status: "manual_review" }));
+    expect(t).toContain("under manual review");
+    expect(t).not.toMatch(/\d{4}|Sep|Oct/);
+  });
+});
+
+describe("criterion 1 over the panels and the badge too", () => {
+  it("no 'refund' string is reachable from any of them", () => {
+    const out: string[] = [];
+    for (const status of STATUSES)
+      for (const dispute_resolution of RESOLUTIONS)
+        for (const dispute_resolved_at of TIMES)
+          for (const payout_released_at of TIMES)
+            for (const buyer_confirmed_at of TIMES) {
+              const r = row({ status, dispute_resolution, dispute_resolved_at, payout_released_at, buyer_confirmed_at });
+              out.push(buyerStateAlert(r)?.text ?? "", sellerStateAlert(r)?.text ?? "", transferBadgeLabel(r), sellerPayoutParagraph(r));
+            }
+    expect(out.length).toBeGreaterThan(500);
+    expect(out.filter((t) => /refund/i.test(t))).toEqual([]);
+    // positive control: the withdrawn panel strings would have matched
+    expect([
+      "The seller didn't send in time, so this order was cancelled and refunded in full.",
+      "The 24-hour window passed without a transfer, so the buyer was refunded.",
+    ].filter((t) => /refund/i.test(t))).toHaveLength(2);
   });
 });

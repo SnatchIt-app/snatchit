@@ -1,16 +1,6 @@
 import { Badge } from "@/components/ui/Badge";
 import type { TransferStatus } from "@/lib/transfers";
-
-/** Labels ported verbatim from mobile's TransferStatusBadge. */
-const LABELS: Record<TransferStatus, string> = {
-  pending: "Transfer Pending",
-  seller_sent: "Transfer Sent",
-  buyer_confirmed: "Transfer Complete",
-  disputed: "Disputed",
-  expired: "Transfer Expired",
-  auto_released: "Payout Released",
-  reversed: "Payment Reversed",
-};
+import { transferBadgeLabel, type OrderRowInput } from "@/lib/transfer-wording";
 
 const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
   pending: "soon",
@@ -22,10 +12,15 @@ const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
   reversed: "sold",
 };
 
-export function TransferStatusBadge({ status }: { status: TransferStatus }) {
-  return <Badge variant={VARIANTS[status]}>{LABELS[status]}</Badge>;
+/**
+ * The label comes from the row, not the status alone: a seller-win and a
+ * decided dispute both read differently from what the bare status suggests,
+ * and `auto_released` is a release decision, never payout evidence (§2i).
+ */
+export function TransferStatusBadge({ row }: { row: OrderRowInput }) {
+  return <Badge variant={VARIANTS[row.status]}>{transferBadgeLabel(row)}</Badge>;
 }
 
-export function transferStatusLabel(status: TransferStatus): string {
-  return LABELS[status];
+export function transferStatusLabel(row: OrderRowInput): string {
+  return transferBadgeLabel(row);
 }

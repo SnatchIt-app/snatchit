@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TransferStatus } from "@/lib/transfers";
-import { sellerPayoutLine } from "@/lib/transfer-wording";
+import { sellerPayoutLine, type OrderRowInput } from "@/lib/transfer-wording";
 
 /**
  * Seller-side sales history — the mirror of /account/purchases.
@@ -42,7 +42,22 @@ export type SaleView = {
   autoReleaseAt: string | null;
   disputeResolution: string | null;
   disputeResolvedAt: string | null;
+  buyerConfirmedAt: string | null;
 };
+
+/** SaleView -> the row shape the badge and the wording rules read. */
+export function saleRow(s: SaleView): OrderRowInput {
+  return {
+    status: s.status,
+    buyer_confirmed_at: s.buyerConfirmedAt,
+    dispute_resolved_at: s.disputeResolvedAt,
+    dispute_resolution: s.disputeResolution,
+    payout_released_at: s.payoutReleasedAt,
+    payout_review_status: s.payoutReviewStatus,
+    payout_hold_until: s.payoutHoldUntil,
+    auto_release_at: s.autoReleaseAt,
+  };
+}
 
 type Joined<T> = T | T[] | null | undefined;
 function one<T>(v: Joined<T>): T | null {
@@ -57,15 +72,7 @@ function one<T>(v: Joined<T>): T | null {
  * payout_released_at — a reversed row still carries it (WT §2d).
  */
 export function payoutLabel(s: SaleView): { text: string; urgent: boolean } {
-  return sellerPayoutLine({
-    status: s.status,
-    dispute_resolved_at: s.disputeResolvedAt,
-    dispute_resolution: s.disputeResolution,
-    payout_released_at: s.payoutReleasedAt,
-    payout_review_status: s.payoutReviewStatus,
-    payout_hold_until: s.payoutHoldUntil,
-    auto_release_at: s.autoReleaseAt,
-  });
+  return sellerPayoutLine(saleRow(s));
 }
 
 export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
@@ -111,6 +118,7 @@ export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
       autoReleaseAt: (r.auto_release_at as string) ?? null,
       disputeResolution: (r.dispute_resolution as string) ?? null,
       disputeResolvedAt: (r.dispute_resolved_at as string) ?? null,
+      buyerConfirmedAt: (r.buyer_confirmed_at as string) ?? null,
     };
   });
 });

@@ -124,10 +124,9 @@ export function buyerPurchaseLine(t: BuyerLineInput): Line {
         return { text: "Resolved in the seller's favour", urgent: false };
       }
       // Confirmed status with neither a confirmation record nor a seller-win
-      // decision. §2h does not rule this cell, so the truthful minimum (§3)
-      // applies: the badge shows the status, this line asserts nothing.
-      // Flagged to A for a ruling.
-      return { text: "", urgent: false };
+      // decision. Ruled by A 2026-10-05: say that the order is closed and
+      // nothing more. The badge reads "Closed" for the same cell.
+      return { text: "Order closed", urgent: false };
 
     // W-3. The buyer confirmed nothing here; the server released on a timer.
     case "auto_released":
@@ -155,9 +154,11 @@ export type SellerLineInput = {
   dispute_resolved_at: string | null;
   dispute_resolution: string | null;
   payout_released_at: string | null;
-  payout_review_status: string | null;
-  payout_hold_until: string | null;
-  auto_release_at: string | null;
+  // optional so an OrderRowInput (which the panels and the badge use) is
+  // assignable here without a second adapter
+  payout_review_status?: string | null;
+  payout_hold_until?: string | null;
+  auto_release_at?: string | null;
 };
 
 /**
@@ -210,14 +211,14 @@ export function sellerPayoutLine(s: SellerLineInput): Line {
   // 8. "until after the event" is withdrawn — the hold ends at a stored time,
   //    and when none is stored no end may be implied.
   if (s.payout_review_status === "held") {
-    const until = fmtMoment(s.payout_hold_until);
+    const until = fmtMoment(s.payout_hold_until ?? null);
     return { text: until ? `Payout held until ${until}` : "Payout held", urgent: false };
   }
 
   // 9. §2e: a scheduled server time, stated whether or not it has passed.
   //    Never a countdown and never a device-clock branch.
   if (s.status === "seller_sent") {
-    const at = fmtMoment(s.auto_release_at);
+    const at = fmtMoment(s.auto_release_at ?? null);
     return { text: at ? `Release decision at ${at}` : "", urgent: false };
   }
 
@@ -227,4 +228,183 @@ export function sellerPayoutLine(s: SellerLineInput): Line {
   }
 
   return { text: "", urgent: false };
+}
+
+// ─── Shared row shape for the panels and the badge ───────────────────────
+
+export type OrderRowInput = {
+  status: WordingTransferStatus;
+  buyer_confirmed_at: string | null;
+  dispute_resolved_at: string | null;
+  dispute_resolution: string | null;
+  payout_released_at: string | null;
+  payout_review_status?: string | null;
+  payout_hold_until?: string | null;
+  auto_release_at?: string | null;
+};
+
+/** §2i: payout evidence, for any audience. `reversed` takes precedence. */
+export function hasPayoutEvidence(r: { status: WordingTransferStatus; payout_released_at: string | null }): boolean {
+  return r.status !== "reversed" && !!r.payout_released_at;
+}
+
+function disputeDecided(r: OrderRowInput): boolean {
+  return !!r.dispute_resolved_at;
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────
+
+/**
+ * The badge took only `status`, so it asserted things the status does not
+ * establish: "Transfer Complete" for a seller-win that no buyer confirmed,
+ * "Payout Released" for `auto_released` (a release DECISION, never payout
+ * evidence — §2i), "Payment Reversed" for the seller's payout reversal
+ * (§2c: not a buyer money fact), and "Disputed" for a decided dispute
+ * (criterion 6). It now reads the same row the lines do.
+ */
+export function transferBadgeLabel(r: OrderRowInput): string {
+  switch (r.status) {
+    case "pending":
+      return "Transfer Pending";
+    case "seller_sent":
+      return "Transfer Sent";
+    case "buyer_confirmed":
+      // Only a confirmation record makes this complete. A seller-win and the
+      // unruled no-record cell both read "Closed" (A's ruling, 2026-10-05).
+      return r.buyer_confirmed_at ? "Transfer Complete" : "Closed";
+    case "disputed":
+      return disputeDecided(r) ? "Dispute Resolved" : "Disputed";
+    case "expired":
+      return "Transfer Expired";
+    case "auto_released":
+      return "Released";
+    case "reversed":
+      return "Payout Reversed";
+    default:
+      return "";
+  }
+}
+
+// ─── Order-state alerts on the two transfer screens ──────────────────────
+
+export type Alert = { tone: "success" | "error"; text: string } | null;
+
+/** Buyer's terminal-state alert on /transfer/receive. */
+export function buyerStateAlert(r: OrderRowInput): Alert {
+  if (r.status === "buyer_confirmed" || r.status === "auto_released") {
+    if (r.status === "auto_released" || r.buyer_confirmed_at) {
+      return { tone: "success", text: "Transfer complete. Enjoy the show." };
+    }
+    if (r.dispute_resolution === "resolved_seller_paid") {
+      return { tone: "success", text: "The dispute was resolved in the seller's favour." };
+    }
+    return { tone: "success", text: "This order is closed." };
+  }
+
+  if (r.status === "disputed") {
+    // W-4/W-6 (A's ids): no asserted review process, no SLA, and a decided
+    // dispute never renders as open.
+    if (!disputeDecided(r)) {
+      return {
+        tone: "error",
+        text: "Issue reported. The seller's payout is frozen until this is resolved.",
+      };
+    }
+    if (r.dispute_resolution === "resolved_buyer_refunded") {
+      return { tone: "success", text: "Resolved in your favour." };
+    }
+    if (r.dispute_resolution === "resolved_partial_refund") {
+      return { tone: "success", text: "Resolved." };
+    }
+    if (r.dispute_resolution === "resolved_seller_paid") {
+      return { tone: "error", text: "The dispute was resolved in the seller's favour." };
+    }
+    return { tone: "success", text: "Resolved." };
+  }
+
+  // W-1c. "cancelled and refunded in full" asserted a refund from the status
+  // alone; this panel does not read the payment row.
+  if (r.status === "expired") {
+    return {
+      tone: "error",
+      text: "The seller didn't send the tickets in time, so this order was cancelled.",
+    };
+  }
+
+  return null;
+}
+
+/** Seller's terminal-state alert on /transfer/send. */
+export function sellerStateAlert(r: OrderRowInput): Alert {
+  if (r.status === "buyer_confirmed" || r.status === "auto_released") {
+    if (hasPayoutEvidence(r)) {
+      return { tone: "success", text: "Transfer complete and payout released." };
+    }
+    return {
+      tone: "success",
+      text: "Transfer complete. No payout has been recorded yet — make sure payouts are set up in Settings.",
+    };
+  }
+
+  if (r.status === "disputed") {
+    if (!disputeDecided(r)) {
+      return {
+        tone: "error",
+        text: "The buyer reported a problem. Your payout is frozen until this is resolved.",
+      };
+    }
+    if (
+      r.dispute_resolution === "resolved_buyer_refunded" ||
+      r.dispute_resolution === "resolved_partial_refund"
+    ) {
+      return { tone: "error", text: "Resolved for the buyer — no payout for this order." };
+    }
+    if (hasPayoutEvidence(r)) {
+      return { tone: "success", text: "Resolved in your favour. Payout released." };
+    }
+    return { tone: "success", text: "Resolved in your favour — payout pending." };
+  }
+
+  // W-1d. The seller's row does not record the buyer's refund (§2b).
+  if (r.status === "expired") {
+    return {
+      tone: "error",
+      text: "The 24-hour window passed without a transfer, so this order was cancelled. No payout for this order.",
+    };
+  }
+
+  if (r.status === "reversed") {
+    return {
+      tone: "error",
+      text: "A reversal was recorded on this order's payout. Contact support for details.",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * The seller's payout paragraph while `seller_sent`.
+ *
+ * §2e, ruling 2026-09-24 20:56Z: never "The buyer review window has passed",
+ * and no branch on the device clock or on a countdown. The window closes by a
+ * status change — `apply_auto_release` or a buyer confirmation — not by the
+ * clock, and `buyer_dispute_transfer` accepts a report while `seller_sent`
+ * whatever the time. So the line states the scheduled server time and stays
+ * true after it passes.
+ */
+export function sellerPayoutParagraph(r: OrderRowInput): string {
+  if (r.payout_review_status === "manual_review") {
+    return "This payout is under manual review. Contact support@snatchitapp.com if you have questions.";
+  }
+  if (r.payout_review_status === "held") {
+    const until = fmtMoment(r.payout_hold_until ?? null);
+    return until
+      ? `Funds are held until ${until} as a standard protection.`
+      : "Funds are held as a standard protection.";
+  }
+  const at = fmtMoment(r.auto_release_at ?? null);
+  return at
+    ? `Release decision at ${at}. Your payout releases then — sooner if the buyer confirms.`
+    : "Your payout releases once the buyer confirms, or at the scheduled release decision.";
 }
