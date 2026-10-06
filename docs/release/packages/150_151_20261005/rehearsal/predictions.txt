@@ -1,0 +1,21 @@
+# Rehearsal predictions — registered BEFORE any run (A, 2026-10-05; UTC 2026-10-06T02:4xZ).
+# DB: pkg150_rehears = LC_ALL=C replay of gate 037092f0 minus 121/125/126 (162 files, census 32|108|37|38)
+#     + a 162-row stand-in supabase_migrations.schema_migrations (max 20260924120000).
+R0  check pre150                         -> PASS (exit 0)
+R1  DRY apply 150 / apply 151 / rollbacks -> request files + sha256 printed; no DB touched
+R2  LOCALDB apply 150                    -> prestate PASS, POST PASS vs predicted post150 (exit 0)
+R3  NEG: apply 150 again                 -> prestate STOP exit 3; 14 MISMATCH keys (ledger_count, ledger_max, ledger_150,
+                                            census, fn_ops.detect_refunds(), record_refund_state_exec, tbl_payment_refund_state,
+                                            tbl_payment_refund_state_log, payments_refund_cols, payments_refund_cols_nonzero,
+                                            triggers_150, setting_refund_state_detection_enabled, setting_refund_state_pending_hours,
+                                            ops_setting_rows) + 3 UNEXPECTED KEY (the three new fn_public.* keys); nothing sent
+R4  rollback 150                         -> guard PASS (= post150); post-rollback PASS (= pre150)
+R5  NEG: rollback 150 again              -> guard STOP exit 3; nothing sent
+R6  apply 150, then apply 151            -> both PASS (post150, then post151)
+R7  NEG: apply 151 again                 -> prestate STOP exit 3; 4 MISMATCH keys (ledger_count, ledger_max, ledger_151,
+                                            fn_ops.detect_release_stuck())
+R8  partial: run ONLY 151's rollback FILE (ledger row left) -> full rollback 151 STOPs exit 3 (1 MISMATCH:
+                                            fn_ops.detect_release_stuck() vs post151; ledger keys equal) -> --ledger-only PASS (= pre151)
+R8c control: re-apply 151; --ledger-only while 151's body is live -> STOP exit 3; ledger unchanged (164)
+R9  final DB at post151: pgTAP 217 = 45/45, 218 = 17/17
+R10 DRY again                            -> every request sha256 identical to R1 (deterministic)

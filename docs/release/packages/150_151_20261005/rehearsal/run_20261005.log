@@ -1,0 +1,147 @@
+### env MODE=LOCALDB python3 pkg.py check expected/pre150.txt
+exit 0
+### env MODE=DRY python3 pkg.py apply 150
+[pkg] apply_150: 45287 bytes sha256 8e9300014a6e31586491fd3aefdd1af95c344ec8745016a6bb3566b1c6e8a3f5
+exit 0
+### env MODE=DRY python3 pkg.py apply 151
+[pkg] apply_151: 13339 bytes sha256 908607ca9e3ffa9104e86cbe0c1f2f3a08feb4470407bcd0d16e086a69eeff0b
+exit 0
+### env MODE=DRY python3 pkg.py rollback 150
+[pkg] rollback_150: 6874 bytes sha256 7ddf9c48ca4d14a947137417089f7107f663f38a86ca2ceb29b32ae431da3fa3
+exit 0
+### env MODE=DRY python3 pkg.py rollback 151
+[pkg] rollback_151: 4733 bytes sha256 b3efdfdd3db64113182c60c9b45a8173ce709a6576be0bcc6ec238d074232593
+exit 0
+### env MODE=DRY python3 pkg.py rollback 151 --ledger-only
+[pkg] rollback_151_ledger_only: 214 bytes sha256 ec1a3b2b9094e82d573da4c2c03ae08cd49271a726db55ddc7ab64558c711e7b
+exit 0
+### env MODE=LOCALDB python3 pkg.py apply 150
+[pkg] prestate 150 vs pre150.txt
+[pkg] request sha256 8e9300014a6e31586491fd3aefdd1af95c344ec8745016a6bb3566b1c6e8a3f5 (45287 bytes)
+[pkg] post assertion 150 vs post150.txt
+[pkg] 150 APPLIED and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py apply 150
+[pkg] prestate STOP for 150; nothing sent
+[pkg] prestate 150 vs pre150.txt
+  MISMATCH census: expected 32|108|37|38 | actual 34|111|37|40
+  MISMATCH fn_ops.detect_refunds(): expected 3098d2e6d5b3c02e94ea796d00715c0a|secdef=true|cfg=search_path="" | actual e1e9a8bc08305e17916e25247a22752f|secdef=true|cfg=search_path=""
+  MISMATCH ledger_150: expected absent | actual refund_lifecycle_state|claude-a/owner-authorised-150|1
+  MISMATCH ledger_count: expected 162 | actual 163
+  MISMATCH ledger_max: expected 20260924120000 | actual 20260925000000
+  MISMATCH ops_setting_rows: expected 12 | actual 14
+  MISMATCH payments_refund_cols: expected absent | actual refund_failed_cents:true:0,refund_requested_cents:true:0,refund_succeeded_cents:true:0
+  MISMATCH payments_refund_cols_nonzero: expected absent | actual 0
+  MISMATCH record_refund_state_exec: expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH setting_refund_state_detection_enabled: expected absent | actual false
+  MISMATCH setting_refund_state_pending_hours: expected absent | actual 120
+  MISMATCH tbl_payment_refund_state: expected absent | actual rls:true,anon_any:false,authenticated_any:false,service_role_select:true
+  MISMATCH tbl_payment_refund_state_log: expected absent | actual rls:true,anon_any:false,authenticated_any:false,service_role_select:true
+  MISMATCH triggers_150: expected none | actual trg_guard_payment_refund_state_columns,trg_payment_refund_state_log_append_only
+  UNEXPECTED KEY fn_public.guard_payment_refund_state_columns()=3dd1e248bac646effd270a9e162a7f69|secdef=false|cfg=search_path=""
+  UNEXPECTED KEY fn_public.payment_refund_state_log_append_only()=37e22c4dd3b2e7970b6120825f7c255d|secdef=false|cfg=search_path=""
+  UNEXPECTED KEY fn_public.record_refund_state(p_payment_intent_id text, p_stripe_refund_id text, p_status text, p_amount_cents integer, p_failure_reason text, p_source text, p_observed_via text)=aff01ec2414fb8800c40ef05c8db05c8|secdef=true|cfg=search_path=""
+exit 3
+### env MODE=LOCALDB python3 pkg.py rollback 150
+[pkg] rollback guard 150: state must equal post150.txt
+[pkg] rollback request sha256 7ddf9c48ca4d14a947137417089f7107f663f38a86ca2ceb29b32ae431da3fa3
+[pkg] post-rollback 150 vs pre150.txt
+[pkg] 150 ROLLED BACK and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py rollback 150
+[pkg] rollback STOP for 150; nothing sent
+[pkg] rollback guard 150: state must equal post150.txt
+  MISMATCH census: expected 34|111|37|40 | actual 32|108|37|38
+  MISMATCH fn_ops.detect_refunds(): expected e1e9a8bc08305e17916e25247a22752f|secdef=true|cfg=search_path="" | actual 3098d2e6d5b3c02e94ea796d00715c0a|secdef=true|cfg=search_path=""
+  MISMATCH fn_public.guard_payment_refund_state_columns(): expected 3dd1e248bac646effd270a9e162a7f69|secdef=false|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.payment_refund_state_log_append_only(): expected 37e22c4dd3b2e7970b6120825f7c255d|secdef=false|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.record_refund_state(p_payment_intent_id text, p_stripe_refund_id text, p_status text, p_amount_cents integer, p_failure_reason text, p_source text, p_observed_via text): expected aff01ec2414fb8800c40ef05c8db05c8|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH ledger_150: expected refund_lifecycle_state|claude-a/owner-authorised-150|1 | actual absent
+  MISMATCH ledger_count: expected 163 | actual 162
+  MISMATCH ledger_max: expected 20260925000000 | actual 20260924120000
+  MISMATCH ops_setting_rows: expected 14 | actual 12
+  MISMATCH payments_refund_cols: expected refund_failed_cents:true:0,refund_requested_cents:true:0,refund_succeeded_cents:true:0 | actual absent
+  MISMATCH payments_refund_cols_nonzero: expected 0 | actual absent
+  MISMATCH record_refund_state_exec: expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH setting_refund_state_detection_enabled: expected false | actual absent
+  MISMATCH setting_refund_state_pending_hours: expected 120 | actual absent
+  MISMATCH tbl_payment_refund_state: expected rls:true,anon_any:false,authenticated_any:false,service_role_select:true | actual absent
+  MISMATCH tbl_payment_refund_state_log: expected rls:true,anon_any:false,authenticated_any:false,service_role_select:true | actual absent
+  MISMATCH triggers_150: expected trg_guard_payment_refund_state_columns,trg_payment_refund_state_log_append_only | actual none
+exit 3
+### env MODE=LOCALDB python3 pkg.py apply 150
+[pkg] prestate 150 vs pre150.txt
+[pkg] request sha256 8e9300014a6e31586491fd3aefdd1af95c344ec8745016a6bb3566b1c6e8a3f5 (45287 bytes)
+[pkg] post assertion 150 vs post150.txt
+[pkg] 150 APPLIED and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py apply 151
+[pkg] prestate 151 vs pre151.txt
+[pkg] request sha256 908607ca9e3ffa9104e86cbe0c1f2f3a08feb4470407bcd0d16e086a69eeff0b (13339 bytes)
+[pkg] post assertion 151 vs post151.txt
+[pkg] 151 APPLIED and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py apply 151
+[pkg] prestate STOP for 151; nothing sent
+[pkg] prestate 151 vs pre151.txt
+  MISMATCH fn_ops.detect_release_stuck(): expected 12ed7fc21fb4eccc3fac6e5865d75ee0|secdef=true|cfg=search_path="" | actual 6e0a9c5d4364b352b4b8bc321931572b|secdef=true|cfg=search_path=""
+  MISMATCH ledger_151: expected absent | actual release_stuck_seller_win|claude-a/owner-authorised-151|1
+  MISMATCH ledger_count: expected 163 | actual 164
+  MISMATCH ledger_max: expected 20260925000000 | actual 20260925010000
+exit 3
+### R8 partial: rollback FILE only
+exit 0
+### env MODE=LOCALDB python3 pkg.py rollback 151
+[pkg] rollback STOP for 151; nothing sent
+[pkg] rollback guard 151: state must equal post151.txt
+  MISMATCH fn_ops.detect_release_stuck(): expected 6e0a9c5d4364b352b4b8bc321931572b|secdef=true|cfg=search_path="" | actual 12ed7fc21fb4eccc3fac6e5865d75ee0|secdef=true|cfg=search_path=""
+exit 3
+### env MODE=LOCALDB python3 pkg.py rollback 151 --ledger-only
+[pkg] rollback request sha256 ec1a3b2b9094e82d573da4c2c03ae08cd49271a726db55ddc7ab64558c711e7b
+[pkg] post-rollback 151 vs pre151.txt
+[pkg] 151 ROLLED BACK and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py apply 151
+[pkg] prestate 151 vs pre151.txt
+[pkg] request sha256 908607ca9e3ffa9104e86cbe0c1f2f3a08feb4470407bcd0d16e086a69eeff0b (13339 bytes)
+[pkg] post assertion 151 vs post151.txt
+[pkg] 151 APPLIED and verified
+exit 0
+### env MODE=LOCALDB python3 pkg.py rollback 151 --ledger-only
+[pkg] ledger-only STOP: objects are not in the pre-state
+exit 3
+### R9 pgTAP 217 (refundfix @ ) and 218 (b2fix @ )
+### R10 DRY again
+[pkg] apply_150: 45287 bytes sha256 8e9300014a6e31586491fd3aefdd1af95c344ec8745016a6bb3566b1c6e8a3f5
+[pkg] apply_151: 13339 bytes sha256 908607ca9e3ffa9104e86cbe0c1f2f3a08feb4470407bcd0d16e086a69eeff0b
+[pkg] rollback_150: 6874 bytes sha256 7ddf9c48ca4d14a947137417089f7107f663f38a86ca2ceb29b32ae431da3fa3
+[pkg] rollback_151: 4733 bytes sha256 b3efdfdd3db64113182c60c9b45a8173ce709a6576be0bcc6ec238d074232593
+[pkg] rollback_151_ledger_only: 214 bytes sha256 ec1a3b2b9094e82d573da4c2c03ae08cd49271a726db55ddc7ab64558c711e7b
+### R9 pgTAP 217 @2eebc5bf, 218 @9a66f29d, on pkg150_rehears at post151
+217_refund_lifecycle_state.sql                       plan=45   ok=45   not_ok=0   psql_err=0  PASS
+218_release_stuck_seller_win.sql                     plan=17   ok=17   not_ok=0   psql_err=0  PASS
+TOTAL plan=62 ok=62 not_ok=0 ALL-PASS
+post151 still holds after pgTAP (rollback-only tests): exit 3
+R9 note: census functions 111 -> 1209 after the pgTAP run = 1098 pgtap extension functions installed in public by the harness (non-pgtap public functions = 111, as post151). Harness footprint, not package state; R9 therefore runs last.
+### R11 deploy PLAN, SRC_DIR=2eebc5bf
+[pkg] SRC_DIR vs frozen stripe-webhook: 3 expected, 3 found, 0 mismatches
+[pkg] PLAN (nothing sent). Live sequence:
+  1. before: version == 42, verify_jwt == False
+  2. pre-download == previous manifest (source 5b255838), 3 files
+  3. supabase functions deploy stripe-webhook --project-ref hqycwntpfoztoinemqns --use-api --workdir /private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/src94 --no-verify-jwt
+  4. after: version == 43, verify_jwt == False
+  5. post-download == frozen manifest, 3 files
+exit 0
+[pkg] SRC_DIR vs frozen enforce-transfer-expiry: 6 expected, 6 found, 0 mismatches
+[pkg] PLAN (nothing sent). Live sequence:
+  1. before: version == 41, verify_jwt == True
+  2. pre-download == previous manifest (source e73553d2), 6 files
+  3. supabase functions deploy enforce-transfer-expiry --project-ref hqycwntpfoztoinemqns --use-api --workdir /private/tmp/claude-501/-Users-josetascon-snatchit/07a838a7-d892-4686-b522-3e6585067e1c/scratchpad/src94
+  4. after: version == 42, verify_jwt == True
+  5. post-download == frozen manifest, 6 files
+exit 0
+### R12 NEG deploy PLAN, SRC_DIR=gate 037092f0
+[pkg] source STOP
+[pkg] SRC_DIR vs frozen stripe-webhook: 3 expected, 3 found, 1 mismatches
+  stripe-webhook/index.ts: expected 2a5c46315cab got 7c2ae402af5b
+exit 3

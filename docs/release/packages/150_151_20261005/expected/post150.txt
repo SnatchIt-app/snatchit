@@ -1,0 +1,23 @@
+# PREDICTED before any apply (A, 2026-10-05): function md5s computed from the frozen migration text, the rest from the migration's DDL. record_payment_refund unchanged by design (150 does not redefine it).
+census=34|111|37|40
+detect_release_stuck_exec=anon:false,authenticated:false,service_role:false
+fn_ops.detect_refunds()=e1e9a8bc08305e17916e25247a22752f|secdef=true|cfg=search_path=""
+fn_ops.detect_release_stuck()=12ed7fc21fb4eccc3fac6e5865d75ee0|secdef=true|cfg=search_path=""
+fn_public.guard_payment_refund_state_columns()=3dd1e248bac646effd270a9e162a7f69|secdef=false|cfg=search_path=""
+fn_public.payment_refund_state_log_append_only()=37e22c4dd3b2e7970b6120825f7c255d|secdef=false|cfg=search_path=""
+fn_public.record_payment_refund(p_payment_intent_id text, p_stripe_refund_id text, p_stripe_dispute_id text, p_amount_cents integer, p_source text)=08924da572763345c38f8fe5263b5431|secdef=true|cfg=search_path=public
+fn_public.record_refund_state(p_payment_intent_id text, p_stripe_refund_id text, p_status text, p_amount_cents integer, p_failure_reason text, p_source text, p_observed_via text)=aff01ec2414fb8800c40ef05c8db05c8|secdef=true|cfg=search_path=""
+ledger_150=refund_lifecycle_state|claude-a/owner-authorised-150|1
+ledger_151=absent
+ledger_count=163
+ledger_max=20260925000000
+ops_setting_rows=14
+payments_refund_cols=refund_failed_cents:true:0,refund_requested_cents:true:0,refund_succeeded_cents:true:0
+payments_refund_cols_nonzero=0
+record_refund_state_exec=anon:false,authenticated:false,service_role:true
+setting_detectors_enabled=true
+setting_refund_state_detection_enabled=false
+setting_refund_state_pending_hours=120
+tbl_payment_refund_state=rls:true,anon_any:false,authenticated_any:false,service_role_select:true
+tbl_payment_refund_state_log=rls:true,anon_any:false,authenticated_any:false,service_role_select:true
+triggers_150=trg_guard_payment_refund_state_columns,trg_payment_refund_state_log_append_only

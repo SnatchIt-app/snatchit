@@ -1,0 +1,19 @@
+census=32|108|37|38
+detect_release_stuck_exec=anon:false,authenticated:false,service_role:false
+fn_ops.detect_refunds()=3098d2e6d5b3c02e94ea796d00715c0a|secdef=true|cfg=search_path=""
+fn_ops.detect_release_stuck()=12ed7fc21fb4eccc3fac6e5865d75ee0|secdef=true|cfg=search_path=""
+fn_public.record_payment_refund(p_payment_intent_id text, p_stripe_refund_id text, p_stripe_dispute_id text, p_amount_cents integer, p_source text)=08924da572763345c38f8fe5263b5431|secdef=true|cfg=search_path=public
+ledger_150=absent
+ledger_151=absent
+ledger_count=162
+ledger_max=20260924120000
+ops_setting_rows=12
+payments_refund_cols=absent
+payments_refund_cols_nonzero=absent
+record_refund_state_exec=absent
+setting_detectors_enabled=true
+setting_refund_state_detection_enabled=absent
+setting_refund_state_pending_hours=absent
+tbl_payment_refund_state=absent
+tbl_payment_refund_state_log=absent
+triggers_150=none
