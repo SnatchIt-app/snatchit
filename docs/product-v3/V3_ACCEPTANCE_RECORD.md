@@ -89,6 +89,59 @@ Create/Edit, My listings, Bids, Tickets, Order, Send/Receive, Profile/Settings/A
 checkout presentation states) against `V3_COVERAGE_MATRIX.md` and `V3_RECONCILED_COVERAGE_20260924.md`.
 Passing Home, Listing and the footer is **not** whole-app acceptance.
 
+**State at 2026-10-05 22:25 (E checked):**
+- B acknowledged in `bee31c88` and `ca00a250` (`B_NATIVE_LOOP.md`). B states that its 2026-09-26
+  native pass produced no durable evidence.
+- **Metro operator: C, agreed by B (`ca00a250`).**
+- `v3/midnight-app` in the serving tree is now at `168e794a`, with C's uncommitted artwork work
+  (`v3-home.tsx`, `v3-listing.tsx`, `harnessArt.ts` and two tests).
+- B correctly waits for a clean, named commit.
+- `native/` exists and is empty.
+
+## Remaining consumer screens: coverage at `168e794a` (E, 2026-10-05)
+Read-only reconciliation by three bounded subagents. E spot-checked the consequential claims in
+source: F-1, F-4, F-91-2 (0 `auto_released` cases), Send not-found with no retry, the Bids status
+filter, payControl's 11 outcomes, the `✎` glyph and the fee label.
+
+**Headline:**
+- **No screen below has native evidence.**
+- **Search, Create, Edit and My listings** have never had a B review of their V3 form. B's last
+  review was source-only at `404bce38`, before the redesign and before the 4:5 artwork change.
+- **Bids, Tickets, Profile, Settings, Appearance and Auth** have no rendered B review.
+- **Send:** B rendered it once, Light only, at `91062ab1`.
+- **Checkout:** B rendered 5 states at `d374bd3f`. Five later commits changed checkout, and B
+  deferred re-review until C names the final corrective commit.
+- None of these screens is accepted.
+
+| Group | Harness reach (`app/_dev`) | Open findings present at `168e794a` | Owed |
+|---|---|---|---|
+| Search | results, empty-with-filters. **Unreachable:** hint, loading, no-match, error/offline, inline failure | — | variants; B render L/D; sim |
+| Create | form, `invalid`, `risk=*`. **Unreachable:** pickers, photo added, publishing/gate alerts | F-4 signed-out publish silent (`CreateListingScreen.tsx:510-511`); F-5 picker no-results; F-7 two banned-content wordings; F-8 no offline detection | fixes; variants; iOS picker no-crop test (R-3) |
+| Edit listing | **no harness, no board** | F-1 permanent spinner (`edit/[id].tsx` "Not allowed" / "Cannot edit" return without `setLoading(false)`); F-2 6 vs 16 platforms; raw `error.message` | fix; board or ruling; harness |
+| My listings | populated, empty, error/offline. **Unreachable:** loading, Ended/Reserved rows, dialogs | F-25 dialogs differ from Listing detail's | render all filters; sim |
+| Bids | default/past/all, empty/failed/error/offline. **Unreachable:** loading | 404 §4.5 query excludes expired/reversed (`bids.tsx:247`), depends on A/D; no Light design | B Light design; render; sim |
+| Tickets | populated/past, empty/error/offline. **Unreachable:** loading, refresh failure | D-8 and the populated real-data path depend on A/D | render; sim |
+| Order / Receive | one fixed `seller_sent` case only | F-20 failed proof URL silent; F-21 raw RPC error in an alert | variants for pending/confirmed/auto_released/disputed/expired/reversed |
+| Send | `seller_sent` plus the gallery's 7 seller cases. **Unreachable:** pending, delivery gate, mark-sent outcomes, loading/error | Not-found has no retry (`send/[id].tsx:349`); F-91-2 (no `auto_released` gallery case) | Dark render; variants |
+| Refund wording | gallery only | "initiated" wording (`90235b74`) never rendered by B; gallery label "both figures" stale | B re-render |
+| Checkout | 13 fixtures cover all 11 `payControl` outcomes plus 5 extra states | Fee label "Service fee" vs "Service fee (10%)" (`CheckoutView.tsx:172` vs `ListingDetailScreen.tsx:1231`); uppercase `label` token (TOTAL / HELD FOR YOU) vs the mixed-case ruling, needs a ruling; hairlines need B's call | C names the final commit; B render of every state × L/D; sim; Dynamic Type |
+| Profile / public profile | own profile avatar/noavatar. **Unreachable:** loading/error, public profile | `✎` edit badge (`profile.tsx:315`) absent from Inter, falls back to another face; F-10 sign-out unconfirmed; F-11 unblock unconfirmed | B review; sim glyph |
+| Settings / Appearance | hub variants, appearance system/light/dark | Header split (hub inline vs `SettingsHeader` uppercase); F-12, F-14; selection cue is red only, needs B | ruling; B review; sim live appearance switch |
+| Auth | **not in `_dev`**; signup 2–4 and reset need a real session or recovery link (forbidden) | F-13 bare-title alerts; F-9 is A/D's | fixture route; B review |
+
+**Across all groups:** the 4:5 artwork commits (`ec61bfa7`, `99dd6f36`, `59658b1a`, `cbb2df6b`)
+are not visible in any of these harnesses, because every fixture's cover is null. Each needs the
+same `?art=` selection C is adding to Home and Listing. Account-switch avatar isolation is **not
+authorised**; it is recorded as excluded, not as a gap.
+
+**Order of work after the priority surfaces:**
+1. C extends artwork selection to these harnesses and adds the missing state variants.
+2. C fixes F-1 and F-4 (behaviour defects).
+3. Rulings for B/owner: checkout fee label, uppercase `label` token, Settings header, Edit
+   platforms.
+4. B renders each group in Light and Dark at one named sha, with native captures under
+   `native/<sha8>/`.
+
 ## Installed candidate `f3f08930` (C, clean tree; = `e7af5242` Stripe patch + one UI commit) — historical, preserved
 - **Implementation:** R-1 busy state keyed by action kind (`ListingDetailScreen.tsx:1465-1480`, both slots carry `Reserving…`/`loading`); vector icons via IconSymbol (filter = three decreasing lines); listing identity below the poster (R-4, `ListingHero`); 8 fixtures, 282,812 B within the 409,600 B budget (not raised). Stripe patch `e7af5242`: A PASS (fresh install + upstream hashes).
 - **Build and install:** Debug dev client, `XCODEBUILD_EXIT=0`, bundle `com.jdt-inc.snatchit` on `SN V3 393x852` (iPhone 16, UDID `52282259-961E-4A1A-B32B-CEFA858CFF48`, iOS 26.5 23F77, Xcode 26.6 17F113). **Limit:** there is no embedded `main.jsbundle`; the JS is served by Metro (`localhost:8081`) from C's main worktree, clean at `f3f08930`. Captures prove that serving tree, not an embedded artifact. A Release build was not used because `__DEV__`-gated fixtures resolve to nothing there. Detached copy for diffing: `/Users/josetascon/snatchit-review-f3f08930`.
