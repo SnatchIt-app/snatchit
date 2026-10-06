@@ -2074,3 +2074,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The branch `web/wording-truth-conditions` stays **unpushed**: a push to `feature/web-accounts-foundation` deploys
     the live web, and that is the owner's call. Its protection is PR-7, the most urgent in the proposal.
   - A verified in its own checkout: `tsc` 0, 218 tests, the role-blind badge mutant killed.
+- **D's console label release `admin/label-console-release @ 1058c882`: A PASS (2026-10-06).**
+  - Based on the console pin `ab3e17f1`, with only the label change, kept apart from the analytics work.
+  - Its tree equals A's independent re-trial (`f7fa07d9…`); patch-ids equal `004af0b0` / `789025f3`.
+  - `tsc` 0, eslint 0, 117/117.
+  - It is the same change as the gate's label commits, under two identities.
+  - Deployment = X8, owner.

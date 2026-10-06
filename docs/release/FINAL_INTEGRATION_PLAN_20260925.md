@@ -269,6 +269,14 @@ order:
 - The only `admin/` difference between `ab3e17f` and the gate is `admin/scripts/acceptance/gate-probe.mjs`, which is not
   console code. So the release ships the label change and nothing else of the admin tree.
 - The gate still receives the same patches via S3. The two commit identities are recorded as one change.
+- **Built and reviewed (2026-10-06):** D's `admin/label-console-release @ 1058c882` (= `ab3e17f1` + `72ac2c52` +
+  `1058c882`), **A PASS**.
+  - Patch-ids equal `004af0b0` / `789025f3`.
+  - Its **tree is identical** (`f7fa07d9…`) to A's independent re-trial of the same cherry-picks.
+  - 3 files vs the pin; `tsc` 0, eslint 0, admin 117/117.
+- **One change, two identities:** gate `004af0b0` + `789025f3` (through S3) and console `72ac2c52` + `1058c882` (through
+  X8) are the same patches.
+- X8 (moving the console pin) is the owner's configuration change.
 
 ### 5.2 Production actions (each separately owner-authorised; D verifies each; in this order)
 
