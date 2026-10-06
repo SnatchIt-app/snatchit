@@ -22,28 +22,59 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
   );
 }
 
-/** Spec §19.7 — errors carry the server's reason; the preview names the read that failed. */
-export function ErrorState({ read, retryHref }: { read: string; retryHref: string }) {
+/**
+ * Spec §19.7 — errors carry the server's reason. Audit §P4: lead with what the
+ * manager lost and what to do about it; the internal read name stays, as
+ * secondary detail for whoever they call, not as the headline.
+ */
+export function ErrorState({ read, retryHref, lost = "This page" }: { read: string; retryHref: string; lost?: string }) {
   return (
     <div className="border border-danger/50 bg-primary-soft p-4" role="alert">
-      <p className="font-bold">Couldn&apos;t load</p>
+      <p className="font-bold">{lost} couldn&apos;t be loaded.</p>
       <p className="mt-1 text-sm text-muted">
-        The read <code className="font-mono text-xs">{read}</code> failed. Nothing on this surface is shown stale-optimistic.
+        Nothing is shown rather than showing you numbers that might be out of date. Try again; if it keeps failing, the rest of the dashboard still works.
       </p>
       <a className="btn btn-ghost btn-sm mt-3" href={retryHref}>
-        Retry
+        Try again
       </a>
+      <p className="mt-3 text-xs text-dim">
+        For support: the read that failed was <code className="font-mono">{read}</code>.
+      </p>
     </div>
   );
 }
 
-/** Spec §18 standard denial: existence, name and counts are NOT revealed. */
-export function DeniedState({ alternative }: { alternative?: { label: string; href: string } }) {
+/**
+ * Spec §18 standard denial: existence, name and counts are NOT revealed.
+ *
+ * Audit §W2 — one denial component for both paths. It says what you were
+ * trying to open, why your role cannot open it, who can change that, and
+ * offers somewhere you *can* go, so a shared link is never a dead end. It
+ * still reveals nothing about the resource itself: `surface` is the name of
+ * the screen ("The door screen"), never the event, the venue or a count.
+ */
+export function DeniedState({
+  surface = "This screen",
+  roleLabel,
+  reason,
+  grantedBy = "A venue manager or an organization owner",
+  alternative,
+}: {
+  surface?: string;
+  roleLabel?: string;
+  reason?: string;
+  grantedBy?: string;
+  alternative?: { label: string; href: string };
+}) {
   return (
-    <div className="mx-auto max-w-md border border-line-neutral p-8 text-center" role="alert">
-      <p className="text-lg font-bold">You don&apos;t have access to this.</p>
+    <div className="mx-auto max-w-lg border border-line-neutral p-6" role="alert">
+      <p className="text-lg font-bold">{surface} isn&apos;t open to you.</p>
+      <p className="mt-2 text-sm text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
+      <p className="mt-2 text-sm text-muted">
+        {grantedBy} can give you access. Nothing about this screen&apos;s contents is shown either way — this is not a message about whether anything exists.
+      </p>
       {alternative ? (
-        <a className="link mt-3 inline-block text-sm" href={alternative.href}>
+        <a className="btn btn-ghost btn-sm mt-4" href={alternative.href}>
           {alternative.label}
         </a>
       ) : null}

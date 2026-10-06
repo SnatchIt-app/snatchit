@@ -58,5 +58,13 @@ export function withPreview(href: string, ctx: PreviewContext, overrides: Partia
   return q ? `${href}?${q}` : href;
 }
 
-/** The label every surface shows so nobody mistakes the preview for live operations. */
-export const PREVIEW_DATA_LABEL = "Preview data — sample fixtures, not live venue operations";
+/**
+ * The label every surface shows so nobody mistakes the demo for live operations.
+ * Short enough to stay on one line on a phone; the sentence under it in the
+ * strip carries the consequence.
+ */
+export const DEMO_DATA_LABEL = "Demo — sample data";
+export const DEMO_DATA_SUBLABEL = "Invented venue and events. Nothing here sells, refunds, pays out or scans a real ticket.";
+
+/** Kept for callers written against the previous name. */
+export const PREVIEW_DATA_LABEL = DEMO_DATA_LABEL;

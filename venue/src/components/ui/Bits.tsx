@@ -6,13 +6,21 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   return <p className="eyebrow text-dim">{children}</p>;
 }
 
-export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: ReactNode; children: ReactNode }) {
+/**
+ * Audit §P3 — the eyebrow says what the panel is *for*, in a manager's words.
+ * The backend read it stands on is review detail: it goes on `data-read`, and
+ * into the heading's tooltip, never into the visible heading. It used to be
+ * rendered unconditionally, so raw table names showed in database mode too.
+ */
+export function Panel({ title, eyebrow, read, action, children }: { title: string; eyebrow?: string; read?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="border border-line bg-card">
+    <section className="border border-line bg-card" data-read={read}>
       <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div>
           {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-          <h2 className="text-base font-bold">{title}</h2>
+          <h2 className="text-base font-bold" title={read ? `Reads ${read}` : undefined}>
+            {title}
+          </h2>
         </div>
         {action}
       </header>
@@ -33,12 +41,12 @@ const STATUS_TONE: Record<EventStatus | SessionStatus, string> = {
 
 export function StatusPill({ status }: { status: EventStatus | SessionStatus }) {
   const label = status in STATUS_LABEL ? STATUS_LABEL[status as EventStatus] : status === "scheduled" ? "Scheduled" : status;
-  return <span className={`inline-block border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ${STATUS_TONE[status]}`}>{label}</span>;
+  return <span className={`inline-block border px-2 py-0.5 text-xs font-bold ${STATUS_TONE[status]}`}>{label}</span>;
 }
 
 export function Chip({ tone = "neutral", children }: { tone?: "neutral" | "warning" | "danger" | "success" | "info"; children: ReactNode }) {
   const cls = { neutral: "border-line-neutral text-muted", warning: "border-warning text-warning", danger: "border-danger text-danger", success: "border-success text-success", info: "border-info text-info" }[tone];
-  return <span className={`inline-block border px-1.5 py-0.5 text-[11px] uppercase tracking-wider ${cls}`}>{children}</span>;
+  return <span className={`inline-block border px-1.5 py-0.5 text-xs ${cls}`}>{children}</span>;
 }
 
 export function Metric({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {

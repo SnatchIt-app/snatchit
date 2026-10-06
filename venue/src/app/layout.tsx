@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: { default: "Venue dashboard · PREVIEW", template: "%s · Venue dashboard · PREVIEW" },
+  title: { default: "Venue dashboard · DEMO", template: "%s · Venue dashboard · DEMO" },
   description: "Snatch It venue dashboard — preview over sample data. Not live venue operations.",
   robots: { index: false, follow: false },
 };

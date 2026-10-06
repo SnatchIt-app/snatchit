@@ -22,9 +22,16 @@ export class PreviewReadError extends Error {
   }
 }
 
+/**
+ * Audit §X2 — `nodata` must NOT return the empty set. "Filtered to nothing"
+ * and "nothing exists yet" are different facts with different next actions,
+ * and a surface can only tell them apart if the rows are still there to be
+ * filtered. `nodata` therefore returns the live set and the page applies a
+ * filter that matches none of it; only `empty` means genuinely nothing.
+ */
 function gate<T>(state: PreviewState, read: string, live: T, empty: T): T {
   if (state === "error") throw new PreviewReadError(read);
-  if (state === "empty" || state === "nodata") return empty;
+  if (state === "empty") return empty;
   return live;
 }
 

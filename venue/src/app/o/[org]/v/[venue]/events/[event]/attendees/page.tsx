@@ -8,13 +8,14 @@ import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
+import { PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Attendees" };
 export const dynamic = "force-dynamic";
 
 export default async function AttendeesPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs}>
@@ -22,7 +23,7 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
       </Shell>
     );
   }
-  if (!p.event) return <DeniedState />;
+  if (!p.event) return <DeniedState surface="This event" reason="Either it isn't yours to see, or it isn't there. The dashboard answers the same way to both on purpose." />;
   const { ctx, event } = p;
   const basePath = p.scope.basePath;
   const session = event.sessions[0];
@@ -50,13 +51,13 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
     <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="attendees">
       <PreviewOutcome did={p.first("did")} />
       {ctx.state === "denied" ? (
-        <DeniedState alternative={alt} />
+        <DeniedState surface="The attendee list" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={alt} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={10} />
       ) : !hasRoster ? (
         <Attendees event={event} session={session} roster={[]} orders={[]} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={{}} totalUnfiltered={0} view="holders" />
       ) : failedRead || !loaded ? (
-        <ErrorState read={failedRead ?? "venue.list_attendees"} retryHref={withPreview(`${basePath}/events/${event.eventId}/attendees`, ctx)} />
+        <ErrorState lost="The attendee list" read={failedRead ?? "venue.list_attendees"} retryHref={withPreview(`${basePath}/events/${event.eventId}/attendees`, ctx)} />
       ) : (
         <Attendees event={event} session={session} roster={loaded.roster} orders={loaded.orders} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={filter} totalUnfiltered={loaded.total} view={view} />
       )}

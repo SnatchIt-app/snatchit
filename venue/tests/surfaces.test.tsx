@@ -101,8 +101,9 @@ describe("attendees (§9)", () => {
   });
   it("denies the scanner and names the alternative", () => {
     const out = html(<Attendees {...props} ctx={{ role: "venue_scanner", state: "live" }} />);
-    expect(out).toContain("You don&#x27;t have access to this.");
-    expect(out).toContain("Door access uses ticket lookup, not the attendee list.");
+    expect(out).toContain("The attendee list isn&#x27;t open to you.");
+    expect(out).toContain("Door roles check one ticket at a time at the door");
+    expect(out).toContain("Look up a single ticket instead");
     expect(out).not.toContain("Camila");
   });
   it("hides check-in and email from finance, hides money from marketing", () => {
@@ -161,8 +162,22 @@ describe("door (§12)", () => {
 
 describe("shared states (§18)", () => {
   it("denial reveals nothing; error names the read; skeleton is labelled", () => {
-    expect(html(<DeniedState />)).toContain("You don&#x27;t have access to this.");
-    expect(html(<ErrorState read="venue.scan" retryHref="/r" />)).toContain("venue.scan");
+    // Audit §W2 — one denial component: what you opened, why your role can't,
+    // who can change it. It still says nothing about the resource itself.
+    const denied = html(<DeniedState surface="The door screen" roleLabel="Finance" />);
+    expect(denied).toContain("The door screen isn&#x27;t open to you.");
+    expect(denied).toContain("Your role here is Finance");
+    expect(denied).toContain("can give you access");
+    // Nothing about the resource: the component is given only a screen name,
+    // so there is no count, title or status it could leak.
+    const bare = html(<DeniedState />);
+    expect(bare).toContain("This screen isn&#x27;t open to you.");
+    expect(bare).not.toContain("Saturday");
+    expect(bare).not.toContain("0");
+    // Audit §P4 — the headline is what the manager lost; the read is support detail.
+    const err = html(<ErrorState lost="The door screen" read="venue.scan" retryHref="/r" />);
+    expect(err).toContain("The door screen couldn&#x27;t be loaded.");
+    expect(err).toContain("venue.scan");
     expect(html(<Skeleton rows={2} />)).toContain("aria-label=\"Loading\"");
     expect(html(<EmptyState title="No events yet." />)).toContain("No events yet.");
   });

@@ -10,13 +10,14 @@ import { EventSetup } from "@/components/events/EventSetup";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
+import { PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Event setup" };
 export const dynamic = "force-dynamic";
 
 export default async function EventPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   const { ctx } = p;
   const basePath = p.scope.basePath;
   const readable = ctx.state !== "denied" && canReadEvents(ctx.role);
@@ -56,16 +57,20 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !readable ? (
-        <DeniedState />
+        <DeniedState surface="Event setup" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={8} />
       ) : dbFailure ?? dbLoadFailure ? (
         <DataSourceError failure={(dbFailure ?? dbLoadFailure) as ReadFailure} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !event ? (
         // Fail closed: an event you cannot read is indistinguishable from one that does not exist (spec §4.4 rule 5).
-        <DeniedState alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
+        <DeniedState
+          surface="This event"
+          reason="Either it isn't yours to see, or it isn't there. The dashboard deliberately answers the same way to both, so a link can never be used to find out which."
+          alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }}
+        />
       ) : failedRead || !loaded ? (
-        <ErrorState read={failedRead ?? "catalog.event"} retryHref={withPreview(self, ctx)} />
+        <ErrorState lost="This event" read={failedRead ?? "catalog.event"} retryHref={withPreview(self, ctx)} />
       ) : (
         <EventSetup event={event} types={loaded.types} batches={loaded.batches} ctx={ctx} basePath={basePath} timeZone={p.timeZone} openManifestSessionIds={loaded.open} />
       )}

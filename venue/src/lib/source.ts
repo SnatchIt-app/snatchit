@@ -1,4 +1,5 @@
 import { DATA_SOURCE, ENV_LABEL, supabaseHost, type DataSource } from "@/lib/env";
+import { DEMO_DATA_LABEL } from "@/lib/preview";
 
 export type SourceInfo = {
   source: DataSource;
@@ -13,5 +14,5 @@ export function sourceInfo(): SourceInfo {
     const host = supabaseHost();
     return { source: "database", host, envLabel: ENV_LABEL, label: `Database (${ENV_LABEL}) — ${host ?? "no host configured"} · reads as your own sign-in; what you see comes from your grants` };
   }
-  return { source: "fixtures", host: null, envLabel: ENV_LABEL, label: "Preview data — sample fixtures, not live venue operations" };
+  return { source: "fixtures", host: null, envLabel: ENV_LABEL, label: DEMO_DATA_LABEL };
 }

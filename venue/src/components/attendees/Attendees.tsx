@@ -1,6 +1,6 @@
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
-import { canManualLookup, canReadOrders, canSeeCheckIn, exportTemplate, rosterClasses } from "@/lib/roles";
+import { canManualLookup, canReadOrders, canSeeCheckIn, exportTemplate, rosterClasses, PRINCIPAL_LABEL } from "@/lib/roles";
 import type { Event, EventSession, OrderRow, RosterRow } from "@/lib/types";
 import { Chip, Panel } from "@/components/ui/Bits";
 import { DeniedState, EmptyState, PartialCell } from "@/components/ui/State";
@@ -56,7 +56,14 @@ export function Attendees({
 
   if (classes === null) {
     // Spec §9.3 / §9.7 — the denial names the alternative for door and box office.
-    return <DeniedState alternative={canManualLookup(ctx.role) ? { label: "Door access uses ticket lookup, not the attendee list.", href: withPreview(`${door}#lookup`, ctx) } : undefined} />;
+    return (
+      <DeniedState
+        surface="The attendee list"
+        roleLabel={PRINCIPAL_LABEL[ctx.role]}
+        reason={canManualLookup(ctx.role) ? "Door roles check one ticket at a time at the door, rather than reading the whole guest list." : undefined}
+        alternative={canManualLookup(ctx.role) ? { label: "Look up a single ticket instead", href: withPreview(`${door}#lookup`, ctx) } : undefined}
+      />
+    );
   }
   const hasContact = classes.includes("CONTACT");
   const hasOps = classes.includes("OPS");

@@ -10,13 +10,14 @@ import { InventoryOverview } from "@/components/inventory/InventoryOverview";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
+import { PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Inventory" };
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   const { ctx } = p;
   const basePath = p.scope.basePath;
   const self = `${basePath}/events/${p.params.event}/inventory`;
@@ -54,15 +55,19 @@ export default async function InventoryPage({ params, searchParams }: { params: 
       {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !readable ? (
-        <DeniedState />
+        <DeniedState surface="Inventory" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={9} />
       ) : dbFailure ?? dbLoadFailure ? (
         <DataSourceError failure={(dbFailure ?? dbLoadFailure) as ReadFailure} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !event ? (
-        <DeniedState alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
+        <DeniedState
+          surface="This event"
+          reason="Either it isn't yours to see, or it isn't there. The dashboard answers the same way to both on purpose."
+          alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }}
+        />
       ) : failedRead || !loaded ? (
-        <ErrorState read={failedRead ?? "venue.inventory_batch"} retryHref={withPreview(self, ctx)} />
+        <ErrorState lost="Inventory" read={failedRead ?? "venue.inventory_batch"} retryHref={withPreview(self, ctx)} />
       ) : (
         <>
           {ctx.source === "database" ? <p className="mb-4 border border-line-neutral px-3 py-2 text-xs text-muted">Database mode shows <strong>remaining</strong> only. Capacity, held and sold are not readable by any client role until a counters read is contracted (081 E-29).</p> : null}

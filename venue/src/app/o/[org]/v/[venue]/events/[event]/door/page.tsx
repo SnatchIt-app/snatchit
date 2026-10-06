@@ -8,6 +8,7 @@ import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
+import { PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Door" };
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ type Loaded = { pins: DoorPin[]; devices: ScanDevice[]; episodes: ManifestEpisod
 
 export default async function DoorPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs}>
@@ -24,7 +25,7 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
       </Shell>
     );
   }
-  if (!p.event) return <DeniedState />;
+  if (!p.event) return <DeniedState surface="This event" reason="Either it isn't yours to see, or it isn't there. The dashboard answers the same way to both on purpose." />;
   const { ctx, event } = p;
   const basePath = p.scope.basePath;
   const session = event.sessions.find((s) => s.status === "live") ?? event.sessions[0];
@@ -53,11 +54,11 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
     <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="door">
       <PreviewOutcome did={p.first("did")} />
       {!readable ? (
-        <DeniedState />
+        <DeniedState surface="The door screen" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Go to this event", href: withPreview(`${basePath}/events/${event.eventId}`, ctx) }} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={10} />
       ) : failedRead || !loaded ? (
-        <ErrorState read={failedRead ?? "venue.scan"} retryHref={withPreview(`${basePath}/events/${event.eventId}/door`, ctx)} />
+        <ErrorState lost="The door screen" read={failedRead ?? "venue.scan"} retryHref={withPreview(`${basePath}/events/${event.eventId}/door`, ctx)} />
       ) : (
         <DoorStatus
           event={event}

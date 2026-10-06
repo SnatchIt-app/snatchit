@@ -61,6 +61,19 @@ export function EventsTable({
     return { sold: tot.reduce((n, x) => n + x.sold, 0), capacity: tot.reduce((n, x) => n + x.capacity, 0) };
   };
 
+  // Audit §X2 — order these by cause, never by count. A manager who filtered to
+  // nothing must never be told their events are gone, and must never be offered
+  // a Create button that would duplicate an event they already have.
+  const filtered = Boolean(filter.status || filter.q);
+  if (rows.length === 0 && filtered) {
+    return (
+      <EmptyState title={`No events match these filters. Your ${events.length} ${events.length === 1 ? "event is" : "events are"} still here.`}>
+        <Link className="btn btn-ghost btn-sm" href={withPreview(`${basePath}/events`, ctx)}>
+          Clear filters
+        </Link>
+      </EmptyState>
+    );
+  }
   if (events.length === 0) {
     return (
       <EmptyState title="No events yet.">
@@ -69,15 +82,6 @@ export function EventsTable({
             Create event
           </Link>
         ) : null}
-      </EmptyState>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <EmptyState title="No events match these filters.">
-        <Link className="btn btn-ghost btn-sm" href={withPreview(`${basePath}/events`, ctx)}>
-          Clear filters
-        </Link>
       </EmptyState>
     );
   }
@@ -93,7 +97,7 @@ export function EventsTable({
               <th className="hidden xl:table-cell">Venue</th>
               <th>Next session</th>
               <th>Status</th>
-              <th className="num">Sold / capacity</th>
+              <th className="num">{counters ? "Sold of capacity" : "Still available"}</th>
               {canReadResalePolicy(ctx.role) ? <th className="hidden lg:table-cell">Resale</th> : null}
               <th className="num hidden lg:table-cell">Promoters</th>
             </tr>
@@ -105,7 +109,7 @@ export function EventsTable({
               return (
                 <tr key={e.eventId}>
                   <td>
-                    <Link className="link" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
+                    <Link className="link inline-flex min-h-6 items-center" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
                       {e.title}
                     </Link>
                     {warnEventIds.has(e.eventId) ? (
@@ -138,8 +142,8 @@ export function EventsTable({
           const sc = soldCap(e);
           return (
             <li key={e.eventId} className="border border-line-neutral p-3">
-              <div className="flex items-start justify-between gap-2">
-                <Link className="link font-bold" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <Link className="link inline-flex min-h-6 items-center font-bold" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
                   {e.title}
                 </Link>
                 <StatusPill status={e.status} />

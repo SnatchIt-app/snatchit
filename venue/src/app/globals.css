@@ -52,6 +52,20 @@
   --radius-none: 0;
 }
 
+/*
+ * Type scale — every size in rem so the browser's text-size setting (not just
+ * page zoom) scales the whole page together. WCAG 2.2 SC 1.4.4 needs 200%
+ * without loss of content or function; a px-pinned utility silently opts out
+ * and inverts the hierarchy for exactly the reader who needs it largest.
+ * Audit DASHBOARD_USABILITY_AUDIT_D_20260917 §X0.
+ */
+:root {
+  --text-micro: 0.6875rem; /* 11px — kbd only */
+  --text-label: 0.75rem;   /* 12px — eyebrows, table headers, small buttons */
+  --text-control: 0.8125rem; /* 13px — buttons, table cells */
+  --text-body: 0.875rem;   /* 14px — body copy and form fields */
+}
+
 :root {
   color-scheme: light;
 }
@@ -76,9 +90,14 @@ body {
   background: #ffffff;
   color: #111111;
   font-family: var(--font-sans);
-  font-size: 14px;
+  /* rem, not px: the browser/OS text-size setting must move every size on the
+     page together. See --text-* below; no utility may use a px font-size. */
+  font-size: var(--text-body);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  /* At 200% text a single long token is wider than a phone; break it instead
+     of letting it scroll the whole page sideways (WCAG 2.2 SC 1.4.4). */
+  overflow-wrap: break-word;
 }
 
 ::selection {
@@ -91,11 +110,17 @@ body {
   outline-offset: 2px;
 }
 
+/*
+ * Section labels. Audit §P10 — sentence case, not caps: all-caps with wide
+ * letter-spacing is the hardest setting to read at small sizes, and the
+ * console already dropped it under the owner-approved direction.
+ */
 .eyebrow {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--color-dim);
 }
 
 /* Form controls: flat, square, hairline. Hover darkens the hairline, focus is
@@ -106,7 +131,8 @@ body {
   color: #111111;
   border: 1px solid rgba(17, 17, 17, 0.22);
   padding: 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-body);
+  max-width: 100%;
 }
 .field:hover:not(:disabled):not(:focus) {
   border-color: rgba(17, 17, 17, 0.4);
@@ -128,6 +154,8 @@ body {
 }
 select.field {
   appearance: none;
+  max-width: 100%;
+  min-width: 0;
   background-image: linear-gradient(45deg, transparent 50%, #111 50%),
     linear-gradient(135deg, #111 50%, transparent 50%);
   background-position:
@@ -148,13 +176,17 @@ select.field:disabled {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  font-size: 13px;
+  font-size: var(--text-control);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.01em;
   border: 1px solid transparent;
   cursor: pointer;
-  white-space: nowrap;
+  /* A long label wraps rather than pushing the page sideways — at 200% text a
+     nowrap button is the single commonest source of horizontal scroll. */
+  white-space: normal;
+  text-align: center;
+  max-width: 100%;
+  min-height: 2.25rem;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
@@ -188,7 +220,8 @@ select.field:disabled {
 }
 .btn-sm {
   padding: 0.3rem 0.65rem;
-  font-size: 11px;
+  font-size: var(--text-label);
+  min-height: 2rem;
 }
 
 .link {
@@ -204,7 +237,7 @@ select.field:disabled {
 
 kbd {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-micro);
   padding: 1px 5px;
   border: 1px solid rgba(17, 17, 17, 0.25);
   background: #f5f5f6;
@@ -216,15 +249,14 @@ kbd {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-control);
   background: #ffffff;
 }
 .data-table th {
   text-align: left;
   font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--text-label);
+  letter-spacing: 0.02em;
   color: #4a4a4a;
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid rgba(204, 0, 0, 0.35);
@@ -254,6 +286,9 @@ kbd {
 summary {
   cursor: pointer;
   transition: background-color 120ms ease;
+  /* SC 2.5.8 — a disclosure triangle is a target, not decoration. */
+  min-height: 1.5rem;
+  align-content: center;
 }
 summary:hover {
   background: #f5f5f6;
@@ -270,6 +305,7 @@ details[open] > summary {
 code {
   background: #f5f5f6;
   padding: 0 0.2em;
+  overflow-wrap: anywhere;
 }
 pre code,
 .bg-field code {

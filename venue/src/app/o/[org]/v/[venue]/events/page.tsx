@@ -13,6 +13,7 @@ import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PreviewHidden } from "@/components/events/EventSetup";
+import { PRINCIPAL_LABEL } from "@/lib/roles";
 
 export const metadata = { title: "Events" };
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ type Loaded = { events: Event[]; types: TicketType[]; batches: InventoryBatch[];
 
 export default async function EventsPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState />;
+  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   const ctx = p.ctx;
   const { basePath, venueId } = p.scope;
   const readable = ctx.state !== "denied" && canReadEvents(ctx.role);
@@ -107,13 +108,13 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
       {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(`${basePath}/events`, ctx))}`} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : !readable ? (
-        <DeniedState />
+        <DeniedState surface="The events list" roleLabel={PRINCIPAL_LABEL[ctx.role]} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={7} />
       ) : dbFailure ? (
         <DataSourceError failure={dbFailure} loginHref={`/login?next=${encodeURIComponent(withPreview(`${basePath}/events`, ctx))}`} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : failedRead || !loaded ? (
-        <ErrorState read={failedRead ?? "catalog.event"} retryHref={withPreview(`${basePath}/events`, ctx)} />
+        <ErrorState lost="The events list" read={failedRead ?? "catalog.event"} retryHref={withPreview(`${basePath}/events`, ctx)} />
       ) : (
         <EventsTable
           events={loaded.events}

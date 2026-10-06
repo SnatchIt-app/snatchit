@@ -33,7 +33,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
             <StatusPill status={event.status} /> <span className="ml-2">{STATUS_HELP[event.status]}</span>
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(9rem,100%),1fr))]">
           {counters ? <Metric label="Sold / capacity" value={`${sold} / ${cap}`} sub="First session" /> : null}
           {counters ? <Metric label="Gross" value={usd(gross)} sub="Before fees and refunds. What you'll be paid is in Settlement." /> : null}
           {event.status === "live" ? <Metric label="Sessions" value={event.sessions.length} sub={first ? MANIFEST_COPY[manifestState(first, openManifestSessionIds.has(first.sessionId))] : undefined} /> : <Metric label="Sessions" value={event.sessions.length} />}
@@ -42,7 +42,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
 
       {editor ? <LargerScreenBanner /> : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
         <Panel title="Status" eyebrow="Advance status">
           {next ? (
             <div className="space-y-3">
@@ -121,7 +121,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
             <li>Snatch It handles the deposit. The balance at the table settles with you, off-platform.</li>
             <li>Purchase limit: 8 per person (set by Snatch It).</li>
           </ul>
-          <Link className="link mt-3 inline-block text-sm" href={withPreview(`${self}/inventory`, ctx)}>
+          <Link className="link mt-3 inline-flex min-h-6 items-center text-sm" href={withPreview(`${self}/inventory`, ctx)}>
             Open inventory →
           </Link>
         </Panel>

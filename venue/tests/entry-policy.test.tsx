@@ -38,7 +38,7 @@ describe("database-mode entry policy (spec §5: no grant → no dashboard)", () 
   });
   it("renders the denial with a sign-out and nothing about the venue for a grant-less caller", () => {
     const out = html(<EntryGate entry={{ kind: "denied" }} loginHref="/login" retryHref="/" />);
-    expect(out).toContain("You don&#x27;t have access to this.");
+    expect(out).toContain("This venue dashboard isn&#x27;t open to you.");
     expect(out).toContain("holds no staff or organization role at this venue");
     expect(out).toContain('action="/logout"');
     expect(html(<EntryGate entry={{ kind: "failure", failure: { ok: false, kind: "auth", message: "No session", read: "auth.getClaims" } }} loginHref="/login?next=%2Fx" retryHref="/x" />)).toContain("Sign in to continue");

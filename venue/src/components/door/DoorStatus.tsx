@@ -61,12 +61,12 @@ export function DoorStatus({
   );
 
   const ScanBoard = (
-    <Panel title="Live scan board" eyebrow="venue.scan">
+    <Panel title="Live scan board" eyebrow="Right now at the door" read="venue.scan">
       {scans.admitted === 0 && nonAdmit === 0 ? (
         <EmptyState title="No scans yet — doors haven't opened." />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(7rem,100%),1fr))]">
             {(
               [
                 ["admitted", scans.admitted],
@@ -77,7 +77,7 @@ export function DoorStatus({
               ] as const
             ).map(([k, v]) => (
               <div key={k} className={`border p-2 ${k === "admitted" ? "border-success" : v > 0 ? "border-warning" : "border-line-neutral"}`}>
-                <p className="text-[11px] uppercase tracking-wider text-dim">{SCAN_RESULT_LABEL[k]}</p>
+                <p className="text-xs text-dim">{SCAN_RESULT_LABEL[k]}</p>
                 <p className="text-xl font-bold tabular-nums">{v}</p>
               </div>
             ))}
@@ -95,7 +95,7 @@ export function DoorStatus({
                   ))}
                 </div>
               </div>
-              <p className="mt-1 flex justify-between text-[11px] text-dim" aria-hidden="true">
+              <p className="mt-1 flex justify-between text-xs text-dim" aria-hidden="true">
                 <span>oldest</span>
                 <span>
                   peak <span className="tabular-nums text-muted">{maxBar}</span> · latest
@@ -119,7 +119,7 @@ export function DoorStatus({
   );
 
   const Devices = (
-    <Panel title="Devices" eyebrow="venue.scan_device">
+    <Panel title="Devices" eyebrow="Scanners in the room" read="venue.scan_device">
       {devices.length === 0 ? (
         <p className="text-sm text-muted">No devices registered.</p>
       ) : (
@@ -142,18 +142,18 @@ export function DoorStatus({
           })}
         </ul>
       )}
-      <p className="mt-2 text-xs text-dim">Offline is a status, not an error. Register device → venue.register_scan_device.</p>
+      <p className="mt-2 text-xs text-dim" title="Registering a device calls venue.register_scan_device">Offline is a status, not an error. A new scanner has to be registered before it can admit anyone.</p>
     </Panel>
   );
 
   const Pins = (
-    <Panel title="Door PINs" eyebrow="venue.door_pin · never the hash">
+    <Panel title="Door PINs" eyebrow="For staff who scan without a device" read="venue.door_pin — the PIN is shown, never its hash">
       {pins.length === 0 ? (
         <p className="text-sm text-muted">No PINs for this session.</p>
       ) : (
         <ul className="divide-y divide-line-neutral text-sm">
           {pins.map((p) => (
-            <li key={p.pinId} className="flex items-center justify-between gap-2 py-2">
+            <li key={p.pinId} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <div>
                 <p className={p.status === "revoked" ? "text-dim line-through" : ""}>{p.label}</p>
                 <p className="text-xs text-dim">Expires {venueTime(p.expiresAt, timeZone)}</p>
@@ -191,7 +191,7 @@ export function DoorStatus({
   );
 
   const Manifest = (
-    <Panel title="Door manifest" eyebrow="catalog.event_session.door_open_at">
+    <Panel title="Door manifest" eyebrow="The list the scanners work from" read="catalog.event_session.door_open_at">
       <p className="font-bold">{MANIFEST_COPY[ms]}</p>
       <div className="mt-2 border border-line-neutral p-2 text-xs">
         <p className="eyebrow text-dim">Freeze status</p>
@@ -232,7 +232,7 @@ export function DoorStatus({
   );
 
   const Lookup = canManualLookup(ctx.role) ? (
-    <Panel title="Manual lookup" eyebrow="One record · venue.validate_ticket_online + venue.lookup_attendee">
+    <Panel title="Manual lookup" eyebrow="One guest at a time" read="venue.validate_ticket_online + venue.lookup_attendee">
       <form method="get" action={self} id="lookup" className="flex gap-2">
         <PreviewHidden ctx={ctx} />
         <input className="field touch-row md:min-h-0" name="q" placeholder="Guest name, order ref, or ticket ref" defaultValue={lookup?.q ?? ""} aria-label="Lookup" />
@@ -294,7 +294,7 @@ export function DoorStatus({
 
   const Reasons = (
     <details className="border border-line-neutral p-3 text-xs">
-      <summary className="cursor-pointer font-bold uppercase tracking-wider">Why a pass is refused (six reasons)</summary>
+      <summary className="cursor-pointer font-bold">Why a pass is refused (six reasons)</summary>
       <ul className="mt-2 space-y-1">
         {(Object.keys(REJECT_COPY) as (keyof typeof REJECT_COPY)[]).map((k) => (
           <li key={k}>
@@ -316,7 +316,7 @@ export function DoorStatus({
       </header>
 
       {/* xl: three panes */}
-      <div className="hidden gap-4 xl:grid xl:grid-cols-[16rem_1fr_22rem]">
+      <div className="hidden gap-4 xl:grid xl:[grid-template-columns:repeat(auto-fit,minmax(min(20rem,100%),1fr))]">
         <div className="space-y-4">
           <Panel title="Sessions" eyebrow="This event">
             <ul className="text-sm">
@@ -349,7 +349,7 @@ export function DoorStatus({
       {/* lg: two panes; md/sm: single column, counter-first */}
       <div className="space-y-4 xl:hidden">
         {canReadScanBoard(ctx.role) ? <div className="border border-line bg-card p-4">{Counters}</div> : null}
-        <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(22rem,100%),1fr))]">
           <div className="space-y-4">
             {Devices}
             {Lookup}
@@ -360,7 +360,7 @@ export function DoorStatus({
           <div className="space-y-4">
             {Manifest}
             <details className="border border-line-neutral lg:hidden">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-bold uppercase tracking-wider">Door PINs ({pins.filter((p) => p.status === "active").length} active)</summary>
+              <summary className="cursor-pointer px-3 py-2 text-sm font-bold">Door PINs ({pins.filter((p) => p.status === "active").length} active)</summary>
               <div className="p-2">{Pins}</div>
             </details>
             <div className="hidden lg:block">{Pins}</div>

@@ -176,7 +176,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         })}
       </ul>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
         {view === "counters" ? (
           <Panel title="Capacity change" eyebrow="Guarded">
             <p className="text-sm text-muted">Changes are audited and refused below what is already held or sold. The floor for each release is shown before you type.</p>
@@ -194,7 +194,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         ) : null}
 
         {canReadHolds(ctx.role) ? (
-          <Panel title="Holds" eyebrow="venue.inventory_hold">
+          <Panel title="Holds" eyebrow="Seats reserved but not sold" read="venue.inventory_hold">
             {holds.filter((h) => h.status === "active").length === 0 ? (
               <p className="text-sm text-muted">No active holds</p>
             ) : (

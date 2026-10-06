@@ -9,9 +9,8 @@
   background: repeating-linear-gradient(135deg, #fbbf24 0 12px, #f59e0b 12px 24px);
   color: #111111;
   font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--text-label);
+  letter-spacing: 0.01em;
 }
 
 /* Database mode: same stripe, blue, so the two modes are never confused.
