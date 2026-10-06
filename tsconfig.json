@@ -23,6 +23,10 @@
     "supabase/functions",
     "web",
     "admin",
-    "packages"
+    "packages",
+    // Archived deployment evidence: byte-exact downloads of deployed Deno edge
+    // functions, kept as records. Not project source; the deployed source is
+    // checked by the Deno job against supabase/functions.
+    "docs/release/evidence"
   ]
 }
