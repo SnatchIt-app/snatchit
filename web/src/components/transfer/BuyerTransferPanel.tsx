@@ -11,6 +11,7 @@ import {
   setDeliveryInfoAction,
 } from "@/lib/transfers-actions";
 import { PlatformInstructions } from "@/components/transfer/PlatformInstructions";
+import { buyerStateAlert } from "@/lib/transfer-wording";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +32,7 @@ export function BuyerTransferPanel({
   const [isPending, startTransition] = useTransition();
 
   const needsDelivery = !transfer.delivery_email && !transfer.delivery_phone;
+  const stateAlert = buyerStateAlert(transfer);
   const wantsEmail = transfer.transfer_method === "email";
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -192,22 +194,7 @@ export function BuyerTransferPanel({
         </>
       ) : null}
 
-      {transfer.status === "buyer_confirmed" || transfer.status === "auto_released" ? (
-        <Alert tone="success">Transfer complete. Enjoy the show.</Alert>
-      ) : null}
-
-      {transfer.status === "disputed" ? (
-        <Alert tone="error">
-          Issue reported — our team typically reviews within 24 hours. Your payment stays on hold
-          until it&apos;s resolved.
-        </Alert>
-      ) : null}
-
-      {transfer.status === "expired" ? (
-        <Alert tone="error">
-          The seller didn&apos;t send in time, so this order was cancelled and refunded in full.
-        </Alert>
-      ) : null}
+      {stateAlert ? <Alert tone={stateAlert.tone}>{stateAlert.text}</Alert> : null}
     </div>
   );
 }
