@@ -6,7 +6,10 @@
 - D registered independent expectations before delivery (`review/d-records-20261005 @ 7554d913`,
   `D_PACKAGE_EXPECTATIONS_150_151_20261005.md`, sha256 `eed961c9f1eaa094fb240bbe28368b969d89db9c738528422d8ffc6f3351654f`).
 - D's first verdict: 26 of 28 blocking expectations met. **E-18 and E-24 were unmet**, and D raised findings **F-1 and F-2**.
-  All four are addressed in this revision (§2, §2A, §3, §4); rehearsal v2 re-ran everything. D's re-verification is pending.
+  All four are addressed in this revision (§2, §2A, §3, §4); rehearsal v2 re-ran everything.
+- **D PASS at `887cb49a` (2026-10-06): all 28 blocking expectations met.** D independently rebuilt both apply requests
+  (45,287 B `8e930001`; 13,339 B `908607ca`). **Scope of the PASS:** the package as written and rehearsed. Not the
+  production transport, which X1b must establish before X2, and not any real failed-refund path.
 
 **Provenance.**
 - `pkg.py` is **new code** that follows the design recorded in `PR93_PRODUCTION_EXECUTION_PACKAGE_20260924.md` §4–§10.

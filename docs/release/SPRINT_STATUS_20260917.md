@@ -2059,3 +2059,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   R0–R12 all as predicted. D's review is pending (expectations pre-registered at `eed961c9…`). Nothing executed.
 - **`main` protection:** a ruleset exists (`main-protection`, active since 2026-08-27). The plan's P0 is corrected and
   the proposal is MAIN_PROTECTION_PROPOSAL_20261005.md (`124977ce`). No setting changed, no PR closed.
+- **150/151 package rev 2: D PASS (2026-10-06, at `887cb49a`).** All 28 blocking expectations met, against D's
+  expectations pre-registered at `eed961c9…`. The scope of the PASS excludes the production transport (X1b) and any
+  real refund path. Execution awaits the owner.
+- **D's web wording (`web/wording-truth-conditions @ c1525dfa`, unpushed): A review, CHANGES REQUESTED.**
+  - **Required:**
+    - the seller `seller_sent` panel overclaims release (§2e);
+    - the seller `expired` panel hard-codes "24-hour" (§2a);
+    - the role-blind badge shows buyers "Payout Reversed" (§2c).
+  - **Small:** seller-win precedence for holds and review; the held wording.
+  - **Verified:** web-only, no writes or RPCs, new columns readable by `authenticated` (replay), 214 tests, tsc 0, one A
+    mutant killed.
