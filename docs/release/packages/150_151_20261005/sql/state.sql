@@ -55,6 +55,10 @@ union all select 'payments_refund_cols_nonzero=' || case when (select count(*) f
           (select count(*) from public.payments where (to_jsonb(payments) ->> 'refund_requested_cents')::int <> 0
                                                      or (to_jsonb(payments) ->> 'refund_succeeded_cents')::int <> 0
                                                      or (to_jsonb(payments) ->> 'refund_failed_cents')::int <> 0)::text end
+union all select 'payment_refund_state_rows=' || case when (select t1 from st) is null then 'absent' else
+          (xpath('/row/c/text()', query_to_xml('select count(*) as c from public.payment_refund_state', false, true, '')))[1]::text end
+union all select 'payment_refund_state_log_rows=' || case when (select t2 from st) is null then 'absent' else
+          (xpath('/row/c/text()', query_to_xml('select count(*) as c from public.payment_refund_state_log', false, true, '')))[1]::text end
 union all select 'triggers_150=' || coalesce((select string_agg(tgname, ',' order by tgname) from pg_trigger
                                        where not tgisinternal and tgname in ('trg_guard_payment_refund_state_columns','trg_payment_refund_state_log_append_only')), 'none')
 union all select 'setting_refund_state_detection_enabled=' || coalesce((select value::text from ops.setting where key = 'refund_state_detection_enabled'), 'absent')

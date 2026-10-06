@@ -5,7 +5,8 @@
 - The operational choices O-R1–O-R4 are **open** and are not decided here.
 - D registered independent expectations before delivery (`review/d-records-20261005 @ 7554d913`,
   `D_PACKAGE_EXPECTATIONS_150_151_20261005.md`, sha256 `eed961c9f1eaa094fb240bbe28368b969d89db9c738528422d8ffc6f3351654f`).
-  D's PASS or STOP is still pending.
+- D's first verdict: 26 of 28 blocking expectations met. **E-18 and E-24 were unmet**, and D raised findings **F-1 and F-2**.
+  All four are addressed in this revision (§2, §2A, §3, §4); rehearsal v2 re-ran everything. D's re-verification is pending.
 
 **Provenance.**
 - `pkg.py` is **new code** that follows the design recorded in `PR93_PRODUCTION_EXECUTION_PACKAGE_20260924.md` §4–§10.
@@ -45,13 +46,29 @@ Every PROD command needs `MODE=PROD CONFIRM_REF=hqycwntpfoztoinemqns`.
 | Step | Command | STOP / FAIL behaviour |
 |---|---|---|
 | X1a owner | visual dashboard check that auto-deploy is off; backup status | prudence against a concurrent `main` push. **A targeted apply itself needs no AUTODEPLOY confirmation** (D, E-27) |
-| X1b transport proof | `pkg.py probe`. A read-only two-statement query; `TRANSPORT=cli` by default | if the CLI path rejects multi-statement input (it does over `--db-url`: "cannot insert multiple commands into a prepared statement"), use `TRANSPORT=http` with `SUPABASE_ACCESS_TOKEN`, the transport the 147–149 records prove (HTTP 201). **Untested against production by design** |
+| X1b transport proof | `pkg.py probe`. Three read-only statements in **one** request. It passes only if a transaction-local setting survives to the last statement (`same_txn=true`), which proves one request = one transaction (F-1). **Default `TRANSPORT=http`** (`SUPABASE_ACCESS_TOKEN`, never printed), the transport the 147–149 records prove (HTTP 201). `TRANSPORT=cli` is opt-in and was never exercised for a multi-statement write (over `--db-url` the CLI rejects one: "cannot insert multiple commands into a prepared statement") | anything but `same_txn=true` = STOP. **Untested against production by design** |
 | X1c preflight read | `pkg.py check expected/pre150.txt` | any MISMATCH = STOP. The md5s in `pre150.txt` come from the gate replay; this read is what confirms production equals them (it covers F-PROD-REPO-DRIFT-1) |
 | X2 | `pkg.py apply 150` | prestate STOP (exit 3) sends nothing. POST FAIL (exit 4) → §3 |
-| X3 | `pkg.py apply 151` | same |
+| X3 | `pkg.py apply 151` | same. **151 is live on apply (E-18).**<br>- There is no per-detector switch: `detectors_enabled` is true (pre150) and `ops-detect-tick` runs `ops.run_all_detectors()` every 5 minutes (117:1123), so the new dating takes effect within 5 minutes.<br>- It changes **only seller-win rows** (`buyer_confirmed`, `buyer_confirmed_at` NULL, `resolved_seller_paid`). Every other row is dated exactly as before, so no other case changes.<br>- **What a first run can open:** a p2 `release_stuck` case for each seller-win payout still unpaid more than 30 minutes after it became payable, or in manual_review, or held with no end.<br>- The records show **no dispute resolved** as of 2026-09-24 02:29Z (5 open). Any resolved since would be visible only in a production read.<br>- No money moves. Alert delivery is off, so a case is seen in `/cases` only |
 | X4a | `SRC_DIR=<detached checkout of 2eebc5bf> pkg.py deploy stripe-webhook --live` | before-version 42 / pre-download = `5b255838` / deploy `--use-api --no-verify-jwt` / after 43 / post-download = frozen |
 | X4b | `SRC_DIR=… pkg.py deploy enforce-transfer-expiry --live` | before 41 / pre = `e73553d2` / deploy `--use-api` / after 42 / post = frozen |
+| (resume) | `pkg.py apply <n> --ledger-only` | only if POST shows the migration's objects in place **without** its ledger row (a split transport). It refuses otherwise (F-1; rehearsal R14/R14c) |
 | **— stop —** | **O-R1** (subscribe `refund.created/updated/failed`; after X4a, C3), **O-R2** (`refund_state_detection_enabled`; after O-R1, and only once O-R3 is decided), **O-R3** (who handles failed and pending refunds), **O-R4** (historical reconciliation read) | **owner decisions, OPEN** |
+
+### 2A. A failed refund while O-R3 is undecided: the interim state, stated (E-24)
+
+- **After X2 + X4, before O-R1:** `refund.*` events are not subscribed. A later failure reaches the database only via
+  `charge.refunded` (each listed refund recorded with its own status) or the expiry job's reconcile of its own refunds.
+  Otherwise it is **not observed at all**.
+- **Once observed:**
+  - the refund's row says `failed` and `payments.refund_failed_cents > 0`;
+  - the expiry job **parks** that payment (`refund_failed_cents = 0` is required for automatic handling), so it never
+    re-refunds automatically;
+  - the app still says "Refund of $X initiated" (ruling 3);
+  - **nobody contacts the buyer.**
+- **After O-R2 (detection on):** a p1 `refund_failed` case opens in `/cases`. With alert delivery off and **no O-R3
+  owner, nobody is notified and nobody acts.**
+- That is why O-R2 is sequenced after O-R3 is decided, and why O-R3 is a submission prerequisite (plan §6.0 D6).
 
 `deploy --live` reads function metadata over HTTPS and needs `SUPABASE_ACCESS_TOKEN`. The default `deploy` (PLAN) only
 verifies `SRC_DIR` against the manifest and prints the commands.
@@ -65,34 +82,41 @@ verifies `SRC_DIR` against the manifest and prints the commands.
   - The request is the frozen rollback file, followed by a ledger delete that only fires once the objects are gone.
 - **Resume after a partial rollback:** `pkg.py rollback <n> --ledger-only`. It refuses while the migration's objects are
   live.
-- **150's rollback drops the refund-state tables, and their rows with them** (the file header says so). Before X4 nothing
-  writes them. After X4, export first. Unlike 151's, 150's rollback file has no body guard; the package's state guard is
-  what stands in front of it.
+- **150's rollback drops the refund-state tables, and their rows with them.**
+  - The state guard now includes `payment_refund_state_rows=0` and `payment_refund_state_log_rows=0` (F-2). So once the
+    functions have written **any** row, `rollback 150` **STOPs** (rehearsal R15). The guard does the work, not an
+    instruction.
+  - Rolling back with rows present is outside this package: export first, then an owner decision on a manual drop.
 
-## 4. Local rehearsal (2026-10-05/06; predictions registered first: `rehearsal/predictions.txt`, sha256 `ed934082…`)
+## 4. Local rehearsal
 
-**Database:** `pkg150_rehears`, the LC_ALL=C replay of gate `037092f0` **minus 121/125/126** (162 files, census
-32|108|37|38, 12 `ops.setting` rows, detectors on), plus a **162-row stand-in ledger** (max `20260924120000`). The
-transport was `psql -c`: the identical request text as one simple query, i.e. one implicit transaction.
+**Database and transport.**
+- **v1** (2026-10-05) ran on `pkg150_rehears`; its log is `rehearsal/run_20261005.log`, predictions `ed934082…`.
+- **v2** (2026-10-06, after D's review) ran on a **fresh** `pkg151_rehears`: the LC_ALL=C replay of gate `037092f0`
+  **minus 121/125/126** (census 32|108|37|38, 12 `ops.setting` rows, detectors on) plus a **162-row stand-in ledger**.
+  Predictions were registered first (`rehearsal/predictions_v2.txt`, `61de833a…`); the log is
+  `rehearsal/run_v2_20261006.log`.
+- The transport was `psql -c`: the identical request text as one simple query, i.e. one implicit transaction.
 
-| Run | Result | vs prediction |
+| Run | v2 result | vs prediction |
 |---|---|---|
-| R0 check pre150 | PASS | match |
-| R1 DRY | apply_150 45,287 B `8e930001…`; apply_151 13,339 B `908607ca…`; rollback_150 `7ddf9c48…`; rollback_151 `b3efdfdd…`; ledger-only `ec1a3b2b…` | — |
-| R2 apply 150 | prestate PASS; POST PASS: **every predicted key, including md5s computed from the text** | match |
-| R3 NEG apply 150 again | STOP exit 3; exactly the 14 predicted MISMATCH keys + the 3 new `fn_public.*` keys | match |
-| R4 rollback 150 | guard PASS; restored = pre150 | match |
+| R0 check pre150 (row keys `absent`) | PASS | match |
+| R1 DRY | apply_150 `8e930001…` and apply_151 `908607ca…`, **unchanged from v1**; rollback_150 `7ddf9c48…`; rollback_151 `b3efdfdd…`; rollback ledger-only `ec1a3b2b…`; apply_151 ledger-only `650a81d2…` | match |
+| R2 apply 150 | prestate PASS; POST PASS on every predicted key (md5s from the text; rows 0) | match |
+| R3 NEG apply 150 again | STOP exit 3; **16** MISMATCH (v1's 14 + the two row keys) + 3 UNEXPECTED | match |
+| R4 rollback 150 | PASS → pre150 | match |
 | R5 NEG rollback 150 again | STOP exit 3 | match |
-| R6 apply 150, apply 151 | both PASS | match |
-| R7 NEG apply 151 again | STOP exit 3; exactly 4 keys (ledger_count, ledger_max, ledger_151, detect_release_stuck) | match |
-| R8 partial rollback (file only) | full rollback STOP (1 key: detect_release_stuck); `--ledger-only` PASS → pre151 | match |
-| R8c control | `--ledger-only` with 151's body live: STOP exit 3; ledger stays 164 | match |
-| R9 pgTAP | 217 @`2eebc5bf` 45/45; 218 @`9a66f29d` 17/17 | match. The harness then leaves 1,098 pgTAP functions in `public`; the non-pgTAP count stays 111. Hence R9 runs last |
-| R10 DRY again | all five request hashes identical to R1 | match |
-| R11 deploy PLAN, `SRC_DIR` = `2eebc5bf` | stripe-webhook 3/3, enforce-transfer-expiry 6/6, 0 mismatches | added (no prediction registered) |
-| R12 NEG deploy PLAN, `SRC_DIR` = gate `037092f0` | source STOP exit 3: exactly `stripe-webhook/index.ts` (`7c2ae402` ≠ `2a5c4631`) | added control |
-
-Full log: `rehearsal/run_20261005.log`.
+| R6 apply 150, apply 151 | PASS, PASS | match |
+| R7 NEG apply 151 again | STOP exit 3; 4 keys | match |
+| R8 partial rollback (file only) | full rollback STOP (1 key) → `--ledger-only` PASS | match |
+| R8c control | ledger-only with 151's body live: STOP; ledger 164 | match |
+| **R13 probe** | last row `same_txn=true`, PASS | match |
+| **R14 partial apply (file only, no ledger row)** | `apply 151` STOP (1 key: detect_release_stuck) → `apply 151 --ledger-only` PASS → post151 | match |
+| **R14c control** | `apply 151 --ledger-only` with the row present: STOP; ledger 164 | match |
+| **R15 row guard** | one `payment_refund_state` row inserted (local; FK triggers suspended) → `rollback 150` STOP with exactly 1 key (`payment_refund_state_rows` 0 ≠ 1) → row deleted → `rollback 150` PASS | match |
+| R9 pgTAP | 217 @`2eebc5bf` 45/45; 218 @`9a66f29d` 17/17 | match. **No red control here (E-29):** the RED runs are in #94's and #95's records. The harness leaves pgTAP's 1,098 functions in `public`, which is why R9 runs last |
+| R10 DRY again | all six request hashes identical to R1 | match |
+| R11/R12 deploy PLAN | `2eebc5bf` accepted 3/3 and 6/6; the gate refused on exactly `stripe-webhook/index.ts` | match |
 
 ## 5. What this rehearsal cannot show
 

@@ -11,16 +11,21 @@ Modes (env MODE):
   LOCALDB  run against a local rehearsal DB (env LOCALDB_NAME must contain 'rehears'), via psql -c:
            one simple-query message, i.e. one implicit transaction, like the Management API.
   PROD     production. Requires CONFIRM_REF=hqycwntpfoztoinemqns. Transport (env TRANSPORT):
-             cli  (default) `supabase db query --project-ref REF --file F --output-format json`
-             http POST https://api.supabase.com/v1/projects/REF/database/query, token from env
-                  SUPABASE_ACCESS_TOKEN (never printed). This is the transport the 147-149 records prove.
+             http (default) POST https://api.supabase.com/v1/projects/REF/database/query, token from env
+                  SUPABASE_ACCESS_TOKEN (never printed). The transport the 147-149 records prove (HTTP 201).
+             cli  (opt-in) `supabase db query --project-ref REF --file F --output-format json`; never
+                  exercised for a multi-statement write (D, F-1).
            NOT AUTHORISED until the owner says so for the specific step.
 
 Subcommands:
   state                          print the state.sql key=value lines
   check <expected-file>          compare state to an expected file; exit 3 on mismatch
-  probe                          PROD transport proof: a read-only two-statement query (no writes)
-  apply <150|151>                prestate check -> one request -> post check
+  probe                          transport proof: three read-only statements in ONE request; prints
+                                 `same_txn=true` only if they ran in one transaction (a transaction-local
+                                 setting survives); anything else = STOP (D, F-1)
+  apply <150|151> [--ledger-only]
+                                 prestate check -> one request -> post check. --ledger-only: resume when the
+                                 migration's objects are in place but its ledger row is missing (refuses otherwise)
   rollback <150|151> [--ledger-only]
   fnmanifest <git-ref> <function>     sha256 of every file in the function's import closure
   deploy <function> [--live]     default PLAN: verify SRC_DIR against the frozen manifest and print the
@@ -77,7 +82,7 @@ def run_sql(sql, want_rows):
                             "-v", "ON_ERROR_STOP=1", "-At", "-c", sql], capture_output=True, text=True)
         if r.returncode: die(5, "psql error: " + r.stderr.strip()[-600:])
         return [l for l in r.stdout.split("\n") if l] if want_rows else []
-    tr = os.environ.get("TRANSPORT", "cli")
+    tr = os.environ.get("TRANSPORT", "http")
     if tr == "cli":
         with tempfile.TemporaryDirectory() as td:
             f = Path(td) / "request.sql"; f.write_text(sql)
@@ -114,13 +119,16 @@ def compare(expected_path, actual):
     for k in extra: print(f"  UNEXPECTED KEY {k}={ak[k]}")
     return not bad and not extra
 
-def apply_request(n):
+LEDGER_KEYS = {"ledger_count", "ledger_max", "ledger_150", "ledger_151"}
+
+def ledger_insert(n):
     m = MIG[n]; body = m["file"].read_text(); tag = "$pkg" + n + "$"
     if tag in body: die(2, "dollar tag collision")
-    created_by = f"claude-a/owner-authorised-{n}"
-    return (body.rstrip("\n") + "\n;\n"
-            f"INSERT INTO supabase_migrations.schema_migrations (version, name, statements, created_by)\n"
-            f"VALUES ('{m['version']}', '{m['name']}', ARRAY[{tag}{body}{tag}], '{created_by}');\n")
+    return (f"INSERT INTO supabase_migrations.schema_migrations (version, name, statements, created_by)\n"
+            f"VALUES ('{m['version']}', '{m['name']}', ARRAY[{tag}{body}{tag}], 'claude-a/owner-authorised-{n}');\n")
+
+def apply_request(n):
+    return MIG[n]["file"].read_text().rstrip("\n") + "\n;\n" + ledger_insert(n)
 
 def rollback_request(n, ledger_only):
     m = MIG[n]
@@ -132,9 +140,19 @@ def emit_dry(label, sql):
     (out / f"{label}.sql").write_text(sql)
     print(f"[pkg] {label}: {len(sql.encode())} bytes sha256 {sha256_bytes(sql.encode())}")
 
-def cmd_apply(n):
-    m = MIG[n]; sql = apply_request(n)
-    if mode() == "DRY": return emit_dry(f"apply_{n}", sql)
+def cmd_apply(n, ledger_only=False):
+    m = MIG[n]; sql = ledger_insert(n) if ledger_only else apply_request(n)
+    if mode() == "DRY": return emit_dry(f"apply_{n}{'_ledger_only' if ledger_only else ''}", sql)
+    if ledger_only:
+        ek = dict(l.split("=", 1) for l in Path(m["post"]).read_text().split("\n") if l and not l.startswith("#"))
+        ak = dict(l.split("=", 1) for l in state())
+        lk = "ledger_150" if n == "150" else "ledger_151"
+        if ak.get(lk) != "absent" or any(ak.get(k) != v for k, v in ek.items() if k not in LEDGER_KEYS):
+            die(3, "apply --ledger-only STOP: objects are not in the post-state, or the ledger row already exists")
+        print(f"[pkg] ledger-only request sha256 {sha256_bytes(sql.encode())}")
+        run_sql(sql, False)
+        if not compare(m["post"], state()): die(4, f"POST assertion FAIL for {n} (ledger-only)")
+        print(f"[pkg] {n} ledger row restored and verified"); return
     print(f"[pkg] prestate {n} vs {m['pre'].name}")
     if not compare(m["pre"], state()): die(3, f"prestate STOP for {n}; nothing sent")
     print(f"[pkg] request sha256 {sha256_bytes(sql.encode())} ({len(sql.encode())} bytes)")
@@ -151,8 +169,7 @@ def cmd_rollback(n, ledger_only):
         # resume case: objects already restored, ledger row still present
         ek = dict(l.split("=", 1) for l in Path(m["pre"]).read_text().split("\n") if l and not l.startswith("#"))
         ak = dict(l.split("=", 1) for l in st)
-        ledger_keys = {"ledger_count", "ledger_max", "ledger_150", "ledger_151"}
-        if any(ak.get(k) != v for k, v in ek.items() if k not in ledger_keys):
+        if any(ak.get(k) != v for k, v in ek.items() if k not in LEDGER_KEYS):
             die(3, "ledger-only STOP: objects are not in the pre-state")
     else:
         print(f"[pkg] rollback guard {n}: state must equal {m['post'].name}")
@@ -246,8 +263,13 @@ def main(a):
     c = a[0]
     if c == "state": print("\n".join(state()))
     elif c == "check": sys.exit(0 if compare(a[1], state()) else 3)
-    elif c == "probe": print(run_sql("select 'probe=1' as line; select 'probe=2' as line;", True))
-    elif c == "apply" and len(a) == 2 and a[1] in MIG: cmd_apply(a[1])
+    elif c == "probe":
+        rows = run_sql("select set_config('pkg.probe', now()::text, true) as line; select pg_sleep(0.05)::text as line; "
+                       "select 'same_txn=' || (current_setting('pkg.probe', true) = now()::text)::text as line;", True)
+        print(rows)
+        if not rows or rows[-1] != "same_txn=true": die(3, "probe STOP: the transport did not run one request as one transaction")
+        print("[pkg] probe PASS: one request = one transaction")
+    elif c == "apply" and len(a) >= 2 and a[1] in MIG: cmd_apply(a[1], "--ledger-only" in a)
     elif c == "rollback" and len(a) >= 2 and a[1] in MIG: cmd_rollback(a[1], "--ledger-only" in a)
     elif c == "fnmanifest" and len(a) == 3: print(json.dumps(fn_manifest(a[1], a[2], os.environ.get("REPO", ".")), indent=1))
     elif c == "deploy" and len(a) >= 2: cmd_deploy(a[1], "--live" in a)

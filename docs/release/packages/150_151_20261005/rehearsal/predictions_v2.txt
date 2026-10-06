@@ -1,0 +1,23 @@
+# Rehearsal v2 predictions — registered BEFORE the run (A, 2026-10-06), after D's review (E-18, E-24, F-1, F-2).
+# DB: pkg151_rehears, a FRESH replay of gate 037092f0 minus 121/125/126 + a 162-row stand-in ledger.
+# Changes since v1: row-count keys (F-2), PROD default transport http, decisive probe, apply --ledger-only (F-1).
+R0   check pre150 (with the two new row keys = absent)            -> PASS
+R1   DRY: apply_150 / apply_151 sha256 unchanged from v1 (8e930001… / 908607ca…); rollbacks unchanged
+R2   apply 150                                                    -> PASS (post150 now carries rows = 0)
+R3   NEG apply 150 again                                          -> STOP exit 3; 16 MISMATCH (v1's 14 + the two row keys) + 3 UNEXPECTED
+R4   rollback 150                                                 -> PASS (= pre150)
+R5   NEG rollback 150 again                                       -> STOP exit 3
+R6   apply 150, apply 151                                         -> PASS, PASS
+R7   NEG apply 151 again                                          -> STOP exit 3; 4 MISMATCH (as v1)
+R8   partial rollback 151 (file only) -> full rollback STOP (1 key) -> --ledger-only PASS (= pre151)
+R8c  re-apply 151; rollback --ledger-only with 151's body live    -> STOP exit 3; ledger 164
+R13  probe (LOCALDB, psql -c)                                     -> last row 'same_txn=true', PASS
+R14  partial APPLY: run 151's migration FILE only (no ledger row) on pre151 -> `apply 151` STOPs (prestate mismatch:
+     fn_ops.detect_release_stuck()) -> `apply 151 --ledger-only` PASS (= post151)
+R14c control: `apply 151 --ledger-only` on the post151 state (ledger row present) -> STOP exit 3, ledger unchanged (164)
+R15  row guard (F-2): rollback 151 to pre151; insert ONE row into public.payment_refund_state (local, superuser) ->
+     `rollback 150` STOP exit 3 with exactly 1 MISMATCH (payment_refund_state_rows: expected 0, actual 1); delete the
+     row -> `rollback 150` PASS (= pre150)
+R9   pgTAP 217 45/45, 218 17/17 (run LAST; re-apply 150, 151 first)
+R10  DRY again: all request hashes identical to R1
+R11/R12 deploy PLAN: accepts 2eebc5bf; refuses the gate on stripe-webhook/index.ts
