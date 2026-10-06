@@ -2025,3 +2025,37 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     **So no compiled code reads a value through the changed declaration.**
   - **Not established:** any runtime Apple Pay or PaymentSheet behaviour (no payment run was authorised); and Xcode
     26.6 is itself a toolchain change from the shipped builds. No EAS build, production change or transaction.
+- **Admin TOTP recovery: production, owner-authorised 2026-10-05 ("narrowly scoped lookup and recovery for that exact
+  production account").**
+  - **Account:** the owner's own (gnvprod@gmail.com).
+  - **Method:** the supported Supabase Auth admin API only: list the user, list their factors, delete one factor. No auth
+    table was edited, and no factor secret was read or shown. The service key was held in a process variable only,
+    never printed or written.
+  - **Lookup:** exactly **one** factor: TOTP, verified, enrolled through the console on 2026-09-08 (`04bb070a…`), last
+    challenged that day. It was unambiguous, so no question to the owner was needed.
+  - **Recovery:** `DELETE /auth/v1/admin/users/{id}/factors/04bb070a…` returned HTTP 200, leaving 0 factors.
+  - **Preserved:**
+    - the fingerprint of email, role, app_metadata, email_confirmed_at, banned_until and is_anonymous is identical
+      before and after (`e5ac89bc…`);
+    - the password was not touched;
+    - `public.admin_users` was not touched;
+    - global MFA enforcement is unchanged (the console still requires aal2).
+  - **Side effect, by Supabase's design:** deleting a verified factor signs the user out of all sessions.
+  - **Owner's next step:** sign in at the console; the console sends a session with no verified factor to `/mfa` to
+    enrol a new authenticator.
+  - **A's verification after enrolment:** a read-only factor list must show exactly one new verified TOTP factor.
+    **Pending the owner's enrolment.**
+- **Finding F-AUTH-LIST-1 (A, 2026-10-05; recorded, not investigated).** The Auth admin user listing fails with
+  "Database error finding users" (HTTP 500) at larger page sizes. One-per-page listing showed **3 of the first 19
+  pages** failing individually.
+  - Some `auth.users` rows cannot be read by the Auth server. That is typically rows inserted by SQL with NULL token
+    columns.
+  - **Impact:** dashboard and admin user lists may fail. Per-user operations work.
+  - **Not investigated:** it needs a read of `auth.users`, which this authorisation did not cover. Any fix edits auth
+    rows, so it is an owner decision.
+- **Records-branch CI fixed** (`b467f749`). The narrow exclusion of `docs/release/evidence` from tsc and expo lint took
+  the file list from 311 to 296 (exactly the 15 evidence files); CI is green.
+- **150/151 deployment package** frozen and rehearsed locally: `docs/release/packages/150_151_20261005/` (`7953ac93`).
+  R0–R12 all as predicted. D's review is pending (expectations pre-registered at `eed961c9…`). Nothing executed.
+- **`main` protection:** a ruleset exists (`main-protection`, active since 2026-08-27). The plan's P0 is corrected and
+  the proposal is MAIN_PROTECTION_PROPOSAL_20261005.md (`124977ce`). No setting changed, no PR closed.
