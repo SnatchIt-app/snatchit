@@ -59,7 +59,7 @@ export default async function PurchasesPage() {
                   ) : null}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <TransferStatusBadge row={t} />
+                  <TransferStatusBadge row={t} audience="buyer" />
                   <span className="mt-1.5 block truncate text-[15px] font-bold text-ink">{t.eventName}</span>
                   <span className="mt-0.5 block truncate text-[12.5px] text-white/50">{t.venue}</span>
                   <span

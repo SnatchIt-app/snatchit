@@ -25,6 +25,7 @@ export function SellerTransferPanel({
 
   const deliveryMissing = !transfer.delivery_email && !transfer.delivery_phone;
   const stateAlert = sellerStateAlert(transfer);
+  const payoutParagraph = sellerPayoutParagraph(transfer);
 
   function handlePick(file: File | undefined) {
     if (!file) return;
@@ -169,9 +170,9 @@ export function SellerTransferPanel({
           </Alert>
           <section className="border border-primary/20 bg-card p-5">
             <p className="eyebrow text-primary/80">Payout</p>
-            <p className="mt-3 text-[13.5px] leading-relaxed text-white/70">
-              {sellerPayoutParagraph(transfer)}
-            </p>
+            {payoutParagraph ? (
+              <p className="mt-3 text-[13.5px] leading-relaxed text-white/70">{payoutParagraph}</p>
+            ) : null}
             <p className="mt-3 text-[12.5px] text-white/45">
               If the buyer reports an issue, your payout is held pending review.
             </p>

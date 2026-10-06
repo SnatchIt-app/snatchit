@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/Badge";
 import type { TransferStatus } from "@/lib/transfers";
-import { transferBadgeLabel, type OrderRowInput } from "@/lib/transfer-wording";
+import { transferBadgeLabel, type Audience, type OrderRowInput } from "@/lib/transfer-wording";
 
 const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
   pending: "soon",
@@ -17,10 +17,10 @@ const VARIANTS: Record<TransferStatus, "live" | "soon" | "sold" | "buyNow"> = {
  * decided dispute both read differently from what the bare status suggests,
  * and `auto_released` is a release decision, never payout evidence (§2i).
  */
-export function TransferStatusBadge({ row }: { row: OrderRowInput }) {
-  return <Badge variant={VARIANTS[row.status]}>{transferBadgeLabel(row)}</Badge>;
+export function TransferStatusBadge({ row, audience }: { row: OrderRowInput; audience: Audience }) {
+  return <Badge variant={VARIANTS[row.status]}>{transferBadgeLabel(row, audience)}</Badge>;
 }
 
-export function transferStatusLabel(row: OrderRowInput): string {
-  return transferBadgeLabel(row);
+export function transferStatusLabel(row: OrderRowInput, audience: Audience): string {
+  return transferBadgeLabel(row, audience);
 }
