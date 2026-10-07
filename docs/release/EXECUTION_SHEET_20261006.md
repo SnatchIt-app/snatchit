@@ -283,8 +283,17 @@ payload.
 - Of the gate's six required checks, only `Immutability + ordering` comes from the `pull_request` event. The other five
   come from the `push` run on the head commit (`36093357933` for #94, `36094475492` for #95; all attempt 1, verified).
 - Those five depend on the commit alone, so they do not go stale when the base moves.
-- **Limit:** they test the PR head, not the merge result. Merge-result coverage comes from CI on each gate merge commit
-  (plan §5.1, after each merge) and the local trial, not from these checks.
+- **Limit: they test the PR head, not the merge result.** `strict` is off on every ruleset (verified), and `9a66f29d`
+  carries 151 but not 150.
+  - **The first and only CI test of 150 and 151 together is `Migrations apply cleanly (fresh DB)` on the gate merge
+    commit after S2.** It is a push run (`037092f0` shows it in that position) and runs **after** the merge. A failure
+    there means a red gate and a fix-forward, not a blocked merge. That is the trade accepted with `strict` off.
+  - **Before the merge, the only joint exercise is local:** package rehearsal v2, R6 (apply 150, then 151, on a
+    gate-shaped DB: PASS).
+  - **The guard never runs on a merge commit** (migrations-guard is `pull_request` and `merge_group` only; `037092f0`
+    has no guard run). Its invariants hold for the merged tree **by construction, not by test**: a merge adds no
+    migration file, so a PR that passes a fresh guard run against the current base at its own merge time carries
+    both properties into the result (D).
 
 **State when you approved (2026-10-07).** The latest run of each required check on #94 and #95 is attempt 1, a fresh
 event; no green is inherited from a re-run.
