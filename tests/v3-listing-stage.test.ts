@@ -254,7 +254,11 @@ describe('TransactionPanel — the §5 panel', () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
     expect(src).toContain("identityStacks");
-    expect(src.match(/row\.block \|\| stackRows \? s\.factRowBlock : null/g) ?? []).toHaveLength(2);
+    // Four sites, not two: the row's direction, the value's alignment and its line cap all have
+    // to follow, or the row stacks while its value stays right-aligned and still clipped — which
+    // is exactly what the first attempt shipped to the capture.
+    expect(src.match(/row\.block \|\| stackRows/g) ?? []).toHaveLength(4);
+    expect(src).toContain('numberOfLines={row.block || stackRows ? undefined : 2}');
     // No second threshold: the number lives in featureMetrics and nowhere else.
     expect(src).not.toMatch(/fontScale\s*[><=]=?\s*1\./);
   });

@@ -1404,9 +1404,9 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
                     textStyle('body'),
                     s.factValue,
                     row.money ? s.factMoney : null,
-                    row.block ? s.factValueBlock : null,
+                    row.block || stackRows ? s.factValueBlock : null,
                   ]}
-                  numberOfLines={row.block ? undefined : 2}
+                  numberOfLines={row.block || stackRows ? undefined : 2}
                 >
                   {row.value}
                 </Text>
