@@ -86,6 +86,33 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## Successor served: `7d0ae5655d7b308c118d7f1154abe95c73f2233c` (E saw it served 2026-10-06; C to name it formally)
+- **Implementation (C).** `v3/midnight-app` in `/Users/josetascon/snatchit-refund` is at
+  `7d0ae565`, clean.
+  - Range from `d5217530`: batch2 (`6c562dcf` … `8f6bed1e`), then `750a9c4f` (Edit refusal exit),
+    `40922d27` (Send not-found exit), `70ae3b94` (Listing failure faces and a profile harness),
+    `07de08ad` (all-in caption) and `7d0ae565` (poster no longer covered).
+  - No native or install file changed, so no rebuild is needed.
+  - Test results: C's report is pending.
+- **Relevant-diff review (E), per check, from `d5217530`:**
+  - **Home artwork per fixture, 4:5 frame, no gradient, nothing on the poster (batch 1): CARRY.**
+    `HomeFeature.tsx` changed only in the identity block below the poster: a stacked layout above
+    font scale 1.3 (`featureMetrics.ts` `IDENTITY_STACK_SCALE`) and `numberOfLines` 1→2 on two
+    lines. `EventMedia`, slots, `url.ts`, `home.tsx`, `FeedRow` and `v3-home.tsx` are untouched, and
+    `harnessArt.ts` changed by additions only.
+  - **Home identity block, at default, 3xl and a3xl: REPEAT.** It changed, including at default size
+    (`numberOfLines` 2). So does the harness next-section figure, which depends on the block's
+    height.
+  - **Filters glyph, F-91-6 (Home header): CARRY.** `IconButton` and `IconSymbol` are untouched, and
+    so is the Home header.
+  - **Listing: REPEAT everything.** That covers the poster, artwork cases, R-4, navigation chips,
+    safe area, footer at rest, reservation feedback and Dynamic Type. `ListingHero.tsx`,
+    `ListingDetailScreen.tsx` and `v3-listing.tsx` changed.
+  - **New:** B's five C-operated cases; VoiceOver; consumer Home signed in (or its blocker); Edit
+    refusals (`v3-edit-listing`); Listing failure and offline states; public profile
+    (`v3-profile`); Send/Receive not-found; the six harness-art screens. C's owner evidence comes
+    first, then B.
+
 **B native batch 3 (`17c7e670`, 2026-10-06) and window handback**
 - **Listing poster: complete but covered.** It is 4:5 and complete (0–490.7 pt). The status bar and
   banner cover its top 79 pt: masked diff 4.1 for cover-fit at 79 pt hidden, against 16.6 for
