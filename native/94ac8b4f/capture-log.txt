@@ -2,7 +2,8 @@ case3-listing-a3xl-dark-scrolled-Coperated.png | content_size=accessibility-extr
 case3-listing-a3xl-light-scrolled-Coperated.png | content_size=accessibility-extra-extra-extra-large | appearance=light | sha=94ac8b4f | _dev/v3-listing?…&appearance=light | two dwell-drags
 case3-listing-default-light-scrolled-Coperated.png | content_size=large | appearance=light | sha=94ac8b4f | _dev/v3-listing?…&appearance=light | one dwell-drag
 case3-listing-default-dark-scrolled-Coperated.png | content_size=large | appearance=dark | sha=94ac8b4f | _dev/v3-listing?…&appearance=dark | one dwell-drag
-case1-home-3xl-light-atrest-Coperated.png | content_size=extra-extra-extra-large | appearance=light | sha=94ac8b4f | _dev/v3-home?variant=feed&art=all&appearance=light | at rest
-case1-home-3xl-light-feedrow-Coperated.png | content_size=extra-extra-extra-large | appearance=light | sha=94ac8b4f | same route | one dwell-drag to the first feed rows
-case2-home-a3xl-light-atrest-Coperated.png | content_size=accessibility-extra-extra-extra-large | appearance=light | sha=94ac8b4f | _dev/v3-home?variant=feed&art=all&appearance=light | at rest
-case2-home-a3xl-light-identity-Coperated.png | content_size=accessibility-extra-extra-extra-large | appearance=light | sha=94ac8b4f | same route | one dwell-drag to the identity block below the fold
+
+The Home captures that were here are superseded: FeedRow and HomeFeature changed
+after this sha, so they were retaken at 7c9b270b. The Listing surfaces did not change
+(`git diff --name-only 94ac8b4f..7c9b270b` lists only FeedRow, HomeFeature, their test
+and the handoff), so these four carry.

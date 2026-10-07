@@ -18,7 +18,8 @@ completion of the existing artwork and large-text requirements, not a new design
 | `src/screens/CreateListingScreen.tsx` | a signed-out publish says 'Sign in required' | E: it said nothing at all |
 | `app/transfer/send/[id].tsx`, `app/transfer/receive/[id].tsx` | "Transfer not found" gained an exit | E asked for a retry; reproduced first, and a retry is already on the two paths where it can help |
 | `src/components/listing/ListingHero.tsx` | navigation moved into its own area above the poster; the inset moved with it | B measured the banner over the poster's top 79 pt and the chips on printed lines |
-| `src/components/discovery/HomeFeature.tsx` | the identity block stacks above 1.3× text; no line is capped in that form | B: "current bid, al…" at a3xl, "Ends…" at 3xl |
+| `src/components/discovery/HomeFeature.tsx` | the identity block stacks above 1.3× text; no line is capped in that form; the amount's scale is capped | B: "current bid, al…" at a3xl, "Ends…" at 3xl |
+| `src/components/discovery/FeedRow.tsx` | text and price share a column at large text; the amount's scale is capped | E, from a C-operated capture: "$132.0…" and "all-i…" |
 | `src/components/listing/TransactionPanel.tsx` | the same stacking | found in a C-operated capture: the breakdown VALUE rendered "$95.0" |
 | `src/screens/ListingDetailScreen.tsx` | fact rows take the screen's own `factRowBlock` form at large text; a seeded read failure | found in a C-operated capture: Delivery as "…le t…" |
 | `app/profile/[id].tsx` | the four reads are seedable; Block short-circuits under a fixture | it was mounted by no harness at all |
@@ -66,8 +67,15 @@ would need a prop standing in for a session — and it is pinned for every harne
 
 ## C-operated, B-reviewed captures
 
-`native/<sha8>/`, with `capture-log.txt` recording for each file the content size and appearance
-read back FROM THE DEVICE at capture time rather than asserted by me. Every file is named
+Two directories, because the code moved while the cases were being run:
+
+- `native/94ac8b4f/` — case 3, the four Listing captures. Those surfaces did not change
+  afterwards (`git diff --name-only 94ac8b4f..7c9b270b` lists only FeedRow, HomeFeature, their
+  test and this file), so they carry.
+- `native/7c9b270b/` — cases 1 and 2, the four Home captures, retaken after the feed-row fixes.
+
+Each directory's `capture-log.txt` records, per file, the content size and appearance read back
+FROM THE DEVICE at capture time rather than asserted by me. Every file is named
 `…-Coperated.png`. **None of them is reviewed evidence until B reviews it.**
 
 Cases 1, 2 and 3 of B's five are captured. Case 4 and case 5 are blocked; see below.
@@ -95,6 +103,12 @@ Operating notes for whoever drives the device next, both learned the hard way he
   accessibility tree, so the missing capability is an accessibility inspector attached to the
   simulator. Recorded separately from the visible-text result, which is the owner's rule: a
   complete spoken string does not excuse clipped visible text.
+- **A judgement call to reverse if the owner disagrees:** the AMOUNT on the feature and the feed
+  row now takes `MAX_DISPLAY_FONT_SCALE`, the app's existing cap for display type. Stacking alone
+  stopped the amount clipping and then let it wrap mid-number — "$132.0" then "0" — which misreads
+  about as easily as a lost digit. The cap bounds the numeral only; the caption, the meta lines and
+  everything else keep scaling all the way, and the spoken label carries the full figure. It is one
+  prop per surface to remove.
 - **Feed-row titles and date lines still truncate at 3xl and a3xl** (`case1-home-3xl-light-feedrow`).
   Left alone deliberately: a feed row is a fixed-height row whose two-line title cap may be the
   approved design, and B's case 1 exists so B can compare it against that design. It is a finding
