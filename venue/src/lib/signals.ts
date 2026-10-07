@@ -86,7 +86,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "act_now",
       title: stale.length === 1 ? `${d.label} last synced ${mins} minutes ago` : `${stale.length} scanners are out of sync — longest ${mins} minutes`,
       consequence: "It still admits people from the list it already has, but tickets sold or refunded since then are not on that list. Anyone holding one gets turned away.",
-      action: { label: "Open the door screen", href: eventHref(tonight[0].event.eventId, "/door") },
+      action: { label: "Go to check-in", href: eventHref(tonight[0].event.eventId, "/door") },
     });
   } else if (devices.length > 0) {
     ok("device_stale", `${devices.length} scanner${devices.length === 1 ? "" : "s"} in sync`);
@@ -119,7 +119,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "act_now",
       title: `Holds on ${expiring[0].ticketTypeName} expire within the hour`,
       consequence: "When they expire the seats go back on public sale by themselves. If they were being held for someone, that is the moment you lose them.",
-      action: { label: "Open inventory", href: eventHref(eid ?? "", "/inventory") },
+      action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   } else {
     ok("holds_expiring", "No holds expiring in the next hour");
@@ -133,8 +133,8 @@ export function buildSignals(input: SignalInput): SignalSet {
       id: "sold_out",
       severity: "soon",
       title: `${soldOut[0].ticketTypeName} for ${titleOf(eid)} is sold out`,
-      consequence: "People are still arriving at a page with nothing to buy. Adding a release is the only way to sell more; nothing does it automatically.",
-      action: { label: "Open inventory", href: eventHref(eid ?? "", "/inventory") },
+      consequence: "People are still arriving at a page with nothing to buy. Putting more tickets on sale is the only way to sell more; nothing does it automatically.",
+      action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
   const low = warnings.filter((w) => w.kind === "low");
@@ -145,7 +145,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "soon",
       title: `${low[0].ticketTypeName} is nearly gone — ${low[0].detail}`,
       consequence: "At this rate it sells out before doors, and the next person to look sees nothing available.",
-      action: { label: "Open inventory", href: eventHref(eid ?? "", "/inventory") },
+      action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
   if (soldOut.length === 0 && low.length === 0) ok("stock", "Every release still has tickets");
@@ -159,7 +159,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "worth_knowing",
       title: `Door stock for ${titleOf(eid)} has not sold a single ticket`,
       consequence: "Those seats were deliberately kept back off the internet for walk-ups. If the box office is not selling them, they stay empty.",
-      action: { label: "Open inventory", href: eventHref(eid ?? "", "/inventory") },
+      action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
 
@@ -177,7 +177,7 @@ export function buildSignals(input: SignalInput): SignalSet {
         severity: "soon",
         title: `${e.title} cannot go on sale yet`,
         consequence: `${blocker} Until that is done the event is announced but nobody can buy a ticket.`,
-        action: { label: "Open event setup", href: eventHref(e.eventId) },
+        action: { label: "Go to the event", href: eventHref(e.eventId) },
       });
     }
   }
@@ -190,7 +190,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "worth_knowing",
       title: `${drafts.length} event${drafts.length === 1 ? " is" : "s are"} still a draft`,
       consequence: "A draft is visible only to your staff. It is not announced and it is not selling.",
-      action: { label: drafts.length === 1 ? `Open ${drafts[0].title}` : "See all events", href: drafts.length === 1 ? eventHref(drafts[0].eventId) : link(`${basePath}/events`) },
+      action: { label: drafts.length === 1 ? `Go to ${drafts[0].title}` : "See all events", href: drafts.length === 1 ? eventHref(drafts[0].eventId) : link(`${basePath}/events`) },
     });
   }
 

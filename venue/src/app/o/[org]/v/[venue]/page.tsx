@@ -6,6 +6,7 @@ import { canReadEvents, PRINCIPAL_LABEL } from "@/lib/roles";
 import { buildSignals, doorSummary, stillAvailable } from "@/lib/signals";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { Tonight } from "@/components/overview/Tonight";
+import { Page } from "@/components/ui/Page";
 import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
@@ -69,11 +70,8 @@ export default async function OverviewPage({ params, searchParams }: { params: P
   return (
     <Shell ctx={ctx} event={null} active="overview" signedInAs={p.signedInAs}>
       <PreviewOutcome did={p.first("did")} />
-      <header className="mb-4">
-        <p className="eyebrow text-dim">{VENUE.name}</p>
-        <h1 className="text-2xl font-bold">Tonight</h1>
-      </header>
-      {!readable ? (
+      <Page eyebrow={VENUE.name} title="Today" lead="What is happening, what needs you, and the one thing to do about it.">
+        {!readable ? (
         <DeniedState surface="This dashboard" roleLabel={PRINCIPAL_LABEL[ctx.role]} />
       ) : ctx.state === "loading" ? (
         <Skeleton rows={8} />
@@ -81,7 +79,8 @@ export default async function OverviewPage({ params, searchParams }: { params: P
         <ErrorState lost="Tonight" read={failedRead ?? "catalog.event"} retryHref={self} />
       ) : (
         <Tonight signals={ready.signals} clear={ready.clear} door={ready.door} events={ready.events} available={ready.available} ctx={ctx} basePath={basePath} timeZone={p.timeZone} now={p.now} />
-      )}
+        )}
+      </Page>
     </Shell>
   );
 }

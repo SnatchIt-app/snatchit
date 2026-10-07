@@ -19,12 +19,12 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
   const navAllowed = !dbMode || (ctx.verifiedRole === true && base !== null);
   const evBase = event && base ? `${base}/events/${event.eventId}` : null;
   const items: { key: typeof active; label: string; short: string; href: string; show: boolean }[] = [
-    { key: "overview", label: "Tonight", short: "TN", href: base ? withPreview(base, ctx) : "", show: !!base && canReadEvents(ctx.role) },
+    { key: "overview", label: "Today", short: "TD", href: base ? withPreview(base, ctx) : "", show: !!base && canReadEvents(ctx.role) },
     { key: "events", label: "Events", short: "EV", href: base ? withPreview(`${base}/events`, ctx) : "", show: !!base && canReadEvents(ctx.role) },
-    { key: "setup", label: "Event setup", short: "SET", href: evBase ? withPreview(evBase, ctx) : "", show: !!evBase && canReadEvents(ctx.role) },
-    { key: "inventory", label: "Inventory", short: "INV", href: evBase ? withPreview(`${evBase}/inventory`, ctx) : "", show: !!evBase && canReadTicketTypes(ctx.role) },
-    { key: "attendees", label: "Attendees", short: "ATT", href: evBase ? withPreview(`${evBase}/attendees`, ctx) : "", show: !!evBase && (rosterClasses(ctx.role) !== null || canManualLookup(ctx.role)) },
-    { key: "door", label: "Door", short: "DR", href: evBase ? withPreview(`${evBase}/door`, ctx) : "", show: !!evBase && canReadDoor(ctx.role) },
+    { key: "setup", label: "Event", short: "EV", href: evBase ? withPreview(evBase, ctx) : "", show: !!evBase && canReadEvents(ctx.role) },
+    { key: "inventory", label: "Tickets", short: "TK", href: evBase ? withPreview(`${evBase}/inventory`, ctx) : "", show: !!evBase && canReadTicketTypes(ctx.role) },
+    { key: "attendees", label: "Guest list", short: "GL", href: evBase ? withPreview(`${evBase}/attendees`, ctx) : "", show: !!evBase && (rosterClasses(ctx.role) !== null || canManualLookup(ctx.role)) },
+    { key: "door", label: "Check-in", short: "CI", href: evBase ? withPreview(`${evBase}/door`, ctx) : "", show: !!evBase && canReadDoor(ctx.role) },
   ];
   const visible = navAllowed ? items.filter((i) => i.show) : [];
 
@@ -172,26 +172,18 @@ function ContextBar({ ctx, signedInAs }: { ctx: PreviewContext; signedInAs?: str
   );
 }
 
-/** Fixture mode: the sample organization and venue switchers. */
+/**
+ * One organisation, one venue in the sample data — so these were two dropdowns
+ * that could not be changed. A control that offers no choice reads as broken;
+ * it is a line of text instead. (REMAINING_WORK U5.)
+ */
 function FixtureSwitchers({ ctx }: { ctx: PreviewContext }) {
   return (
-    <>
-      <label className="ml-auto flex min-w-0 max-w-full items-center gap-1 text-xs text-muted">
-        Organization
-        <select className="field !w-auto !py-0.5 text-xs" defaultValue={ORG.orgId} aria-label="Organization">
-          <option value={ORG.orgId}>{ORG.displayName}</option>
-        </select>
-      </label>
-      <label className="flex min-w-0 max-w-full items-center gap-1 text-xs text-muted">
-        Venue
-        <select className="field !w-auto !py-0.5 text-xs" defaultValue={VENUE.venueId} aria-label="Venue">
-          <option value={VENUE.venueId}>{VENUE.name}</option>
-        </select>
-      </label>
-      <span className="text-xs text-dim">
-        {PRINCIPAL_LABEL[ctx.role]} · {VENUE.timeZone}
-      </span>
-    </>
+    <span className="ml-auto flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted">
+      <span className="text-ink">{VENUE.name}</span>
+      <span className="text-dim">·</span>
+      <span>{PRINCIPAL_LABEL[ctx.role]}</span>
+    </span>
   );
 }
 

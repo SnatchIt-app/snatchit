@@ -1,45 +1,58 @@
 @import "tailwindcss";
 
 /*
- * Snatch It venue dashboard (preview) — LIGHT appearance (owner request 2026-09-10: white
- * surfaces for easier navigation and analytics reading). Same brand system as
- * web/ (snatchitapp.com measured values) — #FF1A1A red accents with black-on-red
- * CTAs, red-tinted hairlines, radius 0 everywhere, Inter for everything — but
- * on a white canvas with dark ink. Every colour below is chosen for WCAG AA on
- * white: body/secondary text ≥ 4.5:1, status colours ≥ 4.5:1 as text and ≥ 3:1
- * as borders/fills, focus ring ≥ 3:1.
+ * Snatch It venue dashboard — the marketing site's white sections, measured.
  *
- * Token roles:
- *   bg / card / field   white primary surfaces
- *   raised               very light gray — distinguishes sections, hover rows,
- *                        disabled fields
- *   ink / muted / dim    primary, secondary, tertiary text (#111 / #4a4a4a / #6b6b6b)
- *   primary              brand red for fills and borders (CTAs stay black-on-red)
- *   primary-ink          brand red darkened for TEXT on white (#c40000, 5.9:1)
- *   line*                red-tinted hairlines (brand) and neutral hairlines
- *   success/warning/danger/info  status colours legible as text on white
+ * Reference: snatchitapp.com, read from computed styles on 2026-10-06. The site
+ * is black, but it has four white `section.chapter` blocks and those are the
+ * reference the owner asked for:
+ *   · "UP NEXT IN MIAMI"        — the event list rows (the pattern for any list here)
+ *   · "MIAMI DOESN'T GO HOME EARLY."
+ *   · "FOR VENUES & ORGANIZERS — FILL THE ROOM. OWN THE CROWD."  (venue-facing)
+ *   · "THE JOURNAL"
+ *
+ * Its own tokens for those sections, copied rather than invented:
+ *   --sec-bg #fff · --sec-fg #0b0b0b · --sec-fg-muted #0b0b0b8f (56%)
+ *   --sec-accent #d00 · --sec-border #0b0b0b24 (14%) · --radius 0
+ *
+ * Two corrections to what this dashboard had before, both from the measurement:
+ *   1. Hairlines on white are a NEUTRAL 14% ink, not red-tinted. The red
+ *      hairline belongs to the black site; on white it reads as a warning.
+ *   2. Accent text on white is #DD0000, not #FF1A1A. #FF1A1A is kept for one
+ *      thing only — the filled primary button with black text, exactly as the
+ *      site's "HOST AN EVENT" CTA does it.
+ *
+ * Type: Oswald 700 uppercase for display headings and the name of a thing in a
+ * list; Inter sentence case for everything a person has to read or operate.
+ * The site's own rule — "uppercase restraint: display type, labels, buttons
+ * only; never on body text".
  */
 @theme inline {
+  /* Surfaces — white, with one very light tint for a hover row or a quiet strip. */
   --color-bg: #ffffff;
   --color-card: #ffffff;
   --color-field: #ffffff;
-  --color-raised: #f5f5f6;
-  --color-overlay: rgba(17, 17, 17, 0.45);
+  --color-raised: #fafafa;
+  --color-overlay: rgba(11, 11, 11, 0.45);
 
-  --color-ink: #111111;
-  --color-muted: #4a4a4a;
-  --color-dim: #6b6b6b;
-  --color-placeholder: #6b6b6b;
+  /* Ink ladder, from the site's white sections. */
+  --color-ink: #0b0b0b;
+  --color-muted: rgba(11, 11, 11, 0.66);
+  --color-dim: rgba(11, 11, 11, 0.58);
+  --color-placeholder: rgba(11, 11, 11, 0.58);
 
+  /* Red: #FF1A1A fills a primary button (black text). #DD0000 is red as text. */
   --color-primary: #ff1a1a;
-  --color-primary-ink: #c40000;
-  --color-primary-muted: #cc0000;
-  --color-primary-soft: rgba(255, 26, 26, 0.08);
+  --color-primary-ink: #dd0000;
+  --color-primary-muted: #c40000;
+  --color-primary-soft: rgba(255, 26, 26, 0.06);
 
-  --color-line: rgba(255, 26, 26, 0.28);
-  --color-line-strong: rgba(204, 0, 0, 0.5);
-  --color-line-neutral: rgba(17, 17, 17, 0.12);
+  /* Hairlines: neutral ink, as measured. Red is no longer a line colour. */
+  --color-line: rgba(11, 11, 11, 0.14);
+  --color-line-strong: rgba(11, 11, 11, 0.28);
+  --color-line-neutral: rgba(11, 11, 11, 0.14);
 
+  /* Status. Reserved for meaning — never decoration. */
   --color-success: #15803d;
   --color-warning: #b45309;
   --color-danger: #c40000;
@@ -47,6 +60,7 @@
 
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-oswald), "Oswald", Impact, "Arial Black", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --radius-none: 0;
@@ -73,7 +87,7 @@
 * {
   border-radius: 0 !important;
   scrollbar-width: thin;
-  scrollbar-color: #c4c4c4 transparent;
+  scrollbar-color: #c9c9c9 transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -88,7 +102,7 @@
 
 body {
   background: #ffffff;
-  color: #111111;
+  color: #0b0b0b;
   font-family: var(--font-sans);
   /* rem, not px: the browser/OS text-size setting must move every size on the
      page together. See --text-* below; no utility may use a px font-size. */
@@ -103,6 +117,65 @@ body {
 ::selection {
   background: #ff1a1a;
   color: #000;
+}
+
+/*
+ * Display type. Oswald 700, uppercase, tight leading and slightly negative
+ * tracking — the measured treatment of the site's white-section headings.
+ * Applied by class, never globally, so no label or control picks it up.
+ */
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+  color: #0b0b0b;
+}
+.display-xl {
+  font-size: clamp(2.25rem, 6vw, 3.5rem);
+  line-height: 0.88;
+  letter-spacing: -0.03em;
+}
+.display-lg {
+  font-size: clamp(1.5rem, 3.4vw, 2rem);
+}
+.display-md {
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * Section eyebrow — the site's own: Inter 400, 12px, uppercase, 0.45em
+ * tracking, accent red. The one place wide tracking is allowed.
+ */
+.eyebrow-accent {
+  font-family: var(--font-sans);
+  font-size: var(--text-label);
+  font-weight: 400;
+  letter-spacing: 0.45em;
+  text-transform: uppercase;
+  color: #dd0000;
+}
+
+/*
+ * Secondary action. The marketing site has no filled secondary button — it
+ * uses a tracked uppercase text link with an arrow. Copied.
+ */
+.arrow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  font-size: var(--text-control);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(11, 11, 11, 0.66);
+  transition: color 150ms ease;
+}
+.arrow-link:hover {
+  color: #dd0000;
 }
 
 :focus-visible {
@@ -128,14 +201,14 @@ body {
 .field {
   width: 100%;
   background: #ffffff;
-  color: #111111;
-  border: 1px solid rgba(17, 17, 17, 0.22);
+  color: #0b0b0b;
+  border: 1px solid rgba(11, 11, 11, 0.22);
   padding: 0.5rem 0.75rem;
   font-size: var(--text-body);
   max-width: 100%;
 }
 .field:hover:not(:disabled):not(:focus) {
-  border-color: rgba(17, 17, 17, 0.4);
+  border-color: rgba(11, 11, 11, 0.45);
 }
 .field:focus {
   border-color: #ff1a1a;
@@ -145,12 +218,12 @@ body {
 .field:disabled,
 .field[aria-disabled="true"] {
   background: #f5f5f6;
-  color: #6b6b6b;
-  border-color: rgba(17, 17, 17, 0.12);
+  color: rgba(11, 11, 11, 0.58);
+  border-color: rgba(11, 11, 11, 0.14);
   cursor: not-allowed;
 }
 .field::placeholder {
-  color: #6b6b6b;
+  color: rgba(11, 11, 11, 0.58);
 }
 select.field {
   appearance: none;
@@ -175,10 +248,11 @@ select.field:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  padding: 0.75rem 1.5rem;
   font-size: var(--text-control);
   font-weight: 700;
-  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
   border: 1px solid transparent;
   cursor: pointer;
   /* A long label wraps rather than pushing the page sideways — at 200% text a
@@ -208,12 +282,12 @@ select.field:disabled {
 }
 .btn-ghost {
   background: transparent;
-  color: #111111;
-  border-color: rgba(17, 17, 17, 0.3);
+  color: #0b0b0b;
+  border-color: rgba(11, 11, 11, 0.28);
 }
 .btn-ghost:hover:not(:disabled) {
-  border-color: #ff1a1a;
-  background: rgba(255, 26, 26, 0.06);
+  border-color: #0b0b0b;
+  background: #fafafa;
 }
 .btn-ghost:active:not(:disabled) {
   background: rgba(255, 26, 26, 0.12);
@@ -225,7 +299,7 @@ select.field:disabled {
 }
 
 .link {
-  color: #111111;
+  color: #0b0b0b;
   text-decoration: underline;
   text-decoration-color: rgba(196, 0, 0, 0.5);
   text-underline-offset: 2px;
@@ -239,9 +313,9 @@ kbd {
   font-family: var(--font-mono);
   font-size: var(--text-micro);
   padding: 1px 5px;
-  border: 1px solid rgba(17, 17, 17, 0.25);
+  border: 1px solid rgba(11, 11, 11, 0.25);
   background: #f5f5f6;
-  color: #4a4a4a;
+  color: rgba(11, 11, 11, 0.66);
 }
 
 /* Data tables. White rows, gray hairlines, red header rule; hover and
@@ -257,20 +331,20 @@ kbd {
   font-weight: 600;
   font-size: var(--text-label);
   letter-spacing: 0.02em;
-  color: #4a4a4a;
+  color: rgba(11, 11, 11, 0.66);
   padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid rgba(204, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(11, 11, 11, 0.28);
   background: #fafafa;
   white-space: nowrap;
 }
 .data-table td {
   padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+  border-bottom: 1px solid rgba(11, 11, 11, 0.1);
   vertical-align: top;
 }
 .data-table tbody tr:hover,
 .data-table tbody tr:focus-within {
-  background: rgba(255, 26, 26, 0.05);
+  background: #fafafa;
 }
 .data-table tbody tr[aria-selected="true"] {
   background: rgba(255, 26, 26, 0.09);
@@ -298,7 +372,7 @@ summary:focus-visible {
   outline-offset: -2px;
 }
 details[open] > summary {
-  box-shadow: inset 0 -1px 0 rgba(17, 17, 17, 0.12);
+  box-shadow: inset 0 -1px 0 rgba(11, 11, 11, 0.14);
 }
 
 /* Inline code on white: a faint gray chip so identifiers stay scannable. */

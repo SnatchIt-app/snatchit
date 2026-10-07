@@ -114,7 +114,7 @@ describe("W1 — the overview answers 'what needs me now?'", () => {
     expect(out).toContain("Scanned in so far");
     expect(out).toContain("Scanners online");
     expect(out).toContain("Counted at this moment, not a total for the week.");
-    expect(out).toContain("other checks are clear");
+    expect(out).toMatch(/other check(s)? ran and found nothing/);
   });
 });
 
