@@ -310,6 +310,20 @@ workflow-file diagnosis; all four are folded in above.
      - without a sync-back, later merges conflict.
    - So the rule is "squash, check the tree, sync back", not "only squashes forever".
 
+**What cross-review caught, and the habit each error calls for at execution.**
+- **D's errors were mostly behaviour asserted without being run:**
+  - the console step order and its rollback;
+  - the web base;
+  - the squash "revert" claim;
+  - the CI trigger;
+  - the CLI cases.
+  The habit: run it, or state it as unverified.
+- **A's errors were mostly figures carried forward without being re-measured:**
+  - building the console release on the served commit without checking the branch tip;
+  - repeating the record's CLI sentence without checking its evidence.
+  The habit: re-read every identifier fresh at the step that uses it (Evidence limits, last item).
+- Every one was caught before execution. Each step's pass condition above is written so the habit applies itself.
+
 ## Evidence limits
 
 - No production read was made. Production facts come from recorded read-backs.
