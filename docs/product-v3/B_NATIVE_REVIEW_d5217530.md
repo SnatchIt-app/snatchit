@@ -84,3 +84,97 @@ Type at the largest standard and accessibility sizes · scrolling · safe areas.
 
 **The remembered event-name truncation remains withdrawn** until I reproduce it here with a capture,
 fixture, appearance and text size.
+
+---
+
+# Batch 2 — Listing, footer, reservation feedback, icons, Dynamic Type
+
+Same candidate, device, runtime and serving tree as batch 1. Captures in `native/d5217530/`.
+
+## The 62 pt figure is HARNESS evidence — and here is the consumer chrome beside it
+
+**Confirmed in source and on the device:** `app/_dev/v3-home.tsx` imports `HomeScreen` from
+`app/(tabs)/home` and renders it under the **`_dev` Slot**. The dock is supplied by
+`app/(tabs)/_layout.tsx` through its `tabBar` prop, so **the harness route carries no dock and not
+the tab layout's bottom inset**. My `790.0 pt` rule and `62.0 pt` remainder are therefore
+**harness measurements** and are labelled as such.
+
+**Consumer Home does render signed out** (`snatchit:///home` → `(tabs)/home`), with the real dock.
+Measured there (Dark, where the dock separates cleanly from the canvas):
+
+| | |
+|---|---|
+| dock band | **704.0 → 769.7 pt** (height 66.0 pt) |
+| gap below the dock | 82.0 pt |
+| top banner / safe area | 0 → 78.7 pt |
+
+The harness rule at 790.0 pt sits **86 pt below the dock's top edge**. I am **not** converting that
+into a consumer figure: the harness route lacks the dock, so the real screen's scroll padding and
+content offsets differ, and the only honest number comes from consumer Home **with feed content** —
+which needs an authenticated session. **Not established. Blocked on auth.** (The Light dock read is
+partial — a near-white dock on white canvas — so the band above is the Dark measurement.)
+
+Captures: `home-consumer-chrome-signedout-{light,dark}.png`.
+
+## Option B footer at rest — matches the approval
+
+`listing-live-flyer-light.png`. **Place a bid** first, full-width, filled red, with
+**“minimum $104.50 all-in” beneath the label *inside* the pill**. **Buy both now · $132.00** second,
+full-width, outlined, with “all-in, ends the auction” inside it. Quantity-aware label, price and
+sub-line all preserved. The choice is closed and is not reopened here.
+
+## Reservation feedback — verified, R-1 closes natively
+
+`listing-reserving-flyer-{light,dark}.png`, via `?reserving=1`. **No reservation was made.**
+
+**“Reserving…”, with its spinner, sits on the second-position outlined Buy Now — the button that is
+busy.** The first-position red bid pill is dimmed and carries **no** pending label. Buy Now keeps
+its sub-line. This is exactly the behaviour the ruling requires, and it is the defect I reported at
+`3c6f15a4` now fixed and confirmed on the device.
+
+One consequence, by design rather than defect: while reserving, Buy Now's label is replaced by
+“Reserving…”, so its price is not on screen for that moment. The minimum moves outside the bid pill
+in this state, which is the screen's existing rule that a dimmed control must not be the only place
+a state is written.
+
+## Icons — native rendering, recorded separately from the source finding
+
+**F-91-6 closes.** Measured off the native capture, the Filters glyph is **three bars of 58, 46 and
+34 device px** — decreasing, a filter mark. At `91062ab1` it measured three *equal* 41 px bars, a
+hamburger. The search control is a drawn magnifier. Both are vector shapes.
+
+**This is separate evidence from the source cmap finding** (`4882cd6a`), which showed four of five
+glyphs absent from Inter 400/600 and Oswald 700. That finding described character-based icons; these
+are no longer characters, so the cmap gap no longer reaches them. The source finding stands as
+history; the native result above is what the current candidate draws.
+
+## Dynamic Type — reproduced, with the remembered finding withdrawn
+
+Home feature, Light, `?art=flyer`, three sizes. **The poster is unaffected at every size**, as an
+image should be.
+
+| content size | identity block below the poster |
+|---|---|
+| `large` (default) | all four lines complete |
+| `extra-extra-extra-large` (largest **standard**) | “2 × GA · 6 bids · **Ends…**” — the end time is cut |
+| `accessibility-extra-extra-extra-large` | “$99.00 / **current bid, al…**” — **“all-in” is cut** |
+
+**The remembered one-character collapse (“B” / “i…”) is NOT reproduced at either size and is
+withdrawn.** The name renders fully at the largest standard size.
+
+**What I am opening, and at what strength.** The a3xl case cuts **“all-in”** off the price caption.
+That is not a title ellipsis — it is the qualifier every pricing ruling on this product depends on,
+and a reader at that size sees a bare “$99.00”. Visually it is inaccessible. **Whether assistive
+technology still exposes the full string is not established here** — I have no accessibility
+inspection in this session — and that is the check that decides whether this is a presentation
+problem or an information one. **C: confirm the a11y value, then either let it wrap or shorten the
+caption so “all-in” survives.** The `Ends…` cut at the largest standard size is the same class, one
+step milder.
+
+## Blocked, concretely
+
+**Scrolling is not reviewable in this session.** `xcrun simctl` injects no touch input, and the
+simulator MCP tool that provides tap/swipe is unavailable here. So scroll behaviour, and anything
+below the fold at large text sizes — including the **feed-row title** the owner asked me to compare
+against the approved row design — **cannot be established by me on this device**. Everything above
+was reached by deep link, which needs no input. C, or an attended session, can run the scroll checks.
