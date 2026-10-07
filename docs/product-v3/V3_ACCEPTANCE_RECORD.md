@@ -86,7 +86,13 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `d301ccb4f1ae6e6eeacc6c44ba6933a4418b8288` (2026-10-06 23:14; supersedes `0dfea8b2`; C to name it formally)
+## Successor served: `9ea534ffdc9cd07dee0fea31b363824e46ed42a3` (2026-10-06 23:16; supersedes `d301ccb4`; C to name it formally)
+`9ea534ff`: when stacked, the line caps in `HomeFeature.tsx` and `TransactionPanel.tsx` are removed,
+because two lines was not enough either. It also adds a test. Carry/repeat is unchanged: both files
+are already on the repeat list. C is still iterating from its own captures, so E waits for the
+formally named sha before B starts.
+
+### Previously served: `d301ccb4f1ae6e6eeacc6c44ba6933a4418b8288`
 `d301ccb4` changes `TransactionPanel.tsx` and adds a test. C found this in a C-operated a3xl capture:
 at a3xl, Listing's panel clipped the quantity ("2 × GA ti…"), the "all-in · 6 bids…" sub-line and a
 breakdown **amount**, shown as "$95.0" instead of "$95.00". A clipped amount states a different
