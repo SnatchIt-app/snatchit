@@ -42,6 +42,7 @@ import { useEffect, useMemo } from 'react';
 import SearchScreen, { type SearchFixture } from '@/app/(tabs)/explore';
 import CreateListingScreen, { type CreateFixture } from '@/src/screens/CreateListingScreen';
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listArt } from '@/src/lib/media/harnessArt';
 import { useAppearancePreference } from '@/src/theme/appearance';
 import type { Listing, Neighborhood, RiskTier } from '@/src/types';
 
@@ -156,8 +157,8 @@ const RISK_FIXTURES: Record<string, CreateFixture['riskBanner']> = {
 };
 
 export default function V3SearchCreateHarness() {
-  const { screen, variant, risk, appearance } = useLocalSearchParams<{
-    screen?: string; variant?: string; risk?: string; appearance?: string;
+  const { screen, variant, risk, appearance, art } = useLocalSearchParams<{
+    screen?: string; variant?: string; risk?: string; appearance?: string; art?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -175,11 +176,22 @@ export default function V3SearchCreateHarness() {
     return banner ? { ...base, riskBanner: banner } : base;
   }, [variant, risk]);
 
+  /*
+   * `?art=` gives every result row the selected poster (`all` cycles the shapes). The default stays
+   * what it was — SEARCH_FIXTURE_ROWS carries no artwork on purpose (CFT-106), so the monogram
+   * plate is still what an unparameterised capture shows.
+   */
+  const searchFixture = useMemo(() => {
+    const base = variant === 'empty' ? SEARCH_FIXTURE_EMPTY : SEARCH_FIXTURE;
+    const covers = listArt(art, base.rows.length);
+    return { ...base, rows: base.rows.map((l, i) => (covers[i] ? { ...l, cover_image_path: covers[i] } : l)) };
+  }, [variant, art]);
+
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 
   switch (screen) {
     case 'search':
-      return <SearchScreen fixture={variant === 'empty' ? SEARCH_FIXTURE_EMPTY : SEARCH_FIXTURE} />;
+      return <SearchScreen fixture={searchFixture} />;
     case 'create':
       return <CreateListingScreen fixture={createFixture} />;
     default:

@@ -29,6 +29,7 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listArt } from '@/src/lib/media/harnessArt';
 import { payControl, type PayControlInput } from '@/src/lib/checkout/payControl';
 import CheckoutView, {
   CheckoutShell,
@@ -234,14 +235,22 @@ export const CHECKOUT_STATES: Record<string, CheckoutViewProps> = {
   },
 };
 
+/** `?art=` for the order identity — one poster, since checkout shows one event. */
+function identityFor(art: string | undefined): CheckoutIdentity {
+  const covers = listArt(art, 1);
+  return { ...IDENTITY, cover: covers[0] };
+}
+
 export default function V3CheckoutHarness() {
-  const { state, appearance } = useLocalSearchParams<{ state?: string; appearance?: string }>();
+  const { state, appearance, art } = useLocalSearchParams<{ state?: string; appearance?: string; art?: string }>();
   // `?appearance=light|dark` drives the comparison capture from the app's own preference, the same
   // one Settings writes — never a browser emulation flag.
   const { setPreference } = useAppearancePreference();
   useEffect(() => {
     if (appearance === 'light' || appearance === 'dark' || appearance === 'system') setPreference(appearance);
   }, [appearance]);
+
+  const identity = identityFor(art);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 
@@ -257,7 +266,7 @@ export default function V3CheckoutHarness() {
           copy={outcome === 'pending'
             ? { title: 'Finishing your order', body: "Your payment went through and we are finishing the order. This can take a moment; don't pay again." }
             : { title: 'Payment received', body: "Your payment went through, but we couldn't complete this order. Please don't pay again — contact support and we'll sort it out right away." }}
-          identity={IDENTITY}
+          identity={identity}
           isBuyNow
           transferId={outcome === 'completed' ? 'fixture-transfer' : null}
           purchaseKey={`fixture-${state}`}
@@ -276,11 +285,11 @@ export default function V3CheckoutHarness() {
             body: 'A refund of $99.00 is recorded against this order. Nothing further is owed.',
             cta: { label: 'Back to home', href: '/(tabs)/home' },
           }}
-          identity={IDENTITY}
+          identity={identity}
         />
       </CheckoutShell>
     );
   }
 
-  return <CheckoutView {...(CHECKOUT_STATES[state ?? 'ready'] ?? CHECKOUT_STATES.ready)} />;
+  return <CheckoutView {...(CHECKOUT_STATES[state ?? 'ready'] ?? CHECKOUT_STATES.ready)} identity={identity} />;
 }

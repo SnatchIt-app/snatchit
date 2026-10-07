@@ -124,8 +124,15 @@ describe('the v3-tickets harness — real component, literal fixtures, gated rou
   it('TK9: the three required states exist — populated, past/expired, empty — and empty is rows, not a failure', () => {
     const h = strip(read('app/_dev/v3-tickets.tsx'));
     expect(h).toMatch(/case 'empty': return \{ rows: \[\] \};/);
-    expect(h).toMatch(/case 'past': return \{ rows: PAST \};/);
-    expect(h).toMatch(/default: return \{ rows: POPULATED \};/);
+    /*
+     * The sets now pass through the `?art=` override (2026-10-06), so the literal moved. WHICH set
+     * each state renders is what this pins, and the override cannot change a set's membership or
+     * its order — it maps rows one to one, which the next two lines hold it to.
+     */
+    expect(h).toMatch(/case 'past': return \{ rows: withTicketArt\(PAST, art\) \};/);
+    expect(h).toMatch(/default: return \{ rows: withTicketArt\(POPULATED, art\) \};/);
+    expect(h).toMatch(/function withTicketArt\([\s\S]*?return rows\.map\(/);
+    expect(h).not.toMatch(/function withTicketArt\([\s\S]*?rows\.(sort|filter|reverse)\(/);
     // The past set carries every past ownership word the boards' badge family names.
     for (const word of ["ownership_status: 'used'", "ownership_status: 'expired'", "ownership_status: 'void'"]) {
       expect(h).toContain(word);

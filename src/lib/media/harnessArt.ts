@@ -87,6 +87,33 @@ export function withArt<T extends ArtRow>(rows: readonly T[], art: string | unde
 }
 
 /**
+ * The shapes a list harness cycles through for `?art=all`, in the order a reviewer reads them:
+ * the target ratio first, then the three that have to be FITTED rather than cropped, then the
+ * square, then the two photographs. Every entry is a key of ART above.
+ */
+export const ART_SHAPES = ['markers', 'tall', 'wide', 'square', 'flyer', 'subject', 'subject-wide'] as const;
+
+/**
+ * The poster each row of a LIST harness takes — My listings, Bids, Tickets, Search, Checkout.
+ *
+ * Every row takes the same poster, and that is the whole design. The Home defect was assuming
+ * `rows[0]` is the row the screen features; these screens order or group their rows too, so a
+ * per-screen "first row" rule would be four more chances to put the poster where nobody is
+ * looking. `all` gives each row a different shape instead, so one capture shows the fit across
+ * ratios without anything having to know the render order.
+ *
+ * An unknown key gives plates rather than being forwarded: the value arrives from a URL and ends
+ * up in the same artwork field a database row fills.
+ */
+export function listArt(art: string | undefined, rowCount: number): (string | null)[] {
+  const n = Math.max(0, rowCount);
+  const cycle = art === 'all'
+    ? ART_SHAPES.map((k) => ART[k]?.feature ?? null)
+    : [art && art !== 'all' ? (ART[art]?.feature ?? null) : null];
+  return Array.from({ length: n }, (_, i) => cycle[i % cycle.length] ?? null);
+}
+
+/**
  * The cover for a SINGLE-listing harness, where there is no feed and so no bucketing — the listing
  * under review is the featured thing by definition.
  *

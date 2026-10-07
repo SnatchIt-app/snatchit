@@ -29,6 +29,7 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listArt } from '@/src/lib/media/harnessArt';
 import { useAppearancePreference } from '@/src/theme/appearance';
 import MyListingsScreen, { type MyListingsFixture } from '@/app/my-listings';
 import BidsScreen, { type BidsFixture, type BidRow } from '@/app/(tabs)/bids';
@@ -79,14 +80,33 @@ const SELLER_LISTINGS = [
   },
 ] as Listing[];
 
-function myListingsFixtureFor(variant: string | undefined): MyListingsFixture {
+/**
+ * `?art=` for a LIST board: every row takes the selected poster (`all` cycles the shapes). Rows
+ * are mapped, never reordered, and a key that selects nothing leaves the row exactly as it was —
+ * so the plate stays the default and existing captures do not move.
+ */
+function withSellerArt(rows: Listing[], art: string | undefined): Listing[] {
+  const covers = listArt(art, rows.length);
+  return rows.map((l, i) => (covers[i] ? { ...l, cover_image_path: covers[i] } : l));
+}
+
+function withBidArt(rows: BidRow[], art: string | undefined): BidRow[] {
+  const covers = listArt(art, rows.length);
+  return rows.map((r, i): BidRow => {
+    const cover = covers[i];
+    if (!cover || !r.listing) return r;
+    return { ...r, listing: { ...r.listing, cover_image_path: cover } };
+  });
+}
+
+function myListingsFixtureFor(variant: string | undefined, art: string | undefined): MyListingsFixture {
   switch (variant) {
     case 'empty': return { listings: [] };
     case 'error': return { failure: 'error' };
     case 'offline': return { failure: 'offline' };
     default:
       return {
-        listings: SELLER_LISTINGS,
+        listings: withSellerArt(SELLER_LISTINGS, art),
         // The sold row's pending transfer — drives "Action needed — send the tickets".
         transfers: [{ listing_id: 'fixture-sl3', transferId: 'fixture-tr1', status: 'pending' }],
       };
@@ -175,21 +195,21 @@ const BIDS_PAST: BidRow[] = [
   },
 ];
 
-function bidsFixtureFor(variant: string | undefined): BidsFixture {
+function bidsFixtureFor(variant: string | undefined, art: string | undefined): BidsFixture {
   switch (variant) {
     case 'empty': return { userId: FIXTURE_USER, rows: [] };
-    case 'past': return { userId: FIXTURE_USER, rows: BIDS_PAST };
-    case 'all': return { userId: FIXTURE_USER, rows: [...BIDS_ACTIVE, ...BIDS_PAST] };
-    case 'failed': return { userId: FIXTURE_USER, rows: BIDS_ACTIVE, refreshFailed: 'error' };
+    case 'past': return { userId: FIXTURE_USER, rows: withBidArt(BIDS_PAST, art) };
+    case 'all': return { userId: FIXTURE_USER, rows: withBidArt([...BIDS_ACTIVE, ...BIDS_PAST], art) };
+    case 'failed': return { userId: FIXTURE_USER, rows: withBidArt(BIDS_ACTIVE, art), refreshFailed: 'error' };
     case 'error': return { failure: 'error' };
     case 'offline': return { failure: 'offline' };
-    default: return { userId: FIXTURE_USER, rows: BIDS_ACTIVE };
+    default: return { userId: FIXTURE_USER, rows: withBidArt(BIDS_ACTIVE, art) };
   }
 }
 
 export default function V3MyListingsBidsHarness() {
-  const { screen, variant, appearance } = useLocalSearchParams<{
-    screen?: string; variant?: string; appearance?: string;
+  const { screen, variant, appearance, art } = useLocalSearchParams<{
+    screen?: string; variant?: string; appearance?: string; art?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -203,8 +223,8 @@ export default function V3MyListingsBidsHarness() {
 
   // Stable per variant: each screen's load closes over the fixture, so an identity that
   // changed every render would re-run its focus effect for nothing.
-  const myListingsFixture = useMemo(() => myListingsFixtureFor(variant), [variant]);
-  const bidsFixture = useMemo(() => bidsFixtureFor(variant), [variant]);
+  const myListingsFixture = useMemo(() => myListingsFixtureFor(variant, art), [variant, art]);
+  const bidsFixture = useMemo(() => bidsFixtureFor(variant, art), [variant, art]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 

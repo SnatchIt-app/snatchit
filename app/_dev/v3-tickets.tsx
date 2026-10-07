@@ -27,6 +27,7 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
+import { listArt } from '@/src/lib/media/harnessArt';
 import { useAppearancePreference } from '@/src/theme/appearance';
 import TicketsScreen, { type TicketsFixture } from '@/app/(tabs)/tickets';
 import TransferReceiveScreen, { type OrderFixture } from '@/app/transfer/receive/[id]';
@@ -92,19 +93,49 @@ const PAST: MyTicketGroup[] = [
   },
 ];
 
-function fixtureFor(variant: string | undefined): TicketsFixture {
+/**
+ * `?art=` for the ticket board: every group takes the selected poster (`all` cycles the shapes).
+ *
+ * A bundled poster asserts nothing about where real ticket artwork comes from. These rows are on
+ * a different media contract from listings — `{ bucket: 'event-media', contract: 'v2' }` in
+ * TicketEventGroup — and the dev branch in `resolveImage` runs before anything storage-shaped
+ * happens, so the marker renders the same either way. What `artwork_ref` is MEANT to carry is a
+ * contract question for A and is untouched here.
+ */
+function withTicketArt(rows: MyTicketGroup[], art: string | undefined): MyTicketGroup[] {
+  const covers = listArt(art, rows.length);
+  return rows.map((g, i) => (covers[i] ? { ...g, artwork_ref: covers[i] } : g));
+}
+
+function fixtureFor(variant: string | undefined, art: string | undefined): TicketsFixture {
   switch (variant) {
     case 'empty': return { rows: [] };          // the state that ships today
-    case 'past': return { rows: PAST };
+    case 'past': return { rows: withTicketArt(PAST, art) };
     case 'error': return { failure: 'error' };  // first-load failure, F-22's other half
     case 'offline': return { failure: 'offline' };
-    default: return { rows: POPULATED };
+    default: return { rows: withTicketArt(POPULATED, art) };
   }
 }
 
+/**
+ * `screen=order` and `screen=send` mount the REAL Transfer screens, whose lead poster reads the
+ * listing cover rather than the ticket artwork — a different field, so it takes its own override.
+ */
+function withTransferArt<T extends { transfer: { listing?: { cover_image_path?: string | null } | null } }>(
+  fixture: T,
+  art: string | undefined,
+): T {
+  const covers = listArt(art, 1);
+  if (!covers[0] || !fixture.transfer.listing) return fixture;
+  return {
+    ...fixture,
+    transfer: { ...fixture.transfer, listing: { ...fixture.transfer.listing, cover_image_path: covers[0] } },
+  };
+}
+
 export default function V3TicketsHarness() {
-  const { screen, variant, appearance } = useLocalSearchParams<{
-    screen?: string; variant?: string; appearance?: string;
+  const { screen, variant, appearance, art } = useLocalSearchParams<{
+    screen?: string; variant?: string; appearance?: string; art?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -118,7 +149,7 @@ export default function V3TicketsHarness() {
 
   // Stable per variant: the screen's `load` closes over the fixture, so an identity that
   // changed every render would re-run its focus effect for nothing.
-  const fixture = useMemo(() => fixtureFor(variant), [variant]);
+  const fixture = useMemo(() => fixtureFor(variant, art), [variant, art]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 
@@ -128,10 +159,10 @@ export default function V3TicketsHarness() {
     case 'order':
       // The board's order state: seller_sent, mobile transfer via DICE, a $99.00 settled charge,
       // the review deadline from the server. Reads only; every action still needs the real server.
-      return <TransferReceiveScreen fixture={ORDER_FIXTURE} />;
+      return <TransferReceiveScreen fixture={withTransferArt(ORDER_FIXTURE, art)} />;
     case 'send':
       // The seller's marked-sent state from pkg8-send. Read short-circuit only.
-      return <TransferSendScreen fixture={SEND_FIXTURE} />;
+      return <TransferSendScreen fixture={withTransferArt(SEND_FIXTURE, art)} />;
     default:
       return <Redirect href="/" />;
   }

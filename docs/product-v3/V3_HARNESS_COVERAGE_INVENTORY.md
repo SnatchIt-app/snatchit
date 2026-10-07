@@ -10,23 +10,31 @@ E's finding). Both patterns repeat on the surfaces below.
 
 ## 1. Artwork selectors
 
-`?art=` exists on exactly two routes — `app/_dev/v3-home.tsx:243` and
-`app/_dev/v3-listing.tsx:290`. Every other event-image surface renders the missing-artwork
-plate and nothing else.
+`?art=` now exists on six routes. What is left uncovered is one screen that no dev route mounts
+at all.
 
-| Surface | Slot | Component | Harness route | Artwork today |
+| Surface | Slot | Component | Harness route | Artwork |
 |---|---|---|---|---|
-| Home feature + feed rows | `HOME_FEATURE_V3`, `FEED_ROW_ART`, `DISCOVERY_CARD` | HomeFeature, FeedRow, DiscoveryCard | `v3-home` | **`?art=` (10 keys)** |
-| Listing hero | `LISTING_HERO_V3` | ListingHero | `v3-listing` | **`?art=` (10 keys)** |
-| My listings rows | `SEARCH_RESULT` | SellerListingCard | `v3-mylistings-bids` | plate only — `cover_image_path: null` at `v3-mylistings-bids.tsx:108` |
-| Bids / purchases rows | `CHECKOUT_THUMBNAIL` | BidCard | `v3-mylistings-bids` | plate only — same fixture |
-| Tickets rows + ticket art | `SEARCH_RESULT`, `TICKET_ART` | TicketEventGroup | `v3-tickets` | plate only — `artwork_ref: null` at `v3-tickets.tsx:44` and `src/lib/tickets/fixtures.ts` |
-| Search results | `SEARCH_RESULT` | SellerListingCard | `v3-search-create` | plate only — `cover_image_path: null` at `v3-search-create.tsx:73`, deliberately for that fixture (CFT-106), but there is no way to select artwork either |
-| Checkout / Order identity | `CHECKOUT_THUMBNAIL` | OrderIdentity | `v3-checkout` | plate only — `cover: null` at `v3-checkout.tsx:46` |
-| Send / Receive | `FEED_ROW_ART` | `app/transfer/send/[id].tsx:393`, `app/transfer/receive/[id].tsx:481` | **none** | **Corrected after first writing this file.** `transfer-states` is not a harness for these screens: it renders `TransferStateBlocks` from synthetic props (`app/_dev/transfer-states.tsx:30-36`) and never imports the Send or Receive screen. Both posters sit in the screens, outside those blocks, so neither is in any harness. |
+| Home feature + feed rows | `HOME_FEATURE_V3`, `FEED_ROW_ART`, `DISCOVERY_CARD` | HomeFeature, FeedRow, DiscoveryCard | `v3-home` | `?art=`, feature-aware |
+| Listing hero | `LISTING_HERO_V3` | ListingHero | `v3-listing` | `?art=` |
+| My listings rows | `SEARCH_RESULT` | SellerListingCard | `v3-mylistings-bids?screen=mylistings` | `?art=`, every row |
+| Bids / purchases rows | `CHECKOUT_THUMBNAIL` | BidCard | `v3-mylistings-bids?screen=bids` | `?art=`, every row |
+| Tickets rows + ticket art | `SEARCH_RESULT`, `TICKET_ART` | TicketEventGroup | `v3-tickets?screen=tickets` | `?art=`, every group |
+| Search results | `SEARCH_RESULT` | SellerListingCard | `v3-search-create?screen=search` | `?art=`, every row |
+| Checkout / Order identity | `CHECKOUT_THUMBNAIL` | OrderIdentity | `v3-checkout` | `?art=`, one poster |
+| Send / Receive | `FEED_ROW_ART` | `app/transfer/send/[id].tsx:393`, `app/transfer/receive/[id].tsx:481` | `v3-tickets?screen=send`, `?screen=order` | `?art=`, one poster |
 | Public profile | `CHECKOUT_THUMBNAIL` | `app/profile/[id].tsx:64` | **none** | the screen is not mounted by any `app/_dev` route |
 
-**A bundled poster is contract-independent, so none of this needs a contract ruling.**
+**Twice-corrected row.** The Send/Receive row first named `transfer-states` as the harness, then
+said there was none. Both were wrong. `transfer-states` is a component gallery — it renders
+`TransferStateBlocks` from synthetic props (`app/_dev/transfer-states.tsx:30-36`) and imports
+neither screen — but `v3-tickets` does mount both, at `?screen=send` and `?screen=order`
+(`v3-tickets.tsx:32-33`), each from one fixed fixture whose listing carried
+`cover_image_path: null` (`v3-tickets.tsx:165`, inherited by `SEND_FIXTURE` through the spread).
+Recorded with the mistakes in it because the lesson is the one that produced the Home defect:
+a surface is wherever it is actually mounted, not wherever the name suggests.
+
+**A bundled poster is contract-independent, so none of this needed a contract ruling.**
 `resolveImage` takes the `dev-bundled:` branch "before anything storage-shaped happens"
 (`src/lib/media/url.ts:363-379`), so the marker renders identically whatever `bucket` or
 `contract` the surface declares. That matters here because Tickets is on a different contract
@@ -35,18 +43,18 @@ from listings — `{ bucket: 'event-media', contract: 'v2' }` at
 Supplying a bundled poster to a ticket asserts nothing about where real ticket artwork comes
 from; it only puts pixels in a 4:5 frame so the treatment can be judged.
 
-**For A, a separate question this inventory does not answer:** whether a ticket's
-`artwork_ref` is expected to carry the listing's cover, its own event artwork, or nothing.
-That is a contract question, not a presentation one, and no harness change should be read as
-settling it.
+**For A, a separate question none of this answers:** whether a ticket's `artwork_ref` is expected
+to carry the listing's cover, its own event artwork, or nothing. That is a contract question, not
+a presentation one, and no harness change should be read as settling it.
 
-**One rule for list harnesses, derived from the defect it avoids.** The Home selector put the
-poster on `rows[0]` and assumed that row was the feature; the screen buckets by event date, so
-it was the feature only by luck. My listings, Bids, Tickets and Search each order or group
-their rows too, so repeating "first row" per screen would repeat the same mistake four times.
-The list harnesses should therefore give **every** row the selected poster, with `art=all`
-giving each of the first rows a different shape — no ordering assumption anywhere, and several
-shapes visible in one capture.
+**One rule for the list harnesses: every row takes the selected poster.** The Home selector put
+the poster on `rows[0]` and assumed that row was the feature; the screen buckets by event date, so
+it was the feature only by luck. My listings, Bids, Tickets and Search each order or group their
+rows too, so a per-screen "first row" rule would have been four fresh chances at the same mistake.
+`?art=all` gives each of the first rows a different shape (`ART_SHAPES` in
+`src/lib/media/harnessArt.ts`), so one capture shows the fit across ratios and nothing anywhere
+has to know the render order. An unselected or unknown key leaves every row exactly as it was, so
+the plate stays the default and existing captures do not move.
 
 ## 2. Missing fixture states
 

@@ -191,3 +191,108 @@ describe('the controls cannot do anything but show things', () => {
     expect(listing).toMatch(/\{ \.\.\.base, reserving: true \}/);
   });
 });
+
+/*
+ * THE LIST HARNESSES (2026-10-06). My listings, Bids, Tickets, Search and Checkout rendered the
+ * missing-artwork plate and nothing else: `cover_image_path: null` at v3-mylistings-bids.tsx:108
+ * and v3-search-create.tsx:73, `artwork_ref: null` at v3-tickets.tsx:44, `cover: null` at
+ * v3-checkout.tsx:46.
+ *
+ * The rule is deliberately NOT "put the poster on the first row". That is the rule that produced
+ * the Home defect above, and these four screens order or group their rows too — so a per-screen
+ * "first row" would be four fresh chances to make the same mistake. Every row takes the selected
+ * poster instead, and `all` gives each of the first rows a different shape, so no ordering is
+ * assumed anywhere and one capture shows several shapes.
+ */
+describe('the list harnesses — every row, no ordering assumed', () => {
+  it('HA9: a selected key reaches every row, whatever order the screen renders them in', async () => {
+    const { listArt } = await import('../src/lib/media/harnessArt');
+    for (const n of [1, 3, 5, 12]) {
+      const covers = listArt('flyer', n);
+      expect(covers).toHaveLength(n);
+      expect(covers.every((c) => c === `${DEV_POSTER_PREFIX}flyer-dense-4x5`), `n=${n}`).toBe(true);
+    }
+  });
+
+  it('HA10: `all` gives each row a different shape, covering the ones the fit has to survive', async () => {
+    const { listArt, ART_SHAPES } = await import('../src/lib/media/harnessArt');
+    const covers = listArt('all', ART_SHAPES.length);
+    expect(new Set(covers).size).toBe(ART_SHAPES.length);
+    // The shapes a 4:5 frame has to handle: the target, taller, wider, square, and a photograph.
+    const names = covers.map((c) => String(c).slice(DEV_POSTER_PREFIX.length));
+    for (const needed of ['markers-4x5', 'markers-9x16', 'markers-16x9', 'markers-1x1', 'flyer-dense-4x5']) {
+      expect(names, `${needed} must be among the cycled shapes`).toContain(needed);
+    }
+    // Every cycled value is a real bundled poster, so none of them renders as a plate by accident.
+    for (const name of names) expect(DEV_POSTER_NAMES).toContain(name);
+    // It keeps cycling rather than running out, and rows past the cycle are still real posters.
+    const long = listArt('all', ART_SHAPES.length + 2);
+    expect(long).toHaveLength(ART_SHAPES.length + 2);
+    expect(long.every((c) => c != null)).toBe(true);
+  });
+
+  it('HA11: `missing`, nothing, and a crafted value all give plates — nothing is forwarded', async () => {
+    const { listArt } = await import('../src/lib/media/harnessArt');
+    for (const key of [
+      undefined, 'missing', 'MISSING', '../../etc/passwd', 'https://evil.example/x.png',
+      `${DEV_POSTER_PREFIX}not-a-real-name`, 'all ', '',
+    ]) {
+      expect(listArt(key, 3), `key=${String(key)}`).toEqual([null, null, null]);
+    }
+    // POSITIVE CONTROL: in the same run, a key that IS known returns posters — so the nulls above
+    // are the keys being refused and not the function being inert.
+    expect(listArt('markers', 2).every((c) => c != null)).toBe(true);
+  });
+});
+
+describe('the list harnesses — wired, and still unable to do anything', () => {
+  const ROUTES = {
+    'v3-mylistings-bids': ['cover_image_path'],
+    // `screen=order` and `screen=send` mount the real Transfer screens, whose poster reads the
+    // listing cover — a different field on the same route from the ticket rows' artwork_ref.
+    'v3-tickets': ['artwork_ref', 'cover_image_path'],
+    'v3-search-create': ['cover_image_path'],
+    'v3-checkout': ['cover'],
+  } as const;
+
+  it('HA12: each route reads ?art= and applies the shared rule', () => {
+    for (const route of Object.keys(ROUTES)) {
+      const src = code(`app/_dev/${route}.tsx`);
+      expect(src, `${route} accepts ?art=`).toMatch(/art\?: string/);
+      expect(src, `${route} uses the shared rule`).toContain('listArt(');
+      expect(src, `${route} imports one vocabulary`).toContain("from '@/src/lib/media/harnessArt'");
+    }
+  });
+
+  it('HA13: the selected poster is what lands in each artwork field', () => {
+    /*
+     * A positive pin rather than "there is no `field: null`". The defect was not the literal null
+     * — a fixture is entitled to show the plate — it was that no control could reach the field.
+     * So what is pinned is the reaching: every artwork field on these routes is assigned from the
+     * shared rule's output, under one local name so the wiring is readable in review.
+     */
+    for (const [route, fields] of Object.entries(ROUTES)) {
+      const src = code(`app/_dev/${route}.tsx`);
+      expect(src, `${route} computes the covers`).toMatch(/const covers = listArt\(art, /);
+      for (const field of fields) {
+        expect(src, `${route} must feed ${field} from the covers`).toMatch(
+          new RegExp(`${field}: covers\\[`),
+        );
+      }
+    }
+  });
+
+  it('HA14: the new control adds no capability to any of them', () => {
+    for (const route of Object.keys(ROUTES)) {
+      const src = code(`app/_dev/${route}.tsx`);
+      for (const forbidden of [
+        'reserve_buy_now', 'release_reservation', 'create-payment-intent', 'useSingleFlight',
+        'handleBuyNow', 'setReserving', 'confirmPayment', 'stripe', 'supabase',
+      ]) {
+        expect(src, `${route} must not reference ${forbidden}`).not.toContain(forbidden);
+      }
+      expect(src, `${route} is production-gated`).toMatch(/if \(!IS_SANDBOX_BUILD && !__DEV__\) return <Redirect/);
+      expect(src.length, `${route} was actually read`).toBeGreaterThan(1000);
+    }
+  });
+});
