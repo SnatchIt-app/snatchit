@@ -353,6 +353,44 @@ describe('home wiring — feature + rows (source pins; behaviour is the load-sta
  * large scale the two columns cannot both fit, so the block stacks and each line gets the full
  * width. The threshold is a pure function so it can be stated once and tested.
  */
+describe('FeedRow — the amount and its caption survive too', () => {
+  /*
+   * E found this in my own case-2 capture: the first feed row showed "$132.0…" and "all-i…" at
+   * a3xl. Same class as the panel's "$95.0" — a clipped AMOUNT states a different number — and
+   * the settled rule names "all-in" specifically, so it is not the design question the row's
+   * TITLE clamp is. The title and date clamps are left alone for B to compare against the
+   * approved row design.
+   *
+   * The row keeps its artwork on the left; it is the text and price that become a column, so the
+   * price gets the width instead of competing for it.
+   */
+  const priceOf = (host: HookHost) =>
+    findElement(host.output, (el) => el.type === 'Text' && String(el.props.children).startsWith('$'));
+  const captionOf = (host: HookHost) =>
+    findElement(host.output, (el) => el.type === 'Text' && el.props.children === 'all-in');
+
+  it('FR1: at the standard size the row is unchanged — art, text, price across', async () => {
+    rn.fontScale = 1;
+    const host = await mountRow();
+    expect(priceOf(host)?.props.children).toBe('$132.00');
+    expect(captionOf(host)).toBeDefined();
+    expect(findElement(host.output, (el) => el.type === 'View'
+      && (el.props as { testID?: string }).testID === 'feedrow-body')).toBeUndefined();
+  });
+
+  it('FR2: at a large scale the price moves under the text and nothing is capped', async () => {
+    rn.fontScale = 3.1;
+    const host = await mountRow();
+    const body = findElement(host.output, (el) => el.type === 'View'
+      && (el.props as { testID?: string }).testID === 'feedrow-body');
+    expect(body, 'the text and price share a column').toBeDefined();
+    expect(priceOf(host)?.props.numberOfLines).toBeUndefined();
+    expect(captionOf(host)?.props.numberOfLines).toBeUndefined();
+    // The artwork stays where it is: this is not a wholesale re-layout of the row.
+    expect(findElement(host.output, (el) => el.type === 'EventMedia')).toBeDefined();
+  });
+});
+
 describe('HomeFeature — "all-in" survives the supported text sizes', () => {
   const content = (host: HookHost) =>
     findElement(host.output, (el) => el.type === 'View' && Array.isArray(el.props.style)

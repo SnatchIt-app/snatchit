@@ -12,12 +12,12 @@
  */
 
 import { memo, useMemo } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { usePressScale } from '@/src/components/ui';
-import { ROW_ART, ROW_ART_GAP, ROW_GUTTER } from '@/src/lib/design/featureMetrics';
+import { identityStacks, ROW_ART, ROW_ART_GAP, ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, rowMeta } from '@/src/lib/listing/feedRowState';
@@ -68,6 +68,14 @@ function FeedRowImpl({
   // lives in the status line below (plus the dimmed treatment); repeating it in the caption
   // said the same thing twice in one column (de-dup, owner 2026-09-23).
   const caption = 'all-in';
+  /*
+   * At a large text scale the price column and the text column cannot both fit, and the price is
+   * the half that loses: E found "$132.0…" and "all-i…" in a C-operated a3xl capture. A clipped
+   * amount states a different number, so the price moves UNDER the text — the artwork stays
+   * where it is, because this is a width problem in the two text columns, not the whole row.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
 
   // Third price-column line: a live clock when cardState says one is worth showing, else the
   // status word. `clockLabel` returns null for a dead clock, so nothing here counts down past 0.
@@ -103,38 +111,48 @@ function FeedRowImpl({
             decorative
           />
 
-          <View style={s.text}>
-            <NameText token="nameRow" maxLines={2} style={s.title}>
-              {eventName}
-            </NameText>
-            <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={1}>
-              {meta.meta1}
-            </Text>
-            <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>
-              {meta.meta2}
-            </Text>
-          </View>
+          {(() => {
+            const cap = stacked ? undefined : 1;
+            const blocks = (
+              <>
+                <View style={s.text}>
+                  <NameText token="nameRow" maxLines={2} style={s.title}>
+                    {eventName}
+                  </NameText>
+                  <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={1}>
+                    {meta.meta1}
+                  </Text>
+                  <Text style={[textStyle('bodySm'), s.meta]} numberOfLines={1}>
+                    {meta.meta2}
+                  </Text>
+                </View>
 
-          <View style={s.price}>
-            <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={1}>
-              {priceAllIn}
-            </Text>
-            <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={1}>
-              {caption}
-            </Text>
-            {clock ? (
-              <Text
-                style={[textStyle('bodySm'), clock.urgent ? s.clockUrgent : s.clock]}
-                numberOfLines={1}
-              >
-                {clock.text}
-              </Text>
-            ) : statusLine ? (
-              <Text style={[textStyle('bodySm'), s.clock]} numberOfLines={1}>
-                {statusLine}
-              </Text>
-            ) : null}
-          </View>
+                <View style={stacked ? s.priceStacked : s.price}>
+                  <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={cap}>
+                    {priceAllIn}
+                  </Text>
+                  <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={cap}>
+                    {caption}
+                  </Text>
+                  {clock ? (
+                    <Text
+                      style={[textStyle('bodySm'), clock.urgent ? s.clockUrgent : s.clock]}
+                      numberOfLines={cap}
+                    >
+                      {clock.text}
+                    </Text>
+                  ) : statusLine ? (
+                    <Text style={[textStyle('bodySm'), s.clock]} numberOfLines={cap}>
+                      {statusLine}
+                    </Text>
+                  ) : null}
+                </View>
+              </>
+            );
+            // Stacked, the two text blocks share one column so the price has the row's width
+            // instead ofcompeting for it. The artwork is untouched either way.
+            return stacked ? <View style={s.bodyStacked} testID="feedrow-body">{blocks}</View> : blocks;
+          })()}
         </View>
       </Pressable>
     </Animated.View>
@@ -163,6 +181,9 @@ function makeStyles(p: Palette) {
   meta: { color: p.text.muted },
   metaFirst: { marginTop: 4 },
   price: { alignItems: 'flex-end' },
+  /* Stacked above IDENTITY_STACK_SCALE: under the text, left-aligned, full width. */
+  bodyStacked: { flex: 1, flexDirection: 'column', gap: 4 },
+  priceStacked: { alignItems: 'flex-start' },
   priceValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   priceDimmed: { color: p.text.secondary },
   caption: { color: p.text.muted },
