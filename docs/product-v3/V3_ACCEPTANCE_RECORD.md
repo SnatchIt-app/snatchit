@@ -32,7 +32,7 @@ acceptance.
 | Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
 | VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
 
-### Track 2: Successor, affected checks (served `94ac8b4f`, awaiting C's formal naming)
+### Track 2: Successor, affected checks (named `c75b1c68`; code identical to `94ac8b4f`)
 - **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
   Filters glyph.
 - **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
@@ -120,11 +120,33 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `94ac8b4fc40af2642515685929ef5f9ea04472cf` (2026-10-06 23:20; supersedes `c90003ee`; C to name it formally)
-`94ac8b4f`: the stacked Delivery row's value had kept its two-column styling; now fixed
-(`ListingDetailScreen.tsx`, plus a test). Carry/repeat is unchanged. E records intermediate serves
-only in this header from here on; the full entry is written at the sha C names.
+## Successor named: `c75b1c687e9f9b607c039fc07e9a91e70ede6b88` (C, `docs/product-v3/V3_BATCH2_HANDOFF.md`; E verified 2026-10-07)
+**Implementation (C).**
+- `v3/midnight-app` and `v3/consumer-batch2` both point at `c75b1c68`. The serving tree is clean.
+- `c75b1c68` adds only the handoff doc and `native/94ac8b4f/` captures to `94ac8b4f`; no code
+  changes. So code evidence at `94ac8b4f` describes `c75b1c68`.
+- No native file has changed since the installed build.
+- C reports `tsc` exit 0, lint 0 errors, and 174 files / 2974 tests passing. C voided three earlier
+  runs because the booted simulator starved the 5 s timeouts. E has not re-run them.
 
+**Push.** `origin/v3/midnight-app` = `d5217530` and `origin/fix/reserving-seam` = `168e794a`.
+`v3/consumer-batch2` and the successor are **not on the remote**.
+
+**C-operated captures, not yet B-reviewed.** In C's repo at `native/94ac8b4f/` (outside
+`docs/product-v3/native/`), with `capture-log.txt`. The log records content size and appearance as
+read back from the device.
+| Case | Files | E viewed | E observation (for B; not a verdict) |
+|---|---|---|---|
+| 1 feed-row title, 3xl | `case1-home-3xl-light-{atrest,feedrow}` | feedrow | Titles clamp at 2 lines ("presents The Fo…", "Late Set with…"). Date/time lines are cut ("22:00…", "21:…", "01:…"). "no bids…" is cut. Prices and "all-in" are complete. C has deliberately left this for B and the owner to judge against the approved row design |
+| 2 below-fold identity, a3xl | `case2-home-a3xl-light-{atrest,identity}` | identity | Feature identity is fixed: "Ends Wed 01:43" is complete and "current bid, all-in" wraps. **However, the first "This week" feed row's price runs off the right edge ("$132.0…") and its "all-in" is cut ("all-i…").** This is a clipped amount, the same class as the `d301ccb4` "$95.0". It is likely a defect under the settled all-in rule. FeedRow was not changed in this successor |
+| 3 Listing breakdown/activity | `case3-listing-{default,a3xl}-{light,dark}-scrolled` | a3xl light | Panel rows stack; "Service fee (10%)" $9.50 and Delivery wrap fully; the footer is intact |
+| 4 signed-in consumer Home | none | — | **Blocked.** Needs an authenticated session on the simulator, established by someone permitted to handle the test-buyer credential. B and C both decline to type it. No harness substitute was used |
+| 5 price-caption accessibility | none (source) | — | **Partly established.** The exposed label includes "all-in" (`HomeFeature.tsx`, test LT5). Spoken output is **not** established: the missing capability is an accessibility inspector or VoiceOver attached to the simulator |
+
+**Not yet captured at the successor:** Listing at rest after the poster fix (poster clear of the
+banner, navigation outside the artwork, R-4). It belongs to B's repeat set.
+
+### Previously served: `94ac8b4fc40af2642515685929ef5f9ea04472cf`
 ### Previously served: `c90003ee4ea37795dcf3177f76c947cb0af566b5`
 `c90003ee`: Listing's Delivery row lost its value at large text, and that is fixed
 (`ListingDetailScreen.tsx`, plus a test). Carry/repeat is unchanged, because Listing already repeats
