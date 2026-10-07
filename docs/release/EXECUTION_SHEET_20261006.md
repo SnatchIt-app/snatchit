@@ -107,10 +107,10 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
   - **Liveness, not just safety (D).** In the third case nothing deploys.
     - So a CANCELED result from the CLI fallback is a possible normal outcome, not a fault. **Do not retry it blindly.**
     - Record the outcome either way; it is the only measurement anyone can make of this question.
-    - **CANCELED** shows that the step runs for CLI deploys and that the sha seen inside the build was not M. That
-      refutes the record's original sentence. It also means a CLI deploy can never pass this pin, whatever the target.
+    - **CANCELED** establishes only that attempt's outcome: the step ran for that deploy, and the sha it saw was not
+      M. It does not establish how CLI deploys behave in general.
     - **READY** means M is live. The question stays open but doesn't matter for this release.
-  - **If Redeploy is not offered and the CLI fallback is cancelled:** create a git-source production deployment
+  - **If Redeploy is not offered and the CLI attempt is cancelled:** create a git-source production deployment
     through the Vercel API (`POST /v13/deployments`, with `gitSource` naming this repository, `ref`
     `admin/operating-console` and `sha` M, and `target` production). It needs a token with team access; A's is refused,
     so this is the owner's step.
@@ -134,13 +134,11 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
 **Rollback:** Instant Rollback to the deployment that was serving at V-C3, then the pin back to
 `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`. Moving the pin alone rolls nothing back.
 
-**Bounded exception (D's release-first), only if C5 cannot be executed by either route.**
-- E1 [P]: pin → `efe03fca5a88b074b2a675fb24fe718b53a9f4a3`.
-- E2 [D]: `git push origin efe03fca…:refs/heads/admin/operating-console`, with no `--force` (a fast-forward of
-  `562fda9a`).
-- V-E2 [V]: READY on `efe03fca`; alias moved.
-- E3 [P]: apply C2's ruleset **immediately**.
-- Bound: the branch is unprotected only between E2 and E3, and nothing else is pushed in that window.
+**Release-first fallback: RETIRED (owner, 2026-10-07).**
+- After C2 and C3 the branch is protected, so a direct fast-forward push is no longer available.
+- **If every approved exact-commit route fails** (Redeploy, CLI from a verified checkout of M, API git-source for M):
+  stop, report each route's measured result, and bring a concrete alternative to the owner.
+- **Never remove protection, and never add re-trigger commits.**
 
 **One change, three identities** (equal patch-ids):
 - gate `004af0b0` / `789025f3` (S3);
