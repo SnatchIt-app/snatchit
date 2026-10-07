@@ -75,32 +75,35 @@ export function ListingHero({
 }: ListingHeroProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
-  // The artwork runs under the status bar on purpose — a safe-area gap above it
-  // would frame the image like a card. The CONTROLS still have to clear the
-  // notch, so the inset is applied to them rather than to the frame.
-  // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds).
+  /*
+   * The inset belongs to the NAVIGATION area, and the poster starts below it.
+   *
+   * The artwork used to run under the status bar on purpose, with the inset applied to the controls
+   * so they cleared the notch. B measured what that cost on a device (native batch 3 at d5217530):
+   * the poster was complete and 4:5, 0 to 490.7 pt, but the SANDBOX banner covered its top 79 pt
+   * and the two chips sat at (5,80)-(79.7,159.7) and (310,80)-(389.7,159.7), on printed lines. The
+   * owner ruled that navigation, the status bar and the banner must not cover printed content, with
+   * navigation in its own area if needed. So this is positional only — nothing is re-cropped, and
+   * the frame is still the same 4:5 slot.
+   *
+   * F-SELL-2: the inset is the badge-aware one (status bar + the SANDBOX badge on sandbox builds),
+   * which is exactly the 79 pt B measured.
+   */
   const topPad = useTopInset();
 
   return (
     <>
-      {/* The poster, carrying NAVIGATION only. Nothing else is a child of the frame, because a
-          child of EventMedia draws inside it. */}
-      <EventMedia asset={asset} slot="LISTING_HERO_V3" title={eventName} fluid>
-        <View
-          style={[styles.controls, { top: topPad + v2.space.sm }]}
-          pointerEvents="box-none"
-        >
-          <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} onArt />
-          {onOverflow ? (
-            <IconButton
-              glyph="more"
-              accessibilityLabel="More actions"
-              onPress={onOverflow}
-              onArt
-            />
-          ) : null}
-        </View>
-      </EventMedia>
+      {/* Navigation, in its own area above the poster, in the chips' canvas form. */}
+      <View style={[styles.nav, { paddingTop: topPad + v2.space.sm }]}>
+        <IconButton glyph="back" accessibilityLabel="Go back" onPress={onBack} />
+        {onOverflow ? (
+          <IconButton glyph="more" accessibilityLabel="More actions" onPress={onOverflow} />
+        ) : null}
+      </View>
+
+      {/* The poster, complete and uncovered: no children, because a child of EventMedia draws
+          INSIDE the frame — which is how the chips came to sit on printed lines. */}
+      <EventMedia asset={asset} slot="LISTING_HERO_V3" title={eventName} fluid />
 
       {/* The app's identity for this listing, in its own area beneath the poster. */}
       <View style={styles.identity}>
@@ -127,12 +130,17 @@ export function ListingHero({
 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
-  controls: {
-    position: 'absolute',
-    left: v2.space.sm,
-    right: v2.space.sm,
+  /*
+   * Navigation's own area, above the poster. It was an absolutely positioned overlay inside the
+   * frame; now it is a normal row that the poster follows, which is what keeps the printed content
+   * uncovered. `space-between` so the overflow chip stays on the right, and the back chip stays on
+   * the left when there is no overflow.
+   */
+  nav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingHorizontal: v2.space.sm,
+    paddingBottom: v2.space.sm,
   },
   /*
    * Beneath the poster now, so it is a normal block rather than an absolutely positioned overlay.

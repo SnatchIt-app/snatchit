@@ -178,16 +178,18 @@ describe('media slots', () => {
 
     expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).toBe('none');
     /*
-     * The hero is the one slot that still has CHILDREN — its back and overflow controls, which the
-     * owner classes as navigation rather than app text. So the check here is not "no children" but
-     * "nothing but navigation": no Text, no NameText and no Badge inside the frame.
+     * The hero used to be the one slot that still had CHILDREN — its back and overflow controls,
+     * classed as navigation rather than app text, so the check was "nothing but navigation".
+     *
+     * B then measured what that cost on a device (native batch 3 at d5217530): the chips sat at
+     * (5,80)-(79.7,159.7) and (310,80)-(389.7,159.7), on the poster's printed lines, with the
+     * SANDBOX banner over its top 79 pt. The owner ruled that navigation, the status bar and the
+     * banner must not cover printed content. So the hero now has NO children, like every other
+     * slot here, and the rule it is held to is the stronger one.
      */
     const hero = readFileSync(resolve(root, 'src/components/listing/ListingHero.tsx'), 'utf8');
-    const inFrame = hero.slice(hero.indexOf('<EventMedia'), hero.indexOf('</EventMedia>'));
-    expect(inFrame).toContain('IconButton');
-    for (const forbidden of ['<Text', '<NameText', 'FromAFanBadge']) {
-      expect(inFrame, `${forbidden} must not be inside the hero frame`).not.toContain(forbidden);
-    }
+    expect(hero).not.toMatch(/<\/EventMedia>/);
+    expect(hero).toMatch(/slot="LISTING_HERO_V3"[^>]*\/>/);
   });
 
   it('derives height from width and ratio rather than hard-coding it', () => {

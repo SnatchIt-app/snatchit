@@ -78,7 +78,10 @@ const SITES: { file: string; expr: string }[] = [
   { file: 'src/screens/PlaceBidScreen.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/account/SettingsHeader.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/auth/AuthScreen.tsx', expr: 'paddingTop: topPad + v2.space.xl' },
-  { file: 'src/components/listing/ListingHero.tsx', expr: 'top: topPad + v2.space.sm' },
+  // The hero's inset moved from the absolutely positioned overlay to the navigation area above
+  // the poster (owner, 2026-10-06: navigation and the banner must not cover printed content),
+  // so it now reads like the other eight sites instead of being the one exception.
+  { file: 'src/components/listing/ListingHero.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/listing/OutbidToast.tsx', expr: 'paddingTop: v2.space.sm + topPad' },
 ];
 

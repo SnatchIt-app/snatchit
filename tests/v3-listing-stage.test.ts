@@ -35,7 +35,8 @@ vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }
 vi.mock('@/src/components/PriceDisplay', () => ({ PriceDisplay: 'PriceDisplay' }));
 vi.mock('@/src/components/ui', () => ({ FromAFanBadge: 'FromAFanBadge', IconButton: 'IconButton' }));
 vi.mock('@/src/hooks/usePulseOnChange', () => ({ usePulseOnChange: () => ({ opacity: 1 }) }));
-vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
+const ins = vi.hoisted(() => ({ top: 0 }));
+vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => ins.top }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
 
 import { BID_COMMITMENT_COPY } from '@/src/lib/listing/detailState';
@@ -192,6 +193,67 @@ describe('ListingHero — identity over the curve-scrimmed §3 hero', () => {
   it('LH2: provenance is not quietly dropped — the badge still renders', async () => {
     const host = await mountHero();
     expect(findElement(host.output, (el) => el.type === 'FromAFanBadge')).toBeDefined();
+  });
+
+  /*
+   * THE POSTER IS NOT COVERED (B's native batch 3 at d5217530; owner-settled 2026-10-06).
+   *
+   * B measured the Listing poster as complete and 4:5 — 0 to 490.7 pt, not re-cropped — and then
+   * measured what sits ON it: the SANDBOX banner over its top 79 pt, and the two navigation chips
+   * at (5,80)-(79.7,159.7) and (310,80)-(389.7,159.7), on printed lines. The owner's requirement is
+   * that navigation controls, the status bar and the sandbox banner must not cover printed content,
+   * with navigation in its own area if needed. So the fix is positional, as B said: the poster
+   * starts below the banner and the controls move off it. Nothing is re-cropped.
+   */
+  it('LH4: the poster carries nothing — navigation is no longer inside the frame', async () => {
+    ins.top = 79;
+    const host = await mountHero();
+    const art = findElement(host.output, (el) => el.type === 'EventMedia');
+    expect(art).toBeDefined();
+    // A child of EventMedia draws INSIDE the frame, which is what put chips on printed lines.
+    expect(art!.props.children ?? null).toBeNull();
+    // And the chips are still on screen — moved, not deleted.
+    const back = findElement(host.output, (el) => el.type === 'IconButton' && el.props.glyph === 'back');
+    const more = findElement(host.output, (el) => el.type === 'IconButton' && el.props.glyph === 'more');
+    expect(back).toBeDefined();
+    expect(more).toBeDefined();
+  });
+
+  it('LH5: navigation sits in its own area ABOVE the poster, and that area carries the inset', async () => {
+    ins.top = 79;
+    const host = await mountHero();
+    // Order in the tree is order on screen: the nav area must precede the poster.
+    const kinds: string[] = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      const el = n as { type?: unknown; props?: Record<string, unknown> } | null;
+      if (!el || typeof el !== 'object' || !('props' in el)) return;
+      if (el.type === 'EventMedia') kinds.push('poster');
+      if (el.type === 'IconButton') kinds.push('nav');
+      walk((el.props as { children?: unknown }).children);
+    };
+    walk(host.output);
+    expect(kinds[0], `tree order was ${kinds.join(',')}`).toBe('nav');
+    expect(kinds).toContain('poster');
+
+    // The inset belongs to the nav area now, so the status bar and the banner are above the
+    // poster rather than over it. With no inset the area still exists, just tighter.
+    const navRow = findElement(host.output, (el) => {
+      const st = el.props.style as { paddingTop?: number } | Array<{ paddingTop?: number }> | undefined;
+      const flat = Array.isArray(st) ? Object.assign({}, ...st.filter(Boolean)) : st;
+      return el.type === 'View' && typeof flat?.paddingTop === 'number' && flat.paddingTop >= 79;
+    });
+    expect(navRow, 'a nav area padded past the banner').toBeDefined();
+  });
+
+  it('LH6: the chips take canvas form now that they are not on artwork', async () => {
+    const host = await mountHero();
+    for (const glyph of ['back', 'more']) {
+      const chip = findElement(host.output, (el) => el.type === 'IconButton' && el.props.glyph === glyph);
+      // `onArt` is the over-media vocabulary: white ink on its own dark plate. Off the poster it
+      // would be a dark chip floating on the canvas.
+      expect(chip!.props.onArt ?? false, `${glyph} must not declare over-art form`).toBe(false);
+    }
   });
 
   it('LH3: nothing transactional over the image, and no local font override (source pins)', async () => {

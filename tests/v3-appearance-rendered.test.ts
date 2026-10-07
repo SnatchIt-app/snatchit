@@ -293,22 +293,28 @@ describe('EventMedia — the missing-artwork plate keeps its initial legible in 
     }
   });
 
-  it('RD3e: the hero declares over-art form for its NAVIGATION, and for nothing else', async () => {
+  it('RD3e: NOTHING in the hero declares over-art form, because nothing draws on the poster', async () => {
     /*
-     * INVERTED (owner ruling 2026-09-25). This used to require the From-a-fan badge to declare
-     * itself over-art, which was right while the identity block sat on the poster. The owner treats
-     * that badge as APP TEXT, so it moved beneath the artwork with the date line and the name — and
-     * an `onArt` badge down there would be white-on-near-white in Light.
+     * INVERTED TWICE, both times by an owner ruling, and the history is the point.
      *
-     * What still draws on the media is the back and overflow navigation, and those keep `onArt`:
-     * each paints its own rgba(0,0,0,0.55) chip, which is also why removing the hero's scrim did
-     * not strand them.
+     * First it required the From-a-fan badge to declare itself over-art, which was right while the
+     * identity block sat on the poster. The owner then treated that badge as APP TEXT (2026-09-25),
+     * so it moved beneath the artwork with the date line and the name — an `onArt` badge down there
+     * would be white-on-near-white in Light — and this test was inverted to say that NAVIGATION was
+     * the one thing still drawing on the media and therefore kept `onArt`.
+     *
+     * That is now superseded as well (2026-10-06). B measured the chips sitting on the poster's
+     * printed lines, and the owner ruled that navigation must not cover printed content. The
+     * navigation moved into its own area above the poster, so there is nothing over the media at
+     * all — and a chip that still declared `onArt` would paint a dark plate on the canvas.
+     *
+     * This is a test tracking a ruling, not a test being relaxed: the assertion got STRONGER each
+     * time, from "the badge is over-art" to "only navigation is" to "nothing is".
      */
     const hero = await stripped('src/components/listing/ListingHero.tsx');
-    expect(hero).toMatch(/glyph="back"[\s\S]{0,120}onArt/);
-    expect(hero).toMatch(/glyph="more"[\s\S]{0,160}onArt/);
-    // The badge must NOT claim the over-art vocabulary any more.
-    expect(hero).not.toMatch(/<FromAFanBadge onArt/);
+    expect(hero).not.toMatch(/onArt/);
+    // And the poster takes no children, which is the structural half of the same rule.
+    expect(hero).toMatch(/slot="LISTING_HERO_V3"[^>]*\/>/);
   });
 
   it('RD4: the only white literals left in EventMedia are the scrim gradients over artwork (which do not invert)', async () => {
