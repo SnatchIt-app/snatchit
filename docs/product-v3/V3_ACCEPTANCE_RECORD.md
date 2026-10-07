@@ -86,6 +86,44 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+**B native batch 2 (`f235ddb7`, 2026-10-06): footer, reservation, icons, Dynamic Type at `d5217530`**
+- **Closed natively:**
+  - R-1 busy state: "Reserving…" with a spinner sits on the second-position outlined Buy Now, and
+    the dimmed bid pill carries no pending label.
+  - Option B at rest.
+  - F-91-6, the Filters glyph.
+  - The remembered name collapse: withdrawn, not reproduced.
+- **Next-section figure (re-labelled by B):** 790 pt / 62 pt is **harness** evidence. The `_dev`
+  route has no dock, because the dock comes from `(tabs)/_layout`. On consumer Home signed out, the
+  dock band is 704.0–769.7 pt. **The consumer figure is unestablished:** it needs feed content,
+  which needs auth.
+- **Open finding for C:** at the largest accessibility size, the Home price caption truncates to
+  "current bid, al…", so "all-in" is lost. At the largest standard size, "Ends…" is cut. Whether
+  assistive technology still exposes the full string is unverified. Fix: wrap, or shorten so
+  "all-in" survives.
+- **Blocked:** scrolling and everything below the fold at large sizes, including the feed-row
+  title. `simctl` injects no touch, and B's session has no simulator input tool. Next step: an
+  attended session or C's simulator tool runs these checks.
+- **E check:** viewed `listing-reserving-flyer-light`, `listing-live-flyer-light` and
+  `home-feature-flyer-light-a3xl`; all agree with B. The serving tree was `d5217530` and clean
+  after the batch.
+- **E observation on R-3/R-4, for B to rule on, not yet a finding.** In `listing-live-flyer-light`
+  and `listing-reserving-flyer-light`, at rest (deep-linked, unscrolled), the 4:5 listing poster
+  starts at the top of the screen.
+  - The top band of the poster sits under the status bar and the SANDBOX banner (≈79 pt, per B's
+    batch 2 measurement): TL/TR corner labels, "SYNTHETIC TEST FLYER", "FIXTURE NIGHT" and most of
+    "EXAMPLE.COM/TICKETS" are not visible.
+  - The back and overflow chips sit over the printed lines "PLACEHOLDER ONE" and "21:00".
+  - Source: `ListingHero.tsx:78-90` says the artwork runs under the status bar on purpose. Only the
+    controls get the top inset, and they are drawn inside the poster frame.
+  - This conflicts with R-3 ("full poster content preserved") and with the R-4 review scope
+    ("navigation reachable without covering printed text").
+  - A production build has no SANDBOX banner, but the status bar and Dynamic Island still cover the
+    top of the poster.
+  - B has not yet stated R-4. **R-4 stays open** until B rules on this. If B confirms, it is a
+    concrete design conflict between full-bleed-under-the-status-bar and full-poster-visible, and
+    may need an owner ruling.
+
 **Carry-forward from `f3f08930` to `d5217530`.** No durable B or native evidence exists at
 `f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
 
@@ -174,12 +212,12 @@ sufficient.
 | Check (both appearances) | Implementation (C) | B independent review | Native evidence (sim) | Repeat at successor? |
 |---|---|---|---|---|
 | Home: 4:5 feature, identity below, no gradient, next section measured; **each** of `flyer`, `subject`, `subject-wide`, `tall`, `wide`, `square`, `missing` visibly in the featured frame | `e902f59a`, `ec61bfa7`; feature-selection fix `6100dee1` (in `d5217530`) | **B `c9d6f0d7` at `d5217530`: verified** (`B_NATIVE_REVIEW_d5217530.md` batch 1) | **sim, 14 captures** `native/d5217530/home-feature-<art>-{light,dark}.png` (1179×2556) | done at `d5217530` except Dynamic Type and safe areas (still to come) |
-| Listing: 4:5 poster, info beneath (R-4), navigation reachable; same artwork cases | `f3f08930` (`ListingHero`) | pending | pending | full re-run; **blocked** until Listing `?art=` lands |
-| Footer Option B at rest | `12be25d6` | pending | pending | full re-run |
-| Reservation feedback (`?reserving=1`, second-position `Reserving…`) | `f3f08930` + seam `168e794a` | pending | pending | at successor only |
-| Icons (native rendering, separate from B's source cmap finding) | `f3f08930` (IconSymbol) | pending | pending | full re-run |
-| Dynamic Type (largest standard + accessibility sizes), scrolling, safe areas | n/a | pending | pending | full re-run |
-| Event-name truncation (B's recollection) | — | B to reproduce before reporting | — | finding only if reproduced |
+| Listing: 4:5 poster, info beneath (R-4), navigation reachable; same artwork cases | `f3f08930` (`ListingHero`); `?art=` in `6100dee1` | pending: captures committed in `f235ddb7` (`listing-live-{flyer,missing,subject-wide}-{light,dark}`), but B has stated no R-4 verdict | captured, not assessed | open; see E's poster-under-status-bar observation |
+| Footer Option B at rest | `12be25d6` | **B `f235ddb7` at `d5217530`: matches the approval** (bid first, filled, minimum inside; Buy Now second, outlined, price and sub-line) | sim `listing-live-flyer-{light,dark}.png` | done at `d5217530` (Light/Dark at default size; Dynamic Type on the footer not yet reported) |
+| Reservation feedback (`?reserving=1`, second-position `Reserving…`) | `f3f08930` + seam `168e794a` | **B `f235ddb7`: verified; R-1 busy state closes natively** | sim `listing-reserving-flyer-{light,dark}.png`; no reservation made | done at `d5217530` |
+| Icons (native rendering, separate from B's source cmap finding) | `f3f08930` (IconSymbol) | **B `f235ddb7`: F-91-6 closes** (Filters = tapering bars 58/46/34 device px, against equal 41 px at `91062ab1`); magnifier is drawn | sim Home captures | done at `d5217530` |
+| Dynamic Type (largest standard + accessibility sizes), scrolling, safe areas | n/a | **B `f235ddb7`: Dynamic Type on the Home identity reproduced** (default complete; largest standard cuts "Ends…"; a3xl cuts "current bid, al…", losing "all-in": **open finding for C**, a11y value unverified). **Scrolling: blocked** (no touch injection in B's session) | sim `home-feature-flyer-light-{3xl,a3xl}.png`, `listing-live-flyer-light-{3xl,a3xl}.png` | open: all-in caption fix; scrolling and below-fold checks need an attended or touch-capable session |
+| Event-name truncation (B's recollection) | — | **B `f235ddb7`: one-character collapse NOT reproduced; withdrawn.** Feed-row title comparison blocked (below the fold) | — | closed as not reproduced; row title pending scroll access |
 
 **After this priority review:** E reconciles the remaining consumer-screen coverage (Search,
 Create/Edit, My listings, Bids, Tickets, Order, Send/Receive, Profile/Settings/Appearance/Auth,
