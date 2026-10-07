@@ -3,7 +3,7 @@
 **Reviewed code is not permission to deploy it.** Nothing below has been merged, pushed, applied, deployed or
 switched on, and nothing in this sheet does any of that. Every step marked *owner* waits for your own word for
 that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks. §6 records where they differed;
-D verified and accepted each point and revised its sheet to agree (`0746be99`).
+D verified and accepted each point and revised its sheet to agree (rev 3, `342f2ab3`).
 
 ## 0. What is reviewed, and what would deploy it
 
