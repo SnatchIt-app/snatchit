@@ -283,8 +283,8 @@ every required context, read **all** runs at the head sha before merging, not ju
 **Reconciliation, 2026-10-07.** This is the single shared proposal. D's rev 4 (`10c0a8dc`) differs in two places, and
 both are resolved here per the owner's direction:
 - **Gate:** merge only, rather than D's "all three methods".
-- **Console:** the protected PR route, rather than D's release-first. D's route is retained as the bounded exception in
-  §3.
+- **Console:** the protected PR route, rather than D's release-first. D's route was retired by the owner on
+  2026-10-07, because after C2 and C3 it is no longer available.
 
 D retired its sheet (rev 5, `1a2bd614`, kept as its measurement record), withdrew the release-first proposal in favour of the PR
 route, and contributed the linear-history point, the real-ref sync-back trial, the vacuous-pass caveat and the
