@@ -56,6 +56,29 @@ rows too, so a per-screen "first row" rule would have been four fresh chances at
 has to know the render order. An unselected or unknown key leaves every row exactly as it was, so
 the plate stays the default and existing captures do not move.
 
+## 1b. Letterbox position — answered for B, 2026-10-06
+
+B measured letterboxed art sitting above centre on a consistent ~40/60 split (square 39.0%,
+16:9 40.1%, 9:16 exactly centred) and asked whether it is deliberate. It is, and it is the focal
+point rather than a layout accident:
+
+- `DEFAULT_FOCAL = { x: 0.5, y: 0.4 }` — `src/lib/media/url.ts:76`, with the reason on the type at
+  `:72` ("Defaults above centre: flyers put the headline act high").
+- It reaches the pixels at `src/components/media/EventMedia.tsx:265-273`, which passes
+  `contentPosition={{ left: focal.x*100%, top: focal.y*100% }}` for **both** `contain` and
+  `cover` — it is not a cover-only crop rule. Under `contain`, `top: 40%` divides the vertical
+  slack 40/60, which is B's two measurements within the integer rounding at `:271-272`.
+- 9:16 reads as centred because it is taller than 4:5: `contain` fits it by height, so there is no
+  vertical slack to divide. The three numbers are one rule, not two behaviours.
+- A stored focal point overrides the default (`asset.focal ?? DEFAULT_FOCAL`, `url.ts:381`, `:452`)
+  and `v2` uploads carry one. Every case B reviewed used the default, because the bundled QA
+  posters carry none — so 40% is what the default does, not a ceiling on stored art. The web path
+  uses the same value through `focalToObjectPosition` (`:457`), so a web and a native capture agree.
+
+**Write it down as:** letterboxed art is positioned by the focal point, default y=0.40, so 40% of
+the vertical slack sits above the art; a source taller than 4:5 has no vertical slack and reads as
+centred.
+
 ## 2. Missing fixture states
 
 | Screen | State the product has | Reviewable? |
