@@ -1,4 +1,4 @@
-# Execution sheet: the remaining owner decisions (D, 2026-10-06, **revision 3**)
+# Execution sheet: the remaining owner decisions (D, 2026-10-06, **revision 4**)
 
 > **Revision 3.** Revision 2 corrected five errors in revision 1, all found by A and each re-verified here against the
 > repository, the 2026-09-08 deployment record or a run experiment: the console step order was backwards
@@ -6,7 +6,10 @@
 > for the console and missed for the web (§2), the squash "silently reverted" hazard is false (§4), and the
 > web branch carries three commits, not two. A's consolidated sheet is
 > `docs/release/EXECUTION_SHEET_20261006.md` on the records line. Revision 3 corrects one more of
-> mine — the `ci.yml` trigger in §2 — and sharpens the sync-back timing in §4.
+> mine — the `ci.yml` trigger in §2 — and sharpens the sync-back timing in §4. **Revision 4** (owner,
+> 2026-10-06) replaces the stale `f3f08930` candidate in §4, resolves the merge-method compatibility
+> question in a new §2A, and records in §2/§3 what is *not yet* verifiable. It introduces two new owner
+> decisions, **PR-8** and **PR-9**.
 
 **Reviewed code is not permission to deploy it.** Everything below is reviewed and sitting still. Nothing
 has been merged, pushed, applied or deployed, and nothing in this sheet does any of that.
@@ -56,6 +59,18 @@ PR required, and **`Web build (Next.js)` as the only required check**.
   event produced it — but W3 must confirm the check is actually green at `fd0da772` on the PR before
   anyone relies on it.
 
+**PR-9 (new owner decision): the rule is not yet verifiable, so configure it, then prove it.** The exact
+context string is **`Web build (Next.js)`**, produced by `github-actions` — confirmed present and
+`success` on the gate tip, which is itself a non-`main` branch and so a push-event run, corroborating the
+mechanism above. But **`fd0da772` is not on the remote** (`GET /commits/fd0da772…` → HTTP 422, no commit),
+so **no check run exists for it and the rule cannot be shown executable today**. Sequence:
+- W1a configure the ruleset with `Web build (Next.js)` as the only required check;
+- W1b push the landing commit and **observe** that the context appears and is green on it;
+- **W3 gates on W1b**, not on the inference. If the context does not appear, the rule blocks every PR into
+  the branch and must be removed before anything can land.
+- Do **not** require `Supabase Preview` or `Vercel Preview Comments`: both appear on these commits but come
+  from third-party apps, and `Supabase Preview` reports `skipped`.
+
 Do this before W2, so the PR becomes the only way in.
 
 **W2 — the wording change, from a branch that can actually land (corrected).** `web/wording-truth-conditions
@@ -73,6 +88,46 @@ same defect I found for the console in §3 and did not apply to the web — A ca
 
 **Rollback:** revert the commit on the web production branch; the revert push redeploys. No database change
 is involved — the change reads three columns that have been in production since before migration 075.
+
+### 2A. Merge-method compatibility (new; measured 2026-10-06)
+
+The sheet asks for merge commits on the integration branches while `main` forbids them. **Measured, these do
+not actually conflict today** — but the obvious way to implement squash-to-`main` would create the conflict.
+
+- **Repository level: all three methods are enabled** — `allow_merge_commit`, `allow_squash_merge`,
+  `allow_rebase_merge` all `true`. (`allow_auto_merge` is `false`.)
+- **Exactly one ruleset exists**: `main-protection` (21624091), targeting `~DEFAULT_BRANCH` **only**, with
+  `allowed_merge_methods: ["rebase","squash"]`.
+- **No ruleset targets the gate, the web branch, the console branch or the records line.** On those, all
+  three repository methods are available.
+
+**The hazard to avoid:** enforcing squash-to-`main` by turning **off** `allow_merge_commit` at the
+repository level. That toggle is global; it would make S1–S5 merge commits into the gate impossible, and the
+per-branch restriction that is actually wanted already exists on `main` via the ruleset.
+
+**One compatible configuration:**
+
+| Scope | Setting | Why |
+|---|---|---|
+| Repository | leave all three methods enabled; change nothing | the restriction belongs on branches, not globally |
+| `main` | ruleset 21624091 unchanged (`rebase`, `squash`); S7 uses **squash** | already in force, already satisfies §4 |
+| gate | new ruleset, `allowed_merge_methods: ["merge","squash","rebase"]` | S1–S5 use merge commits |
+| `feature/web-accounts-foundation` | new ruleset, `allowed_merge_methods: ["merge"]` | one method, so the landing method cannot drift; it preserves the three cherry-picked commits and their `(cherry picked from …)` trailers back to the reviewed originals |
+| records line | no merge-method restriction | direct pushes of records continue |
+
+Set `allowed_merge_methods` **explicitly** on each new ruleset rather than relying on a default.
+
+**PR-8 (new owner decision): the console branch cannot have "PR required" before its release.** PR-7
+proposes `PR required` on `admin/operating-console`, and §3's release is a **fast-forward push of a known
+sha** — the Ignored Build Step pins an exact sha (`test "$VERCEL_GIT_COMMIT_SHA" != "<pin>"`), which must be
+set *before* the push. A PR merge produces a sha that is not knowable in advance, so pin-then-push cannot
+work through a PR. Options:
+- **(a) Recommended: release first, protect after.** Pin → fast-forward push `efe03fca` → then add the
+  console ruleset. One ordering constraint, no mechanism change.
+- (b) Protect now and grant the owner a bypass actor for that branch. Keeps the rule but removes its effect
+  for the one actor who would use it.
+- (c) Protect now and release through a PR, re-pinning to the merge commit's sha afterwards and redeploying.
+  Two pin changes and a wasted build.
 
 ---
 
@@ -105,7 +160,10 @@ from the 09-08 record):**
    It also brings the five already-pushed docs/script commits into the built commit — no console code.
 
 **Rollback: an Instant Rollback to deployment `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`, then restore the pin to
-`ab3e17f1`.** Revision 1 said "pin back to `ab3e17f1`", which is wrong on its own: the production alias
+`ab3e17f1`.** **That identifier is from the 2026-09-08 record and is a month old. Re-read the alias at
+execution** — `vercel inspect snatchit-admin.vercel.app`, or the dashboard — and confirm it still resolves
+to that deployment before relying on it. The same applies to the pin's current value: read it back before
+changing it, not from this sheet. Revision 1 said "pin back to `ab3e17f1`", which is wrong on its own: the production alias
 points at a deployment, and a build setting does not move an alias. That deployment is the `ab3e17f` build
 the alias currently serves (09-08 record, rows 81 and 121). No database change either way — the console is
 a read surface plus `ops.execute_action`, and nothing in this release touches either.
@@ -124,10 +182,19 @@ Every record we hold cites gate shas; after a rebase none of them would name a c
   content exactly.
 - It satisfies the ruleset: one commit, one parent, linear history, and squash is an allowed method.
 
-**The check has now also been run on a realistic candidate.** A built the S1–S5 trial candidate
-(`879a34ca`, tree `1b76e9cd…`; file counts per step 13 / 3 / 3 / 11 / 235, no conflicts). Verified here: its
-squash onto `main` yields tree **`1b76e9cd…`, identical**. It must still be re-run against the **actual**
-frozen commit at freeze time, since that candidate is a trial and may gain S6.
+**The trial establishes the merge method, not the release contents.** A built an S1–S5 trial candidate
+(`879a34ca`, tree `1b76e9cd…`; per-step file counts 13 / 3 / 3 / 11 / 235, no conflicts) and its squash onto
+`main` yields tree **`1b76e9cd…`, identical** — verified here. **That is all it establishes.** Its S5 input
+was `f3f08930`, which is **stale**:
+- **B is reviewing `d52175303f22a575b80f005f38c0e8555be0dbdc`** (2026-10-05 23:06, on `v3/midnight-app` and
+  `v3/consumer-batch2`). Verified: `f3f08930` is its ancestor and it is 3 commits beyond it.
+- **C's batch2 fixes are a separate track** and are not in either figure.
+- So the per-step file counts, the candidate sha and the tree are **properties of the trial, not of the
+  release**. Nothing downstream may cite `879a34ca` or `1b76e9cd` as the release content.
+
+**The integration trial must be re-run on the eventual accepted candidate**, once B's review concludes and
+C's batch2 lands — and again at freeze if the candidate moves. Each re-run repeats the same two checks: the
+per-step merge produces exactly its branch's files, and the squash onto `main` is tree-identical.
 
 **How ancestry stays traceable, given 906 commits collapse into one:**
 - **Migration ancestry does not live in git.** It lives in `supabase_migrations.schema_migrations`: version,
