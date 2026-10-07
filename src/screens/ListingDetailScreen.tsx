@@ -34,16 +34,7 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActionSheetIOS,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -84,6 +75,7 @@ import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import ScreenState from '@/src/components/ScreenState';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import type { Bid, Listing, TransferStatus } from '@/src/types';
 
@@ -205,6 +197,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   // carries a device breakpoint.
 
   const { palette } = useTheme();
+  const { fontScale: factFontScale } = useWindowDimensions();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
@@ -1237,6 +1230,14 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   // that answers that — the same one the commitment sentence and the Buy Now recovery already use
   // (R-5). `mode !== 'closed'` was a second, wider answer: it admitted the seller's own listing and a
   // reservation the viewer is holding, where there is no bid to break down (B's F-91-4; E's item 1).
+  /*
+   * At a large text scale a two-column fact row cannot fit, and the VALUE is the half that loses:
+   * the C-operated a3xl capture at d301ccb4 showed Delivery as "…le t…". The screen already has a
+   * stacked form for these rows — `factRowBlock`, which Restrictions uses — so every row takes it
+   * above the same threshold the feature's identity block uses. Existing visual language, no new
+   * one, and `row.block` still wins on its own.
+   */
+  const stackRows = identityStacks(factFontScale);
   const showBreakdown = offersBid(state);
   const sellerName = sellerProfile?.display_name?.trim() || 'Seller';
   const detailRows: FactRow[] = [
@@ -1415,7 +1416,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
               <Pressable
                 key={row.label}
                 onPress={row.onPress}
-                style={[s.factRow, row.block ? s.factRowBlock : null]}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
                 accessibilityRole="button"
                 accessibilityLabel={`${row.label}: ${row.value}`}
                 accessibilityHint="Opens the seller's profile"
@@ -1425,7 +1426,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
             ) : (
               <View
                 key={row.label}
-                style={[s.factRow, row.block ? s.factRowBlock : null]}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
                 accessible
                 accessibilityLabel={`${row.label}: ${row.value}`}
               >

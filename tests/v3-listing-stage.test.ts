@@ -243,6 +243,22 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(capped, `these clipped at a3xl on the device: ${capped.join(' | ')}`).toEqual([]);
   });
 
+  it('LP10: the screen\u2019s fact rows take its OWN stacked form at a large scale (source pin)', async () => {
+    /*
+     * The Delivery row rendered "…le t…" at a3xl in the C-operated capture. The screen is not
+     * mounted by any suite, so this is a source pin — and what it pins is reuse: the stacked form
+     * is `factRowBlock`, which Restrictions already used, and the threshold is the same
+     * `identityStacks` the feature and the panel use. A second rule for the same problem is the
+     * thing to catch here.
+     */
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(src).toContain("identityStacks");
+    expect(src.match(/row\.block \|\| stackRows \? s\.factRowBlock : null/g) ?? []).toHaveLength(2);
+    // No second threshold: the number lives in featureMetrics and nowhere else.
+    expect(src).not.toMatch(/fontScale\s*[><=]=?\s*1\./);
+  });
+
   it('LP7: the panel does no money arithmetic (source pin)', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/components/listing/TransactionPanel.tsx', 'utf8');
