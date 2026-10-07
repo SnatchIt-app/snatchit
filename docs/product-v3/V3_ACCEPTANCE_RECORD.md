@@ -142,6 +142,12 @@ blanket whole-app acceptance applies.
   - B judges whether the inverted hierarchy meets the readability rule. The alternative is a layout
     that lets the numeral scale on its own line without splitting.
 - **Cases 4 and 5:** unchanged (blocked, and partly established in source).
+- **Tests (C's report, not re-run by E):** 174 files / 2976 tests, exit 0, at `91a5a58c`, with the
+  simulator shut down. C notes that runs with the simulator booted fail in differing sets on 5 s
+  timeouts, so captures and the full suite can't be trusted at the same time on this machine.
+- **Window: C has released the device and Metro for B's review** (C message, 2026-10-07). It is
+  booted at large/light with the app launched, serving `91a5a58c`, clean. **B's review at
+  `91a5a58c` is pending** until B starts and commits.
 
 ## Successor now `7c9b270b7e2c098ba352ee11ee9560b362669ffc` (served 2026-10-07 00:06; supersedes `22835964`)
 - **What changed.** `7c9b270b` stops stacked price numerals wrapping mid-number ("$132.0" / "0").
