@@ -32,7 +32,7 @@ acceptance.
 | Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
 | VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
 
-### Track 2: Successor, affected checks (named `c75b1c68`; code identical to `94ac8b4f`)
+### Track 2: Successor, affected checks (now `22835964` = `c75b1c68` + FeedRow fix)
 - **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
   Filters glyph.
 - **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
@@ -119,6 +119,21 @@ blanket whole-app acceptance applies.
   with an ellipsis, at default text size. This may be the remembered truncation. B decides whether
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
+
+## Successor now `22835964997f31acd73d49b96ead6eccea84f01d` (served 2026-10-07 00:00; supersedes `c75b1c68`)
+- **What changed.** `22835964` changes only `FeedRow.tsx` (plus a test). Above
+  `IDENTITY_STACK_SCALE`, a row's text and price share one column, and the price block is not
+  capped. This fixes the a3xl "$132.0…" / "all-i…" clip E saw in C's case 2 capture. The title and
+  date clamps are deliberately left for B and the owner to judge (case 1). Serving tree clean.
+- **Relevant diff from `c75b1c68`.** `FeedRow` renders the Home feed rows and the Search results
+  (`app/(tabs)/home.tsx`, `explore.tsx`). `HomeFeature` mentions `FeedRow` only in comments.
+- **Carry/repeat effects:**
+  - The Home feature checks are unaffected and still carry.
+  - **C-operated cases 1 and 2 at `94ac8b4f` are superseded for the feed rows.** Their feature
+    identity content still describes the feature, but the rows must be re-captured at `22835964`.
+  - Case 3 (Listing) is unaffected.
+  - The harness next-section figure was already a repeat.
+  - Search results now also need a row check at large text.
 
 ## Successor named: `c75b1c687e9f9b607c039fc07e9a91e70ede6b88` (C, `docs/product-v3/V3_BATCH2_HANDOFF.md`; E verified 2026-10-07)
 **Implementation (C).**
