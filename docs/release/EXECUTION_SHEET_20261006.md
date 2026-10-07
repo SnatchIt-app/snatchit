@@ -11,7 +11,7 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
 |---|---|---|---|
 | 150/151 package (#94 `2eebc5bf`, #95 `9a66f29d`) | D PASS 28/28 | X2/X3 apply, X4 function deploys | none |
 | Web wording, landing commit `fd0da772` (`web/wording-release-ff`, **local, not on the remote**) | `web/` tree `ab2eb1bf` = the reviewed `e7130f04`'s; tsc 0, 218/218, local `next build` exit 0. **No CI check has run on it** (§2) | merge into `feature/web-accounts-foundation` | none |
-| Console labels, landing commit `efe03fca` (D, `admin/label-console-release-ff`, local) | `admin/src` `f297dab4` and `admin/tests` `6b76588f` = the reviewed `1058c882`'s; patch-ids equal | pin change, then push to `admin/operating-console` | none |
+| Console labels, landing commit `efe03fca` (D, `admin/label-console-release-ff`, local) | `admin/src` `f297dab4` and `admin/tests` `6b76588f` = the reviewed `1058c882`'s; patch-ids equal | protected PR merge (C3; the pin blocks deployment), then the pin plus an explicit redeploy of that exact merge commit (C4–C5) | none |
 | Gate → `main` | method trial only (§4); the release candidate is not yet accepted or frozen | S7 | none |
 
 ## 1. Refund operations O-R1–O-R4
@@ -28,79 +28,99 @@ expiry job, the payment is parked, the app says "Refund of $X initiated", and no
 
 ## 2. Web: protection, then deployment
 
-**W1 *owner*: protection (GitHub → Settings → Rules → New branch ruleset), target `feature/web-accounts-foundation`,
-in two parts.** Repository-wide merge settings are unchanged (§4A).
-- **W1a, executable now:**
-  - restrict deletions; block force pushes; no bypass actors;
-  - require a pull request, 0 approvals, **allowed merge methods `merge` only** (the reviewed commits stay as
-    parents).
-- **W1b, the required check: NOT executable yet.**
-  - The exact context is **`Web build (Next.js)`**, source **GitHub Actions** (integration id 15368, as on `main`'s
-    ruleset). On `1765bbeb` it reported `success` from that app.
-  - On the web branch, ci.yml runs on `pull_request: branches: [main]` and `push: branches-ignore: [main]`. So a PR into
-    this branch gets no pull_request run, and the check can only come from the **push** run on the head commit.
-  - **`fd0da772` is not on the remote, so no check has run on it.** A's push of the branch was refused by this
-    session's permission check and was not retried.
-  - W1b becomes executable only after W2 shows the exact context `success` on `fd0da772`.
-  - Never require `Secret scan`, `Dependency review`, CodeQL, `Supabase Preview` or `Vercel Preview Comments`. The first
-    three never run on PRs into this branch. The last two are third-party apps (`Supabase Preview` reports `skipped`).
-- A reads each part back through the API.
+Action kinds, kept distinct throughout:
+- **[P]** protection or configuration change;
+- **[B]** push of a non-deploy branch;
+- **[M]** merge into a deploy branch;
+- **[D]** production deployment;
+- **[V]** verification.
 
-**Why a fast-forward commit.** `e7130f04` is built on the gate, **910 commits** away from the web branch tip
-`1765bbeb`. A PR of it would carry 1,100 files of gate history into the live branch. Instead, the same 3 commits
-were cherry-picked (`-x`) onto `1765bbeb`. The result is `a6cd359f` → `c2aa632c` → `fd0da772`:
-- its `web/` tree `ab2eb1bf` is identical to `e7130f04`'s;
-- its patch-ids are equal to the reviewed commits';
-- it changes 0 files outside `web/`, and 11 files, +990/−101, in total;
-- typecheck 0, vitest 13 files / 218, `next build` exit 0 with CI's placeholders.
+**Landing commit `fd0da772`, and why it is a fast-forward.**
+- `e7130f04` is built on the gate, **910 commits** away from the web branch tip `1765bbeb`. A PR of it would carry
+  1,100 files of gate history into the live branch.
+- So the same 3 commits were cherry-picked (`-x`) onto `1765bbeb`: `a6cd359f` → `c2aa632c` → `fd0da772`.
+  - Its `web/` tree `ab2eb1bf` is identical to `e7130f04`'s.
+  - Patch-ids are equal; 0 files change outside `web/`; 11 files, +990/−101.
+  - Typecheck 0, vitest 13 files / 218, local `next build` exit 0.
+- It is **local, not on the remote**, so no CI check has run on it.
 
-| Step | Who | Action | Effect / gate |
+| Step | Kind / who | Action | Pass condition / effect |
 |---|---|---|---|
-| W2 | *owner's go*; A's push was refused, so **you push or allow it** | push `web/wording-release-ff` (`fd0da772`), a non-deploy branch | CI push run. The web preview is skipped by its Ignored Build Step; no admin deployment; no production effect. **Pass condition:** check run `Web build (Next.js)`, app GitHub Actions, conclusion `success`, head sha `fd0da772` |
-| W1b | *owner* | add the required check (above) | only after W2's pass condition is read |
-| W3 | A | open the PR into `feature/web-accounts-foundation`; confirm the same check green **at `fd0da772` on the PR** and that the diff is the 11 files | — |
-| W4 | *owner* (**this is the deployment**) | merge the PR (merge commit) | Vercel builds production from the merge commit |
-| W5 | A + owner | the merge commit's tree equals `fd0da772`'s; the production deployment is READY on that sha (dashboard: A's token is refused); spot-check `/account/purchases`, `/account/sales` and the transfer pages signed in | — |
+| W1a | [P] owner | Ruleset on `feature/web-accounts-foundation`: restrict deletions; block force pushes; require a PR, 0 approvals; **allowed merge methods: merge only**; no bypass | A reads it back. Executable now |
+| W2 | [B] owner's go | push `web/wording-release-ff` (`fd0da772`). A's earlier attempt was refused by this session's permission check, so you push it or allow it | CI push run. The web preview is skipped by its Ignored Build Step; no admin record; no production effect |
+| V-W2 | [V] A | read the check runs on `fd0da772` | a run named exactly **`Web build (Next.js)`**, app `github-actions` (integration 15368), `head_sha` = `fd0da772`, conclusion `success` |
+| W1b | [P] owner | add the required status check `Web build (Next.js)`, source GitHub Actions | **only after V-W2 passes** |
+| W3 | A | open the PR into the web branch | the same check is reported on the PR head and is green; the diff is the 11 files |
+| W4 | **[D]** owner | merge the PR (merge commit) | **on this branch a merge is the production deployment**; there is no separate step |
+| V-W4 | [V] A + owner | — | the merge commit's tree equals `fd0da772`'s; the production deployment is READY on that sha; spot-check `/account/purchases`, `/account/sales` and the transfer pages signed in |
 
-**Rollback:** Vercel → snatchit-web → Instant Rollback to the production deployment that precedes W4. Its id is not on
-record; `1765bbeb` carries a Vercel "Deployment has completed" status, but which deployment is serving is **read fresh
-at W4**. Then a revert PR, so the branch matches what is served.
+**If V-W2 finds no check, diagnose it; never remove the check to unblock a merge.**
+1. **No workflow run for the sha:** a trigger problem. Check that ci.yml at `fd0da772` has `push: branches-ignore: [main]`
+   and that Actions is enabled.
+2. **A run without the job, or with the job skipped:** the job's `Detect web app` step, which needs `web/package.json`.
+3. **The job failed:** fix it with a new reviewed commit and repeat V-W2.
+4. **A name or app mismatch:** the required context must equal the job's `name:` exactly and be bound to GitHub
+   Actions.
+
+The PR into this branch gets no pull_request run (ci.yml: `pull_request: branches: [main]`). The check comes from the
+push run on the head commit.
+
+**Rollback:** Instant Rollback to the production deployment serving before W4, **read fresh at W3** (`1765bbeb` carries
+a Vercel "Deployment has completed" status, but the serving deployment id is not on record). Then a revert PR, so the
+branch matches what is served.
 
 The gate gets the same change via S4 (`e7130f04`). That is one change with two identities.
 
-## 3. Admin console: releasing the label fix
+## 3. Admin console: protected PR merge, then an explicit deployment of that exact commit
 
-**Why not `1058c882` itself.** `admin/operating-console` is at `562fda9a`, 5 commits past the served `ab3e17f1`
-(docs plus `admin/scripts/acceptance/gate-probe.mjs`, which the app never imports). So `1058c882` is not a
-fast-forward. D's `efe03fca` is (`562fda9a` → `ccac575d` → `efe03fca`). Its only difference from `1058c882` is
-those two non-app files (verified by A).
+**The pin is not a substitute for PR protection.**
+- The console branch gets the same PR protection as the other deploy branches.
+- The pin keeps the merge from deploying until you approve.
+- The release is the PR's own merge commit, deployed explicitly.
 
-| Step | Who | Action |
-|---|---|---|
-| X8a | *owner* | Vercel → snatchit-admin → Settings → Build and Deployment → Ignored Build Step: `test "$VERCEL_GIT_COMMIT_SHA" != "efe03fca5a88b074b2a675fb24fe718b53a9f4a3"`. Save and read back. Nothing builds |
-| X8b | *owner* (**the deployment**) | `git push origin efe03fca5a88b074b2a675fb24fe718b53a9f4a3:refs/heads/admin/operating-console`, with no `--force`. Git refuses anything other than a fast-forward. Vercel builds production |
-| X8c | owner + D | the deployment is READY for `efe03fca` and the alias has moved; sign in at aal2 (**needs your new authenticator**); D runs the label checks on the order page |
+**Vercel behaviour this relies on.**
+- *Docs:* "When your deployment enters the `BUILDING` state" the Ignored Build Step command runs; exit 0 sets the
+  deployment to `CANCELED` (Project settings, last updated 2026-09-21).
+- *Docs:* the dashboard's **Redeploy** dialog has a **"Use project's Ignore Build Step"** checkbox. So a redeploy is
+  subject to the pin unless someone unticks it.
+- *Vercel staff (community, 2026-02-22):* the ignore command cancels all types of deployment, including deploy hooks.
+- *Observed:* on `562fda9a` GitHub shows `Vercel – snatchit-admin: Canceled by Ignored Build Step`, so a push to the
+  console branch under another pin is cancelled.
+- **Not established by any source:** whether **Redeploy is offered on a CANCELED deployment**. Check it at C5 before
+  relying on it. The fallback below needs no such assumption.
 
-**The order matters.** If the push comes first, the old pin cancels that build, and moving the pin afterwards
-rebuilds nothing.
+| Step | Kind / who | Action | Pass condition / effect |
+|---|---|---|---|
+| C1 | [B] owner's go | push `admin/label-console-release-ff` (D's `efe03fca`) | CI push run. snatchit-admin creates no record (preview tracking off); the web preview is skipped |
+| V-C1 | [V] A | read the check runs on `efe03fca` | **`Admin console (Next.js)`**, `github-actions`, `success`, on that sha (it reports on the console tip `562fda9a` today) |
+| C2 | [P] owner | Console ruleset: restrict deletions; block force pushes; PR required, 0 approvals; **merge only**; required check `Admin console (Next.js)` (only after V-C1) | A reads it back |
+| C3 | [M] owner | open the PR `admin/label-console-release-ff` → `admin/operating-console` and merge it (merge commit) | **Not a deployment:** Vercel creates a production record for the merge commit and the current pin cancels it |
+| V-C3 | [V] A + D | read the exact merge commit **M** from GitHub | M's parents are `562fda9a` and `efe03fca`; M's tree equals `efe03fca`'s; `admin/src` `f297dab4…` and `admin/tests` `6b76588f…` equal the reviewed `1058c882`'s; snatchit-admin on M reads "Canceled by Ignored Build Step"; **the alias and the serving deployment are re-read** (record: `dpl_J5Kr…`) |
+| C4 | [P] owner, with deployment approval | pin → `test "$VERCEL_GIT_COMMIT_SHA" != "<M, full sha>"` | read back. Builds nothing |
+| C5 | **[D]** owner | Vercel → snatchit-admin → Deployments → M's cancelled production deployment → … → **Redeploy**, with **"Use project's Ignore Build Step" left ticked** (the pin then admits only M). **Fallback, if Redeploy is not offered on a cancelled deployment:** `vercel deploy --prod` from a clean detached checkout of M (the 09-08 method; the pin applies the same way). Never untick the checkbox | READY on M, the alias moved, sign-in at aal2 (needs your new authenticator), D's label checks |
 
-**Rollback target: `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`.** This is a **record fact** (`ab3e17f`, aliased 2026-09-08; no newer
-admin deployment at D's 09-24 read). **Re-read the alias and the current pin value at X8a** before relying on either.
-- Instant Rollback to it, then set the pin back to `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`.
-- Moving the pin alone rolls nothing back.
+**Local trial (method only).**
+- `git merge --no-ff efe03fca` onto `562fda9a` gave `f7589003`, with parents `562fda9a` and `efe03fca`.
+- Its tree equals `efe03fca`'s, and its app trees equal `1058c882`'s.
+- The real M exists only after C3, and V-C3 repeats these checks on it.
 
-**Console protection must not require a PR** (corrects PR-7's console row; raised by D).
-- Pin-then-push needs the sha known before the push. A PR merge creates a sha nobody knows in advance, so a
-  PR-required rule would break X8 and every later console release.
-- **Proposed console ruleset:** restrict deletions and block force pushes only.
-  - `non_fast_forward` still forbids rewriting the branch.
-  - The pin remains the build gate: a push of any other sha builds nothing.
-- It can be added before or after X8.
+**Rollback:** Instant Rollback to the deployment that was serving at V-C3, then the pin back to
+`ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`. Moving the pin alone rolls nothing back.
+
+**Bounded exception (D's release-first), only if C5 cannot be executed by either route.**
+- E1 [P]: pin → `efe03fca5a88b074b2a675fb24fe718b53a9f4a3`.
+- E2 [D]: `git push origin efe03fca…:refs/heads/admin/operating-console`, with no `--force` (a fast-forward of
+  `562fda9a`).
+- V-E2 [V]: READY on `efe03fca`; alias moved.
+- E3 [P]: apply C2's ruleset **immediately**.
+- Bound: the branch is unprotected only between E2 and E3, and nothing else is pushed in that window.
 
 **One change, three identities** (equal patch-ids):
 - gate `004af0b0` / `789025f3` (S3);
 - reviewed `72ac2c52` / `1058c882`;
 - landing `ccac575d` / `efe03fca`.
+
+M adds a fourth commit id, but no change: its tree equals `efe03fca`'s.
 
 ## 4. `main` integration: squash
 
@@ -143,6 +163,13 @@ first, sha256 `0c586b1b…`.
      3. Check its tree equals the candidate's.
      4. Push it; CI runs on its sha.
      5. Open a PR into the gate and merge it with a merge commit; its tree is unchanged.
+   - **Verified locally (method level).** Helper `968cf79f` has parents candidate and squash. The gate after the PR is
+     `156e6aa7`, with parents candidate and helper.
+     - Its tree equals the candidate's.
+     - The candidate, the squash and the helper are all its ancestors, and its first parent is still the candidate.
+     - `merge-base(main, gate)` becomes the squash commit.
+     - The next squash is clean, and its tree equals the new gate's.
+   - The helper branch's push run supplies the gate's required checks. A PR from `main` would have none.
    - Trial: the sync-back's tree was `1b76e9cd`, unchanged.
    - Without the sync-back, a later gate edit to a line the squash introduced **conflicts** (trial: `ci.yml`).
    - With it, the next squash is clean and equals the new gate's tree (trial).
@@ -169,30 +196,34 @@ first, sha256 `0c586b1b…`.
 - **So the sheet's two statements do not conflict today.** "No merge commits" holds on `main` only, through its
   ruleset. Merge commits are allowed everywhere else.
 
-**Proposed configuration (MM-1):**
+**Proposed configuration (MM-1), one set for all branches:**
 
-| Where | Allowed methods | Other rules | Serves |
+| Where | Allowed merge methods | Rules | Required checks (all GitHub Actions, integration 15368) |
 |---|---|---|---|
-| Repository settings | **unchanged**: merge, squash, rebase | — | Turning off merge commits repository-wide would break S1–S5, the web merge and the sync-back. Rulesets narrow per branch |
-| `main` (ruleset 21624091) | **`squash` only** (drop `rebase`) | keep linear history, the 5 checks, no deletion, no force-push | S7 squash; removes the one-click rebase that would rewrite 906 commits |
-| gate `release/production-gate-20260918` (new) | **`merge` only** | no deletion, no force-push; PR required; PR-1's checks plus `Admin console (Next.js)` and `Deno type-check (edge functions)` | S1–S6 and the sync-back PR keep the reviewed shas |
-| web `feature/web-accounts-foundation` (new, §2) | **`merge` only** | W1a now, W1b after W2 | W4 |
-| console `admin/operating-console` (new, §3) | no PR rule | no deletion, no force-push | X8's pin-then-push, now and later |
-| records `release/candidate-20260918` (new) | no PR rule | no deletion, no force-push | direct record pushes continue |
+| Repository settings | **unchanged**: merge, squash, rebase | — | — |
+| `main` (ruleset 21624091) | **squash only** (drop `rebase`) | keep: linear history, PR, no deletion, no force-push, strict per PR-2 | unchanged: the 5 |
+| gate `release/production-gate-20260918` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push | the 6 that report on gate PRs today (#94's head): `Immutability + ordering`, `Migrations apply cleanly (fresh DB)`, `Typecheck / Lint / Unit tests`, `Web build (Next.js)`, `Admin console (Next.js)`, `Deno type-check (edge functions)`. **Not** `Secret scan` or `Dependency review`: they run only on PRs into `main` |
+| web `feature/web-accounts-foundation` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push (W1a) | `Web build (Next.js)`, **after V-W2** (W1b) |
+| console `admin/operating-console` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push (C2) | `Admin console (Next.js)`, **after V-C1** |
+| records `release/candidate-20260918` (new) | — | no deletion; no force-push; no PR rule (direct record pushes) | — |
 
-The required checks on the gate and web PRs report through push runs on head branches pushed to this repository.
+**Never required anywhere:** `Supabase Preview` and `Vercel Preview Comments` (third-party apps), npm audit, CodeQL.
 
 ## 5. Independent, or waiting
 
-**Can proceed independently** (each still needs your word):
-- **W1a, protecting the web branch.** This is the most urgent; executable now. W1b waits on W2's observed check.
-- The other PR-7 rulesets, plus PR-1, PR-2, PR-5 and PR-6.
+**Can proceed independently** (each still needs your word; the kinds stay distinct):
+- **[P] W1a**, protecting the web branch. The most urgent; executable now.
+- **[B] W2 then [V] V-W2**, then **[P] W1b**.
+- **[B] C1 then [V] V-C1**, then **[P] C2**.
+- **MM-1**: the configuration in §4A. `main` squash-only and the gate ruleset are needed only by S1 and S7.
 - **O-R3** (a decision).
-- **MM-1**, the merge-method configuration (§4A). It settles PR-3 as squash, and is needed only by S1 and S7.
-- **The console release X8a–X8c.** Its verification needs your sign-in.
-- **The web wording:** W2 (your push), then W1b, then W3–W4.
 - The stale-PR closures, each with an archive tag.
 - **Your TOTP check:** A's read-only factor list, once you confirm enrolment.
+
+**Waiting:**
+- **[D] W4** waits on W1b and W3.
+- **[M] C3** waits on C2.
+- **[D] C5** waits on V-C3, C4, your deployment approval and your sign-in.
 
 **Must wait:**
 
@@ -211,6 +242,15 @@ The required checks on the gate and web PRs report through push runs on head bra
 | 152 (blocking) | D2; it must be a timestamp file |
 
 ## 6. Where this differs from D's sheet
+
+**Reconciliation, 2026-10-07.** This is the single shared proposal. D's rev 4 (`10c0a8dc`) differs in two places, and
+both are resolved here per the owner's direction:
+- **Gate:** merge only, rather than D's "all three methods".
+- **Console:** the protected PR route, rather than D's release-first. D's route is retained as the bounded exception in
+  §3.
+
+D's session was not reachable to re-review this revision; D verifies it on return.
+
 
 1. **Web.**
    - D routes `e7130f04` straight into the web branch. That is a 910-commit merge, so it should go in as the

@@ -2099,3 +2099,18 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **W1 split:** W1b (required `Web build (Next.js)`) is **not executable yet**. `fd0da772` is not on the remote,
     and A's push of `web/wording-release-ff` was refused by the session's permission check (not retried).
   - No setting changed.
+- **MM-1 RECONCILED (A, 2026-10-07; owner direction).** One configuration in EXECUTION_SHEET §4A:
+  - repository settings unchanged;
+  - `main` squash only;
+  - gate merge only, with the 6 checks that report on gate PRs (no Secret scan);
+  - web and console merge only, each check required only after it is observed on the landing sha;
+  - records branch: no deletion or force-push.
+  - **Console route = protected PR merge, then explicit Redeploy.**
+    - Vercel docs: the Ignore Build Step runs at BUILDING; the Redeploy dialog has "Use project's Ignore Build Step".
+    - Unverified: Redeploy on a CANCELED deployment. Fallback: CLI deploy of the merge commit.
+    - D's release-first route is the bounded exception.
+  - **Local trials:**
+    - helper-branch sync-back: gate tree unchanged; candidate, squash and helper all ancestors; merge-base = squash;
+      next squash clean;
+    - console PR merge commit: tree equals `efe03fca`; app trees equal `1058c882`.
+  - No setting changed; nothing pushed except records.
