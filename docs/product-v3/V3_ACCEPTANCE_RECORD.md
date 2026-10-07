@@ -74,8 +74,12 @@ acceptance.
 - **E check:** all 14 PNGs are 1179×2556. E viewed `home-feature-wide-light.png` and
   `home-feature-flyer-dark.png`; they agree with B's description. The serving tree was still
   `d5217530` and clean after the batch.
-- **Open (C to answer):** letterboxed art sits above centre on a consistent ~40/60 split. B calls
-  it an observation, not a defect; C confirms it is deliberate and writes it down, or fixes it.
+- **Letterbox position: resolved as deliberate (C, 2026-10-06; E verified in source at `d5217530`).**
+  Letterboxed art is positioned by the focal point, default y=0.40 (`src/lib/media/url.ts:76`
+  `DEFAULT_FOCAL`, passed as `contentPosition` for both contain and cover at
+  `EventMedia.tsx:265-273`). So 40% of the vertical slack sits above the art. A source taller than
+  4:5 has no vertical slack and reads as centred. Stored art can carry its own focal point. Not a
+  defect.
 - **E observation passed to B, not a finding:** in both viewed captures, the first "This week"
   row's event name ("Midnight Arcade presents The Foundry Warehouse S…") is clamped at two lines
   with an ellipsis, at default text size. This may be the remembered truncation. B decides whether
@@ -84,6 +88,16 @@ acceptance.
 
 **Carry-forward from `f3f08930` to `d5217530`.** No durable B or native evidence exists at
 `f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
+
+**Queued successor work (C, not in the candidate under review).** Branch `v3/consumer-batch2`
+(`/Users/josetascon/snatchit-v3batch`) is at `52a4bd29` above `d5217530`:
+- `6c562dcf`: F-1, Edit listing no longer spins forever on its refusal paths.
+- `8b437942`: F-4, Publish says "Sign in required" when the session is gone.
+- An inventory doc listing 7 event-image surfaces that still have no artwork selector, and Listing
+  detail read-failure and offline states that cannot be seeded.
+
+These are C's claims, recorded here and not yet reviewed by B or E. None of it is served or
+reviewed until B finishes `d5217530`.
 
 ## Native acceptance loop — restarted 2026-10-05 on C's named successor (owner)
 The owner restarted the loop on C's named successor. Completing `f3f08930` first is **not** required.
