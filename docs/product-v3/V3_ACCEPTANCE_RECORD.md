@@ -86,7 +86,13 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `7d0ae5655d7b308c118d7f1154abe95c73f2233c` (E saw it served 2026-10-06; C to name it formally)
+## Successor served: `0dfea8b21496390cc66ad470ba9ad1bc42e2211a` (2026-10-06 23:03; supersedes `7d0ae565`; C to name it formally)
+`0dfea8b2` changes one line in `HomeFeature.tsx`: the time · venue meta line goes from
+`numberOfLines` 1→2, because at a3xl it clipped to "19:30 · Lanter…". C found this in a C-operated
+capture. It also adds a test. The carry/repeat list below is unchanged: the edit is inside the Home
+identity block, which already repeats. The serving tree is clean.
+
+### As first served: `7d0ae5655d7b308c118d7f1154abe95c73f2233c`
 - **Implementation (C).** `v3/midnight-app` in `/Users/josetascon/snatchit-refund` is at
   `7d0ae565`, clean.
   - Range from `d5217530`: batch2 (`6c562dcf` … `8f6bed1e`), then `750a9c4f` (Edit refusal exit),
