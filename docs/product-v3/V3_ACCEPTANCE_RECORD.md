@@ -86,6 +86,31 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+**B native batch 3 (`17c7e670`, 2026-10-06) and window handback**
+- **Listing poster: complete but covered.** It is 4:5 and complete (0–490.7 pt). The status bar and
+  banner cover its top 79 pt: masked diff 4.1 for cover-fit at 79 pt hidden, against 16.6 for
+  contain. This refines E's earlier wording, "top band not visible": the content is under the chrome,
+  not cut by the frame. Navigation chips sit at y 80–160 pt on printed lines. **This fails the
+  settled requirement at `d5217530`. Fix: positional (start the poster below the banner, controls in
+  their own area). No re-crop.** Home clears the banner (its feature starts at 164 pt).
+- **R-4 (info beneath the poster):** the captures show the date line, name and provenance below the
+  poster for `flyer`, `subject-wide` and `missing`. B states no explicit R-4 verdict. **R-4 stays
+  open** and is decided at the successor, because the navigation fix changes the same layout.
+- **Not done at `d5217530`:** footer Dynamic Type; VoiceOver (no accessibility inspection in B's
+  session); scrolling (no touch input).
+- **Five cases B specified, which C operates and B reviews.** Files are named
+  `…-Coperated.png`.
+  1. Feed-row title at 3xl and a3xl.
+  2. Home identity block below the fold at a3xl.
+  3. Listing bid breakdown and activity at default and a3xl, both appearances.
+  4. Consumer Home signed in, at rest and one section scrolled, relative to the dock top at
+     704.0 pt.
+  5. VoiceOver spoken value of the a3xl price caption. This records the gap; it does not close it.
+- **Window returned to C** (`17c7e670`). The serving tree was `d5217530` and clean at both the
+  start and end of B's review, so every capture's provenance is established.
+- **B's scope statement:** not whole-app acceptance. The batches cover Home, Listing, the footer,
+  reservation feedback, icons and Dynamic Type, on a native development build, at one commit.
+
 ## Owner direction 2026-10-06 (settled; not open questions)
 - **"all-in" must stay visibly readable at the supported large text sizes.** Let it wrap or adjust
   the layout; price semantics are unchanged. VoiceOver is checked **separately**: complete spoken
@@ -109,10 +134,10 @@ acceptance.
 | Home feature identity, default size | none (B `c9d6f0d7`) | not checked | n/a (above the fold) | harness only (no dock) |
 | Home feature identity, largest standard | **"Ends…" cut** (B `f235ddb7`) | not checked | — | — |
 | Home feature identity, a3xl | **"current bid, al…": "all-in" lost** (B `f235ddb7`), fix required | not checked | — | — |
-| Listing poster at rest | — | — | — | **fails the 2026-10-06 ruling**: top band under the status bar and banner; chips over printed lines (`listing-live-flyer-light`); fix required |
-| Listing footer, default | none (B `f235ddb7`) | not checked | — | not stated |
+| Listing poster at rest | — | — | — | **fails the 2026-10-06 ruling (B `17c7e670`, measured)**: the hero spans 0–490.7 pt, w/h 0.8009, **complete, not cropped**; the banner covers its first 79 pt (0–78.7); the back chip (5,80)–(79.7,159.7) and the overflow chip (310,80)–(389.7,159.7) sit on printed lines; the fix is positional |
+| Listing footer, default | none (B `f235ddb7`) | not checked | case 3 (C-operated) | not stated |
 | Feed rows / below fold | pending | pending | **blocked for B; C-operated next** | pending |
-| Consumer Home (with dock) | pending | pending | pending | dock band 704.0–769.7 pt signed out (B); next-section figure needs sign-in |
+| Consumer Home (with dock) | pending | case 5 (Home a3xl caption; records the gap only) | case 4 (C-operated) | dock band 704.0–769.7 pt and 82.0 pt below, signed out (B). **Signed-in figure blocked for B**: B will not type the test-buyer password into the app; C or an attended session must sign in |
 
 ### Successor plan: which checks repeat (E; to be confirmed by diff at C's named sha)
 Expected changes: batch2 (`8f6bed1e`), the "all-in" layout (`feedRowState.ts:111-113` caption and
