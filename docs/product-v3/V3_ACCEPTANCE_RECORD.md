@@ -17,6 +17,40 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
+## Status index (E, 2026-10-06 23:25). Three tracks, kept separate
+
+### Track 1: B's completed native evidence (`d5217530`; window closed `17c7e670` and released to C)
+| Check | Result | Evidence |
+|---|---|---|
+| Home artwork per fixture (7 cases), 4:5 frame, no gradient, nothing on the poster | **pass** | B `c9d6f0d7`, 14 sim captures |
+| Option B footer at rest | **pass** | B `f235ddb7` |
+| Reservation feedback (R-1 busy state) | **pass** | B `f235ddb7`, `listing-reserving-*` |
+| Filters glyph (F-91-6) | **pass** | B `f235ddb7` |
+| Remembered name collapse | **not reproduced, withdrawn** | B `f235ddb7` |
+| Home identity at 3xl / a3xl | **fail** ("Ends…", "current bid, al…") | B `f235ddb7` |
+| Listing poster at rest | **fail**: complete 4:5, but covered by the banner (79 pt) and the nav chips | B `17c7e670`, measured |
+| Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
+| VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
+
+### Track 2: Successor, affected checks (served `94ac8b4f`, awaiting C's formal naming)
+- **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
+  Filters glyph.
+- **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
+  (poster clear of the banner, nav outside printed artwork, R-4, artwork cases, footer,
+  `?reserving=1`, panel at large text, safe areas).
+- **New (C-operated, B-reviewed):** B's five cases: feed-row title at 3xl/a3xl; below-fold identity
+  at a3xl; Listing breakdown and activity; signed-in consumer Home at rest and scrolled one section;
+  price-caption accessibility exposure. Visible text and spoken text are recorded separately.
+- **New (C owner evidence, then B):** Edit refusals; Listing failure/offline; public profile;
+  Send/Receive not-found; the six harness-art screens.
+- **The poster fix completes the existing artwork requirement (R-3 "full poster content preserved",
+  2026-09-25). It is not a new design decision.** B's diagnosis applies: fix layout and safe-area
+  positioning, not cropping or image scaling. Navigation sits outside the printed artwork.
+
+### Track 3: Remaining whole-app coverage
+See **Remaining consumer screens** below. No screen outside Home and Listing is accepted, and no
+blanket whole-app acceptance applies.
+
 ## Candidate under native review: `d52175303f22a575b80f005f38c0e8555be0dbdc` (named 2026-10-05; E verified 2026-10-06)
 - **Implementation (C), checked by E.** `v3/midnight-app` in `/Users/josetascon/snatchit-refund`
   is at `d5217530`, and `git status` is clean.
@@ -169,7 +203,7 @@ identity block, which already repeats. The serving tree is clean.
 - **B's scope statement:** not whole-app acceptance. The batches cover Home, Listing, the footer,
   reservation feedback, icons and Dynamic Type, on a native development build, at one commit.
 
-## Owner direction 2026-10-06 (settled; not open questions)
+## Owner direction 2026-10-06 (completes existing rulings R-3 and pricing; not new design decisions)
 - **"all-in" must stay visibly readable at the supported large text sizes.** Let it wrap or adjust
   the layout; price semantics are unchanged. VoiceOver is checked **separately**: complete spoken
   text does not excuse clipped visible text.
