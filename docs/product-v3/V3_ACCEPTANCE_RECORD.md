@@ -32,7 +32,7 @@ acceptance.
 | Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
 | VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
 
-### Track 2: Successor, affected checks (now `22835964` = `c75b1c68` + FeedRow fix)
+### Track 2: Successor, affected checks (now `7c9b270b` = `c75b1c68` + FeedRow fix + price-numeral cap)
 - **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
   Filters glyph.
 - **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
@@ -119,6 +119,20 @@ blanket whole-app acceptance applies.
   with an ellipsis, at default text size. This may be the remembered truncation. B decides whether
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
+
+## Successor now `7c9b270b7e2c098ba352ee11ee9560b362669ffc` (served 2026-10-07 00:06; supersedes `22835964`)
+- **What changed.** `7c9b270b` stops stacked price numerals wrapping mid-number ("$132.0" / "0").
+  The price numeral in `FeedRow` and in `HomeFeature` now takes
+  `maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}`, which is 1.3 (`src/theme/typography.ts:125`).
+  The surrounding text still scales fully, and the spoken label carries the full amount. Serving
+  tree clean.
+- **For B to judge (E note, not a verdict):** this caps the **price numeral's** growth at 1.3× of
+  the user's text size. C cites it as the app's existing treatment for display type. The owner's
+  instruction was "wrap or adjust its layout", and C's own earlier note said capping refuses a
+  request for larger text. B decides whether a capped but complete numeral meets the readability
+  rule at 3xl and a3xl.
+- **Carry/repeat:** unchanged from `22835964`. The Home feature identity and feed rows already
+  repeat. The feature artwork checks still carry, because the numeral sits below the poster.
 
 ## Successor now `22835964997f31acd73d49b96ead6eccea84f01d` (served 2026-10-07 00:00; supersedes `c75b1c68`)
 - **What changed.** `22835964` changes only `FeedRow.tsx` (plus a test). Above
