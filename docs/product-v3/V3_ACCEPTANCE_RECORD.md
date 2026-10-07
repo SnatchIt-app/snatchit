@@ -56,6 +56,32 @@ acceptance.
   empty at E's check (2026-10-06).
 - **Routes:** `V3_SUCCESSOR_HANDOFF.md` at `d5217530`. Listing needs `screen=listing`.
 
+**B native batch 1 (`c9d6f0d7`, 2026-10-06): Home at `d5217530`**
+- **B's own start check:** HEAD `d5217530`, clean, contains `168e794a`.
+- **Device:** `SN V3 393x852`, iOS 26.5 23F77. Metro pid 2172 (C).
+- **The f3f08930 feature-selection defect is fixed.** Each of the 7 required `?art=` cases paints
+  the feature itself. B matched each against its own source file with a mismatched-fixture
+  control: diffs 0.5–4.1 against controls 8.4–84.4.
+- **Geometry:** frame 490.3–491.0 pt at 393 pt (w/h 0.8004–0.8015). No crop, no stretch. 9:16 is
+  pillarboxed; 1:1 and 16:9 are letterboxed.
+- **No gradient:** the poster's bottom third differs least from its source.
+- **No app text or badge on the poster.** The identity sits below it, in canvas inks.
+- **Next section (native):** the rule is at 790.0 pt, with 62.0 pt of the following row visible,
+  in both appearances.
+- **Appearance:** System appearance switching works, verified by B. `?appearance=` persists as a
+  stored preference, so B pins it per capture.
+- **Device signed out:** B typed no credential. The `_dev` harness renders without auth.
+- **E check:** all 14 PNGs are 1179×2556. E viewed `home-feature-wide-light.png` and
+  `home-feature-flyer-dark.png`; they agree with B's description. The serving tree was still
+  `d5217530` and clean after the batch.
+- **Open (C to answer):** letterboxed art sits above centre on a consistent ~40/60 split. B calls
+  it an observation, not a defect; C confirms it is deliberate and writes it down, or fixes it.
+- **E observation passed to B, not a finding:** in both viewed captures, the first "This week"
+  row's event name ("Midnight Arcade presents The Foundry Warehouse S…") is clamped at two lines
+  with an ellipsis, at default text size. This may be the remembered truncation. B decides whether
+  it reproduces and whether it is a defect; the design may intend a two-line clamp.
+- **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
+
 **Carry-forward from `f3f08930` to `d5217530`.** No durable B or native evidence exists at
 `f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
 
@@ -118,7 +144,7 @@ sufficient.
 
 | Check (both appearances) | Implementation (C) | B independent review | Native evidence (sim) | Repeat at successor? |
 |---|---|---|---|---|
-| Home: 4:5 feature, identity below, no gradient, next section measured; **each** of `flyer`, `subject`, `subject-wide`, `tall`, `wide`, `square`, `missing` visibly in the featured frame | `e902f59a`, `ec61bfa7`; feature-selection fix pending (C) | pending | pending (C's `f3f08930` captures lost) | full re-run |
+| Home: 4:5 feature, identity below, no gradient, next section measured; **each** of `flyer`, `subject`, `subject-wide`, `tall`, `wide`, `square`, `missing` visibly in the featured frame | `e902f59a`, `ec61bfa7`; feature-selection fix `6100dee1` (in `d5217530`) | **B `c9d6f0d7` at `d5217530`: verified** (`B_NATIVE_REVIEW_d5217530.md` batch 1) | **sim, 14 captures** `native/d5217530/home-feature-<art>-{light,dark}.png` (1179×2556) | done at `d5217530` except Dynamic Type and safe areas (still to come) |
 | Listing: 4:5 poster, info beneath (R-4), navigation reachable; same artwork cases | `f3f08930` (`ListingHero`) | pending | pending | full re-run; **blocked** until Listing `?art=` lands |
 | Footer Option B at rest | `12be25d6` | pending | pending | full re-run |
 | Reservation feedback (`?reserving=1`, second-position `Reserving…`) | `f3f08930` + seam `168e794a` | pending | pending | at successor only |
