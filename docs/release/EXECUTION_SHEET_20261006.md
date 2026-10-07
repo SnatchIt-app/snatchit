@@ -104,6 +104,17 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
     - the step runs with the sha empty: the build is cancelled.
   - None of the three can deploy anything but M. **That safety comes from the verified checkout, not from the pin.**
   - **The Redeploy route, with the checkbox ticked, stays primary**, because the pin provably applies there.
+  - **Liveness, not just safety (D).** In the third case nothing deploys.
+    - So a CANCELED result from the CLI fallback is a possible normal outcome, not a fault. **Do not retry it blindly.**
+    - Record the outcome either way; it is the only measurement anyone can make of this question.
+    - **CANCELED** shows that the step runs for CLI deploys and that the sha seen inside the build was not M. That
+      refutes the record's original sentence. It also means a CLI deploy can never pass this pin, whatever the target.
+    - **READY** means M is live. The question stays open but doesn't matter for this release.
+  - **If Redeploy is not offered and the CLI fallback is cancelled:** create a git-source production deployment
+    through the Vercel API (`POST /v13/deployments`, with `gitSource` naming this repository, `ref`
+    `admin/operating-console` and `sha` M, and `target` production). It needs a token with team access; A's is refused,
+    so this is the owner's step.
+    - **Never push an empty or re-trigger commit.** It changes the sha and defeats C4.
 
 | Step | Kind / who | Action | Pass condition / effect |
 |---|---|---|---|
