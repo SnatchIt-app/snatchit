@@ -91,3 +91,24 @@ export const FEATURE_CONTENT_BOTTOM =
 /** Hero: date line 78pt above the image bottom, name 19pt below the date line. */
 export const HERO_DATE_BOTTOM = 78;
 export const HERO_NAME_GAP = 19;
+
+/**
+ * The OS text scale at which the feature's identity block stops being two columns.
+ *
+ * WHY IT EXISTS (B's native finding at d5217530, owner-settled 2026-10-06). The block is a row:
+ * name and meta on the left, price and its caption in a narrow right-hand column. At a large text
+ * scale the two cannot both fit, and the caption — "current bid, all-in" — was the one that lost,
+ * truncating to "current bid, al…" and taking the word the all-in pricing rule turns on with it.
+ * The clock line was cut the same way one size earlier.
+ *
+ * 1.3 is at or below the largest STANDARD size, which is where the first cut appeared: a threshold
+ * that only caught the accessibility sizes would leave a setting many people use still clipped.
+ * Above it the block stacks and every line gets the full width, which is the owner's "adjust its
+ * layout" rather than capping how far the text may grow — capping would answer a request for
+ * larger text by refusing it.
+ */
+export const IDENTITY_STACK_SCALE = 1.3;
+
+export function identityStacks(fontScale: number): boolean {
+  return fontScale >= IDENTITY_STACK_SCALE;
+}

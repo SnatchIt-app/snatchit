@@ -33,12 +33,12 @@
  */
 
 import { memo, useMemo } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { usePressScale } from '@/src/components/ui';
-import { FEATURE_GUTTER } from '@/src/lib/design/featureMetrics';
+import { FEATURE_GUTTER, identityStacks } from '@/src/lib/design/featureMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, featureMetaLine, priceCaption, rowMeta } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
@@ -89,6 +89,14 @@ function HomeFeatureImpl({
   const clock = presentation.showsCountdown ? clockLabel(endsAt, nowMs) : null;
   const meta2Line = clock ? `${meta2} · ${clock.text}` : meta2;
   const caption = priceCaption(presentation.priceLabel);
+  /*
+   * At a large text scale the two columns cannot both fit and the caption was the line that lost
+   * "all-in" (B, d5217530). Above the threshold the block stacks and every line gets the full
+   * width. `useWindowDimensions` rather than `PixelRatio.getFontScale()` so a change while the app
+   * is open re-renders.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
 
   return (
     <Animated.View style={press.style}>
@@ -111,7 +119,7 @@ function HomeFeatureImpl({
         />
 
         {/* The app's words, in their own area beneath the poster. */}
-        <View style={s.content}>
+        <View style={stacked ? s.contentStacked : s.content}>
           <View style={s.textCol}>
             <NameText token="nameFeature" maxLines={2} style={s.title}>
               {eventName}
@@ -121,16 +129,17 @@ function HomeFeatureImpl({
             </Text>
             <Text
               style={[textStyle('bodySm'), clock?.urgent ? s.metaUrgent : s.meta]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {meta2Line}
             </Text>
           </View>
-          <View style={s.priceCol}>
+          <View style={stacked ? s.priceColStacked : s.priceCol}>
             <Text style={[textStyle('price'), s.priceValue]} numberOfLines={1}>
               {priceAllIn}
             </Text>
-            <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={1}>
+            {/* Two lines, never one: "current bid, all-in" wraps rather than losing "all-in". */}
+            <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={2}>
               {caption}
             </Text>
           </View>
@@ -159,6 +168,19 @@ function makeStyles(p: Palette) {
     paddingBottom: v2.space.lg,
     gap: v2.space.md,
   },
+  /*
+   * The stacked form, above IDENTITY_STACK_SCALE: one column, so the price and its caption sit
+   * beneath the name and each line has the full width. Same gutter, same vertical step — it is the
+   * block's own vocabulary rearranged, not a second design.
+   */
+  contentStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    paddingHorizontal: FEATURE_GUTTER,
+    paddingTop: v2.space.md,
+    paddingBottom: v2.space.lg,
+    gap: v2.space.sm,
+  },
   textCol: { flex: 1, minWidth: 0 },
   /*
    * CANVAS inks, not `onArt`. This is the half of the ruling that a screenshot in Dark would not
@@ -171,6 +193,8 @@ function makeStyles(p: Palette) {
   metaFirst: { marginTop: 4 },
   metaUrgent: { color: p.status.warning },
   priceCol: { alignItems: 'flex-end' },
+  /* Stacked, the price reads left-aligned under the name rather than adrift on the right. */
+  priceColStacked: { alignItems: 'flex-start' },
   priceValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   caption: { color: p.text.muted },
   });

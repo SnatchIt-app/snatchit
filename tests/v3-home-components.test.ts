@@ -18,8 +18,10 @@ vi.mock('@/src/theme/appearance', async () => {
     useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
   };
 });
+const rn = vi.hoisted(() => ({ fontScale: 1 }));
 vi.mock('react-native', () => ({
   Animated: { View: 'Animated.View' },
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: rn.fontScale }),
   Pressable: 'Pressable', Text: 'Text', View: 'View',
   Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios },
   StyleSheet: {
@@ -100,7 +102,7 @@ const nameOf = (host: HookHost, token: string) =>
   findElement(host.output, (el) => (el.props as { token?: string }).token === token);
 const media = (host: HookHost) => findElement(host.output, (el) => el.type === 'EventMedia');
 
-beforeEach(() => { vi.resetModules(); });
+beforeEach(() => { vi.resetModules(); rn.fontScale = 1; });
 
 describe('slot system — V3 slots carry the §3 geometry and the curve', () => {
   it('SL1: HOME_FEATURE_V3 — a 4:5 poster, fitted, preloaded, and NO gradient', () => {
@@ -336,5 +338,86 @@ describe('home wiring — feature + rows (source pins; behaviour is the load-sta
     ]);
     // Stable: 'a' arrived before 'e', and stays before it inside their section.
     expect(sections[2].items.map((r) => r.id)).toEqual(['a', 'e']);
+  });
+});
+
+/*
+ * LARGE TEXT (B's native finding at d5217530, owner-settled 2026-10-06). At the largest
+ * accessibility size the price caption truncated to "current bid, al…", losing the word "all-in";
+ * at the largest standard size the "Ends…" line was cut. The owner's requirement: "all-in" stays
+ * VISIBLY readable at the supported large text sizes — wrap it or adjust the layout, price
+ * semantics unchanged — and complete spoken text does not excuse clipped visible text, so the
+ * accessibility value is a separate check rather than a defence.
+ *
+ * The identity block is two columns, and the caption lives in the narrow right-hand one. At a
+ * large scale the two columns cannot both fit, so the block stacks and each line gets the full
+ * width. The threshold is a pure function so it can be stated once and tested.
+ */
+describe('HomeFeature — "all-in" survives the supported text sizes', () => {
+  const content = (host: HookHost) =>
+    findElement(host.output, (el) => el.type === 'View' && Array.isArray(el.props.style)
+      ? false
+      : el.type === 'View' && (el.props.style as { flexDirection?: string } | undefined)?.flexDirection != null);
+
+  const captionOf = (host: HookHost) =>
+    findElement(host.output, (el) => el.type === 'Text' && String(el.props.children).includes('all-in'));
+
+  it('LT1: the caption is never capped to one line, so it can wrap instead of clipping', async () => {
+    const host = await mountFeature();
+    const caption = captionOf(host);
+    expect(caption, 'the caption must be on screen at all').toBeDefined();
+    expect(String(caption!.props.children)).toContain('all-in');
+    // `numberOfLines={1}` is what produced "current bid, al…".
+    expect(caption!.props.numberOfLines).not.toBe(1);
+  });
+
+  it('LT2: at the standard size the block is still two columns', async () => {
+    rn.fontScale = 1;
+    const host = await mountFeature();
+    expect(content(host)?.props.style).toMatchObject({ flexDirection: 'row' });
+  });
+
+  it('LT3: at the largest standard size and above it stacks, so each line has the full width', async () => {
+    for (const scale of [1.35, 2, 3.1]) {
+      rn.fontScale = scale;
+      const host = await mountFeature();
+      expect(content(host)?.props.style, `fontScale ${scale}`).toMatchObject({ flexDirection: 'column' });
+    }
+  });
+
+  it('LT4: the clock line can wrap too — "Ends…" was the other one cut', async () => {
+    // Far enough out that the clock is the "Ends <day> <time>" form rather than a countdown —
+    // that long form is the one B saw cut at the largest standard size.
+    const host = await mountFeature({ ends_at: new Date(NOW + 3 * 24 * 3600_000).toISOString() });
+    // The clock is the TAIL of the combined meta line ("2 × GA · 11 bids · Ends Fri 18:00"),
+    // which is why the cut landed on it: it is the last thing on the longest line.
+    const clock = findElement(host.output, (el) => el.type === 'Text' && / · Ends /.test(String(el.props.children)));
+    expect(clock, 'the clock line must be on screen').toBeDefined();
+    expect(clock!.props.numberOfLines).not.toBe(1);
+  });
+
+  it('LT5: the spoken label still carries the whole sentence — recorded SEPARATELY, not as a defence', async () => {
+    /*
+     * The owner was explicit that a complete accessibility value does not excuse clipped visible
+     * text. This pins that the spoken string stays complete while LT1-LT4 hold the VISIBLE text to
+     * its own standard; if the two ever disagree, both fail here rather than one covering for the
+     * other.
+     */
+    const host = await mountFeature();
+    const pressable = findElement(host.output, (el) => el.type === 'Pressable');
+    const label = String(pressable!.props.accessibilityLabel);
+    expect(label).toContain('all-in');
+    expect(label).toContain('$99.00');
+  });
+
+  it('LT6: the threshold is one stated rule, not a number repeated in a component', async () => {
+    const { identityStacks, IDENTITY_STACK_SCALE } = await import('@/src/lib/design/featureMetrics');
+    expect(identityStacks(1)).toBe(false);
+    expect(identityStacks(1.2)).toBe(false);
+    expect(identityStacks(IDENTITY_STACK_SCALE)).toBe(true);
+    expect(identityStacks(3.1)).toBe(true);
+    // The standard sizes end around 1.35, which is where B saw the first cut, so the threshold has
+    // to be at or below it rather than only catching the accessibility sizes.
+    expect(IDENTITY_STACK_SCALE).toBeLessThanOrEqual(1.35);
   });
 });
