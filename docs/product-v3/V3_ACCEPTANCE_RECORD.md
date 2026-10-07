@@ -145,15 +145,34 @@ Read-only reconciliation by three bounded subagents. E spot-checked the conseque
 source: F-1, F-4, F-91-2 (0 `auto_released` cases), Send not-found with no retry, the Bids status
 filter, payControl's 11 outcomes, the `✎` glyph and the fee label.
 
-**Headline:**
-- **No screen below has native evidence.**
-- **Search, Create, Edit and My listings** have never had a B review of their V3 form. B's last
-  review was source-only at `404bce38`, before the redesign and before the 4:5 artwork change.
-- **Bids, Tickets, Profile, Settings, Appearance and Auth** have no rendered B review.
-- **Send:** B rendered it once, Light only, at `91062ab1`.
-- **Checkout:** B rendered 5 states at `d374bd3f`. Five later commits changed checkout, and B
-  deferred re-review until C names the final corrective commit.
-- None of these screens is accepted.
+**Headline (corrected 2026-10-06 against older records).** No screen below is accepted. No V3-form
+screen has native or device evidence from B. Every V3-era B render is web class. B's earliest
+record for every group except Appearance is `docs/design-audit/FRONTEND_DESIGN_AUDIT_20260917.md`
+(2026-09-17, pin `6561d1f`, V2, source only). "V3-pre" means V3 tokens before the redesign commits.
+
+| Group | Latest B evidence (class, version) | Status wording |
+|---|---|---|
+| Search | V2 source, 09-17 and the 09-21 baseline. `404bce38` does not touch it | never reviewed in V3 form; V2 reviewed at `6561d1f` |
+| Create | `404bce38`, source + computed contrast, V3-pre | never reviewed in V3 form; V3-pre source at `404bce38` |
+| Edit listing | V2 source, 09-17. Only a colour-access count at `2619b9e1` | never reviewed in V3 form; V2 at `6561d1f` |
+| My listings | `404bce38`, computed contrast, V3-pre | never reviewed in V3 form |
+| Bids | `404bce38`, source, V3-pre | no rendered B review |
+| Tickets | `d981727e`, computed contrast, V3-pre | no rendered B review |
+| Order / Receive | buyer transfer cards via the synthetic gallery, web, Light, `91062ab1`. Those captures are **cited, file missing**. The Order screen itself was never rendered | gallery cards: unknown (evidence missing); Order screen: never reviewed in V3 form |
+| Send + gallery | web, Light, `91062ab1`. `comparisons/send_light_91062ab1.png` is present; the full-gallery captures are **missing** | reviewed (web, Light) at `91062ab1`, stale since `a5c0bfc6` / `cbb2df6b` |
+| Checkout | web, 5 states × Light and Dark, `d374bd3f` (`comparisons/checkout_states.png` present). At `91062ab1`, B corrected its own fixture count in source | reviewed (web) at `d374bd3f`, stale since `65052bfc` |
+| Profile (own) | web, avatar only, `91062ab1` (`avatar_closure_91062ab1.png` present). Also B's analysis of the owner's Build 24 phone screenshots; those originals are not in the repo | avatar reviewed (web) at `91062ab1`; the rest never reviewed in V3 form |
+| Public profile | V2 source only | never reviewed in V3 form |
+| Settings | `404bce38`, source, V3-pre | never reviewed in V3 form |
+| Appearance | none of the screen; only B's pkg8 boards and Light/Dark resolution checks in web renders | no B review found in any record checked |
+| Auth | `404bce38`, source (brand-mark tint), V3-pre | never reviewed in V3 form |
+
+**What changed from E's 2026-10-05 wording:**
+- Search and Edit were last reviewed in V2, not at `404bce38`.
+- Own Profile has a web render (avatar only).
+- Appearance has no B review in any class.
+- Receive gallery captures are cited but missing, so their coverage is unknown.
+- Checkout's render covered both appearances.
 
 | Group | Harness reach (`app/_dev`) | Open findings present at `168e794a` | Owed |
 |---|---|---|---|
