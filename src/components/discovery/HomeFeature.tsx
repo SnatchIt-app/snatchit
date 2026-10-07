@@ -124,7 +124,10 @@ function HomeFeatureImpl({
             <NameText token="nameFeature" maxLines={2} style={s.title}>
               {eventName}
             </NameText>
-            <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={1}>
+            {/* Two lines like its sibling: at a3xl this clipped to "19:30 · Lanter…" — found in
+                the C-operated capture of the fix for the line below it, which is the kind of thing
+                only a device shows. */}
+            <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={2}>
               {meta1}
             </Text>
             <Text

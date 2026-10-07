@@ -396,6 +396,16 @@ describe('HomeFeature — "all-in" survives the supported text sizes', () => {
     expect(clock!.props.numberOfLines).not.toBe(1);
   });
 
+  it('LT4b: the venue line can wrap too — the a3xl capture of LT4\u2019s own fix showed it clipped', async () => {
+    // "19:30 · Lanter…" at accessibility-extra-extra-extra-large, in the C-operated capture taken
+    // to verify the caption fix. Fixing one line of a two-line block and leaving its sibling
+    // clipped would have shipped the same defect one row up.
+    const host = await mountFeature();
+    const venue = findElement(host.output, (el) => el.type === 'Text' && / · Lantern Room$/.test(String(el.props.children)));
+    expect(venue, 'the venue line must be on screen').toBeDefined();
+    expect(venue!.props.numberOfLines).not.toBe(1);
+  });
+
   it('LT5: the spoken label still carries the whole sentence — recorded SEPARATELY, not as a defence', async () => {
     /*
      * The owner was explicit that a complete accessibility value does not excuse clipped visible
