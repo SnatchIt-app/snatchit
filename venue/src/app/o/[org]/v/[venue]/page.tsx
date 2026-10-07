@@ -3,7 +3,7 @@ import { listBatches, listDevices, listEvents, listFlags, listHolds, listTicketT
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents, PRINCIPAL_LABEL } from "@/lib/roles";
-import { buildSignals, doorSummary, stillAvailable } from "@/lib/signals";
+import { buildSignals, doorSummary, eventStage, stillAvailable } from "@/lib/signals";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 import { Tonight } from "@/components/overview/Tonight";
 import { Page } from "@/components/ui/Page";
@@ -44,6 +44,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
     signals: ReturnType<typeof buildSignals>["signals"];
     clear: ReturnType<typeof buildSignals>["clear"];
     door: ReturnType<typeof doorSummary>;
+    stageView: ReturnType<typeof eventStage>;
     events: ReturnType<typeof listEvents>;
     available: number;
   };
@@ -61,7 +62,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
       const flags = tonight.length > 0 ? listFlags(ctx.state, tonight[0].session.sessionId) : [];
       const counters = tonight.length > 0 ? scanCounters(ctx.state, tonight[0].session.sessionId) : null;
       const built = buildSignals({ events, types, batches, holds, devices, flags, tonight, now: p.now, basePath, link: (href) => withPreview(href, ctx) });
-      ready = { signals: built.signals, clear: built.clear, door: doorSummary(tonight, counters, devices), events, available: stillAvailable(events, types, batches) };
+      ready = { signals: built.signals, clear: built.clear, door: doorSummary(tonight, counters, devices), stageView: eventStage(events, tonight, p.now), events, available: stillAvailable(events, types, batches) };
     } catch (e) {
       failedRead = e instanceof PreviewReadError ? e.read : "catalog.event";
     }
@@ -78,7 +79,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
       ) : failedRead || !ready ? (
         <ErrorState lost="Tonight" read={failedRead ?? "catalog.event"} retryHref={self} />
       ) : (
-        <Tonight signals={ready.signals} clear={ready.clear} door={ready.door} events={ready.events} available={ready.available} ctx={ctx} basePath={basePath} timeZone={p.timeZone} now={p.now} />
+        <Tonight signals={ready.signals} clear={ready.clear} door={ready.door} stageView={ready.stageView} events={ready.events} available={ready.available} ctx={ctx} basePath={basePath} timeZone={p.timeZone} now={p.now} />
         )}
       </Page>
     </Shell>

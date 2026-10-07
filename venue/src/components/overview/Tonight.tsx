@@ -1,5 +1,5 @@
 import { venueTime, relative } from "@/lib/format";
-import type { ClearCheck, DoorSummary, Signal } from "@/lib/signals";
+import type { ClearCheck, DoorSummary, Signal, Stage, StageView } from "@/lib/signals";
 import { STATUS_LABEL } from "@/lib/events";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import type { Event } from "@/lib/types";
@@ -22,10 +22,17 @@ import { Action, ArrowLink, Block, Detail, Facts, Row, Rows } from "@/components
  * the door screen; the second "Open the door screen" button; and the separate
  * "Coming up" heading above a list that is self-evidently a list of events.
  */
+const STAGE_EYEBROW: Record<Stage, string> = {
+  before: "Next up",
+  during: "Happening now",
+  after: "Last event",
+};
+
 export function Tonight({
   signals,
   clear,
   door,
+  stageView,
   events,
   available,
   ctx,
@@ -36,6 +43,7 @@ export function Tonight({
   signals: Signal[];
   clear: ClearCheck[];
   door: DoorSummary | null;
+  stageView: StageView;
   events: Event[];
   available: number;
   ctx: PreviewContext;
@@ -47,27 +55,50 @@ export function Tonight({
   const urgent = signals.filter((s) => s.severity !== "worth_knowing");
   const rest = signals.filter((s) => s.severity === "worth_knowing");
 
+  const ev = stageView.event;
+  const sess = stageView.session;
+  const evBase = ev ? `${basePath}/events/${ev.eventId}` : basePath;
+
+  // What the manager is told, and the one action offered, follow the stage.
+  const stageLead =
+    stageView.stage === "during"
+      ? `${door ? `${door.admitted} of ${door.expected} people are inside. ` : ""}Doors are open — the work tonight is at the door.`
+      : stageView.stage === "after"
+        ? `This event has finished and sales are closed. ${sess ? `It ran ${venueTime(sess.startsAt, timeZone, { date: true, zone: false })}.` : ""} Nothing here is still selling.`
+        : `${sess ? `${venueTime(sess.startsAt, timeZone, { date: true, zone: false })}, ${relative(sess.startsAt, now)}. ` : ""}Doors have not opened — the work now is getting the night ready.`;
+
+  const stagePrimary =
+    stageView.stage === "during"
+      ? { label: "Open check-in", href: link(`${evBase}/door`) }
+      : stageView.stage === "after"
+        ? { label: "Review this event", href: link(evBase) }
+        : { label: "Get this event ready", href: link(evBase) };
+
+  const stageSecondary =
+    stageView.stage === "during"
+      ? { label: "Guest list", href: link(`${evBase}/attendees`) }
+      : stageView.stage === "after"
+        ? { label: "Who came", href: link(`${evBase}/attendees`) }
+        : { label: "Tickets", href: link(`${evBase}/tickets`.replace("/tickets", "/inventory")) };
+
   const upcoming = [...events]
     .filter((e) => e.status !== "completed" && e.status !== "cancelled")
     .map((e) => ({ e, s: [...e.sessions].sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0] }))
-    .filter(({ e }) => e.eventId !== door?.eventId)
+    .filter(({ e }) => e.eventId !== stageView.event?.eventId)
     .sort((a, b) => (a.s?.startsAt ?? "").localeCompare(b.s?.startsAt ?? ""))
     .slice(0, 4);
 
   return (
     <>
-      {/* 1–2. The night itself, and the one thing to do about it. */}
-      {door ? (
-        <Block id="tonight">
-          <p className="eyebrow-accent">Happening tonight</p>
-          <h2 className="display display-lg mt-3">{door.eventTitle}</h2>
-          <p className="mt-3 text-base text-muted">
-            {door.sessionLabel ? `${door.sessionLabel} · ` : ""}
-            {door.doorsAt ? `Doors ${venueTime(door.doorsAt, timeZone, { date: false, zone: false })}, ` : ""}
-            starts {venueTime(door.startsAt, timeZone, { date: false, zone: true })} ({relative(door.startsAt, now)}) · <strong className="text-ink">{door.admitted} of {door.expected} people are inside</strong>
-          </p>
-          <div className="mt-5">
-            <Action href={link(`${basePath}/events/${door.eventId}/door`)}>Open check-in</Action>
+      {/* 1–2. Where the venue actually is, and the one thing to do about it. */}
+      {stageView.event ? (
+        <Block id="stage">
+          <p className="eyebrow-accent">{STAGE_EYEBROW[stageView.stage]}</p>
+          <h2 className="display display-lg mt-2">{stageView.event.title}</h2>
+          <p className="mt-3 text-base leading-relaxed text-muted">{stageLead}</p>
+          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Action href={stagePrimary.href}>{stagePrimary.label}</Action>
+            {stageSecondary ? <ArrowLink href={stageSecondary.href}>{stageSecondary.label}</ArrowLink> : null}
           </div>
         </Block>
       ) : null}
@@ -95,8 +126,8 @@ export function Tonight({
       </Block>
 
       {/* 4. Supporting numbers — below the thing they support, each defined. */}
-      {door ? (
-        <Block title="Tonight by the numbers" id="numbers">
+      {door && stageView.stage !== "before" ? (
+        <Block title={stageView.stage === "after" ? "How it went" : "Tonight by the numbers"} id="numbers">
           <Facts
             items={[
               { label: "People inside", value: String(door.admitted), meaning: `Scanned in so far, of ${door.expected} tickets issued for tonight.` },

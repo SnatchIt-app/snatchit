@@ -67,11 +67,11 @@ export function Rows({ children }: { children: ReactNode }) {
  */
 export function Row({ title, href, meta, badge, right, children }: { title: string; href?: string; meta?: ReactNode; badge?: ReactNode; right?: ReactNode; children?: ReactNode }) {
   const name = href ? (
-    <Link href={href} className="display display-md transition-colors hover:text-primary-ink">
+    <Link href={href} className="item-title transition-colors hover:text-primary-ink">
       {title}
     </Link>
   ) : (
-    <span className="display display-md">{title}</span>
+    <span className="item-title">{title}</span>
   );
   return (
     <li className="flex flex-wrap items-baseline gap-x-4 gap-y-2 py-4">

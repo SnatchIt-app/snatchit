@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { BATCHES, DEVICES, EVENTS, FLAGS, HOLDS, PREVIEW_NOW, SCANS, TICKET_TYPES } from "@/fixtures/venue";
 import { listEvents } from "@/lib/data";
-import { buildSignals, doorSummary, stillAvailable, type SignalInput } from "@/lib/signals";
+import { buildSignals, doorSummary, eventStage, stillAvailable, type SignalInput } from "@/lib/signals";
 import type { PreviewContext } from "@/lib/preview";
 import { EventsTable } from "@/components/events/EventsTable";
 import { Tonight } from "@/components/overview/Tonight";
@@ -100,7 +100,7 @@ describe("W1 — the overview answers 'what needs me now?'", () => {
     const out = html(
       <Tonight
         signals={signals}
-        clear={clear}
+        clear={clear} stageView={eventStage(EVENTS, [{ event: EVENTS[0], session: EVENTS[0].sessions[0] }], PREVIEW_NOW)}
         door={doorSummary([{ event: EVENTS[0], session: EVENTS[0].sessions[0] }], SCANS, fresh)}
         events={EVENTS}
         available={stillAvailable(EVENTS, TICKET_TYPES, BATCHES)}
@@ -165,7 +165,7 @@ const SURFACES: Record<string, () => string> = {
   "create wizard": () => html(<CreateEventWizard ctx={vm} basePath={base} step={1} venueApproved venueName={VENUE.name} />),
   "tonight overview": () => {
     const built = buildSignals(input());
-    return html(<Tonight signals={built.signals} clear={built.clear} door={doorSummary([{ event: liveEvent, session: liveSession }], SC, DEV)} events={EV} available={stillAvailable(EV, TT, BT)} ctx={vm} basePath={base} timeZone={tz} now={PREVIEW_NOW} />);
+    return html(<Tonight signals={built.signals} clear={built.clear} stageView={eventStage(EVENTS, [{ event: EVENTS[0], session: EVENTS[0].sessions[0] }], PREVIEW_NOW)} door={doorSummary([{ event: liveEvent, session: liveSession }], SC, DEV)} events={EV} available={stillAvailable(EV, TT, BT)} ctx={vm} basePath={base} timeZone={tz} now={PREVIEW_NOW} />);
   },
 };
 
@@ -268,19 +268,19 @@ describe("U1 — the door manifest is only operable while there is a door", () =
     const props = { pins: PINS, devices: DEV, scans: SC, flags: [], lookup: null, ctx: vm, basePath: base, timeZone: tz, now: PREVIEW_NOW };
 
     const over = html(<DoorStatus {...props} event={done} session={doneSession} episodes={closedEpisodes.filter((e) => e.sessionId === doneSession.sessionId)} />);
-    expect(over).not.toContain("Open door manifest");
+    expect(over).not.toContain("Open the check-in list");
     expect(over).toContain("This night is over");
 
     // Discrimination: the live night still offers it, so the assertion above
     // is about the session status and not about the button having been deleted.
     expect(manifestState(liveSession, false)).not.toBe("open");
     const running = html(<DoorStatus {...props} event={liveEvent} session={liveSession} episodes={closedEpisodes.filter((e) => e.sessionId === liveSession.sessionId)} />);
-    expect(running).toContain("Open door manifest");
+    expect(running).toContain("Open the check-in list");
     expect(running).not.toContain("This night is over");
 
     // And an episode left open offers Close on both.
     const stillOpen = html(<DoorStatus {...props} event={liveEvent} session={liveSession} episodes={openEpisode} />);
-    expect(stillOpen).toContain("Close manifest");
+    expect(stillOpen).toContain("Close the check-in list");
   });
 });
 
@@ -329,5 +329,68 @@ describe("no backend identifier in a tooltip", () => {
     for (const did of ["catalog.create_event", "catalog.set_event_status", "venue.create_ticket_type", "venue.create_inventory_batch", "venue.release_inventory_hold", "venue.open_door_manifest", "venue.close_door_manifest", "venue.create_door_pin", "venue.revoke_door_pin", "venue.request_export (operations_v1)", "escalate (venue note on venue.scan; adjudication is platform_risk)"]) {
       expect(demoActionLabel(did), did).not.toBeNull();
     }
+  });
+});
+
+/**
+ * The overview follows the stage of the event (owner direction, 2026-10-06):
+ * "Open check-in" is wrong six days a week.
+ */
+describe("the overview leads with where the event actually is", () => {
+  const sessionsOf = (e: (typeof EV)[number]) => e.sessions;
+  const liveEvent = EV.find((e) => e.sessions.some((s) => s.status === "live"))!;
+  const liveSess = sessionsOf(liveEvent).find((s) => s.status === "live")!;
+
+  it("picks during / before / after from the data, not from the page", () => {
+    const during = eventStage(EV, [{ event: liveEvent, session: liveSess }], PREVIEW_NOW);
+    expect(during.stage).toBe("during");
+    expect(during.event?.eventId).toBe(liveEvent.eventId);
+
+    // Nothing on tonight → the next thing still to come.
+    const before = eventStage(EV, [], PREVIEW_NOW);
+    expect(before.stage).toBe("before");
+    expect(before.event).not.toBeNull();
+    expect(new Date(before.session!.startsAt).getTime()).toBeGreaterThanOrEqual(PREVIEW_NOW.getTime());
+
+    // Nothing on and nothing to come → the most recent finished event.
+    const onlyDone = EV.filter((e) => e.status === "completed");
+    const after = eventStage(onlyDone, [], PREVIEW_NOW);
+    expect(after.stage).toBe("after");
+    expect(after.event?.status).toBe("completed");
+  });
+
+  it("offers a different primary action in each stage", () => {
+    const render = (stageView: ReturnType<typeof eventStage>) => {
+      const built = buildSignals(input());
+      return html(
+        <Tonight
+          signals={built.signals}
+          clear={built.clear}
+          stageView={stageView}
+          door={doorSummary([{ event: liveEvent, session: liveSess }], SC, DEV)}
+          events={EV}
+          available={stillAvailable(EV, TT, BT)}
+          ctx={vm}
+          basePath={base}
+          timeZone={tz}
+          now={PREVIEW_NOW}
+        />,
+      );
+    };
+    const during = render(eventStage(EV, [{ event: liveEvent, session: liveSess }], PREVIEW_NOW));
+    const before = render(eventStage(EV, [], PREVIEW_NOW));
+    const after = render(eventStage(EV.filter((e) => e.status === "completed"), [], PREVIEW_NOW));
+
+    expect(during).toContain("Open check-in");
+    expect(during).toContain("Happening now");
+
+    expect(before).toContain("Get this event ready");
+    expect(before).toContain("Next up");
+    expect(before).not.toContain("Open check-in");
+
+    expect(after).toContain("Review this event");
+    expect(after).toContain("Last event");
+    expect(after).toContain("sales are closed");
+    expect(after).not.toContain("Open check-in");
   });
 });

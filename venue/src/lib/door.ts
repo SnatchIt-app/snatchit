@@ -5,7 +5,7 @@ export const SCAN_RESULT_LABEL: Record<ScanResult, string> = {
   admitted: "Admitted",
   duplicate: "Already used",
   invalid: "Not recognised",
-  frozen: "Blocked (door manifest)",
+  frozen: "Blocked — check-in list is open",
   fraud_review: "Needs review",
 };
 
@@ -58,9 +58,9 @@ export function manifestState(session: Pick<EventSession, "doorOpenAt">, openEpi
 }
 /** Spec §12.4 — the copy after opening and after closing (transfers never resume). */
 export const MANIFEST_COPY: Record<ManifestState, string> = {
-  closed: "Door manifest closed",
-  open: "Door open — transfers closed",
-  closed_after_open: "Doors closed — transfers remain closed",
+  closed: "Check-in list not open yet",
+  open: "Check-in open — tickets can no longer be passed on",
+  closed_after_open: "Doors closed — tickets still can't be passed on",
 };
 
 /**

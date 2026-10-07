@@ -16,7 +16,7 @@ function checkInText(r: RosterRow, tz: string): { label: string; tone: "success"
     case "already_used":
       return { label: `Already used · first ${venueTime(r.checkIn.firstAt, tz, { date: false, zone: false })}`, tone: "warning" };
     case "refused":
-      return { label: r.checkIn.result === "frozen" ? "Blocked (door manifest)" : r.checkIn.result === "fraud_review" ? "Needs review" : "Not recognised", tone: "danger" };
+      return { label: r.checkIn.result === "frozen" ? "Blocked — check-in list is open" : r.checkIn.result === "fraud_review" ? "Needs review" : "Not recognised", tone: "danger" };
     default:
       return { label: "Not scanned", tone: "neutral" };
   }
@@ -75,21 +75,28 @@ export function Attendees({
   const filtered = !!filter.q || !!filter.checkIn;
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow text-dim">Attendees · {event.title}</p>
-          <h1 className="text-2xl font-bold">{view === "holders" ? "Who is coming" : "Who paid"}</h1>
-          <p className="mt-1 text-sm text-muted">Session {session.label ?? venueTime(session.startsAt, timeZone)}</p>
+    <div className="space-y-8">
+      <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+        <div className="min-w-0">
+          <p className="eyebrow-accent">{event.title}</p>
+          <h1 className="display display-xl mt-2">{view === "holders" ? "Guest list" : "Who paid"}</h1>
+          <p className="mt-3 max-w-xl text-base text-muted">
+            {view === "holders"
+              ? "Everyone holding a ticket for this night — not who bought it. A table of six shows six people."
+              : "The orders behind the tickets. A ticket that was refunded shows as voided."}{" "}
+            {session.label ?? venueTime(session.startsAt, timeZone)}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <a className={`btn btn-sm ${view === "holders" ? "btn-primary" : "btn-ghost"}`} href={withPreview(self, ctx)}>
-            Holders
-          </a>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {hasMoney ? (
-            <a className={`btn btn-sm ${view === "purchasers" ? "btn-primary" : "btn-ghost"}`} href={withPreview(`${self}?view=purchasers`, ctx)}>
-              Purchasers
-            </a>
+            <nav className="flex items-center gap-1 border border-line p-1" aria-label="List view">
+              <a className={`px-3 py-1.5 text-sm font-semibold ${view === "holders" ? "bg-ink text-white" : "text-muted hover:bg-raised"}`} href={withPreview(self, ctx)} aria-current={view === "holders" ? "page" : undefined}>
+                Guests
+              </a>
+              <a className={`px-3 py-1.5 text-sm font-semibold ${view === "purchasers" ? "bg-ink text-white" : "text-muted hover:bg-raised"}`} href={withPreview(`${self}?view=purchasers`, ctx)} aria-current={view === "purchasers" ? "page" : undefined}>
+                Orders
+              </a>
+            </nav>
           ) : null}
           {tpl ? (
             <form method="get" action={self} className="hidden lg:block">

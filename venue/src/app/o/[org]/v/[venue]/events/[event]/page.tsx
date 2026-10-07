@@ -8,6 +8,7 @@ import { canReadEvents } from "@/lib/roles";
 import type { InventoryBatch, TicketType } from "@/lib/types";
 import { EventSetup } from "@/components/events/EventSetup";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
+import { Page } from "@/components/ui/Page";
 import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PRINCIPAL_LABEL } from "@/lib/roles";
@@ -53,8 +54,9 @@ export default async function EventPage({ params, searchParams }: { params: Prom
 
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
-      {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
-      {!entryOpen ? (
+      <Page eyebrow="Event" title={event?.title ?? "Event"}>
+        {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
+        {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />
       ) : !readable ? (
         <DeniedState surface="Event setup" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${basePath}/events`, ctx) }} />
@@ -74,6 +76,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       ) : (
         <EventSetup event={event} types={loaded.types} batches={loaded.batches} ctx={ctx} basePath={basePath} timeZone={p.timeZone} openManifestSessionIds={loaded.open} />
       )}
+      </Page>
     </Shell>
   );
 }

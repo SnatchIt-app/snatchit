@@ -62,8 +62,8 @@ describe("event setup (§7.3–§7.9)", () => {
   });
   it("states the manifest consequence on the live session", () => {
     const out = html(<EventSetup event={live} types={TICKET_TYPES} batches={BATCHES} ctx={vm} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set([session.sessionId])} />);
-    expect(out).toContain("Door open — transfers closed");
-    expect(out).toContain("Held back for the door: <strong>40 of 520</strong>");
+    expect(out).toContain("Check-in open — tickets can no longer be passed on");
+    expect(out).toContain("40 of 520 held back for the door");
   });
   it("wizard blocks at step 1 when the venue is not approved", () => {
     const out = html(<CreateEventWizard ctx={vm} basePath={base} step={1} venueApproved={false} venueName="X" />);
@@ -136,11 +136,11 @@ describe("door (§12)", () => {
     const out = html(<DoorStatus {...props} ctx={vm} />);
     expect(out).toContain("291");
     expect(out).toContain("Already used");
-    expect(out).toContain("Blocked (door manifest)");
+    expect(out).toContain("Blocked — check-in list is open");
     expect(out).toContain("Escalate with a note");
     expect(out).not.toMatch(/>Resolve</);
-    expect(out).toContain("Door open — transfers closed");
-    expect(out).toContain("because the door manifest was opened");
+    expect(out).toContain("Check-in open — tickets can no longer be passed on");
+    expect(out).toContain("because the check-in list was opened");
   });
   it("never offers the manifest control to a scanner and never shows a PIN resend", () => {
     const out = html(<DoorStatus {...props} ctx={{ role: "venue_scanner", state: "live" }} />);
@@ -151,7 +151,7 @@ describe("door (§12)", () => {
   });
   it("manual lookup returns one record with the wallet-staleness note", () => {
     const out = html(<DoorStatus {...props} ctx={vm} lookup={{ q: "Priya", result: ROSTER.find((r) => r.name.startsWith("Priya")) ?? null }} />);
-    expect(out).toContain("Refuse — Blocked (door manifest)");
+    expect(out).toContain("Refuse — Blocked — check-in list is open");
     expect(out).toContain("A pass shown from a wallet can be out of date.");
     expect(html(<DoorStatus {...props} ctx={vm} lookup={{ q: "nobody", result: null }} />)).toContain("No ticket matches that.");
   });

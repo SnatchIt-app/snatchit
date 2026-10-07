@@ -63,7 +63,7 @@ export function DoorStatus({
   );
 
   const ScanBoard = (
-    <Panel title="Live scan board" eyebrow="Right now at the door">
+    <Panel title="Right now at the door" eyebrow="Live">
       {scans.admitted === 0 && nonAdmit === 0 ? (
         <EmptyState title="No scans yet — doors haven't opened." />
       ) : (
@@ -121,7 +121,7 @@ export function DoorStatus({
   );
 
   const Devices = (
-    <Panel title="Devices" eyebrow="Scanners in the room">
+    <Panel title="Scanners in the room" eyebrow="Devices">
       {devices.length === 0 ? (
         <p className="text-sm text-muted">No devices registered.</p>
       ) : (
@@ -149,7 +149,7 @@ export function DoorStatus({
   );
 
   const Pins = (
-    <Panel title="Door PINs" eyebrow="For staff who scan without a device">
+    <Panel title="Door PINs" eyebrow="For staff scanning without a device">
       {pins.length === 0 ? (
         <p className="text-sm text-muted">No PINs for this session.</p>
       ) : (
@@ -193,13 +193,13 @@ export function DoorStatus({
   );
 
   const Manifest = (
-    <Panel title="Door manifest" eyebrow="The list the scanners work from">
+    <Panel title="The list scanners work from" eyebrow="Also stops tickets being passed on">
       <p className="font-bold">{MANIFEST_COPY[ms]}</p>
       <div className="mt-2 border border-line-neutral p-2 text-xs">
         <p className="eyebrow text-dim">Freeze status</p>
         <p className="mt-1">
           Transfers frozen since <strong>{venueTime(freeze.at, timeZone)}</strong> —{" "}
-          {freeze.source === "manifest_open" ? "because the door manifest was opened." : "the doors-time backstop; no manifest was opened before doors."}
+          {freeze.source === "manifest_open" ? "because the check-in list was opened." : "automatically at doors time, because the list was never opened."}
         </p>
       </div>
       {episodes.length > 0 ? (
@@ -222,7 +222,7 @@ export function DoorStatus({
               <input type="hidden" name="did" value={action.kind === "close" ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
               <PreviewHidden ctx={ctx} />
               {action.kind === "open" ? (
-                <p className="mb-2 text-sm">Opening the door manifest stops ticket holders sending or reselling tickets for this session. Do it when doors open.</p>
+                <p className="mb-2 text-sm">Opening the check-in list stops ticket holders sending or reselling tickets for this night. Do it when doors open.</p>
               ) : (
                 <p className="mb-2 text-sm">Closing this episode does not reopen transfers.</p>
               )}
@@ -231,20 +231,20 @@ export function DoorStatus({
               </p>
               <AuditNote />
               <button className="btn btn-primary btn-sm mt-2" type="submit">
-                {action.kind === "close" ? "Close manifest" : "Open door manifest"}
+                {action.kind === "close" ? "Close the check-in list" : "Open the check-in list"}
               </button>
             </form>
-            <p className="text-xs text-dim md:hidden">Read-only on a phone. Opening the manifest freezes transfers for the whole session — not a phone-in-a-crowd action.</p>
+            <p className="text-xs text-dim md:hidden">Read-only on a phone. Opening it stops transfers for the whole night — not a phone-in-a-crowd decision.</p>
           </div>
         )
       ) : (
-        <p className="mt-2 text-xs text-dim">Opening or closing the manifest is a manager action. Scanners scan against it; they never create it.</p>
+        <p className="mt-2 text-xs text-dim">Opening or closing this list is a manager&apos;s job. Scanners scan against it; they never create it.</p>
       )}
     </Panel>
   );
 
   const Lookup = canManualLookup(ctx.role) ? (
-    <Panel title="Manual lookup" eyebrow="One guest at a time">
+    <Panel title="Look up one guest" eyebrow="One at a time">
       <form method="get" action={self} id="lookup" className="flex gap-2">
         <PreviewHidden ctx={ctx} />
         <input className="field touch-row md:min-h-0" name="q" placeholder="Guest name, order ref, or ticket ref" defaultValue={lookup?.q ?? ""} aria-label="Lookup" />
@@ -319,66 +319,38 @@ export function DoorStatus({
 
   return (
     <div className="space-y-4">
-      <header>
-        <p className="eyebrow text-dim">Door · {event.title}</p>
-        <h1 className="text-2xl font-bold">Door status</h1>
-        <p className="mt-1 text-sm text-muted">
-          Session {session.label ?? venueTime(session.startsAt, timeZone)} · doors {session.doorsAt ? venueTime(session.doorsAt, timeZone, { date: false, zone: true }) : "not set"}
+      <header className="pb-2">
+        <p className="eyebrow-accent">{event.title}</p>
+        <h1 className="display display-xl mt-2">Check-in</h1>
+        <p className="mt-3 max-w-xl text-base text-muted">
+          {session.label ?? venueTime(session.startsAt, timeZone)} · doors {session.doorsAt ? venueTime(session.doorsAt, timeZone, { date: false, zone: true }) : "not set"}. This is the screen for the people on the door.
         </p>
       </header>
 
-      {/* xl: three panes */}
-      <div className="hidden gap-4 xl:grid xl:[grid-template-columns:repeat(auto-fit,minmax(min(20rem,100%),1fr))]">
-        <div className="space-y-4">
-          <Panel title="Sessions" eyebrow="This event">
-            <ul className="text-sm">
-              {event.sessions.map((s) => (
-                <li key={s.sessionId} className={s.sessionId === session.sessionId ? "font-bold" : "text-muted"}>
-                  {s.label ?? venueTime(s.startsAt, timeZone, { date: true, zone: false })}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-          {Manifest}
-        </div>
-        <div className="space-y-4">
-          {canReadScanBoard(ctx.role) ? (
-            <>
-              <div className="border border-line bg-card p-4">{Counters}</div>
-              {ScanBoard}
-            </>
-          ) : null}
-          {Lookup}
-          {Flags}
-          {Reasons}
-        </div>
-        <div className="space-y-4">
-          {Devices}
-          {Pins}
-        </div>
+      {/*
+        One ordered column, not three panes rendered twice.
+        The old layout built the whole screen twice — a three-pane xl version
+        and a two-pane fallback — which is how the same panel ended up on the
+        page in two places and why it read as a wall. Door staff want one
+        order, and it is the same order on a phone and on a laptop:
+        how many are in → what is happening → look someone up → what is stuck
+        → the equipment → the list itself.
+      */}
+      <div className="space-y-10">
+        {canReadScanBoard(ctx.role) ? (
+          <div>
+            {Counters}
+            <div className="mt-6">{ScanBoard}</div>
+          </div>
+        ) : null}
+        {Lookup}
+        {Flags}
+        {Devices}
+        {Pins}
+        {Manifest}
+        {Reasons}
       </div>
 
-      {/* lg: two panes; md/sm: single column, counter-first */}
-      <div className="space-y-4 xl:hidden">
-        {canReadScanBoard(ctx.role) ? <div className="border border-line bg-card p-4">{Counters}</div> : null}
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(22rem,100%),1fr))]">
-          <div className="space-y-4">
-            {Devices}
-            {Lookup}
-            {Flags}
-            {canReadScanBoard(ctx.role) ? ScanBoard : null}
-            {Reasons}
-          </div>
-          <div className="space-y-4">
-            {Manifest}
-            <details className="border border-line-neutral lg:hidden">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-bold">Door PINs ({pins.filter((p) => p.status === "active").length} active)</summary>
-              <div className="p-2">{Pins}</div>
-            </details>
-            <div className="hidden lg:block">{Pins}</div>
-          </div>
-        </div>
-      </div>
       <p className="text-xs text-dim">
         This surface never goes offline; it reports device state. Nothing here caches a write.{" "}
         <a className="link" href={withPreview(self, ctx)}>

@@ -198,6 +198,44 @@ export function buildSignals(input: SignalInput): SignalSet {
   return { signals, clear };
 }
 
+/**
+ * Where the venue is in the cycle, which decides what the overview leads with.
+ * A dashboard that always says "Open check-in" is wrong six days a week.
+ *
+ *   before  — nothing on tonight: the work is preparation
+ *   during  — a session is live: the work is the door
+ *   after   — the most recent thing is a finished event: the work is reviewing it
+ */
+export type Stage = "before" | "during" | "after";
+
+export type StageView = {
+  stage: Stage;
+  event: Event | null;
+  session: EventSession | null;
+};
+
+export function eventStage(events: Event[], tonight: { event: Event; session: EventSession }[], now: Date): StageView {
+  const liveNow = tonight.find(({ session }) => session.status === "live");
+  if (liveNow) return { stage: "during", event: liveNow.event, session: liveNow.session };
+  if (tonight.length > 0) return { stage: "before", event: tonight[0].event, session: tonight[0].session };
+
+  // Nothing tonight. Lead with the next thing that still needs preparing, if
+  // there is one; otherwise with the most recently finished event.
+  const upcoming = events
+    .filter((e) => e.status !== "completed" && e.status !== "cancelled")
+    .flatMap((e) => e.sessions.filter((s) => s.status !== "cancelled").map((s) => ({ event: e, session: s })))
+    .filter(({ session }) => new Date(session.startsAt).getTime() >= now.getTime())
+    .sort((a, b) => a.session.startsAt.localeCompare(b.session.startsAt))[0];
+  if (upcoming) return { stage: "before", event: upcoming.event, session: upcoming.session };
+
+  const finished = events
+    .filter((e) => e.status === "completed")
+    .flatMap((e) => e.sessions.map((s) => ({ event: e, session: s })))
+    .sort((a, b) => b.session.startsAt.localeCompare(a.session.startsAt))[0];
+  if (finished) return { stage: "after", event: finished.event, session: finished.session };
+  return { stage: "before", event: null, session: null };
+}
+
 /** Tonight's door, in three numbers a manager reads without a legend. */
 export type DoorSummary = {
   eventId: string;
