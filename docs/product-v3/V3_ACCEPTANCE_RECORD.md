@@ -108,8 +108,11 @@ C corrected its own record: `v3-tickets` mounts the real Send and Order screens 
   `v3-listing.tsx`, the theme, `IconSymbol` and `BarAction` are all absent.
 - The shared `src/lib/media/harnessArt.ts` changed, but additions only (numstat `27 0`, zero
   deleted lines; C says the additions are `ART_SHAPES` and `listArt`).
-- Verdict: **Home and Listing `d5217530` evidence would carry, on the shared-file rule.** E
-  re-checks at the final sha C names.
+- Verdict (corrected 2026-10-06): **only evidence that exists carries.** Home's completed checks
+  (B batch 1, `c9d6f0d7`) would carry to `8f6bed1e`, because none of their render path changed and
+  the only shared file changed by additions alone. **Listing and every other check have no
+  committed B or native evidence, so nothing about them carries; they stay pending.** E re-checks
+  at the final sha C names.
 
 ## Native acceptance loop — restarted 2026-10-05 on C's named successor (owner)
 The owner restarted the loop on C's named successor. Completing `f3f08930` first is **not** required.
