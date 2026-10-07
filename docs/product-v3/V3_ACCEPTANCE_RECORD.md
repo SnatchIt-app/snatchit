@@ -86,7 +86,12 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `9ea534ffdc9cd07dee0fea31b363824e46ed42a3` (2026-10-06 23:16; supersedes `d301ccb4`; C to name it formally)
+## Successor served: `c90003ee4ea37795dcf3177f76c947cb0af566b5` (2026-10-06 23:18; supersedes `9ea534ff`; C to name it formally)
+`c90003ee`: Listing's Delivery row lost its value at large text, and that is fixed
+(`ListingDetailScreen.tsx`, plus a test). Carry/repeat is unchanged, because Listing already repeats
+in full.
+
+### Previously served: `9ea534ffdc9cd07dee0fea31b363824e46ed42a3`
 `9ea534ff`: when stacked, the line caps in `HomeFeature.tsx` and `TransactionPanel.tsx` are removed,
 because two lines was not enough either. It also adds a test. Carry/repeat is unchanged: both files
 are already on the repeat list. C is still iterating from its own captures, so E waits for the
