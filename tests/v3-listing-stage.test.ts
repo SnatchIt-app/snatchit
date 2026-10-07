@@ -203,7 +203,32 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(styleOf(big, 'panel-breakdown-row')?.flexDirection).toBe('column');
   });
 
-  it('LP9: no line in the panel is capped at one line any more', async () => {
+  it('LP9: nothing is capped at one line, and at a large scale nothing is capped at all', async () => {
+    /*
+     * Two lines was not enough: the a3xl capture of the first fix still showed
+     * "all-in · 6 bids · Ends Wed 01…" because that line needs three at this scale. A cap exists
+     * to keep the compact layout tidy, and the stacked layout is not the compact one — it is
+     * already a column, and the screen scrolls. So the cap is lifted entirely when stacked rather
+     * than raised to a number that the next string will exceed.
+     */
+    rn.fontScale = 3.1;
+    const stacked = await mountPanel();
+    const capsAt = (host: HookHost): { text: string; cap: unknown }[] => {
+      const out: { text: string; cap: unknown }[] = [];
+      const walk = (n: unknown): void => {
+        if (Array.isArray(n)) { n.forEach(walk); return; }
+        const el = n as { type?: unknown; props?: Record<string, unknown> } | null;
+        if (!el || typeof el !== 'object' || !('props' in el)) return;
+        if (el.type === 'Text' && el.props!.numberOfLines != null) {
+          out.push({ text: String(el.props!.children).slice(0, 40), cap: el.props!.numberOfLines });
+        }
+        walk((el.props as { children?: unknown }).children);
+      };
+      walk(host.output);
+      return out;
+    };
+    expect(capsAt(stacked), 'a stacked line may use as many lines as it needs').toEqual([]);
+
     rn.fontScale = 1;
     const host = await mountPanel();
     const capped: string[] = [];

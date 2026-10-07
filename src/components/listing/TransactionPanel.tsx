@@ -104,7 +104,7 @@ export function TransactionPanel({
           </Animated.View>
           <View style={stacked ? styles.qtyColStacked : styles.qtyCol}>
             {/* Mixed case per the board — `label` uppercased "2 × GA TICKETS". */}
-            <Text style={[textStyle('title'), styles.qty]} numberOfLines={2}>
+            <Text style={[textStyle('title'), styles.qty]} numberOfLines={stacked ? undefined : 2}>
               {`${quantity} × ${ticketType} ticket${quantity === 1 ? '' : 's'}`}
             </Text>
             {quantity > 1 ? (
@@ -115,7 +115,7 @@ export function TransactionPanel({
         </View>
         <Text
           style={[textStyle('bodySm'), clock?.urgent ? styles.subLineUrgent : styles.subLine]}
-          numberOfLines={2}
+          numberOfLines={stacked ? undefined : 2}
         >
           {subLine}
         </Text>
@@ -130,11 +130,11 @@ export function TransactionPanel({
           <Text style={[textStyle('micro'), styles.bEyebrow]}>If you bid the minimum</Text>
           <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
             <Text style={[textStyle('bodySm'), styles.bLabel]}>Tickets</Text>
-            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={2}>{minBidBase}</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidBase}</Text>
           </View>
           <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
             <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee (10%)</Text>
-            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={2}>{minBidFee}</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidFee}</Text>
           </View>
         </View>
       ) : null}

@@ -127,12 +127,12 @@ function HomeFeatureImpl({
             {/* Two lines like its sibling: at a3xl this clipped to "19:30 · Lanter…" — found in
                 the C-operated capture of the fix for the line below it, which is the kind of thing
                 only a device shows. */}
-            <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={2}>
+            <Text style={[textStyle('bodySm'), s.meta, s.metaFirst]} numberOfLines={stacked ? undefined : 2}>
               {meta1}
             </Text>
             <Text
               style={[textStyle('bodySm'), clock?.urgent ? s.metaUrgent : s.meta]}
-              numberOfLines={2}
+              numberOfLines={stacked ? undefined : 2}
             >
               {meta2Line}
             </Text>
@@ -142,7 +142,7 @@ function HomeFeatureImpl({
               {priceAllIn}
             </Text>
             {/* Two lines, never one: "current bid, all-in" wraps rather than losing "all-in". */}
-            <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={2}>
+            <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={stacked ? undefined : 2}>
               {caption}
             </Text>
           </View>
