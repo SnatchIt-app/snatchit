@@ -59,7 +59,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
                 <form method="get" action={withPreview(self, ctx)} className="hidden space-y-2 lg:block">
                   <input type="hidden" name="did" value="catalog.set_event_status" />
                   <PreviewHidden ctx={ctx} />
-                  <AuditNote rpc="catalog.set_event_status" />
+                  <AuditNote />
                   <button className="btn btn-primary btn-sm" type="submit">
                     Set to {STATUS_LABEL[next]}
                   </button>
@@ -73,7 +73,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           )}
         </Panel>
 
-        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && ctx.writesEnabled !== false && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline" title="Calls catalog.create_event_session">Adding a session is a separate step — each night has its own capacity.</span> : null}>
+        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && ctx.writesEnabled !== false && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline">Adding a session is a separate step — each night has its own capacity.</span> : null}>
           <ul className="divide-y divide-line-neutral">
             {event.sessions.map((s) => {
               const hb = doorHoldback(batches, s.sessionId);
@@ -127,13 +127,13 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         </Panel>
 
         {canReadResalePolicy(ctx.role) ? (
-          <Panel title="Resale policy" eyebrow="Whether tickets can be passed on" read="catalog.resale_policy">
+          <Panel title="Resale policy" eyebrow="Whether tickets can be passed on">
             <p className="text-sm">
               In force: <strong>{RESALE_LABEL[event.resaleMode]}</strong>
             </p>
             <p className="mt-1 text-sm text-muted">Resale is off unless you turn it on.</p>
             <p className="mt-1 text-sm text-muted">Tickets already listed keep the policy they were listed under.</p>
-            {editor && ctx.writesEnabled !== false ? <p className="mt-2 hidden text-xs text-dim lg:block" title="Calls catalog.set_resale_policy">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
+            {editor && ctx.writesEnabled !== false ? <p className="mt-2 hidden text-xs text-dim lg:block">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
           </Panel>
         ) : null}
       </div>

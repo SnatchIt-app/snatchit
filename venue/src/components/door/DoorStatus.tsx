@@ -1,4 +1,4 @@
-import { MANIFEST_COPY, REJECT_COPY, REJECT_TITLE, SCAN_RESULT_LABEL, WALLET_STALENESS_NOTE, effectiveFreeze, manifestAge, manifestState, normaliseReason } from "@/lib/door";
+import { MANIFEST_COPY, REJECT_COPY, REJECT_TITLE, SCAN_RESULT_LABEL, WALLET_STALENESS_NOTE, effectiveFreeze, manifestAction, manifestAge, manifestState, normaliseReason } from "@/lib/door";
 import { pct, relative, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import { canManagePins, canManualLookup, canOperateManifest, canReadFlagQueue, canReadScanBoard } from "@/lib/roles";
@@ -42,6 +42,8 @@ export function DoorStatus({
   const self = `${basePath}/events/${event.eventId}/door`;
   const open = episodes.some((e) => e.closedAt === null);
   const ms = manifestState(session, open);
+  // Audit follow-up U1 — the control is offered only where there is still a door.
+  const action = manifestAction(session, ms);
   const freeze = effectiveFreeze(session);
   const nonAdmit = scans.duplicate + scans.invalid + scans.frozen + scans.fraudReview;
   const maxBar = Math.max(1, ...scans.arrivalsPer5Min);
@@ -61,7 +63,7 @@ export function DoorStatus({
   );
 
   const ScanBoard = (
-    <Panel title="Live scan board" eyebrow="Right now at the door" read="venue.scan">
+    <Panel title="Live scan board" eyebrow="Right now at the door">
       {scans.admitted === 0 && nonAdmit === 0 ? (
         <EmptyState title="No scans yet — doors haven't opened." />
       ) : (
@@ -119,7 +121,7 @@ export function DoorStatus({
   );
 
   const Devices = (
-    <Panel title="Devices" eyebrow="Scanners in the room" read="venue.scan_device">
+    <Panel title="Devices" eyebrow="Scanners in the room">
       {devices.length === 0 ? (
         <p className="text-sm text-muted">No devices registered.</p>
       ) : (
@@ -142,12 +144,12 @@ export function DoorStatus({
           })}
         </ul>
       )}
-      <p className="mt-2 text-xs text-dim" title="Registering a device calls venue.register_scan_device">Offline is a status, not an error. A new scanner has to be registered before it can admit anyone.</p>
+      <p className="mt-2 text-xs text-dim">Offline is a status, not an error. A new scanner has to be registered before it can admit anyone.</p>
     </Panel>
   );
 
   const Pins = (
-    <Panel title="Door PINs" eyebrow="For staff who scan without a device" read="venue.door_pin — the PIN is shown, never its hash">
+    <Panel title="Door PINs" eyebrow="For staff who scan without a device">
       {pins.length === 0 ? (
         <p className="text-sm text-muted">No PINs for this session.</p>
       ) : (
@@ -191,7 +193,7 @@ export function DoorStatus({
   );
 
   const Manifest = (
-    <Panel title="Door manifest" eyebrow="The list the scanners work from" read="catalog.event_session.door_open_at">
+    <Panel title="Door manifest" eyebrow="The list the scanners work from">
       <p className="font-bold">{MANIFEST_COPY[ms]}</p>
       <div className="mt-2 border border-line-neutral p-2 text-xs">
         <p className="eyebrow text-dim">Freeze status</p>
@@ -211,20 +213,30 @@ export function DoorStatus({
         </ul>
       ) : null}
       {canOperateManifest(ctx.role) ? (
-        <div className="mt-3">
-          {/* md and above: operable; sm: read-only status (spec §3.3 rule 2) */}
-          <form method="get" action={self} className="hidden md:block">
-            <input type="hidden" name="did" value={open ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
-            <PreviewHidden ctx={ctx} />
-            {!open ? <p className="mb-2 text-sm">Opening the door manifest stops ticket holders sending or reselling tickets for this session. Do it when doors open.</p> : <p className="mb-2 text-sm">Closing this episode does not reopen transfers.</p>}
-            <p className="mb-2 text-xs text-warning">You cannot see the count of transfers and resale listings this would stop <em>before</em> you confirm — that read does not exist yet. The numbers appear afterwards.</p>
-            <AuditNote rpc={open ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
-            <button className="btn btn-primary btn-sm mt-2" type="submit">
-              {open ? "Close manifest" : "Open door manifest"}
-            </button>
-          </form>
-          <p className="text-xs text-dim md:hidden">Read-only on a phone. Opening the manifest freezes transfers for the whole session — not a phone-in-a-crowd action.</p>
-        </div>
+        action.kind === "none" ? (
+          <p className="mt-3 text-sm text-muted">{action.why}</p>
+        ) : (
+          <div className="mt-3">
+            {/* md and above: operable; sm: read-only status (spec §3.3 rule 2) */}
+            <form method="get" action={self} className="hidden md:block">
+              <input type="hidden" name="did" value={action.kind === "close" ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
+              <PreviewHidden ctx={ctx} />
+              {action.kind === "open" ? (
+                <p className="mb-2 text-sm">Opening the door manifest stops ticket holders sending or reselling tickets for this session. Do it when doors open.</p>
+              ) : (
+                <p className="mb-2 text-sm">Closing this episode does not reopen transfers.</p>
+              )}
+              <p className="mb-2 text-xs text-warning">
+                You cannot see the count of transfers and resale listings this would stop <em>before</em> you confirm — that read does not exist yet. The numbers appear afterwards.
+              </p>
+              <AuditNote />
+              <button className="btn btn-primary btn-sm mt-2" type="submit">
+                {action.kind === "close" ? "Close manifest" : "Open door manifest"}
+              </button>
+            </form>
+            <p className="text-xs text-dim md:hidden">Read-only on a phone. Opening the manifest freezes transfers for the whole session — not a phone-in-a-crowd action.</p>
+          </div>
+        )
       ) : (
         <p className="mt-2 text-xs text-dim">Opening or closing the manifest is a manager action. Scanners scan against it; they never create it.</p>
       )}
@@ -232,7 +244,7 @@ export function DoorStatus({
   );
 
   const Lookup = canManualLookup(ctx.role) ? (
-    <Panel title="Manual lookup" eyebrow="One guest at a time" read="venue.validate_ticket_online + venue.lookup_attendee">
+    <Panel title="Manual lookup" eyebrow="One guest at a time">
       <form method="get" action={self} id="lookup" className="flex gap-2">
         <PreviewHidden ctx={ctx} />
         <input className="field touch-row md:min-h-0" name="q" placeholder="Guest name, order ref, or ticket ref" defaultValue={lookup?.q ?? ""} aria-label="Lookup" />
@@ -297,7 +309,7 @@ export function DoorStatus({
       <summary className="cursor-pointer font-bold">What to say when a pass is refused (six reasons)</summary>
       <ul className="mt-2 space-y-1">
         {(Object.keys(REJECT_COPY) as (keyof typeof REJECT_COPY)[]).map((k) => (
-          <li key={k} title={`Reason code: ${k}`}>
+          <li key={k}>
             <strong>{REJECT_TITLE[k]}</strong> — {REJECT_COPY[k]}
           </li>
         ))}

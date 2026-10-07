@@ -218,3 +218,116 @@ describe("no dead ends", () => {
     expect(empty).not.toContain("doesn&#x27;t include a guest list");
   });
 });
+
+/**
+ * Bounded cleanup, 2026-10-06 (second pass).
+ *   1. the manifest control is only offered where there is still a door
+ *   2. no promise of an activity record the reader cannot open
+ *   3. no backend identifier in a tooltip either — a tooltip is product UI
+ */
+import { manifestAction, manifestState } from "@/lib/door";
+import { demoActionLabel } from "@/lib/preview";
+import { PreviewOutcome } from "@/components/shell/Shell";
+
+const openEpisode = MANIFEST_EPISODES.filter((e) => e.closedAt === null);
+const closedEpisodes = MANIFEST_EPISODES.map((e) => ({ ...e, closedAt: e.closedAt ?? "2026-09-13T04:00:00Z" }));
+
+describe("U1 — the door manifest is only operable while there is a door", () => {
+  const live = { status: "live" as const };
+  const scheduled = { status: "scheduled" as const };
+  const done = { status: "completed" as const };
+  const cancelled = { status: "cancelled" as const };
+
+  it("offers Open on a session still to come or under way", () => {
+    expect(manifestAction(scheduled, "closed")).toEqual({ kind: "open" });
+    expect(manifestAction(live, "closed")).toEqual({ kind: "open" });
+    // Doors genuinely reopen, and episodes are per-episode, so a closed
+    // episode on a running night can be followed by another.
+    expect(manifestAction(live, "closed_after_open")).toEqual({ kind: "open" });
+  });
+
+  it("never offers Open on a session that is over or cancelled", () => {
+    expect(manifestAction(done, "closed").kind).toBe("none");
+    expect(manifestAction(done, "closed_after_open").kind).toBe("none");
+    expect(manifestAction(cancelled, "closed").kind).toBe("none");
+    const overReason = manifestAction(done, "closed");
+    const cancelledReason = manifestAction(cancelled, "closed");
+    expect(overReason.kind === "none" && overReason.why).toMatch(/night is over/);
+    expect(cancelledReason.kind === "none" && cancelledReason.why).toMatch(/cancelled/);
+  });
+
+  it("still offers Close on an episode left open, whatever the session status", () => {
+    // An open episode is a loose end rather than a door, so closing it stays
+    // available after the night ends.
+    for (const sess of [scheduled, live, done, cancelled]) expect(manifestAction(sess, "open")).toEqual({ kind: "close" });
+  });
+
+  it("renders the difference: the completed sample night loses the Open button and says why", () => {
+    const done = EV.find((e) => e.status === "completed")!;
+    const doneSession = done.sessions[0];
+    const props = { pins: PINS, devices: DEV, scans: SC, flags: [], lookup: null, ctx: vm, basePath: base, timeZone: tz, now: PREVIEW_NOW };
+
+    const over = html(<DoorStatus {...props} event={done} session={doneSession} episodes={closedEpisodes.filter((e) => e.sessionId === doneSession.sessionId)} />);
+    expect(over).not.toContain("Open door manifest");
+    expect(over).toContain("This night is over");
+
+    // Discrimination: the live night still offers it, so the assertion above
+    // is about the session status and not about the button having been deleted.
+    expect(manifestState(liveSession, false)).not.toBe("open");
+    const running = html(<DoorStatus {...props} event={liveEvent} session={liveSession} episodes={closedEpisodes.filter((e) => e.sessionId === liveSession.sessionId)} />);
+    expect(running).toContain("Open door manifest");
+    expect(running).not.toContain("This night is over");
+
+    // And an episode left open offers Close on both.
+    const stillOpen = html(<DoorStatus {...props} event={liveEvent} session={liveSession} episodes={openEpisode} />);
+    expect(stillOpen).toContain("Close manifest");
+  });
+});
+
+describe("U2 — no promise of a record the reader cannot open", () => {
+  it("no surface says an action is recorded in the venue's activity", () => {
+    for (const [name, render] of Object.entries(SURFACES)) {
+      expect(visibleText(render()), `${name}`).not.toMatch(/recorded in your venue/i);
+    }
+  });
+
+  it("the confirm note still says nothing is saved, and qualifies attributability", () => {
+    const out = visibleText(SURFACES["event setup (live)"]());
+    expect(out).toMatch(/In this demo nothing is saved/);
+    expect(out).toMatch(/no screen to read that history on yet/);
+  });
+});
+
+describe("no backend identifier in a tooltip", () => {
+  it.each(Object.keys(SURFACES))("%s has no schema object in any title or data attribute", (name) => {
+    const markup = SURFACES[name]();
+    const attrs = (markup.match(/\s(?:title|data-read|aria-label)="[^"]*"/g) ?? []).join(" ");
+    const hits = attrs.match(/\b(catalog|venue|kernel|ops|public)\.[a-z_]{3,}/g) ?? [];
+    expect(hits, `${name} tooltips show ${hits.join(", ")}`).toEqual([]);
+  });
+
+  it("the tooltip guard can fail", () => {
+    // Positive control: fed a tooltip with an identifier, the same extraction
+    // must find it — otherwise the empty results above prove nothing.
+    const planted = '<h2 title="Reads venue.scan">Live scan board</h2>';
+    const attrs = (planted.match(/\s(?:title|data-read|aria-label)="[^"]*"/g) ?? []).join(" ");
+    expect(attrs.match(/\bvenue\.[a-z_]{3,}/g)).toEqual(["venue.scan"]);
+  });
+
+  it("the post-action message names the action in plain words, never the call", () => {
+    const out = html(<PreviewOutcome did="venue.close_door_manifest" />);
+    expect(out).toContain("Nothing was saved.");
+    expect(out).toContain("closed this door manifest episode");
+    expect(out).not.toContain("venue.close_door_manifest");
+
+    // An unmapped value must still be truthful without naming an object.
+    const unknown = html(<PreviewOutcome did="venue.some_future_rpc" />);
+    expect(unknown).not.toContain("venue.some_future_rpc");
+    expect(unknown).toContain("it does nothing at all");
+
+    // Every did value the app actually posts is mapped.
+    for (const did of ["catalog.create_event", "catalog.set_event_status", "venue.create_ticket_type", "venue.create_inventory_batch", "venue.release_inventory_hold", "venue.open_door_manifest", "venue.close_door_manifest", "venue.create_door_pin", "venue.revoke_door_pin", "venue.request_export (operations_v1)", "escalate (venue note on venue.scan; adjudication is platform_risk)"]) {
+      expect(demoActionLabel(did), did).not.toBeNull();
+    }
+  });
+});

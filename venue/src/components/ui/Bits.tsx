@@ -8,19 +8,20 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 /**
  * Audit §P3 — the eyebrow says what the panel is *for*, in a manager's words.
- * The backend read it stands on is review detail: it goes on `data-read`, and
- * into the heading's tooltip, never into the visible heading. It used to be
- * rendered unconditionally, so raw table names showed in database mode too.
+ *
+ * No backend identifier reaches this component any more, in the heading or in a
+ * tooltip: a hover tooltip is product UI a venue manager reads, not a place to
+ * park schema names. Which panel stands on which read is developer
+ * documentation — `docs/venue-dashboard/READS.md`, and the per-function
+ * annotations in `lib/data.ts`.
  */
-export function Panel({ title, eyebrow, read, action, children }: { title: string; eyebrow?: string; read?: string; action?: ReactNode; children: ReactNode }) {
+export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="border border-line bg-card" data-read={read}>
+    <section className="border border-line bg-card">
       <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div>
           {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-          <h2 className="text-base font-bold" title={read ? `Reads ${read}` : undefined}>
-            {title}
-          </h2>
+          <h2 className="text-base font-bold">{title}</h2>
         </div>
         {action}
       </header>
@@ -77,13 +78,20 @@ export function CapacityBar({ capacity, held, sold, remaining }: { capacity: num
 
 /**
   * Spec §19.5 — any audited action shows a one-line "this will be recorded"
-  * note on its confirm. The backend call it stands on is review detail: it goes
-  * in the title attribute, not in copy a venue manager has to read past.
+  * note on its confirm.
+  *
+  * It used to promise the reader a record in "your venue's activity". There is
+  * no screen anywhere in this product on which to read that, so the promise
+  * sent people looking for something that does not exist. It is qualified
+  * rather than dropped, because the fact that these actions are attributable
+  * is true and worth saying — what is not yet true is that you can go and
+  * look. Building that screen is deliberately out of scope here
+  * (docs/venue-dashboard/REMAINING_WORK.md, U2).
   */
-export function AuditNote({ rpc }: { rpc: string }) {
+export function AuditNote() {
   return (
-    <p className="text-xs text-dim" title={`Calls ${rpc}`}>
-      In the real dashboard this is recorded in your venue&apos;s activity, with your name on it. <strong>In this demo nothing is saved.</strong>
+    <p className="text-xs text-dim">
+      <strong>In this demo nothing is saved.</strong> In the real dashboard an action like this is attributable — recorded against your name — though there is no screen to read that history on yet.
     </p>
   );
 }

@@ -47,7 +47,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
             <Field label="First session starts" name="starts_at" type="datetime-local" required />
             <Field label="Doors (optional)" name="doors_at" type="datetime-local" />
             <Field label="Session label (optional)" name="label" placeholder="Friday" />
-            <AuditNote rpc="catalog.create_event" />
+            <AuditNote />
             <button className="btn btn-primary" type="submit">
               Continue
             </button>
@@ -77,7 +77,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
                 <option value="door_only">Door only</option>
               </select>
             </label>
-            <AuditNote rpc="venue.create_ticket_type" />
+            <AuditNote />
             <button className="btn btn-primary" type="submit">
               Continue
             </button>
@@ -101,7 +101,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
             </label>
             <Field label="Capacity" name="capacity" type="number" required placeholder="300" />
             <p className="text-xs text-dim">Capacity is per session. There is no event-level capacity number anywhere in this product.</p>
-            <AuditNote rpc="venue.create_inventory_batch" />
+            <AuditNote />
             <button className="btn btn-primary" type="submit">
               Create draft
             </button>

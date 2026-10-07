@@ -95,7 +95,7 @@ export function Attendees({
             <form method="get" action={self} className="hidden lg:block">
               <input type="hidden" name="did" value={`venue.request_export (${tpl})`} />
               <PreviewHidden ctx={ctx} />
-              <button className="btn btn-ghost btn-sm" type="submit" title="An export is an asynchronous, audited job; download re-authorizes live.">
+              <button className="btn btn-ghost btn-sm" type="submit" title="The file is prepared in the background. When you come back to download it, your permission is checked again.">
                 Download {tpl === "operations_v1" ? "the list your role can see" : "the contact list"}
               </button>
             </form>

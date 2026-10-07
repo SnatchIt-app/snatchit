@@ -63,6 +63,30 @@ export const MANIFEST_COPY: Record<ManifestState, string> = {
   closed_after_open: "Doors closed — transfers remain closed",
 };
 
+/**
+ * Whether the door-manifest control should be offered, and which way round.
+ *
+ * Built on the existing `manifestState` rules plus the session's own status —
+ * no new concept. The defect this closes: a **completed** session still
+ * offered "Open door manifest" with a confirm about freezing transfers for a
+ * night that had already happened.
+ *
+ * Re-opening a session whose manifest was opened and closed stays available
+ * while the night is still running (doors genuinely reopen, and the episode
+ * history is per-episode). What is never offered is opening the door on a
+ * session that is over or cancelled. Closing an episode someone left open is
+ * always offered, including after the night ends — an open episode is a loose
+ * end, not a door.
+ */
+export type ManifestAction = { kind: "open" } | { kind: "close" } | { kind: "none"; why: string };
+
+export function manifestAction(session: Pick<EventSession, "status">, state: ManifestState): ManifestAction {
+  if (state === "open") return { kind: "close" };
+  if (session.status === "cancelled") return { kind: "none", why: "This session was cancelled, so there is no door to open. Transfers stay closed." };
+  if (session.status === "completed") return { kind: "none", why: "This night is over. The manifest is closed and transfers stay closed — nothing here can be reopened." };
+  return { kind: "open" };
+}
+
 /** Spec §12.3 — staleness as a duration with a threshold chip, never a raw version number. */
 export function manifestAge(device: Pick<ScanDevice, "lastSyncAt">, now: Date): { minutes: number; stale: boolean } {
   const minutes = Math.max(0, Math.round((now.getTime() - new Date(device.lastSyncAt).getTime()) / 60000));

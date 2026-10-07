@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ORG, VENUE } from "@/fixtures/venue";
-import { DEMO_DATA_SUBLABEL, PREVIEW_STATES, withPreview, type PreviewContext } from "@/lib/preview";
+import { DEMO_DATA_SUBLABEL, PREVIEW_STATES, demoActionLabel, withPreview, type PreviewContext } from "@/lib/preview";
 import { sourceInfo } from "@/lib/source";
 import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
 import { canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses, canManualLookup } from "@/lib/roles";
@@ -220,13 +220,11 @@ function DatabaseScope({ ctx }: { ctx: PreviewContext }) {
 /** Rendered after any preview "action" form submits with ?did=… */
 export function PreviewOutcome({ did }: { did: string | undefined }) {
   if (!did) return null;
+  const what = demoActionLabel(did);
   return (
     <p className="mb-4 border border-warning bg-warning/10 px-3 py-2 text-sm" role="status">
-      <strong>Nothing was saved.</strong> This is the demo: no ticket moved, no money moved, nobody was emailed. In the real dashboard this button would run{" "}
-      <code className="font-mono" title="The backend call this control stands in for">
-        {did}
-      </code>
-      .
+      <strong>Nothing was saved.</strong> This is the demo: no ticket moved, no money moved, nobody was emailed.{" "}
+      {what ? <>In the real dashboard you would just have {what}.</> : <>In the real dashboard that button does the thing it says; here it does nothing at all.</>}
     </p>
   );
 }

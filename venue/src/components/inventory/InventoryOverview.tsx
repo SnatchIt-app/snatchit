@@ -189,12 +189,12 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                   </li>
                 ))}
             </ul>
-            <p className="mt-2 text-xs text-warning" title="Changing capacity has no contracted RPC (spec §20A.3 U-8); creating a release is venue.create_inventory_batch">Not offered in this demo: changing the capacity of a release that is already selling has no safe path built yet. Adding a <em>new</em> release does, so that is the way to put more tickets on sale.</p>
+            <p className="mt-2 text-xs text-warning">Not offered in this demo: changing the capacity of a release that is already selling has no safe path built yet. Adding a <em>new</em> release does, so that is the way to put more tickets on sale.</p>
           </Panel>
         ) : null}
 
         {canReadHolds(ctx.role) ? (
-          <Panel title="Holds" eyebrow="Seats reserved but not sold" read="venue.inventory_hold">
+          <Panel title="Holds" eyebrow="Seats reserved but not sold">
             {holds.filter((h) => h.status === "active").length === 0 ? (
               <p className="text-sm text-muted">No active holds</p>
             ) : (
@@ -231,7 +231,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
             )}
             {mayRelease ? (
               <div className="mt-3">
-                <AuditNote rpc="venue.release_inventory_hold" />
+                <AuditNote />
                 <p className="mt-1 text-xs text-dim">Releasing this puts the tickets back on sale immediately. Double-release is a no-op.</p>
               </div>
             ) : null}

@@ -66,5 +66,31 @@ export function withPreview(href: string, ctx: PreviewContext, overrides: Partia
 export const DEMO_DATA_LABEL = "Demo — sample data";
 export const DEMO_DATA_SUBLABEL = "Invented venue and events. Nothing here sells, refunds, pays out or scans a real ticket.";
 
+/**
+ * What each demo "action" would have done, said plainly. The form posts the
+ * backend call it stands for as `?did=`, which is fine for a URL, but the
+ * message a person reads must not be a schema name. Anything unmapped falls
+ * back to a sentence that still tells the truth without naming an object.
+ */
+export const DEMO_ACTION_LABEL: Record<string, string> = {
+  "catalog.create_event": "created a draft event",
+  "catalog.set_event_status": "moved this event to its next status",
+  "catalog.create_event_session": "added a session",
+  "catalog.set_resale_policy": "changed the resale rules for this event",
+  "venue.create_ticket_type": "added a ticket type",
+  "venue.create_inventory_batch": "put a new release on sale",
+  "venue.release_inventory_hold": "released those held seats back on sale",
+  "venue.open_door_manifest": "opened the door manifest, freezing transfers for this session",
+  "venue.close_door_manifest": "closed this door manifest episode",
+  "venue.create_door_pin": "issued a door PIN",
+  "venue.revoke_door_pin": "revoked that door PIN",
+};
+
+/** The plain description for a `?did=` value, never the value itself. */
+export function demoActionLabel(did: string): string | null {
+  const base = did.split(" ")[0];
+  return DEMO_ACTION_LABEL[base] ?? (base.startsWith("venue.request_export") ? "started preparing that download" : base.startsWith("escalate") ? "passed that flagged scan to Snatch It with your note" : null);
+}
+
 /** Kept for callers written against the previous name. */
 export const PREVIEW_DATA_LABEL = DEMO_DATA_LABEL;
