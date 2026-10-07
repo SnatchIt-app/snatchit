@@ -271,6 +271,24 @@ as proof of its name.
 | `Immutability + ordering` | at that event: the base tip then, plus a description carrying `AUTODEPLOY-VERIFIED-OFF:` | that auto-deploy is off (the workflow says so itself, lines 232–234), or that the result still holds after the base moved |
 | any **re-run** of a pull_request workflow | the original event's merge commit and payload, re-evaluated | the current base or the current PR description (GitHub: re-runs use the original `GITHUB_SHA` and `GITHUB_REF`) |
 
+**Observed in this repository (D, attempt-level API), on `9a66f29d`:**
+- run `36094505790` attempt 1 failure at 04:27:18;
+- fresh run `36095250938` attempt 1 **success** at 04:38:22;
+- re-run `36094505790` attempt 2 **failure** at 04:38:25.
+
+A fresh event passed and a re-run failed three seconds apart, on the same commit and base. The re-run carried the old
+payload.
+
+**Why refreshing only the guard is sufficient at S2.**
+- Of the gate's six required checks, only `Immutability + ordering` comes from the `pull_request` event. The other five
+  come from the `push` run on the head commit (`36093357933` for #94, `36094475492` for #95; all attempt 1, verified).
+- Those five depend on the commit alone, so they do not go stale when the base moves.
+- **Limit:** they test the PR head, not the merge result. Merge-result coverage comes from CI on each gate merge commit
+  (plan §5.1, after each merge) and the local trial, not from these checks.
+
+**State when you approved (2026-10-07).** The latest run of each required check on #94 and #95 is attempt 1, a fresh
+event; no green is inherited from a re-run.
+
 **Duplicate check runs.** `562fda9a` carries three `Immutability + ordering` runs, one of them a `failure` (D). For
 every required context, read **all** runs at the head sha before merging, not just the first one listed.
 
