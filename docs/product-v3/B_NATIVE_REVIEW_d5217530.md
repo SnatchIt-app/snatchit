@@ -178,3 +178,98 @@ simulator MCP tool that provides tap/swipe is unavailable here. So scroll behavi
 below the fold at large text sizes — including the **feed-row title** the owner asked me to compare
 against the approved row design — **cannot be established by me on this device**. Everything above
 was reached by deep link, which needs no input. C, or an attended session, can run the scroll checks.
+
+---
+
+# Batch 3 — Listing poster and chrome; what is blocked; handover to C
+
+## The Listing poster IS 4:5 and complete — but its top is covered, not cropped
+
+This distinction matters, so it is measured rather than eyeballed.
+
+* Listing hero spans **0 → 490.7 pt** at 393 pt wide → **w/h 0.8009 — 4:5** ✓, identical for
+  `flyer`, `subject-wide` and `missing`.
+* Matching the visible band against the source: **cover-fit, masked diff 4.1** (contain-fit 16.6),
+  the source scaled to 393 × 491 pt with **79 pt hidden at the top and 1 pt at the bottom**.
+* The sandbox banner measures **0 → 78.7 pt**. The hidden 79 pt and the banner's 79 pt are the same
+  79 pt.
+
+So nothing is cropped by the frame. **The hero is laid out full-bleed from y = 0 — deliberately, per
+`ListingHero`'s own note that "the artwork runs under the status bar on purpose" — and the status
+bar and sandbox banner sit on top of the poster's first 79 pt.**
+
+**Then the navigation lands on it too.** Measured chip bounding boxes:
+
+| control | bbox (pt) |
+|---|---|
+| back chevron | **(5.0, 80.0) → (79.7, 159.7)** |
+| overflow `⋯` | **(310.0, 80.0) → (389.7, 159.7)** |
+
+Both sit at **y 80 → 160 pt**, immediately below the banner and squarely on printed poster content.
+In `listing-live-flyer-light.png` the back chip covers the set-list line **“PLACEHOLDER ONE”** and
+the overflow chip covers its time **“21:00”**; above them the flyer's **“EXAMPLE.COM/TICKETS”** is
+half-hidden by the banner and its **“PRESENTS / FIXTURE NIGHT”** title block is entirely behind the
+chrome.
+
+**This is the settled requirement, unmet at `d5217530`:** *"Navigation controls, the status bar and
+the sandbox banner must not cover printed content."* **C: the fix is positional, not a re-crop** —
+the poster is already whole and already 4:5. Start it below the banner, and put the two controls in
+their own area in the existing visual language.
+
+Home is unaffected: its feature begins at 164 pt, clear of the banner, with no controls over it.
+
+Evidence: `listing-live-{flyer,subject-wide,missing}-{light,dark}.png`.
+
+## Recorded separately, as instructed
+
+| check | result at `d5217530` |
+|---|---|
+| **Visible truncation** | Default: complete. Largest **standard**: “… · Ends…”. Largest **accessibility**: “current bid, **al…**” — “all-in” cut. Reproduced, captured. |
+| **VoiceOver behaviour** | **Not established.** No accessibility inspection is available in this session. |
+| **Scrolling reachability** | **Not established.** No touch input available (below). |
+| **Safe-area layout** | Banner 0 → 78.7 pt · consumer dock band 704.0 → 769.7 pt · 82.0 pt below the dock. Home clears the banner; **Listing does not** (above). |
+
+## Blocked, specifically
+
+1. **Touch input.** `xcrun simctl` injects none, and the simulator tap/swipe tool is unavailable in
+   this session. Everything reviewed above was reached by deep link.
+2. **Consumer Home with the dock and real feed content.** It needs an authenticated session. The
+   sandbox sign-in is **not available to me**: reaching it means typing the account password into
+   the app, which I do not do. On the web harness I avoided this by injecting an existing session
+   token rather than typing a credential; there is no equivalent here that does not materialise the
+   credential. **C or an attended session must sign the device in.** Until then the consumer
+   next-section figure stays unestablished, and the 62 pt figure remains harness evidence.
+
+## Cases for C to operate — B specifies, C captures, B reviews
+
+Label every file **C-operated, B-reviewed**. Same device, runtime and candidate; name them
+`<surface>-<state>-<fixture>-<appearance>[-<textsize>]-Coperated.png`.
+
+1. **Feed-row title at large text.** `_dev/v3-home?variant=feed&art=all&appearance=light`, content
+   size `extra-extra-extra-large` then `accessibility-extra-extra-extra-large`. Scroll to the first
+   “This week” row. Capture the row. **Question:** does the title ellipsis match the approved row
+   design, and does any *essential* value — price, all-in, quantity, end time — become unreadable?
+2. **Below-fold identity block, Home, `accessibility-extra-extra-extra-large`.** Scroll until the
+   whole block under the poster is visible. **Question:** is the event name present and complete
+   below the price, and is “all-in” readable anywhere?
+3. **Listing scrolled to the bid breakdown and the bid activity list**, both appearances, default
+   and `accessibility-extra-extra-extra-large`.
+4. **Consumer Home signed in**, both appearances, default text: one capture at rest and one scrolled
+   by exactly one section. **Question:** where does the next section's rule land relative to the
+   dock's top edge at 704.0 pt, and how much of the next row is actually visible?
+5. **VoiceOver**, Home at `accessibility-extra-extra-extra-large`: the spoken value for the price
+   caption. Per the ruling, complete spoken text does not excuse clipped visible text — this
+   records the gap, it does not close it.
+
+## Review window handed back
+
+**I am done with what `d5217530` allows me to check, and I hand the device and Metro `:8081` back to
+C.** C may prepare the successor with batch 2's findings plus the two settled requirements (keep
+“all-in” visibly readable; keep chrome and navigation off printed poster content).
+
+**Serving tree at end of review:** `git -C /Users/josetascon/snatchit-refund rev-parse HEAD` =
+`d52175303f22a575b80f005f38c0e8555be0dbdc` — **unchanged since start**; `git status --porcelain`
+**empty**. No capture in this review is in doubt on provenance.
+
+**This is not whole-app acceptance.** It is Home, Listing, the footer, reservation feedback, icons
+and Dynamic Type, on a native development build, at one commit.
