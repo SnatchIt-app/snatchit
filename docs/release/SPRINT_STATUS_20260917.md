@@ -2128,3 +2128,15 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Vercel:** web preview "Canceled by Ignored Build Step"; no admin record.
   - **Unmoved, not merged, not deployed:** deploy branches `1765bbeb` / `562fda9a`, `main` `eadd456a`, gate `037092f0`.
   - Release-first fallback retired. Sheet c563a99e and later.
+- **S1 + S2 INTEGRATION TEST (A, 2026-10-07; owner-directed; no production).**
+  - **Branch:** `integration/s1-s2-trial-20261007` @ `3787d8a2` = fresh gate `037092f0` + merge #94 `2eebc5bf` + merge
+    #95 `9a66f29d`; tree `2e2c31b4`.
+  - **Diff:** 2 migrations added, blobs equal the frozen package; nothing else under `supabase/migrations`. Ordering
+    holds.
+  - **Guard logic run locally:** passes on S1, S2 and the combined result; controls fail on immutability and ordering.
+    G-4 integrity passes; self-test 24/24.
+  - **CI push run 37568480763:** all 5 jobs pass. The fresh-DB replay applied 150 then 151; census 34/111/37/40;
+    pgTAP 98 files / 5605 tests PASS, including 217 and 218.
+  - **D:** independent local replay 167/167 at the same tree.
+  - **Reuse:** only while gate, #94 and #95 are unchanged and the S1/S2 merge trees equal `5b9cca0d` / `2e2c31b4`.
+  - The "by construction" claim is withdrawn from the sheet.

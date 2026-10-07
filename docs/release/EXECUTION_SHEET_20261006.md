@@ -291,9 +291,48 @@ payload.
   - **Before the merge, the only joint exercise is local:** package rehearsal v2, R6 (apply 150, then 151, on a
     gate-shaped DB: PASS).
   - **The guard never runs on a merge commit** (migrations-guard is `pull_request` and `merge_group` only; `037092f0`
-    has no guard run). Its invariants hold for the merged tree **by construction, not by test**: a merge adds no
-    migration file, so a PR that passes a fresh guard run against the current base at its own merge time carries
-    both properties into the result (D).
+    has no guard run). The combined result is therefore tested on a **temporary integration branch** before S2; see
+    "S1 + S2 integration test" below. Nothing is assumed to hold for the merged tree without that test.
+
+**S1 + S2 integration test (owner, 2026-10-07): the combined result is tested before S2, so post-merge CI is not the
+first test.**
+- **Branch:** `integration/s1-s2-trial-20261007`, test only and never merged. It is the freshly read gate `037092f0`,
+  plus a merge commit of #94 (`2eebc5bf`), giving `229df83c`, tree `5b9cca0d…`; plus a merge commit of #95
+  (`9a66f29d`), giving `3787d8a2`, tree `2e2c31b4…`. These are the same merges, in the same order and by the same
+  method, as S1 and S2.
+- **Migration diff against the gate:** exactly 2 files, both added. `20260925000000_…` has blob `b7ef57fa` and
+  `20260925010000_…` has blob `cb9fa6aa`, both equal to the frozen package. Nothing is modified, deleted or renamed;
+  the 2 rollbacks are added under `supabase/rollbacks/`.
+- **Ordering:** both versions are above the gate's timestamp tip `20260924120000`, and in LC_ALL=C order 150 then 151
+  sort last.
+- **The guard's own `Check migrations` logic,** extracted from the workflow and run locally (step 0c, which only
+  applies to `pull_request` events, does not apply):
+  - passes on S1 against the gate, on S2 against the post-S1 commit, and on the combined result against the gate;
+  - **controls:** an edit to an existing migration fails immutability, and a migration dated below the tip fails
+    ordering.
+- **CI on the branch, the joint replay** (push run `37568480763` at `3787d8a2`, 2026-10-07 03:48–03:51Z): **all 5 ci.yml
+  jobs pass.**
+  - `Migrations apply cleanly (fresh DB)` ran on CLI 2.115.0. Its log shows `Applying migration
+    20260925000000_refund_lifecycle_state.sql` and then `…20260925010000_release_stuck_seller_win.sql`, after
+    `20260924120000`.
+  - Gate-2 census `tables=34 functions=111 policies=37 triggers=40`, equal to the package's predicted post-150 state.
+  - pgTAP **Files=98, Tests=5605, Result: PASS**, including `217_refund_lifecycle_state.sql ok` and
+    `218_release_stuck_seller_win.sql ok`.
+  - Admin, Web, Deno and Typecheck/Lint/Unit all pass. The web status is "Canceled by Ignored Build Step" (no build);
+    `Supabase Preview` skipped.
+  - A push run does not run the guard; that is why the guard logic was run locally above.
+- **D's independent local replay** (`review/d-integ-94-95`, `d2df0f91`): the same tree `2e2c31b4`.
+  - REPLAY OK 167/167, census 34|111|37|40.
+  - Control on the gate alone: 165/165, 32|108|37|38.
+  - That harness is superuser and not authoritative, which is why it is corroboration only.
+- **The branch is disposable.** Keep it as the evidence anchor until S2, then delete it (your go).
+- **Reuse rule.** This evidence counts for S1 and S2 only while:
+  - the gate is still `037092f0` when S1 merges;
+  - #94 and #95 are still at `2eebc5bf` and `9a66f29d`;
+  - the S1 merge commit's tree equals `5b9cca0d…` (checked after S1);
+  - the S2 merge result's tree equals `2e2c31b4…` (checked before S2 against the then-current gate, and after S2).
+  If anything else lands on the gate or either head moves, the evidence is void: rebuild and re-run.
+- **The local package rehearsal stays** as separate evidence (v2, R6: apply 150 then 151 on a gate-shaped DB, PASS).
 
 **State when you approved (2026-10-07).** The latest run of each required check on #94 and #95 is attempt 1, a fresh
 event; no green is inherited from a re-run.
