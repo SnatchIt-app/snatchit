@@ -1,4 +1,4 @@
-import { listAttendees, listOrders, PreviewReadError } from "@/lib/data";
+import { listAttendees, listOrders, rosterIsSampled, PreviewReadError } from "@/lib/data";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canManualLookup, canReadOrders, rosterClasses } from "@/lib/roles";
@@ -55,11 +55,11 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
       ) : ctx.state === "loading" ? (
         <Skeleton rows={10} />
       ) : !hasRoster ? (
-        <Attendees event={event} session={session} roster={[]} orders={[]} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={{}} totalUnfiltered={0} view="holders" />
+        <Attendees event={event} session={session} roster={[]} orders={[]} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={{}} totalUnfiltered={0} rosterSampled={rosterIsSampled(session?.sessionId ?? "")} view="holders" />
       ) : failedRead || !loaded ? (
         <ErrorState lost="The attendee list" read={failedRead ?? "venue.list_attendees"} retryHref={withPreview(`${basePath}/events/${event.eventId}/attendees`, ctx)} />
       ) : (
-        <Attendees event={event} session={session} roster={loaded.roster} orders={loaded.orders} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={filter} totalUnfiltered={loaded.total} view={view} />
+        <Attendees event={event} session={session} roster={loaded.roster} orders={loaded.orders} ctx={ctx} basePath={basePath} timeZone={p.timeZone} filter={filter} totalUnfiltered={loaded.total} rosterSampled={rosterIsSampled(session.sessionId)} view={view} />
       )}
     </Shell>
   );

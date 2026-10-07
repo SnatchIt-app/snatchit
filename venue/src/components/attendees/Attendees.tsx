@@ -37,6 +37,7 @@ export function Attendees({
   timeZone,
   filter,
   totalUnfiltered,
+  rosterSampled = true,
   view,
 }: {
   event: Event;
@@ -48,6 +49,8 @@ export function Attendees({
   timeZone: string;
   filter: { q?: string; checkIn?: string };
   totalUnfiltered: number;
+  /** false when the demo has no invented guest list for this session (see lib/data.ts rosterIsSampled). */
+  rosterSampled?: boolean;
   view: "holders" | "purchasers";
 }) {
   const classes = rosterClasses(ctx.role);
@@ -93,7 +96,7 @@ export function Attendees({
               <input type="hidden" name="did" value={`venue.request_export (${tpl})`} />
               <PreviewHidden ctx={ctx} />
               <button className="btn btn-ghost btn-sm" type="submit" title="An export is an asynchronous, audited job; download re-authorizes live.">
-                Export · {tpl === "operations_v1" ? "money list" : "audience list"}
+                Download {tpl === "operations_v1" ? "the list your role can see" : "the contact list"}
               </button>
             </form>
           ) : null}
@@ -118,7 +121,13 @@ export function Attendees({
             </button>
           </form>
 
-          {totalUnfiltered === 0 ? (
+          {totalUnfiltered === 0 && rosterSampled === false ? (
+            <EmptyState title="The sample data doesn't include a guest list for this night.">
+              <p className="max-w-prose text-sm text-muted">
+                The demo invents ticket holders for one night only — Saturday Music Night. Sold counts shown elsewhere for this event are sample figures with no invented people behind them. It is not telling you that nobody bought.
+              </p>
+            </EmptyState>
+          ) : totalUnfiltered === 0 ? (
             <EmptyState title="No tickets sold for this session yet." />
           ) : roster.length === 0 ? (
             <EmptyState title="No attendees match these filters.">

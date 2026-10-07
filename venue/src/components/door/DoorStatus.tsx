@@ -1,4 +1,4 @@
-import { MANIFEST_COPY, REJECT_COPY, SCAN_RESULT_LABEL, WALLET_STALENESS_NOTE, effectiveFreeze, manifestAge, manifestState, normaliseReason } from "@/lib/door";
+import { MANIFEST_COPY, REJECT_COPY, REJECT_TITLE, SCAN_RESULT_LABEL, WALLET_STALENESS_NOTE, effectiveFreeze, manifestAge, manifestState, normaliseReason } from "@/lib/door";
 import { pct, relative, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import { canManagePins, canManualLookup, canOperateManifest, canReadFlagQueue, canReadScanBoard } from "@/lib/roles";
@@ -48,7 +48,7 @@ export function DoorStatus({
 
   const Counters = (
     <div>
-      <p className="eyebrow text-dim">Admitted / issued</p>
+      <p className="eyebrow text-dim">Admitted, of tickets issued</p>
       <p className="door-counter">
         {scans.admitted}
         <span className="text-dim"> / {scans.issued}</span>
@@ -217,7 +217,7 @@ export function DoorStatus({
             <input type="hidden" name="did" value={open ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
             <PreviewHidden ctx={ctx} />
             {!open ? <p className="mb-2 text-sm">Opening the door manifest stops ticket holders sending or reselling tickets for this session. Do it when doors open.</p> : <p className="mb-2 text-sm">Closing this episode does not reopen transfers.</p>}
-            <p className="mb-2 text-xs text-warning">Blast-radius counts (pending transfers, active listings) are not available before the confirm: no dry-run read is contracted (spec Δ11). Shown after the fact only.</p>
+            <p className="mb-2 text-xs text-warning">You cannot see the count of transfers and resale listings this would stop <em>before</em> you confirm — that read does not exist yet. The numbers appear afterwards.</p>
             <AuditNote rpc={open ? "venue.close_door_manifest" : "venue.open_door_manifest"} />
             <button className="btn btn-primary btn-sm mt-2" type="submit">
               {open ? "Close manifest" : "Open door manifest"}
@@ -259,7 +259,7 @@ export function DoorStatus({
   ) : null;
 
   const Flags = canReadFlagQueue(ctx.role) ? (
-    <Panel title="Flag queue" eyebrow="Escalate, never resolve">
+    <Panel title="Flagged at the door" eyebrow="You pass these on; you don't decide them">
       {flags.length === 0 ? (
         <p className="text-sm text-muted">Nothing flagged.</p>
       ) : (
@@ -294,11 +294,11 @@ export function DoorStatus({
 
   const Reasons = (
     <details className="border border-line-neutral p-3 text-xs">
-      <summary className="cursor-pointer font-bold">Why a pass is refused (six reasons)</summary>
+      <summary className="cursor-pointer font-bold">What to say when a pass is refused (six reasons)</summary>
       <ul className="mt-2 space-y-1">
         {(Object.keys(REJECT_COPY) as (keyof typeof REJECT_COPY)[]).map((k) => (
-          <li key={k}>
-            <span className="font-mono text-dim">{k}</span> — {REJECT_COPY[k]}
+          <li key={k} title={`Reason code: ${k}`}>
+            <strong>{REJECT_TITLE[k]}</strong> — {REJECT_COPY[k]}
           </li>
         ))}
       </ul>

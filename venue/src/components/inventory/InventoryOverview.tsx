@@ -37,7 +37,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
       {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner /> : null}
 
       {view === "counters" && warnings.length > 0 ? (
-        <Panel title="Inventory warnings" eyebrow="One row per release and condition">
+        <Panel title="Needs attention" eyebrow="One line per release, per problem">
           <ul className="divide-y divide-line-neutral text-sm">
             {warnings.map((w) => (
               <li key={`${w.batchId}-${w.kind}`} className="flex flex-wrap items-center gap-2 py-2">
@@ -69,7 +69,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
               {releases.map((r) => (
                 <th key={r}>{RELEASE_LABEL[r]}</th>
               ))}
-              <th className="num">{view === "counters" ? "Sold / remaining" : "Available"}</th>
+              <th className="num">{view === "counters" ? "Sold, then remaining" : "Still available"}</th>
             </tr>
           </thead>
           <tbody>
@@ -178,7 +178,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
 
       <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
         {view === "counters" ? (
-          <Panel title="Capacity change" eyebrow="Guarded">
+          <Panel title="Changing capacity" eyebrow="Checked before it is allowed">
             <p className="text-sm text-muted">Changes are audited and refused below what is already held or sold. The floor for each release is shown before you type.</p>
             <ul className="mt-2 text-xs text-dim">
               {batches
@@ -189,7 +189,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
                   </li>
                 ))}
             </ul>
-            <p className="mt-2 text-xs text-warning">Not offered in this preview: no capacity-change RPC is contracted (spec §20A.3 U-8). Creating a release is (venue.create_inventory_batch).</p>
+            <p className="mt-2 text-xs text-warning" title="Changing capacity has no contracted RPC (spec §20A.3 U-8); creating a release is venue.create_inventory_batch">Not offered in this demo: changing the capacity of a release that is already selling has no safe path built yet. Adding a <em>new</em> release does, so that is the way to put more tickets on sale.</p>
           </Panel>
         ) : null}
 
@@ -239,11 +239,10 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         ) : null}
       </div>
       <p className="text-xs text-dim">
-        Read-only link:{" "}
-        <a className="link" href={withPreview(self, ctx)}>
-          this view
-        </a>
-        . Shard rows are internal and never shown.
+        <a className="link inline-flex min-h-6 items-center" href={withPreview(self, ctx)}>
+          Link to this inventory view
+        </a>{" "}
+        — safe to send to a colleague: it opens read-only and shows them only what their own role allows.
       </p>
     </div>
   );

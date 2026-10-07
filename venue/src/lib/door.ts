@@ -9,6 +9,16 @@ export const SCAN_RESULT_LABEL: Record<ScanResult, string> = {
   fraud_review: "Needs review",
 };
 
+/** The plain name for each refusal, for staff reading it off a screen at the door. */
+export const REJECT_TITLE: Record<DoorRejectReason, string> = {
+  version_stale: "Out-of-date pass",
+  voided: "Ticket no longer valid",
+  listed_locked: "Listed for resale or being transferred",
+  refund_hold: "Refund under review",
+  duplicate: "Already used",
+  wrong_session: "Wrong night",
+};
+
 /** Spec §12.5 — the six door reject reasons and their operator copy (binding). */
 export const REJECT_COPY: Record<DoorRejectReason, string> = {
   version_stale: "This pass is out of date. Ask them to open the Snatch It app.",

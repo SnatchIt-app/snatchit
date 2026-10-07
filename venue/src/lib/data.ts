@@ -70,6 +70,16 @@ export function listHolds(state: PreviewState, eventId: string) {
   return gate(state, "venue.inventory_hold", F.HOLDS.filter((h) => batchIds.has(h.batchId)), []);
 }
 
+/**
+ * The sessions the sample guest list covers. The demo invents people for one
+ * night only; other sample events carry sold counts with no invented holders
+ * behind them, and the attendee surface has to say so rather than report
+ * "nobody has bought yet" next to "231 sold".
+ */
+export function rosterIsSampled(sessionId: string): boolean {
+  return F.ROSTER.some((r) => r.sessionId === sessionId);
+}
+
 /** D1 — R venue.list_attendees(p_session_id, p_filters, p_cursor) — holder-keyed, column-scoped, audited per page */
 export function listAttendees(state: PreviewState, sessionId: string, filter?: { q?: string; checkIn?: string }) {
   let rows = F.ROSTER.filter((r) => r.sessionId === sessionId);

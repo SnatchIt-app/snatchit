@@ -75,11 +75,15 @@ export function CapacityBar({ capacity, held, sold, remaining }: { capacity: num
   );
 }
 
-/** Spec §19.5 — any audited action shows a one-line "this will be recorded" note on its confirm. */
+/**
+  * Spec §19.5 — any audited action shows a one-line "this will be recorded"
+  * note on its confirm. The backend call it stands on is review detail: it goes
+  * in the title attribute, not in copy a venue manager has to read past.
+  */
 export function AuditNote({ rpc }: { rpc: string }) {
   return (
-    <p className="text-xs text-dim">
-      This will be recorded in your venue&apos;s activity. Preview: would call <code className="font-mono">{rpc}</code>; nothing is saved here.
+    <p className="text-xs text-dim" title={`Calls ${rpc}`}>
+      In the real dashboard this is recorded in your venue&apos;s activity, with your name on it. <strong>In this demo nothing is saved.</strong>
     </p>
   );
 }

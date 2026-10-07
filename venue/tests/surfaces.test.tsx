@@ -82,7 +82,11 @@ describe("inventory (§8)", () => {
   });
   it("shows remaining only to a scanner and no holds panel", () => {
     const out = html(<InventoryOverview {...props} ctx={{ role: "venue_scanner", state: "live" }} />);
-    expect(out).not.toContain("Inventory warnings");
+    // Discrimination: the manager sees the warnings panel, the scanner does not.
+    // Asserting the absence of a string nothing renders any more would pass for
+    // the wrong reason, so the positive case is asserted in the same test.
+    expect(html(<InventoryOverview {...props} ctx={vm} />)).toContain("Needs attention");
+    expect(out).not.toContain("Needs attention");
     expect(out).toContain("available");
     expect(out).not.toContain("venue.release_inventory_hold");
   });
@@ -97,7 +101,7 @@ describe("attendees (§9)", () => {
   it("is holder-keyed: the six-ticket table shows six people, one marked purchaser", () => {
     const out = html(<Attendees {...props} ctx={vm} />);
     for (const n of ["Camila R.", "Andrés P.", "Lucía M.", "Tomás V.", "Sofía A.", "Diego L."]) expect(out).toContain(n);
-    expect(out).toContain("Export · money list");
+    expect(out).toContain("Download the list your role can see");
   });
   it("denies the scanner and names the alternative", () => {
     const out = html(<Attendees {...props} ctx={{ role: "venue_scanner", state: "live" }} />);
@@ -113,7 +117,7 @@ describe("attendees (§9)", () => {
     const mkt = html(<Attendees {...props} ctx={{ role: "venue_marketing", state: "live" }} />);
     expect(mkt).toContain("camila@example.test");
     expect(mkt).not.toContain("Purchasers");
-    expect(mkt).toContain("Export · audience list");
+    expect(mkt).toContain("Download the contact list");
   });
   it("keeps no-sales and no-match distinct", () => {
     expect(html(<Attendees {...props} ctx={vm} roster={[]} totalUnfiltered={0} />)).toContain("No tickets sold for this session yet.");

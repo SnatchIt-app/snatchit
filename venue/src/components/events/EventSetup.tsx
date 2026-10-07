@@ -34,8 +34,8 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           </p>
         </div>
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(9rem,100%),1fr))]">
-          {counters ? <Metric label="Sold / capacity" value={`${sold} / ${cap}`} sub="First session" /> : null}
-          {counters ? <Metric label="Gross" value={usd(gross)} sub="Before fees and refunds. What you'll be paid is in Settlement." /> : null}
+          {counters ? <Metric label="Sold of capacity" value={`${sold} / ${cap}`} sub="Tickets sold for the first session, against what that session holds." /> : null}
+          {counters ? <Metric label="Ticket sales" value={usd(gross)} sub="Face value of tickets sold, before fees and before any refunds. This is not what you get paid — the payout screen that shows that is not built yet." /> : null}
           {event.status === "live" ? <Metric label="Sessions" value={event.sessions.length} sub={first ? MANIFEST_COPY[manifestState(first, openManifestSessionIds.has(first.sessionId))] : undefined} /> : <Metric label="Sessions" value={event.sessions.length} />}
         </div>
       </header>
@@ -43,7 +43,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
       {editor ? <LargerScreenBanner /> : null}
 
       <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
-        <Panel title="Status" eyebrow="Advance status">
+        <Panel title="Status" eyebrow="Moving this event forward">
           {next ? (
             <div className="space-y-3">
               <p className="text-sm">
@@ -73,7 +73,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           )}
         </Panel>
 
-        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && ctx.writesEnabled !== false && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline">Add session → catalog.create_event_session</span> : null}>
+        <Panel title="Sessions" eyebrow="Capacity is per session" action={editor && ctx.writesEnabled !== false && mode !== "locked" ? <span className="hidden text-xs text-dim lg:inline" title="Calls catalog.create_event_session">Adding a session is a separate step — each night has its own capacity.</span> : null}>
           <ul className="divide-y divide-line-neutral">
             {event.sessions.map((s) => {
               const hb = doorHoldback(batches, s.sessionId);
@@ -101,7 +101,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
           </ul>
         </Panel>
 
-        <Panel title="Ticket types" eyebrow="What MVP has, said plainly">
+        <Panel title="Ticket types" eyebrow="What people can buy">
           {types.length === 0 ? (
             <p className="text-sm text-muted">No ticket types yet.</p>
           ) : (
@@ -127,23 +127,23 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         </Panel>
 
         {canReadResalePolicy(ctx.role) ? (
-          <Panel title="Resale policy" eyebrow="Per event · versioned">
+          <Panel title="Resale policy" eyebrow="Whether tickets can be passed on" read="catalog.resale_policy">
             <p className="text-sm">
               In force: <strong>{RESALE_LABEL[event.resaleMode]}</strong>
             </p>
             <p className="mt-1 text-sm text-muted">Resale is off unless you turn it on.</p>
             <p className="mt-1 text-sm text-muted">Tickets already listed keep the policy they were listed under.</p>
-            {editor && ctx.writesEnabled !== false ? <p className="mt-2 hidden text-xs text-dim lg:block">Change → catalog.set_resale_policy (creates a new version, never an edit)</p> : null}
+            {editor && ctx.writesEnabled !== false ? <p className="mt-2 hidden text-xs text-dim lg:block" title="Calls catalog.set_resale_policy">Changing this writes a new version rather than editing the old one, so you can always see which rules a ticket was sold under.</p> : null}
           </Panel>
         ) : null}
       </div>
 
       {editor && ctx.writesEnabled !== false && event.status !== "cancelled" && event.status !== "completed" ? (
-        <Panel title="Danger zone" eyebrow="Cancel event">
+        <Panel title="Cancelling this event" eyebrow="This one you can't undo">
           <p className="text-sm text-muted">
-            Cancelling shows the blast radius as counts before the confirm enables: sessions to cancel · tickets to void · orders to refund · open listings and transfers to cancel. A reason code and typing the event title are required. Nothing is deleted.
+            Before the confirm button turns on, cancelling shows you exactly what it would affect, as counts: sessions to cancel, tickets to void, orders to refund, and open resale listings and transfers to cancel. You also have to give a reason and type the event title. Nothing is deleted.
           </p>
-          <p className="mt-2 text-xs text-dim">Preview: the blast-radius read is not contracted (spec Δ11 covers the door; cancel reads the tables directly). This control is intentionally not offered here.</p>
+          <p className="mt-2 text-xs text-dim">Not offered in this demo, on purpose: the read that counts up what would be affected does not exist yet, and a cancel button that cannot show you the damage first is worse than no button.</p>
         </Panel>
       ) : null}
     </div>

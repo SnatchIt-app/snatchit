@@ -127,3 +127,94 @@ describe("X0 — every font size scales with the reader's text setting", () => {
     }
   });
 });
+
+/**
+ * Plain-language guards added for the pitch-readiness pass (2026-10-06).
+ *
+ * The audit's §P3 fix covered panel eyebrows only; backend identifiers were
+ * still sitting in body copy ("Add session → catalog.create_event_session",
+ * "Preview: would call venue.close_door_manifest"). These assert the rule for
+ * the whole rendered surface instead of one component at a time.
+ */
+import { DEVICES as DEV, EVENTS as EV, HOLDS as HLD, MANIFEST_EPISODES, ORDERS, PINS, ROSTER, SCANS as SC, TICKET_TYPES as TT, BATCHES as BT, FLAGS as FL, VENUE } from "@/fixtures/venue";
+import { rosterIsSampled } from "@/lib/data";
+import { Attendees } from "@/components/attendees/Attendees";
+import { DoorStatus } from "@/components/door/DoorStatus";
+import { CreateEventWizard } from "@/components/events/CreateEventWizard";
+import { EventSetup } from "@/components/events/EventSetup";
+import { InventoryOverview } from "@/components/inventory/InventoryOverview";
+
+/** Visible text only: a read name parked in title=… or data-read=… is review detail, not copy. */
+function visibleText(markup: string): string {
+  return markup
+    .replace(/\stitle="[^"]*"/g, "")
+    .replace(/\sdata-read="[^"]*"/g, "")
+    .replace(/<[^>]+>/g, " ");
+}
+
+const liveEvent = EV[0];
+const liveSession = liveEvent.sessions[0];
+const tz = VENUE.timeZone;
+
+const SURFACES: Record<string, () => string> = {
+  "event setup (live)": () => html(<EventSetup event={liveEvent} types={TT} batches={BT} ctx={vm} basePath={base} timeZone={tz} openManifestSessionIds={new Set([liveSession.sessionId])} />),
+  "event setup (blocked from on sale)": () => html(<EventSetup event={EV[2]} types={[]} batches={[]} ctx={vm} basePath={base} timeZone={tz} openManifestSessionIds={new Set()} />),
+  inventory: () => html(<InventoryOverview event={liveEvent} types={TT.filter((t) => t.eventId === liveEvent.eventId)} batches={BT} holds={HLD} ctx={vm} basePath={base} timeZone={tz} now={PREVIEW_NOW} />),
+  attendees: () => html(<Attendees event={liveEvent} session={liveSession} roster={ROSTER} orders={ORDERS} ctx={vm} basePath={base} timeZone={tz} filter={{}} totalUnfiltered={ROSTER.length} view="holders" />),
+  door: () => html(<DoorStatus event={liveEvent} session={liveSession} pins={PINS} devices={DEV} episodes={MANIFEST_EPISODES} scans={SC} flags={FL} lookup={null} ctx={vm} basePath={base} timeZone={tz} now={PREVIEW_NOW} />),
+  "create wizard": () => html(<CreateEventWizard ctx={vm} basePath={base} step={1} venueApproved venueName={VENUE.name} />),
+  "tonight overview": () => {
+    const built = buildSignals(input());
+    return html(<Tonight signals={built.signals} clear={built.clear} door={doorSummary([{ event: liveEvent, session: liveSession }], SC, DEV)} events={EV} available={stillAvailable(EV, TT, BT)} ctx={vm} basePath={base} timeZone={tz} now={PREVIEW_NOW} />);
+  },
+};
+
+describe("plain language — no backend identifier is visible copy", () => {
+  it.each(Object.keys(SURFACES))("%s names no schema object in visible text", (name) => {
+    const text = visibleText(SURFACES[name]());
+    const hits = text.match(/\b(catalog|venue|kernel|ops|public)\.[a-z_]{3,}/g) ?? [];
+    expect(hits, `${name} shows ${hits.join(", ")}`).toEqual([]);
+  });
+
+  it("the guard can fail: it catches an identifier it is given", () => {
+    // Positive control — without this, an empty match above could mean the
+    // regex never matches anything rather than that the copy is clean.
+    expect(visibleText("<p>Add session → catalog.create_event_session</p>").match(/\b(catalog|venue)\.[a-z_]{3,}/g)).toEqual(["catalog.create_event_session"]);
+    // …and that a read parked in an attribute is deliberately not a hit.
+    expect(visibleText('<h2 title="Reads venue.scan">Live scan board</h2>').match(/\bvenue\.[a-z_]{3,}/g)).toBeNull();
+  });
+
+  it("no surface tells the reader what would be saved without saying nothing is", () => {
+    for (const [name, render] of Object.entries(SURFACES)) {
+      const text = visibleText(render());
+      if (!text.includes("recorded in your venue")) continue;
+      expect(text, `${name} promises a record without the demo caveat`).toMatch(/In this demo nothing is saved/);
+    }
+  });
+});
+
+describe("no dead ends", () => {
+  it("the create-event wizard offers a way out on every step", () => {
+    for (const step of [1, 2, 3] as const) {
+      const out = html(<CreateEventWizard ctx={vm} basePath={base} step={step} venueApproved venueName={VENUE.name} />);
+      expect(out, `step ${step}`).toContain("Cancel and go back to events");
+      expect(out, `step ${step}`).toContain(`${base}/events`);
+    }
+  });
+
+  it("a session with no sample guest list says so, instead of reporting that nobody bought", () => {
+    const quiet = EV.find((e) => e.status === "completed")!;
+    const quietSession = quiet.sessions[0];
+    expect(rosterIsSampled(quietSession.sessionId)).toBe(false);
+    expect(rosterIsSampled(liveSession.sessionId)).toBe(true);
+
+    const out = html(<Attendees event={quiet} session={quietSession} roster={[]} orders={[]} ctx={vm} basePath={base} timeZone={tz} filter={{}} totalUnfiltered={0} rosterSampled={false} view="holders" />);
+    expect(out).toContain("doesn&#x27;t include a guest list for this night");
+    expect(out).not.toContain("No tickets sold for this session yet");
+
+    // Discrimination: a session that genuinely sold nothing still says so.
+    const empty = html(<Attendees event={liveEvent} session={liveSession} roster={[]} orders={[]} ctx={vm} basePath={base} timeZone={tz} filter={{}} totalUnfiltered={0} rosterSampled view="holders" />);
+    expect(empty).toContain("No tickets sold for this session yet");
+    expect(empty).not.toContain("doesn&#x27;t include a guest list");
+  });
+});
