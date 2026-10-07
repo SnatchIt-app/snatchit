@@ -123,6 +123,14 @@ acceptance.
   - B has not yet stated R-4. **R-4 stays open** until B rules on this. If B confirms, it is a
     concrete design conflict between full-bleed-under-the-status-bar and full-poster-visible, and
     may need an owner ruling.
+  - C's input (2026-10-06): the chip overlay and the art running under the status bar come from one
+    decision. When R-4 moved the identity text off the poster, the navigation stayed on it. E notes
+    these are **two questions**, not one: (a) may navigation overlay printed content? (b) may the
+    status bar and banner hide the top band of the poster at rest? (b) is content loss whatever the
+    answer to (a).
+  - **Scroll-check capability:** C's session has working simulator touch input (device points
+    393×852; swipes must start more than 4 pt inboard of an edge). B's does not. **The owner
+    chooses who runs the scroll and below-fold checks.**
 
 **Carry-forward from `f3f08930` to `d5217530`.** No durable B or native evidence exists at
 `f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
