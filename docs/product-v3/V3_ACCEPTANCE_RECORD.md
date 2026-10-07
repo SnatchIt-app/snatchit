@@ -32,7 +32,7 @@ acceptance.
 | Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
 | VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
 
-### Track 2: Successor, affected checks (now `7c9b270b` = `c75b1c68` + FeedRow fix + price-numeral cap)
+### Track 2: Successor, affected checks (final `91a5a58c`; code = `7c9b270b`)
 - **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
   Filters glyph.
 - **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
@@ -119,6 +119,29 @@ blanket whole-app acceptance applies.
   with an ellipsis, at default text size. This may be the remembered truncation. B decides whether
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
+
+## Successor final: `91a5a58c1d54a0c98ef353a6d5f7b53dfb68861c` (C, 2026-10-07 00:12; E verified)
+- **Code** is identical to `7c9b270b`. `91a5a58c` adds only the handoff update and captures. The
+  serving tree is clean.
+- **Pushed.** `origin/v3/midnight-app` and `origin/v3/consumer-batch2` = `91a5a58c`, verified with
+  `git ls-remote`. The earlier push gap is closed.
+- **C-operated captures, not yet B-reviewed:**
+  - Home cases 1 and 2 were retaken at `7c9b270b` (`native/7c9b270b/`).
+  - Listing case 3 stays at `native/94ac8b4f/`. E verified that
+    `git diff --name-only 94ac8b4f 7c9b270b` lists only `FeedRow.tsx`, `HomeFeature.tsx` and their
+    test, so the Listing surfaces did not change and case 3 carries.
+  - The superseded `94ac8b4f` Home captures were removed from the tree. They are preserved in git
+    history at `c75b1c68` and are not evidence for this candidate.
+- **E observation on `case2-home-a3xl-light-identity` (for B; not a verdict).**
+  - Amounts are complete: "$99.00", and "$132.00" with "all-in".
+  - Because the numeral is capped at 1.3× while the caption and meta lines scale fully, **at a3xl
+    each price renders smaller than its own caption and the surrounding text**. The amount becomes
+    the least prominent line in its block.
+  - The feed row also still cuts "2 × GA · 11…" (bid count), the date ("Thu 8 Oct ·…") and the title
+    ("Arcade pr…").
+  - B judges whether the inverted hierarchy meets the readability rule. The alternative is a layout
+    that lets the numeral scale on its own line without splitting.
+- **Cases 4 and 5:** unchanged (blocked, and partly established in source).
 
 ## Successor now `7c9b270b7e2c098ba352ee11ee9560b362669ffc` (served 2026-10-07 00:06; supersedes `22835964`)
 - **What changed.** `7c9b270b` stops stacked price numerals wrapping mid-number ("$132.0" / "0").
