@@ -20,8 +20,10 @@ vi.mock('@/src/theme/appearance', async () => {
     useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
   };
 });
+const rn = vi.hoisted(() => ({ fontScale: 1 }));
 vi.mock('react-native', () => ({
   Animated: { View: 'Animated.View' },
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: rn.fontScale }),
   Pressable: 'Pressable', Text: 'Text', View: 'View',
   Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios },
   StyleSheet: {
@@ -88,7 +90,7 @@ async function mountHero(over: Record<string, unknown> = {}) {
   return host;
 }
 
-beforeEach(() => { vi.resetModules(); });
+beforeEach(() => { vi.resetModules(); rn.fontScale = 1; });
 
 describe('the commitment sentence — de-duplicated (owner 2026-09-23)', () => {
   it('LP1: one sentence, no repeated numbers, and never an automatic-charge claim', () => {
@@ -170,6 +172,50 @@ describe('TransactionPanel — the §5 panel', () => {
     const host = await mountPanel();
     expect(priceDisplay(host, 'Buy now')).toBeUndefined();
     expect(byText(host, 'Yours immediately. No waiting for the auction.')).toBeUndefined();
+  });
+
+  /*
+   * LARGE TEXT IN THE PANEL (found in the C-operated a3xl capture at 0dfea8b2, after the Home
+   * caption fix). Three two-column rows could not fit at accessibility-extra-extra-extra-large,
+   * and all three lost text: "2 × GA ti…", "all-in · 6 bids…", and — the one that matters most —
+   * the breakdown VALUE, which rendered "$95.0". A clipped amount is not an aesthetic problem; it
+   * states a different number from the one the buyer would pay.
+   *
+   * Same rule as the Home feature's identity block, reused rather than restated: above
+   * IDENTITY_STACK_SCALE the rows stack and every line gets the full width.
+   */
+  it('LP8: at a large text scale the panel stacks instead of clipping its lines', async () => {
+    const styleOf = (host: HookHost, key: string) => {
+      const el = findElement(host.output, (e) => {
+        const st = e.props.style as { flexDirection?: string } | undefined;
+        return e.type === 'View' && st?.flexDirection != null && (e.props as Record<string, unknown>).testID === key;
+      });
+      return el?.props.style as { flexDirection?: string } | undefined;
+    };
+
+    rn.fontScale = 1;
+    expect(styleOf(await mountPanel(), 'panel-card-row')?.flexDirection).toBe('row');
+    expect(styleOf(await mountPanel(), 'panel-breakdown-row')?.flexDirection).toBe('row');
+
+    rn.fontScale = 3.1;
+    const big = await mountPanel();
+    expect(styleOf(big, 'panel-card-row')?.flexDirection).toBe('column');
+    expect(styleOf(big, 'panel-breakdown-row')?.flexDirection).toBe('column');
+  });
+
+  it('LP9: no line in the panel is capped at one line any more', async () => {
+    rn.fontScale = 1;
+    const host = await mountPanel();
+    const capped: string[] = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      const el = n as { type?: unknown; props?: Record<string, unknown> } | null;
+      if (!el || typeof el !== 'object' || !('props' in el)) return;
+      if (el.type === 'Text' && el.props!.numberOfLines === 1) capped.push(String(el.props!.children).slice(0, 40));
+      walk((el.props as { children?: unknown }).children);
+    };
+    walk(host.output);
+    expect(capped, `these clipped at a3xl on the device: ${capped.join(' | ')}`).toEqual([]);
   });
 
   it('LP7: the panel does no money arithmetic (source pin)', async () => {

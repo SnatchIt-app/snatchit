@@ -15,7 +15,7 @@
  */
 
 import { useMemo } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { usePulseOnChange } from '@/src/hooks/usePulseOnChange';
@@ -23,6 +23,7 @@ import { bidCountText } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import * as v2 from '@/src/theme/v2';
 import type { TransactionMode } from '@/src/lib/listing/detailState';
 
@@ -58,6 +59,14 @@ export function TransactionPanel({
 }: TransactionPanelProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  /*
+   * Three two-column rows here could not fit at accessibility-extra-extra-extra-large and all
+   * three lost text — including the breakdown VALUE, which rendered "$95.0" on the device. A
+   * clipped amount states a different number from the one the buyer would pay, so this uses the
+   * same rule as the Home feature's identity block rather than a second one.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
   const closed = mode === 'closed';
   // A new bid moves the amount in place: a brief dip-and-return, never a
   // rebuild of the panel (CFT-502). Under Reduce Motion the value just changes.
@@ -81,7 +90,7 @@ export function TransactionPanel({
     <View style={styles.wrap}>
       {/* The panel card: what the listing stands at NOW. Nothing about the buyer's total. */}
       <View style={styles.card}>
-        <View style={styles.cardRow}>
+        <View style={stacked ? styles.cardRowStacked : styles.cardRow} testID="panel-card-row">
           <Animated.View style={[styles.cardPrice, { opacity: pulse.opacity }]}>
             <PriceDisplay
               size="detail"
@@ -93,9 +102,9 @@ export function TransactionPanel({
               showTotal={false}
             />
           </Animated.View>
-          <View style={styles.qtyCol}>
+          <View style={stacked ? styles.qtyColStacked : styles.qtyCol}>
             {/* Mixed case per the board — `label` uppercased "2 × GA TICKETS". */}
-            <Text style={[textStyle('title'), styles.qty]} numberOfLines={1}>
+            <Text style={[textStyle('title'), styles.qty]} numberOfLines={2}>
               {`${quantity} × ${ticketType} ticket${quantity === 1 ? '' : 's'}`}
             </Text>
             {quantity > 1 ? (
@@ -106,7 +115,7 @@ export function TransactionPanel({
         </View>
         <Text
           style={[textStyle('bodySm'), clock?.urgent ? styles.subLineUrgent : styles.subLine]}
-          numberOfLines={1}
+          numberOfLines={2}
         >
           {subLine}
         </Text>
@@ -119,13 +128,13 @@ export function TransactionPanel({
       {showBreakdown ? (
         <View style={styles.breakdown}>
           <Text style={[textStyle('micro'), styles.bEyebrow]}>If you bid the minimum</Text>
-          <View style={styles.bRow}>
+          <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
             <Text style={[textStyle('bodySm'), styles.bLabel]}>Tickets</Text>
-            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidBase}</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={2}>{minBidBase}</Text>
           </View>
-          <View style={styles.bRow}>
+          <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
             <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee (10%)</Text>
-            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={1}>{minBidFee}</Text>
+            <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={2}>{minBidFee}</Text>
           </View>
         </View>
       ) : null}
@@ -151,8 +160,15 @@ function makeStyles(p: Palette) {
     justifyContent: 'space-between',
     gap: v2.space.md,
   },
+  /* Stacked above IDENTITY_STACK_SCALE: one column, so no line is competing for width. */
+  cardRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: v2.space.xs,
+  },
   cardPrice: { flexShrink: 1, minWidth: 0 },
   qtyCol: { alignItems: 'flex-end', flexShrink: 0 },
+  qtyColStacked: { alignItems: 'flex-start', flexShrink: 0 },
   qty: { color: p.text.primary },
   qtyNote: { color: p.text.muted },
   subLine: { color: p.text.secondary },
@@ -164,6 +180,11 @@ function makeStyles(p: Palette) {
     alignItems: 'baseline',
     justifyContent: 'space-between',
     gap: v2.space.md,
+  },
+  bRowStacked: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 2,
   },
   bEyebrow: { color: p.text.muted, textTransform: 'uppercase', letterSpacing: 0.6 },
   bLabel: { color: p.text.secondary },
