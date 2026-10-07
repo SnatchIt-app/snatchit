@@ -61,6 +61,12 @@ Action kinds, kept distinct throughout:
 3. **The job failed:** fix it with a new reviewed commit and repeat V-W2.
 4. **A name or app mismatch:** the required context must equal the job's `name:` exactly and be bound to GitHub
    Actions.
+5. **A malformed workflow file:** this shows as a 0s "workflow file issue" with zero jobs, which is how CI silently did
+   nothing in Phase 0. Fix the file; don't relax the rule.
+
+**Caveat.** The job starts unconditionally and its steps skip when `web/package.json` is absent. So on a branch without
+`web/` the check passes **vacuously**. On `fd0da772` it is a real build, but a green check proves the rule can be
+satisfied, not that every future branch built something.
 
 The PR into this branch gets no pull_request run (ci.yml: `pull_request: branches: [main]`). The check comes from the
 push run on the head commit.
@@ -87,7 +93,14 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
 - *Observed:* on `562fda9a` GitHub shows `Vercel – snatchit-admin: Canceled by Ignored Build Step`, so a push to the
   console branch under another pin is cancelled.
 - **Not established by any source:** whether **Redeploy is offered on a CANCELED deployment**. Check it at C5 before
-  relying on it. The fallback below needs no such assumption.
+  relying on it.
+- **CLI deployments: contested.** The 09-08 deployment record says "CLI deployments ignore the Ignored Build Step and
+  branch tracking". The docs give no exception to "runs when the deployment enters `BUILDING`".
+  - If the record is right, the pin does not guard a CLI deploy.
+  - If the docs are right and `VERCEL_GIT_COMMIT_SHA` is empty for a CLI deploy, the pin cancels it, which is safe.
+  - Either way C4 precedes C5. **The Redeploy route, with the checkbox ticked, is primary** because the pin provably
+    applies to it. The CLI route is a fallback whose guard is uncertain, so its exact checkout sha is verified by hand
+    first.
 
 | Step | Kind / who | Action | Pass condition / effect |
 |---|---|---|---|
@@ -170,6 +183,15 @@ first, sha256 `0c586b1b…`.
      - `merge-base(main, gate)` becomes the squash commit.
      - The next squash is clean, and its tree equals the new gate's.
    - The helper branch's push run supplies the gate's required checks. A PR from `main` would have none.
+   - **Also verified on the real refs** (D, then A): squash of `037092f0` onto `eadd456a`, then the helper, then the PR
+     merge commit.
+     - The trees stayed `e6b9589b` throughout.
+     - The squash, the old gate tip and `main` are all ancestors of the new gate.
+     - `merge-base` is the squash commit.
+   - **Two checks at execution, after the sync-back:**
+     1. the gate's tree is unchanged;
+     2. `main` is an ancestor of the gate.
+     If either fails, something landed between S7 and the sync-back: stop.
    - Trial: the sync-back's tree was `1b76e9cd`, unchanged.
    - Without the sync-back, a later gate edit to a line the squash introduced **conflicts** (trial: `ci.yml`).
    - With it, the next squash is clean and equals the new gate's tree (trial).
@@ -202,7 +224,7 @@ first, sha256 `0c586b1b…`.
 |---|---|---|---|
 | Repository settings | **unchanged**: merge, squash, rebase | — | — |
 | `main` (ruleset 21624091) | **squash only** (drop `rebase`) | keep: linear history, PR, no deletion, no force-push, strict per PR-2 | unchanged: the 5 |
-| gate `release/production-gate-20260918` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push | the 6 that report on gate PRs today (#94's head): `Immutability + ordering`, `Migrations apply cleanly (fresh DB)`, `Typecheck / Lint / Unit tests`, `Web build (Next.js)`, `Admin console (Next.js)`, `Deno type-check (edge functions)`. **Not** `Secret scan` or `Dependency review`: they run only on PRs into `main` |
+| gate `release/production-gate-20260918` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push; **no `required_linear_history`**: it excludes merge commits, so do not copy it from `main` | the 6 that report on gate PRs today (#94's head): `Immutability + ordering`, `Migrations apply cleanly (fresh DB)`, `Typecheck / Lint / Unit tests`, `Web build (Next.js)`, `Admin console (Next.js)`, `Deno type-check (edge functions)`. **Not** `Secret scan` or `Dependency review`: they run only on PRs into `main` |
 | web `feature/web-accounts-foundation` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push (W1a) | `Web build (Next.js)`, **after V-W2** (W1b) |
 | console `admin/operating-console` (new) | **merge only** | PR, 0 approvals; no deletion; no force-push (C2) | `Admin console (Next.js)`, **after V-C1** |
 | records `release/candidate-20260918` (new) | — | no deletion; no force-push; no PR rule (direct record pushes) | — |
@@ -249,7 +271,9 @@ both are resolved here per the owner's direction:
 - **Console:** the protected PR route, rather than D's release-first. D's route is retained as the bounded exception in
   §3.
 
-D's session was not reachable to re-review this revision; D verifies it on return.
+D retired its sheet (rev 5, `1a2bd614`, kept as its measurement record), withdrew the release-first proposal in favour of the PR
+route, and contributed the linear-history point, the real-ref sync-back trial, the vacuous-pass caveat and the
+workflow-file diagnosis; all four are folded in above.
 
 
 1. **Web.**
