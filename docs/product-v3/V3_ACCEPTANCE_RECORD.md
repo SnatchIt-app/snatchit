@@ -90,14 +90,26 @@ acceptance.
 `f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
 
 **Queued successor work (C, not in the candidate under review).** Branch `v3/consumer-batch2`
-(`/Users/josetascon/snatchit-v3batch`) is at `52a4bd29` above `d5217530`:
-- `6c562dcf`: F-1, Edit listing no longer spins forever on its refusal paths.
-- `8b437942`: F-4, Publish says "Sign in required" when the session is gone.
-- An inventory doc listing 7 event-image surfaces that still have no artwork selector, and Listing
-  detail read-failure and offline states that cannot be seeded.
+(`/Users/josetascon/snatchit-v3batch`) is at `8f6bed1e54604c897a322514f542ffaea17e9fea`; it was
+`52a4bd29` earlier on 2026-10-06. Everything below is unreviewed by B or E:
+- `6c562dcf`: F-1, Edit listing stops spinning on its refusal paths.
+- `8b437942`: F-4, Publish says "Sign in required".
+- `a587d2a1`: `?art=` on My listings, Bids, Tickets, Search, Checkout and Send/Order
+  (`v3-tickets?screen=send|order`). Every row takes the selected poster, and `all` cycles the
+  shapes.
+- `8f6bed1e`: the focal-point note in C's inventory doc.
 
-These are C's claims, recorded here and not yet reviewed by B or E. None of it is served or
-reviewed until B finishes `d5217530`.
+C corrected its own record: `v3-tickets` mounts the real Send and Order screens (`:32-33`), while
+`transfer-states` is a component gallery.
+
+**Carry-forward check at `8f6bed1e` (E, by diff; it applies only if C names this sha).**
+- No Home or Listing-detail render-path file changed: `EventMedia`, `slots`, `url.ts`,
+  `HomeFeature`, `ListingHero`, `ListingDetailScreen`, `home.tsx`, `FeedRow`, `v3-home.tsx`,
+  `v3-listing.tsx`, the theme, `IconSymbol` and `BarAction` are all absent.
+- The shared `src/lib/media/harnessArt.ts` changed, but additions only (numstat `27 0`, zero
+  deleted lines; C says the additions are `ART_SHAPES` and `listArt`).
+- Verdict: **Home and Listing `d5217530` evidence would carry, on the shared-file rule.** E
+  re-checks at the final sha C names.
 
 ## Native acceptance loop — restarted 2026-10-05 on C's named successor (owner)
 The owner restarted the loop on C's named successor. Completing `f3f08930` first is **not** required.
