@@ -1,4 +1,11 @@
-# Execution sheet: the remaining owner decisions (D, 2026-10-06)
+# Execution sheet: the remaining owner decisions (D, 2026-10-06, **revision 2**)
+
+> **Revision 2 corrects five errors in revision 1**, all found by A and each re-verified here against the
+> repository, the 2026-09-08 deployment record or a run experiment: the console step order was backwards
+> (§3), the console rollback target was wrong (§3), the web branch has the same base problem I had caught
+> for the console and missed for the web (§2), the squash "silently reverted" hazard is false (§4), and the
+> web branch carries three commits, not two. A's consolidated sheet is
+> `docs/release/EXECUTION_SHEET_20261006.md` on the records line.
 
 **Reviewed code is not permission to deploy it.** Everything below is reviewed and sitting still. Nothing
 has been merged, pushed, applied or deployed, and nothing in this sheet does any of that.
@@ -36,11 +43,20 @@ Measured 2026-10-05: the rules endpoint returns 0 for that branch, with `main` r
 This is the most urgent protection gap, ahead of anything on `main`.
 
 **W1 — protect it (owner, in the GitHub UI; independent of everything else).** No deletion, no force-push,
-PR required, `Web build (Next.js)` required. Do this before W2, so the PR becomes the only way in.
+PR required, and **`Web build (Next.js)` as the only required check**. Verified: `security.yml` is
+`pull_request: branches: [main]`, so Secret scan and Dependency review never run on a PR into this branch
+and requiring them would block every one. `ci.yml`, which carries `Web build (Next.js)`, runs on all PRs.
+Do this before W2, so the PR becomes the only way in.
 
-**W2 — the wording change.** Two commits on `web/wording-truth-conditions @ e7130f04`, A PASS. The plan
-routes it to the gate first (S4) and to the web branch as X9; the gate's `web/` and the production branch's
-`web/` were verified equal, so the same commits serve both.
+**W2 — the wording change, from a branch that can actually land (corrected).** `web/wording-truth-conditions
+@ e7130f04` is **three** commits (not two, as revision 1 said) and is based on the **gate**. The web
+production branch tip `1765bbeb` is **not an ancestor of it**: 910 commits and 1,111 differing files, 1,100
+of them outside `web/`. A PR from it into the live branch would carry the whole gate history. This is the
+same defect I found for the console in §3 and did not apply to the web — A caught it.
+- Use **`fd0da772`** (A's `web/wording-release-ff`), the three commits cherry-picked onto `1765bbeb`.
+- Verified here: it **is** a fast-forward of the tip, 3 commits, its `web/` tree `ab2eb1bf…` is **identical**
+  to `e7130f04`'s, and it changes **0 files outside `web/`**.
+- `e7130f04` stays the reviewed artefact; `fd0da772` is the same change positioned to land.
 
 **W3 — the deploy is the push.** There is no separate deploy step. Merging the PR into
 `feature/web-accounts-foundation` builds and publishes.
@@ -66,14 +82,23 @@ touch **no console code**: `admin/src` and `admin/tests` are untouched.
 - It **is** a fast-forward of the console branch tip: 2 commits, 3 files, +378/−6.
 - tsc 0, eslint 0, admin 16 files / 117 tests.
 
-**The change needed to release it, in order:**
-1. **Push `efe03fca` to `admin/operating-console`** (fast-forward). Owner's action — D never pushes that branch.
-2. **Vercel project `snatchit-admin`: move the Ignored Build Step pin from `ab3e17f1` to `efe03fca`.** That
-   is the whole configuration change. It also, unavoidably, brings the five already-pushed docs/script commits
-   into the built commit — no console code among them.
+**The change needed to release it — the order is the opposite of revision 1's (A's correction, confirmed
+from the 09-08 record):**
+1. **First, Vercel → `snatchit-admin` → Settings → Git → Ignored Build Step: change the pinned sha from
+   `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64` to `efe03fca5a88b074b2a675fb24fe718b53a9f4a3`.** The guard is
+   `test "$VERCEL_GIT_COMMIT_SHA" != "<pin>"`, where exit 0 skips. So a push made while the old pin is in
+   place is **cancelled**, and changing the pin afterwards rebuilds nothing — Vercel does not re-run on a
+   settings change. The record proves the mechanism live: the docs push `2459bdc` was cancelled with exactly
+   that message while the alias stayed put.
+2. **Then push `efe03fca` to `admin/operating-console`** (fast-forward). Owner's action — D never pushes
+   that branch. That push is what builds and deploys.
+   It also brings the five already-pushed docs/script commits into the built commit — no console code.
 
-**Rollback target: the pin back to `ab3e17f1`.** One configuration change, no revert needed, no database
-change. The console is a read surface plus `ops.execute_action`; nothing in this release touches either.
+**Rollback: an Instant Rollback to deployment `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`, then restore the pin to
+`ab3e17f1`.** Revision 1 said "pin back to `ab3e17f1`", which is wrong on its own: the production alias
+points at a deployment, and a build setting does not move an alias. That deployment is the `ab3e17f` build
+the alias currently serves (09-08 record, rows 81 and 121). No database change either way — the console is
+a read surface plus `ops.execute_action`, and nothing in this release touches either.
 
 ---
 
@@ -89,9 +114,10 @@ Every record we hold cites gate shas; after a rebase none of them would name a c
   content exactly.
 - It satisfies the ruleset: one commit, one parent, linear history, and squash is an allowed method.
 
-**This check must be re-run against the frozen commit at freeze time.** Today's gate is not the frozen
-integration candidate; the candidate will carry S1–S5 (and S6 if blocking is approved). The check is one
-command and its result is the gate-equality claim the whole D1 argument rests on.
+**The check has now also been run on a realistic candidate.** A built the S1–S5 trial candidate
+(`879a34ca`, tree `1b76e9cd…`; file counts per step 13 / 3 / 3 / 11 / 235, no conflicts). Verified here: its
+squash onto `main` yields tree **`1b76e9cd…`, identical**. It must still be re-run against the **actual**
+frozen commit at freeze time, since that candidate is a trial and may gain S6.
 
 **How ancestry stays traceable, given 906 commits collapse into one:**
 - **Migration ancestry does not live in git.** It lives in `supabase_migrations.schema_migrations`: version,
@@ -102,11 +128,17 @@ command and its result is the gate-equality claim the whole D1 argument rests on
 - **The gate branch is preserved and never deleted.** Every per-migration commit stays reachable there, and
   the gate is protected under PR-7. Recommended additions: the squash commit message records the exact gate
   sha, and a tag is placed at that gate commit.
-- **Later merges:** after a squash, `main` and the gate share only the old base, so every subsequent
-  integration must also be a squash, computed as the new gate against the current `main`. **The hazard that
-  creates:** anything committed directly to `main` would be silently reverted by the next squash. The rule
-  that removes it is that `main` receives squashes from the gate and nothing else — which PR-1's protection
-  already enforces, since a direct push is refused.
+- **Later merges — revision 1 was wrong about the hazard.** I claimed a direct commit to `main` would be
+  silently reverted by the next squash. **It is not.** `git merge --squash` is a three-way merge against the
+  merge-base, not a tree overwrite. Tested here: after a squash, a direct commit on `main`, then a gate
+  advance touching a different file — the direct change **survived** and the gate's change landed, exit 0.
+  I asserted that behaviour without running it.
+  - **The real hazard is a conflict.** When the gate later edits a file the squash introduced, the
+    merge-base has no such file, so both sides look like additions. Tested: exit 1, one conflicted file.
+  - **A sync-back clears it.** Merging `main` back into the gate restores `main` as an ancestor; the next
+    squash is then clean and its result equals the new gate's tree. (The sync-back is where the conflict is
+    resolved once, deliberately — it is not always automatic either.)
+  - **So the rule is: squash → check the tree → sync back**, not "only squashes forever".
 
 ---
 
