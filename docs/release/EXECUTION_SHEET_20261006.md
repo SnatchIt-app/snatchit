@@ -261,7 +261,15 @@ first, sha256 `0c586b1b…`.
 
 **Never required anywhere:** `Supabase Preview` and `Vercel Preview Comments` (third-party apps), npm audit, CodeQL.
 
-**Vercel statuses are not build evidence (D's V-2).** `Vercel – snatchit-web` reports `state=success` with the description "Canceled by Ignored Build Step": it is green for a build that never ran. Never require it, and never read it as proof of a deployment. It *is* evidence that the landing-branch pushes deployed nothing.
+**Checks that are green without proving what they appear to.** Read each for what it establishes; never cite it
+as proof of its name.
+
+| Check | What "green" actually establishes | What it does not establish |
+|---|---|---|
+| `Web build (Next.js)` | the job ran at that sha; on a ref with `web/package.json`, a real build passed | anything about a ref without `web/`: the steps skip and the job passes vacuously (§2) |
+| `Vercel – snatchit-web` status | Vercel received the commit; `state=success` even when the description is "Canceled by Ignored Build Step" | that anything was built or deployed (D's V-2). It *is* evidence that the landing-branch pushes deployed nothing |
+| `Immutability + ordering` | at that event: the base tip then, plus a description carrying `AUTODEPLOY-VERIFIED-OFF:` | that auto-deploy is off (the workflow says so itself, lines 232–234), or that the result still holds after the base moved |
+| any **re-run** of a pull_request workflow | the original event's merge commit and payload, re-evaluated | the current base or the current PR description (GitHub: re-runs use the original `GITHUB_SHA` and `GITHUB_REF`) |
 
 **Duplicate check runs.** `562fda9a` carries three `Immutability + ordering` runs, one of them a `failure` (D). For
 every required context, read **all** runs at the head sha before merging, not just the first one listed.
@@ -293,7 +301,7 @@ every required context, read **all** runs at the head sha before merging, not ju
 | O-R1 | X4a |
 | O-R2 | O-R1, O-R3, and your console sign-in |
 | O-R4 | X2 and O-R3 (preferably O-R2) |
-| S1 → S2 | your merge go; #94 before #95 (C6). **Read `Immutability + ordering` fresh at each merge** (all runs, latest counts). Its result depends on inputs outside the commit: the base tip at run time (`refs/pull/N/merge`^1) and the PR description's `AUTODEPLOY-VERIFIED-OFF:` line (it re-runs on `edited`). On `9a66f29d` it read failure, then success, then success with the same base, consistent with a description edit (D's V-1, mechanism from migrations-guard.yml). After S1 lands, re-run #95's guard with a workflow re-run (no commit) before S2 |
+| S1 → S2 | your merge go; #94 before #95 (C6). **Read `Immutability + ordering` fresh at each merge** (all runs, latest counts). Its result depends on inputs outside the commit: the base tip at run time (`refs/pull/N/merge`^1) and the PR description's `AUTODEPLOY-VERIFIED-OFF:` line (it re-runs on `edited`). On `9a66f29d` it read failure, then success, then success with the same base, consistent with a description edit (D's V-1, mechanism from migrations-guard.yml). After S1 lands, **trigger a fresh guard run on #95 by editing its description** (the `edited` event; e.g. refresh the `AUTODEPLOY-VERIFIED-OFF:` line), then read it before S2. **Not a workflow re-run:** a re-run reuses the original event's `GITHUB_SHA` (the old merge commit, so the old base) and payload (the old description), per GitHub's docs. **Not a commit** either |
 | S5 | B's review of `d5217530` (C's batch2 is separate), the owner's acceptance of the v3 candidate, then the §5.3 checks and the final integration trial on that candidate |
 | S7 | X2–X4, the freeze, the final trial's squash tree, a fresh auto-deploy confirmation, the tag, and D's pre-merge check; then the sync-back via a helper branch |
 | 152 (blocking) | D2; it must be a timestamp file |
