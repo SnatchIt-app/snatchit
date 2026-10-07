@@ -325,6 +325,14 @@ first test.**
   - REPLAY OK 167/167, census 34|111|37|40.
   - Control on the gate alone: 165/165, 32|108|37|38.
   - That harness is superuser and not authoritative, which is why it is corroboration only.
+- **Reproduced independently.**
+  - D's separate merges (`73d82967` / `486c954c`, another session and worktree on the same machine and object store)
+    give exactly trees `5b9cca0d` / `2e2c31b4`.
+  - CI run `37568480763` is `push`, attempt 1, so it is a fresh event.
+  - **A rebuild from the same three inputs that does not reproduce `2e2c31b4` is a hard stop.**
+- **Log-reading note (D).** A blanket grep for `error|FAIL|not ok` over a db-job log returns about 116 matches. All of
+  them are echoed script text. The real signals are emitted `::error` annotations (0 here) and TAP `not ok` lines
+  (0 here).
 - **The branch is disposable.** Keep it as the evidence anchor until S2, then delete it (your go).
 - **Reuse rule.** This evidence counts for S1 and S2 only while:
   - the gate is still `037092f0` when S1 merges;
