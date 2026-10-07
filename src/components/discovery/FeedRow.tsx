@@ -21,7 +21,7 @@ import { identityStacks, ROW_ART, ROW_ART_GAP, ROW_GUTTER } from '@/src/lib/desi
 import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, rowMeta } from '@/src/lib/listing/feedRowState';
-import { textStyle } from '@/src/theme/typography';
+import { MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 
@@ -73,6 +73,12 @@ function FeedRowImpl({
    * the half that loses: E found "$132.0…" and "all-i…" in a C-operated a3xl capture. A clipped
    * amount states a different number, so the price moves UNDER the text — the artwork stays
    * where it is, because this is a width problem in the two text columns, not the whole row.
+   *
+   * The NUMERAL also takes `MAX_DISPLAY_FONT_SCALE`, which is the app's existing treatment for
+   * display type (chips, badges, buttons, the bid stepper). Stacking alone stopped it clipping but
+   * let it wrap mid-number — "$132.0" then "0" — which is nearly as misleading as losing a digit.
+   * A capped numeral fits on one line and is complete; everything around it still scales all the
+   * way, and the spoken label carries the full amount regardless.
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
@@ -128,7 +134,7 @@ function FeedRowImpl({
                 </View>
 
                 <View style={stacked ? s.priceStacked : s.price}>
-                  <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={cap}>
+                  <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={cap} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
                     {priceAllIn}
                   </Text>
                   <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={cap}>

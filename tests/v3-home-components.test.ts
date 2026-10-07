@@ -386,6 +386,13 @@ describe('FeedRow — the amount and its caption survive too', () => {
     expect(body, 'the text and price share a column').toBeDefined();
     expect(priceOf(host)?.props.numberOfLines).toBeUndefined();
     expect(captionOf(host)?.props.numberOfLines).toBeUndefined();
+    /*
+     * And the numeral is capped. Stacking alone stopped it CLIPPING but let it wrap mid-number
+     * ("$132.0" then "0") in the a3xl capture, which misreads about as easily as a lost digit.
+     * MAX_DISPLAY_FONT_SCALE is the app's own treatment for display type, so the amount fits on
+     * one line while the caption and meta around it keep scaling all the way.
+     */
+    expect(priceOf(host)?.props.maxFontSizeMultiplier).toBe(1.3);
     // The artwork stays where it is: this is not a wholesale re-layout of the row.
     expect(findElement(host.output, (el) => el.type === 'EventMedia')).toBeDefined();
   });
@@ -456,6 +463,10 @@ describe('HomeFeature — "all-in" survives the supported text sizes', () => {
     const label = String(pressable!.props.accessibilityLabel);
     expect(label).toContain('all-in');
     expect(label).toContain('$99.00');
+    // The VISIBLE amount is capped so it cannot split across lines; the SPOKEN one is whole
+    // either way, which is the separation the owner asked to be kept explicit.
+    const price = findElement(host.output, (el) => el.type === 'Text' && el.props.children === '$99.00');
+    expect(price?.props.maxFontSizeMultiplier).toBe(1.3);
   });
 
   it('LT6: the threshold is one stated rule, not a number repeated in a component', async () => {

@@ -41,7 +41,7 @@ import { usePressScale } from '@/src/components/ui';
 import { FEATURE_GUTTER, identityStacks } from '@/src/lib/design/featureMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, featureMetaLine, priceCaption, rowMeta } from '@/src/lib/listing/feedRowState';
-import { textStyle } from '@/src/theme/typography';
+import { MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -138,7 +138,7 @@ function HomeFeatureImpl({
             </Text>
           </View>
           <View style={stacked ? s.priceColStacked : s.priceCol}>
-            <Text style={[textStyle('price'), s.priceValue]} numberOfLines={1}>
+            <Text style={[textStyle('price'), s.priceValue]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
               {priceAllIn}
             </Text>
             {/* Two lines, never one: "current bid, all-in" wraps rather than losing "all-in". */}
