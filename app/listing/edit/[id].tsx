@@ -22,8 +22,9 @@ import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
 import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
+import { editPhase, editRefusal, editRefusalCopy, type EditRefusal } from '@/src/lib/listing/editAccess';
 import { findBannedContent } from '@/src/lib/sell/sellState';
-import { Button, Chip, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
+import { Button, Chip, EmptyState, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -40,7 +41,7 @@ const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
 ];
 
 export default function EditListingScreen() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
@@ -48,6 +49,7 @@ export default function EditListingScreen() {
   const listingId = params.id ?? '';
 
   const [loading, setLoading] = useState(true);
+  const [refused, setRefused] = useState<EditRefusal | null>(null);
   const [saving, setSaving] = useState(false);
   const [listing, setListing] = useState<Listing | null>(null);
 
@@ -72,28 +74,32 @@ export default function EditListingScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    /*
+     * Every exit from here either shows the form or records a refusal (E, 2026-10-05). Two of
+     * these paths used to return with `loading` still set, and the render guard read a missing
+     * listing as "still loading", so the seller was left on a spinner behind the alert — and with
+     * the alert dismissed by the hardware back button, on a spinner and nothing else.
+     */
+    function refuse(r: EditRefusal, alert: boolean): void {
+      setRefused(r);
+      setLoading(false);
+      if (alert) Alert.alert(r.title, r.body, [{ text: 'OK', onPress: () => router.back() }]);
+    }
     async function load() {
-      if (!listingId || !user) return;
+      if (authLoading) return;                       // the session is still being checked
+      if (!user || !listingId) {
+        // No alert: nothing was asked for yet, so the refusal is the screen, not an interruption.
+        refuse(editRefusalCopy(user ? 'not-found' : 'signed-out'), false);
+        return;
+      }
       const { data, error } = await supabase.from('listings').select('*').eq('id', listingId).single();
       if (cancelled) return;
-      if (error || !data) {
-        Alert.alert('Listing not found', error?.message ?? 'Try again later.', [{ text: 'OK', onPress: () => router.back() }]);
-        setLoading(false);
-        return;
-      }
-      const l = data as Listing;
-      if (l.seller_id !== user.id) {
-        Alert.alert('Not allowed', 'You can only edit your own listings.', [{ text: 'OK', onPress: () => router.back() }]);
-        return;
-      }
-      if (l.bid_count > 0 || l.auction_status !== 'active') {
-        Alert.alert(
-          'Cannot edit',
-          l.bid_count > 0
-            ? 'This listing already has bids. Use Cancel from My Listings if you need to remove it.'
-            : 'This listing is no longer active.',
-          [{ text: 'OK', onPress: () => router.back() }],
-        );
+      const l = (data ?? null) as Listing | null;
+      const refusal = editRefusal({ listing: l, viewerId: user.id, readError: error?.message });
+      // `!l` is already the 'not-found' refusal; it stays in the condition so the rest of this
+      // function keeps its non-null listing rather than asserting one.
+      if (refusal || !l) {
+        refuse(refusal ?? editRefusalCopy('not-found', error?.message), true);
         return;
       }
       setListing(l);
@@ -105,7 +111,7 @@ export default function EditListingScreen() {
     }
     load();
     return () => { cancelled = true; };
-  }, [listingId, user]);
+  }, [listingId, user, authLoading]);
 
   async function handleSave() {
     if (!listing || !user) return;
@@ -138,7 +144,19 @@ export default function EditListingScreen() {
     }
   }
 
-  if (loading || !listing) {
+  const phase = editPhase({ authLoading, loading, refusal: refused, listing });
+  if (phase === 'refused' && refused) {
+    return (
+      <View style={[s.root, s.center]}>
+        <EmptyState
+          title={refused.title}
+          body={refused.body}
+          action={{ label: 'Back', onPress: () => router.back() }}
+        />
+      </View>
+    );
+  }
+  if (phase === 'loading' || !listing) {
     return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
