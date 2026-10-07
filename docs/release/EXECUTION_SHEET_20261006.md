@@ -94,13 +94,16 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
   console branch under another pin is cancelled.
 - **Not established by any source:** whether **Redeploy is offered on a CANCELED deployment**. Check it at C5 before
   relying on it.
-- **CLI deployments: contested.** The 09-08 deployment record says "CLI deployments ignore the Ignored Build Step and
-  branch tracking". The docs give no exception to "runs when the deployment enters `BUILDING`".
-  - If the record is right, the pin does not guard a CLI deploy.
-  - If the docs are right and `VERCEL_GIT_COMMIT_SHA` is empty for a CLI deploy, the pin cancels it, which is safe.
-  - Either way C4 precedes C5. **The Redeploy route, with the checkbox ticked, is primary** because the pin provably
-    applies to it. The CLI route is a fallback whose guard is uncertain, so its exact checkout sha is verified by hand
-    first.
+- **CLI deployments: unknown.** The 09-08 record's "CLI deployments ignore the Ignored Build Step" is **unsupported**
+  (corrected in that record on this branch).
+  - Its only datum, the CLI deploy `dpl_J5Kr…`, carried `meta.gitCommitSha` equal to the pin, so it cannot distinguish
+    "skipped" from "ran and matched". Credit to D.
+  - For the fallback, a CLI deploy of M from a hand-verified clean checkout of M has three possible outcomes:
+    - the step does not run: M builds;
+    - the step runs with the sha set: M builds, because C4 pinned M;
+    - the step runs with the sha empty: the build is cancelled.
+  - None of the three can deploy anything but M. **That safety comes from the verified checkout, not from the pin.**
+  - **The Redeploy route, with the checkbox ticked, stays primary**, because the pin provably applies there.
 
 | Step | Kind / who | Action | Pass condition / effect |
 |---|---|---|---|
@@ -230,6 +233,9 @@ first, sha256 `0c586b1b…`.
 | records `release/candidate-20260918` (new) | — | no deletion; no force-push; no PR rule (direct record pushes) | — |
 
 **Never required anywhere:** `Supabase Preview` and `Vercel Preview Comments` (third-party apps), npm audit, CodeQL.
+
+**Duplicate check runs.** `562fda9a` carries three `Immutability + ordering` runs, one of them a `failure` (D). For
+every required context, read **all** runs at the head sha before merging, not just the first one listed.
 
 ## 5. Independent, or waiting
 

@@ -123,6 +123,13 @@ Blocked on G2/G3/G5 (founder probe). The retirement list in the main record stan
 **How approved admin releases work from here.**
 1. Production branch pushes (`admin/operating-console`) still reach Vercel and are canceled unless the commit SHA equals the pinned one in the Ignored Build Step. To release a newly approved commit from Git: update the pinned SHA in Settings → Build and Deployment → Ignored Build Step, then push or "Redeploy" that commit.
 2. Alternatively (the path used for this release): from a clean checkout of the approved commit, `vercel deploy --prod` with `VERCEL_ORG_ID=team_rld7LG9DKzgaph97l4H4jl9d VERCEL_PROJECT_ID=prj_o17cASVVqqyGKPUtiklJRvAMVgNB` — CLI deployments ignore the Ignored Build Step and branch tracking.
+   **Correction (A and D, 2026-10-07): the claim that CLI deployments ignore the Ignored Build Step is unsupported.**
+   - The only CLI deployment made under a live pin is `dpl_J5Kr…`. It carried `meta.gitCommitSha = ab3e17f…`, equal to the
+     pin, so its success cannot tell "skipped" apart from "ran and matched".
+   - Vercel's docs say the command runs whenever a deployment enters `BUILDING`.
+   - Treat whether the pin guards CLI deployments as **unknown**.
+   - Release procedure: EXECUTION_SHEET_20261006 §3.
+   - The gate's copy of this file keeps the original sentence until the next gate records merge.
 3. Preview builds of the console are on demand only: `vercel deploy` (no `--prod`) from a checkout that contains `admin/`. Nothing deploys automatically from feature branches any more.
 
 **Remaining limitation.** Pushes to `admin/operating-console` with a non-pinned SHA still create a *canceled* production-target deployment (silent, no failure e-mail, nothing promoted). Once PR #55 is merged into `feature/venue-native-and-product-v2`, that branch will contain `admin/`; automatic previews for it stay off unless Branch Tracking is re-enabled.
