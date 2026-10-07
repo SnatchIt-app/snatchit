@@ -1,11 +1,12 @@
-# Execution sheet: the remaining owner decisions (D, 2026-10-06, **revision 2**)
+# Execution sheet: the remaining owner decisions (D, 2026-10-06, **revision 3**)
 
-> **Revision 2 corrects five errors in revision 1**, all found by A and each re-verified here against the
+> **Revision 3.** Revision 2 corrected five errors in revision 1, all found by A and each re-verified here against the
 > repository, the 2026-09-08 deployment record or a run experiment: the console step order was backwards
 > (§3), the console rollback target was wrong (§3), the web branch has the same base problem I had caught
 > for the console and missed for the web (§2), the squash "silently reverted" hazard is false (§4), and the
 > web branch carries three commits, not two. A's consolidated sheet is
-> `docs/release/EXECUTION_SHEET_20261006.md` on the records line.
+> `docs/release/EXECUTION_SHEET_20261006.md` on the records line. Revision 3 corrects one more of
+> mine — the `ci.yml` trigger in §2 — and sharpens the sync-back timing in §4.
 
 **Reviewed code is not permission to deploy it.** Everything below is reviewed and sitting still. Nothing
 has been merged, pushed, applied or deployed, and nothing in this sheet does any of that.
@@ -43,9 +44,18 @@ Measured 2026-10-05: the rules endpoint returns 0 for that branch, with `main` r
 This is the most urgent protection gap, ahead of anything on `main`.
 
 **W1 — protect it (owner, in the GitHub UI; independent of everything else).** No deletion, no force-push,
-PR required, and **`Web build (Next.js)` as the only required check**. Verified: `security.yml` is
-`pull_request: branches: [main]`, so Secret scan and Dependency review never run on a PR into this branch
-and requiring them would block every one. `ci.yml`, which carries `Web build (Next.js)`, runs on all PRs.
+PR required, and **`Web build (Next.js)` as the only required check**.
+- `security.yml` is `pull_request: branches: [main]`, so Secret scan and Dependency review never run on a
+  PR into this branch; requiring either would block every one.
+- **`ci.yml` is also `pull_request: branches: [main]`, plus `push: branches-ignore: [main]`** — read
+  directly at the gate, at `1765bbeb` and at `fd0da772`, identical in all three. (Revision 2 said it "runs
+  on all PRs". That was the same faulty parser that had already misled me once on `security.yml`; I
+  re-checked only the file it had misled me on, and trusted its other output.) So a PR into the web branch
+  gets **no `pull_request` run at all**: `Web build (Next.js)` reports from the **push** run on the head
+  commit. It can still be required — GitHub matches a required context by name on the head sha whatever
+  event produced it — but W3 must confirm the check is actually green at `fd0da772` on the PR before
+  anyone relies on it.
+
 Do this before W2, so the PR becomes the only way in.
 
 **W2 — the wording change, from a branch that can actually land (corrected).** `web/wording-truth-conditions
@@ -135,10 +145,13 @@ frozen commit at freeze time, since that candidate is a trial and may gain S6.
   I asserted that behaviour without running it.
   - **The real hazard is a conflict.** When the gate later edits a file the squash introduced, the
     merge-base has no such file, so both sides look like additions. Tested: exit 1, one conflicted file.
-  - **A sync-back clears it.** Merging `main` back into the gate restores `main` as an ancestor; the next
-    squash is then clean and its result equals the new gate's tree. (The sync-back is where the conflict is
-    resolved once, deliberately — it is not always automatic either.)
-  - **So the rule is: squash → check the tree → sync back**, not "only squashes forever".
+  - **A sync-back clears it, and the timing is the whole point.** Merging `main` back into the gate
+    restores `main` as an ancestor, after which the next squash is clean and equals the new gate's tree.
+    Done **immediately after the merge, before anything else lands on the gate**, it is trivial and
+    tree-equal — at that moment the two trees are already identical. My own sync-back conflicted only
+    because I had deferred it past a divergent edit; deferred, it is the same merge as the next squash run
+    the other way, and the conflict is resolved once, there.
+  - **So the rule is: squash → check the tree → sync back immediately**, not "only squashes forever".
 
 ---
 
