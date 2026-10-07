@@ -17,6 +17,48 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
+## Candidate under native review: `d52175303f22a575b80f005f38c0e8555be0dbdc` (named 2026-10-05; E verified 2026-10-06)
+- **Implementation (C), checked by E.** `v3/midnight-app` in `/Users/josetascon/snatchit-refund`
+  is at `d5217530`, and `git status` is clean.
+  - Range `168e794a..d5217530`: `6100dee1` (the Home feature fix, Listing `?art=`, the shared
+    `src/lib/media/harnessArt.ts`, and integration of the reserving seam), then `d5217530`.
+  - `d5217530` adds only `docs/product-v3/V3_SUCCESSOR_HANDOFF.md`.
+  - `git diff f3f08930..d5217530` touches no native or install file (`ios/`, `android/`,
+    `app.json`, `package*.json`, `patches/`, `scripts/`). So reloading the existing dev client
+    serves this candidate, and no rebuild is needed.
+  - C reports 172 files / 2921 tests passing and a clean typecheck. That is C's report; E did not
+    re-run them.
+- **Metro.** C operates it. It is pid 2172, started 2026-09-26 16:56, cwd
+  `/Users/josetascon/snatchit-refund`. It was not restarted, because it serves the tree whose
+  contents advanced.
+- **Push: not done.** `origin/v3/midnight-app` is still `404bce38`. C reports the authorised push
+  was blocked by C's session permission guard. **This is an owner action.**
+- **C's evidence is WEB evidence from the implementation owner, not native and not B.** The archive
+  is `/Users/josetascon/snatchit-v3-evidence/6100dee1/`, outside the repo. E reconciled it with the
+  final commit:
+  - **Code is identical to the final commit.** `6100dee1` is an ancestor of `d5217530`, and
+    `git diff 6100dee1 d5217530` is that one docs file. Every code-dependent web result at
+    `6100dee1` therefore describes `d5217530`'s code.
+  - **The archive does not record its own sha or clean status.** Its tie to `6100dee1` rests on
+    the folder name and timestamps: files written 23:04–23:05, after the `6100dee1` commit (22:27)
+    and before `d5217530` (23:06). That is attributable but not self-proving.
+  - **The probe** loaded `localhost:8081/_dev/v3-home?...&appearance=dark` from Metro's web
+    target.
+  - **Proven per fixture (Home, Dark only, 393×491 frame):** `flyer`, `markers`, `tall`, `wide`,
+    `square`, `subject`, `subject-wide` and `missing` each **MATCH**
+    (`logs/feature-fixture-proof.txt`). Not covered: `photo`, `all` and Light.
+  - **Listing** (`flyer`, `tall`, `subject-wide`, `missing`): claimed in the handoff only. The
+    archive holds the probe script (`probe-listing.js`) but **no output log**, so it is not cited
+    as evidence.
+- **The earlier native captures, Xcode build log and `npm ci` log at `f3f08930` are lost.** They are
+  not cited.
+- **B's native review: pending.** No B commit after `ca00a250`. `docs/product-v3/native/` is
+  empty at E's check (2026-10-06).
+- **Routes:** `V3_SUCCESSOR_HANDOFF.md` at `d5217530`. Listing needs `screen=listing`.
+
+**Carry-forward from `f3f08930` to `d5217530`.** No durable B or native evidence exists at
+`f3f08930`, so nothing carries. The full native review is owed at `d5217530`.
+
 ## Native acceptance loop — restarted 2026-10-05 on C's named successor (owner)
 The owner restarted the loop on C's named successor. Completing `f3f08930` first is **not** required.
 
@@ -27,7 +69,7 @@ there was no B document, no committed capture and no file in any session scratch
 captures (`home-flyer-{light,dark}.png`) were in a temp scratchpad and are gone. Only E's written
 description of the Light capture remains (below). **Acceptance remains pending.**
 
-**Successor:** not yet named. It must contain all three of the following (owner, 2026-10-05):
+**Successor (now named `d5217530`, above):** it had to contain all three of the following (owner, 2026-10-05):
 1. **Listing artwork selection.** At `168e794a`, `app/_dev/v3-listing.tsx` has no `?art=` and the
    cover is always null (`:100-101`), so Listing shows only the missing-artwork plate.
 2. **Home feature selection.** A bug has been *reported*, but E has not reproduced it. C reproduces
