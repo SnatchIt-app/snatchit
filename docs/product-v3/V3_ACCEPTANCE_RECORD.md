@@ -86,7 +86,16 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `0dfea8b21496390cc66ad470ba9ad1bc42e2211a` (2026-10-06 23:03; supersedes `7d0ae565`; C to name it formally)
+## Successor served: `d301ccb4f1ae6e6eeacc6c44ba6933a4418b8288` (2026-10-06 23:14; supersedes `0dfea8b2`; C to name it formally)
+`d301ccb4` changes `TransactionPanel.tsx` and adds a test. C found this in a C-operated a3xl capture:
+at a3xl, Listing's panel clipped the quantity ("2 × GA ti…"), the "all-in · 6 bids…" sub-line and a
+breakdown **amount**, shown as "$95.0" instead of "$95.00". A clipped amount states a different
+number. The rows now stack above `IDENTITY_STACK_SCALE`, and nothing is capped at one line. C reports
+no change to price semantics. Carry/repeat is unchanged, because all of Listing already repeats.
+**This is evidence the a3xl Listing panel was wrong at `d5217530` too.** B's batch 2 a3xl Listing
+capture is now superseded by the fix and is not acceptance.
+
+### Previously served: `0dfea8b21496390cc66ad470ba9ad1bc42e2211a`
 `0dfea8b2` changes one line in `HomeFeature.tsx`: the time · venue meta line goes from
 `numberOfLines` 1→2, because at a3xl it clipped to "19:30 · Lanter…". C found this in a C-operated
 capture. It also adds a test. The carry/repeat list below is unchanged: the edit is inside the Home
