@@ -2091,3 +2091,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     (corrects D's sheet).
   - Disclosure: A's vitest run on the web tree used a symlinked `node_modules` from D's `snatchit-webword` and updated
     its git-ignored vitest cache file; no tracked file, HEAD unchanged. Told D.
+- **EXECUTION SHEET CORRECTIONS (owner, 2026-10-06), A.**
+  - **S5:** B reviews `d5217530`; the `879a34ca` trial establishes the method only.
+  - **MM-1 measured (read-only):** repo-wide merge/squash/rebase all allowed; `main-protection` is the only ruleset.
+    Proposal: `main` squash-only; gate and web merge-only; console and records branches without a PR rule.
+    Sync-back via a helper branch (`main`'s commits carry no ci.yml checks).
+  - **W1 split:** W1b (required `Web build (Next.js)`) is **not executable yet**. `fd0da772` is not on the remote,
+    and A's push of `web/wording-release-ff` was refused by the session's permission check (not retried).
+  - No setting changed.
