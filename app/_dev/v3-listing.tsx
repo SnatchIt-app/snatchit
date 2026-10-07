@@ -191,6 +191,14 @@ const NOT_FOUND: ListingDetailFixture = {
 };
 
 /**
+ * The two states a FAILED read produces, which had no variant at all until now: the screen's
+ * classifier turns the seeded message into the offline screen or the neutral read-failure state,
+ * so these name the kind of failure and let the screen decide the face.
+ */
+const READ_FAILED: ListingDetailFixture = { ...NOT_FOUND, failure: 'error' };
+const READ_OFFLINE: ListingDetailFixture = { ...NOT_FOUND, failure: 'offline' };
+
+/**
  * Every state this route can select. The names are the resolver's own (`StatusKind` in
  * `src/lib/listing/detailState.ts`), hyphenated for a URL: `reserved_by_you` → `reserved-by-you`,
  * `reserved_by_other` → `on-hold` (the label the sticky bar actually prints), plus the seller's own
@@ -222,6 +230,10 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined): 
       return CANCELLED;
     case 'not-found':
       return NOT_FOUND;
+    case 'error':
+      return READ_FAILED;
+    case 'offline':
+      return READ_OFFLINE;
     case 'on-hold':
       // `reserved_by_other`: status 'reserved', a live hold, held by someone who is not the viewer.
       // The only identity-bearing state that needs no session — "not you" is true of nobody too.

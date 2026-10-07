@@ -101,6 +101,14 @@ import type { Bid, Listing, TransferStatus } from '@/src/types';
  */
 export interface ListingDetailFixture {
   listing: Listing;
+  /**
+   * Seeds a FAILED read, so the screen's two failure faces can be rendered (owner, 2026-10-06).
+   * It says which KIND of read failed, never which state appears: the message it seeds goes through
+   * the screen's own `isNetworkError` below, which is what chooses the offline screen over the
+   * neutral read-failure one. A fixture that named the state could show a face the classifier
+   * would never give it.
+   */
+  failure?: 'offline' | 'error';
   seller?: { display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null;
   /** Painted in Bid activity. The price, the minimum and the outbid logic still read the live hook. */
   bids?: Bid[];
@@ -400,6 +408,13 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     // the listing row, the seller profile, the transfer row and the finalize call that follows a
     // dead clock. Nothing below this line runs, and nothing above the guard writes anything.
     if (fixture) {
+      if (fixture.failure) {
+        // 'Network request failed' is the text `isNetworkError` recognises; any other sentence is
+        // a server failure. The screen classifies it exactly as it classifies a real one.
+        setError(fixture.failure === 'offline' ? 'Network request failed' : 'The listing could not be read');
+        setLoading(false);
+        return;
+      }
       setListing(fixture.listing);
       setSellerProfile(fixture.seller ?? null);
       setError(null);

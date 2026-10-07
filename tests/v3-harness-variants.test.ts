@@ -64,6 +64,10 @@ vi.mock('@/src/hooks/useAuth', () => ({
 vi.mock('@/src/screens/ListingDetailScreen', () => ({ default: 'ListingDetailScreen' }));
 vi.mock('@/app/(tabs)/home', () => ({ default: 'HomeScreen' }));
 vi.mock('@/app/(tabs)/profile', () => ({ default: 'ProfileScreen' }));
+// The two screens that gained a harness (2026-10-06). Stubbed like the others: this suite is
+// about what each VARIANT hands a screen, and the screens' own behaviour has its own suites.
+vi.mock('@/app/listing/edit/[id]', () => ({ default: 'EditListingScreen' }));
+vi.mock('@/app/profile/[id]', () => ({ default: 'PublicProfileScreen' }));
 vi.mock('@/app/settings/index', () => ({ default: 'SettingsScreen' }));
 vi.mock('@/app/settings/appearance', () => ({ default: 'AppearanceScreen' }));
 // Checkout's presentation is its own suite's subject; here only the route's fixture map matters, and
@@ -82,6 +86,8 @@ const ROUTES = {
   home: () => import('@/app/_dev/v3-home'),
   account: () => import('@/app/_dev/v3-account'),
   checkout: () => import('@/app/_dev/v3-checkout'),
+  editListing: () => import('@/app/_dev/v3-edit-listing'),
+  profile: () => import('@/app/_dev/v3-profile'),
 } as const;
 
 const FILES: Record<keyof typeof ROUTES, string> = {
@@ -89,6 +95,8 @@ const FILES: Record<keyof typeof ROUTES, string> = {
   home: 'app/_dev/v3-home.tsx',
   account: 'app/_dev/v3-account.tsx',
   checkout: 'app/_dev/v3-checkout.tsx',
+  editListing: 'app/_dev/v3-edit-listing.tsx',
+  profile: 'app/_dev/v3-profile.tsx',
 };
 
 /** Source with comments removed: these rules are about what the file DOES, not what it says. */
@@ -158,7 +166,13 @@ type Row = {
   seller_id: string; reserved_by: string | null; reserved_until: string | null;
   winner_user_id?: string | null; bid_count?: number | null; quantity?: number | null; ends_at: string;
 };
-type Fixture = { listing: Row | null; viewerId?: string; bids?: { bidder_id: string; amount: number }[] };
+type Fixture = {
+  listing: Row | null;
+  viewerId?: string;
+  bids?: { bidder_id: string; amount: number }[];
+  /** A seeded READ FAILURE; the screen's classifier turns it into one of the two faces. */
+  failure?: 'offline' | 'error';
+};
 
 const VIEWER_ID = 'a1b2c3d4-0000-0000-0000-000000000000';
 
@@ -341,13 +355,92 @@ describe('v3-listing — the states that had no capture', () => {
     expect(screen).toMatch(/const bids\s*=\s*fixture\?\.bids \?\? rt\.bids/);
     // The fixture stands in for the reads and assigns the row straight through, so a null row is
     // the deleted-listing branch rather than a state this harness drew itself.
-    expect(screen).toMatch(/if \(fixture\) \{\s*setListing\(fixture\.listing\);/);
-    expect(screen).toContain('if (!listing) return (');
+    expect(screen).toMatch(/if \(fixture\) \{[\s\S]{0,600}?setListing\(fixture\.listing\);/);
+
+    /*
+     * The branch widened when a seeded READ FAILURE was added (owner, 2026-10-06), so the two
+     * properties the narrow regex used to carry are now stated outright: the fixture names the
+     * KIND of failure, and the SCREEN's own classifier decides which face that is. A fixture that
+     * named the state could paint one the classifier would never give it.
+     */
+    expect(screen).toMatch(/setError\(fixture\.failure === 'offline'/);
+    expect(screen).toMatch(/isNetworkError\(error\)/);    expect(screen).toContain('if (!listing) return (');
     expect(screen).toContain('title="Listing not found"');
   });
 });
 
 // ─── app/_dev/v3-home.tsx ─────────────────────────────────────────────────────
+
+describe('the two states and the one screen that had no harness at all', () => {
+  it('HV16: v3-listing\u2019s error and offline variants seed a FAILED read, not a listing', async () => {
+    /*
+     * Listing detail has two failure faces — the neutral read-failure state and the offline screen
+     * — and `ListingDetailFixture` could not reach either: it seeded a listing or nothing, and
+     * "nothing" is the not-found branch. So the owner's requirement for controlled failure states
+     * needed a fixture field (2026-10-06).
+     *
+     * The field names the KIND of failure. HV7 holds the other half: the screen's own classifier
+     * turns the seeded message into one face or the other, so a variant cannot paint a state the
+     * classifier would never produce.
+     */
+    const failed = await listingFixture('error');
+    expect(failed.fixture?.failure).toBe('error');
+    expect(failed.fixture?.listing ?? null).toBeNull();
+
+    const offline = await listingFixture('offline');
+    expect(offline.fixture?.failure).toBe('offline');
+
+    // Witness: not-found is still its own state, distinct from a failed read — the distinction the
+    // transfer screens already make, and the reason a read failure is never called "not found".
+    const missing = await listingFixture('not-found');
+    expect(missing.fixture?.failure ?? null).toBeNull();
+    expect(missing.fixture?.listing ?? null).toBeNull();
+  });
+
+  it('HV17: v3-profile mounts the public profile, with the states the screen withholds', async () => {
+    const at = async (params: Record<string, string | undefined>) => {
+      const host = await render('profile', params);
+      return (rootOf(host).props.fixture ?? {}) as Record<string, unknown>;
+    };
+
+    // Default: a profile, its trust stats, and listings carrying the selected poster.
+    const def = await at({ art: 'flyer' });
+    expect((def.profile as { display_name?: string } | null)?.display_name).toBeTruthy();
+    expect((def.listings as { cover_image_path?: string }[])[0]?.cover_image_path).toContain('dev-bundled:');
+
+    // Blocked: the fixture still CARRIES stats and listings, because it is the SCREEN that
+    // withholds them. A harness that omitted them would prove nothing about the screen.
+    const blocked = await at({ variant: 'blocked' });
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.trust).toBeTruthy();
+    expect((blocked.listings as unknown[]).length).toBeGreaterThan(0);
+
+    // A failed stats read is a different fact from a seller with no history.
+    expect((await at({ variant: 'stats-unavailable' })).statsUnavailable).toBe(true);
+    expect((await at({ variant: 'no-listings' })).listings).toEqual([]);
+    expect((await at({ variant: 'not-found' })).profile).toBeNull();
+  });
+
+  it('HV18: v3-edit-listing offers the four refusals a READ can produce, and seeds nothing else', async () => {
+    const at = async (variant?: string) => {
+      const host = await render('editListing', variant ? { variant } : {});
+      return (rootOf(host).props.fixture ?? {}) as Record<string, unknown>;
+    };
+    st.userId = 'viewer-1';
+
+    // Owned, unbid, active — the form.
+    expect(((await at()).row as { seller_id?: string })?.seller_id).toBe('viewer-1');
+    // Someone else's listing.
+    expect(((await at('not-owner')).row as { seller_id?: string })?.seller_id).not.toBe('viewer-1');
+    // Bidding started; the auction ended.
+    expect(((await at('has-bids')).row as { bid_count?: number })?.bid_count).toBeGreaterThan(0);
+    expect(((await at('inactive')).row as { auction_status?: string })?.auction_status).toBe('ended');
+    // A row-less answer carries the read's own sentence and no row.
+    const missing = await at('not-found');
+    expect(missing.row).toBeNull();
+    expect(missing.readError).toBeTruthy();
+  });
+});
 
 describe('v3-home — the empty ladder, and the two surfaces the seam cannot reach', () => {
   async function homeFixture(variant?: string) {
@@ -511,10 +604,21 @@ describe('no variant introduces a write', () => {
       // Fixtures are literals in the file; the one hook the listing harness reads is local auth.
       expect(src, rel).not.toMatch(/\.insert\(|\.update\(|\.delete\(|\.upsert\(/);
     }
-    // The listing harness reads the viewer, and that is the ONLY hook it adds over the others.
-    expect(strip(FILES.listing)).toContain("import { useAuth } from '@/src/hooks/useAuth';");
-    expect(strip(FILES.home)).not.toContain('useAuth');
-    expect(strip(FILES.account)).not.toContain('useAuth');
+    /*
+     * Two harnesses read the viewer, and for the same reason: a fixture may stand in for a READ,
+     * never for authentication, so a case that needs the viewer to own something has to put the
+     * REAL session id on the row. The others must not reach for it at all.
+     */
+    for (const rel of [FILES.listing, FILES.editListing]) {
+      expect(strip(rel), rel).toContain("import { useAuth } from '@/src/hooks/useAuth';");
+    }
+    for (const rel of [FILES.home, FILES.account, FILES.profile]) {
+      expect(strip(rel), rel).not.toContain('useAuth');
+    }
+    // And no fixture field anywhere stands in for a session.
+    for (const rel of Object.values(FILES)) {
+      expect(strip(rel), rel).not.toMatch(/signedOut|viewerId:\s*'/);
+    }
   });
 });
 

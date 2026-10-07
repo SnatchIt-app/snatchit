@@ -33,7 +33,7 @@ import type { Listing, ProfileTrustStats } from '@/src/types';
 
 type Styles = ReturnType<typeof makeStyles>;
 
-type PublicProfile = {
+export type PublicProfile = {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
@@ -87,7 +87,24 @@ function TrustRow({ label, value, emphasize, last, s }: { label: string; value: 
   );
 }
 
-export default function PublicProfileScreen() {
+/**
+ * The dev harness's seed (`app/_dev/v3-profile.tsx`). It stands in for the four READS this screen
+ * makes and nothing else: the viewer still comes from `useAuth()`, which no prop may replace, and
+ * Block short-circuits under a fixture so a harness render cannot write a `user_blocks` row.
+ */
+export interface PublicProfileFixture {
+  /** The profile row the read would have returned; null stands for a row-less answer. */
+  profile: PublicProfile | null;
+  avatarUrl?: string | null;
+  trust?: ProfileTrustStats | null;
+  /** The stats read FAILED — a different fact from "no history", as reputation.ts says. */
+  statsUnavailable?: boolean;
+  listings?: Listing[];
+  /** The viewer has blocked this seller: stats and listings are withheld, exactly as live. */
+  blocked?: boolean;
+}
+
+export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfileFixture } = {}) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
@@ -106,6 +123,25 @@ export default function PublicProfileScreen() {
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
+    /*
+     * Development rendering only: the fixture stands in for every READ below — the block row, the
+     * profile, the trust-stats RPC and the active listings. Nothing after this branch runs. The
+     * withholding order is the live one: a blocked seller's stats and listings are not shown, so
+     * the harness cannot paint a state the screen would not reach.
+     */
+    if (fixture) {
+      setIsBlocked(!!fixture.blocked);
+      setProfile(fixture.profile);
+      setAvatarUrl(fixture.avatarUrl ?? null);
+      if (fixture.blocked) {
+        setTrustStats(null); setStatsUnavailable(false); setActiveListings([]); setLoading(false); return;
+      }
+      setTrustStats(fixture.trust ?? null);
+      setStatsUnavailable(!!fixture.statsUnavailable);
+      setActiveListings(fixture.listings ?? []);
+      setLoading(false);
+      return;
+    }
     if (!sellerId) { setLoading(false); return; }
     setLoading(true);
 
@@ -148,7 +184,7 @@ export default function PublicProfileScreen() {
       .from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').eq('auction_status', 'active').order('ends_at', { ascending: true });
     setActiveListings((actives as Listing[]) ?? []);
     setLoading(false);
-  }, [sellerId, user?.id, isSelf]);
+  }, [sellerId, user?.id, isSelf, fixture]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -157,6 +193,8 @@ export default function PublicProfileScreen() {
   }
 
   function handleBlock() {
+    // A harness render is a picture of the screen: the insert below writes a real block row.
+    if (fixture) return;
     if (!user?.id) { Alert.alert('Sign in required', 'You need to be signed in to block users.'); return; }
     const name = profile?.display_name?.trim() || 'this seller';
     Alert.alert(`Block ${name}?`, 'Their listings will be hidden from your feed. You can unblock anytime in Settings → Blocked users.', [
