@@ -23,7 +23,7 @@ plate and nothing else.
 | Tickets rows + ticket art | `SEARCH_RESULT`, `TICKET_ART` | TicketEventGroup | `v3-tickets` | plate only — `artwork_ref: null` at `v3-tickets.tsx:44` and `src/lib/tickets/fixtures.ts` |
 | Search results | `SEARCH_RESULT` | SellerListingCard | `v3-search-create` | plate only — `cover_image_path: null` at `v3-search-create.tsx:73`, deliberately for that fixture (CFT-106), but there is no way to select artwork either |
 | Checkout / Order identity | `CHECKOUT_THUMBNAIL` | OrderIdentity | `v3-checkout` | plate only — `cover: null` at `v3-checkout.tsx:46` |
-| Send / Receive | `FEED_ROW_ART` | `app/transfer/send/[id].tsx:393`, `app/transfer/receive/[id].tsx:281` | **none** | **Corrected after first writing this file.** `transfer-states` is not a harness for these screens: it renders `TransferStateBlocks` from synthetic props (`app/_dev/transfer-states.tsx:30-36`) and never imports the Send or Receive screen. Both posters sit in the screens, outside those blocks, so neither is in any harness. |
+| Send / Receive | `FEED_ROW_ART` | `app/transfer/send/[id].tsx:393`, `app/transfer/receive/[id].tsx:481` | **none** | **Corrected after first writing this file.** `transfer-states` is not a harness for these screens: it renders `TransferStateBlocks` from synthetic props (`app/_dev/transfer-states.tsx:30-36`) and never imports the Send or Receive screen. Both posters sit in the screens, outside those blocks, so neither is in any harness. |
 | Public profile | `CHECKOUT_THUMBNAIL` | `app/profile/[id].tsx:64` | **none** | the screen is not mounted by any `app/_dev` route |
 
 **A bundled poster is contract-independent, so none of this needs a contract ruling.**
