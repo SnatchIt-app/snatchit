@@ -2,8 +2,8 @@
 
 **Reviewed code is not permission to deploy it.** Nothing below has been merged, pushed, applied, deployed or
 switched on, and nothing in this sheet does any of that. Every step marked *owner* waits for your own word for
-that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks; where they differ,
-§6 says which and why.
+that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks. §6 records where they differed;
+D verified and accepted each point and revised its sheet to agree (`0746be99`).
 
 ## 0. What is reviewed, and what would deploy it
 
@@ -31,8 +31,9 @@ expiry job, the payment is parked, the app says "Refund of $X initiated", and no
 **W1 *owner*: protection (GitHub → Settings → Rules → New branch ruleset), target `feature/web-accounts-foundation`.**
 - Restrict deletions; block force pushes; no bypass actors.
 - Require a pull request, 0 approvals, **merge commits only** (the reviewed commits stay as parents).
-- Required check: **`Web build (Next.js)` only.** It runs on the push of the PR's head branch (ci.yml at the web
-  branch: `push: branches-ignore: [main]`). **Do not require** `Secret scan` or `Dependency review`: they run only
+- Required check: **`Web build (Next.js)` only.** It reports through the **push** run on the PR's head commit
+  (ci.yml at the web branch, at `fd0da772` and at the gate: `pull_request: branches: [main]` plus
+  `push: branches-ignore: [main]`). There is no pull_request run for a PR into this branch. **Do not require** `Secret scan` or `Dependency review`: they run only
   on PRs into `main`, so they would never report and every PR would block.
 - A reads the ruleset back through the API.
 
@@ -109,6 +110,9 @@ so no recorded sha would name a commit on `main`.
    - Trial: the sync-back's tree was `1b76e9cd`, unchanged.
    - Without the sync-back, a later gate edit to a line the squash introduced **conflicts** (trial: `ci.yml`).
    - With it, the next squash is clean and equals the new gate's tree (trial).
+   - **Timing:** do the sync-back before anything else lands on the gate. Done then, it is clean and changes nothing
+     (trial). Done after a later gate edit, it conflicts exactly like the next squash would (D reproduced this). It
+     then has to be resolved once, by hand, in the sync-back.
 
 **Traceability.**
 - **Migration ancestry.** Each migration on `main` is byte-identical to the candidate's, as implied by the tree check.
