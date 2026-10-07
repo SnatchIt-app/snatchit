@@ -48,7 +48,8 @@ import { NameText } from '@/src/components/NameText';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { normalizeUSPhone } from '@/src/utils/phone';
-import { Badge, Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { Badge, Button, EmptyState, IconButton, Spinner, Tappable } from '@/src/components/ui';
+import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { EventMedia } from '@/src/components/media/EventMedia';
 // The row poster's height — the one value both transfer summaries measure their artwork by.
 import { ROW_ART } from '@/src/lib/design/featureMetrics';
@@ -131,6 +132,17 @@ export type OrderFixture = {
   /** The buyer's own settled payment rows, as readSettledPayments would return them. */
   settled?: { status?: string | null; amount_refunded_cents?: number | null; refunded_at?: string | null; total?: number | null }[];
 };
+
+/*
+ * The exit this screen's terminal state offers. `router.back()` on its own is a dead control here:
+ * the push dispatcher opens this screen from a notification (NativeAppShell), so there is often
+ * nothing underneath. It falls back to the board the screen is reached from.
+ */
+function leave(): void {
+  const exit = exitRoute(router.canGoBack(), '/(tabs)/bids');
+  if (exit.kind === 'back') router.back();
+  else router.replace(exit.href as never);
+}
 
 export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixture } = {}) {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -451,7 +463,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
           // The read failed and said nothing about the order: the app's neutral error state, never "not found".
           <ScreenState state="error" onRetry={() => { void fetchTransfer(); }} />
         ) : (
-          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>Transfer not found</Text></View>
+          /* As on the seller's screen: a row-less answer, unreachable by a temporary failure, so
+             a retry would re-ask an answered question. It needed an exit, not a retry. */
+          <EmptyState title="Transfer not found" action={{ label: 'Back', onPress: leave }} />
         )}
       </View>
     );

@@ -25,7 +25,8 @@ import { providerLink } from '@/src/lib/transfer/providerHandoff';
 import { orderWhenWhereLine } from '@/src/lib/orders/orderPresentation';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
-import { Badge, Button, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
+import { Badge, Button, EmptyState, IconButton, MediaUpload, Spinner } from '@/src/components/ui';
+import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { EventMedia } from '@/src/components/media/EventMedia';
 // The row poster's height — the same value the buyer's order summary measures its artwork by.
 import { ROW_ART } from '@/src/lib/design/featureMetrics';
@@ -86,6 +87,17 @@ type TransferData = {
  * behind the _dev gates, and the live route passes nothing.
  */
 export type SendFixture = { transfer: TransferData };
+
+/*
+ * The exit this screen's terminal state offers. `router.back()` on its own is a dead control here:
+ * the push dispatcher opens this screen from a notification (NativeAppShell), so there is often
+ * nothing underneath. It falls back to the board the screen is reached from.
+ */
+function leave(): void {
+  const exit = exitRoute(router.canGoBack(), '/my-listings');
+  if (exit.kind === 'back') router.back();
+  else router.replace(exit.href as never);
+}
 
 export default function TransferSendScreen({ fixture }: { fixture?: SendFixture } = {}) {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -346,7 +358,14 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
           // The read failed and said nothing about the order: the app's neutral error state, never "not found".
           <ScreenState state="error" onRetry={() => fetchTransfer()} />
         ) : (
-          <View style={s.center}><Text style={[textStyle('body'), s.errorText]}>Transfer not found</Text></View>
+          /*
+           * A row-less answer, which a temporary failure cannot reach (the two branches above take
+           * those, both with Retry). A retry here would re-ask a question already answered: the row
+           * is gone, or RLS makes it invisible — PGRST116 cannot tell those apart, and should not,
+           * because confirming a transfer exists to someone who is not a party to it would leak it.
+           * What it needed was a way off the screen.
+           */
+          <EmptyState title="Transfer not found" action={{ label: 'Back', onPress: leave }} />
         )}
       </View>
     );

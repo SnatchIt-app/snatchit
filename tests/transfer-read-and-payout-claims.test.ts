@@ -54,6 +54,8 @@ const h = vi.hoisted(() => ({
   error: null as { code?: string | null; message: string } | null,
   selects: [] as string[],
   network: false,
+  /** What an exit from a terminal state actually did. */
+  nav: { back: 0, canGoBack: true, replaced: [] as string[] },
 }));
 
 // V3 appearance: the shared transfer-state blocks read the palette; pin the shipped dark one here.
@@ -70,14 +72,22 @@ vi.mock('react-native', () => ({
   Image: 'Image', Modal: 'Modal', KeyboardAvoidingView: 'KeyboardAvoidingView',
   StyleSheet: { create: <T,>(s: T) => s },
 }));
-vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {}, replace: () => {} }, useLocalSearchParams: () => ({ id: 't-1' }) }));
+vi.mock('expo-router', () => ({
+  router: {
+    push: () => {},
+    back: () => { h.nav.back += 1; },
+    canGoBack: () => h.nav.canGoBack,
+    replace: (href: string) => { h.nav.replaced.push(href); },
+  },
+  useLocalSearchParams: () => ({ id: 't-1' }),
+}));
 vi.mock('@react-navigation/native', () => ({ useFocusEffect: () => {} }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u-1' }, session: { user: { id: 'u-1' } } }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOffline: false }), isNetworkError: () => h.network }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({
-  Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner', StickyBar: 'StickyBar',
-  Tappable: 'Tappable', Chip: 'Chip', MediaUpload: 'MediaUpload',
+  Badge: 'Badge', Button: 'Button', EmptyState: 'EmptyState', IconButton: 'IconButton', Spinner: 'Spinner',
+  StickyBar: 'StickyBar', Tappable: 'Tappable', Chip: 'Chip', MediaUpload: 'MediaUpload',
 }));
 vi.mock('@/src/components/PlatformInstructions', () => ({ default: 'PlatformInstructions' }));
 vi.mock('@/src/components/DeliveryInfoForm', () => ({ default: 'DeliveryInfoForm' }));
@@ -161,6 +171,9 @@ beforeEach(() => {
   h.error = null;
   h.selects.length = 0;
   h.network = false;
+  h.nav.back = 0;
+  h.nav.canGoBack = true;
+  h.nav.replaced.length = 0;
   vi.resetModules();
 });
 
@@ -180,8 +193,39 @@ describe.each(['send', 'receive'] as const)('the %s screen never calls a failed 
     h.error = { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' };
     const host = await mount(which);
 
-    expect(texts(host)).toContain('Transfer not found');
+    // The sentence is unchanged; it moved from flattened text into the state's own title when the
+    // branch gained an exit (2026-10-06), so it is read as a prop like every other StateBlock title.
+    expect(blockTitled(host, 'Transfer not found')).toBeDefined();
     expect(screenState(host)).toBeUndefined();
+  });
+
+  it(`F5 (${which}): and it is not a dead end — the one control always lands somewhere`, async () => {
+    /*
+     * E reported "Transfer not found" having no retry. Reproduced first: it cannot be reached by a
+     * temporary failure at all (F1 and F3 take those, both with Retry), so a retry here would
+     * re-ask a question already answered — the row is absent, or RLS makes it invisible, and
+     * PGRST116 cannot tell those apart by design, because telling a non-party that a transfer
+     * exists would leak it. What the branch did lack was any way off the screen, and the push
+     * dispatcher opens both screens cold, with nothing underneath.
+     */
+    h.transfer = null;
+    h.error = { code: 'PGRST116', message: 'no rows' };
+    const board = which === 'send' ? '/my-listings' : '/(tabs)/bids';
+
+    const host = await mount(which);
+    const action = blockTitled(host, 'Transfer not found')!.props.action as { label: string; onPress: () => void };
+    expect(action.label.length).toBeGreaterThan(0);
+    action.onPress();
+    expect(h.nav.back).toBe(1);
+    expect(h.nav.replaced).toEqual([]);
+
+    // Opened cold from a notification: back would do nothing, so it lands on the board instead.
+    h.nav.canGoBack = false;
+    h.nav.back = 0;
+    const cold = await mount(which);
+    (blockTitled(cold, 'Transfer not found')!.props.action as { onPress: () => void }).onPress();
+    expect(h.nav.back).toBe(0);
+    expect(h.nav.replaced).toEqual([board]);
   });
 
   it(`F3 (${which}): a network failure is still the offline state (unchanged)`, async () => {
