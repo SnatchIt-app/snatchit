@@ -86,7 +86,12 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## Successor served: `c90003ee4ea37795dcf3177f76c947cb0af566b5` (2026-10-06 23:18; supersedes `9ea534ff`; C to name it formally)
+## Successor served: `94ac8b4fc40af2642515685929ef5f9ea04472cf` (2026-10-06 23:20; supersedes `c90003ee`; C to name it formally)
+`94ac8b4f`: the stacked Delivery row's value had kept its two-column styling; now fixed
+(`ListingDetailScreen.tsx`, plus a test). Carry/repeat is unchanged. E records intermediate serves
+only in this header from here on; the full entry is written at the sha C names.
+
+### Previously served: `c90003ee4ea37795dcf3177f76c947cb0af566b5`
 `c90003ee`: Listing's Delivery row lost its value at large text, and that is fixed
 (`ListingDetailScreen.tsx`, plus a test). Carry/repeat is unchanged, because Listing already repeats
 in full.
