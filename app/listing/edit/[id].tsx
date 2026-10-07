@@ -23,6 +23,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
 import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
 import { editPhase, editRefusal, editRefusalCopy, type EditRefusal } from '@/src/lib/listing/editAccess';
+import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { findBannedContent } from '@/src/lib/sell/sellState';
 import { Button, Chip, EmptyState, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
@@ -40,13 +41,27 @@ const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
   { value: 'other',        label: 'Other' },
 ];
 
-export default function EditListingScreen() {
+/**
+ * The dev harness's seed (`app/_dev/v3-edit-listing.tsx`). It stands in for the READ and nothing
+ * else: the viewer still comes from `useAuth()`, which no prop may replace — v3-listing's rule —
+ * so the signed-out refusal is not seedable here and keeps its behavioural coverage instead. Save
+ * short-circuits under a fixture, so a harness render cannot write a listing.
+ */
+export interface EditListingFixture {
+  /** The row the read would have returned; null stands for a row-less answer. */
+  row: Listing | null;
+  /** The read error's own sentence, when the read failed. */
+  readError?: string | null;
+}
+
+export default function EditListingScreen({ fixture }: { fixture?: EditListingFixture } = {}) {
   const { user, loading: authLoading } = useAuth();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const params = useLocalSearchParams<{ id: string }>();
-  const listingId = params.id ?? '';
+  // Under a fixture the row carries its own id; the live route is unchanged.
+  const listingId = params.id ?? fixture?.row?.id ?? '';
 
   const [loading, setLoading] = useState(true);
   const [refused, setRefused] = useState<EditRefusal | null>(null);
@@ -72,6 +87,17 @@ export default function EditListingScreen() {
     ...UNSAVED_COPY.listingEdit,
   });
 
+  /*
+   * The exit a refusal offers. `router.back()` on its own is a dead control from a deep link or a
+   * cold start — there is nothing underneath — so it falls back to the board this screen is opened
+   * from. Both the alert's OK and the refusal's action call this, so they cannot drift apart.
+   */
+  function leave(): void {
+    const exit = exitRoute(router.canGoBack(), '/my-listings');
+    if (exit.kind === 'back') router.back();
+    else router.replace(exit.href as never);
+  }
+
   useEffect(() => {
     let cancelled = false;
     /*
@@ -83,7 +109,7 @@ export default function EditListingScreen() {
     function refuse(r: EditRefusal, alert: boolean): void {
       setRefused(r);
       setLoading(false);
-      if (alert) Alert.alert(r.title, r.body, [{ text: 'OK', onPress: () => router.back() }]);
+      if (alert) Alert.alert(r.title, r.body, [{ text: 'OK', onPress: leave }]);
     }
     async function load() {
       if (authLoading) return;                       // the session is still being checked
@@ -92,7 +118,9 @@ export default function EditListingScreen() {
         refuse(editRefusalCopy(user ? 'not-found' : 'signed-out'), false);
         return;
       }
-      const { data, error } = await supabase.from('listings').select('*').eq('id', listingId).single();
+      const { data, error } = fixture
+        ? { data: fixture.row, error: fixture.readError ? { message: fixture.readError } : null }
+        : await supabase.from('listings').select('*').eq('id', listingId).single();
       if (cancelled) return;
       const l = (data ?? null) as Listing | null;
       const refusal = editRefusal({ listing: l, viewerId: user.id, readError: error?.message });
@@ -111,9 +139,12 @@ export default function EditListingScreen() {
     }
     load();
     return () => { cancelled = true; };
-  }, [listingId, user, authLoading]);
+  }, [listingId, user, authLoading, fixture]);
 
   async function handleSave() {
+    // A harness render is a picture of the screen, not a seat at the keyboard: the update below
+    // writes a real row, so it never runs under a fixture.
+    if (fixture) return;
     if (!listing || !user) return;
     if (!eventName.trim() || !venue.trim()) {
       Alert.alert('Missing fields', 'Event name and venue are required.');
@@ -151,7 +182,7 @@ export default function EditListingScreen() {
         <EmptyState
           title={refused.title}
           body={refused.body}
-          action={{ label: 'Back', onPress: () => router.back() }}
+          action={{ label: 'Back', onPress: leave }}
         />
       </View>
     );

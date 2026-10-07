@@ -32,7 +32,10 @@ import { findElement, HookHost, REPO_ROOT } from './helpers/nav-stack-harness';
 const h = vi.hoisted(() => ({
   alerts: [] as { title: string; message?: string; buttons: { text?: string; onPress?: () => void }[] }[],
   back: 0,
+  replaced: [] as string[],
+  canGoBack: true,
   reads: 0,
+  updates: [] as unknown[],
   user: { id: 'seller-1' } as null | { id: string },
   authLoading: false,
   reply: null as null | { data: unknown; error: null | { message: string } },
@@ -58,7 +61,11 @@ vi.mock('react-native', () => ({
   View: 'View',
 }));
 vi.mock('expo-router', () => ({
-  router: { back: () => { h.back += 1; } },
+  router: {
+    back: () => { h.back += 1; },
+    canGoBack: () => h.canGoBack,
+    replace: (href: string) => { h.replaced.push(href); },
+  },
   useLocalSearchParams: () => ({ id: 'listing-1' }),
 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0 }));
@@ -76,7 +83,7 @@ vi.mock('@/src/lib/supabase', () => ({
           },
         }),
       }),
-      update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+      update: (row: unknown) => { h.updates.push(row); return { eq: () => ({ eq: async () => ({ error: null }) }) }; },
     }),
   },
 }));
@@ -119,7 +126,10 @@ beforeEach(() => {
   h.alerts.length = 0;
   h.pending.length = 0;
   h.back = 0;
+  h.replaced.length = 0;
+  h.canGoBack = true;
   h.reads = 0;
+  h.updates.length = 0;
   h.user = { id: 'seller-1' };
   h.authLoading = false;
   h.reply = null;
@@ -236,5 +246,132 @@ describe('EL4 · the screen cannot go back to inferring loading from the absence
     expect(src).not.toContain('You can only edit your own listings.');
     expect(src).not.toContain('This listing is no longer active.');
     expect(src).not.toContain('Listing not found');
+  });
+});
+
+describe('EL5 · the refusal is not a second dead end', () => {
+  /*
+   * The question this answers (owner, 2026-10-06): a spinner that never stops was replaced with a
+   * state that has one action, so that action has to WORK. The alert's OK already called
+   * `router.back()` unconditionally, and from a cold start or a deep link there is nothing to go
+   * back to — ListingDetailScreen says so in its own not-found state (CFT-605) and gives an action
+   * that always lands somewhere. Edit listing now does the same, with My listings as the
+   * destination because that is the board the screen is opened from.
+   */
+  it('EL5a: with a screen underneath, it goes back', async () => {
+    h.reply = { data: { ...OWNED, seller_id: 'other-seller' }, error: null };
+    const host = await mountEdit();
+    (refusal(host)!.props.action as { onPress: () => void }).onPress();
+    expect(h.back).toBe(1);
+    expect(h.replaced).toEqual([]);
+  });
+
+  it('EL5b: opened cold, with nothing underneath, it lands on My listings rather than nowhere', async () => {
+    h.canGoBack = false;
+    h.reply = { data: { ...OWNED, seller_id: 'other-seller' }, error: null };
+    const host = await mountEdit();
+    (refusal(host)!.props.action as { onPress: () => void }).onPress();
+    expect(h.back).toBe(0);
+    expect(h.replaced).toEqual(['/my-listings']);
+  });
+
+  it('EL5c: and the alert\u2019s OK is the same exit, so the two cannot drift apart', async () => {
+    h.canGoBack = false;
+    h.reply = { data: { ...OWNED, bid_count: 3 }, error: null };
+    await mountEdit();
+    const ok = h.alerts[0]!.buttons.find((b) => b.text === 'OK');
+    expect(ok?.onPress).toBeTypeOf('function');
+    ok!.onPress!();
+    expect(h.replaced).toEqual(['/my-listings']);
+    expect(h.back).toBe(0);
+  });
+});
+
+/*
+ * THE DEV ROUTE (owner, 2026-10-06). The refusal state had behavioural coverage but could not be
+ * looked at: `app/listing/edit/[id].tsx` was in no harness. A fixture now stands in for the READ
+ * only — the viewer still comes from `useAuth()`, which v3-listing's rule says no prop may replace,
+ * so the signed-out refusal is deliberately NOT seedable and keeps EL2e as its only coverage.
+ */
+describe('EL6 · the fixture seeds the read, and nothing else', () => {
+  async function mountWith(fixture: unknown): Promise<HookHost> {
+    const { default: EditListingScreen } = await import('@/app/listing/edit/[id]');
+    const host = new HookHost(() => (EditListingScreen as (p: unknown) => unknown)({ fixture }), new Map());
+    host.mount();
+    await flush();
+    host.flush();
+    return host;
+  }
+
+  it('EL6a: each of the four listing refusals renders through the real screen', async () => {
+    const cases = [
+      { fixture: { row: null, readError: 'No rows returned' }, kind: 'not-found' as const },
+      { fixture: { row: { ...OWNED, seller_id: 'other-seller' } }, kind: 'not-owner' as const },
+      { fixture: { row: { ...OWNED, bid_count: 3 } }, kind: 'has-bids' as const },
+      { fixture: { row: { ...OWNED, auction_status: 'ended' } }, kind: 'inactive' as const },
+    ];
+    for (const { fixture, kind } of cases) {
+      h.alerts.length = 0;
+      const host = await mountWith(fixture);
+      expect(h.reads, 'a fixture must not read the server').toBe(0);
+      expect(screen(host), kind).toBe('refusal');
+      expect(refusal(host)!.props.title, kind).toBe(EDIT_REFUSAL_COPY[kind].title);
+      // The visible recovery action, which is the point of rendering these at all.
+      expect((refusal(host)!.props.action as { label: string }).label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('EL6b: and the form opens on a row the viewer may edit — so EL6a is not a broken mount', async () => {
+    const host = await mountWith({ row: OWNED });
+    expect(h.reads).toBe(0);
+    expect(screen(host)).toBe('form');
+    expect(eventName(host)!.props.value).toBe('Weekend pool party');
+  });
+
+  it('EL6c: a fixture render cannot write — Save short-circuits before the update', async () => {
+    const host = await mountWith({ row: OWNED });
+    const save = findElement(host.output, (el) => el.type === 'Button' && el.props.label === 'Save changes');
+    expect(save).toBeDefined();
+    await (save!.props.onPress as () => Promise<void>)();
+    await flush();
+    expect(h.updates, 'a harness render must not update a listing').toEqual([]);
+    expect(h.alerts).toEqual([]);
+  });
+
+  it('EL6d: the viewer is still the screen\u2019s own auth, which no fixture field may replace', () => {
+    const src = readFileSync(join(REPO_ROOT, 'app/listing/edit/[id].tsx'), 'utf8');
+    expect(src).toContain('useAuth()');
+    // No fixture field names a viewer, a session or an id to stand in for one.
+    expect(src).not.toMatch(/fixture\.(viewerId|userId|signedOut|session)/);
+  });
+});
+
+describe('EL7 · the dev route is a dev route', () => {
+  const route = () => readFileSync(join(REPO_ROOT, 'app/_dev/v3-edit-listing.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('EL7a: it refuses to render outside a sandbox or dev build', () => {
+    expect(route()).toMatch(/if \(!IS_SANDBOX_BUILD && !__DEV__\) return <Redirect/);
+  });
+
+  it('EL7b: it mounts the real screen, reads the real auth, and touches no server', () => {
+    const src = route();
+    expect(src).toContain("from '@/app/listing/edit/[id]'");
+    // The owner cases must be the VIEWER's own listing, so the route puts the real id on the row.
+    expect(src).toContain('useAuth()');
+    expect(src).toMatch(/seller_id: /);
+    for (const forbidden of ['supabase', 'fetch(', 'AsyncStorage', 'SecureStore', 'reserve_buy_now', 'stripe']) {
+      expect(src, `the route must not reference ${forbidden}`).not.toContain(forbidden);
+    }
+    expect(src.length).toBeGreaterThan(800);
+  });
+
+  it('EL7c: it offers every refusal the screen can render from a read, and nothing it cannot', () => {
+    const src = route();
+    for (const v of ['not-found', 'not-owner', 'has-bids', 'inactive']) {
+      expect(src, `variant ${v}`).toContain(`'${v}'`);
+    }
+    // `signed-out` is not offered: a prop standing in for auth is exactly what v3-listing forbids.
+    expect(src).not.toContain("'signed-out'");
   });
 });
