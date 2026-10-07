@@ -53,8 +53,19 @@ mkdirSync(outDir, { recursive: true });
  */
 async function warm(path, marker) {
   for (let i = 0; i < 2; i++) {
-    const res = await fetch(`${base}${path}`, { redirect: "follow" });
-    const html = await res.text();
+    // The dev server drops connections while it compiles a heavy route; retry
+    // rather than let a transient reset masquerade as a failed capture.
+    let html = "";
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const res = await fetch(`${base}${path}`, { redirect: "follow" });
+        html = await res.text();
+        break;
+      } catch (e) {
+        if (attempt === 5) throw e;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
     if (i === 1) {
       if (!marker.test(html)) throw new Error(`${path} did not render its own content (expected ${marker})`);
       if (!html.includes("Demo — sample data")) throw new Error(`no demo strip at ${path}`);
@@ -68,7 +79,7 @@ for (const [name, path, marker] of SHOTS) {
     const file = `${outDir}/${label}-${name}-${size}.png`;
     execFileSync(CHROME, [
       "--headless", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
-      `--window-size=${dims}`, `--screenshot=${file}`, "--virtual-time-budget=15000",
+      `--window-size=${dims}`, `--screenshot=${file}`, "--virtual-time-budget=4000",
       `${base}${path}`,
     ], { stdio: "ignore" });
   }
