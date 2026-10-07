@@ -167,6 +167,10 @@ INSERT INTO _grant_decisions (table_name, decision) VALUES
   -- facts, account-deletion phase ledger. All service_role only.
   ('account_deletions',            'no-client-access'),
   ('payment_refunds',              'no-client-access'),
+  -- 150 (refund lifecycle): per-refund Stripe state and its append-only log. Service-role only;
+  -- the app reads the three sums on payments through the existing own-row SELECT.
+  ('payment_refund_state',         'no-client-access'),
+  ('payment_refund_state_log',     'no-client-access'),
   ('payout_attempts',              'no-client-access'),
   -- 128 (F7): the epoch that makes the push-token legacy path transitional.
   -- Service-role only: a client that could move applied_at would reopen the
@@ -399,6 +403,7 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('guard_listing_insert_columns()',                                 'no-client-execute'),
   ('guard_listing_seller_not_blocked()',                             'no-client-execute'),   -- 119
   ('guard_listing_state_columns()',                                  'no-client-execute'),
+  ('guard_payment_refund_state_columns()',                           'no-client-execute'),
   ('guard_payment_transitions()',                                    'no-client-execute'),
   ('guard_payout_attempt_columns()',                                 'no-client-execute'),
   ('guard_proof_status()',                                           'no-client-execute'),
@@ -416,10 +421,12 @@ INSERT INTO _function_decisions (fn_sig, decision) VALUES
   ('notify_transfer_created_inbox()',                                'no-client-execute'),
   ('notify_transfer_event()',                                        'no-client-execute'),
   ('notify_transfer_state_inbox()',                                  'no-client-execute'),
+  ('payment_refund_state_log_append_only()',                         'no-client-execute'),
   ('payment_refunds_append_only()',                                  'no-client-execute'),
   ('payout_attempts_no_delete()',                                    'no-client-execute'),
   ('reconcile_payout_attempt(uuid, text)',                           'no-client-execute'),
   ('record_payment_refund(text, text, text, integer, text)',         'no-client-execute'),
+  ('record_refund_state(text, text, text, integer, text, text, text)', 'no-client-execute'),
   ('record_payout_attempt_result(uuid, text, text, jsonb)',          'no-client-execute'),
   ('record_transfer_payout(uuid, text)',                             'no-client-execute'),
   ('refresh_all_seller_risk_scores()',                               'no-client-execute'),

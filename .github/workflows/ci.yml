@@ -651,7 +651,9 @@ jobs:
           # an actual replay, never inherited from either side.
           # 2026-09-15 migration 132 (fresh-mint double charge, B): tables 31 -> 32 —
           # +1 public.checkout_group_claim (RLS on, no policies, service_role only).
-          EXPECT_TABLES: 32
+          # 2026-09-25 migration 150 (refund lifecycle): tables 32 -> 34 — +2 public.payment_refund_state,
+          # public.payment_refund_state_log (RLS on, no policies, service_role only).
+          EXPECT_TABLES: 34
           # 2026-09-15 migration 130 (L1 concurrency, B): functions 94 -> 96 —
           # +2 public.claim_checkout_supersede, public.release_checkout_supersede
           # (on top of 129's revoke_push_token). Two nullable columns on payments;
@@ -663,9 +665,13 @@ jobs:
           # +3 public.request_push_token_challenge, public.confirm_push_token_challenge,
           # public.guard_push_token_client_delete; triggers 37 -> 38 (+trg_guard_push_token_client_delete).
           # The challenge table is in notify (outside this census).
-          EXPECT_FUNCS: 108
+          # 2026-09-25 migration 150: functions 108 -> 111 — +3 public.record_refund_state,
+          # public.payment_refund_state_log_append_only, public.guard_payment_refund_state_columns.
+          EXPECT_FUNCS: 111
           EXPECT_POLICIES: 37
-          EXPECT_TRIGGERS: 38
+          # 2026-09-25 migration 150: triggers 38 -> 40 — +trg_payment_refund_state_log_append_only,
+          # +trg_guard_payment_refund_state_columns (on payments).
+          EXPECT_TRIGGERS: 40
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so
@@ -696,7 +702,7 @@ jobs:
             from information_schema.role_table_grants
             where table_schema='public' and grantee in ('anon','authenticated','service_role')
             group by grantee, table_name order by grantee, table_name;" \
-            | sed 's/[[:space:]]*$//' | sort > "$RUNNER_TEMP/actual_grants.txt"
+            | sed 's/[[:space:]]*$//' | LC_ALL=C sort > "$RUNNER_TEMP/actual_grants.txt"   # byte order: 150 added the first rows whose locale orders differ (payment_refund_state_log vs payment_refund_state)
           if ! diff -u supabase/ci/expected_grants.txt "$RUNNER_TEMP/actual_grants.txt"; then
             echo "::error::privilege surface does not match production. A count-only check would have missed this — an earlier revision over-granted public.transfers (production is SELECT-only there per migration 055) and silently broke three assertions."
             exit 1
