@@ -5,6 +5,23 @@ switched on, and nothing in this sheet does any of that. Every step marked *owne
 that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks. §6 records where they differed;
 D verified and accepted each point and revised its sheet to agree (rev 3, `342f2ab3`).
 
+## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)
+
+**Rulesets:**
+- `main` 21624091 narrowed to `squash`; nothing else changed.
+- New: gate 24623964 (merge only, the 6 checks), web 24623967, console 24623970, records 24623971.
+- There is no linear-history rule on the gate, web or console. Repository-wide settings are unchanged.
+
+**Steps done:**
+- **Web:** W1a, W2 (`web/wording-release-ff` @ `fd0da772`), V-W2, W1b and W3.
+  - `Web build (Next.js)`: GitHub Actions 15368, one run, success.
+  - PR **#97**, draft, 11 files, all under `web/`.
+- **Console:** C1 (`admin/label-console-release-ff` @ `efe03fca`), V-C1, and C2.
+  - `Admin console (Next.js)`: GitHub Actions 15368, one run, success.
+  - PR **#98**, draft, 3 files, all under `admin/`.
+
+**Not done (not authorised):** W4, C3, C4 and C5. The deploy branches are unmoved at `1765bbeb` and `562fda9a`.
+
 ## 0. What is reviewed, and what would deploy it
 
 | Artefact | Review state | What would put it live | Permission |
@@ -135,7 +152,8 @@ The gate gets the same change via S4 (`e7130f04`). That is one change with two i
 `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`. Moving the pin alone rolls nothing back.
 
 **Release-first fallback: RETIRED (owner, 2026-10-07).**
-- After C2 and C3 the branch is protected, so a direct fast-forward push is no longer available.
+- After C3 the branch is at M, and `efe03fca` is an ancestor of M. Pushing `efe03fca` would therefore be a rewind
+  needing `--force`, which C2 blocks (D). The operation no longer exists.
 - **If every approved exact-commit route fails** (Redeploy, CLI from a verified checkout of M, API git-source for M):
   stop, report each route's measured result, and bring a concrete alternative to the owner.
 - **Never remove protection, and never add re-trigger commits.**

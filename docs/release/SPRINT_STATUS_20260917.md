@@ -2114,3 +2114,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       next squash clean;
     - console PR merge commit: tree equals `efe03fca`; app trees equal `1058c882`.
   - No setting changed; nothing pushed except records.
+- **MM-1 PREPARATION EXECUTED (A, 2026-10-07 ~02:30–02:40Z; owner-authorised; D verifies).**
+  - **Rulesets:** `main` 21624091 narrowed to `squash` (diffed; only change). New: gate 24623964 (merge only; the 6
+    checks verified on the #94 and #95 heads), web 24623967, console 24623970, records 24623971. No linear-history rule
+    on the gate, web or console. Repository-wide merge/squash/rebase unchanged.
+  - **Pushed:** `web/wording-release-ff` @ `fd0da772` and `admin/label-console-release-ff` @ `efe03fca`, both new
+    non-deploy branches.
+  - **Required checks added only after observation:**
+    - `Web build (Next.js)` on `fd0da772` (run 37562540687, success);
+    - `Admin console (Next.js)` on `efe03fca` (run 37562570333, success);
+    - one run each, GitHub Actions 15368.
+  - **Draft PRs:** #97 (11 files, all under `web/`) and #98 (3 files, all under `admin/`); required checks pass.
+  - **Vercel:** web preview "Canceled by Ignored Build Step"; no admin record.
+  - **Unmoved, not merged, not deployed:** deploy branches `1765bbeb` / `562fda9a`, `main` `eadd456a`, gate `037092f0`.
+  - Release-first fallback retired. Sheet c563a99e and later.
