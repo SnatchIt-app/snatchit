@@ -2080,3 +2080,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - `tsc` 0, eslint 0, 117/117.
   - It is the same change as the gate's label commits, under two identities.
   - Deployment = X8, owner.
+- **EXECUTION SHEET (A, 2026-10-06): `docs/release/EXECUTION_SHEET_20261006.md`.** Nothing merged, pushed, applied or
+  deployed.
+  - Web: fast-forward `fd0da772` (local `web/wording-release-ff`) = `e7130f04`'s 3 commits on `1765bbeb`; `web/` tree
+    `ab2eb1bf` identical; tsc 0, 218/218, `next build` exit 0.
+  - Console: D's `efe03fca` verified (FF of `562fda9a`; `admin/src`/`admin/tests` = `1058c882`'s); order pin → push;
+    rollback `dpl_J5Kr…` then the pin.
+  - Squash: `main` is an ancestor of the gate; trial candidate `879a34ca` (S1–S5) squashes to its own tree
+    `1b76e9cd`; sync-back required after S7 (tested both ways); a direct `main` commit survives the next squash
+    (corrects D's sheet).
+  - Disclosure: A's vitest run on the web tree used a symlinked `node_modules` from D's `snatchit-webword` and updated
+    its git-ignored vitest cache file; no tracked file, HEAD unchanged. Told D.

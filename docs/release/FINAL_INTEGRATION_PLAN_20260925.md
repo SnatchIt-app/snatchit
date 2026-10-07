@@ -277,6 +277,10 @@ order:
 - **One change, two identities:** gate `004af0b0` + `789025f3` (through S3) and console `72ac2c52` + `1058c882` (through
   X8) are the same patches.
 - X8 (moving the console pin) is the owner's configuration change.
+- **Landing commit (2026-10-06):** `1058c882` is not a fast-forward of `admin/operating-console` (`562fda9a`, 5 commits past
+  the served `ab3e17f`: docs and `gate-probe.mjs`). D's `efe03fca` (= `562fda9a` + the same two patches) is, with
+  `admin/src`/`admin/tests` trees identical to `1058c882`'s (A verified). X8 = pin to `efe03fca`, **then** push it.
+  Rollback: Instant Rollback to `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`, then the pin back. EXECUTION_SHEET_20261006.md §3.
 
 ### 5.2 Production actions (each separately owner-authorised; D verifies each; in this order)
 
@@ -289,8 +293,8 @@ order:
 | X5 | configuration | O-R1: add `refund.created`, `refund.updated` and `refund.failed`; read the endpoint (G3) | after X4 (C3) |
 | X6 | configuration | O-R2: turn on `refund_state_detection_enabled` | after X5; O-R3 decided |
 | X7 | database / Stripe | O-R4: the historical reconciliation read, then `record_refund_state(…,'reconcile')` | optional follow-on |
-| X8 | configuration and deploy | admin console: deploy the cherry-picked commit (`ab3e17f` + the label patches) by moving the Ignored Build Step pin to it | after the label change is reviewed; independent of S1–S7 |
-| X9 | deploy | web: push the fix commits to the web production branch (or, per D4, switch its production branch to `main`) | after S4 and D verification |
+| X8 | configuration and deploy | admin console: pin `efe03fca`, then push it to `admin/operating-console` (EXECUTION_SHEET_20261006 §3; superseded: "deploy `ab3e17f` + the label patches") | after the label change is reviewed; independent of S1–S7 |
+| X9 | deploy | web: the fast-forward `fd0da772` (`e7130f04`'s three commits cherry-picked onto `1765bbeb`; `web/` tree identical) merged by PR into the web production branch after its ruleset (EXECUTION_SHEET_20261006 §2) | after W1; independent of S4 |
 | X10 | source merge | S7 | after X2–X4 (and XB1 if D2) |
 | X11 | app distribution | G2 EAS production build from the frozen v3 or gate commit, then TestFlight, the G1 phone session, and the owner submits | after S5, G0 and E's evidence; independent of X2–X10 except C4 |
 
