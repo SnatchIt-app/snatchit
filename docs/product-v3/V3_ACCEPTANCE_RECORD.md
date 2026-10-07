@@ -86,6 +86,55 @@ acceptance.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## Owner direction 2026-10-06 (settled; not open questions)
+- **"all-in" must stay visibly readable at the supported large text sizes.** Let it wrap or adjust
+  the layout; price semantics are unchanged. VoiceOver is checked **separately**: complete spoken
+  text does not excuse clipped visible text.
+- **The entire poster is preserved.** Navigation controls, the status bar and the SANDBOX banner
+  must not cover printed content. This follows the existing artwork ruling. Navigation may move to a
+  separate area, in the existing visual language. This settles E's observation and supersedes C's
+  narrower framing. Both questions (overlay, and top-band loss) are answered: neither is allowed.
+- **Scrolling and below-fold checks: C operates the simulator, B specifies the cases and reviews
+  the saved captures.** These are labelled **C-operated, B-reviewed**. The device window is agreed
+  before use.
+- **Consumer Home next-section figure:** the harness value is insufficient because the harness has
+  no dock. Use the authorised sandbox test-buyer sign-in if it is available: no fixture writes, no
+  payment actions. If it is unavailable, record that blocker specifically and continue the other
+  checks.
+- **No blanket whole-app acceptance.**
+
+### Results recorded per property (separate columns; one never stands in for another)
+| Surface · case | Visible truncation | VoiceOver | Scrolling reachability | Safe-area layout |
+|---|---|---|---|---|
+| Home feature identity, default size | none (B `c9d6f0d7`) | not checked | n/a (above the fold) | harness only (no dock) |
+| Home feature identity, largest standard | **"Ends…" cut** (B `f235ddb7`) | not checked | — | — |
+| Home feature identity, a3xl | **"current bid, al…": "all-in" lost** (B `f235ddb7`), fix required | not checked | — | — |
+| Listing poster at rest | — | — | — | **fails the 2026-10-06 ruling**: top band under the status bar and banner; chips over printed lines (`listing-live-flyer-light`); fix required |
+| Listing footer, default | none (B `f235ddb7`) | not checked | — | not stated |
+| Feed rows / below fold | pending | pending | **blocked for B; C-operated next** | pending |
+| Consumer Home (with dock) | pending | pending | pending | dock band 704.0–769.7 pt signed out (B); next-section figure needs sign-in |
+
+### Successor plan: which checks repeat (E; to be confirmed by diff at C's named sha)
+Expected changes: batch2 (`8f6bed1e`), the "all-in" layout (`feedRowState.ts:111-113` caption and
+its Home renderer) and the listing navigation/poster layout (`ListingHero.tsx`,
+`ListingDetailScreen.tsx`).
+- **Repeat, if those files change as expected:**
+  - **Listing:** all poster/artwork cases, the footer at rest, reservation feedback, safe areas.
+    The navigation change sits in the same screen and scroll layout as the footer.
+  - **Home feature:** identity block at default, largest standard and a3xl. Frame geometry and the
+    per-fixture artwork checks repeat **only if** `HomeFeature`, `EventMedia`, `slots` or the
+    harness art rule change.
+- **Retained at `d5217530`, re-used if their render path is untouched:**
+  - Home artwork selection and frame (batch 1);
+  - icons (F-91-6);
+  - the withdrawn name-collapse result.
+- **New at the successor:**
+  - the scroll and below-fold set (C-operated, B-reviewed);
+  - consumer Home with the dock (sign-in, or a recorded blocker);
+  - VoiceOver on the "all-in" caption;
+  - batch2's six harness-art screens, Edit refusals, Listing read-failure/offline and public profile
+    (C's owner evidence first, then B).
+
 **B native batch 2 (`f235ddb7`, 2026-10-06): footer, reservation, icons, Dynamic Type at `d5217530`**
 - **Closed natively:**
   - R-1 busy state: "Reserving…" with a spinner sits on the second-position outlined Buy Now, and
