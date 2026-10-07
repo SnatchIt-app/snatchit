@@ -111,6 +111,34 @@ export function isSellValid(errors: SellErrors): boolean {
 // ─── Selling method + CTA copy ─────────────────────────────────────────────────
 
 /** One truthful sentence describing how the sale works given the Buy Now toggle. */
+/**
+ * What stops a publish BEFORE the phone, payout and risk gates run.
+ *
+ * `CreateListingScreen` used to spell this `if (!isValid || !user) return;` — two unrelated
+ * conditions behind one silent return (E, 2026-10-05). The invalid half is not silent, because the
+ * fields show their own errors; the signed-out half had nothing to say, so a seller with a complete
+ * form and an ended session tapped Publish and the screen did not move.
+ *
+ * The session is answered first, which is the order `handleBuyNow` already uses: correcting the
+ * form does not help someone who is signed out. The sentence is the app's existing one, from the
+ * four places that already refuse an action to a signed-out viewer.
+ */
+export const PUBLISH_SIGNED_OUT = {
+  title: 'Sign in required',
+  body: 'You need to be signed in to publish a listing.',
+} as const;
+
+export type PublishBlock =
+  /** The fields say so, and they say it themselves — this is not a dialog. */
+  | { kind: 'invalid' }
+  | { kind: 'signed-out'; title: string; body: string };
+
+export function publishBlock(i: { valid: boolean; signedIn: boolean }): PublishBlock | null {
+  if (!i.signedIn) return { kind: 'signed-out', ...PUBLISH_SIGNED_OUT };
+  if (!i.valid) return { kind: 'invalid' };
+  return null;
+}
+
 export function sellingMethodBlurb(buyNowEnabled: boolean): string {
   return buyNowEnabled
     ? 'Buyers bid until the auction ends. Buy Now also lets someone take it instantly at your set price.'

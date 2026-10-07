@@ -64,6 +64,7 @@ import {
   RISK_COPY,
   sellErrors,
   sellingMethodBlurb,
+  publishBlock,
   submitCtaLabel,
   proceedsBasis,
   proceedsKicker,
@@ -508,7 +509,23 @@ export default function CreateListingScreen({ fixture }: { fixture?: CreateFixtu
     // live route passes no fixture and takes the unchanged path below.
     if (fixture) return;
     setSubmitted(true);
-    if (!isValid || !user) return;
+    /*
+     * One silent return used to cover two unrelated refusals. An incomplete form is still the
+     * fields' own business — `setSubmitted` above is what makes them speak — but a signed-out
+     * seller was told nothing at all (E, 2026-10-05). `!user` stays in the condition so the rest
+     * of this function keeps its non-null `user`; it is the same case as the block.
+     */
+    const block = publishBlock({ valid: isValid, signedIn: user != null });
+    if (block || !user) {
+      if (block?.kind === 'signed-out') {
+        if (Platform.OS === 'web') {
+          window.alert(`${block.title}\n\n${block.body}`);
+        } else {
+          Alert.alert(block.title, block.body);
+        }
+      }
+      return;
+    }
 
     // Content moderation gate (Guideline 1.4.3)
     const banned = findBannedContent([eventName, venue, restrictions]);
