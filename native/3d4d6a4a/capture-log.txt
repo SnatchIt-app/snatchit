@@ -41,3 +41,21 @@ top from a capture — its stacked background is the canvas colour, so it is inv
 page — so I cannot say how much of that 206 pt is the bar and how much is excess padding. The
 owner's test (reachable, readable, clears the fixed footer) passes; this is a cosmetic residue of
 my fix that I have not root-caused. B can measure the bar directly.
+
+--- added for B's batch-5 requests (2) and (3) ---
+listing-a3xl-light-eventname-Coperated.png | accessibility-extra-extra-extra-large | light | _dev/v3-listing?screen=listing&variant=listing&art=flyer | scrolled to the event name
+listing-a3xl-dark-eventname-Coperated.png  | accessibility-extra-extra-extra-large | dark  | same | scrolled to the event name
+listing-a3xl-dark-scrollend-Coperated.png  | accessibility-extra-extra-extra-large | dark  | same | scrolled to the very end
+
+R-4, the owner's test (the name may start below the fold; it must be reachable and readable):
+  PASSES in both appearances. "Neon Choir" is complete and legible, two lines, ink height
+  90.7 pt and 89.0 pt for the two lines in Light. It is below the fold at rest and one drag
+  reveals it whole.
+
+Dark scroll end: CTA top 688.0 pt, last content 466.3 pt — identical to Light, nothing sliced.
+
+ONE MORE CLAMP, flagged rather than fixed: in the event-name frames the hero's date line reads
+"Sat 24 Oct · 1…" at a3xl. That is ListingHero's `when` line at numberOfLines={1}. It is the same
+family as the feed-row title and date clamps B is already assessing against the approved design,
+and it is not the settled money rule, so I have left it for B and the owner rather than deciding
+it myself.
