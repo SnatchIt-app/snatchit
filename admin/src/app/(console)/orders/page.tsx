@@ -71,20 +71,20 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           <FilterSelect name="payout_state" options={PAYOUT_STATES} value={payoutState} labels={PAYOUT_STATE_LABELS} />
         </FilterField>
         <FilterField label="Open case">
-          <select name="has_open_case" defaultValue={hasOpenCase ?? ""} className="field min-w-[120px] py-1.5 text-[13px]">
+          <select name="has_open_case" defaultValue={hasOpenCase ?? ""} className="field min-w-[120px] py-1.5 text-[0.8125rem]">
             <option value="">Any</option>
             <option value="true">Has open case</option>
             <option value="false">No open case</option>
           </select>
         </FilterField>
         <FilterField label="Created from (UTC)">
-          <input type="date" name="from" defaultValue={from ?? ""} className="field py-1.5 text-[13px]" />
+          <input type="date" name="from" defaultValue={from ?? ""} className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
         <FilterField label="To (UTC)">
-          <input type="date" name="to" defaultValue={to ?? ""} className="field py-1.5 text-[13px]" />
+          <input type="date" name="to" defaultValue={to ?? ""} className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
         <FilterField label="Search" className="min-w-[220px]">
-          <input name="q" defaultValue={q} placeholder="payment/transfer/listing id, pi_, tr_, re_, event" className="field py-1.5 text-[13px]" />
+          <input name="q" defaultValue={q} placeholder="payment/transfer/listing id, pi_, tr_, re_, event" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
       </FilterForm>
 

@@ -38,17 +38,17 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
       />
       <FilterForm action="/users">
         <FilterField label="Search" className="min-w-[260px]">
-          <input name="q" defaultValue={q} placeholder="display name, user id, exact email or phone" className="field py-1.5 text-[13px]" />
+          <input name="q" defaultValue={q} placeholder="display name, user id, exact email or phone" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
         <FilterField label="Seller">
-          <select name="is_seller" defaultValue={isSeller ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+          <select name="is_seller" defaultValue={isSeller ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
             <option value="">Anyone</option>
             <option value="true">Sellers (onboarded or has listings)</option>
             <option value="false">Buyers only</option>
           </select>
         </FilterField>
         <FilterField label="Listing creation">
-          <select name="blocked" defaultValue={blocked ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+          <select name="blocked" defaultValue={blocked ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
             <option value="">Any</option>
             <option value="true">Blocked</option>
             <option value="false">Allowed</option>

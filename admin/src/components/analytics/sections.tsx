@@ -27,8 +27,8 @@ import { OpsFailureAlert } from "@/components/ui/Alert";
 export function SampleDataNotice() {
   if (!/local|harness|rehears|sample|preview/i.test(ENV_LABEL)) return null;
   return (
-    <p role="note" className="mb-6 flex items-start gap-2 rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-[13px] text-ink">
-      <span aria-hidden="true" className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-white">
+    <p role="note" className="mb-6 flex items-start gap-2 rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-[0.8125rem] text-ink">
+      <span aria-hidden="true" className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-warning text-[0.625rem] font-bold text-white">
         !
       </span>
       <span>
@@ -90,7 +90,7 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
   const urgent = active.filter((m) => m.sev === "critical").length;
   return (
     <div>
-      <p className="mb-3 text-[14px] text-muted">
+      <p className="mb-3 text-[0.875rem] text-muted">
         {active.length === 0 ? (
           <span className="font-medium text-success">✓ Nothing needs attention right now.</span>
         ) : (
@@ -109,15 +109,15 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
             const href = metricHref(m.key);
             const body = (
               <>
-                <span className="flex items-center gap-2 text-[13px] font-medium text-muted">
-                  <span aria-hidden="true" className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${s.dot}`}>
+                <span className="flex items-center gap-2 text-[0.8125rem] font-medium text-muted">
+                  <span aria-hidden="true" className={`flex h-5 w-5 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.dot}`}>
                     {s.glyph}
                   </span>
                   <span className="sr-only">{s.word}: </span>
                   {SHORT_LABEL[m.key] ?? m.label}
                 </span>
-                <span className="mt-1.5 block text-[26px] font-semibold leading-tight text-ink">{m.n.toLocaleString("en-US")}</span>
-                <span className="mt-1 block text-[12px] leading-snug text-dim">{m.definition ?? definitions[m.key]}</span>
+                <span className="mt-1.5 block text-[1.625rem] font-semibold leading-tight text-ink">{m.n.toLocaleString("en-US")}</span>
+                <span className="mt-1 block text-[0.75rem] leading-snug text-dim">{m.definition ?? definitions[m.key]}</span>
               </>
             );
             return (
@@ -139,10 +139,10 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
       ) : null}
       {clear.length ? (
         <details className="mt-3 rounded-[var(--radius-control)]">
-          <summary className="inline-block rounded-[var(--radius-control)] px-2 py-1 text-[13px] text-dim">
+          <summary className="inline-block rounded-[var(--radius-control)] px-2 py-1 text-[0.8125rem] text-dim">
             {clear.length} check{clear.length === 1 ? "" : "s"} clear
           </summary>
-          <p className="px-2 pt-1 text-[13px] text-dim">{clear.map((m) => SHORT_LABEL[m.key] ?? m.label).join(" · ")}</p>
+          <p className="px-2 pt-1 text-[0.8125rem] text-dim">{clear.map((m) => SHORT_LABEL[m.key] ?? m.label).join(" · ")}</p>
         </details>
       ) : null}
     </div>
@@ -196,7 +196,7 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
           <KpiTile label="Bank payouts" value="Not tracked" muted definition={DEF.bank} />
         </div>
       ) : null}
-      <p className="mt-2 text-[12px] text-dim">
+      <p className="mt-2 text-[0.75rem] text-dim">
         {shortDay(from)} – {shortDay(to)} (UTC){prev ? ` compared with ${shortDay(prev.from)} – ${shortDay(prev.to)}` : ""}.
         {before && !before.ok ? " Previous period unavailable — no comparison shown." : ""}
       </p>
@@ -284,7 +284,7 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
       >
         <TrendChart kind="column" unit="usd_cents" points={released} title={`Seller funds released ${grainWord}, ${range}`} />
       </ChartCard>
-      <p className="text-[12px] text-dim lg:col-span-2">
+      <p className="text-[0.75rem] text-dim lg:col-span-2">
         {days} day{days === 1 ? "" : "s"}, {footnote} Measures are separate and never netted against each other.
       </p>
     </div>

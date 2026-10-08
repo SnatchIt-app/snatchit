@@ -15,7 +15,7 @@ export default async function DeniedPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <h1 className="text-xl font-bold text-ink">Your account is not an operator</h1>
-      <p className="mt-2 text-[13px] text-muted">
+      <p className="mt-2 text-[0.8125rem] text-muted">
         {user?.email ? <span className="text-ink">{user.email}</span> : "This account"} is signed in, but Postgres
         (<code className="font-mono">ops.whoami()</code>) did not return a platform role. Operator roles are granted in the
         database, not here.

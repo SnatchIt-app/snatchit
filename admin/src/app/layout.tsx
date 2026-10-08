@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Oswald } from "next/font/google";
 import "./globals.css";
 import { ENV_LABEL } from "@/lib/env";
 
@@ -7,6 +7,8 @@ import { ENV_LABEL } from "@/lib/env";
 // 'swap' + the system stack in --font-sans keep the UI legible if the font
 // file is missing.
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
+/** Display face for short headings only — see docs/design/DASHBOARD_DESIGN_GUIDELINES.md §3. */
+const oswald = Oswald({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--font-oswald" });
 
 export const metadata: Metadata = {
   title: { default: `Console · ${ENV_LABEL}`, template: `%s · Console · ${ENV_LABEL}` },
@@ -22,7 +24,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${oswald.variable}`}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );

@@ -95,8 +95,8 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
             <KeyValue
               columns={3}
               items={[
-                { key: "id", value: <code className="font-mono text-[12px]">{a.id}</code> },
-                { key: "action_type", value: <code className="font-mono text-[12px]">{a.action_type}</code> },
+                { key: "id", value: <code className="font-mono text-[0.75rem]">{a.id}</code> },
+                { key: "action_type", value: <code className="font-mono text-[0.75rem]">{a.action_type}</code> },
                 { key: "state", value: <StatusBadge status={a.state} label={stateLabel} /> },
                 ...(a.action_type === "refund_execute"
                   ? [{ key: "refund_status", label: "Provider refund status", value: refundStatus ? <StatusBadge status={refundStatus} label={REFUND_STATUS_LABELS[refundStatus] ?? refundStatus} /> : <span className="text-dim">not reported yet</span> }]
@@ -104,20 +104,20 @@ export default async function ActionPage({ params }: { params: Promise<{ id: str
                 { key: "requested_by", value: isRequester ? "me" : a.requested_by_label ?? a.requested_by },
                 { key: "requested_at", value: <DateTime value={a.requested_at} withSeconds /> },
                 { key: "completed_at", value: <DateTime value={a.completed_at} withSeconds /> },
-                { key: "correlation_id", value: <code className="font-mono text-[12px]">{a.correlation_id ?? "—"}</code> },
-                { key: "idempotency_key", value: <code className="font-mono text-[12px]">{a.idempotency_key ?? "—"}</code> },
-                { key: "provider_ref", label: "Provider reference (Stripe)", value: a.provider_ref ? <code className="font-mono text-[12px]">{a.provider_ref}</code> : null },
-                { key: "approval_id", value: a.approval_id ? <code className="font-mono text-[12px]">{a.approval_id}</code> : null },
+                { key: "correlation_id", value: <code className="font-mono text-[0.75rem]">{a.correlation_id ?? "—"}</code> },
+                { key: "idempotency_key", value: <code className="font-mono text-[0.75rem]">{a.idempotency_key ?? "—"}</code> },
+                { key: "provider_ref", label: "Provider reference (Stripe)", value: a.provider_ref ? <code className="font-mono text-[0.75rem]">{a.provider_ref}</code> : null },
+                { key: "approval_id", value: a.approval_id ? <code className="font-mono text-[0.75rem]">{a.approval_id}</code> : null },
                 { key: "version", value: a.version !== undefined ? `v${a.version}` : null },
                 { key: "error", value: a.error ? <span className="text-danger">{a.error}</span> : null },
               ]}
             />
             <h3 className="eyebrow mt-4 text-dim">Params (as requested)</h3>
-            <div className="mt-2 text-[13px]">{renderValue("params", a.params ?? {})}</div>
+            <div className="mt-2 text-[0.8125rem]">{renderValue("params", a.params ?? {})}</div>
             <h3 className="eyebrow mt-4 text-dim">Expected state at request time</h3>
-            <div className="mt-2 text-[13px]">{renderValue("expected", a.expected ?? {})}</div>
+            <div className="mt-2 text-[0.8125rem]">{renderValue("expected", a.expected ?? {})}</div>
             <h3 className="eyebrow mt-4 text-dim">Result (authoritative)</h3>
-            <div className="mt-2 text-[13px]">{a.result === null || a.result === undefined ? <span className="text-dim">no result yet</span> : renderValue("result", a.result)}</div>
+            <div className="mt-2 text-[0.8125rem]">{a.result === null || a.result === undefined ? <span className="text-dim">no result yet</span> : renderValue("result", a.result)}</div>
           </Panel>
 
           <Panel eyebrow={`${d.approvals.length}`} title="Approvals">
@@ -208,10 +208,10 @@ function ApprovalDecisionForms({ approval, actionId, revalidate }: { approval: A
     <div className="grid gap-4 sm:grid-cols-2">
       {approval.hash_current === false ? <Alert state="stale" title="Action terms changed since approval was requested — the decision will be rejected as stale." compact /> : null}
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: approve }} revalidate={revalidate} label="Approve and execute" danger reasonLabel="Approval reason">
-        <p className="text-[12px] text-muted">Approving executes the action immediately with the requester as the domain actor. Bound to the exact terms shown above.</p>
+        <p className="text-[0.75rem] text-muted">Approving executes the action immediately with the requester as the domain actor. Bound to the exact terms shown above.</p>
       </ConfirmForm>
       <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="approval_decide" subjectKind="action" subjectId={actionId} params={{ action_id: actionId, decision: deny }} revalidate={revalidate} label="Deny" reasonLabel="Denial reason">
-        <p className="text-[12px] text-muted">Denying rejects the action; nothing changes.</p>
+        <p className="text-[0.75rem] text-muted">Denying rejects the action; nothing changes.</p>
       </ConfirmForm>
     </div>
   );
@@ -225,8 +225,8 @@ function ApprovalTable({ rows, basePath, meId }: { rows: Approval[]; basePath: s
     { key: "decided_by", header: "Decided by", render: (r) => (r.decided_by ? (r.decided_by === meId ? "me" : r.decided_by_label ?? shortId(r.decided_by)) : <span className="text-dim">—</span>) },
     { key: "decided_at", header: "Decided", render: (r) => <DateTime value={r.decided_at} /> },
     { key: "expires_at", header: "Expires", render: (r) => <DateTime value={r.expires_at} /> },
-    { key: "reason", header: "Decision reason", render: (r) => <span className="text-[12px] text-muted">{r.reason ?? "—"}</span> },
-    { key: "hash", header: "Terms", render: (r) => (r.hash_current === false ? <StatusBadge status="stale" label="changed" /> : <code className="font-mono text-[10px] text-dim">{r.action_hash?.slice(0, 12)}</code>) },
+    { key: "reason", header: "Decision reason", render: (r) => <span className="text-[0.75rem] text-muted">{r.reason ?? "—"}</span> },
+    { key: "hash", header: "Terms", render: (r) => (r.hash_current === false ? <StatusBadge status="stale" label="changed" /> : <code className="font-mono text-[0.625rem] text-dim">{r.action_hash?.slice(0, 12)}</code>) },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} emptyText="No approval required for this action." caption="Approvals" dense />;
 }

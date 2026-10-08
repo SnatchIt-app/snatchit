@@ -12,7 +12,7 @@ export function KeyValue({ items, columns = 2 }: { items: KeyValueItem[]; column
       {items.map((it) => (
         <div key={it.key} className="min-w-0 border-b border-line-neutral pb-2">
           <dt className="eyebrow text-dim">{it.label ?? humanize(it.key)}</dt>
-          <dd className="mt-0.5 break-words text-[13px] text-ink">
+          <dd className="mt-0.5 break-words text-[0.8125rem] text-ink">
             {it.value === null || it.value === undefined || it.value === "" ? <span className="text-dim">—</span> : it.value}
           </dd>
         </div>

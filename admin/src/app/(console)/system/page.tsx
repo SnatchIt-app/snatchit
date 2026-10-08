@@ -105,7 +105,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         }
       />
 
-      <nav aria-label="System sections" className="mb-6 flex flex-wrap gap-2 text-[12px]">
+      <nav aria-label="System sections" className="mb-6 flex flex-wrap gap-2 text-[0.75rem]">
         {[
           ["#jobs", "Jobs"],
           ["#cron", "Cron"],
@@ -164,10 +164,10 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                     { key: "unprocessed", value: String(health.webhook_backlog.unprocessed ?? 0) },
                     { key: "failed", value: String(health.webhook_backlog.failed ?? 0) },
                     { key: "oldest_unprocessed_at", value: <DateTime value={health.webhook_backlog.oldest_unprocessed_at} /> },
-                    { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[12px]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
+                    { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[0.75rem]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
                   ]}
                 />
-                <p className="mt-3 text-[11px] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
+                <p className="mt-3 text-[0.6875rem] text-dim">Stuck or failed events are re-sent from the Stripe Dashboard (Developers → Webhooks → event → Resend). The console does not replay webhooks.</p>
               </Panel>
 
               <Panel eyebrow="notify.*" title="Notification delivery">
@@ -176,7 +176,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                 <CountList map={health.notify.delivery} />
                 <h3 className="eyebrow mt-3 text-dim">Outbox by state</h3>
                 <CountList map={health.notify.outbox} />
-                {health.notify.note ? <p className="mt-3 text-[11px] text-dim">{health.notify.note}</p> : null}
+                {health.notify.note ? <p className="mt-3 text-[0.6875rem] text-dim">{health.notify.note}</p> : null}
               </Panel>
             </div>
 
@@ -190,9 +190,9 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                     const caseId = typeof a.payload?.case_id === "string" ? a.payload.case_id : null;
                     const title = typeof a.payload?.title === "string" ? a.payload.title : null;
                     return (
-                      <li key={a.alert_key ?? i} className="flex flex-wrap items-baseline gap-2 border-l-2 border-warning pl-3 text-[13px]">
+                      <li key={a.alert_key ?? i} className="flex flex-wrap items-baseline gap-2 border-l-2 border-warning pl-3 text-[0.8125rem]">
                         <StatusBadge status={a.state} label={a.state ?? "firing"} />
-                        <span className="font-mono text-[12px] text-dim">{a.kind}</span>
+                        <span className="font-mono text-[0.75rem] text-dim">{a.kind}</span>
                         {caseId ? (
                           <Link href={`/cases/${caseId}`} className="link">
                             {title ?? a.alert_key}
@@ -200,7 +200,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                         ) : (
                           <span>{title ?? a.alert_key}</span>
                         )}
-                        <span className="text-[11px] text-dim">
+                        <span className="text-[0.6875rem] text-dim">
                           first <TimeAgo value={a.first_fired_at} /> · last <TimeAgo value={a.last_fired_at} /> · ×{a.fire_count ?? 1}
                         </span>
                       </li>
@@ -225,7 +225,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
               ))}
             </div>
           )}
-          <p className="mt-3 text-[11px] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
         </Panel>
 
         <Panel eyebrow="ops.setting" title="Settings">
@@ -283,9 +283,9 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
 function CountList({ map }: { map: Record<string, number> }) {
   const entries = Object.entries(map);
-  if (entries.length === 0) return <p className="text-[12px] text-dim">no rows</p>;
+  if (entries.length === 0) return <p className="text-[0.75rem] text-dim">no rows</p>;
   return (
-    <ul className="mt-1 flex flex-wrap gap-2 text-[12px]">
+    <ul className="mt-1 flex flex-wrap gap-2 text-[0.75rem]">
       {entries.map(([k, v]) => (
         <li key={k} className="border border-line-neutral px-2 py-0.5">
           <StatusBadge status={k} /> <span className="ml-1 tabular-nums">{v}</span>
@@ -302,7 +302,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       header: "Job",
       render: (j) => (
         <span id={`job-${j.job_name}`} className="flex flex-col">
-          <code className="font-mono text-[12px] text-ink">{j.job_name}</code>
+          <code className="font-mono text-[0.75rem] text-ink">{j.job_name}</code>
           <StatusBadge status={j.enabled ? "active" : "inactive"} label={j.enabled ? "enabled" : "disabled"} />
         </span>
       ),
@@ -316,7 +316,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       render: (j) => <span className={`tabular-nums ${(j.consecutive_failures ?? 0) >= 2 ? "font-semibold text-danger" : ""}`}>{j.consecutive_failures ?? 0}</span>,
     },
     { key: "backoff_until", header: "Backoff until", render: (j) => <DateTime value={j.backoff_until} /> },
-    { key: "last_error", header: "Last error", render: (j) => <span className="line-clamp-2 max-w-[260px] text-[12px] text-danger">{j.last_error ?? <span className="text-dim">—</span>}</span> },
+    { key: "last_error", header: "Last error", render: (j) => <span className="line-clamp-2 max-w-[260px] text-[0.75rem] text-danger">{j.last_error ?? <span className="text-dim">—</span>}</span> },
     {
       key: "recent_runs",
       header: "Last 5 runs",
@@ -324,7 +324,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
         j.recent_runs.length === 0 ? (
           <span className="text-dim">no runs</span>
         ) : (
-          <ol className="space-y-0.5 text-[11px]">
+          <ol className="space-y-0.5 text-[0.6875rem]">
             {j.recent_runs.map((r, i) => (
               <li key={r.id ?? i} className="flex flex-wrap items-baseline gap-1">
                 <StatusBadge status={r.status} />
@@ -344,7 +344,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
         canRetry ? (
           <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="job_retry" subjectKind="job" subjectRef={j.job_name} params={{ job_name: j.job_name }} label="Run now" className="min-w-[200px]" />
         ) : (
-          <span className="text-[11px] text-dim">founder only</span>
+          <span className="text-[0.6875rem] text-dim">founder only</span>
         ),
     },
   ];
@@ -353,13 +353,13 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
 
 function CronTable({ rows, available }: { rows: CronJob[]; available: boolean }) {
   const columns: Column<CronJob>[] = [
-    { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[12px]">{c.jobname ?? c.jobid}</code> },
-    { key: "schedule", header: "Schedule", render: (c) => <code className="font-mono text-[12px]">{c.schedule ?? "—"}</code> },
+    { key: "jobname", header: "Cron job", render: (c) => <code className="font-mono text-[0.75rem]">{c.jobname ?? c.jobid}</code> },
+    { key: "schedule", header: "Schedule", render: (c) => <code className="font-mono text-[0.75rem]">{c.schedule ?? "—"}</code> },
     { key: "active", header: "Active", render: (c) => <StatusBadge status={String(c.active ?? false)} label={c.active ? "active" : "inactive"} /> },
     { key: "last_status", header: "Last status", render: (c) => (available ? <StatusBadge status={c.last_status} /> : <span className="text-dim">unavailable</span>) },
     { key: "last_end", header: "Last end", render: (c) => (available ? <DateTime value={c.last_end} /> : <span className="text-dim">—</span>) },
     { key: "runs_24h", header: "Runs / failures (24 h)", align: "right", render: (c) => (available ? <span className="tabular-nums">{c.runs_24h ?? 0} / {c.failures_24h ?? 0}</span> : <span className="text-dim">—</span>) },
-    { key: "last_message", header: "Last message", render: (c) => <span className="line-clamp-2 max-w-[280px] text-[12px] text-muted">{c.last_message ?? "—"}</span> },
+    { key: "last_message", header: "Last message", render: (c) => <span className="line-clamp-2 max-w-[280px] text-[0.75rem] text-muted">{c.last_message ?? "—"}</span> },
   ];
   return <DataTable id="cron" columns={columns} rows={rows} rowKey={(c, i) => c.jobname ?? `${c.jobid ?? i}`} basePath="/system" emptyText="No cron jobs." caption="Cron jobs" dense />;
 }
@@ -371,13 +371,13 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
   return (
     <div className="border border-line-neutral p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[14px] font-semibold text-ink">
+        <p className="text-[0.875rem] font-semibold text-ink">
           {labelFor("action_type", a?.action_type)}{" "}
           <span className="text-dim">
             on {a?.subject_kind} <IdLink kind={a?.subject_kind} id={a?.subject_id} subjectRef={a?.subject_ref} label={a?.subject_label ?? undefined} />
           </span>
         </p>
-        <span className="text-[12px] text-dim">
+        <span className="text-[0.75rem] text-dim">
           requested by {mine ? "me" : ap.requested_by_label ?? shortId(ap.requested_by)} <TimeAgo value={ap.created_at} /> · expires <TimeAgo value={ap.expires_at} />
         </span>
       </div>
@@ -385,8 +385,8 @@ function ApprovalCard({ approval: ap, meId, isAdmin }: { approval: Approval; meI
         columns={3}
         items={[
           { key: "reason", label: "Requester's reason", value: a?.reason },
-          { key: "params", label: "Terms (params)", value: <code className="whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(a?.params ?? {})}</code> },
-          { key: "expected", label: "Expected state", value: <code className="whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(a?.expected ?? {})}</code> },
+          { key: "params", label: "Terms (params)", value: <code className="whitespace-pre-wrap break-words font-mono text-[0.6875rem]">{JSON.stringify(a?.params ?? {})}</code> },
+          { key: "expected", label: "Expected state", value: <code className="whitespace-pre-wrap break-words font-mono text-[0.6875rem]">{JSON.stringify(a?.expected ?? {})}</code> },
           { key: "action", value: actionId ? <IdLink kind="action" id={actionId} full /> : null },
           { key: "terms", label: "Terms unchanged", value: ap.hash_current === false ? <StatusBadge status="stale" label="changed — will be voided" /> : <StatusBadge status="ok" label="yes" /> },
         ]}
@@ -421,14 +421,14 @@ function SettingsList({ settings }: { settings: Setting[] }) {
         return (
           <li key={s.key} id={`setting-${s.key}`} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div>
-              <p className="text-[13px] font-semibold text-ink">
+              <p className="text-[0.8125rem] font-semibold text-ink">
                 <code className="font-mono">{s.key}</code>
               </p>
-              <p className="mt-1 text-[12px] text-muted">{SETTING_HELP[s.key] ?? humanize(s.key)}</p>
-              <p className="mt-2 text-[12px]">
+              <p className="mt-1 text-[0.75rem] text-muted">{SETTING_HELP[s.key] ?? humanize(s.key)}</p>
+              <p className="mt-2 text-[0.75rem]">
                 Current: <code className="font-mono text-ink">{JSON.stringify(s.value)}</code> <span className="text-dim">({kind})</span>
               </p>
-              <p className="mt-1 text-[11px] text-dim">
+              <p className="mt-1 text-[0.6875rem] text-dim">
                 Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(seed)"}
               </p>
             </div>
@@ -446,7 +446,7 @@ function SettingsList({ settings }: { settings: Setting[] }) {
               ) : kind === "string" ? (
                 <input id={inputId} name={field} type="text" defaultValue={String(s.value)} required className="field mt-1" />
               ) : (
-                <textarea id={inputId} name={field} rows={2} defaultValue={JSON.stringify(s.value)} required className="field mt-1 font-mono text-[12px]" />
+                <textarea id={inputId} name={field} rows={2} defaultValue={JSON.stringify(s.value)} required className="field mt-1 font-mono text-[0.75rem]" />
               )}
             </ConfirmForm>
           </li>

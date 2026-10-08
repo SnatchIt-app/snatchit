@@ -18,10 +18,10 @@ export function PageHeader({
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div className="min-w-0">
-        {eyebrow ? <p className="eyebrow text-dim">{eyebrow}</p> : null}
-        <h1 className="mt-0.5 text-[26px] font-semibold leading-tight tracking-[-0.01em] text-ink">{title}</h1>
-        {description ? <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-muted">{description}</p> : null}
-        {meta ? <div className="mt-2 text-[13px] text-dim">{meta}</div> : null}
+        {eyebrow ? <p className="eyebrow-accent">{eyebrow}</p> : null}
+        <h1 className="display display-xl mt-2">{title}</h1>
+        {description ? <p className="mt-2 max-w-3xl text-[0.875rem] leading-relaxed text-muted">{description}</p> : null}
+        {meta ? <div className="mt-2 text-[0.8125rem] text-dim">{meta}</div> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

@@ -41,9 +41,9 @@ export function Alert({
     <div
       role={state === "failed" || state === "denied" ? "alert" : "status"}
       aria-live="polite"
-      className={`flex gap-3 rounded-[var(--radius-control)] border border-line bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[14px]`}
+      className={`flex gap-3 rounded-[var(--radius-control)] border border-line bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[0.875rem]`}
     >
-      <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${s.tone}`}>
+      <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.tone}`}>
         {s.glyph}
       </span>
       <div className="min-w-0">
@@ -51,10 +51,10 @@ export function Alert({
         <span className="sr-only">{s.label}: </span>
         {title ?? s.label}
       </p>
-      {children ? <div className="mt-0.5 text-[13px] text-muted">{children}</div> : null}
+      {children ? <div className="mt-0.5 text-[0.8125rem] text-muted">{children}</div> : null}
       {retryHref ? (
         <p className="mt-2">
-          <Link href={retryHref} className="link text-[13px]">
+          <Link href={retryHref} className="link text-[0.8125rem]">
             {retryLabel}
           </Link>
         </p>
@@ -91,7 +91,7 @@ export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailur
   return (
     <Alert state="failed" title={failure.unavailable ? "RPC not available yet" : "Request failed"} retryHref={retryHref}>
       {failure.message}
-      {failure.code ? <span className="ml-2 font-mono text-[11px] text-dim">{failure.code}</span> : null}
+      {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
     </Alert>
   );
 }

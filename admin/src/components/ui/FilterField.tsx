@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** Label + control used by every GET filter form. */
 export function FilterField({ label, children, className = "" }: { label: ReactNode; children: ReactNode; className?: string }) {
-  return <label className={`flex flex-col gap-1 text-[13px] font-medium text-muted ${className}`}>{label}{children}</label>;
+  return <label className={`flex flex-col gap-1 text-[0.8125rem] font-medium text-muted ${className}`}>{label}{children}</label>;
 }
 
 export function FilterSelect({
@@ -19,7 +19,7 @@ export function FilterSelect({
   labels?: Record<string, string>;
 }) {
   return (
-    <select name={name} defaultValue={value ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+    <select name={name} defaultValue={value ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
       <option value="">{all}</option>
       {options.map((o) => (
         <option key={o} value={o}>
@@ -40,7 +40,7 @@ export function FilterForm({ action, children, sticky }: { action: string; child
       <button type="submit" className="btn btn-ghost btn-sm">
         Filter
       </button>
-      <a href={action} className="link self-center text-[12px]">
+      <a href={action} className="link self-center text-[0.75rem]">
         Clear
       </a>
     </form>

@@ -62,7 +62,7 @@ export function MobileNavPanel({ id, open, pathname, onNavigate }: { id: string;
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 items-center border-l-2 px-4 text-[15px] font-medium ${
+                className={`flex min-h-11 items-center border-l-2 px-4 text-[0.9375rem] font-medium ${
                   active ? "border-primary bg-primary-soft text-ink" : "border-transparent text-muted hover:text-ink"
                 }`}
               >

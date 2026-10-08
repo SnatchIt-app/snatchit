@@ -35,7 +35,7 @@ export function OrderTable({
       render: (r) => (
         <span className="flex flex-col">
           <IdLink kind="payment" id={r.payment_id} />
-          {r.stripe_payment_intent_id ? <span className="font-mono text-[10px] text-dim">{r.stripe_payment_intent_id}</span> : null}
+          {r.stripe_payment_intent_id ? <span className="font-mono text-[0.625rem] text-dim">{r.stripe_payment_intent_id}</span> : null}
         </span>
       ),
     },
@@ -51,8 +51,8 @@ export function OrderTable({
           ) : (
             r.event_name ?? "—"
           )}
-          {r.event_date ? <span className="block text-[11px] text-dim">{r.event_date}</span> : null}
-          {r.mode ? <span className="block text-[11px] text-dim">{r.mode.replace(/_/g, " ")}</span> : null}
+          {r.event_date ? <span className="block text-[0.6875rem] text-dim">{r.event_date}</span> : null}
+          {r.mode ? <span className="block text-[0.6875rem] text-dim">{r.mode.replace(/_/g, " ")}</span> : null}
         </span>
       ),
     },
@@ -63,7 +63,7 @@ export function OrderTable({
             key: "parties",
             header: "Buyer / Seller",
             render: (r) => (
-              <span className="flex flex-col gap-0.5 text-[12px]">
+              <span className="flex flex-col gap-0.5 text-[0.75rem]">
                 <span>
                   <span className="text-dim">B </span>
                   <PartyLink id={r.buyer?.id} displayName={r.buyer?.display_name} />
@@ -83,7 +83,7 @@ export function OrderTable({
       render: (r) => (
         <span className="flex flex-col items-end">
           <Money cents={r.amount} />
-          <span className="text-[11px] text-dim">
+          <span className="text-[0.6875rem] text-dim">
             total <Money cents={r.total} />
           </span>
         </span>
@@ -98,7 +98,7 @@ export function OrderTable({
           <span className="flex flex-col gap-0.5">
             <StatusBadge status={r.transfer_status} label={labelFor("transfer", r.transfer_status)} />
             {r.transfer_expires_at && r.transfer_status === "pending" ? (
-              <span className="text-[11px] text-dim">
+              <span className="text-[0.6875rem] text-dim">
                 due <TimeAgo value={r.transfer_expires_at} />
               </span>
             ) : null}

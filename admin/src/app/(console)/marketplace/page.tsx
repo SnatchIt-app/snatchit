@@ -52,14 +52,14 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
           <FilterSelect name="auction_status" options={AUCTION_STATUSES} value={auctionStatus} />
         </FilterField>
         <FilterField label="Reports">
-          <select name="has_reports" defaultValue={hasReports ?? ""} className="field min-w-[120px] py-1.5 text-[13px]">
+          <select name="has_reports" defaultValue={hasReports ?? ""} className="field min-w-[120px] py-1.5 text-[0.8125rem]">
             <option value="">Any</option>
             <option value="true">Reported</option>
             <option value="false">Not reported</option>
           </select>
         </FilterField>
         <FilterField label="Search" className="min-w-[220px]">
-          <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[13px]" />
+          <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
       </FilterForm>
       {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref="/marketplace" /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}

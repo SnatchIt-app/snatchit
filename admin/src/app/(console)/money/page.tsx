@@ -69,10 +69,10 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         </nav>
         <form method="get" action="/money" className="flex flex-wrap items-end gap-2 sm:ml-auto">
           <FilterField label="From (UTC)">
-            <input type="date" name="from" defaultValue={from} className="field py-1 text-[13px]" />
+            <input type="date" name="from" defaultValue={from} className="field py-1 text-[0.8125rem]" />
           </FilterField>
           <FilterField label="To (UTC)">
-            <input type="date" name="to" defaultValue={to} className="field py-1 text-[13px]" />
+            <input type="date" name="to" defaultValue={to} className="field py-1 text-[0.8125rem]" />
           </FilterField>
           {state ? <input type="hidden" name="state" value={state} /> : null}
           <button type="submit" className="btn btn-ghost btn-sm">
@@ -83,7 +83,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
 
       <div className="space-y-10">
         <section aria-labelledby="money-summary">
-          <h2 id="money-summary" className="mb-3 text-[18px] font-semibold text-ink">
+          <h2 id="money-summary" className="mb-3 text-[1.125rem] font-semibold text-ink">
             Summary
           </h2>
           <Suspense key={`k-${from}-${to}`} fallback={<div className="h-[230px] animate-pulse rounded-[var(--radius-card)] bg-raised" role="status" aria-label="Loading money summary" />}>
@@ -92,7 +92,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         </section>
 
         <section aria-labelledby="money-trends">
-          <h2 id="money-trends" className="mb-3 text-[18px] font-semibold text-ink">
+          <h2 id="money-trends" className="mb-3 text-[1.125rem] font-semibold text-ink">
             Trends
           </h2>
           <Suspense
@@ -120,7 +120,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
             </button>
           </form>
           {!payoutsRes.ok ? <OpsFailureAlert failure={payoutsRes} fn="list_payouts" retryHref="/money" /> : <PayoutTable rows={payouts} searchParams={sp} nextCursor={payoutsPage?.next_cursor} />}
-          <p className="mt-3 text-[11px] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">“Released to connected account” means a Stripe Transfer exists (stripe_transfer_id). Bank payouts from the connected account are not tracked.</p>
         </Panel>
 
         <Panel eyebrow="Read-only detector" title="Reconciliation queue" description="Money facts that disagree.">
@@ -129,7 +129,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           ) : (
             <ReconTable rows={recon} searchParams={sp} nextCursor={reconPage?.next_cursor} />
           )}
-          <p className="mt-3 text-[11px] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
+          <p className="mt-3 text-[0.6875rem] text-dim">Money facts that disagree. Investigate before any money action; the console never repairs money state — escalate with the ids.</p>
         </Panel>
       </div>
     </>
@@ -145,7 +145,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       render: (r) => (
         <span className="flex flex-col">
           <IdLink kind="payment" id={r.payment_id} />
-          <span className="text-[11px] text-dim">{r.event_name ?? ""}</span>
+          <span className="text-[0.6875rem] text-dim">{r.event_name ?? ""}</span>
         </span>
       ),
     },
@@ -158,7 +158,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       key: "review",
       header: "Review / hold",
       render: (r) => (
-        <span className="flex flex-col text-[12px]">
+        <span className="flex flex-col text-[0.75rem]">
           {r.payout_review_status ? <StatusBadge status={r.payout_review_status} label={labelFor("payout_review", r.payout_review_status)} /> : <span className="text-dim">—</span>}
           {r.payout_hold_until ? (
             <span className="text-dim">
@@ -170,7 +170,7 @@ function PayoutTable({ rows, searchParams, nextCursor }: { rows: PayoutRow[]; se
       ),
     },
     { key: "released", header: "Release recorded", render: (r) => <DateTime value={r.payout_released_at} relative={false} /> },
-    { key: "stripe_transfer_id", header: "Stripe Transfer", render: (r) => (r.stripe_transfer_id ? <code className="font-mono text-[11px]">{r.stripe_transfer_id}</code> : <span className="text-dim">none</span>) },
+    { key: "stripe_transfer_id", header: "Stripe Transfer", render: (r) => (r.stripe_transfer_id ? <code className="font-mono text-[0.6875rem]">{r.stripe_transfer_id}</code> : <span className="text-dim">none</span>) },
   ];
   return <DataTable id="payouts" columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath="/money" searchParams={searchParams} nextCursor={nextCursor} cursorParam="payouts_cursor" emptyText="No transfers match." caption="Payouts" dense />;
 }
@@ -183,7 +183,7 @@ function ReconTable({ rows, searchParams, nextCursor }: { rows: ReconItem[]; sea
       key: "subject",
       header: "Subject",
       render: (r) => (
-        <span className="text-[12px]">
+        <span className="text-[0.75rem]">
           <span className="text-dim">{r.subject_kind} </span>
           <IdLink kind={r.subject_kind} id={r.subject_id} label={r.subject_label ?? undefined} />
         </span>
@@ -193,7 +193,7 @@ function ReconTable({ rows, searchParams, nextCursor }: { rows: ReconItem[]; sea
       key: "detail",
       header: "Detail",
       render: (r) => (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[11px]">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-[0.6875rem]">
           {Object.entries(r.detail ?? {}).map(([k, v]) => (
             <ReconDetail key={k} k={k} v={v} />
           ))}

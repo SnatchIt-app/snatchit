@@ -48,13 +48,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       header: "Target",
       render: (r) => (
         <span className="flex flex-col">
-          <span className="text-[13px] text-dim">{r.target_type ?? "—"}</span>
+          <span className="text-[0.8125rem] text-dim">{r.target_type ?? "—"}</span>
           <IdLink kind={r.target_type} id={r.target_id} label={r.target_label ?? undefined} />
         </span>
       ),
     },
-    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[12px]">{r.reason ?? "—"}</span> },
-    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-3 max-w-[320px] whitespace-pre-wrap text-[12px] text-muted">{r.notes ?? "—"}</span> },
+    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[0.75rem]">{r.reason ?? "—"}</span> },
+    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-3 max-w-[320px] whitespace-pre-wrap text-[0.75rem] text-muted">{r.notes ?? "—"}</span> },
     { key: "reporter", header: "Reporter", render: (r) => <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> },
     {
       key: "status",
@@ -63,11 +63,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <span className="flex flex-col gap-1">
           <StatusBadge status={r.status} label={labelFor("report", r.status)} />
           {r.resolved_at ? (
-            <span className="text-[11px] text-dim">
+            <span className="text-[0.6875rem] text-dim">
               resolved <DateTime value={r.resolved_at} relative={false} />
             </span>
           ) : null}
-          {r.open_cases ? <span className="text-[11px] text-dim">{r.open_cases} open case</span> : null}
+          {r.open_cases ? <span className="text-[0.6875rem] text-dim">{r.open_cases} open case</span> : null}
         </span>
       ),
     },

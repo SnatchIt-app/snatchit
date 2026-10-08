@@ -28,7 +28,7 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
   return (
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="action_id" value={actionId} />
-      <p className="text-[12px] text-muted">
+      <p className="text-[0.75rem] text-muted">
         Current state: <StatusBadge status={state} label={refundStateLabel(state, refundStatus)} />. The executor re-checks the enabled flag, the console pause, the approval and its hash, takes a short lease on the action, looks up any existing Stripe refund under idempotency key{" "}
         <code className="font-mono">ops_action_{actionId.slice(0, 8)}…</code>, and records the authoritative outcome. Safe to call more than once.
       </p>
@@ -40,7 +40,7 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
           </Alert>
         ) : result.refusedReason ? (
           <Alert state="warning" title={`Executor refused: ${executorRefusalLabel(result.refusedReason)}`} compact>
-            <code className="font-mono text-[11px]">{result.refusedReason}</code>
+            <code className="font-mono text-[0.6875rem]">{result.refusedReason}</code>
             {result.message ? ` — ${result.message}` : null}
             {result.state ? (
               <>
@@ -48,7 +48,7 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
                 · state <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
               </>
             ) : null}
-            {result.httpStatus ? <span className="ml-2 font-mono text-[11px] text-dim">HTTP {result.httpStatus}</span> : null}
+            {result.httpStatus ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">HTTP {result.httpStatus}</span> : null}
           </Alert>
         ) : result.error ? (
           <Alert state="failed" title={`Executor error: ${result.error}`} compact>
@@ -59,7 +59,7 @@ export function ResumeRefundForm({ actionId, state, refundStatus }: { actionId: 
                 · state <StatusBadge status={result.state} label={refundStateLabel(result.state, result.refundStatus)} />
               </>
             ) : null}
-            {result.httpStatus ? <span className="ml-2 font-mono text-[11px] text-dim">HTTP {result.httpStatus}</span> : null}
+            {result.httpStatus ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">HTTP {result.httpStatus}</span> : null}
           </Alert>
         ) : result.accepted ? (
           <Alert state="warning" title={result.refundStatus === "requires_action" ? "Requires action at Stripe — not succeeded." : "Accepted by Stripe, not yet succeeded."} compact>

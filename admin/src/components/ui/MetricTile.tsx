@@ -39,10 +39,10 @@ export function MetricTile({
   );
   const body = (
     <>
-      <p className="text-[13px] font-medium text-muted">{heading}</p>
-      <p className={`mt-1.5 ${unavailable ? "text-[15px] font-medium text-dim" : "text-[24px] font-semibold leading-tight text-ink"}`}>{headline}</p>
-      {note ? <p className="mt-1.5 text-[12px] text-warning">{note}</p> : null}
-      {sub ? <p className="mt-1 text-[12px] text-dim">{sub}</p> : null}
+      <p className="text-[0.8125rem] font-medium text-muted">{heading}</p>
+      <p className={`mt-1.5 ${unavailable ? "text-[0.9375rem] font-medium text-dim" : "text-[1.5rem] font-semibold leading-tight text-ink"}`}>{headline}</p>
+      {note ? <p className="mt-1.5 text-[0.75rem] text-warning">{note}</p> : null}
+      {sub ? <p className="mt-1 text-[0.75rem] text-dim">{sub}</p> : null}
     </>
   );
   if (href) {

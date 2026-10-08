@@ -7,10 +7,10 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <p className="text-[18px] font-bold leading-tight text-ink">
+            <p className="text-[1.125rem] font-bold leading-tight text-ink">
               Snatch It<span className="text-primary-ink">.</span>
             </p>
-            <p className="text-[13px] text-dim">Operations console</p>
+            <p className="text-[0.8125rem] text-dim">Operations console</p>
           </div>
           <EnvBadge />
         </div>

@@ -102,13 +102,13 @@ export function TrendChart({
           {ticks.map((t) => (
             <g key={t} transform={`translate(0,${yAt(t)})`}>
               <line x1={0} x2={plotW} stroke={t === 0 ? "var(--color-axis)" : "var(--color-grid)"} strokeWidth={1} shapeRendering="crispEdges" />
-              <text x={-8} dy="0.32em" textAnchor="end" className="fill-dim text-[11px] tabular-nums">
+              <text x={-8} dy="0.32em" textAnchor="end" className="fill-dim text-[0.6875rem] tabular-nums">
                 {fmtAxis(t)}
               </text>
             </g>
           ))}
           {trimmed.map(({ i, text }) => (
-            <text key={i} x={xAt(i)} y={plotH + 20} textAnchor={kind === "line" && i === 0 ? "start" : kind === "line" && i === n - 1 ? "end" : "middle"} className="fill-dim text-[11px]">
+            <text key={i} x={xAt(i)} y={plotH + 20} textAnchor={kind === "line" && i === 0 ? "start" : kind === "line" && i === n - 1 ? "end" : "middle"} className="fill-dim text-[0.6875rem]">
               {text}
             </text>
           ))}
@@ -123,7 +123,7 @@ export function TrendChart({
               {last ? (
                 <>
                   <circle cx={xAt(n - 1)} cy={yAt(last.value)} r={5} fill="var(--color-series-1)" stroke="var(--color-card)" strokeWidth={2} />
-                  <text x={xAt(n - 1) + 10} y={yAt(last.value)} dy="0.32em" className="fill-ink text-[12px] font-medium">
+                  <text x={xAt(n - 1) + 10} y={yAt(last.value)} dy="0.32em" className="fill-ink text-[0.75rem] font-medium">
                     {fmtAxis(last.value)}
                   </text>
                 </>
@@ -154,8 +154,8 @@ export function TrendChart({
           className="pointer-events-none absolute top-0 z-10 min-w-[140px] -translate-x-1/2 rounded-[var(--radius-control)] border border-line bg-card px-3 py-2 shadow-[0_4px_16px_rgba(17,17,17,0.08)]"
           style={{ left: tipLeft }}
         >
-          <p className="text-[15px] font-semibold text-ink">{fmtExact(a.value)}</p>
-          <p className="text-[12px] text-dim">{a.detail}</p>
+          <p className="text-[0.9375rem] font-semibold text-ink">{fmtExact(a.value)}</p>
+          <p className="text-[0.75rem] text-dim">{a.detail}</p>
         </div>
       ) : null}
       <p id={live} className="sr-only" aria-live="polite">

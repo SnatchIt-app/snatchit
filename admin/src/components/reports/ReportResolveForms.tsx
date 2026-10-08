@@ -10,7 +10,7 @@ import type { Report } from "@/lib/types";
 export function ReportResolveForms({ report, revalidate, compact = false }: { report: Report; revalidate: string; compact?: boolean }) {
   if (!report.id) return null;
   const closed = report.status === "actioned" || report.status === "dismissed";
-  if (closed) return <span className="text-[12px] text-dim">closed {report.resolved_at ? "" : ""}</span>;
+  if (closed) return <span className="text-[0.75rem] text-dim">closed {report.resolved_at ? "" : ""}</span>;
   const targets: { status: string; label: string; danger?: boolean }[] = [
     ...(report.status === "reviewing" ? [] : [{ status: "reviewing", label: "Mark reviewing" }]),
     { status: "actioned", label: "Actioned", danger: true },

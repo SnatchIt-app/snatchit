@@ -108,7 +108,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <SampleDataNotice />
 
       <section aria-labelledby="attention-heading" className="mb-10">
-        <h2 id="attention-heading" className="mb-2 text-[18px] font-semibold text-ink">
+        <h2 id="attention-heading" className="mb-2 text-[1.125rem] font-semibold text-ink">
           Needs attention
         </h2>
         <AttentionSummary metrics={today.metrics} definitions={METRIC_DEFINITIONS} />
@@ -117,7 +117,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_400px]">
         <section aria-labelledby="cases-heading" className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <h2 id="cases-heading" className="text-[18px] font-semibold text-ink">
+            <h2 id="cases-heading" className="text-[1.125rem] font-semibold text-ink">
               Cases to act on
             </h2>
             <div className="flex gap-1" role="group" aria-label="Assignee filter">
@@ -149,7 +149,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   }
                   description={`${rows.length} open item${rows.length === 1 ? "" : "s"}`}
                   actions={
-                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="link text-[13px]">
+                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="link text-[0.8125rem]">
                       All {humanize(type).toLowerCase()} cases
                     </Link>
                   }
@@ -163,10 +163,10 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
         <section id="business" aria-labelledby="business-heading" className="min-w-0 xl:sticky xl:top-20 xl:self-start">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="business-heading" className="text-[18px] font-semibold text-ink">
+            <h2 id="business-heading" className="text-[1.125rem] font-semibold text-ink">
               Business · last 30 days
             </h2>
-            <Link href="/money" className="link text-[13px]">
+            <Link href="/money" className="link text-[0.8125rem]">
               Money analytics
             </Link>
           </div>

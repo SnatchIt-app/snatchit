@@ -14,12 +14,12 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
   return (
     <>
       <h1 className="text-xl font-bold text-ink">Two-factor authentication</h1>
-      <p className="mt-1 text-[13px] text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
+      <p className="mt-1 text-[0.8125rem] text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
       <div className="mt-5">
         <MfaFlow next={next} />
       </div>
       <form action={signOutAction} className="mt-6 border-t border-line-neutral pt-4 text-right">
-        <button type="submit" className="link text-[12px]">
+        <button type="submit" className="link text-[0.75rem]">
           Sign out
         </button>
       </form>

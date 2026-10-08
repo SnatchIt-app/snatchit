@@ -14,24 +14,24 @@
   --color-card: #ffffff;
   --color-field: #ffffff;
   --color-canvas: #f7f7f8;
-  --color-raised: #f5f5f6;
+  --color-raised: #fafafa;
   --color-overlay: rgba(17, 17, 17, 0.45);
 
-  --color-ink: #111111;
-  --color-muted: #4a4a4a;
-  --color-dim: #6b6b6b;
+  --color-ink: #0b0b0b;
+  --color-muted: rgba(11, 11, 11, 0.66);
+  --color-dim: rgba(11, 11, 11, 0.58);
   --color-placeholder: #6b6b6b;
 
   /* Brand red — primary actions, the active section, emphasis. Never a chart series or a border colour. */
   --color-primary: #ff1a1a;
-  --color-primary-ink: #c40000;
+  --color-primary-ink: #dd0000;
   --color-primary-muted: #cc0000;
   --color-primary-soft: rgba(255, 26, 26, 0.07);
 
   /* Restrained neutral borders (the red hairlines of the console era are retired). */
-  --color-line: #e6e6e9;
-  --color-line-strong: #d4d4d8;
-  --color-line-neutral: #ececef;
+  --color-line: rgba(11, 11, 11, 0.14);
+  --color-line-strong: rgba(11, 11, 11, 0.28);
+  --color-line-neutral: rgba(11, 11, 11, 0.14);
 
   /* Operational status — text-safe on white; always paired with an icon or label. */
   --color-success: #15803d;
@@ -53,11 +53,44 @@
 
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-oswald), "Oswald", Impact, "Arial Black", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --radius-none: 0;
   --radius-control: 8px;
   --radius-card: 12px;
+}
+
+/*
+ * Shared type scale — rem, so the browser's text-size setting moves the whole
+ * page together. docs/design/DASHBOARD_DESIGN_GUIDELINES.md §3.
+ */
+:root {
+  --text-micro: 0.6875rem;
+  --text-label: 0.75rem;
+  --text-control: 0.8125rem;
+  --text-body: 0.875rem;
+}
+
+/* Oswald, uppercase, for SHORT display headings only — never a label or control. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: #0b0b0b;
+}
+.display-xl { font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 0.95; letter-spacing: -0.03em; }
+.display-lg { font-size: clamp(1.25rem, 2.4vw, 1.5rem); line-height: 1; }
+.item-title { font-family: var(--font-sans); font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.005em; color: #0b0b0b; }
+.eyebrow-accent {
+  font-family: var(--font-sans);
+  font-size: var(--text-label);
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #dd0000;
 }
 
 :root {
@@ -83,7 +116,7 @@ body {
   background: #f7f7f8;
   color: #111111;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--text-body);
   line-height: 1.5;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -101,7 +134,7 @@ body {
 
 /* Small contextual label above a heading or value: sentence case, no tracking. */
 .eyebrow {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -115,7 +148,7 @@ body {
   border: 1px solid #d4d4d8;
   border-radius: var(--radius-control);
   padding: 0.5rem 0.75rem;
-  font-size: 14px;
+  font-size: var(--text-body);
 }
 .field:hover:not(:disabled):not(:focus):not(:focus-within) {
   border-color: #a1a1aa;
@@ -159,7 +192,7 @@ select.field:disabled {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 0.9rem;
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.25;
   border: 1px solid transparent;
@@ -200,7 +233,7 @@ select.field:disabled {
 }
 .btn-sm {
   padding: 0.3rem 0.65rem;
-  font-size: 13px;
+  font-size: var(--text-control);
 }
 
 .link {
@@ -216,7 +249,7 @@ select.field:disabled {
 
 kbd {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-micro);
   padding: 0 5px;
   border: 1px solid #e6e6e9;
   border-radius: 4px;
@@ -228,13 +261,13 @@ kbd {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-control);
   background: #ffffff;
 }
 .data-table th {
   text-align: left;
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--text-label);
   color: #4a4a4a;
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid #e6e6e9;

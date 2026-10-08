@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <h1 className="text-xl font-bold text-ink">Sign in</h1>
-      <p className="mt-1 text-[13px] text-muted">Operators only. An authenticator code is required after your password.</p>
+      <p className="mt-1 text-[0.8125rem] text-muted">Operators only. An authenticator code is required after your password.</p>
       <div className="mt-5">
         <LoginForm next={next} />
       </div>

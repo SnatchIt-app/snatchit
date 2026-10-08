@@ -135,7 +135,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                   value: (
                     <span className="flex flex-col gap-0.5">
                       <PartyLink id={d.buyer?.id ?? p.buyer_id} displayName={d.buyer?.display_name} emailMasked={d.buyer?.email_masked} meId={me.id} />
-                      <span className="text-[11px] text-dim">phone {d.buyer?.phone_masked ?? "—"}</span>
+                      <span className="text-[0.6875rem] text-dim">phone {d.buyer?.phone_masked ?? "—"}</span>
                     </span>
                   ),
                 },
@@ -144,7 +144,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                   value: (
                     <span className="flex flex-col gap-0.5">
                       <PartyLink id={d.seller?.id ?? p.seller_id} displayName={d.seller?.display_name} emailMasked={d.seller?.email_masked} meId={me.id} />
-                      <span className="text-[11px] text-dim">
+                      <span className="text-[0.6875rem] text-dim">
                         {d.seller?.is_verified_seller ? "verified seller" : "not verified"} · onboarding {d.seller?.stripe_onboarding_complete ? "complete" : "incomplete"}
                         {d.seller?.stripe_payouts_enabled === null || d.seller?.stripe_payouts_enabled === undefined ? "" : ` · payouts ${d.seller.stripe_payouts_enabled ? "enabled" : "disabled"}`}
                       </span>
@@ -165,7 +165,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                 { key: "total", label: "Total charged to buyer", value: <Money cents={p.total} /> },
                 { key: "mode", value: p.mode ? <StatusBadge status={p.mode} variant="neutral" /> : null },
                 { key: "payment_method", value: p.payment_method },
-                { key: "stripe_payment_intent_id", label: "Stripe PaymentIntent", value: p.stripe_payment_intent_id ? <code className="font-mono text-[12px]">{p.stripe_payment_intent_id}</code> : null },
+                { key: "stripe_payment_intent_id", label: "Stripe PaymentIntent", value: p.stripe_payment_intent_id ? <code className="font-mono text-[0.75rem]">{p.stripe_payment_intent_id}</code> : null },
                 { key: "status", value: <StatusBadge status={p.status} label={labelFor("payment", p.status)} /> },
                 { key: "created_at", value: <DateTime value={p.created_at} /> },
                 { key: "paid_at", label: "Captured at", value: <DateTime value={p.paid_at} /> },
@@ -194,9 +194,9 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                     { key: "seller_sent_at", value: <DateTime value={t.seller_sent_at} /> },
                     { key: "buyer_viewed_at", value: <DateTime value={t.buyer_viewed_at} /> },
                     { key: "buyer_confirmed_at", value: <DateTime value={t.buyer_confirmed_at} /> },
-                    { key: "delivery_email", label: "Delivery email (masked)", value: t.delivery_email ? <span className="font-mono text-[12px]">{t.delivery_email}</span> : null },
-                    { key: "delivery_phone", label: "Delivery phone (masked)", value: t.delivery_phone ? <span className="font-mono text-[12px]">{t.delivery_phone}</span> : null },
-                    { key: "id", label: "Transfer id", value: <code className="font-mono text-[12px]">{t.id}</code> },
+                    { key: "delivery_email", label: "Delivery email (masked)", value: t.delivery_email ? <span className="font-mono text-[0.75rem]">{t.delivery_email}</span> : null },
+                    { key: "delivery_phone", label: "Delivery phone (masked)", value: t.delivery_phone ? <span className="font-mono text-[0.75rem]">{t.delivery_phone}</span> : null },
+                    { key: "id", label: "Transfer id", value: <code className="font-mono text-[0.75rem]">{t.id}</code> },
                   ]}
                 />
                 <h3 className="eyebrow mt-4 text-dim">Evidence (audited access, short-lived links)</h3>
@@ -216,7 +216,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
           <Panel eyebrow="Where the seller's share sits" title="Seller funds state">
             <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={d.seller_funds_state} label={labelFor("funds", d.seller_funds_state)} variant={d.seller_funds_state === "released_to_connected_account" ? "ok" : undefined} />
-              <code className="font-mono text-[11px] text-dim">{d.seller_funds_state ?? "—"}</code>
+              <code className="font-mono text-[0.6875rem] text-dim">{d.seller_funds_state ?? "—"}</code>
             </div>
             {t ? (
               <KeyValue
@@ -231,13 +231,13 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                   {
                     key: "stripe_transfer_id",
                     label: "Stripe Transfer (connected account)",
-                    value: t.stripe_transfer_id ? <code className="font-mono text-[12px]">{t.stripe_transfer_id}</code> : <span className="text-dim">none — funds not released</span>,
+                    value: t.stripe_transfer_id ? <code className="font-mono text-[0.75rem]">{t.stripe_transfer_id}</code> : <span className="text-dim">none — funds not released</span>,
                   },
                   { key: "seller_share", label: "Seller share (amount − seller fee)", value: p.amount !== null && p.amount !== undefined ? <Money cents={p.amount - (p.seller_fee ?? 0)} /> : null },
                 ]}
               />
             ) : null}
-            <p className="mt-3 text-[11px] text-dim">
+            <p className="mt-3 text-[0.6875rem] text-dim">
               {d.bank_payout.note ?? "Bank payouts from the connected account to the seller's bank are not tracked."} “Released to connected account” is a Stripe Transfer, not a bank payout.
             </p>
           </Panel>
@@ -283,10 +283,10 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
               items={[
                 { key: "payment_status", value: <StatusBadge status={d.refund.payment_status} label={labelFor("payment", d.refund.payment_status)} /> },
                 { key: "refunded_at", value: <DateTime value={d.refund.refunded_at} /> },
-                { key: "stripe_refund_id", value: d.refund.stripe_refund_id ? <code className="font-mono text-[12px]">{d.refund.stripe_refund_id}</code> : <span className="text-dim">none</span> },
+                { key: "stripe_refund_id", value: d.refund.stripe_refund_id ? <code className="font-mono text-[0.75rem]">{d.refund.stripe_refund_id}</code> : <span className="text-dim">none</span> },
               ]}
             />
-            <p className="mt-3 text-[11px] text-dim">
+            <p className="mt-3 text-[0.6875rem] text-dim">
               “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It records that a refund
               was CREATED, not that it settled: the handler records every refund on the charge and the status flips once the recorded amount reaches the
               total. A card refund can still fail up to ~30 days later. Until migration 150 is live there is no column that distinguishes a settled refund
@@ -348,7 +348,7 @@ function OrderActions({
   return (
     <>
       <Panel eyebrow="Safe actions" title="Actions">
-        <p className="text-[12px] text-muted">
+        <p className="text-[0.75rem] text-muted">
           Every action needs a reason, checks the state you see here before acting, and is recorded with your identity. Results shown are the server&apos;s answer — never optimistic.
         </p>
         {nothing ? <Alert state="info" title="No state-changing action applies to this order right now." compact /> : null}
@@ -388,7 +388,7 @@ function OrderActions({
                 </label>
                 <textarea id="dispute-notes" name="param.notes" rows={2} maxLength={2000} className="field mt-1" />
               </div>
-              <p className="text-[11px] text-dim">Buyer win / partial refund does not move money — a Refund pending case opens and the refund is executed separately.</p>
+              <p className="text-[0.6875rem] text-dim">Buyer win / partial refund does not move money — a Refund pending case opens and the refund is executed separately.</p>
             </ConfirmForm>
           ) : (
             <Alert state="info" title="Only founders and risk operators can record dispute outcomes." compact />
@@ -409,10 +409,10 @@ function OrderActions({
               label="Request release"
               danger
             >
-              <p className="text-[12px] text-muted">
+              <p className="text-[0.75rem] text-muted">
                 Marks the transfer released; the payout worker creates the Stripe Transfer to the seller&apos;s connected account on its next run (not a bank payout). Requires the other founder&apos;s approval under System → Approvals; nothing changes until then.
               </p>
-              <p className="text-[11px] text-dim">
+              <p className="text-[0.6875rem] text-dim">
                 Current review status: <StatusBadge status={t.payout_review_status} label={labelFor("payout_review", t.payout_review_status ?? "none")} />
                 {t.payout_risk_tier ? <> · risk tier {t.payout_risk_tier}</> : null}
               </p>
@@ -447,10 +447,10 @@ function OrderActions({
                 danger
                 className="mt-3"
               >
-                <p className="text-[12px] text-ink">
+                <p className="text-[0.75rem] text-ink">
                   Full refund of <Money cents={p.total} /> only — partial refunds are not supported by the local money model (payments records refund status, not a refunded amount; a partial would be rejected as <code className="font-mono">not_supported</code>).
                 </p>
-                <p className="text-[11px] text-dim">
+                <p className="text-[0.6875rem] text-dim">
                   Parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
                 </p>
               </ConfirmForm>
@@ -480,7 +480,7 @@ function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; baseP
       header: "Action",
       render: (a) =>
         a.id ? (
-          <Link href={`/actions/${a.id}`} className="link font-mono text-[12px]">
+          <Link href={`/actions/${a.id}`} className="link font-mono text-[0.75rem]">
             {shortId(a.id)}
           </Link>
         ) : (
@@ -495,16 +495,16 @@ function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; baseP
         return (
           <span className="flex flex-col gap-0.5">
             <StatusBadge status={a.state} label={refundStateLabel(a.state, rs)} />
-            {a.state === "processing" && rs ? <span className="text-[11px] text-dim">Stripe refund status: {rs} — not a completed refund</span> : null}
-            {a.state === "succeeded_at_provider" ? <span className="text-[11px] text-dim">Stripe succeeded; payment flips to refunded when the webhook lands</span> : null}
-            {a.state === "unknown" ? <span className="text-[11px] text-danger">verify in the Stripe Dashboard before any retry</span> : null}
+            {a.state === "processing" && rs ? <span className="text-[0.6875rem] text-dim">Stripe refund status: {rs} — not a completed refund</span> : null}
+            {a.state === "succeeded_at_provider" ? <span className="text-[0.6875rem] text-dim">Stripe succeeded; payment flips to refunded when the webhook lands</span> : null}
+            {a.state === "unknown" ? <span className="text-[0.6875rem] text-danger">verify in the Stripe Dashboard before any retry</span> : null}
           </span>
         );
       },
     },
-    { key: "provider_ref", header: "Stripe refund", render: (a) => (a.provider_ref ? <code className="font-mono text-[11px]">{a.provider_ref}</code> : <span className="text-dim">none</span>) },
+    { key: "provider_ref", header: "Stripe refund", render: (a) => (a.provider_ref ? <code className="font-mono text-[0.6875rem]">{a.provider_ref}</code> : <span className="text-dim">none</span>) },
     { key: "requested_by", header: "By", render: (a) => (a.requested_by === meId ? "me" : a.requested_by_label ?? shortId(a.requested_by)) },
-    { key: "error", header: "Error", render: (a) => (a.error ? <span className="text-[12px] text-danger">{a.error}</span> : <span className="text-dim">—</span>) },
+    { key: "error", header: "Error", render: (a) => (a.error ? <span className="text-[0.75rem] text-danger">{a.error}</span> : <span className="text-dim">—</span>) },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(a, i) => a.id ?? `${i}`} basePath={basePath} emptyText="No refund attempts." caption="Refund execution attempts" dense />;
 }
@@ -512,7 +512,7 @@ function RefundAttemptTable({ rows, basePath, meId }: { rows: OpsAction[]; baseP
 function StripeDisputeTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
   const columns: Column<JsonRecord>[] = [
     { key: "created_at", header: "Opened", render: (r) => <DateTime value={r.created_at} /> },
-    { key: "stripe_dispute_id", header: "Stripe dispute", render: (r) => <code className="font-mono text-[12px]">{str(r.stripe_dispute_id) ?? "—"}</code> },
+    { key: "stripe_dispute_id", header: "Stripe dispute", render: (r) => <code className="font-mono text-[0.75rem]">{str(r.stripe_dispute_id) ?? "—"}</code> },
     { key: "status", header: "Status", render: (r) => <StatusBadge status={str(r.status)} /> },
     { key: "reason", header: "Reason", render: (r) => str(r.reason) ?? "—" },
     { key: "amount", header: "Amount", align: "right", render: (r) => <Money cents={num(r.amount)} /> },
@@ -528,7 +528,7 @@ function ResolutionTable({ rows, basePath }: { rows: JsonRecord[]; basePath: str
     { key: "resolution", header: "Resolution", render: (r) => str(r.resolution) ?? "—" },
     { key: "refund_required", header: "Refund required", render: (r) => <StatusBadge status={String(bool(r.refund_required) ?? false)} label={bool(r.refund_required) ? "yes — not executed by this record" : "no"} /> },
     { key: "actor", header: "By", render: (r) => str(r.actor_label) ?? shortId(r.actor_id) },
-    { key: "reason", header: "Reason / notes", render: (r) => <span className="text-[12px] text-muted">{[str(r.reason), str(r.notes)].filter(Boolean).join(" — ") || "—"}</span> },
+    { key: "reason", header: "Reason / notes", render: (r) => <span className="text-[0.75rem] text-muted">{[str(r.reason), str(r.notes)].filter(Boolean).join(" — ") || "—"}</span> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No resolutions." caption="Dispute resolutions" dense />;
 }
@@ -538,13 +538,13 @@ function PayoutDecisionTable({ rows, basePath }: { rows: JsonRecord[]; basePath:
     { key: "decided_at", header: "Decided", render: (r) => <DateTime value={r.decided_at} /> },
     { key: "decision", header: "Decision", render: (r) => <StatusBadge status={str(r.decision)} /> },
     { key: "risk_tier", header: "Risk tier", render: (r) => <StatusBadge status={str(r.risk_tier)} variant="neutral" /> },
-    { key: "reason_codes", header: "Reason codes", render: (r) => <span className="font-mono text-[11px]">{asArray(r.reason_codes).join(", ") || "—"}</span> },
+    { key: "reason_codes", header: "Reason codes", render: (r) => <span className="font-mono text-[0.6875rem]">{asArray(r.reason_codes).join(", ") || "—"}</span> },
     { key: "hold_until", header: "Hold until", render: (r) => <DateTime value={r.hold_until} /> },
     {
       key: "flags",
       header: "Buyer confirmed / dispute",
       render: (r) => (
-        <span className="text-[12px]">
+        <span className="text-[0.75rem]">
           {bool(r.buyer_confirmed) ? "confirmed" : "not confirmed"} / {bool(r.dispute_open) ? "dispute open" : "no dispute"}
           {(() => {
             const note = decisionProvenanceNote(str(r.actor), str(r.decided_at), r);
@@ -553,7 +553,7 @@ function PayoutDecisionTable({ rows, basePath }: { rows: JsonRecord[]; basePath:
         </span>
       ),
     },
-    { key: "actor", header: "Actor", render: (r) => (str(r.actor) ? <span className="font-mono text-[11px]">{str(r.actor)}</span> : <span className="text-dim">system</span>) },
+    { key: "actor", header: "Actor", render: (r) => (str(r.actor) ? <span className="font-mono text-[0.6875rem]">{str(r.actor)}</span> : <span className="text-dim">system</span>) },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => str(r.id) ?? `${i}`} basePath={basePath} emptyText="No payout decisions recorded." caption="Payout decisions" dense />;
 }

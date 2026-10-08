@@ -119,7 +119,7 @@ function HitTable({ rows, kind, q }: { rows: SearchHit[]; kind: string; q: strin
     },
     { key: "sub", header: "Detail", render: (h) => <span className="text-muted">{h.sub ?? "—"}</span> },
     { key: "status", header: "Status", render: (h) => <StatusBadge status={h.status} /> },
-    { key: "id", header: "ID", render: (h) => <code className="font-mono text-[11px] text-dim">{h.id ?? "—"}</code> },
+    { key: "id", header: "ID", render: (h) => <code className="font-mono text-[0.6875rem] text-dim">{h.id ?? "—"}</code> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(h, i) => `${kind}-${h.id ?? i}`} basePath="/search" searchParams={{ q }} emptyText="No matches." caption={`${kind} results`} dense />;
 }

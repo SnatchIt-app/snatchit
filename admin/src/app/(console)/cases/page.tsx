@@ -45,9 +45,9 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
   const rows: OpsCase[] = page ? page.items.map(toCase).filter((c): c is OpsCase => c !== null) : [];
 
   const select = (name: string, options: string[], current: string | undefined, all: string) => (
-    <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
+    <label className="flex flex-col gap-1 text-[0.8125rem] font-medium text-muted">
       {name.replace("_", " ")}
-      <select name={name} defaultValue={current ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+      <select name={name} defaultValue={current ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
         <option value="">{all}</option>
         {options.map((o) => (
           <option key={o} value={o}>
@@ -63,9 +63,9 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       <PageHeader eyebrow="Work" title="Cases" description="Detector-raised and manual cases across payments, transfers, disputes, users, and jobs." />
 
       <details className="mb-4 border border-line-neutral bg-card">
-        <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-ink">New manual case</summary>
+        <summary className="cursor-pointer px-3 py-2 text-[0.8125rem] font-semibold text-ink">New manual case</summary>
         <div className="border-t border-line-neutral p-3">
-          <p className="mb-3 text-[12px] text-muted">A free-standing case with no subject. To attach a case to an order, listing or user, open it from that record&apos;s page.</p>
+          <p className="mb-3 text-[0.75rem] text-muted">A free-standing case with no subject. To attach a case to an order, listing or user, open it from that record&apos;s page.</p>
           <NewCaseForm subjectKind="none" revalidate="/cases" />
         </div>
       </details>
@@ -73,13 +73,13 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       <form method="get" action="/cases" className="mb-4 flex flex-wrap items-end gap-3 border border-line-neutral bg-card p-3">
         {select("status", CASE_STATUSES, first(sp.status), "Any status")}
         {select("priority", CASE_PRIORITIES, first(sp.priority), "Any priority")}
-        <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
+        <label className="flex flex-col gap-1 text-[0.8125rem] font-medium text-muted">
           Type
-          <input name="case_type" defaultValue={first(sp.case_type) ?? ""} placeholder="e.g. refund_pending" className="field min-w-[180px] py-1.5 text-[13px]" />
+          <input name="case_type" defaultValue={first(sp.case_type) ?? ""} placeholder="e.g. refund_pending" className="field min-w-[180px] py-1.5 text-[0.8125rem]" />
         </label>
-        <label className="flex flex-col gap-1 text-[13px] font-medium text-muted">
+        <label className="flex flex-col gap-1 text-[0.8125rem] font-medium text-muted">
           Assignee
-          <select name="assignee" defaultValue={assigneeRaw ?? ""} className="field min-w-[140px] py-1.5 text-[13px]">
+          <select name="assignee" defaultValue={assigneeRaw ?? ""} className="field min-w-[140px] py-1.5 text-[0.8125rem]">
             <option value="">Anyone</option>
             <option value="me">Me</option>
             <option value="unassigned">Unassigned</option>

@@ -39,11 +39,11 @@ export function CaseTable({
           ) : (
             <span>{c.title ?? "—"}</span>
           )}
-          {c.summary ? <p className="mt-0.5 line-clamp-2 text-[12px] text-muted">{c.summary}</p> : null}
+          {c.summary ? <p className="mt-0.5 line-clamp-2 text-[0.75rem] text-muted">{c.summary}</p> : null}
         </div>
       ),
     },
-    { key: "case_type", header: "Type", sortKey: "case_type", render: (c) => <span className="font-mono text-[12px]">{c.case_type ?? "—"}</span> },
+    { key: "case_type", header: "Type", sortKey: "case_type", render: (c) => <span className="font-mono text-[0.75rem]">{c.case_type ?? "—"}</span> },
     { key: "status", header: "Status", sortKey: "status", render: (c) => <StatusBadge status={c.status} /> },
     {
       key: "subject",
@@ -52,7 +52,7 @@ export function CaseTable({
         const href = hrefFor(c.subject_kind, c.subject_id);
         const label = c.subject_label ?? c.subject_ref ?? c.subject_id?.slice(0, 8) ?? "—";
         return (
-          <span className="font-mono text-[12px]">
+          <span className="font-mono text-[0.75rem]">
             <span className="text-dim">{c.subject_kind ?? ""} </span>
             {href ? (
               <Link href={href} className="link">

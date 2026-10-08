@@ -100,10 +100,10 @@ export function StatusBadge({
   const v = variant ?? statusVariant(status);
   return (
     <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium ${VARIANT_CLASS[v]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[0.75rem] font-medium ${VARIANT_CLASS[v]}`}
       data-status={status ?? ""}
     >
-      <span aria-hidden="true" className="text-[10px] font-bold leading-none">
+      <span aria-hidden="true" className="text-[0.625rem] font-bold leading-none">
         {VARIANT_GLYPH[v]}
       </span>
       {text}

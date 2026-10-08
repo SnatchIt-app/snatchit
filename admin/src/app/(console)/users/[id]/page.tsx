@@ -92,8 +92,8 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             <KeyValue
               columns={3}
               items={[
-                { key: "email_masked", label: "Email (masked)", value: u.email_masked ? <span className="font-mono text-[12px]">{u.email_masked}</span> : null },
-                { key: "phone_masked", label: "Phone (masked)", value: u.phone_masked ? <span className="font-mono text-[12px]">{u.phone_masked}</span> : null },
+                { key: "email_masked", label: "Email (masked)", value: u.email_masked ? <span className="font-mono text-[0.75rem]">{u.email_masked}</span> : null },
+                { key: "phone_masked", label: "Phone (masked)", value: u.phone_masked ? <span className="font-mono text-[0.75rem]">{u.phone_masked}</span> : null },
                 { key: "created_at", label: "Profile created", value: <DateTime value={u.profile.created_at} /> },
                 { key: "auth_created", label: "Account created", value: <DateTime value={u.auth.created_at} /> },
                 { key: "email_confirmed_at", value: <DateTime value={u.auth.email_confirmed_at} /> },
@@ -115,7 +115,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 value: typeof v === "boolean" ? <StatusBadge status={String(v)} label={v ? "yes" : "no"} /> : v === null ? null : <StatusBadge status={v} variant="neutral" />,
               }))}
             />
-            <p className="mt-3 text-[11px] text-dim">Stripe account ids are never shown here; presence flags only.</p>
+            <p className="mt-3 text-[0.6875rem] text-dim">Stripe account ids are never shown here; presence flags only.</p>
           </Panel>
 
           <Panel eyebrow={`${u.listings.length}`} title="Listings (latest 50)">
@@ -179,7 +179,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 
         <div className="space-y-6">
           <Panel eyebrow="Enforced by can_create_listing()" title="Listing creation">
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[0.8125rem]">
               <StatusBadge status={u.is_listing_blocked ? "held" : "active"} label={u.is_listing_blocked ? "blocked" : "allowed"} />
               {u.is_listing_blocked && risk ? (
                 <span className="text-muted">
@@ -187,7 +187,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 </span>
               ) : null}
             </div>
-            {u.is_listing_blocked && risk && str(risk.listing_blocked_reason) ? <p className="mb-3 text-[12px] text-muted">Reason on record: {str(risk.listing_blocked_reason)}</p> : null}
+            {u.is_listing_blocked && risk && str(risk.listing_blocked_reason) ? <p className="mb-3 text-[0.75rem] text-muted">Reason on record: {str(risk.listing_blocked_reason)}</p> : null}
             {u.is_listing_blocked ? (
               canRequest(me.role, "user_unrestrict") ? (
                 <ConfirmForm
@@ -215,7 +215,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 label="Block listing creation"
                 danger
               >
-                <p className="text-[12px] text-muted">Sets seller_risk_scores.is_listing_blocked; the apps call can_create_listing() before creating a listing. Existing listings and orders are untouched. Account suspension does not exist and is not offered.</p>
+                <p className="text-[0.75rem] text-muted">Sets seller_risk_scores.is_listing_blocked; the apps call can_create_listing() before creating a listing. Existing listings and orders are untouched. Account suspension does not exist and is not offered.</p>
               </ConfirmForm>
             ) : (
               <Alert state="info" title="Your role cannot block listing creation." compact />
@@ -229,15 +229,15 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
               <ol className="space-y-3">
                 {u.restrictions.map((r, i) => (
                   <li key={r.id ?? i} className={`border-l-2 pl-3 ${r.lifted_at ? "border-line-neutral" : "border-warning"}`}>
-                    <p className="text-[13px] text-ink">
+                    <p className="text-[0.8125rem] text-ink">
                       <StatusBadge status={r.lifted_at ? "resolved" : "held"} label={r.lifted_at ? "lifted" : "active"} /> <span className="ml-2">{humanize(r.kind ?? "restriction")}</span>
                     </p>
-                    <p className="mt-1 text-[12px] text-muted">{r.reason}</p>
-                    <p className="mt-1 text-[11px] text-dim">
+                    <p className="mt-1 text-[0.75rem] text-muted">{r.reason}</p>
+                    <p className="mt-1 text-[0.6875rem] text-dim">
                       by {r.actor === me.id ? "me" : r.actor_label ?? shortId(r.actor)} · <DateTime value={r.created_at} />
                     </p>
                     {r.lifted_at ? (
-                      <p className="mt-1 text-[11px] text-dim">
+                      <p className="mt-1 text-[0.6875rem] text-dim">
                         lifted <DateTime value={r.lifted_at} />
                         {r.lift_reason ? ` — ${r.lift_reason}` : ""}
                       </p>
@@ -261,12 +261,12 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
 function ReportMiniTable({ rows, basePath, who }: { rows: Report[]; basePath: string; who: "reporter" | "target" }) {
   const columns: Column<Report>[] = [
     { key: "created_at", header: "Filed", render: (r) => <DateTime value={r.created_at} /> },
-    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[12px]">{r.reason ?? "—"}</span> },
+    { key: "reason", header: "Reason", render: (r) => <span className="font-mono text-[0.75rem]">{r.reason ?? "—"}</span> },
     { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} label={labelFor("report", r.status)} /> },
     who === "reporter"
       ? { key: "reporter", header: "Reporter", render: (r) => <IdLink kind="user" id={r.reporter_id} label={r.reporter_label ?? undefined} /> }
       : { key: "target", header: "Target", render: (r) => <IdLink kind={r.target_type} id={r.target_id} label={r.target_label ?? undefined} /> },
-    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[12px] text-muted">{r.notes ?? "—"}</span> },
+    { key: "notes", header: "Notes", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[0.75rem] text-muted">{r.notes ?? "—"}</span> },
     { key: "id", header: "Report", render: (r) => <IdLink kind="report" id={r.id} /> },
   ];
   return <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} emptyText="None." caption="Reports" dense />;
@@ -275,9 +275,9 @@ function ReportMiniTable({ rows, basePath, who }: { rows: Report[]; basePath: st
 function FlagTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string }) {
   const columns: Column<JsonRecord>[] = [
     { key: "created_at", header: "Raised", render: (r) => <DateTime value={r.created_at} /> },
-    { key: "flag_type", header: "Flag", render: (r) => <span className="font-mono text-[12px]">{str(r.flag_type) ?? "—"}</span> },
+    { key: "flag_type", header: "Flag", render: (r) => <span className="font-mono text-[0.75rem]">{str(r.flag_type) ?? "—"}</span> },
     { key: "severity", header: "Severity", render: (r) => <StatusBadge status={str(r.severity)} variant={str(r.severity) === "critical" ? "danger" : str(r.severity) === "warning" ? "warn" : "neutral"} /> },
-    { key: "details", header: "Details", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[12px] text-muted">{str(r.details) ?? "—"}</span> },
+    { key: "details", header: "Details", render: (r) => <span className="line-clamp-2 max-w-[320px] text-[0.75rem] text-muted">{str(r.details) ?? "—"}</span> },
     { key: "listing_id", header: "Listing", render: (r) => <IdLink kind="listing" id={str(r.listing_id)} /> },
     { key: "transfer_id", header: "Transfer", render: (r) => <IdLink kind="transfer" id={str(r.transfer_id)} /> },
     {
@@ -285,7 +285,7 @@ function FlagTable({ rows, basePath }: { rows: JsonRecord[]; basePath: string })
       header: "Review",
       render: (r) =>
         str(r.reviewed_at) ? (
-          <span className="text-[12px]">
+          <span className="text-[0.75rem]">
             {str(r.resolution) ?? "reviewed"} <DateTime value={r.reviewed_at} relative={false} />
           </span>
         ) : (

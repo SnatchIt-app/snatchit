@@ -93,9 +93,9 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             <KeyValue
               columns={3}
               items={[
-                { key: "id", value: <code className="font-mono text-[12px]">{c.id}</code> },
+                { key: "id", value: <code className="font-mono text-[0.75rem]">{c.id}</code> },
                 { key: "detector", value: c.detector },
-                { key: "dedupe_key", value: c.dedupe_key ? <code className="font-mono text-[12px]">{c.dedupe_key}</code> : null },
+                { key: "dedupe_key", value: c.dedupe_key ? <code className="font-mono text-[0.75rem]">{c.dedupe_key}</code> : null },
                 { key: "assignee", value: c.assignee ? (c.assignee === me.id ? "me" : c.assignee_label ?? c.assignee_email_masked ?? c.assignee) : "unassigned" },
                 { key: "due_at", value: <DateTime value={c.due_at} /> },
                 { key: "last_seen_at", value: <DateTime value={c.last_seen_at} /> },
@@ -119,8 +119,8 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
               <ol className="space-y-3">
                 {detail.notes.map((n, i) => (
                   <li key={n.id ?? i} className="border-l-2 border-line-strong pl-3">
-                    <p className="whitespace-pre-wrap text-[13px] text-ink">{n.body ?? "—"}</p>
-                    <p className="mt-1 text-[11px] text-dim">
+                    <p className="whitespace-pre-wrap text-[0.8125rem] text-ink">{n.body ?? "—"}</p>
+                    <p className="mt-1 text-[0.6875rem] text-dim">
                       {n.author_email_masked ?? (n.author === me.id ? "me" : n.author?.slice(0, 8)) ?? "—"} · <DateTime value={n.created_at} />
                     </p>
                   </li>
@@ -143,7 +143,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             ) : (
               <ol className="space-y-2">
                 {detail.events.map((e, i) => (
-                  <li key={e.id ?? i} className="flex flex-wrap items-baseline gap-2 border-b border-line-neutral pb-2 text-[13px]">
+                  <li key={e.id ?? i} className="flex flex-wrap items-baseline gap-2 border-b border-line-neutral pb-2 text-[0.8125rem]">
                     <DateTime value={e.at} />
                     <StatusBadge status={e.kind} variant="neutral" />
                     <span className="text-ink">{e.label ?? humanize(e.kind ?? "event")}</span>
@@ -219,7 +219,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                 Due (your local time; stored as UTC)
               </label>
               <input id="due" type="datetime-local" name="param.due_at" defaultValue={c.due_at ? c.due_at.slice(0, 16) : ""} className="field mt-1" />
-              <p className="mt-1 text-[11px] text-dim">Leave empty to clear the due date.</p>
+              <p className="mt-1 text-[0.6875rem] text-dim">Leave empty to clear the due date.</p>
             </ConfirmForm>
           </Panel>
         </div>

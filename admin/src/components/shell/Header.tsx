@@ -8,7 +8,7 @@ import { humanize } from "@/lib/format";
 export function EnvBadge() {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[0.75rem] font-semibold ${
         IS_PRODUCTION_ENV_LABEL ? "bg-primary-ink text-white" : "bg-warning-soft text-warning"
       }`}
       title={`Environment: ${ENV_LABEL}`}
@@ -29,11 +29,11 @@ export function Header({ email, role }: { email: string | null; role: string }) 
       <div className="hidden sm:block">
         <FreshnessSlot />
       </div>
-      <div className="flex items-center gap-3 text-[12px]">
+      <div className="flex items-center gap-3 text-[0.75rem]">
         <span className="text-muted" title="Signed-in operator">
           {email ?? "—"}
         </span>
-        <span className="rounded-full bg-raised px-2 py-0.5 text-[12px] text-muted">{humanize(role.replace("platform_", ""))}</span>
+        <span className="rounded-full bg-raised px-2 py-0.5 text-[0.75rem] text-muted">{humanize(role.replace("platform_", ""))}</span>
         <form action={signOutAction}>
           <button type="submit" className="btn btn-ghost btn-sm">
             Sign out

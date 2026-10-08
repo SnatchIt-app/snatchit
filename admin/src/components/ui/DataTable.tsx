@@ -68,7 +68,7 @@ export function DataTable<T>({
   return (
     <div id={id}>
       <div className="overflow-x-auto rounded-[var(--radius-control)] border border-line">
-        <table className={`data-table ${dense ? "text-[12px]" : ""}`}>
+        <table className={`data-table ${dense ? "text-[0.75rem]" : ""}`}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
           <thead>
             <tr>
@@ -124,7 +124,7 @@ export function DataTable<T>({
         </table>
       </div>
       {nextCursor || hasCursor ? (
-        <nav aria-label="Pagination" className="mt-3 flex items-center justify-between text-[12px]">
+        <nav aria-label="Pagination" className="mt-3 flex items-center justify-between text-[0.75rem]">
           <span className="text-dim">
             {rows.length} row{rows.length === 1 ? "" : "s"}
             {hasCursor ? " (continued)" : ""}

@@ -23,7 +23,7 @@ async function consolePaused(role: string): Promise<boolean> {
 
 function PausedNotice() {
   return (
-    <div role="status" aria-live="polite" className="border-b border-warning bg-card px-4 py-2 text-[13px] text-ink md:px-8">
+    <div role="status" aria-live="polite" className="border-b border-warning bg-card px-4 py-2 text-[0.8125rem] text-ink md:px-8">
       <span className="eyebrow mr-2 text-warning">Actions paused</span>
       Actions are paused by a founder — the console is read-only until <code className="font-mono">actions_enabled</code> is set back to true from{" "}
       <Link href="/system#setting-actions_enabled" className="link">
