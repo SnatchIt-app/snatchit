@@ -292,7 +292,7 @@ order:
 | X4 | functions | deploy stripe-webhook and enforce-transfer-expiry from the frozen commit | after X2 (C1) |
 | X5 | configuration | O-R1: add `refund.created`, `refund.updated` and `refund.failed`; read the endpoint (G3) | after X4 (C3) |
 | X6 | configuration | O-R2: turn on `refund_state_detection_enabled` | after X5; O-R3 decided |
-| X7 | database / Stripe | O-R4: the historical reconciliation read, then `record_refund_state(…,'reconcile')` | optional follow-on |
+| X7 | database / Stripe | O-R4: the historical reconciliation read, then `record_refund_state(pi, re_…, status, amount, failure_reason, source, 'reconcile')` (`'reconcile'` is the `p_observed_via` argument, not the source) | optional follow-on |
 | X8 | configuration and deploy | admin console: the protected PR merge of `efe03fca` (cancelled by the current pin), verify the exact merge commit, then the pin plus a Redeploy of that commit with the Ignore Build Step kept (EXECUTION_SHEET_20261006 §3; exception: pin, then push `efe03fca`, then protect) | after the label change is reviewed; independent of S1–S7 |
 | X9 | deploy | web: the fast-forward `fd0da772` (`e7130f04`'s three commits cherry-picked onto `1765bbeb`; `web/` tree identical) merged by PR into the web production branch after its ruleset (EXECUTION_SHEET_20261006 §2) | after W1; independent of S4 |
 | X10 | source merge | S7 | after X2–X4 (and XB1 if D2) |

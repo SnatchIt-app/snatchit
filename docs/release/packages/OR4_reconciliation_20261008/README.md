@@ -18,7 +18,7 @@ read**; R0 establishes it.
 | R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, `total`, `amount_refunded_cents`, `status`, `refunded_at`, and `mode`, which says which Stripe mode R1 reads. Query below | owner authorises the read |
 | R1 | Stripe read (read-only) | for each PaymentIntent from R0, in the right mode (live or test): every refund's `id`, `status`, `amount`, `created`, `failure_reason`. The owner reads in the Dashboard, or authorises a restricted read-only key. A holds no Stripe credential | owner authorises the read |
 | R2 | local rehearsal | build R0's rows **with their existing `payment_refunds` ledger rows** on a prod-shape local DB, then run R3's exact calls. Asserts and controls below (§R2) | none (local) |
-| R3 | production write | one call per refund: `select public.record_refund_state(<pi>, <re_…>, <status>, <amount_cents>, <failure_reason or null>, <source>, 'reconcile');` with `source` ∈ {`expiry`,`dashboard`,`admin`,`unfulfillable`}, taken from the original refund's path (R0/R1). One request per call, with a read-back | **separately gated** (owner) |
+| R3 | production write | one call per refund: `select public.record_refund_state(<pi>, <re_…>, <status>, <amount_cents>, <failure_reason or null>, <source>, 'reconcile');` with `source` ∈ {`expiry`,`dashboard`,`admin`,`unfulfillable`}. **Where a `payment_refunds` row exists, `source` is that row's `source`. Where none exists, the original path is not recoverable**: Stripe's refund object has no field for our source taxonomy. Then `source` is **the owner's decision per row, recorded as a decision**, never a script default. It is written to `payment_refund_state.source` and `payment_refunds.source`, carried in the after-payout event, and `record_payment_refund` branches on it. One request per call, with a read-back | **separately gated** (owner) |
 | R4 | read-back | per refund: the `payment_refund_state` row, the log row, the payment sums; and that no unexpected case opened | with R3 |
 
 ## R2: what the rehearsal must prove (revised after D's review, 2026-10-08)
@@ -62,7 +62,7 @@ The column names were checked against the gate (`000_baseline` plus later `add c
 rehearsal DB before production. Before trusting a short list, run it with the `not exists` removed as a positive
 control.
 R0 also reads, for those payments:
-- every `payment_refunds` row (`stripe_refund_id`, NULL or not; `stripe_dispute_id`; `amount_cents`);
+- every `payment_refunds` row (`stripe_refund_id`, NULL or not; `stripe_dispute_id`; `amount_cents`; **`source`**);
 - `amount_refunded_cents`;
 - whether a payout is recorded.
 

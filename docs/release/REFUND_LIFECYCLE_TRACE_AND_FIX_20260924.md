@@ -335,7 +335,7 @@ review only):
     from support@ and return the money another way. Record what was done on the case.
   - Don't re-refund automatically.
 - **O-R4.** Reconcile the historical refunded rows (7, including 2 live on 2026-08-04). This needs an authorised
-  read-only Stripe read of their refunds, then feeding each through `record_refund_state(…, 'reconcile')`. Until then
+  read-only Stripe read of their refunds, then feeding each through `record_refund_state(pi, re_…, status, amount, failure_reason, source, 'reconcile')` (`'reconcile'` is the `p_observed_via` argument, not the source). Until then
   they display "Refund recorded".
 
 ## C. Legal wording (pending; this fix is not made through the terms)
