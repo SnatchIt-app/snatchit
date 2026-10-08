@@ -50,6 +50,12 @@ cents and status move. If the control does not move them, the rehearsal cannot f
 
 **R3 refuses any payment that has a hazard-1 row.** Those go to the owner for a decision instead.
 
+**Chargebacks are out of scope.** A historical `payment_refunds` row with `source = 'dispute_lost'` is **excluded from
+O-R4**. `record_refund_state` accepts only four sources (150:157) and raises `INVALID_REFUND_SOURCE`. A chargeback usually
+has no refund id either (`REFUND_REFERENCE_REQUIRED`, 150:149). R0 surfaces such a row; O-R4 declines it; it stays
+recorded as a chargeback with no refund-state row. It is **never** passed through under a substituted source such as
+`admin` (D, 2026-10-08).
+
 **R0 query** (read-only):
 ```sql
 select p.id, p.stripe_payment_intent_id, p.mode, p.total, p.amount_refunded_cents, p.status, p.refunded_at
