@@ -33,7 +33,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('@/src/components/ui', () => ({ Badge: 'Badge' }));
 vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 
 import { dark, light, type Palette } from '@/src/theme/palette';
 import { HookHost, type Element } from './helpers/nav-stack-harness';

@@ -36,7 +36,7 @@ vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge',
   usePressScale: () => ({ style: {}, onPressIn: () => {}, onPressOut: () => {} }),
 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 
 import { ROW_ART, ROW_ART_RADIUS, ROW_ART_W } from '@/src/lib/design/featureMetrics';
 import * as v2 from '@/src/theme/v2';
@@ -376,6 +376,10 @@ describe('FeedRow — the amount and its caption survive too', () => {
     expect(captionOf(host)).toBeDefined();
     expect(findElement(host.output, (el) => el.type === 'View'
       && (el.props as { testID?: string }).testID === 'feedrow-body')).toBeUndefined();
+    // The cap is defensible HERE, where the amount shares a row with the text column, and it is
+    // what keeps the default layout exactly as it was.
+    expect(priceOf(host)?.props.maxFontSizeMultiplier).toBe(1.3);
+    expect(priceOf(host)?.props.adjustsFontSizeToFit).toBeFalsy();
   });
 
   it('FR2: at a large scale the price moves under the text and nothing is capped', async () => {
@@ -384,15 +388,23 @@ describe('FeedRow — the amount and its caption survive too', () => {
     const body = findElement(host.output, (el) => el.type === 'View'
       && (el.props as { testID?: string }).testID === 'feedrow-body');
     expect(body, 'the text and price share a column').toBeDefined();
-    expect(priceOf(host)?.props.numberOfLines).toBeUndefined();
+    // The CAPTION may use as many lines as it needs; the amount may not, and that asymmetry is
+    // the rule — if space runs out the caption gives way, never the digits.
     expect(captionOf(host)?.props.numberOfLines).toBeUndefined();
     /*
-     * And the numeral is capped. Stacking alone stopped it CLIPPING but let it wrap mid-number
-     * ("$132.0" then "0") in the a3xl capture, which misreads about as easily as a lost digit.
-     * MAX_DISPLAY_FONT_SCALE is the app's own treatment for display type, so the amount fits on
-     * one line while the caption and meta around it keep scaling all the way.
+     * The amount is bounded by the LINE, not by a multiplier (B's batch 4 at 91a5a58c). B measured
+     * the capped amount rendering at the same 24.3 pt at 3XL and at A3XL — roughly 28% of the
+     * title's height on a screen whose purpose is the price — because a 1.3× cap is already
+     * exceeded by the largest STANDARD size, so the accessibility setting had no further effect.
+     *
+     * Once the amount owns its line there is room to grow far past 1.3× before anything wraps, so
+     * in the stacked form the cap comes off and the layout does the bounding: one line, shrink to
+     * fit only if the line actually runs out. Digits are never clipped and never split.
      */
-    expect(priceOf(host)?.props.maxFontSizeMultiplier).toBe(1.3);
+    expect(priceOf(host)?.props.maxFontSizeMultiplier, 'no multiplier cap once it owns the line').toBeUndefined();
+    expect(priceOf(host)?.props.numberOfLines, 'the amount never wraps').toBe(1);
+    expect(priceOf(host)?.props.adjustsFontSizeToFit).toBe(true);
+    expect(priceOf(host)?.props.minimumFontScale).toBeGreaterThan(0);
     // The artwork stays where it is: this is not a wholesale re-layout of the row.
     expect(findElement(host.output, (el) => el.type === 'EventMedia')).toBeDefined();
   });
@@ -463,10 +475,49 @@ describe('HomeFeature — "all-in" survives the supported text sizes', () => {
     const label = String(pressable!.props.accessibilityLabel);
     expect(label).toContain('all-in');
     expect(label).toContain('$99.00');
-    // The VISIBLE amount is capped so it cannot split across lines; the SPOKEN one is whole
-    // either way, which is the separation the owner asked to be kept explicit.
+    // The VISIBLE amount stays whole; the SPOKEN one is whole either way, which is the
+    // separation the owner asked to be kept explicit.
     const price = findElement(host.output, (el) => el.type === 'Text' && el.props.children === '$99.00');
-    expect(price?.props.maxFontSizeMultiplier).toBe(1.3);
+    expect(price?.props.numberOfLines).toBe(1);
+  });
+
+  it('LT7: the feature\u2019s amount grows with the requested size once it owns its line', async () => {
+    /*
+     * B measured this at 91a5a58c: at A3XL the event name renders at 88 pt and the amount at
+     * 24.3 pt — the same physical size it had at 3XL, because the 1.3× cap was already exceeded
+     * there. The reader's accessibility setting stopped affecting the number at all.
+     *
+     * Stacked, the amount has a full-width line to itself, so the cap comes off and the LINE
+     * bounds it. Unstacked it still shares a row with the text column, where the cap is what keeps
+     * the default layout unchanged.
+     */
+    const priceAt = async (scale: number) => {
+      rn.fontScale = scale;
+      const host = await mountFeature();
+      return findElement(host.output, (el) => el.type === 'Text' && el.props.children === '$99.00')!.props;
+    };
+
+    const compact = await priceAt(1);
+    expect(compact.maxFontSizeMultiplier, 'the compact row keeps its cap').toBe(1.3);
+    expect(compact.adjustsFontSizeToFit).toBeFalsy();
+
+    for (const scale of [1.35, 3.1]) {
+      const big = await priceAt(scale);
+      expect(big.maxFontSizeMultiplier, `no cap at ${scale}`).toBeUndefined();
+      expect(big.numberOfLines, `whole amount, one line, at ${scale}`).toBe(1);
+      expect(big.adjustsFontSizeToFit, `bounded by the line at ${scale}`).toBe(true);
+      expect(big.minimumFontScale).toBeGreaterThan(0);
+    }
+  });
+
+  it('LT8: and the caption keeps its own line, which is what may give way instead of the digits', async () => {
+    rn.fontScale = 3.1;
+    const host = await mountFeature();
+    const caption = findElement(host.output, (el) => el.type === 'Text' && String(el.props.children).includes('all-in'));
+    expect(caption, 'the caption is still rendered').toBeDefined();
+    // Uncapped in the stacked form: B's rule is that if space runs out the CAPTION wraps, never
+    // the digits. A caption pinned to one line could not wrap, which would invert that.
+    expect(caption!.props.numberOfLines).toBeUndefined();
   });
 
   it('LT6: the threshold is one stated rule, not a number repeated in a component', async () => {

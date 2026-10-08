@@ -59,7 +59,7 @@ vi.mock('@/src/components/account/AccountSection', () => ({ AccountSection: 'Acc
 vi.mock('@/src/components/account/SettingsRow', () => ({ SettingsRow: 'SettingsRow' }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => ({ onScroll: () => {}, expand: () => {} }) }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/auth/signOut', () => ({ SIGN_OUT_FAILED_COPY: 'x', signOutThisDevice: async () => ({ ok: true }) }));
 vi.mock('@/src/lib/avatarImage', () => ({
   getAvatarUrl: () => 'https://example.test/old.png',

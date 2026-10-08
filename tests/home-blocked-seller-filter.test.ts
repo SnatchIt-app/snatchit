@@ -61,7 +61,7 @@ vi.mock('@/src/components/discovery/HomeHeader', () => ({ HomeHeader: 'HomeHeade
 vi.mock('@/src/components/discovery/HomeFeature', () => ({ HomeFeature: 'HomeFeature' }));
 vi.mock('@/src/components/discovery/FeedRow', () => ({ FeedRow: 'FeedRow' }));
 vi.mock('@/src/lib/listing/cardHandoff', () => ({ stageCardHandoff: () => {} }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => ({ onScroll: () => {}, expand: () => {} }) }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
 vi.mock('@/src/lib/nav/dockAvatar', () => ({ setDockAvatar: () => {} }));

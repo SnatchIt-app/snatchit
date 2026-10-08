@@ -48,7 +48,7 @@ vi.mock('@/src/theme/appearance', async () => {
     useAppearancePreference: () => ({ preference: st.pref, setPreference: (p: string) => { st.pref = p; } }),
   };
 });
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('react-native', () => ({
   Text: 'Text',
   View: 'View',

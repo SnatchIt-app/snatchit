@@ -49,7 +49,7 @@ vi.mock('react-native', () => {
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@/components/ui/icon-symbol', () => ({ IconSymbol: 'IconSymbol' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/components/nav/dockContext', () => ({
   useDockCollapsed: () => false,
   useDockExpander: () => () => {},

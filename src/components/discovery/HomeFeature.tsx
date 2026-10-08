@@ -41,7 +41,7 @@ import { usePressScale } from '@/src/components/ui';
 import { FEATURE_GUTTER, identityStacks } from '@/src/lib/design/featureMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, featureMetaLine, priceCaption, rowMeta } from '@/src/lib/listing/feedRowState';
-import { MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -97,6 +97,27 @@ function HomeFeatureImpl({
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
+  /*
+   * The amount is ALWAYS one line — a split amount misreads as badly as a clipped one — and what
+   * bounds it depends on whether it owns that line.
+   *
+   * Stacked, it does: there is a full-width line and room to grow far past 1.3x before anything
+   * wraps, so the cap comes off and the LAYOUT bounds it. B measured what the cap cost at
+   * 91a5a58c — the amount rendered at the same 24.3 pt at the largest standard size and at the
+   * largest accessibility size, about 28% of the title's height, because a 1.3x cap is already
+   * exceeded by 3XL. Past that point the reader's setting had no effect on the number at all.
+   *
+   * Unstacked it shares a row with the text column, where the cap is still right and is what keeps
+   * the default layout exactly as it was.
+   *
+   * `adjustsFontSizeToFit` only engages if the line genuinely runs out, and then it shrinks the
+   * amount rather than clipping or breaking it. If something has to give before that, it is the
+   * CAPTION, which wraps freely in this form.
+   */
+  const amountFit = stacked
+    ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE }
+    : { maxFontSizeMultiplier: MAX_DISPLAY_FONT_SCALE };
+
 
   return (
     <Animated.View style={press.style}>
@@ -138,7 +159,7 @@ function HomeFeatureImpl({
             </Text>
           </View>
           <View style={stacked ? s.priceColStacked : s.priceCol}>
-            <Text style={[textStyle('price'), s.priceValue]} numberOfLines={1} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
+            <Text style={[textStyle('price'), s.priceValue]} numberOfLines={1} {...amountFit}>
               {priceAllIn}
             </Text>
             {/* Two lines, never one: "current bid, all-in" wraps rather than losing "all-in". */}

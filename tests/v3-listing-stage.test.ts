@@ -39,7 +39,7 @@ vi.mock('@/src/components/ui', () => ({ FromAFanBadge: 'FromAFanBadge', IconButt
 vi.mock('@/src/hooks/usePulseOnChange', () => ({ usePulseOnChange: () => ({ opacity: 1 }) }));
 const ins = vi.hoisted(() => ({ top: 0 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => ins.top }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 
 import { BID_COMMITMENT_COPY } from '@/src/lib/listing/detailState';
 import { findElement, HookHost } from './helpers/nav-stack-harness';

@@ -21,7 +21,7 @@ import { identityStacks, ROW_ART, ROW_ART_GAP, ROW_GUTTER } from '@/src/lib/desi
 import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { clockLabel, rowMeta } from '@/src/lib/listing/feedRowState';
-import { MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 
@@ -82,6 +82,27 @@ function FeedRowImpl({
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
+  /*
+   * The amount is ALWAYS one line — a split amount misreads as badly as a clipped one — and what
+   * bounds it depends on whether it owns that line.
+   *
+   * Stacked, it does: there is a full-width line and room to grow far past 1.3x before anything
+   * wraps, so the cap comes off and the LAYOUT bounds it. B measured what the cap cost at
+   * 91a5a58c — the amount rendered at the same 24.3 pt at the largest standard size and at the
+   * largest accessibility size, about 28% of the title's height, because a 1.3x cap is already
+   * exceeded by 3XL. Past that point the reader's setting had no effect on the number at all.
+   *
+   * Unstacked it shares a row with the text column, where the cap is still right and is what keeps
+   * the default layout exactly as it was.
+   *
+   * `adjustsFontSizeToFit` only engages if the line genuinely runs out, and then it shrinks the
+   * amount rather than clipping or breaking it. If something has to give before that, it is the
+   * CAPTION, which wraps freely in this form.
+   */
+  const amountFit = stacked
+    ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE }
+    : { maxFontSizeMultiplier: MAX_DISPLAY_FONT_SCALE };
+
 
   // Third price-column line: a live clock when cardState says one is worth showing, else the
   // status word. `clockLabel` returns null for a dead clock, so nothing here counts down past 0.
@@ -134,7 +155,7 @@ function FeedRowImpl({
                 </View>
 
                 <View style={stacked ? s.priceStacked : s.price}>
-                  <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={cap} maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}>
+                  <Text style={[textStyle('price'), s.priceValue, dimmed && s.priceDimmed]} numberOfLines={1} {...amountFit}>
                     {priceAllIn}
                   </Text>
                   <Text style={[textStyle('bodySm'), s.caption]} numberOfLines={cap}>

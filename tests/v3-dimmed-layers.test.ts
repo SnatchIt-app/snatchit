@@ -41,7 +41,7 @@ vi.mock('@/src/components/ui', () => ({
 vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/PriceDisplay', () => ({ PriceDisplay: 'PriceDisplay' }));
 vi.mock('@/src/components/VerifiedSellerBadge', () => ({ default: 'VerifiedSellerBadge' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/feedback/haptics', () => ({ hapticSelect: () => {}, hapticSuccess: () => {} }));
 
 import { HookHost, type Element } from './helpers/nav-stack-harness';

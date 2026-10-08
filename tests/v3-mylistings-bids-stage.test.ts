@@ -33,7 +33,7 @@ vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }
 vi.mock('@/src/components/ui', () => ({ Badge: 'Badge', Tappable: 'Tappable' }));
 vi.mock('@/src/components/NameText', () => ({ NameText: 'NameText' }));
 vi.mock('@/src/components/VerifiedSellerBadge', () => ({ default: 'VerifiedSellerBadge' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/theme/appearance', () => ({ useTheme: () => ({ scheme: 'dark', palette: {} }) }));
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');

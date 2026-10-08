@@ -80,7 +80,7 @@ vi.mock('@/src/components/discovery/FilterSheet', () => ({ FilterSheet: 'FilterS
 vi.mock('@/src/components/discovery/HomeHeader', () => ({ HomeHeader: 'HomeHeader' }));
 vi.mock('@/src/lib/listing/cardHandoff', () => ({ stageCardHandoff: () => {} }));
 // The real module loads .ttf assets, which vitest cannot parse; styles are not what these tests assert.
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/supabase', () => {
   const chain = (queue: { promise: Promise<Reply> }[]) => {
     const d = h.deferred();

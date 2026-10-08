@@ -33,7 +33,7 @@ vi.mock('@/src/components/ui', () => ({ Button: 'Button', IconButton: 'IconButto
 // are what the screen wires, which is exactly what these tests assert.
 vi.mock('@/src/components/account/SettingsRow', () => ({ SettingsRow: 'SettingsRow' }));
 vi.mock('@/src/components/account/AccountSection', () => ({ AccountSection: 'AccountSection' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => 0, useDockClearance: () => 0 }));
 vi.mock('@/src/theme/appearance', async () => {
   const { dark } = await import('@/src/theme/palette');

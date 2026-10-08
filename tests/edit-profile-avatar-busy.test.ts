@@ -58,7 +58,7 @@ vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {}, replac
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u-1', email: 'seller@example.test' } }) }));
 vi.mock('@/src/components/ui', () => ({ Button: 'Button', Input: 'Input', Spinner: 'Spinner', StickyBar: 'StickyBar' }));
 vi.mock('@/src/components/account/SettingsHeader', () => ({ SettingsHeader: 'SettingsHeader' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/avatarImage', () => ({
   getAvatarUrl: () => 'https://example.test/old.png',
   pickAndUploadAvatar: () => {

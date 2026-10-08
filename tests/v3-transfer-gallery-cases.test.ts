@@ -57,7 +57,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }), SafeAreaView: 'SafeAreaView' }));
 vi.mock('expo-router', () => ({ Redirect: 'Redirect', router: { back: () => {}, push: () => {} } }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, EASING_BEZIER: [0.2, 0, 0, 1] }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6, EASING_BEZIER: [0.2, 0, 0, 1] }));
 
 import {
   BUYER_ORDER_CLOSED_COPY, REFUND_DUE_POLICY, REFUND_PENDING_LINE,

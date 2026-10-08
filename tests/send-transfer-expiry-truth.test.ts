@@ -62,7 +62,7 @@ vi.mock('@/src/lib/media/uploadFlow', () => ({
   withUploadTimeout: async <T,>(p: Promise<T>) => p,
 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/supabase', () => {
   const table = () => {
     const q: Record<string, unknown> = {};

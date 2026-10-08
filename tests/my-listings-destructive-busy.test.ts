@@ -65,7 +65,7 @@ vi.mock('@/src/components/ui', () => ({
 }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => ({ onScroll: () => {}, expand: () => {} }) }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/coverImage', () => ({ getCoverImageUrl: () => null }));
 // Presentation only, and the legacy-theme badge pulls .ttf assets vitest cannot parse.
 vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
