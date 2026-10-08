@@ -143,7 +143,7 @@ export function buildSignals(input: SignalInput): SignalSet {
     add({
       id: "low_stock",
       severity: "soon",
-      title: `${low[0].ticketTypeName} is nearly gone — ${low[0].detail}`,
+      title: `${low[0].ticketTypeName} is nearly gone — ${low[0].detail.replace(/\s*\(threshold \d+\)/, "")}`,
       consequence: "At this rate it sells out before doors, and the next person to look sees nothing available.",
       action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });

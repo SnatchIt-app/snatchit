@@ -164,7 +164,7 @@ export function Tonight({
       ) : null}
 
       {/* 2. What needs my attention — worst first, one action each. */}
-      <section aria-labelledby="attention-title" id="attention" className={`panel flex min-w-0 flex-col p-5 md:p-7 ${ev ? "lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1" : "lg:col-span-12"}`}>
+      <section aria-labelledby="attention-title" id="attention" className={`panel flex min-w-0 flex-col p-5 md:p-7 ${ev ? "lg:col-span-5 lg:col-start-8 lg:row-span-3 lg:row-start-1" : "lg:col-span-12"}`}>
         <div className="flex items-center justify-between gap-3">
           <h2 id="attention-title" className="title-section">
             {urgent.length > 0 ? "Needs your attention" : "Nothing needs your attention"}
@@ -214,7 +214,7 @@ export function Tonight({
 
       {/* Supporting: how the stage event's tickets are selling. */}
       {ev && sales.length > 0 ? (
-        <section aria-labelledby="sales-title" className="panel min-w-0 p-5 md:p-7 lg:col-span-7 lg:row-span-2 lg:row-start-2">
+        <section aria-labelledby="sales-title" className="panel min-w-0 p-5 md:p-7 lg:col-span-7 lg:row-start-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 id="sales-title" className="title-section">
               Tickets {stageView.stage === "after" ? "sold" : stageView.stage === "during" ? "for tonight" : "on sale"}
@@ -257,7 +257,7 @@ export function Tonight({
       ) : null}
 
       {/* Supporting: what is coming up. */}
-      <section aria-labelledby="upcoming-title" className={`panel min-w-0 p-5 md:p-7 ${ev ? "lg:col-span-5 lg:col-start-8 lg:row-start-3" : "lg:col-span-12"}`}>
+      <section aria-labelledby="upcoming-title" className={`panel min-w-0 p-5 md:p-7 ${ev ? "lg:col-span-7 lg:row-start-3" : "lg:col-span-12"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="upcoming-title" className="title-section">
             Coming up
@@ -293,14 +293,17 @@ export function Tonight({
 
 function AttentionItem({ s }: { s: Signal }) {
   const chip = SEVERITY_CHIP[s.severity];
+  // "Now" items carry their consequence; the rest are one line and an action —
+  // the consequence is still there, one click away on the screen that owns it.
+  const full = s.severity === "act_now";
   return (
-    <li className="rounded-2xl bg-[#f6f6f5] px-4 py-3.5">
+    <li className={`rounded-2xl bg-[#f6f6f5] px-4 ${full ? "py-3.5" : "py-3"}`}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={`badge ${chip.tone} shrink-0`}>{chip.label}</span>
         <p className="min-w-0 flex-1 text-[0.875rem] font-semibold leading-snug text-ink">{s.title}</p>
       </div>
-      <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">{s.consequence}</p>
-      <Link href={s.action.href} className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[0.8125rem] font-semibold text-ink hover:underline hover:underline-offset-4">
+      {full ? <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">{s.consequence}</p> : <p className="sr-only">{s.consequence}</p>}
+      <Link href={s.action.href} className={`${full ? "mt-2" : "mt-1"} inline-flex min-h-8 items-center gap-1.5 text-[0.8125rem] font-semibold text-ink hover:underline hover:underline-offset-4`}>
         {s.action.label}
         <Icon name="arrow" size={14} />
       </Link>
