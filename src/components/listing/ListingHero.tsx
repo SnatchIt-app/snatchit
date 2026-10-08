@@ -117,7 +117,13 @@ export function ListingHero({
         <View style={styles.badge}>
           <FromAFanBadge />
         </View>
-        <Text style={[textStyle('bodySm'), styles.when]} numberOfLines={1}>
+        {/*
+          No line cap: at the largest accessibility size this read "Sat 24 Oct · 1…", losing the
+          time entirely (owner, 2026-10-08 — the complete date and time must be available). It is
+          one line at every standard size, so the approved layout is unchanged; it simply wraps
+          when it no longer fits rather than dropping what it cannot show.
+        */}
+        <Text style={[textStyle('bodySm'), styles.when]}>
           {`${rowWhenLabel(eventDate, eventTime)} · ${venue}`}
         </Text>
         <NameText token="nameDetail" maxLines={2} style={styles.title}>

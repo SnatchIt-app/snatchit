@@ -314,6 +314,20 @@ describe('ListingHero — identity over the curve-scrimmed §3 hero', () => {
     expect(name?.props.children).toBe('Neon Choir');
   });
 
+  it('LH1b: the date and time line is not capped — it lost the time at a3xl', async () => {
+    /*
+     * "Sat 24 Oct · 1…" in the C-operated a3xl capture: a one-line cap on a line that cannot fit
+     * drops the time, and the owner ruled the complete date and time must be available. It fits
+     * on one line at every standard size, so the approved layout does not move; it wraps only
+     * where it would otherwise be truncated.
+     */
+    const host = await mountHero();
+    const when = findElement(host.output, (el) =>
+      el.type === 'Text' && / · Lantern Room$/.test(String(el.props.children)));
+    expect(when, 'the date line is on screen').toBeDefined();
+    expect(when!.props.numberOfLines).toBeUndefined();
+  });
+
   it('LH2: provenance is not quietly dropped — the badge still renders', async () => {
     const host = await mountHero();
     expect(findElement(host.output, (el) => el.type === 'FromAFanBadge')).toBeDefined();

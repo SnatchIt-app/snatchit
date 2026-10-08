@@ -11,10 +11,11 @@
  */
 
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EmptyState } from '@/src/components/ui';
-import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -35,6 +36,21 @@ export interface BidActivityProps {
 export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }: BidActivityProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
+  /*
+   * B's batch-6 finding: at the largest accessibility size the LEADING row's amount lost its
+   * cents. That row is the one that loses them because it is the only row carrying the "Leading"
+   * chip, so three things compete for the width instead of two and the amount is last.
+   *
+   * Same treatment as the feature, the feed row and the transaction panel, not a fourth: above
+   * the shared threshold the row becomes a column, the amount owns its line, and the LINE bounds
+   * it — one line always, shrinking to fit only if that line genuinely runs out. The compact form
+   * keeps the display cap, which is what leaves the default row exactly as it was.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  const amountFit = stacked
+    ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE }
+    : { maxFontSizeMultiplier: MAX_DISPLAY_FONT_SCALE };
   return (
     <View style={styles.wrap}>
       {/* Board (pkg8-listing): bold sans, mixed case — not the uppercase Oswald displaySm. */}
@@ -56,7 +72,7 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
           return (
             <View
               key={bid.id}
-              style={[styles.row, i === bids.length - 1 && styles.last]}
+              style={[stacked ? styles.rowStacked : styles.row, i === bids.length - 1 && styles.last]}
               accessible
               accessibilityLabel={
                 `${isMine ? 'Your bid' : spokenName}, ${amountFor(bid)}, ${timeFor(bid)}` +
@@ -64,7 +80,7 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
               }
             >
               <View style={styles.who}>
-                <Text style={[textStyle('body'), styles.name]} numberOfLines={1}>
+                <Text style={[textStyle('body'), styles.name]} numberOfLines={stacked ? undefined : 1}>
                   {isMine ? 'You' : name}
                 </Text>
                 <Text style={[textStyle('bodySm'), styles.time]}>{timeFor(bid)}</Text>
@@ -78,7 +94,11 @@ export function BidActivity({ bids, amountFor, timeFor, viewerId, highlightTop }
                   <Text style={[textStyle('micro'), styles.leading]}>Leading</Text>
                 </View>
               ) : null}
-              <Text style={[textStyle('price'), styles.amount, isTop && styles.amountTop]}>
+              <Text
+                style={[textStyle('price'), styles.amount, isTop && styles.amountTop]}
+                numberOfLines={1}
+                {...amountFit}
+              >
                 {amountFor(bid)}
               </Text>
             </View>
@@ -97,6 +117,19 @@ function makeStyles(p: Palette) {
     flexDirection: 'row',
     alignItems: 'center',
     gap: v2.space.md,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: p.border.default,
+  },
+  /*
+   * Stacked above IDENTITY_STACK_SCALE: the bidder, the chip and the amount each get the row's
+   * full width in turn, so nothing is competing for it. Same padding and the same rule below, so
+   * it is this row rearranged rather than a second design.
+   */
+  rowStacked: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: v2.space.xs,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
     borderBottomColor: p.border.default,
