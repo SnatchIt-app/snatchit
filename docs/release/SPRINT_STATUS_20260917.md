@@ -2159,3 +2159,10 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - Detector tick 02:40:01: release_stuck opened 0.
   - **Next:** the attended session (EXECUTION_SHEET status block). O-R4 package prepared at
     `docs/release/packages/OR4_reconciliation_20261008/`, with R0/R1 reads and R3 writes gated.
+- **C5 ATTEMPT 1, WRONG TARGET, NO EFFECT (2026-10-08 23:39:33Z).** The owner's Redeploy landed on the Sep-8 errored
+  preview `dpl_HYCvcS9Ss…` (`feature/venue-native-and-product-v2` @ `c4f562da`), not on `dpl_74DoDN…`.
+  - It created `dpl_iAzLKA1UFtjD9qC2uc7fn8itcM8d`: preview (no target), ERROR `NOW_SANDBOX_WORKER_ROOTDIR_NOT_EXIST`
+    (no `admin/` at that commit). No build ran; aliasAssigned false.
+  - Read fresh afterwards: pin still `f7e7e85f…`; `snatchit-admin.vercel.app` still `dpl_J5Kr…`; `dpl_74DoDN…` still
+    CANCELED/production/`f7e7e85f`; branch tip `f7e7e85f`.
+  - Next: Redeploy from the exact deployment page, after checking four identifiers on it first.
