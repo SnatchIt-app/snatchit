@@ -120,6 +120,34 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## B batch 6 at `3c03778a` (`e1c5f38e`, `B_NATIVE_REVIEW_3c03778a.md`)
+C-operated frames were copied to `docs/product-v3/native/Coperated/3d4d6a4a/`.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Price fix (Home feed row and long amount) | **REVIEWED, PASS.** B re-measured: 63.7 pt and 58.0 pt reproduce C's figures. `$1,716.00` is complete; shrink engaged to 91% without recreating the failure. The batch-4 finding is closed | C-operated, B-reviewed |
+| Listing scroll-end clearance | **REVIEWED, PASS.** The bottom gap is accounted for arithmetically: CTA 688.0 pt, footer 176.3 pt, last content to footer top 209.7 pt. That is the intended clearance, not dead space. **No spacing change is warranted** | C-operated, B-reviewed |
+| Event name reachable at a3xl (R-4) | **REVIEWED, PASS** | C-operated, B-reviewed |
+| **Bid activity amount at a3xl** | **FAILED.** The top bid renders as "$99." with the cents gone. Ink reaches x=387.7 pt and 984 px sit inside the 16 pt gutter. Root cause: `BidActivity.tsx:81` has no `maxFontSizeMultiplier`, no `numberOfLines` and no shrink; it was missed by the `amountFit` sweep. E verified line 81 in source | `listing-a3xl-light-scrollend-Coperated` |
+| Event date and time in full on Listing at a3xl | **UNTESTED on device (B).** E's source check classes it as a defect: the only date/time on Listing is `ListingHero.tsx:120-121`, one line. C's frame shows "Sat 24 Oct · 1…" | owner content rule |
+| Home feature's own amount at a3xl | **UNTESTED** (no touch; inferred only) | — |
+| Signed-in Home; spoken VoiceOver | **UNTESTED** (capability) | — |
+| Poster, frame, gradient, Listing clearance, icons, Filters glyph, Option B, reserving | **Carried** (unchanged since `d5217530`/`91a5a58c`) | B |
+
+**Next step (E proposal):**
+- **C prepares one fix commit** covering the `BidActivity` amount (the same `amountFit` treatment,
+  with the row stacked at large text) and the hero date/time line (wrap; never truncate the date or
+  time).
+- **One short C-operated window:** serve that sha, then capture:
+  1. Listing at a3xl, Light and Dark, at the date/time line.
+  2. The bid-activity row at a3xl.
+  3. The Home feature amount at a3xl, or at a content size just past the stacking threshold, where
+     it stays on screen at rest.
+- **Meanwhile, B continues at `3c03778a`** with the refusal, profile and artwork groups. Those
+  screens are untouched by these fixes.
+- **Listing `?variant=error|offline`:** B checks it after the fix if the fix touches
+  `ListingDetailScreen`.
+
 ## Owner direction for the `3c03778a` review (2026-10-07)
 - **Order of B's pass:**
   1. C's durable captures.
