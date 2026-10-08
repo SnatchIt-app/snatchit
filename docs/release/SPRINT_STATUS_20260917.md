@@ -2179,3 +2179,8 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Unauthenticated: `/login` 200 "Sign in · Console · production"; `/`, `/system`, `/api/health` → 307 to login.
   - Rollback: Instant Rollback to `dpl_J5Kr…`, then the pin back to `ab3e17f1…`.
   - **Next:** owner signs in (console access). Label wording on an order page is checked signed in.
+- **CONSOLE ACCESS CONFIRMED (2026-10-08).** The owner reports being signed in.
+  - Auth admin read (read-only): `last_sign_in_at` 23:48:03Z; TOTP factor `e677717c` (the only factor, verified)
+    `last_challenged_at` 23:48:42Z, i.e. the aal2 step-up on the new console build `dpl_8xPaaBYGM…`.
+  - O-R2 prerequisite (c) met.
+  - Still open: (b) the 2 Stripe events below the cut; the signed-in label and wording views.

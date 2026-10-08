@@ -69,7 +69,8 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
 - 2d. A checks: READY, production, commit `f7e7e85f`, and `snatchit-admin.vercel.app` serving it.
 - **Rollback:** Instant Rollback to `dpl_J5Kr…`, then the pin back to `ab3e17f1…`.
 
-**3. Console access**
+**3. Console access**  
+**DONE 2026-10-08:** password sign-in 23:48:03Z; TOTP `e677717c` challenged 23:48:42Z (aal2).
 - 3a. **You:** sign in at https://snatchit-admin.vercel.app/login with your password and a code from the new
   authenticator; the Today page loads.
 - 3b. A, read-only: factor `e677717c…` shows `last_challenged_at` after that sign-in.
