@@ -120,3 +120,61 @@ source equals the frozen manifest, and that the invariants above held at every p
 the events we believe it does (G3 is open — never read); that production auto-deploy is off; or anything
 about the combined behaviour under load. A green witness is a statement about recorded state, not about
 the refund lifecycle working.
+
+---
+
+# Amendment 1 — 2026-10-08, after the owner's O-R2 / O-R3 decision
+
+Recorded as a dated amendment rather than an edit, because the original is a blind registration and
+rewriting it would destroy what makes it evidence.
+
+**What changed.** The owner has named themselves the O-R3 operator for `refund_failed` and
+`refund_pending`, committing to daily checks and buyer follow-up, and has **approved O-R2 conditionally**:
+enable refund-state detection once (a) the new webhook handler is verified, (b) the required refund-event
+subscriptions are verified, and (c) console access is confirmed. Alert delivery stays unchanged.
+
+**Invariant 1 is superseded, not dropped.** It read: *detection must be `false` or `absent`; if it ever
+reads `true`, STOP — that is O-R2, which the owner has explicitly withheld.* It now reads:
+
+> `setting_refund_state_detection_enabled` must be `false` or `absent` at **W0, W1, W2, W3 and W4**, and at
+> every point until all three preconditions below are verified and the reviewed procedure has run. A `true`
+> reading before that is still a **STOP**. After it, `true` is the expected value and I verify it and
+> report, per the owner's instruction.
+
+Invariants 2–6 are unchanged. W0–W4 are unchanged: **O-R2 comes after W4**, so detection is `false` at
+every witness point in the original registration.
+
+## The three preconditions, and who can actually verify each
+
+| | Precondition | Verifiable by | Status |
+|---|---|---|---|
+| (a) | the new `stripe-webhook` handler is live and is the frozen source | **D, independently** — W3: version 42→43, `verify_jwt` false, 3-file closure, post-download equals the frozen manifest, downloaded by D | pending X4a |
+| (b) | `refund.created`, `refund.updated`, `refund.failed` are subscribed on the live endpoint, other settings preserved | **not D.** This is a Stripe read. D holds no Stripe authorisation and is not seeking one | pending step 5 |
+| (c) | console access at `aal2` with the new authenticator | **not D.** A's read-only verification, then the console sign-in | pending |
+
+**(b) is the one to be careful about.** This is **G3**, which has never been read. Every statement in our
+records that `charge.refunded` is subscribed is derived from source, not observed. So:
+- the verification must be a **direct read of the live endpoint's event list**, by A or the owner, not an
+  inference from the handler's code;
+- it must record the **full event list before and after**, so "other settings preserved" is a measurement
+  rather than an intention;
+- **D's confirmation of (b) is second-hand.** I will verify that a direct read was recorded and that it
+  names the three events, and I will say in the witness record that I did not read Stripe myself. That is
+  weaker than my other checks and should not be presented as equal to them.
+
+## The Codex monitoring task
+
+The owner reports a daily read-only monitoring task whose **access is not yet verified**, assisting and not
+replacing their responsibility, and authorising no automated refunds or customer messages.
+
+**Until its access is verified it is not evidence of monitoring and must not be counted toward the
+commitment.** What satisfies O-R3 today is the owner's own named commitment; the task is additive and
+currently unproven. If it is later cited in a record as monitoring coverage, that citation needs its own
+access verification first — an unverified scheduled job is indistinguishable from no job, and a silent
+failure is the normal failure mode for scheduled reads (cf. `queued is not delivered`).
+
+## Consequence elsewhere, outside this witness
+
+O-R3 being answered **unblocks the failed-refund wording** that `PAYMENT_STATE_WORDING_TABLE_20260924.md`
+§2i parked ("Failure copy waits on the owner's O-R3"). That is separate work, not part of this execution,
+and it is A's to schedule. It should not ride along with O-R2.
