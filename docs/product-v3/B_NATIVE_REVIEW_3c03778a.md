@@ -96,3 +96,93 @@ clearance, the vector icon set and the Filters glyph, Option B at rest, and rese
 all verified at `d5217530` / `91a5a58c`, none of them touched by the commits since.
 
 **Reviewed · Failed · Untested are distinguished above. Not whole-app acceptance.**
+
+---
+
+# Batch 7 — refusal, profile, error/offline groups · simulator handed to C
+
+Same candidate `3c03778a`, device and serving tree; HEAD matched and clean at start and end.
+Captures in `native/3c03778a/`.
+
+## FAILED — the public profile prints `null% transfer success`
+
+**Commit** `3c03778a` · **screen/state** public profile, Trust & activity ·
+**expected** a real percentage, or no percentage at all when there is no history ·
+**observed** the literal string **`null% transfer success`**, beside a "Needs review" chip and an
+empty progress bar.
+
+**Reproduced in `profile-default-light.png`, `profile-no-listings-light.png` and
+`profile-default-dark.png`** — across variants and both appearances.
+
+**Root cause.** `src/lib/profile/reputation.ts`, the function's **final** return:
+
+```ts
+return { tier: 'needs_review', label: 'Needs review', blurb: `${ratePct}% transfer success`, … };
+```
+
+`ratePct` is `denom > 0 ? Math.round(rate * 100) : null`. That interpolation is **unguarded**,
+while the sibling `needs_review` branch forty lines above guards the same value:
+`${ratePct == null ? '' : ` · ${ratePct}% success`}`.
+
+**It is reachable with correctly-shaped real data, not only through the fixture.** `completed_sales`
+and `seller_terminal_total` are different columns. A seller with `completed_sales >= 5` and
+`seller_terminal_total = 0` gives `rate = 0` and `ratePct = null`, fails all three tier gates
+(each needs `rate >= 0.95`), and falls to that final return.
+
+**Secondary, and please do not fix only this one:** the harness fixture is also malformed —
+`app/_dev/v3-profile.tsx:41` builds `TRUST` with `completed_sales` / `on_time_rate` / `disputes` /
+`cancellations` and casts it `as unknown as ProfileTrustStats`, whose real fields are
+`seller_terminal_total`, `seller_terminal_successful` and `disputes_lost`. Correcting the fixture
+alone would hide the unguarded branch rather than fix it.
+
+## UNTESTED — the Edit refusal group is unreachable signed out
+
+All five variants — `not-found`, `not-owner`, `has-bids`, `inactive`, `read-failed` — render a
+**byte-identical** screen: "Sign in required / You need to be signed in to edit a listing. / Back".
+Verified by md5 of the content region across the five Light captures: **all `da44e338a711`**.
+
+The guard itself is correct and is C's intended behaviour. But it short-circuits before the variant
+is read, so **this group cannot be reviewed without an authenticated session** — the same blocker as
+consumer Home. Recorded as untested, not as a pass.
+
+## REVIEWED and sound
+
+| state | result |
+|---|---|
+| profile `stats-unavailable` | "Seller history unavailable / We could not load this seller's history. **This is not a record of zero sales.**" + Retry. The read failure is explicitly refused the reading of "zero" — correct, and the product truth stated plainly. |
+| profile `not-found` | "Profile unavailable / This profile isn't available." Exit is the header back control. |
+| Listing `error` | "We couldn't load this listing / **Nothing was sent from this screen** — we couldn't read the listing…" + Try again. The money reassurance is right. |
+| Listing `offline` | "You're offline / Check your internet connection and try again." + Retry. |
+
+Both Listing states verified in Light and Dark.
+
+## Artwork group
+
+Carried forward from batch 1 at `d5217530` and unaffected since: every `?art=` case matched against
+its own source with a mismatched-fixture control, the 4:5 frame, containment without crop or
+stretch, and the missing-artwork plate. No re-run.
+
+---
+
+## Simulator and Metro handed to C
+
+**Done at `3c03778a`.** `git -C /Users/josetascon/snatchit-refund rev-parse HEAD` unchanged and
+`git status --porcelain` empty at start and end — no capture in doubt.
+
+C's two fixes, plus what I still need captured:
+
+1. **Bid activity** — stack the row and keep the whole amount, cents and separators included, using
+   the same responsive treatment as the other money surfaces. `BidActivity.tsx:81`.
+2. **Listing date/time** — let the complete date and time wrap; the detail screen must carry it in
+   full at large text.
+3. **Capture both fixes at A3XL, Light and Dark, with an ordinary and a four-figure amount.**
+4. **The Home main-event amount at A3XL** — still untested. A smaller-size capture is supplemental,
+   not a substitute. If the drag cannot be made, state the exact blocker and leave it untested.
+5. **Worth adding to the same window:** the `null%` fix above, in `reputation.ts` *and* the fixture.
+
+**Preserved and not to be changed on the existing evidence:** the poster, navigation placement, the
+footer, Listing spacing and reservation behaviour.
+
+**Outstanding, blocking nothing:** authenticated consumer Home, spoken VoiceOver, and the Edit
+refusal group — all three gated on a session or an inspector I do not have.
+**The app is not fully accepted.**
