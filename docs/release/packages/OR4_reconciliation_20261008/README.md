@@ -17,9 +17,38 @@ read**; R0 establishes it.
 |---|---|---|---|
 | R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, amount, `refunded_at`, and `livemode` where recorded. Query below | owner authorises the read |
 | R1 | Stripe read (read-only) | for each PaymentIntent from R0, in the right mode (live or test): every refund's `id`, `status`, `amount`, `created`, `failure_reason`. The owner reads in the Dashboard, or authorises a restricted read-only key. A holds no Stripe credential | owner authorises the read |
-| R2 | local rehearsal | build the R0 rows plus their pre-150 `record_payment_refund` history on a prod-shape local DB, then run R3's exact calls. **Prove no double counting.** For refunds already counted by `record_payment_refund`, the nested call at 150's line 224 must be idempotent per `stripe_refund_id`. Assert `refund_succeeded_cents` and `payments.status` before and after, with a mutant that removes the idempotency and must fail | none (local) |
+| R2 | local rehearsal | build R0's rows **with their existing `payment_refunds` ledger rows** on a prod-shape local DB, then run R3's exact calls. Asserts and controls below (§R2) | none (local) |
 | R3 | production write | one call per refund: `select public.record_refund_state(<pi>, <re_…>, <status>, <amount_cents>, <failure_reason or null>, <source>, 'reconcile');` with `source` ∈ {`expiry`,`dashboard`,`admin`,`unfulfillable`}, taken from the original refund's path (R0/R1). One request per call, with a read-back | **separately gated** (owner) |
 | R4 | read-back | per refund: the `payment_refund_state` row, the log row, the payment sums; and that no unexpected case opened | with R3 |
+
+## R2: what the rehearsal must prove (revised after D's review, 2026-10-08)
+
+**Not a re-call test.** A repeated call with the same refund id cannot double-count, by structure:
+- `payment_refunds.stripe_refund_id` is UNIQUE and the insert is `ON CONFLICT (stripe_refund_id) DO NOTHING`
+  (`20260906120000`:311, :506);
+- the total is recomputed as `least(greatest(existing, sum), total)` (:514–515).
+
+A test that calls twice with the same id is green whatever happens. A NULL refund id is also impossible here:
+`record_refund_state` raises `REFUND_REFERENCE_REQUIRED` before it reaches `record_payment_refund`.
+
+**The real hazards, which depend on R0's data:**
+1. **The same refund is already in `payment_refunds` under another key** (another id, or the NULL-id/dispute path at
+   :508–510). Reconciling with Stripe's `re_…` then adds a second ledger row; `sum` overstates it. The `least(…,
+   total)` cap bounds the cents, but at `>= total` the same statement sets `status='refunded'` and `refunded_at`
+   (:521–522). A partial refund would become a false full refund.
+2. **The refund predates the ledger** (no `payment_refunds` row at all). The first insert recomputes the total; because
+   `greatest` keeps the existing value, the cents should not move. But when the payment has a recorded payout, the
+   insert emits `REFUNDED_AFTER_PAYOUT` / `PARTIAL_REFUND_AFTER_PAYOUT` (:540), which opens the reversal path.
+
+**R2 asserts, per fixture:**
+- `amount_refunded_cents`, **`status` and `refunded_at`**;
+- the `payment_refunds` row count;
+- any after-payout event.
+
+**Negative control:** reconcile one fixture whose refund is already recorded, using a **different** id, and show the
+cents and status move. If the control does not move them, the rehearsal cannot fail.
+
+**R3 refuses any payment that has a hazard-1 row.** Those go to the owner for a decision instead.
 
 **R0 query** (read-only):
 ```sql
@@ -30,6 +59,10 @@ select p.id, p.stripe_payment_intent_id, p.amount_cents, p.status, p.refunded_at
  order by p.refunded_at nulls last
 ```
 Before trusting a short list, run it with the `not exists` removed as a positive control.
+R0 also reads, for those payments:
+- every `payment_refunds` row (`stripe_refund_id`, NULL or not; `stripe_dispute_id`; `amount_cents`);
+- `amount_refunded_cents`;
+- whether a payout is recorded.
 
 ## What R3 changes, and what it cannot undo
 

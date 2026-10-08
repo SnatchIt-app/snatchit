@@ -143,7 +143,7 @@ Transport: HTTP to the Management API.
 | X4a stripe-webhook | 02:38:44–39:11 | v42→**v43**, `verify_jwt` false, ezbr `e4239d64…`→`425c1e63…`; pre-download equals `5b255838`'s manifest; post-download equals frozen (3/3). Boot probe: unsigned POST gives 400 "Invalid signature" (no DB access) |
 | X4b enforce-transfer-expiry | 02:39:48–40:05 | v41→**v42**, `verify_jwt` true, ezbr `d7410c97…`→`d6c898ce…`; pre-download equals `e73553d2` (6/6); post-download equals frozen (6/6) |
 | Detector after 151 | tick 02:40:01 | `release_stuck` succeeded, scanned 0, opened 0; `refunds` succeeded, scanned 2, opened 0. Open cases of these types: 2 pre-existing `refund_pending` (2026-09-08) |
-| Expiry run check | see SPRINT_STATUS | post-deploy runs on v42: HTTP 200, `errors` 0 (baseline 0) |
+| Expiry run check | 02:42:01, 02:44:00 | both post-deploy runs on v42: HTTP 200, not timed out, `errors` 0 (= baseline). **Limit:** the response bodies are byte-length identical to the baseline (326). This shows v42 *runs without erroring*, not that its new seller-win path ran: there are no seller-win candidates. It is not behavioural coverage |
 
 No guarded recovery or rollback was needed. The rollback boundary from here on:
 - functions first, to v42/v41 from `5b255838`/`e73553d2`;
