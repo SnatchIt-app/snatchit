@@ -2140,3 +2140,22 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **D:** independent local replay 167/167 at the same tree.
   - **Reuse:** only while gate, #94 and #95 are unchanged and the S1/S2 merge trees equal `5b9cca0d` / `2e2c31b4`.
   - The "by construction" claim is withdrawn from the sheet.
+- **RELEASE EXECUTION 2026-10-08 (A executes, D witnesses; owner authorisation 2026-10-07).**
+  - **Authenticator:** 1 verified TOTP `e677717c`, created 01:55Z; old factor gone; fingerprint unchanged.
+  - **#97 web:** merged `0b389584` → `dpl_9n8Jps9…` live on `snatchti.com` (the currently observed web domain);
+    rollback `dpl_7h2C…`. Authenticated wording check still open.
+  - **#98 console:** merged `f7e7e85f`; build cancelled by the pin (`dpl_74DoDNf…`). Deploy pending the attended
+    session.
+  - **Gate:** S1 `92a72cbd` (tree `5b9cca0d`) and S2 `abef9506` (tree `2e2c31b4`). Fresh guard on #95 via an edited
+    description (run 37717155766, base 92a72cbd). Gate CI green: 37717130010 and 37717383704.
+  - **Package:**
+    - X1b `same_txn=true`.
+    - W0 identical to pre150 (D's own W0 `9434cbf7`).
+    - X2 150 applied 02:37:22Z; W1 identical to post150; ledger 163.
+    - X3 151 applied 02:38:03Z; W2 identical to post151; ledger 164.
+    - X4a stripe-webhook v43 02:39:11Z; boot probe 400 "Invalid signature".
+    - X4b enforce-transfer-expiry v42 02:40:05Z.
+    - Run check: 02:42:01 and 02:44:00 → 200, errors 0.
+    - Detector tick 02:40:01: release_stuck opened 0.
+  - **Next:** the attended session (EXECUTION_SHEET status block). O-R4 package prepared at
+    `docs/release/packages/OR4_reconciliation_20261008/`, with R0/R1 reads and R3 writes gated.

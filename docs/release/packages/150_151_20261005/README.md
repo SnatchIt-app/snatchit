@@ -1,6 +1,6 @@
 # Frozen deployment package: migrations 150 + 151 and two function deploys (A, 2026-10-05)
 
-**Status: PREPARED AND REHEARSED LOCALLY. NOTHING HERE IS AUTHORISED TO RUN AGAINST PRODUCTION.**
+**Status: EXECUTED IN PRODUCTION 2026-10-08 (X1b–X4b), owner-authorised 2026-10-07 (item 4). See §6.** (Superseded: "prepared and rehearsed locally; nothing authorised".)
 - Every production step below waits for the owner's own authorisation of that specific step.
 - The operational choices O-R1–O-R4 are **open** and are not decided here.
 - D registered independent expectations before delivery (`review/d-records-20261005 @ 7554d913`,
@@ -127,3 +127,24 @@ verifies `SRC_DIR` against the manifest and prints the commands.
 - **The function deploy and download path.** Only PLAN mode was exercised here. The live path is reviewed by reading.
 - **The real ledger table's columns:** the insert uses `version, name, statements, created_by`, as 147–149 did.
 - **Any behaviour of real refunds.** No Stripe call and no data write beyond the migrations is in scope.
+
+## 6. Production execution, 2026-10-08 (A executes; D witnesses against `cc94532c` and amendment `04d756be`)
+
+The token came from the Supabase CLI keychain entry, loaded into the process environment only and never printed.
+Transport: HTTP to the Management API.
+
+| Step | UTC | Result |
+|---|---|---|
+| X1a prudence | 02:3x | Physical backups are daily; latest 2026-10-07 13:51:18Z COMPLETED; PITR off. Default branch `git_branch` `''` |
+| X1b probe | before X2 | HTTP 201, `same_txn=true`. **PASS** |
+| X1c / W0 | 02:36:37 (re-read) | `check pre150` exit 0. Full state, 21 rows, **identical** to `pre150.txt` and to the first W0. Control against `post150` gives 19 MISMATCH, exit 3. D's own W0 PASS: `9434cbf7`. `frozen.sha256` 16/16 OK; DRY request hashes as rehearsed |
+| X2 apply 150 | 02:37:17–22 | prestate PASS; request `8e930001…` (45,287 B), HTTP 201; POST matched `post150.txt`. **W1:** 24 rows identical to `post150.txt` (sha256 `26cd383c…`); ledger 163; census 34\|111\|37\|40; `record_payment_refund` `08924da5…` unchanged; detection `false`; rows 0 |
+| X3 apply 151 | 02:37:56–38:03 | prestate PASS; request `908607ca…` (13,339 B), HTTP 201; POST matched `post151.txt`. **W2:** identical to `post151.txt`; exactly 4 keys changed (`detect_release_stuck` `12ed7fc2`→`6e0a9c5d`, `ledger_151`, count 164, max) |
+| X4a stripe-webhook | 02:38:44–39:11 | v42→**v43**, `verify_jwt` false, ezbr `e4239d64…`→`425c1e63…`; pre-download equals `5b255838`'s manifest; post-download equals frozen (3/3). Boot probe: unsigned POST gives 400 "Invalid signature" (no DB access) |
+| X4b enforce-transfer-expiry | 02:39:48–40:05 | v41→**v42**, `verify_jwt` true, ezbr `d7410c97…`→`d6c898ce…`; pre-download equals `e73553d2` (6/6); post-download equals frozen (6/6) |
+| Detector after 151 | tick 02:40:01 | `release_stuck` succeeded, scanned 0, opened 0; `refunds` succeeded, scanned 2, opened 0. Open cases of these types: 2 pre-existing `refund_pending` (2026-09-08) |
+| Expiry run check | see SPRINT_STATUS | post-deploy runs on v42: HTTP 200, `errors` 0 (baseline 0) |
+
+No guarded recovery or rollback was needed. The rollback boundary from here on:
+- functions first, to v42/v41 from `5b255838`/`e73553d2`;
+- then `rollback 151` / `rollback 150`, each guarded. **`rollback 150` STOPs once any refund-state row exists** (F-2).

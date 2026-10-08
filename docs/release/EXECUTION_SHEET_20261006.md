@@ -22,6 +22,69 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
 
 **Not done (not authorised):** W4, C3, C4 and C5. The deploy branches are unmoved at `1765bbeb` and `562fda9a`.
 
+## Status 2026-10-08: backend executed; attended session pending
+
+**Done (owner authorisation 2026-10-07):**
+- Authenticator verified.
+- **#97 live.** Merge `0b389584` → `dpl_9n8Jps9WdkGCmjEEgpTf8ryVLvon` on **`snatchti.com`, the currently observed web
+  domain**. No domain or DNS change is part of this release. Rollback target: `dpl_7h2CaNtBqujcf6ZFnD7utBByWe7m`.
+  **The authenticated wording check stays open** until someone views the pages; redirects are not evidence of
+  wording.
+- **#98 merged.** `f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb`; its build was cancelled by the pin, as
+  `dpl_74DoDNf53NLEmGuNHVwZx4pAqWiY`. Not deployed.
+- **S1 `92a72cbd` and S2 `abef9506`.** Both trees equal the CI-tested ones; gate CI is green on both.
+- **150/151 package X1b–X4b executed and verified** (package README §6). Run check PASS.
+
+### Attended session: one ordered checklist (owner and A; D witnesses)
+
+**1. Stripe: verify the live endpoint, then subscribe the three refund events (O-R1)**
+- 1a. Open https://dashboard.stripe.com/webhooks with **Test mode off**.
+- 1b. Find the endpoint whose URL is exactly `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook`.
+  **If there are none or more than one: stop.**
+- 1c. **Before:** paste into the chat the endpoint id (`we_…`), status, API version and the **complete** event list.
+  Never paste the signing secret.
+- 1d. Edit, then Select events, then add `refund.created`, `refund.updated`, `refund.failed`. Change nothing else:
+  not the URL, API version, description or metadata, and do not roll the secret. Save.
+- 1e. **After:** paste the complete event list again. A checks it is the before list plus exactly those 3, with
+  nothing removed and the same id, URL, API version and status.
+
+**2. Console: deploy the reviewed merge commit**
+- 2a. A, fresh reads:
+  - `admin/operating-console` is still at `f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb`;
+  - `dpl_74DoDNf53NLEmGuNHVwZx4pAqWiY` is CANCELED, production, for that sha;
+  - the alias is `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr`;
+  - the pin is `ab3e17f1a36e8c78c9fce31ee0b4fafdb6934d64`.
+- 2b. Set the pin to `test "$VERCEL_GIT_COMMIT_SHA" != "f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb"`. A does this with
+  `vercel api` and reads it back (or you do it in Settings → Build and Deployment → Ignored Build Step).
+- 2c. **You:** open https://vercel.com/gnvprod-5449s-projects/snatchit-admin/74DoDNf53NLEmGuNHVwZx4pAqWiY, then "…",
+  then **Redeploy**, with **"Use project's Ignore Build Step" left ticked**. If Redeploy is not offered: stop and tell
+  A, who then runs the reviewed CLI fallback from a clean checkout of `f7e7e85f`.
+- 2d. A checks: READY, production, commit `f7e7e85f`, and `snatchit-admin.vercel.app` serving it.
+- **Rollback:** Instant Rollback to `dpl_J5Kr…`, then the pin back to `ab3e17f1…`.
+
+**3. Console access**
+- 3a. **You:** sign in at https://snatchit-admin.vercel.app/login with your password and a code from the new
+  authenticator; the Today page loads.
+- 3b. A, read-only: factor `e677717c…` shows `last_challenged_at` after that sign-in.
+
+**4. Refund detection (O-R2), only once all three prerequisites are verified**
+- **Prerequisites:**
+  - (a) the new `stripe-webhook` verified: done (A; D's W3);
+  - (b) step 1e's after-list shows the 3 events;
+  - (c) step 3 is confirmed.
+- 4a. **You, in the console:** System → Settings → `refund_state_detection_enabled` → `true` → Save setting.
+  Reason: "O-R2, owner approval 2026-10-07; operator: owner, daily review".
+- 4b. A, read-only:
+  - the setting reads `true`;
+  - `ops.audit` has `action.setting_set` for that key;
+  - the next `refunds` tick succeeded;
+  - list any `refund_failed` or `refund_pending` case opened. Expected: none new, because historical refunds have
+    no state rows until O-R4.
+- Alert delivery is unchanged.
+
+**Still open, any time:** signed in on `snatchti.com`, view `/account/purchases`, `/account/sales` and one transfer page
+to confirm the wording.
+
 ## 0. What is reviewed, and what would deploy it
 
 | Artefact | Review state | What would put it live | Permission |
