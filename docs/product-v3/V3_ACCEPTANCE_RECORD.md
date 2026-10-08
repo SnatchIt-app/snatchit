@@ -120,6 +120,38 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## B native batch 4 at `91a5a58c` (`a4e546d0`, 2026-10-07 22:03; `B_NATIVE_REVIEW_91a5a58c.md`)
+- **B's start check:** HEAD `91a5a58c`, clean, contains `d5217530`. B discarded three launcher
+  frames (the dev client had fallen back to `:8083`). Every capture helper now asserts that the
+  sandbox banner is present.
+- **Listing poster clearance: CONFIRMED FIXED (sim).**
+  - Banner 0–78.7 pt.
+  - Navigation strip on plain canvas 79.0–139.0 pt.
+  - Poster 139.3–629.3 pt (w/h 0.8020); whole-poster contain diff 2.8.
+  - The "From a fan" chip moved below the poster. Nothing covers printed content.
+  - E viewed `listing-live-flyer-light-dflt`: agrees. **E note for B:** at rest, the event *name*
+    now sits below the fold, hidden behind the footer; only the date line is visible. B should say
+    whether R-4 needs the name on the first screen.
+- **Footer and `?reserving=1`: still correct (sim)**, both appearances. The footer is complete and
+  unsplit at a3xl. No reservation made.
+- **Price at large text: complete, but NOT readable at the requested size (B finding).**
+  - Ink height: 18.7 pt at default, 24.3 pt at 3xl (×1.30), and capped at 24.3 pt at a3xl. The name
+    reaches 88.0 pt there, so the price is about 28% of the title's height.
+  - B recommends removing the cap in the stacked form and letting the layout bound it. If space runs
+    out, wrap the caption, never the digits.
+  - This confirms E's earlier observation. **Open, for C.**
+- **Still open in B's review:**
+  - Review of C-operated captures (located, not reviewed).
+  - Search at large text.
+  - The new refusal, error and profile fixtures.
+  - Remaining artwork fixtures.
+  - Signed-in Home (pending a session).
+  - Spoken VoiceOver (no inspector).
+- **Window:** B has **not** handed back after batch 4.
+- **C's fix for the price finding** exists only in C's worktree, uncommitted. It removes the cap in
+  the stacked form only, keeps the amount on one line with `adjustsFontSizeToFit` (minimum 0.6), and
+  lets the caption give way first. It needs a device window, which B has not released.
+
 ## Successor final: `91a5a58c1d54a0c98ef353a6d5f7b53dfb68861c` (C, 2026-10-07 00:12; E verified)
 - **Code** is identical to `7c9b270b`. `91a5a58c` adds only the handoff update and captures. The
   serving tree is clean.
