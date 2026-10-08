@@ -15,7 +15,7 @@ read**; R0 establishes it.
 
 | Step | Kind | What | Gate |
 |---|---|---|---|
-| R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, amount, `refunded_at`, and `livemode` where recorded. Query below | owner authorises the read |
+| R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, `total`, `amount_refunded_cents`, `status`, `refunded_at`, and `mode`, which says which Stripe mode R1 reads. Query below | owner authorises the read |
 | R1 | Stripe read (read-only) | for each PaymentIntent from R0, in the right mode (live or test): every refund's `id`, `status`, `amount`, `created`, `failure_reason`. The owner reads in the Dashboard, or authorises a restricted read-only key. A holds no Stripe credential | owner authorises the read |
 | R2 | local rehearsal | build R0's rows **with their existing `payment_refunds` ledger rows** on a prod-shape local DB, then run R3's exact calls. Asserts and controls below (§R2) | none (local) |
 | R3 | production write | one call per refund: `select public.record_refund_state(<pi>, <re_…>, <status>, <amount_cents>, <failure_reason or null>, <source>, 'reconcile');` with `source` ∈ {`expiry`,`dashboard`,`admin`,`unfulfillable`}, taken from the original refund's path (R0/R1). One request per call, with a read-back | **separately gated** (owner) |
@@ -52,13 +52,15 @@ cents and status move. If the control does not move them, the rehearsal cannot f
 
 **R0 query** (read-only):
 ```sql
-select p.id, p.stripe_payment_intent_id, p.amount_cents, p.status, p.refunded_at
+select p.id, p.stripe_payment_intent_id, p.mode, p.total, p.amount_refunded_cents, p.status, p.refunded_at
   from public.payments p
  where (p.status = 'refunded' or p.refunded_at is not null)
    and not exists (select 1 from public.payment_refund_state s where s.payment_id = p.id)
  order by p.refunded_at nulls last
 ```
-Before trusting a short list, run it with the `not exists` removed as a positive control.
+The column names were checked against the gate (`000_baseline` plus later `add column`s); the query is run on the R2
+rehearsal DB before production. Before trusting a short list, run it with the `not exists` removed as a positive
+control.
 R0 also reads, for those payments:
 - every `payment_refunds` row (`stripe_refund_id`, NULL or not; `stripe_dispute_id`; `amount_cents`);
 - `amount_refunded_cents`;
