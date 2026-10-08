@@ -161,9 +161,20 @@ blanket whole-app acceptance applies.
     file only gained lines.
   - **Repeat at `338268c5`:** the Home feature identity price at default, 3xl and a3xl, and the
     feed rows, including Search, which renders `FeedRow` (`explore.tsx`).
-  - **Agreed order (E and C; B to confirm):** B finishes the unaffected device checks and reviews
-    C's captures → B hands back in a committed line → C runs the suite with the device down, then
-    serves `338268c5` and captures Home → B checks Home price and Search rows at `338268c5`.
+  - **Order, owner-confirmed 2026-10-07 (bounded handoff; no further owner approval needed):**
+    1. B finishes its **current** capture group, commits it and hands the simulator to C in a
+       committed line. The rest of the unaffected-screen backlog does not have to finish first.
+       While C holds the device, B reviews the existing C-operated captures.
+    2. C runs the suite with the device down, then serves one clean candidate. C measures the
+       **rendered price size** at default, largest standard and largest accessibility, for `$99.00`
+       **and representative longer amounts**. Every digit and "all-in" must be kept, and
+       shrink-to-fit must not silently recreate the readability failure. C should give the price
+       layout space before shrinking it. C then hands the simulator back.
+    3. B reviews Home and Search at that candidate, then continues the remaining groups.
+  - **Listing, R-4 (owner, 2026-10-07):** the event name does not have to be above the fold at the
+    expense of the full 4:5 poster. **Acceptance test:** the name is fully reachable and readable
+    by scrolling, and the bottom padding clears the fixed footer. If scrolling cannot expose it,
+    that is a defect. The poster design is not reopened.
 
 ## Successor final: `91a5a58c1d54a0c98ef353a6d5f7b53dfb68861c` (C, 2026-10-07 00:12; E verified)
 - **Code** is identical to `7c9b270b`. `91a5a58c` adds only the handoff update and captures. The
