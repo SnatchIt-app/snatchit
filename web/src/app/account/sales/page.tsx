@@ -4,7 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatCents } from "@snatchit/core";
 import { getAuthedUser } from "@/lib/auth/session";
-import { getMySales, payoutLabel } from "@/lib/sales";
+import { getMySales, payoutLabel, saleRow } from "@/lib/sales";
 import { coverImageUrl } from "@/lib/listings";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -72,7 +72,7 @@ export default async function SalesPage() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <TransferStatusBadge status={s.status} />
+                    <TransferStatusBadge row={saleRow(s)} audience="seller" />
                     {s.netCents != null ? (
                       <span className="text-[12.5px] tabular-nums text-white/60">
                         {formatCents(s.netCents)} to you

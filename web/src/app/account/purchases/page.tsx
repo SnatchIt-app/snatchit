@@ -3,8 +3,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getAuthedUser } from "@/lib/auth/session";
-import { getMyPurchases, type TransferView } from "@/lib/transfers";
+import { getMyPurchases } from "@/lib/transfers";
 import { coverImageUrl } from "@/lib/listings";
+import { buyerPurchaseLine } from "@/lib/transfer-wording";
 import { TransferStatusBadge } from "@/components/transfer/TransferStatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton } from "@/components/ui/Button";
@@ -13,27 +14,6 @@ export const metadata: Metadata = {
   title: "Your purchases",
   robots: { index: false, follow: false },
 };
-
-/** Mirrors mobile's bids.tsx labels, where transfer status wins. */
-function actionLine(t: TransferView): { text: string; urgent: boolean } {
-  switch (t.status) {
-    case "pending":
-      return !t.delivery_email && !t.delivery_phone
-        ? { text: "Add your delivery info so the seller can send", urgent: true }
-        : { text: "Waiting for the seller to send", urgent: false };
-    case "seller_sent":
-      return { text: "Seller sent — confirm you received them", urgent: true };
-    case "disputed":
-      return { text: "Disputed — support is reviewing", urgent: false };
-    case "buyer_confirmed":
-    case "auto_released":
-      return { text: "Confirmed", urgent: false };
-    case "expired":
-      return { text: "Expired — refunded in full", urgent: false };
-    default:
-      return { text: "", urgent: false };
-  }
-}
 
 const IN_FLIGHT = new Set(["pending", "seller_sent", "disputed"]);
 
@@ -66,7 +46,7 @@ export default async function PurchasesPage() {
 
       <ul className="space-y-3">
         {purchases.map((t) => {
-          const line = actionLine(t);
+          const line = buyerPurchaseLine(t);
           // Completed purchases go to the listing, in-flight ones to the
           // transfer — same routing rule as mobile.
           const href = IN_FLIGHT.has(t.status) ? `/transfer/receive/${t.id}` : `/listing/${t.listing_id}`;
@@ -79,7 +59,7 @@ export default async function PurchasesPage() {
                   ) : null}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <TransferStatusBadge status={t.status} />
+                  <TransferStatusBadge row={t} audience="buyer" />
                   <span className="mt-1.5 block truncate text-[15px] font-bold text-ink">{t.eventName}</span>
                   <span className="mt-0.5 block truncate text-[12.5px] text-white/50">{t.venue}</span>
                   <span

@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TransferStatus } from "@/lib/transfers";
+import { sellerPayoutLine, type OrderRowInput } from "@/lib/transfer-wording";
 
 /**
  * Seller-side sales history — the mirror of /account/purchases.
@@ -17,7 +18,7 @@ import type { TransferStatus } from "@/lib/transfers";
  */
 
 const SALE_COLUMNS =
-  "id, listing_id, status, created_at, seller_sent_at, buyer_confirmed_at, disputed_at, payout_released_at, payout_review_status, expires_at, auto_release_at";
+  "id, listing_id, status, created_at, seller_sent_at, buyer_confirmed_at, disputed_at, dispute_resolution, dispute_resolved_at, payout_released_at, payout_review_status, payout_hold_until, expires_at, auto_release_at";
 
 export type SaleView = {
   id: string;
@@ -34,7 +35,29 @@ export type SaleView = {
   paymentStatus: string | null;
   payoutReleasedAt: string | null;
   payoutReviewStatus: string | null;
+  // Needed by the payout line's order of precedence (WT §2h): a decided
+  // dispute, a hold with a stored end, and the scheduled release decision.
+  // All three columns predate 075 and are in the production ledger.
+  payoutHoldUntil: string | null;
+  autoReleaseAt: string | null;
+  disputeResolution: string | null;
+  disputeResolvedAt: string | null;
+  buyerConfirmedAt: string | null;
 };
+
+/** SaleView -> the row shape the badge and the wording rules read. */
+export function saleRow(s: SaleView): OrderRowInput {
+  return {
+    status: s.status,
+    buyer_confirmed_at: s.buyerConfirmedAt,
+    dispute_resolved_at: s.disputeResolvedAt,
+    dispute_resolution: s.disputeResolution,
+    payout_released_at: s.payoutReleasedAt,
+    payout_review_status: s.payoutReviewStatus,
+    payout_hold_until: s.payoutHoldUntil,
+    auto_release_at: s.autoReleaseAt,
+  };
+}
 
 type Joined<T> = T | T[] | null | undefined;
 function one<T>(v: Joined<T>): T | null {
@@ -42,19 +65,14 @@ function one<T>(v: Joined<T>): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
-/** Seller-facing payout line. Ordering matters: dispute outranks everything. */
+/**
+ * Seller-facing payout line. The precedence lives in `sellerPayoutLine`
+ * (src/lib/transfer-wording.ts), where it is unit-tested; this is the
+ * SaleView adapter. 'reversed' and an open dispute outrank
+ * payout_released_at — a reversed row still carries it (WT §2d).
+ */
 export function payoutLabel(s: SaleView): { text: string; urgent: boolean } {
-  if (s.status === "disputed") return { text: "On hold — buyer reported an issue", urgent: true };
-  if (s.status === "expired") return { text: "Expired — buyer refunded", urgent: false };
-  if (s.status === "pending") return { text: "Send the tickets", urgent: true };
-  if (s.payoutReleasedAt) return { text: "Paid out", urgent: false };
-  if (s.payoutReviewStatus === "manual_review") return { text: "Payout under review", urgent: false };
-  if (s.payoutReviewStatus === "held") return { text: "Payout held until after the event", urgent: false };
-  if (s.status === "seller_sent") return { text: "Awaiting buyer confirmation", urgent: false };
-  if (s.status === "buyer_confirmed" || s.status === "auto_released") {
-    return { text: "Payout processing", urgent: false };
-  }
-  return { text: "", urgent: false };
+  return sellerPayoutLine(saleRow(s));
 }
 
 export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
@@ -96,6 +114,11 @@ export const getMySales = cache(async (userId: string): Promise<SaleView[]> => {
       paymentStatus: payment?.status ?? null,
       payoutReleasedAt: (r.payout_released_at as string) ?? null,
       payoutReviewStatus: (r.payout_review_status as string) ?? null,
+      payoutHoldUntil: (r.payout_hold_until as string) ?? null,
+      autoReleaseAt: (r.auto_release_at as string) ?? null,
+      disputeResolution: (r.dispute_resolution as string) ?? null,
+      disputeResolvedAt: (r.dispute_resolved_at as string) ?? null,
+      buyerConfirmedAt: (r.buyer_confirmed_at as string) ?? null,
     };
   });
 });
