@@ -20,7 +20,7 @@ export function Panel({
   flush?: boolean;
 }) {
   return (
-    <section className={`rounded-[var(--radius-card)] border border-line bg-card ${className}`}>
+    <section className={`panel ${className}`}>
       {title || eyebrow || actions ? (
         <header className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
           <div className="min-w-0">

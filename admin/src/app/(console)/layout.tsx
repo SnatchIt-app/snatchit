@@ -48,7 +48,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         Skip to content
       </a>
       <div className="flex min-h-dvh">
-        <aside className="hidden w-56 shrink-0 border-r border-line bg-card md:block">
+        <aside className="hidden w-[232px] shrink-0 bg-sidebar md:block">
           <div className="sticky top-0 h-dvh overflow-y-auto">
             <Sidebar />
           </div>

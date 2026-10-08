@@ -12,13 +12,14 @@ export function Sidebar() {
     <nav aria-label="Console sections" className="flex h-full flex-col">
       <div className="px-5 pb-4 pt-5">
         <Link href="/" className="block">
-          <span className="block text-[1.0625rem] font-bold leading-tight text-ink">
-            Snatch It<span className="text-primary-ink">.</span>
+          <span className="flex items-center gap-2 text-[0.9375rem] font-semibold leading-tight tracking-tight text-white">
+            <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-primary" />
+            Snatch It
           </span>
-          <span className="block text-[0.8125rem] text-dim">Operations console</span>
+          <span className="mt-0.5 block text-[0.75rem] text-white/55">Operations console</span>
         </Link>
       </div>
-      <ul className="flex-1 space-y-0.5 px-3 py-2">
+      <ul className="flex-1 space-y-1 px-3 py-2">
         {NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
           return (
@@ -26,12 +27,14 @@ export function Sidebar() {
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center justify-between rounded-[var(--radius-control)] px-3 py-2 text-[0.875rem] transition-colors ${
-                  active ? "bg-primary-soft font-semibold text-primary-ink" : "text-muted hover:bg-raised hover:text-ink"
+                className={`relative flex min-h-[2.5rem] items-center justify-between rounded-[10px] px-3 text-[0.875rem] transition-colors ${
+                  active ? "bg-white/[0.10] font-semibold text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
                 }`}
               >
+                {/* Active is fill AND a red bar — never colour alone. */}
+                {active ? <span aria-hidden="true" className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-primary" /> : null}
                 <span>{item.label}</span>
-                <kbd aria-hidden="true">
+                <kbd aria-hidden="true" className="border-white/20 bg-white/10 text-white/60">
                   g {item.key}
                 </kbd>
               </Link>
@@ -39,9 +42,9 @@ export function Sidebar() {
           );
         })}
       </ul>
-      <div className="border-t border-line px-5 py-3 text-[0.75rem] text-dim">
+      <div className="border-t border-white/10 px-5 py-3 text-[0.75rem] text-white/50">
         <p>
-          <kbd>/</kbd> search · <kbd>g</kbd> then a key to jump
+          <kbd className="border-white/20 bg-white/10 text-white/70">/</kbd> search · <kbd className="border-white/20 bg-white/10 text-white/70">g</kbd> then a key to jump
         </p>
       </div>
     </nav>

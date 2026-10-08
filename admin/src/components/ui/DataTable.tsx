@@ -67,6 +67,11 @@ export function DataTable<T>({
 
   return (
     <div id={id}>
+      {/*
+        The panel supplies the frame; the table scrolls inside it rather than
+        clipping its last column. `min-w-full` + `w-max` lets wide tables keep
+        their columns readable instead of compressing them to nothing.
+      */}
       <div className="overflow-x-auto rounded-[var(--radius-control)] border border-line">
         <table className={`data-table ${dense ? "text-[0.75rem]" : ""}`}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
