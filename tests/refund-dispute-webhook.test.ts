@@ -4,9 +4,9 @@
  * charge.dispute.closed, transfer.created, transfer.reversed.
  *
  * Contract under test (migration 20260906120000 + F05 refund half):
- *   • refund facts go through record_payment_refund (one call per Stripe
- *     refund object; the charge is fetched with expand[]=refunds when the
- *     event omits them);
+ *   • refund facts go through record_refund_state (150) with EACH refund's own
+ *     status (one call per Stripe refund object; the charge is fetched with
+ *     expand[]=refunds when the event omits them);
  *   • a LOST dispute is a chargeback: record_payment_refund(source
  *     'dispute_lost', dispute id, dispute amount) — never a stripe_refund_id —
  *     and a paid-out transfer is flagged reversal_required
@@ -38,6 +38,7 @@ async function load(w: World = {}) {
     rpc: async (name, params) => {
       if (w.rpcFail?.[name]) return { data: null, error: { message: w.rpcFail[name] } };
       if (name === 'claim_stripe_webhook_event') return { data: 'claimed' };
+      if (name === 'record_refund_state') return { data: { recorded: true } };
       if (name === 'record_payment_refund') return { data: { payment_id: 'p1', status: (params.p_amount_cents as number) >= 11000 ? 'refunded' : 'succeeded', amount_refunded_cents: params.p_amount_cents, recorded: true } };
       if (name === 'flag_payout_reversal_required') return { data: { paid_out: true, flagged: true } };
       if (name === 'record_payout_attempt_result') return { data: { state: 'succeeded', recorded: true } };
@@ -64,34 +65,35 @@ async function load(w: World = {}) {
 }
 
 describe('charge.refunded', () => {
-  it('records every refund object through record_payment_refund and acknowledges', async () => {
+  it('records every refund object through record_refund_state with its own status and acknowledges', async () => {
     const h = await load();
     const res = await h.send('charge.refunded', {
       id: 'ch_1', payment_intent: 'pi_1', refunded: true, amount_refunded: 11000,
-      refunds: { data: [{ id: 're_1', amount: 5000 }, { id: 're_2', amount: 6000, metadata: { source: 'enforce-transfer-expiry' } }] },
+      refunds: { data: [{ id: 're_1', amount: 5000, status: 'succeeded' }, { id: 're_2', amount: 6000, status: 'succeeded', metadata: { source: 'enforce-transfer-expiry' } }] },
     });
     expect(res.status).toBe(200);
-    const calls = h.rpc('record_payment_refund').map((r) => r.params);
+    const calls = h.rpc('record_refund_state').map((r) => r.params);
     expect(calls).toEqual([
-      { p_payment_intent_id: 'pi_1', p_stripe_refund_id: 're_1', p_stripe_dispute_id: null, p_amount_cents: 5000, p_source: 'dashboard' },
-      { p_payment_intent_id: 'pi_1', p_stripe_refund_id: 're_2', p_stripe_dispute_id: null, p_amount_cents: 6000, p_source: 'expiry' },
+      { p_payment_intent_id: 'pi_1', p_stripe_refund_id: 're_1', p_status: 'succeeded', p_amount_cents: 5000, p_failure_reason: null, p_source: 'dashboard', p_observed_via: 'webhook' },
+      { p_payment_intent_id: 'pi_1', p_stripe_refund_id: 're_2', p_status: 'succeeded', p_amount_cents: 6000, p_failure_reason: null, p_source: 'expiry', p_observed_via: 'webhook' },
     ]);
+    expect(h.rpc('record_payment_refund')).toHaveLength(0);
     expect(h.rpcNames().at(-1)).toBe('complete_stripe_webhook_event');
     expect(h.sb.queries.filter((q) => q.table === 'payments' && q.op === 'update')).toHaveLength(0); // no direct status write
   });
 
   it('fetches the charge with expand[]=refunds when the event omits them', async () => {
-    const h = await load({ stripe: (c) => c.path.startsWith('/charges/ch_1') ? { ok: true, data: { id: 'ch_1', refunded: false, amount_refunded: 500, refunds: { data: [{ id: 're_9', amount: 500 }] } } } : { ok: false, status: 404, data: {} } });
+    const h = await load({ stripe: (c) => c.path.startsWith('/charges/ch_1') ? { ok: true, data: { id: 'ch_1', refunded: false, amount_refunded: 500, refunds: { data: [{ id: 're_9', amount: 500, status: 'pending' }] } } } : { ok: false, status: 404, data: {} } });
     const res = await h.send('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', refunded: false, amount_refunded: 500 });
     expect(res.status).toBe(200);
     expect(h.stripe.calls[0].path).toContain('/charges/ch_1');
     expect(h.stripe.calls[0].path).toContain('expand[]=refunds');
-    expect(h.rpc('record_payment_refund')[0].params).toMatchObject({ p_stripe_refund_id: 're_9', p_amount_cents: 500 });
+    expect(h.rpc('record_refund_state')[0].params).toMatchObject({ p_stripe_refund_id: 're_9', p_amount_cents: 500, p_status: 'pending' });
   });
 
   it('DB failure ⇒ non-2xx and the lease is released (Stripe retries)', async () => {
-    const h = await load({ rpcFail: { record_payment_refund: 'connection reset' } });
-    const res = await h.send('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', refunded: true, refunds: { data: [{ id: 're_1', amount: 11000 }] } });
+    const h = await load({ rpcFail: { record_refund_state: 'connection reset' } });
+    const res = await h.send('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', refunded: true, refunds: { data: [{ id: 're_1', amount: 11000, status: 'succeeded' }] } });
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(h.rpcNames()).toContain('fail_stripe_webhook_event');
     expect(h.rpcNames()).not.toContain('complete_stripe_webhook_event');
@@ -101,7 +103,7 @@ describe('charge.refunded', () => {
     const h = await load({ stripe: () => ({ ok: false, status: 500, data: { error: { message: 'stripe down' } } }) });
     const res = await h.send('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', refunded: true });
     expect(res.status).toBeGreaterThanOrEqual(500);
-    expect(h.rpc('record_payment_refund')).toHaveLength(0);
+    expect(h.rpc('record_refund_state')).toHaveLength(0);
   });
 });
 
