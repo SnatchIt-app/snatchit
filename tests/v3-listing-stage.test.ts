@@ -276,6 +276,14 @@ describe('TransactionPanel — the §5 panel', () => {
     const { readFileSync } = await import('node:fs');
     const screen = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
     expect(screen).toContain('const scrollPad = { paddingBottom: footerHeight + v2.space.lg };');
+    /*
+     * ONE source of clearance. There were three: this padding, a `scrollTail` spacer of 96 pt and
+     * `s.scroll`'s 64 pt constant — about 160 pt against a footer measured at 176 pt on the
+     * device, which is the slice B found. Both of the fixed ones are gone, and a new constant
+     * reappearing here is the regression to catch.
+     */
+    expect(screen).not.toContain('scrollTail');
+    expect(screen).toContain('scroll: {},');
     // Both scroll views pad by it — the screen has two, and only one of them renders at a time.
     expect(screen.match(/contentContainerStyle=\{\[s\.scroll, scrollPad\]\}/g) ?? []).toHaveLength(2);
     // And both bars report their height, or the padding would stay zero on whichever renders.

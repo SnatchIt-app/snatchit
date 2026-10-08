@@ -1092,7 +1092,6 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           eventTime={handoff.eventTime}
           onBack={() => router.back()}
         />
-        <View style={s.scrollTail} />
       </ScrollView>
 
       <StickyBar
@@ -1463,7 +1462,6 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
           />
         ) : null}
 
-        <View style={s.scrollTail} />
       </ScrollView>
 
       {/*
@@ -1541,8 +1539,13 @@ function makeStyles(p: Palette) {
 
   // The artwork runs under the status bar: the hero is the first thing on the
   // screen and a safe-area gap above it would frame it like a card.
-  scroll: { paddingBottom: v2.space.xxxl },
-  scrollTail: { height: 96 },
+  /*
+   * No constant here any more. Clearance is `scrollPad`, computed from the footer's MEASURED
+   * height — a 96 pt spacer plus a 64 pt constant came to about 160 pt against a footer that is
+   * 176 pt at the largest accessibility size, which is the ~16 pt slice B measured on the last
+   * fact row. Three sources of the same spacing is how that gap went unnoticed.
+   */
+  scroll: {},
   // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
   commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
 
