@@ -120,6 +120,25 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## C's window: served `453a1c82a40a7c2a774dc86671e4c97c810f34d7` (2026-10-07 22:21; not yet handed back)
+- **Contents:** `338268c5` (price fix) + `453a1c82`.
+- **Footer slice: confirmed a padding defect and fixed** (C).
+  - Cause: the scroll ended its content with a constant padding, while the fixed footer grows with
+    text size.
+  - Fix: `StickyBar` reports its measured height through a new optional `onLayout`, and
+    `ListingDetailScreen` pads by that height plus a gap.
+- **`?amounts=long` added to the Home harness** (×13 on bid and Buy Now amounts) for the owner's
+  longer-amount check.
+- **Relevant diff from `91a5a58c` (E):**
+  - **Listing no longer carries.** `ListingDetailScreen.tsx` changed (scroll padding), so the
+    Listing scroll and footer checks repeat. The poster clearance itself is unchanged, since
+    `ListingHero` is untouched.
+  - `StickyBar` change is additive (a new optional prop, no deletions besides the signature line).
+    Its other users (Create, Edit listing, settings) don't pass it.
+  - The `v3-home.tsx` change is inert unless `amounts=long`, and the art path is unchanged, so Home
+    artwork evidence still carries.
+- **Awaiting:** C's measurements and captures, then a committed handback naming one sha.
+
 ## B batch 5 at `91a5a58c` (`cb242fd8`, 2026-10-07): C-operated captures reviewed; **simulator handed to C**
 - **Applicability (B, checked by dependency):** the `7c9b270b` Home set carries exactly (no source
   delta to `91a5a58c`). The `94ac8b4f` Listing set carries, because the Listing screen reaches
