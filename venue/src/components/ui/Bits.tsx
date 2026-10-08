@@ -17,15 +17,15 @@ export function Eyebrow({ children }: { children: ReactNode }) {
  */
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="border border-line bg-card">
-      <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+    <section className="panel">
+      <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
           {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
           <h2 className="text-base font-bold">{title}</h2>
         </div>
         {action}
       </header>
-      <div className="p-4">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }

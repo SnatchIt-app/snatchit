@@ -69,7 +69,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
   }
 
   return (
-    <Shell ctx={ctx} event={null} active="overview" signedInAs={p.signedInAs}>
+    <Shell ctx={ctx} event={ready?.stageView.event ? { eventId: ready.stageView.event.eventId, title: ready.stageView.event.title } : null} active="overview" signedInAs={p.signedInAs}>
       <PreviewOutcome did={p.first("did")} />
       <Page eyebrow={VENUE.name} title="Today" lead="What is happening, what needs you, and the one thing to do about it.">
         {!readable ? (

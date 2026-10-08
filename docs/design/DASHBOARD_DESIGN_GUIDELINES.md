@@ -10,80 +10,104 @@ behaviour and permissions. Nothing here overrides them.
 
 ---
 
-## 1. References, and exactly what was taken from each
+## 1. The reference, and what is visible in it
 
-| Reference | Inspected? | What was taken |
-|---|---|---|
-| **snatchitapp.com** white `section.chapter` blocks | **Yes** — computed styles, 2026-10-06 | The palette, the hairline, the eyebrow, the primary button, "no boxed cards" |
-| **therumor.com** marketing site | **Yes** — computed styles, 2026-10-07 | Calm restraint: sentence-case controls, a three-step ink ladder, large tight-tracked display, generous section rhythm |
-| **Rumor's actual dashboard** | **No — behind a login at therumor.com, never seen** | Nothing. Its appearance is not described or imitated anywhere in this document. |
-| Apple HIG / a16z editorial restraint | Not inspected as artefacts | Used as principles only: clarity, hierarchy, one idea per block |
+**Superseded on 2026-10-08.** The earlier radius-0 / square-button / no-cards /
+mandatory-Oswald rules are withdrawn. They came from the marketing site, which is a
+black landing page, and they fought the product appearance the owner actually wants.
+Do not reinstate them because an older commit or an older copy of this file says so.
 
-### What Rumor's public site measures as
+The reference is the **dashboard shown inside the laptop** in the owner's Rumor
+screenshot (2026-10-07). Target roughly 90% of that feel, adapted to Snatch It's
+workflows. Only what is *visible* in that image is recorded here; Rumor's private
+dashboard was never accessed and none of its behaviour is assumed.
 
-Pure white; ink `#1F1F1F`; muted `#6B6B6B`; dim `#ABABAB`. Display face **Romie** (serif)
-700 at 50–64px, tracking −0.025em, leading ~1.1. UI face **Dia** 500 at 18px. Buttons are
-**fully rounded pills** (`border-radius: 9999px`), sentence case, 18px/500, black-on-white
-and white-on-black. Section rhythm 48–96px.
+### What is visible
 
-**This conflicts with Snatch It's own system** — radius 0, Oswald condensed caps, red accent.
-The conflict is resolved deliberately and not split down the middle:
+| Element | What the image shows |
+|---|---|
+| Sidebar | Narrow dark, near-black rail. Logo top, a short stack of icons, one active item marked by a filled light circle, sign-out pinned at the bottom |
+| Workspace | Soft light-grey canvas behind the content |
+| Panels | White, rounded corners, hairline border, little or no shadow |
+| Page head | Circular back control, large semibold title, a grey subtitle beside it; bell and avatar at the right |
+| Section head | Title plus one explanatory sentence underneath, in grey |
+| Tabs | Text tabs with an underline on the active one |
+| Buttons | **Pills.** Light/white with a hairline border and a small leading icon for secondary; solid dark for the committing action ("Apply Filters") |
+| Filter panel | White rounded card, a count badge, a close ×, search, collapsible groups, checkboxes, a range slider, "Clear All" beside a solid "Apply Filters" |
+| Table | Checkbox column, avatar + name, aligned text columns, small chips for overflow ("+1"), quiet row dividers, comfortable row height |
+| Colour | Almost entirely neutral. No large saturated fills anywhere |
 
-- **Kept from Snatch It:** radius 0, `#FF1A1A` primary button with black text, Oswald for
-  short display headings, the red accent eyebrow. This is the brand.
-- **Kept from Rumor:** sentence case on every control and label, the muted ink ladder,
-  display type set large with tight negative tracking, and section rhythm measured in
-  white space rather than borders.
-- **Rejected:** pill buttons and a serif display face. Both are Rumor's identity, not ours.
+### What we take, and the two places we deliberately differ
 
----
+Take: the dark rail, the grey canvas, white rounded panels, pill controls, chips and
+badges, hairline borders, minimal shadow, the calm neutral palette, and tables that are
+readable rather than dense.
+
+Differ, on purpose:
+
+1. **Navigation is labelled, not icon-only.** The reference's rail is icons alone. A
+   first-time operator should not have to hover to learn the sections, so our rail shows
+   text labels and stays wide enough to hold them.
+2. **Targets and type are larger.** Do not reproduce the reference's smallest text or
+   its tight controls. Minimum 24px targets, comfortable row height, body text that is
+   readable at a glance.
+
+### Snatch It identity inside this
+
+Red is no longer the default button colour. It stays as: the active navigation marker,
+the brand mark, and destructive emphasis. The committing action is a solid dark pill.
+Oswald is optional, not mandatory — Inter sentence case is the default for everything,
+including page titles, unless a specific heading genuinely reads better in the display
+face.
 
 ## 2. Tokens
 
-Measured from snatchitapp.com's white sections, then adjusted only where a measurement
-failed accessibility.
-
 ```
-bg        #ffffff      surfaces
-raised    #fafafa      hover rows, quiet strips
-ink       #0b0b0b      primary text
-muted     rgba(11,11,11,0.66)   secondary text
-dim       rgba(11,11,11,0.58)   tertiary text
-line      rgba(11,11,11,0.14)   hairlines — NEUTRAL, never red
-accent    #dd0000      red as TEXT on white
-primary   #ff1a1a      red as a FILL, always with black text
-radius    0
+canvas     #f4f4f5   the workspace behind the panels
+surface    #ffffff   panels, tables, menus
+sidebar    #141416   the dark rail
+sidebar-fg rgba(255,255,255,0.72)      sidebar label
+sidebar-on #ffffff on rgba(255,255,255,0.10)   active item
+ink        #0b0b0b   primary text
+muted      rgba(11,11,11,0.66)   secondary text
+dim        rgba(11,11,11,0.58)   tertiary text
+line       rgba(11,11,11,0.10)   hairline borders
+solid      #141416   the committing button, white text
+accent     #dd0000   active nav marker, brand mark, destructive emphasis
+radius     panel 14px · control 10px · pill 9999px · chip 9999px
+shadow     0 1px 2px rgba(11,11,11,0.04) — panels only, never on a control
 ```
 
-The site's own muted ink is 56%, which measures 4.54:1 on white but **4.45:1 on the quiet
-tint — under AA**. The tint was lightened to `#fafafa` and the two muted tokens taken to
-66% and 58%. *Rule: a measured accessibility failure outranks a measured brand value.*
-
----
+A measured accessibility failure still outranks any value here: every text token must
+clear 4.5:1 on the surface it actually sits on, measured on the painted page.
 
 ## 3. Type
 
-- **Oswald 700, uppercase** — page titles and short section headings **only**. Never a
-  label, control, status, table header, or the name of a thing in a list.
-- **Inter, sentence case** — everything else, including every button.
-- A list item's name is `.item-title` (Inter 600, 1.0625rem). A long name in caps is wide
-  and hard to read.
-- Sizes are `rem` from four named tiers. **No px font-size anywhere** — guarded by a test.
-- Eyebrow: uppercase, 0.16em tracking (the site's 0.45em is a landing-page value and costs
-  too much width in a dashboard).
+Inter throughout, sentence case. Sizes in `rem` from named tiers — no px font-size
+anywhere, so the browser text-size setting moves the whole page.
 
-## 4. Layout
+- Page title: 1.5rem, 600, tracking −0.01em
+- Section title: 1.0625rem, 600
+- Body / table cell: 0.875rem
+- Secondary and table header: 0.8125rem, muted
+- Chip and badge: 0.75rem
 
-- **No boxed cards.** Sections are separated by white space and a heading; lists are
-  hairline-divided rows. A card is justified only when its contents are a single object
-  the reader will act on as a unit.
-- **One filled primary action per block.** Everything else is a text link with an arrow.
-- Multi-column grids use `repeat(auto-fit, minmax(min(Xrem, 100%), 1fr))`. A grid whose
-  column count comes from a viewport breakpoint ignores the reader's text size; a grid in
-  `rem` collapses on its own when the type doubles. The `min(…, 100%)` is required or the
-  grid overflows a narrow screen.
-- One rendering per screen. Do not build a desktop table and a separate phone card deck
-  from the same data: they drift, and panels end up on the page twice.
+Oswald is available for a short display heading where it genuinely helps. It is not
+required, and it is never used for labels, controls, statuses or table headers.
+
+## 4. Components
+
+- **Button.** Pill. `solid` is the committing action (dark, white text). `quiet` is
+  white with a hairline border. `ghost` is text-only. **`danger` is distinct**: red
+  border and red text, never the same shape-and-colour as an ordinary action, and
+  anything moving money or voiding tickets additionally needs a typed confirmation.
+  Links navigate, buttons act.
+- **Panel.** White, radius 14, hairline border, optional title + one explanatory
+  sentence, optional actions in the header.
+- **Table.** Aligned columns, quiet dividers, comfortable rows, a search field and
+  filter chips above it. Numeric columns right-aligned and tabular.
+- **Chip / Badge.** Pill. Status badges carry a word, never colour alone.
+- **Reference.** The copyable record-ids disclosure (§6) keeps its role unchanged.
 
 ## 5. Every page answers six questions
 
@@ -100,13 +124,20 @@ What happened after I acted · How do I go back.
   available", never one header over two different measures.
 - Advanced detail and raw records go behind a named disclosure, never as the default view.
 - Multi-step flows keep a visible Cancel and a way back on every step.
+- A lookup that resolves nothing explains why and offers a usable recovery path. Transfer
+  search and filtering stay discoverable under Orders; a transfer id with no owning order
+  says so in plain words and hands the operator a search that will find it.
 
 ## 6. Honesty rules (non-negotiable)
 
-- **No backend identifier in anything a person reads** — not in a heading, not in body
-  copy, and **not in a tooltip**. A tooltip is product UI. The schema name belongs in
-  developer documentation. Guarded by a test that scans rendered visible text *and*
+- **No internal schema name in anything a person reads** — not in a heading, not in body
+  copy, and not in a tooltip. A tooltip is product UI; the table or function name belongs
+  in developer documentation. Guarded by a test that scans rendered visible text *and*
   `title`/`aria-label` attributes, carrying its own positive control.
+- **This is not a ban on references.** Order, payment, transfer, case and Stripe ids are
+  how an operator investigates and how support answers a customer. Keep them, in a
+  clearly labelled, copyable details area — "Reference" — not scattered through prose.
+  Hide the *schema*, keep the *evidence*.
 - Never promise a record the reader cannot open. If an action is attributable but there is
   no screen to read that history on, say both.
 - A figure the data source cannot produce renders a dash **with a reason**, never `0`.

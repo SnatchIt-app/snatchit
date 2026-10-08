@@ -29,47 +29,103 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
   const visible = navAllowed ? items.filter((i) => i.show) : [];
 
   return (
-    <div className="min-h-dvh">
+    /*
+      Dark labelled rail · grey canvas · white panels (guidelines §1).
+      The reference's rail is icon-only; ours carries text, because a
+      first-time operator should not have to hover to learn the sections.
+    */
+    <div className="min-h-dvh bg-canvas">
       <PreviewStrip ctx={ctx} surface={active} />
-      <ContextBar ctx={ctx} signedInAs={signedInAs} />
-      <div className="mx-auto flex max-w-[1600px]">
-        {/* xl persistent nav; lg icons */}
-        <nav aria-label="Dashboard" className="hidden w-14 shrink-0 border-r border-line md:block xl:w-52">
-          <ul className="sticky top-16 py-3">
-            {visible.map((i) => (
-              <li key={i.key}>
-                <Link
-                  href={i.href}
-                  aria-current={i.key === active ? "page" : undefined}
-                  className={`block px-3 py-2 text-sm transition-colors ${i.key === active ? "border-l-2 border-primary bg-primary-soft font-semibold text-ink" : "border-l-2 border-transparent text-muted hover:bg-raised hover:text-ink"}`}
-                >
-                  <span className="xl:hidden font-mono text-xs">{i.short}</span>
-                  <span className="hidden xl:inline">{i.label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+      <div className="flex">
+        <Sidebar ctx={ctx} items={visible} active={active} signedInAs={signedInAs} />
         <div className="min-w-0 flex-1">
-          {/* md/sm: top drawer */}
-          {visible.length > 0 ? (
-          <details className="border-b border-line md:hidden">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-bold hover:bg-raised">Menu · {visible.find((i) => i.key === active)?.label ?? "Events"}</summary>
-            <ul className="border-t border-line-neutral">
-              {visible.map((i) => (
-                <li key={i.key}>
-                  <Link href={i.href} aria-current={i.key === active ? "page" : undefined} className={`block px-4 py-3 text-sm ${i.key === active ? "bg-primary-soft font-semibold text-primary-ink" : "hover:bg-raised"}`}>
-                    {i.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </details>
-          ) : null}
-          <main className="p-4 md:p-6">{children}</main>
+          <MobileNav items={visible} active={active} />
+          <main className="mx-auto max-w-[1180px] px-4 py-6 md:px-8 md:py-10">{children}</main>
         </div>
       </div>
     </div>
+  );
+}
+
+type NavItem = { key: string; label: string; short: string; href: string; show: boolean };
+
+/** The rail. Labelled, comfortable targets, active item marked by fill AND a red bar. */
+function Sidebar({ ctx, items, active, signedInAs }: { ctx: PreviewContext; items: NavItem[]; active: string; signedInAs?: string | null }) {
+  return (
+    <nav aria-label="Sections" className="sticky top-9 hidden h-[calc(100dvh-2.25rem)] w-[232px] shrink-0 flex-col bg-sidebar px-3 py-5 md:flex">
+      <div className="px-2">
+        <p className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight text-white">
+          <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-primary" />
+          Snatch It
+        </p>
+        <p className="mt-0.5 text-[0.75rem] text-white/55">Venue dashboard</p>
+      </div>
+      <ul className="mt-7 space-y-1">
+        {items.map((i) => {
+          const on = i.key === active;
+          return (
+            <li key={i.key}>
+              <Link
+                href={i.href}
+                aria-current={on ? "page" : undefined}
+                className={`relative flex min-h-[2.5rem] items-center rounded-[10px] px-3 text-[0.875rem] transition-colors ${
+                  on ? "bg-white/[0.10] font-semibold text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                {on ? <span aria-hidden="true" className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-primary" /> : null}
+                {i.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-auto space-y-2 px-2 pt-6">
+        <p className="break-words text-[0.75rem] leading-relaxed text-white/50">
+          {ctx.source === "database" ? (
+            signedInAs ?? "Signed in"
+          ) : (
+            <>
+              <span className="block text-white/70">{VENUE.name}</span>
+              <span className="block">{PRINCIPAL_LABEL[ctx.role]}</span>
+            </>
+          )}
+        </p>
+        {ctx.source === "database" && signedInAs ? (
+          <form method="post" action="/logout">
+            <button className="min-h-[2rem] rounded-full border border-white/20 px-3 text-[0.8125rem] text-white/80 transition-colors hover:border-white/40 hover:text-white" type="submit">
+              Sign out
+            </button>
+          </form>
+        ) : null}
+      </div>
+    </nav>
+  );
+}
+
+/** Phone: the same labelled sections in a disclosure, so nothing is icon-only. */
+function MobileNav({ items, active }: { items: NavItem[]; active: string }) {
+  if (items.length === 0) return null;
+  const current = items.find((i) => i.key === active)?.label ?? "Menu";
+  return (
+    <details className="border-b border-line bg-sidebar md:hidden">
+      <summary className="flex min-h-[2.75rem] cursor-pointer items-center gap-2 px-4 text-[0.875rem] font-semibold text-white">
+        <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-primary" />
+        Snatch It · {current}
+      </summary>
+      <ul className="px-3 pb-3">
+        {items.map((i) => (
+          <li key={i.key}>
+            <Link
+              href={i.href}
+              aria-current={i.key === active ? "page" : undefined}
+              className={`flex min-h-[2.5rem] items-center rounded-[10px] px-3 text-[0.875rem] ${i.key === active ? "bg-white/[0.10] font-semibold text-white" : "text-white/70"}`}
+            >
+              {i.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -145,69 +201,8 @@ function PreviewControls({ ctx, surface }: { ctx: PreviewContext; surface: Surfa
   );
 }
 
-/** Spec §4.3 — the switchers only list what the user is in. The preview has exactly one of each. */
-function ContextBar({ ctx, signedInAs }: { ctx: PreviewContext; signedInAs?: string | null }) {
-  return (
-    <header className="z-40 border-b border-line bg-bg/95 backdrop-blur md:sticky md:top-9">
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
-        <span className="font-bold tracking-widest">SNATCH IT</span>
-        <span className="eyebrow text-dim">Venue dashboard</span>
-        {ctx.source === "database" ? <DatabaseScope ctx={ctx} /> : <FixtureSwitchers ctx={ctx} />}
-        {ctx.source === "database" ? (
-          signedInAs ? (
-            <form method="post" action="/logout" className="flex items-center gap-2 text-xs">
-              <span className="text-muted">{signedInAs}</span>
-              <button className="btn btn-ghost btn-sm" type="submit">
-                Sign out
-              </button>
-            </form>
-          ) : (
-            <Link className="btn btn-ghost btn-sm" href="/login">
-              Sign in
-            </Link>
-          )
-        ) : null}
-      </div>
-    </header>
-  );
-}
 
-/**
- * One organisation, one venue in the sample data — so these were two dropdowns
- * that could not be changed. A control that offers no choice reads as broken;
- * it is a line of text instead. (REMAINING_WORK U5.)
- */
-function FixtureSwitchers({ ctx }: { ctx: PreviewContext }) {
-  return (
-    <span className="ml-auto flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-muted">
-      <span className="text-ink">{VENUE.name}</span>
-      <span className="text-dim">·</span>
-      <span>{PRINCIPAL_LABEL[ctx.role]}</span>
-    </span>
-  );
-}
 
-/**
- * Database mode: no sample names. Organization/venue names are not read in this slice,
- * so the route's own ids are shown, plus the verified role (or none).
- */
-function DatabaseScope({ ctx }: { ctx: PreviewContext }) {
-  return (
-    <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-      {ctx.scope ? (
-        <>
-          <span title={ctx.scope.orgId}>
-            Organization <code className="font-mono text-xs">{ctx.scope.orgId.slice(0, 8)}</code>
-          </span>
-          <span title={ctx.scope.venueId}>
-            Venue <code className="font-mono text-xs">{ctx.scope.venueId.slice(0, 8)}</code>
-          </span>
-        </>
-      ) : null}
-      <span className="text-dim">{ctx.verifiedRole ? PRINCIPAL_LABEL[ctx.role] : "No role"}</span>
-    </span>
-  );
-}
 
 /** Rendered after any preview "action" form submits with ?did=… */
 export function PreviewOutcome({ did }: { did: string | undefined }) {

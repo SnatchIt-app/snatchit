@@ -20,18 +20,18 @@ import type { ReactNode } from "react";
 /** The page frame: eyebrow, display title, the one thing to do, a lead line. */
 export function Page({ eyebrow, title, lead, action, children }: { eyebrow?: string; title: string; lead?: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
-    <div className="mx-auto max-w-5xl">
-      <header className="border-b border-line pb-6">
+    <div>
+      <header className="pb-6">
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div className="min-w-0">
             {eyebrow ? <p className="eyebrow-accent">{eyebrow}</p> : null}
-            <h1 className={`display display-xl ${eyebrow ? "mt-3" : ""}`}>{title}</h1>
+            <h1 className={`display display-xl ${eyebrow ? "mt-1.5" : ""}`}>{title}</h1>
             {lead ? <p className="mt-4 max-w-xl text-base leading-relaxed text-muted">{lead}</p> : null}
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       </header>
-      <div className="space-y-12 py-10">{children}</div>
+      <div className="space-y-6">{children}</div>
     </div>
   );
 }
@@ -40,7 +40,7 @@ export function Page({ eyebrow, title, lead, action, children }: { eyebrow?: str
 export function Block({ title, lead, action, children, id }: { title?: string; lead?: ReactNode; action?: ReactNode; children: ReactNode; id?: string }) {
   const headingId = id ? `${id}-heading` : undefined;
   return (
-    <section aria-labelledby={headingId} id={id}>
+    <section aria-labelledby={headingId} id={id} className="panel p-5 md:p-6">
       {title ? (
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
           <h2 id={headingId} className="display display-lg">
@@ -49,15 +49,15 @@ export function Block({ title, lead, action, children, id }: { title?: string; l
           {action ? <div className="shrink-0">{action}</div> : null}
         </div>
       ) : null}
-      {lead ? <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted">{lead}</p> : null}
-      <div className={title || lead ? "mt-5" : ""}>{children}</div>
+      {lead ? <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{lead}</p> : null}
+      <div className={title || lead ? "mt-4" : ""}>{children}</div>
     </section>
   );
 }
 
 /** Hairline-divided rows — the site's event list, which is also what a dashboard list wants. */
 export function Rows({ children }: { children: ReactNode }) {
-  return <ul className="divide-y divide-line border-y border-line">{children}</ul>;
+  return <ul className="divide-y divide-line">{children}</ul>;
 }
 
 /**
@@ -114,7 +114,7 @@ export function ArrowLink({ href, children }: { href: string; children: ReactNod
  */
 export function Facts({ items }: { items: { label: string; value: string; meaning?: string }[] }) {
   return (
-    <dl className="divide-y divide-line border-y border-line">
+    <dl className="divide-y divide-line">
       {items.map((f) => (
         <div key={f.label} className="grid gap-x-8 gap-y-1 py-3 sm:grid-cols-[14rem_1fr]">
           <dt className="text-sm text-muted">{f.label}</dt>
@@ -131,7 +131,7 @@ export function Facts({ items }: { items: { label: string; value: string; meanin
 /** Technical or secondary detail, collapsed. Available, never in the way. */
 export function Detail({ summary, children }: { summary: string; children: ReactNode }) {
   return (
-    <details className="border-t border-line pt-2">
+    <details className="border-t border-line pt-3">
       <summary className="arrow-link cursor-pointer">{summary}</summary>
       <div className="mt-3 text-sm text-muted">{children}</div>
     </details>
