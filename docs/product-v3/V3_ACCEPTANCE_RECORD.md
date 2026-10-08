@@ -120,6 +120,23 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## Remaining C-operated frames: `3c03778ac55e2c0f33233e4cd90e634805e28e2a` (2026-10-07 23:03; **pushed**; handback line not yet seen)
+- **Code is identical to `3d4d6a4a`**: `3c03778a` adds only three PNGs and log lines in
+  `native/3d4d6a4a/`.
+- **Pushed:** `origin/v3/midnight-app` and `origin/v3/consumer-batch2` = `3c03778a`, verified with
+  `git ls-remote`.
+- **R-4, the owner's test** (the name may start below the fold, but must be reachable and readable by
+  scrolling): **C reports PASS in both appearances.** At a3xl, "Neon Choir" spans two lines, ink
+  about 90 pt, revealed whole by one drag. E viewed `listing-a3xl-light-eventname-Coperated.png`
+  and agrees. **B's review is still owed.**
+- **Dark scroll-end:** CTA top 688.0 pt, last content 466.3 pt. Identical to Light; nothing is
+  sliced.
+- **Flagged for B and the owner, not fixed:** at a3xl the hero date line clamps to
+  "Sat 24 Oct · 1…" (`ListingHero` `when`, `numberOfLines={1}`). It is the same family as the
+  feed-row title and date clamps, and not the money rule.
+- **Still not captured:** the feature's own amount at a3xl (gesture blocker; inferred, not measured).
+- **Window:** C has not yet stated a handback in a commit or message.
+
 ## C-operated captures and price measurements: `37df36fd96c042ba5645021dfc90c13de1d96bcd` (2026-10-07 22:55; not B-reviewed; not yet handed back)
 - **Code is identical to `3d4d6a4a`**: `37df36fd` adds only `native/3d4d6a4a/` (six frames and
   `capture-log.txt`). Every frame was accepted only with the sandbox banner asserted. Home frames
