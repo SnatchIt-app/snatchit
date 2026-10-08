@@ -12,6 +12,22 @@ import { DATA_SOURCE, type DataSource } from "@/lib/env";
 import { DEFAULT_PRINCIPAL, isPrincipal, type Principal } from "@/lib/roles";
 
 export const PREVIEW_STATES = ["live", "loading", "empty", "error", "denied", "nodata"] as const;
+
+/**
+ * Which forced states a surface can actually show.
+ *
+ * `nodata` means "filtered to nothing", so it is only meaningful where there
+ * is a filter to do the filtering — the events list and the guest list. On
+ * every other surface the control did nothing when you picked it, which makes
+ * the demo look broken rather than the state look absent.
+ */
+export type Surface = "overview" | "events" | "setup" | "inventory" | "attendees" | "door";
+
+const FILTERED_SURFACES: readonly Surface[] = ["events", "attendees"];
+
+export function statesFor(surface: Surface): readonly PreviewState[] {
+  return FILTERED_SURFACES.includes(surface) ? PREVIEW_STATES : PREVIEW_STATES.filter((s) => s !== "nodata");
+}
 export type PreviewState = (typeof PREVIEW_STATES)[number];
 
 export type SearchParams = Record<string, string | string[] | undefined>;

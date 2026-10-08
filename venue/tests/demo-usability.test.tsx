@@ -226,8 +226,8 @@ describe("no dead ends", () => {
  *   3. no backend identifier in a tooltip either — a tooltip is product UI
  */
 import { manifestAction, manifestState } from "@/lib/door";
-import { demoActionLabel } from "@/lib/preview";
-import { PreviewOutcome } from "@/components/shell/Shell";
+import { demoActionLabel, statesFor } from "@/lib/preview";
+import { PreviewOutcome, Shell } from "@/components/shell/Shell";
 
 const openEpisode = MANIFEST_EPISODES.filter((e) => e.closedAt === null);
 const closedEpisodes = MANIFEST_EPISODES.map((e) => ({ ...e, closedAt: e.closedAt ?? "2026-09-13T04:00:00Z" }));
@@ -392,5 +392,32 @@ describe("the overview leads with where the event actually is", () => {
     expect(after).toContain("Last event");
     expect(after).toContain("sales are closed");
     expect(after).not.toContain("Open check-in");
+  });
+});
+
+/**
+ * The forced-state control only offers states the surface can actually show.
+ * "No matches" needs a filter to do the filtering; on a surface without one
+ * the control did nothing, which reads as a broken demo.
+ */
+describe("the demo state control offers only what the surface supports", () => {
+  it("includes no matches on the filtered surfaces and excludes it elsewhere", () => {
+    for (const s of ["events", "attendees"] as const) expect(statesFor(s)).toContain("nodata");
+    for (const s of ["overview", "setup", "inventory", "door"] as const) expect(statesFor(s)).not.toContain("nodata");
+    // Everything else stays available everywhere — this narrows one option, not the control.
+    for (const s of ["overview", "events", "setup", "inventory", "attendees", "door"] as const) {
+      for (const keep of ["live", "loading", "empty", "error", "denied"] as const) expect(statesFor(s), s).toContain(keep);
+    }
+  });
+
+  it("the rendered shell drops the option, and keeps it where it works", () => {
+    const shell = (active: "overview" | "events") =>
+      html(
+        <Shell ctx={vm} event={null} active={active}>
+          <p>x</p>
+        </Shell>,
+      );
+    expect(shell("events")).toContain("no matches");
+    expect(shell("overview")).not.toContain("no matches");
   });
 });

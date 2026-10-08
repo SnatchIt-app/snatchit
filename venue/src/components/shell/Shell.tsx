@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ORG, VENUE } from "@/fixtures/venue";
-import { DEMO_DATA_SUBLABEL, PREVIEW_STATES, demoActionLabel, withPreview, type PreviewContext } from "@/lib/preview";
+import { DEMO_DATA_SUBLABEL, demoActionLabel, statesFor, withPreview, type PreviewContext, type Surface } from "@/lib/preview";
 import { sourceInfo } from "@/lib/source";
 import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
 import { canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses, canManualLookup } from "@/lib/roles";
@@ -30,7 +30,7 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
 
   return (
     <div className="min-h-dvh">
-      <PreviewStrip ctx={ctx} />
+      <PreviewStrip ctx={ctx} surface={active} />
       <ContextBar ctx={ctx} signedInAs={signedInAs} />
       <div className="mx-auto flex max-w-[1600px]">
         {/* xl persistent nav; lg icons */}
@@ -73,7 +73,7 @@ export function Shell({ ctx, event, active, children, signedInAs }: { ctx: Previ
   );
 }
 
-function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
+function PreviewStrip({ ctx, surface }: { ctx: PreviewContext; surface: Surface }) {
   // The context (not the process env) decides the mode, so a rendered tree is self-describing.
   const dbMode = ctx.source === "database";
   const info = sourceInfo();
@@ -96,7 +96,7 @@ function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
             )}
           </span>
         ) : (
-          <PreviewControls ctx={ctx} />
+          <PreviewControls ctx={ctx} surface={surface} />
         )}
       </div>
     </div>
@@ -108,7 +108,7 @@ function PreviewStrip({ ctx }: { ctx: PreviewContext }) {
  * persona/state. These are demo instruments, not product controls, so they sit
  * behind a disclosure and never compete with the page's own actions.
  */
-function PreviewControls({ ctx }: { ctx: PreviewContext }) {
+function PreviewControls({ ctx, surface }: { ctx: PreviewContext; surface: Surface }) {
   const select = "min-h-7 w-full min-w-0 border border-black/30 bg-white px-1 py-1 text-ink";
   return (
     <details className="w-full text-xs normal-case tracking-normal sm:w-auto">
@@ -129,7 +129,7 @@ function PreviewControls({ ctx }: { ctx: PreviewContext }) {
         <label className="grid gap-0.5">
           <span>Screen state</span>
           <select name="state" defaultValue={ctx.state} className={select}>
-            {PREVIEW_STATES.map((s) => (
+            {statesFor(surface).map((s) => (
               <option key={s} value={s}>
                 {s === "nodata" ? "no matches" : s}
               </option>

@@ -92,5 +92,12 @@ export function PartialCell({ why }: { why: string }) {
 
 /** Spec §3.2 — below `lg` the money/capacity/price/role surfaces are read-only. */
 export function LargerScreenBanner() {
-  return <p className="border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning lg:hidden">Open on a larger screen to edit. This view is read-only on tablet and phone.</p>;
+  // Measured at 4.35:1 as warning-on-warning-tint, under AA. The tinted band
+  // goes; a left rule carries the same signal and the text sits on white,
+  // which is how the error and denied states already read.
+  return (
+    <p className="border-l-2 border-warning py-1.5 pl-3 text-sm text-muted lg:hidden">
+      <span className="font-semibold text-ink">Read-only on this screen size.</span> Open on a larger screen to make changes here.
+    </p>
+  );
 }
