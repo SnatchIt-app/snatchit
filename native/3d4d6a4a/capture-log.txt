@@ -1,0 +1,43 @@
+C-operated, B-reviewed. Candidate 3d4d6a4a. Device SN V3 393x852, iOS 26.5, 393x852 pt.
+Every frame was accepted only after asserting the SANDBOX banner is present (B's batch-4 method).
+Home captures were taken at 453a1c82; `git diff --name-only 453a1c82..3d4d6a4a` is
+ListingDetailScreen.tsx and its test only, so Home is unchanged between the two.
+
+file | content_size | appearance | route | note
+home-price-default-light-Coperated.png      | large                                 | light | _dev/v3-home?variant=feed&art=all | at rest, compact two-column form
+home-price-3xl-light-Coperated.png          | extra-extra-extra-large               | light | same | at rest, stacked form
+home-price-a3xl-light-feedrow-Coperated.png | accessibility-extra-extra-extra-large | light | same | one dwell-drag to the first feed row
+home-price-a3xl-light-longamount-Coperated.png | accessibility-extra-extra-extra-large | light | _dev/v3-home?variant=feed&art=all&amounts=long | four-figure amounts
+listing-a3xl-light-scrollend-Coperated.png  | accessibility-extra-extra-extra-large | light | _dev/v3-listing?screen=listing&variant=listing&art=flyer | scrolled to the very end
+listing-default-light-scrollend-Coperated.png | large                               | light | same | scrolled to the very end
+
+MEASUREMENTS — rendered ink height, measured from the full-resolution frame (px/3 = pt).
+
+Price, Home:
+  default  $99.00      18.3 pt   (B measured 18.7 at 91a5a58c — same figure, cap still in force here
+                                  because the compact form keeps it, which is the intent)
+  3XL      $99.00      25.0 pt   (B: 24.3 at 91a5a58c. 3XL's own scale is ~1.35, so the cap was
+                                  barely binding at this size; the change shows up at a3xl)
+  a3xl     $132.00     63.7 pt   feed row. Was held at 24.3 by the cap. 2.6x larger, and it now
+                                  tracks the requested size instead of stopping at 1.3x.
+  a3xl     $1,716.00   58.0 pt   the four-figure case. Shrink-to-fit engaged, but only to 91% of
+                                  the shorter amount's size. The 0.6 floor was NOT reached; it
+                                  would only bite below about 38 pt. Every digit, the thousands
+                                  separator, the cents and "all-in" are all present.
+
+NOT MEASURED: the FEATURE's own amount at a3xl. The feature is one large Pressable, and every
+drag I tried from inside it registered as a tap and opened the listing. The feed row exercises the
+identical code path — both call the same `amountFit` branch — but that is an inference, not a
+measurement, so it is recorded as missing rather than filled in.
+
+Listing, scroll end (B's batch-4 candidate defect):
+  a3xl     CTA top 688.0 pt (B measured 688.0 — identical), last content 466.3 pt
+  default  CTA top 700.0 pt,                                 last content 494.3 pt
+  Nothing is sliced at either size, and a further drag moves nothing, so both are the true end.
+
+UNRESOLVED, and reported rather than explained away: at both sizes the content ends about 206 pt
+above the CTA, which is more clearance than the footer needs. I could not establish the bar's own
+top from a capture — its stacked background is the canvas colour, so it is invisible against the
+page — so I cannot say how much of that 206 pt is the bar and how much is excess padding. The
+owner's test (reachable, readable, clears the fixed footer) passes; this is a cosmetic residue of
+my fix that I have not root-caused. B can measure the bar directly.
