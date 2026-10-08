@@ -13,7 +13,7 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
   const next = safeInternalPath(first(sp.next) ?? null, "/");
   return (
     <>
-      <h1 className="text-xl font-bold text-ink">Two-factor authentication</h1>
+      <h1 className="title-display text-[1.875rem]">Two-factor authentication</h1>
       <p className="mt-1 text-[0.8125rem] text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
       <div className="mt-5">
         <MfaFlow next={next} />

@@ -5,9 +5,13 @@ export function first(v: string | string[] | undefined): string | undefined {
   return s === undefined || s === "" ? undefined : s;
 }
 
-/** Split a comma-separated filter param into a non-empty array, or undefined. */
+/**
+ * A multi-value filter as a non-empty array, or undefined. Accepts both a
+ * comma-separated value (`?a=x,y`) and repeated keys (`?a=x&a=y`, what a group
+ * of checkboxes submits).
+ */
 export function list(v: string | string[] | undefined): string[] | undefined {
-  const s = first(v);
+  const s = Array.isArray(v) ? v.join(",") : v;
   if (!s) return undefined;
   const parts = s
     .split(",")

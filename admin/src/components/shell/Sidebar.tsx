@@ -3,23 +3,23 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV, isNavActive } from "@/lib/nav";
+import { Icon } from "@/components/ui/Icon";
 
 export { NAV };
 
+/**
+ * The rail — the same narrow dark column as the venue dashboard. Labels sit
+ * under the icons (never icon-only); the `g` shortcut is in each tooltip.
+ */
 export function Sidebar() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Console sections" className="flex h-full flex-col">
-      <div className="px-5 pb-4 pt-5">
-        <Link href="/" className="block">
-          <span className="flex items-center gap-2 text-[0.9375rem] font-semibold leading-tight tracking-tight text-white">
-            <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-primary" />
-            Snatch It
-          </span>
-          <span className="mt-0.5 block text-[0.75rem] text-white/55">Operations console</span>
-        </Link>
-      </div>
-      <ul className="flex-1 space-y-1 px-3 py-2">
+    <nav aria-label="Console sections" className="on-frame flex h-full flex-col items-center py-4">
+      <Link href="/" className="grid h-11 w-11 place-items-center rounded-full bg-white" title="Snatch It · Operations console">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/sn-logo.svg" alt="Snatch It — Today" width={26} height={10} className="h-auto w-[1.6rem]" />
+      </Link>
+      <ul className="mt-6 flex flex-col items-center gap-1.5">
         {NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
           return (
@@ -27,26 +27,22 @@ export function Sidebar() {
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-[2.5rem] items-center justify-between rounded-[10px] px-3 text-[0.875rem] transition-colors ${
-                  active ? "bg-white/[0.10] font-semibold text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-                }`}
+                title={`${item.label} — press g then ${item.key}`}
+                className="group flex w-[4.75rem] flex-col items-center gap-1 rounded-2xl py-1"
               >
-                {/* Active is fill AND a red bar — never colour alone. */}
-                {active ? <span aria-hidden="true" className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-primary" /> : null}
-                <span>{item.label}</span>
-                <kbd aria-hidden="true" className="border-white/20 bg-white/10 text-white/60">
-                  g {item.key}
-                </kbd>
+                <span
+                  className={`grid h-10 w-10 place-items-center rounded-full transition-colors ${
+                    active ? "bg-white text-[#0f0f10]" : "text-white/70 group-hover:bg-white/10 group-hover:text-white"
+                  }`}
+                >
+                  <Icon name={item.icon} size={18} />
+                </span>
+                <span className={`text-[0.6875rem] leading-tight ${active ? "font-semibold text-white" : "text-white/70 group-hover:text-white"}`}>{item.short ?? item.label}</span>
               </Link>
             </li>
           );
         })}
       </ul>
-      <div className="border-t border-white/10 px-5 py-3 text-[0.75rem] text-white/50">
-        <p>
-          <kbd className="border-white/20 bg-white/10 text-white/70">/</kbd> search · <kbd className="border-white/20 bg-white/10 text-white/70">g</kbd> then a key to jump
-        </p>
-      </div>
     </nav>
   );
 }

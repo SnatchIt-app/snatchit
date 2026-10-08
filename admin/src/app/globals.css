@@ -1,118 +1,89 @@
 @import "tailwindcss";
 
 /*
- * Snatch It operations console — analytics appearance (owner direction 2026-09-14):
- * white surfaces on a subtle neutral canvas, restrained neutral borders, generous
- * spacing, sentence-case type with a clear hierarchy (Inter), monospace only for IDs
- * and technical values, brand red reserved for primary actions and emphasis, clear
- * operational status colours, and chart colours from a validated categorical palette.
- * Contrast is enforced by tests/theme-contrast.test.ts.
+ * Snatch It dashboards — v2 visual system (venue and admin share it verbatim).
+ *
+ * Primary reference: the dashboard shown inside the laptop in the owner's
+ * Rumor screenshot (therumor.com landing page, 2026-10-07). Only what that
+ * image shows is taken from it:
+ *   · a near-black frame with a narrow icon rail; the active item is a white
+ *     circle with a dark glyph
+ *   · the workspace is one large light-grey sheet with big rounded corners,
+ *     inset from the frame
+ *   · a serif page title with a small pill naming the context beside it
+ *   · white panels with ~20px corners and no visible shadow
+ *   · pill buttons: a black solid pill commits, a white outlined pill is the
+ *     alternative; grey filled pills for filter chips and group headers
+ *   · plain tables: no zebra, hairline rows, outlined pill badges in cells
+ *   · colour is almost absent — red appears only as a small signal dot
+ *
+ * Deliberate departures: rail items carry a visible label (a first-time user
+ * should not have to hover), and type and targets are larger than the
+ * reference's.
  */
 @theme inline {
-  /* Surfaces — a grey canvas with white panels on it (guidelines §2). */
-  --color-canvas: #f4f4f5;
+  /* Surfaces */
+  --color-frame: #0f0f10;
+  --color-sheet: #f1f1f0;
+  --color-canvas: #f1f1f0;
   --color-bg: #ffffff;
   --color-card: #ffffff;
   --color-field: #ffffff;
-  --color-raised: #fafafa;
-  --color-sidebar: #141416;
+  --color-raised: #f1f1f0;
+  --color-well: #ececeb;
+  --color-sidebar: #0f0f10;
   --color-overlay: rgba(11, 11, 11, 0.45);
 
+  /* Text */
   --color-ink: #0b0b0b;
   --color-muted: rgba(11, 11, 11, 0.66);
-  --color-dim: rgba(11, 11, 11, 0.58);
-  --color-placeholder: rgba(11, 11, 11, 0.58);
+  --color-dim: rgba(11, 11, 11, 0.6);
+  --color-placeholder: rgba(11, 11, 11, 0.6);
 
-  /* The committing action is dark. Red is the brand mark, the active nav
-     marker and destructive emphasis — not the default button colour. */
-  --color-solid: #141416;
+  /* Action and identity. The committing action is black; red is a signal. */
+  --color-solid: #0f0f10;
   --color-primary: #ff1a1a;
   --color-primary-ink: #dd0000;
   --color-primary-muted: #c40000;
-  --color-primary-soft: rgba(255, 26, 26, 0.06);
+  --color-primary-soft: rgba(255, 26, 26, 0.08);
 
-  --color-line: rgba(11, 11, 11, 0.10);
-  --color-line-strong: rgba(11, 11, 11, 0.20);
-  --color-line-neutral: rgba(11, 11, 11, 0.10);
+  --color-line: rgba(11, 11, 11, 0.08);
+  --color-line-strong: rgba(11, 11, 11, 0.16);
+  --color-line-neutral: rgba(11, 11, 11, 0.08);
 
-  --color-success: #15803d;
-  --color-warning: #b45309;
+  --color-success: #137333;
+  --color-warning: #9a4706;
   --color-danger: #c40000;
   --color-info: #1d4ed8;
+  --color-success-soft: rgba(19, 115, 51, 0.09);
+  --color-warning-soft: rgba(154, 71, 6, 0.09);
+  --color-danger-soft: rgba(196, 0, 0, 0.07);
+  --color-info-soft: rgba(29, 78, 216, 0.08);
 
-  --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: var(--font-oswald), "Oswald", Impact, "Arial Black", sans-serif;
+  --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: var(--font-instrument), "Iowan Old Style", "Times New Roman", serif;
+  --font-display: var(--font-serif);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --radius-panel: 14px;
-  --radius-control: 10px;
+  --radius-sheet: 28px;
+  --radius-panel: 20px;
+  --radius-inner: 14px;
+  --radius-control: 9999px;
 }
 
-/*
- * Shared type scale — rem, so the browser's text-size setting moves the whole
- * page together. docs/design/DASHBOARD_DESIGN_GUIDELINES.md §3.
- */
+/* Every size in rem so the reader's text-size setting moves the whole page (WCAG 1.4.4). */
 :root {
   --text-micro: 0.6875rem;
   --text-label: 0.75rem;
   --text-control: 0.8125rem;
   --text-body: 0.875rem;
-}
-
-/* Oswald, uppercase, for SHORT display headings only — never a label or control. */
-/*
-  * Page and section titles are Inter, sentence case. Oswald is available via
-  * .display-face where a short heading genuinely reads better in it; it is no
-  * longer the default and never applies to labels or controls.
-  */
-.display {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: #0b0b0b;
-  line-height: 1.15;
-}
-.display-face {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-}
-.display-xl { font-size: 1.5rem; }
-.display-lg { font-size: 1.0625rem; }
-
-/*
- * The name of a thing in a list is NOT display type: it can be long, and a
- * long uppercase name is both wide and hard to read. Inter, sentence case,
- * one step up in weight.
- */
-.item-title {
-  font-family: var(--font-sans);
-  font-size: 1.0625rem;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  color: #0b0b0b;
-}
-
-/*
- * Section eyebrow — the site's own: Inter 400, 12px, uppercase, 0.45em
- * tracking, accent red. The one place wide tracking is allowed.
- */
-.eyebrow-accent {
-  font-family: var(--font-sans);
-  font-size: var(--text-label);
-  font-weight: 400;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #dd0000;
-}
-
-:root {
   color-scheme: light;
 }
 
+@layer base {
 * {
   scrollbar-width: thin;
-  scrollbar-color: #c4c4c4 transparent;
+  scrollbar-color: #c9c9c9 transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -126,154 +97,283 @@
 }
 
 body {
-  background: var(--color-canvas);
-  color: #111111;
+  background: var(--color-frame);
+  color: #0b0b0b;
   font-family: var(--font-sans);
   font-size: var(--text-body);
-  line-height: 1.5;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
 }
 
 ::selection {
-  background: rgba(255, 26, 26, 0.18);
-  color: #111111;
+  background: #0f0f10;
+  color: #fff;
 }
 
 :focus-visible {
-  outline: 2px solid #c40000;
+  outline: 2px solid #0f0f10;
   outline-offset: 2px;
 }
+.on-frame :focus-visible {
+  outline-color: #ffffff;
+}
+}
 
-/* Small contextual label above a heading or value: sentence case, no tracking. */
-.eyebrow {
+@layer components {
+/* ---------------------------------------------------------------- frame */
+
+/* The workspace: one light sheet, inset from the dark frame. */
+.sheet {
+  background: var(--color-sheet);
+  border-radius: var(--radius-sheet);
+}
+@media (max-width: 767px) {
+  .sheet {
+    border-radius: 22px 22px 0 0;
+  }
+}
+
+/* ----------------------------------------------------------- typography */
+
+/* Page title — the serif, used once per page. */
+.title-page {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 2.125rem;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: #0b0b0b;
+}
+@media (min-width: 768px) {
+  .title-page {
+    font-size: 2.75rem;
+  }
+}
+/* A serif display figure or name inside a panel. */
+.title-display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+/* Section heading inside a panel. */
+.title-section {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: #0b0b0b;
+}
+.figure {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+/* Legacy names, re-pointed so surfaces not yet rebuilt read in the new type. */
+.display {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #0b0b0b;
+  line-height: 1.15;
+}
+.display-face {
+  font-family: var(--font-serif);
+  font-weight: 400;
+}
+.display-xl {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 2.125rem;
+  line-height: 1.05;
+}
+.display-lg {
+  font-size: 1.0625rem;
+}
+.item-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: #0b0b0b;
+}
+.eyebrow,
+.eyebrow-accent {
   font-size: var(--text-label);
   font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--color-dim);
+}
+.arrow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: #0b0b0b;
+}
+.arrow-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-/* Form controls: soft radius, neutral hairline, red focus ring. */
-.field {
-  width: 100%;
+/* --------------------------------------------------------------- panels */
+
+.panel {
   background: #ffffff;
-  color: #111111;
-  border: 1px solid #d4d4d8;
-  border-radius: var(--radius-control);
-  padding: 0.5rem 0.75rem;
-  font-size: var(--text-body);
+  border-radius: var(--radius-panel);
 }
-.field:hover:not(:disabled):not(:focus):not(:focus-within) {
-  border-color: #a1a1aa;
+/* A bordered group inside a panel (the reference's filter column). */
+.inset {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-inner);
+  background: #ffffff;
 }
-.field:focus,
-.field:focus-within {
-  /* :focus-within too: native date/time inputs move focus into internal segments, where :focus does not match. */
-  border-color: #c40000;
-  box-shadow: 0 0 0 3px rgba(196, 0, 0, 0.14);
-  outline: none;
-}
-.field:disabled,
-.field[aria-disabled="true"] {
-  background: #f5f5f6;
-  color: #6b6b6b;
-  border-color: #e6e6e9;
-  cursor: not-allowed;
-}
-.field::placeholder {
-  color: #6b6b6b;
-}
-select.field {
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #4a4a4a 50%),
-    linear-gradient(135deg, #4a4a4a 50%, transparent 50%);
-  background-position:
-    calc(100% - 16px) 50%,
-    calc(100% - 11px) 50%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 2rem;
-}
-select.field:disabled {
-  background-image: linear-gradient(45deg, transparent 50%, #9a9a9a 50%),
-    linear-gradient(135deg, #9a9a9a 50%, transparent 50%);
+/* A grey filled group header / well (the reference's "Followers" row). */
+.well {
+  background: var(--color-well);
+  border-radius: 12px;
 }
 
-/*
- * Buttons are pills (guidelines §4). `solid` commits, `quiet` is the ordinary
- * secondary, `danger` is visibly its own thing — never the same shape and
- * colour as an ordinary action.
- */
+/* -------------------------------------------------------------- buttons */
+
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  padding: 0.5rem 1rem;
-  min-height: 2.25rem;
+  padding: 0.55rem 1.1rem;
+  min-height: 2.5rem;
   border-radius: 9999px;
   font-size: var(--text-control);
   font-weight: 600;
-  letter-spacing: 0;
   border: 1px solid transparent;
   cursor: pointer;
-  white-space: normal;
-  text-wrap: balance;
-  text-align: center;
+  white-space: nowrap;
   max-width: 100%;
-  min-width: max-content;
   transition:
     background-color 140ms ease,
     border-color 140ms ease,
     color 140ms ease;
 }
-.btn:disabled {
+.btn:disabled,
+.btn[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .btn-sm {
-  padding: 0.3rem 0.75rem;
-  min-height: 2rem;
+  padding: 0.35rem 0.85rem;
+  min-height: 2.125rem;
   font-size: var(--text-label);
 }
-
-/* The committing action. */
 .btn-primary {
-  background: #141416;
+  background: #0f0f10;
   color: #ffffff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #2a2a2e;
+  background: #2b2b2e;
 }
-
-/* The ordinary secondary: white pill, hairline border. */
 .btn-ghost {
   background: #ffffff;
   color: #0b0b0b;
-  border-color: rgba(11, 11, 11, 0.16);
+  border-color: rgba(11, 11, 11, 0.7);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: #f4f4f5;
-  border-color: rgba(11, 11, 11, 0.28);
+  background: #f4f4f3;
 }
-
-/* Destructive: never mistakable for an ordinary action. */
+.btn-soft {
+  background: var(--color-well);
+  color: #0b0b0b;
+}
+.btn-soft:hover:not(:disabled) {
+  background: #e2e2e0;
+}
 .btn-danger {
   background: #ffffff;
   color: #c40000;
-  border-color: rgba(196, 0, 0, 0.45);
+  border-color: rgba(196, 0, 0, 0.55);
 }
 .btn-danger:hover:not(:disabled) {
   background: rgba(196, 0, 0, 0.06);
   border-color: #c40000;
 }
-
-/* Panels and chips. */
-.panel {
+/* Round icon button (the reference's back chevron and bell). */
+.btn-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: 9999px;
   background: #ffffff;
-  border: 1px solid rgba(11, 11, 11, 0.1);
-  border-radius: var(--radius-panel);
-  box-shadow: 0 1px 2px rgba(11, 11, 11, 0.04);
+  color: #0b0b0b;
+  position: relative;
+  transition: background-color 140ms ease;
+}
+.btn-icon:hover {
+  background: #e7e7e5;
+}
+
+/* ------------------------------------------------------- chips & badges */
+
+/* Context pill beside a page title. */
+.context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.875rem;
+  padding: 0.2rem 0.8rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: #0b0b0b;
+}
+/* Outlined pill badge in a table cell. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(11, 11, 11, 0.16);
+  background: #ffffff;
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: #0b0b0b;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+.badge-dot::before {
+  content: "";
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.badge-solid {
+  background: #0f0f10;
+  border-color: #0f0f10;
+  color: #ffffff;
+}
+.badge-red {
+  color: #c40000;
+  border-color: rgba(196, 0, 0, 0.35);
+}
+.badge-amber {
+  color: #9a4706;
+  border-color: rgba(154, 71, 6, 0.35);
+}
+.badge-green {
+  color: #137333;
+  border-color: rgba(19, 115, 51, 0.35);
+}
+.badge-muted {
+  color: rgba(11, 11, 11, 0.66);
+  background: var(--color-well);
+  border-color: transparent;
 }
 .chip {
   display: inline-flex;
@@ -281,101 +381,256 @@ select.field:disabled {
   gap: 0.3rem;
   padding: 0.15rem 0.6rem;
   border-radius: 9999px;
-  border: 1px solid rgba(11, 11, 11, 0.14);
+  border: 1px solid rgba(11, 11, 11, 0.16);
   background: #ffffff;
   font-size: var(--text-label);
   font-weight: 500;
   color: var(--color-muted);
   white-space: nowrap;
 }
+/* Filter chip: grey pill, dark when selected. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.95rem;
+  border-radius: 9999px;
+  background: var(--color-well);
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: #0b0b0b;
+  white-space: nowrap;
+  transition: background-color 140ms ease;
+}
+.filter-chip:hover {
+  background: #e2e2e0;
+}
+.filter-chip[aria-current="page"],
+.filter-chip[aria-pressed="true"] {
+  background: #0f0f10;
+  color: #ffffff;
+}
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #0b0b0b;
+}
+.filter-chip[aria-current="page"] .count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.signal-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #ff1a1a;
+}
+.live-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #ff1a1a;
+}
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 26, 26, 0.4);
+  animation: pulse 2s ease-out infinite;
+}
+@keyframes pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------- fields */
+
+.field {
+  width: 100%;
+  max-width: 100%;
+  background: #ffffff;
+  color: #0b0b0b;
+  border: 1px solid rgba(11, 11, 11, 0.14);
+  padding: 0.55rem 0.9rem;
+  font-size: var(--text-body);
+  border-radius: 12px;
+  min-height: 2.5rem;
+}
+.field:hover:not(:disabled):not(:focus) {
+  border-color: rgba(11, 11, 11, 0.32);
+}
+.field:focus {
+  border-color: #0f0f10;
+  box-shadow: 0 0 0 3px rgba(15, 15, 16, 0.12);
+  outline: none;
+}
+.field:disabled,
+.field[aria-disabled="true"] {
+  background: #f5f5f4;
+  color: rgba(11, 11, 11, 0.6);
+  cursor: not-allowed;
+}
+.field::placeholder {
+  color: rgba(11, 11, 11, 0.6);
+}
+select.field {
+  appearance: none;
+  min-width: 0;
+  background-image: linear-gradient(45deg, transparent 50%, #111 50%), linear-gradient(135deg, #111 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 13px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.25rem;
+}
+/* Search pill — the reference's toolbar search. */
+.search-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(11, 11, 11, 0.12);
+  background: #fff;
+}
+.search-pill:focus-within {
+  border-color: #0f0f10;
+  box-shadow: 0 0 0 3px rgba(15, 15, 16, 0.12);
+}
+.search-pill input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--text-body);
+}
+.search-pill input::placeholder {
+  color: rgba(11, 11, 11, 0.6);
+}
 
 .link {
-  color: #111111;
+  color: #0b0b0b;
   text-decoration: underline;
-  text-decoration-color: #c4c4cc;
+  text-decoration-color: rgba(11, 11, 11, 0.35);
   text-underline-offset: 3px;
 }
 .link:hover {
-  color: #c40000;
-  text-decoration-color: #c40000;
+  text-decoration-color: #0b0b0b;
 }
 
 kbd {
   font-family: var(--font-mono);
   font-size: var(--text-micro);
-  padding: 0 5px;
-  border: 1px solid #e6e6e9;
-  border-radius: 4px;
-  background: #f7f7f8;
-  color: #6b6b6b;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(11, 11, 11, 0.18);
+  background: #f5f5f4;
+  color: rgba(11, 11, 11, 0.66);
 }
 
-/* Data tables: sentence-case headers, neutral hairlines, tinted hover. */
+/* --------------------------------------------------------------- tables */
+
 .data-table {
   width: 100%;
-  /* The status columns carry the meaning; let them wrap inside the panel
-     rather than run past its edge and force a horizontal scroll. */
-  table-layout: auto;
   border-collapse: collapse;
   font-size: var(--text-control);
-  background: #ffffff;
 }
 .data-table th {
   text-align: left;
-  font-weight: 500;
+  font-weight: 600;
   font-size: var(--text-label);
-  color: rgba(11, 11, 11, 0.66);
-  padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid rgba(11, 11, 11, 0.1);
-  background: transparent;
+  color: #0b0b0b;
+  padding: 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
   white-space: nowrap;
 }
 .data-table td {
-  padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid rgba(11, 11, 11, 0.07);
-  vertical-align: top;
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: middle;
 }
 .data-table tbody tr:last-child td {
   border-bottom: 0;
 }
 .data-table tbody tr:hover,
 .data-table tbody tr:focus-within {
-  background: #fafafa;
-}
-.data-table tbody tr[aria-selected="true"] {
-  background: rgba(255, 26, 26, 0.06);
-  box-shadow: inset 2px 0 0 #c40000;
+  background: #fafaf9;
 }
 .data-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* A long status may wrap inside its pill rather than widen the whole table. */
+.badge-wrap {
+  white-space: normal;
+  border-radius: 0.875rem;
+  max-width: 12rem;
+}
 
-/* Disclosure menus (<details>/<summary>): mobile nav drawer, "new case", audit
-   rows, door reference panels. Visible hover, keyboard focus and open state. */
+/* Progress meter — sold vs capacity, inside vs expected. */
+.meter {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--color-well);
+  overflow: hidden;
+}
+.meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: #0f0f10;
+}
+
+/* ------------------------------------------------------------ disclosure */
+
 summary {
   cursor: pointer;
-  transition: background-color 120ms ease;
+  list-style: none;
+  min-height: 1.5rem;
+  align-content: center;
 }
-summary:hover {
-  background: #f5f5f6;
+summary::-webkit-details-marker {
+  display: none;
 }
 summary:focus-visible {
-  outline: 2px solid #c40000;
-  outline-offset: -2px;
-}
-details[open] > summary {
-  box-shadow: inset 0 -1px 0 #ececef;
+  outline: 2px solid #0f0f10;
+  outline-offset: 2px;
+  border-radius: 10px;
 }
 
-/* Inline code on white: a faint gray chip so identifiers stay scannable. */
 code {
-  background: #f5f5f6;
-  border-radius: 4px;
+  background: #f5f5f4;
   padding: 0 0.25em;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
 }
-pre code,
-.bg-field code {
+pre code {
   background: transparent;
   padding: 0;
 }
+
+}
+

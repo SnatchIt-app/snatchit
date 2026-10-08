@@ -3,16 +3,23 @@
  * the `g` keyboard shortcuts. Navigation only: every route still enforces its own
  * session, aal2 and ops.whoami() role checks (proxy + requireOperator).
  */
-export const NAV = [
-  { href: "/", label: "Today", key: "t" },
-  { href: "/cases", label: "Cases", key: "c" },
-  { href: "/orders", label: "Orders & Transfers", key: "o" },
-  { href: "/money", label: "Money", key: "m" },
-  { href: "/users", label: "Users", key: "u" },
-  { href: "/marketplace", label: "Marketplace", key: "k" },
-  { href: "/reports", label: "Reports", key: "r" },
-  { href: "/system", label: "System", key: "s" },
-] as const;
+import type { IconName } from "@/components/ui/Icon";
+
+/**
+ * "Orders" carries transfers: every transfer belongs to the order whose payment
+ * created it, /transfers/:id redirects to that order, and the Orders filter and
+ * search still select by transfer state and tr_ id.
+ */
+export const NAV: readonly { href: string; label: string; short?: string; key: string; icon: IconName; primary?: boolean }[] = [
+  { href: "/", label: "Today", key: "t", icon: "today", primary: true },
+  { href: "/cases", label: "Cases", key: "c", icon: "case", primary: true },
+  { href: "/orders", label: "Orders", key: "o", icon: "receipt", primary: true },
+  { href: "/money", label: "Money", key: "m", icon: "money", primary: true },
+  { href: "/users", label: "Users", key: "u", icon: "users" },
+  { href: "/marketplace", label: "Marketplace", short: "Market", key: "k", icon: "store" },
+  { href: "/reports", label: "Reports", key: "r", icon: "flag" },
+  { href: "/system", label: "System", key: "s", icon: "pulse" },
+];
 
 /** Today is active only on `/`; a section is active on itself and its detail pages, never on a look-alike prefix. */
 export function isNavActive(pathname: string, href: string): boolean {

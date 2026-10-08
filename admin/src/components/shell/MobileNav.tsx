@@ -4,16 +4,48 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { NAV, isNavActive } from "@/lib/nav";
+import { Icon } from "@/components/ui/Icon";
 
 /**
- * F9 — navigation below `md` (768 px), where the sidebar is hidden.
+ * Below `md` (768 px) the rail becomes a floating tab bar: the four sections an
+ * operator lives in, plus "More", which opens every section as a sheet.
  *
- * Disclosure pattern: a real button (aria-expanded / aria-controls) reveals the
- * same sections as the sidebar. Escape closes and returns focus to the button;
- * choosing a section or any navigation (including `g` shortcuts) closes it,
- * because "open" is tied to the pathname it was opened on. No new routes and no
- * data reads — every page still enforces session, aal2 and operator role.
+ * "More" keeps the F9 disclosure contract: a real button (aria-expanded /
+ * aria-controls); Escape closes and returns focus to it; choosing a section or
+ * any navigation (including `g` shortcuts) closes it, because "open" is tied
+ * to the pathname it was opened on. No new routes and no data reads.
  */
+export function MobileTabBar() {
+  const pathname = usePathname() ?? "/";
+  const primary = NAV.filter((n) => n.primary);
+  return (
+    <div className="on-frame fixed inset-x-3 bottom-3 z-40 md:hidden">
+      <nav aria-label="Main sections" className="rounded-[1.75rem] bg-frame/95 px-1.5 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur">
+        <ul className="flex items-stretch">
+          {primary.map((item) => {
+            const on = isNavActive(pathname, item.href);
+            return (
+              <li key={item.href} className="min-w-0 flex-1">
+                <Link
+                  href={item.href}
+                  aria-current={on ? "page" : undefined}
+                  className={`flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-[1.375rem] px-1 ${on ? "bg-white text-[#0f0f10]" : "text-white/75"}`}
+                >
+                  <Icon name={item.icon} size={19} />
+                  <span className={`truncate text-[0.6875rem] leading-tight ${on ? "font-semibold" : ""}`}>{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li className="min-w-0 flex-1">
+            <MobileNav />
+          </li>
+        </ul>
+      </nav>
+    </div>
+  );
+}
+
 export function MobileNav() {
   const pathname = usePathname() ?? "/";
   const [openedOn, setOpenedOn] = useState<string | null>(null);
@@ -36,13 +68,14 @@ export function MobileNav() {
       <button
         ref={buttonRef}
         type="button"
-        className="btn btn-ghost btn-sm min-h-9"
+        className={`flex min-h-[3.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.375rem] px-1 ${open ? "bg-white text-[#0f0f10]" : "text-white/75"}`}
         aria-expanded={open}
         aria-controls="mobile-nav"
+        aria-label={open ? "Close the list of sections" : "All sections"}
         onClick={() => setOpenedOn(open ? null : pathname)}
       >
-        <span aria-hidden="true">{open ? "✕" : "☰"}</span>
-        {open ? "Close" : "Menu"}
+        <Icon name={open ? "close" : "menu"} size={19} />
+        <span className="text-[0.6875rem] leading-tight">{open ? "Close" : "More"}</span>
       </button>
       <MobileNavPanel id="mobile-nav" open={open} pathname={pathname} onNavigate={() => setOpenedOn(null)} />
     </div>
@@ -52,8 +85,8 @@ export function MobileNav() {
 export function MobileNavPanel({ id, open, pathname, onNavigate }: { id: string; open: boolean; pathname: string; onNavigate: () => void }) {
   if (!open) return null;
   return (
-    <nav id={id} aria-label="Console sections (menu)" className="absolute inset-x-0 top-full max-h-[calc(100dvh-4rem)] overflow-y-auto border-b border-line bg-card shadow-lg md:hidden">
-      <ul className="py-1">
+    <nav id={id} aria-label="Console sections (menu)" className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] max-h-[70dvh] overflow-y-auto rounded-[1.5rem] bg-white p-2 text-ink shadow-[0_12px_40px_rgba(0,0,0,0.3)] md:hidden">
+      <ul className="grid grid-cols-2 gap-1">
         {NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
           return (
@@ -62,10 +95,9 @@ export function MobileNavPanel({ id, open, pathname, onNavigate }: { id: string;
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 items-center border-l-2 px-4 text-[0.9375rem] font-medium ${
-                  active ? "border-primary bg-primary-soft text-ink" : "border-transparent text-muted hover:text-ink"
-                }`}
+                className={`flex min-h-12 items-center gap-3 rounded-2xl px-3 text-[0.9375rem] font-medium ${active ? "bg-[#0f0f10] text-white" : "text-ink hover:bg-[#f1f1f0]"}`}
               >
+                <Icon name={item.icon} size={18} />
                 {item.label}
               </Link>
             </li>

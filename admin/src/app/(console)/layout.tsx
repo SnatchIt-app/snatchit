@@ -4,7 +4,8 @@ import { requireOperator } from "@/lib/auth/session";
 import { callOps } from "@/lib/ops";
 import { toSettings } from "@/lib/types";
 import { Sidebar } from "@/components/shell/Sidebar";
-import { Header } from "@/components/shell/Header";
+import { SheetTools, StatusLine } from "@/components/shell/Header";
+import { MobileTabBar } from "@/components/shell/MobileNav";
 import { KeyboardShortcuts } from "@/components/shell/KeyboardShortcuts";
 import { FreshnessProvider } from "@/components/shell/Freshness";
 
@@ -23,8 +24,11 @@ async function consolePaused(role: string): Promise<boolean> {
 
 function PausedNotice() {
   return (
-    <div role="status" aria-live="polite" className="border-b border-warning bg-card px-4 py-2 text-[0.8125rem] text-ink md:px-8">
-      <span className="eyebrow mr-2 text-warning">Actions paused</span>
+    <div role="status" aria-live="polite" className="mx-2 mb-2.5 rounded-2xl bg-white px-4 py-3 text-[0.8125rem] text-ink md:mx-0">
+      <span className="mr-2 inline-flex items-center gap-1.5 font-semibold text-warning">
+        <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+        Actions paused
+      </span>
       Actions are paused by a founder — the console is read-only until <code className="font-mono">actions_enabled</code> is set back to true from{" "}
       <Link href="/system#setting-actions_enabled" className="link">
         System → Settings
@@ -47,19 +51,25 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
       >
         Skip to content
       </a>
-      <div className="flex min-h-dvh">
-        <aside className="hidden w-[232px] shrink-0 bg-sidebar md:block">
+      <div className="flex min-h-dvh bg-frame">
+        <aside className="hidden w-[5.75rem] shrink-0 md:block">
           <div className="sticky top-0 h-dvh overflow-y-auto">
             <Sidebar />
           </div>
         </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
+        <div className="flex min-w-0 flex-1 flex-col md:pb-2.5 md:pr-2.5">
+          <StatusLine email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
           {paused ? <PausedNotice /> : null}
-          <main id="main" className="mx-auto w-full min-w-0 max-w-[1400px] flex-1 px-4 py-6 md:px-8 md:py-8">
-            {children}
-          </main>
+          <div className="sheet relative flex min-w-0 flex-1 flex-col pb-28 md:pb-0">
+            <div className="px-4 pt-4 md:absolute md:right-8 md:top-7 md:z-20 md:p-0">
+              <SheetTools email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
+            </div>
+            <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-10 pt-5 md:px-8 md:pt-7">
+              {children}
+            </main>
+          </div>
         </div>
+        <MobileTabBar />
       </div>
       <KeyboardShortcuts />
     </FreshnessProvider>
