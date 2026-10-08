@@ -27,7 +27,7 @@ acceptance.
 | Reservation feedback (R-1 busy state) | **pass** | B `f235ddb7`, `listing-reserving-*` |
 | Filters glyph (F-91-6) | **pass** | B `f235ddb7` |
 | Remembered name collapse | **not reproduced, withdrawn** | B `f235ddb7` |
-| Home identity at 3xl / a3xl | **fail** ("Ends…", "current bid, al…") | B `f235ddb7` |
+| Home identity at 3xl / a3xl | **fail** at `d5217530` ("Ends…", "current bid, al…"). The caption wrap was fixed at `3c03778a`. **The feature amount size at a3xl is untested** (see batch 6) | B `f235ddb7` |
 | Listing poster at rest | **fail**: complete 4:5, but covered by the banner (79 pt) and the nav chips | B `17c7e670`, measured |
 | Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
 | VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
@@ -120,17 +120,46 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## Sequence after batch 6 (owner, 2026-10-08; no further owner design decision needed)
+| Step | Owner | State |
+|---|---|---|
+| 1. Finish the unaffected refusal, profile, error/offline and artwork checks at `3c03778a`; commit them; **hand the simulator and Metro to C explicitly** | B | pending; no B commit after `e1c5f38e` |
+| 2. Prepare both fixes in the isolated worktree (below) | C | pending; nothing on any ref after `3c03778a` |
+| 3. After B's handback: validate, serve **one named clean successor**, then capture at **a3xl, Light and Dark**: bid activity with an ordinary **and** a four-figure amount; the Listing date/time line; the Home feature amount | C | pending |
+| 4. Hand back to B for focused verification of those three | C → B | pending |
+
+**Fix F-BA (bid activity amount):**
+- Stack the row where needed, and keep the whole amount readable, including cents and separators.
+- Use the established responsive price treatment.
+- Source: `BidActivity.tsx:81`.
+
+**Fix F-DT (Listing date/time):**
+- The full date and time wrap.
+- The detail screen exposes the full information.
+- Source: `ListingHero.tsx:120-121`.
+
+**Home feature amount:**
+- Only an a3xl capture counts.
+- If C can't reach it, C states the exact blocker and the check stays **untested**.
+
+**Preserve:**
+- the accepted poster, navigation, footer and reservation behaviour;
+- **no change to Listing spacing** on the existing evidence.
+
+**Outstanding, not blocking the rest:** authenticated consumer Home, and spoken VoiceOver. **The app
+is not fully accepted.**
+
 ## B batch 6 at `3c03778a` (`e1c5f38e`, `B_NATIVE_REVIEW_3c03778a.md`)
 C-operated frames were copied to `docs/product-v3/native/Coperated/3d4d6a4a/`.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Price fix (Home feed row and long amount) | **REVIEWED, PASS.** B re-measured: 63.7 pt and 58.0 pt reproduce C's figures. `$1,716.00` is complete; shrink engaged to 91% without recreating the failure. The batch-4 finding is closed | C-operated, B-reviewed |
+| **Feed-row amounts** (Home feed rows; `$132.00` and the four-figure `$1,716.00`) | **REVIEWED, PASS.** B re-measured: 63.7 pt and 58.0 pt reproduce C's figures. `$1,716.00` is complete; shrink engaged to 91% without recreating the failure | C-operated, B-reviewed |
+| **Home main-event (feature) amount** | **UNTESTED at a3xl.** The batch-4 finding was measured on this amount (24.3 pt cap). It is **not** closed by the feed-row result: the shared `amountFit` path is an inference, not a measurement | owner 2026-10-08: a capture at a3xl is required; a smaller size is supplemental only |
 | Listing scroll-end clearance | **REVIEWED, PASS.** The bottom gap is accounted for arithmetically: CTA 688.0 pt, footer 176.3 pt, last content to footer top 209.7 pt. That is the intended clearance, not dead space. **No spacing change is warranted** | C-operated, B-reviewed |
 | Event name reachable at a3xl (R-4) | **REVIEWED, PASS** | C-operated, B-reviewed |
 | **Bid activity amount at a3xl** | **FAILED.** The top bid renders as "$99." with the cents gone. Ink reaches x=387.7 pt and 984 px sit inside the 16 pt gutter. Root cause: `BidActivity.tsx:81` has no `maxFontSizeMultiplier`, no `numberOfLines` and no shrink; it was missed by the `amountFit` sweep. E verified line 81 in source | `listing-a3xl-light-scrollend-Coperated` |
 | Event date and time in full on Listing at a3xl | **UNTESTED on device (B).** E's source check classes it as a defect: the only date/time on Listing is `ListingHero.tsx:120-121`, one line. C's frame shows "Sat 24 Oct · 1…" | owner content rule |
-| Home feature's own amount at a3xl | **UNTESTED** (no touch; inferred only) | — |
 | Signed-in Home; spoken VoiceOver | **UNTESTED** (capability) | — |
 | Poster, frame, gradient, Listing clearance, icons, Filters glyph, Option B, reserving | **Carried** (unchanged since `d5217530`/`91a5a58c`) | B |
 
