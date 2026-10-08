@@ -120,7 +120,8 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
-## C's window: served `453a1c82a40a7c2a774dc86671e4c97c810f34d7` (2026-10-07 22:21; not yet handed back)
+## C's window: served `3d4d6a4a5bbcd50448dfdaa56d58e892aa774ed3` (2026-10-07 22:43; supersedes `453a1c82`; not yet handed back)
+- **`3d4d6a4a`** (C, measured at a3xl): the footer is 176.3 pt tall, but the old clearance was a 96 pt `scrollTail` plus 64 pt (about 160 pt), a 16 pt shortfall. Clearance is now only the measured footer height plus a gap; the spacer and the constant are removed, and a test pins their absence. C reports that its first attempt left about 300 pt of dead scroll. `ListingDetailScreen.tsx` only, plus a test. Not pushed yet (origin is still `91a5a58c`).
 - **Contents:** `338268c5` (price fix) + `453a1c82`.
 - **Footer slice: confirmed a padding defect and fixed** (C).
   - Cause: the scroll ended its content with a constant padding, while the fixed footer grows with
