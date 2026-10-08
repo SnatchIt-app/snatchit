@@ -36,6 +36,12 @@ export function formatUtc(v: unknown, withSeconds = false): string {
 }
 
 /** Coarse relative time: "just now" · "4m ago" · "in 3h" · "2d ago". */
+/** True when the moment has already passed (false for missing / unparseable values). */
+export function isPast(v: unknown, now: Date = new Date()): boolean {
+  const d = parseDate(v);
+  return d !== null && d.getTime() < now.getTime();
+}
+
 export function formatRelative(v: unknown, now: Date = new Date()): string {
   const d = parseDate(v);
   if (!d) return "—";

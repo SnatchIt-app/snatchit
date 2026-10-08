@@ -125,11 +125,6 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   <FilterPanel idPrefix="m" applied={applied} q={q} count={filterCount} />
                 </div>
               </details>
-              <span className="filter-chip hidden cursor-default xl:inline-flex" aria-hidden="true">
-                <Icon name="filter" size={15} />
-                Filters
-                {filterCount ? <span className="count">{filterCount}</span> : null}
-              </span>
               <form method="get" action="/orders" role="search" className="search-pill min-w-[12rem] flex-1 md:max-w-sm">
                 <Icon name="search" size={16} className="text-dim" />
                 <label htmlFor="orders-q" className="sr-only">

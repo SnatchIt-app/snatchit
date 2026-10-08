@@ -6,7 +6,7 @@ import { TimeAgo } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { PartyLink } from "@/components/ui/IdLink";
 import { Icon } from "@/components/ui/Icon";
-import { labelFor, shortId, transferStateLabel } from "@/lib/format";
+import { isPast, labelFor, shortId, transferStateLabel } from "@/lib/format";
 import type { OrderRow } from "@/lib/types";
 
 /**
@@ -161,9 +161,15 @@ function TransferCell({ r }: { r: OrderRow }) {
     <span className="flex flex-col items-start gap-1">
       <StatusBadge status={r.transfer_status} label={transferStateLabel({ status: r.transfer_status, buyer_confirmed_at: r.buyer_confirmed_at })} qualifier="below" />
       {r.transfer_expires_at && r.transfer_status === "pending" ? (
-        <span className="pl-1 text-[0.75rem] text-muted">
-          due <TimeAgo value={r.transfer_expires_at} />
-        </span>
+        isPast(r.transfer_expires_at) ? (
+          <span className="pl-1 text-[0.75rem] font-medium text-danger">
+            Deadline passed <TimeAgo value={r.transfer_expires_at} />
+          </span>
+        ) : (
+          <span className="pl-1 text-[0.75rem] text-muted">
+            Deadline <TimeAgo value={r.transfer_expires_at} />
+          </span>
+        )
       ) : null}
     </span>
   );

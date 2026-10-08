@@ -44,7 +44,7 @@ export function ReportFreshness({ at, label = "Data as of" }: { at: string | nul
 export function FreshnessSlot() {
   const ctx = useContext(Ctx);
   const v = ctx?.value ?? EMPTY;
-  if (!v.at) return <span className="text-[0.6875rem] text-dim">live</span>;
+  if (!v.at) return <span className="text-[0.6875rem] text-dim">Live data</span>;
   return (
     <span className={`text-[0.6875rem] ${v.stale ? "text-warning" : "text-dim"}`} title={formatUtc(v.at, true)}>
       {v.stale ? "Stale · " : ""}

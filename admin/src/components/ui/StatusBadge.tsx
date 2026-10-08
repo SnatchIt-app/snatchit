@@ -2,7 +2,8 @@ export type BadgeVariant = "neutral" | "ok" | "warn" | "danger" | "info" | "mute
 
 const VARIANT_CLASS: Record<BadgeVariant, string> = {
   neutral: "",
-  ok: "badge-green",
+  // Healthy states stay neutral (the glyph carries "done"); colour is kept for what needs a person.
+  ok: "",
   warn: "badge-amber",
   danger: "badge-red",
   info: "",
