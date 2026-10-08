@@ -120,6 +120,33 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## C-operated captures and price measurements: `37df36fd96c042ba5645021dfc90c13de1d96bcd` (2026-10-07 22:55; not B-reviewed; not yet handed back)
+- **Code is identical to `3d4d6a4a`**: `37df36fd` adds only `native/3d4d6a4a/` (six frames and
+  `capture-log.txt`). Every frame was accepted only with the sandbox banner asserted. Home frames
+  were taken at `453a1c82`. `453a1c82..3d4d6a4a` changes only `ListingDetailScreen` and its test,
+  so Home is unchanged. Not pushed yet: origin is still `91a5a58c`.
+- **Rendered price ink height (C's measurements):**
+
+| Size | Amount | Height | Note |
+|---|---|---|---|
+| default | $99.00 | 18.3 pt | compact form keeps the cap |
+| 3xl | $99.00 | 25.0 pt | |
+| a3xl | $132.00 (feed row) | **63.7 pt** | was 24.3 with the cap |
+| a3xl | **$1,716.00** (`?amounts=long`) | **58.0 pt** | 91% of the shorter amount; the 0.6 floor was not reached. Every digit, the separator, the cents and "all-in" are present |
+
+- **E view check:** `home-price-a3xl-light-longamount` shows "$1,716.00" on one line with "all-in"
+  beneath it; this agrees with C.
+- **Listing at scroll-end:** CTA top 688.0 pt at a3xl and 700.0 pt at default. The last content
+  ends at 466.3 pt and 494.3 pt. **Nothing is sliced**, and a further drag doesn't move, so these
+  are true ends. **This closes the footer-slice defect** (B reviews).
+  - **Residue (C reports it, not root-caused):** about 206 pt between the content and the CTA, more
+    than the footer needs. The bar's top isn't visible against the canvas, so B is to measure it.
+- **Not captured:**
+  - The feature's own amount at a3xl: drags inside the feature register as taps. Inferred from the
+    shared `amountFit` path, **not measured**.
+  - **Listing at a3xl, scrolled to the event name** (B's request 2).
+  - **The Dark versions** of the Listing captures (B's request 3).
+
 ## C's window: served `3d4d6a4a5bbcd50448dfdaa56d58e892aa774ed3` (2026-10-07 22:43; supersedes `453a1c82`; not yet handed back)
 - **`3d4d6a4a`** (C, measured at a3xl): the footer is 176.3 pt tall, but the old clearance was a 96 pt `scrollTail` plus 64 pt (about 160 pt), a 16 pt shortfall. Clearance is now only the measured footer height plus a gap; the spacer and the constant are removed, and a test pins their absence. C reports that its first attempt left about 300 pt of dead scroll. `ListingDetailScreen.tsx` only, plus a test. Not pushed yet (origin is still `91a5a58c`).
 - **Contents:** `338268c5` (price fix) + `453a1c82`.
