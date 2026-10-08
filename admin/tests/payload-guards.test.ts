@@ -2,6 +2,45 @@ import { describe, expect, it } from "vitest";
 import { toJobHealth, toMoneyOverview, toOrderDetail, toOrderRow, toTimeline, toUserDetail, toSettings } from "../src/lib/types";
 
 describe("payload guards are tolerant", () => {
+  it("job_health carries an alert's delivery, acknowledgement and incident fields (migration 146)", () => {
+    const h = toJobHealth({
+      alerts: [
+        {
+          alert_key: "case:refund_resolution:abc",
+          kind: "p1_case",
+          state: "firing",
+          first_fired_at: "2026-09-20T10:00:00Z",
+          fire_count: 3,
+          queued_at: "2026-09-20T10:05:00Z",
+          delivered_at: null,
+          delivery_status: 401,
+          notify_attempts: 2,
+          last_notify_error: "HTTP 401 from notify-report",
+          acknowledged_at: null,
+          acknowledged_by: null,
+          incident_seq: 2,
+        },
+      ],
+    });
+    // queued is not delivered: the console must be able to say both, separately
+    expect(h?.alerts[0]).toMatchObject({
+      queued_at: "2026-09-20T10:05:00Z",
+      delivered_at: null,
+      delivery_status: 401,
+      notify_attempts: 2,
+      last_notify_error: "HTTP 401 from notify-report",
+      incident_seq: 2,
+    });
+    expect(h?.alerts[0].acknowledged_at).toBeNull();
+  });
+
+  it("an alert row from a build without 146 still parses, with the new fields absent", () => {
+    const h = toJobHealth({ alerts: [{ alert_key: "k", kind: "job_failure", state: "firing", fire_count: 1 }] });
+    expect(h?.alerts[0].alert_key).toBe("k");
+    expect(h?.alerts[0].delivered_at).toBeNull();
+    expect(h?.alerts[0].incident_seq).toBeNull();
+  });
+
   it("order_row keeps cents as numbers and parties as {id,display_name}", () => {
     const r = toOrderRow({ payment_id: "p", total: "8250", amount: 7500, buyer: { id: "b", display_name: "buyer_one" }, seller_funds_state: "held", open_cases: 2 });
     expect(r).toMatchObject({ payment_id: "p", total: 8250, amount: 7500, seller_funds_state: "held", open_cases: 2 });
