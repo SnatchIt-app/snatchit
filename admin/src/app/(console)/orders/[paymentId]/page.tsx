@@ -7,7 +7,7 @@ import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
 import { canRequest } from "@/lib/permissions";
 import { SUPABASE_URL } from "@/lib/env";
-import { labelFor, refundStateLabel, shortId, DISPUTE_OUTCOME_LABELS } from "@/lib/format";
+import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, transferStateLabel, DISPUTE_OUTCOME_LABELS } from "@/lib/format";
 import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction, type OrderDetail } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -109,7 +109,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
         meta={
           <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={p.status} label={`payment: ${labelFor("payment", p.status)}`} />
-            <StatusBadge status={t?.status ?? null} label={t ? `transfer: ${labelFor("transfer", t.status)}` : "no transfer row"} />
+            <StatusBadge status={t?.status ?? null} label={t ? `transfer: ${transferStateLabel(t)}` : "no transfer row"} />
             <StatusBadge status={d.seller_funds_state} label={`funds: ${labelFor("funds", d.seller_funds_state)}`} />
             <span className="font-mono">
               payment <code>{p.id}</code>
@@ -185,7 +185,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                 <KeyValue
                   columns={3}
                   items={[
-                    { key: "status", value: <StatusBadge status={t.status} label={labelFor("transfer", t.status)} /> },
+                    { key: "status", value: <StatusBadge status={t.status} label={transferStateLabel(t)} /> },
                     { key: "transfer_method", value: t.transfer_method },
                     { key: "created_at", value: <DateTime value={t.created_at} /> },
                     { key: "expires_at", label: "Seller deadline", value: <DateTime value={t.expires_at} /> },
@@ -226,6 +226,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                   { key: "payout_risk_tier", value: t.payout_risk_tier ? <StatusBadge status={t.payout_risk_tier} variant="neutral" /> : null },
                   { key: "payout_reason_codes", value: t.payout_reason_codes?.length ? t.payout_reason_codes.join(", ") : null },
                   { key: "payout_hold_until", value: <DateTime value={t.payout_hold_until} /> },
+                  { key: "payout_state", label: "Payout state", value: payoutStateLabel(t) },
                   { key: "payout_released_at", label: "Release recorded at", value: <DateTime value={t.payout_released_at} /> },
                   {
                     key: "stripe_transfer_id",
@@ -251,7 +252,7 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                     { key: "disputed_at", value: <DateTime value={t.disputed_at} /> },
                     { key: "dispute_reason", value: t.dispute_reason },
                     { key: "dispute_notes", value: t.dispute_notes },
-                    { key: "dispute_resolution", value: t.dispute_resolution ? <StatusBadge status={t.dispute_resolution} variant="neutral" /> : <StatusBadge status="dispute_open" label="unresolved" /> },
+                    { key: "dispute_resolution", value: t.dispute_resolution ? <StatusBadge status={t.dispute_resolution} variant="neutral" label={labelFor("dispute_resolution", t.dispute_resolution)} /> : <StatusBadge status="dispute_open" label="unresolved" /> },
                     { key: "dispute_resolved_at", value: <DateTime value={t.dispute_resolved_at} /> },
                     { key: "dispute_resolved_by", value: t.dispute_resolved_by ? <IdLink kind="user" id={t.dispute_resolved_by} /> : null },
                   ]}
@@ -285,7 +286,12 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
                 { key: "stripe_refund_id", value: d.refund.stripe_refund_id ? <code className="font-mono text-[12px]">{d.refund.stripe_refund_id}</code> : <span className="text-dim">none</span> },
               ]}
             />
-            <p className="mt-3 text-[11px] text-dim">“Refunded” is set by the Stripe charge.refunded webhook after the provider refund succeeded — never by the console.</p>
+            <p className="mt-3 text-[11px] text-dim">
+              “Refund recorded” is set by the Stripe webhook or by the expiry job when a refund is recorded — never by the console. It records that a refund
+              was CREATED, not that it settled: the handler records every refund on the charge and the status flips once the recorded amount reaches the
+              total. A card refund can still fail up to ~30 days later. Until migration 150 is live there is no column that distinguishes a settled refund
+              from a failed one — treat this as “a refund exists at Stripe”, and confirm the outcome in Stripe before telling anyone their money is back.
+            </p>
             {d.refund.refund_actions.length ? (
               <div className="mt-3">
                 <h3 className="eyebrow text-dim">Refund execution attempts</h3>
@@ -540,6 +546,10 @@ function PayoutDecisionTable({ rows, basePath }: { rows: JsonRecord[]; basePath:
       render: (r) => (
         <span className="text-[12px]">
           {bool(r.buyer_confirmed) ? "confirmed" : "not confirmed"} / {bool(r.dispute_open) ? "dispute open" : "no dispute"}
+          {(() => {
+            const note = decisionProvenanceNote(str(r.actor), str(r.decided_at), r);
+            return note ? <span className="text-dim"> · {note}</span> : null;
+          })()}
         </span>
       ),
     },
