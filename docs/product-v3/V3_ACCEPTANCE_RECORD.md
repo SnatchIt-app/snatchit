@@ -120,6 +120,32 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## Owner direction for the `3c03778a` review (2026-10-07)
+- **Order of B's pass:**
+  1. C's durable captures.
+  2. Home and Search price layouts at default, 3xl and a3xl, including long amounts.
+  3. Listing scroll-end clearance and event-name reachability.
+  4. The refusal, profile, error/offline and artwork groups.
+
+  Batch 5's assignment at `91a5a58c` is historical and is not repeated. Unaffected poster and icon
+  results carry.
+- **Capability gaps don't stall the review.** If the Home feature price still needs touch, B names
+  that exact check for **one short C-operated capture**, and B reviews the result.
+- **Bottom gap:** account for it from the actual footer bounds and scroll layout. **No further
+  spacing change based on a screenshot estimate alone.**
+- **Shortening is judged by content.** A list title may shorten, because it links to full details.
+  **The event's date and time must be available in full on the detail screen at large text sizes.**
+  - E source check at `3c03778a`: on Listing, the date, time and venue appear **only** in
+    `ListingHero.tsx:120-121` (`rowWhenLabel(...) · venue`), with `numberOfLines={1}`. No fact row
+    repeats the date or time.
+  - So the a3xl "Sat 24 Oct · 1…" (C frame `listing-a3xl-light-eventname`) loses the time on the
+    detail screen. **E classes it as a defect under this rule.** B confirms on the device; C fixes
+    it.
+  - The feed-row title, date and bid count shortening on Home and Search is **acceptable list
+    shortening**, provided Listing shows them in full.
+- **Reporting:** findings are published incrementally, each marked reviewed, failed or untested. No
+  repeated full-suite run. No whole-app acceptance claim.
+
 ## Remaining C-operated frames: `3c03778ac55e2c0f33233e4cd90e634805e28e2a` (2026-10-07 23:03; **pushed**; handback line not yet seen)
 - **Code is identical to `3d4d6a4a`**: `3c03778a` adds only three PNGs and log lines in
   `native/3d4d6a4a/`.
