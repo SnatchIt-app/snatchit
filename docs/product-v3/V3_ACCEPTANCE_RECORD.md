@@ -151,6 +151,19 @@ blanket whole-app acceptance applies.
 - **C's fix for the price finding** exists only in C's worktree, uncommitted. It removes the cap in
   the stacked form only, keeps the amount on one line with `adjustsFontSizeToFit` (minimum 0.6), and
   lets the caption give way first. It needs a device window, which B has not released.
+- **C's price fix committed:** `338268c5311a6722c8f37a3908b22ae9261a1e07` (`v3/consumer-batch2`,
+  descends from `91a5a58c`). It is **not served**; the serving tree stays at `91a5a58c`.
+  - E verified the diff: code files are `HomeFeature.tsx`, `FeedRow.tsx` and `typography.ts`
+    (numstat 9/0, additions only); the rest are tests (typography mock lines and the home-components
+    test).
+  - **Carry from `91a5a58c` to `338268c5`:** all Listing confirmations (poster clearance, footer,
+    reserving, panel and fact rows), because none of their files changed and the shared typography
+    file only gained lines.
+  - **Repeat at `338268c5`:** the Home feature identity price at default, 3xl and a3xl, and the
+    feed rows, including Search, which renders `FeedRow` (`explore.tsx`).
+  - **Agreed order (E and C; B to confirm):** B finishes the unaffected device checks and reviews
+    C's captures → B hands back in a committed line → C runs the suite with the device down, then
+    serves `338268c5` and captures Home → B checks Home price and Search rows at `338268c5`.
 
 ## Successor final: `91a5a58c1d54a0c98ef353a6d5f7b53dfb68861c` (C, 2026-10-07 00:12; E verified)
 - **Code** is identical to `7c9b270b`. `91a5a58c` adds only the handoff update and captures. The
