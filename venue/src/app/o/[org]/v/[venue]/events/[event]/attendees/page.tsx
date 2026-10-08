@@ -10,7 +10,7 @@ import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
 import { PRINCIPAL_LABEL } from "@/lib/roles";
 
-export const metadata = { title: "Attendees" };
+export const metadata = { title: "Guest list" };
 export const dynamic = "force-dynamic";
 
 export default async function AttendeesPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {

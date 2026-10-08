@@ -37,7 +37,7 @@ describe("counters gate follows the data source", () => {
     expect(showCounters("venue_manager", db)).toBe(false);
     expect(showCounters("venue_manager", {})).toBe(true);
     const batches = BATCHES.map((b) => ({ ...b, capacity: b.capacity - b.held - b.sold, held: 0, sold: 0, countersKnown: false }));
-    const table = html(<EventsTable events={EVENTS} batches={batches} types={TICKET_TYPES} holds={[]} ctx={db} basePath={base} venueName="Venue" timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
+    const table = html(<EventsTable events={EVENTS} batches={batches} types={TICKET_TYPES} holds={[]} ctx={db} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
     expect(table).toContain("available");
     expect(table).not.toMatch(/\d+ \/ \d+/);
     const setup = html(<EventSetup event={EVENTS[0]} types={TICKET_TYPES} batches={batches} ctx={db} basePath={base} timeZone={VENUE.timeZone} openManifestSessionIds={new Set()} />);
@@ -48,8 +48,20 @@ describe("counters gate follows the data source", () => {
     expect(inv).not.toContain("Capacity change");
     expect(inv).toContain("available");
   });
-  it("events with unknown promoter counts render a dash, not zero", () => {
-    const table = html(<EventsTable events={EVENTS.map((e) => ({ ...e, promoterCount: null }))} batches={BATCHES} types={TICKET_TYPES} holds={[]} ctx={{ role: "venue_manager", state: "live" }} basePath={base} venueName="V" timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />);
-    expect(table).toContain("Promoters are not readable");
+  it("an unknown figure renders a dash with a reason, never a zero", () => {
+    // The promoter column is gone (it could never show anything but a dash
+    // here), but the rule it guarded still matters: a number this data source
+    // cannot produce must not be rendered as 0. It now applies to sold/capacity.
+    const noReleases = html(
+      <EventsTable events={EVENTS} batches={[]} types={[]} holds={[]} ctx={{ role: "venue_manager", state: "live" }} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />,
+    );
+    expect(noReleases).toContain("No releases yet");
+    expect(noReleases).not.toContain("0 of 0 sold");
+
+    // Discrimination: with releases present, the real figure is shown.
+    const withReleases = html(
+      <EventsTable events={EVENTS} batches={BATCHES} types={TICKET_TYPES} holds={[]} ctx={{ role: "venue_manager", state: "live" }} basePath={base} timeZone={VENUE.timeZone} now={PREVIEW_NOW} filter={{}} />,
+    );
+    expect(withReleases).toContain("411 of 520 sold");
   });
 });

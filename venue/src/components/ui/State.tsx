@@ -15,9 +15,9 @@ export function Skeleton({ rows = 5, className = "" }: { rows?: number; classNam
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="border border-line-neutral p-6 text-center">
-      <p className="text-muted">{title}</p>
-      {children ? <div className="mt-3 flex justify-center gap-2">{children}</div> : null}
+    <div className="border-y border-line py-10">
+      <p className="max-w-xl text-base text-muted">{title}</p>
+      {children ? <div className="mt-4 flex flex-wrap items-center gap-4">{children}</div> : null}
     </div>
   );
 }
@@ -29,15 +29,15 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
  */
 export function ErrorState({ read, retryHref, lost = "This page" }: { read: string; retryHref: string; lost?: string }) {
   return (
-    <div className="border border-danger/50 bg-primary-soft p-4" role="alert">
-      <p className="font-bold">{lost} couldn&apos;t be loaded.</p>
-      <p className="mt-1 text-sm text-muted">
+    <div className="max-w-2xl border-l-2 border-danger py-2 pl-4" role="alert">
+      <p className="display display-lg">{lost} couldn&apos;t be loaded.</p>
+      <p className="mt-2 text-base leading-relaxed text-muted">
         Nothing is shown rather than showing you numbers that might be out of date. Try again; if it keeps failing, the rest of the dashboard still works.
       </p>
-      <a className="btn btn-ghost btn-sm mt-3" href={retryHref}>
+      <a className="btn btn-ghost mt-4" href={retryHref}>
         Try again
       </a>
-      <p className="mt-3 text-xs text-dim">
+      <p className="mt-4 text-sm text-dim">
         For support: the read that failed was <code className="font-mono">{read}</code>.
       </p>
     </div>
@@ -67,14 +67,14 @@ export function DeniedState({
   alternative?: { label: string; href: string };
 }) {
   return (
-    <div className="mx-auto max-w-lg border border-line-neutral p-6" role="alert">
-      <p className="text-lg font-bold">{surface} isn&apos;t open to you.</p>
-      <p className="mt-2 text-sm text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
-      <p className="mt-2 text-sm text-muted">
+    <div className="max-w-2xl border-l-2 border-line-strong py-2 pl-4" role="alert">
+      <p className="display display-lg">{surface} isn&apos;t open to you.</p>
+      <p className="mt-3 text-base leading-relaxed text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
+      <p className="mt-2 text-base leading-relaxed text-muted">
         {grantedBy} can give you access. Nothing about this screen&apos;s contents is shown either way — this is not a message about whether anything exists.
       </p>
       {alternative ? (
-        <a className="btn btn-ghost btn-sm mt-4" href={alternative.href}>
+        <a className="btn btn-ghost mt-5" href={alternative.href}>
           {alternative.label}
         </a>
       ) : null}

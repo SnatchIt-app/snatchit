@@ -12,7 +12,7 @@ import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PRINCIPAL_LABEL } from "@/lib/roles";
 
-export const metadata = { title: "Inventory" };
+export const metadata = { title: "Tickets" };
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {

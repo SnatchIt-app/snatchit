@@ -28,16 +28,19 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
 
   return (
     <div className="space-y-6">
-      <header>
-        <p className="eyebrow text-dim">Inventory · {event.title}</p>
-        <h1 className="text-2xl font-bold">Ticket types &amp; inventory</h1>
-        {session ? <p className="mt-1 text-sm text-muted">Session {session.label ?? venueTime(session.startsAt, timeZone)} · capacity is per session</p> : null}
+      <header className="pb-2">
+        <p className="eyebrow-accent">{event.title}</p>
+        <h1 className="display display-xl mt-2">Tickets</h1>
+        <p className="mt-3 max-w-xl text-base text-muted">
+          What is on sale for this night, how much is left, and what is being held back.
+          {session ? ` ${session.label ?? venueTime(session.startsAt, timeZone)}.` : ""} Each night has its own capacity.
+        </p>
       </header>
 
       {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner /> : null}
 
       {view === "counters" && warnings.length > 0 ? (
-        <Panel title="Needs attention" eyebrow="One line per release, per problem">
+        <Panel title="Needs attention" eyebrow="One line per problem">
           <ul className="divide-y divide-line-neutral text-sm">
             {warnings.map((w) => (
               <li key={`${w.batchId}-${w.kind}`} className="flex flex-wrap items-center gap-2 py-2">
@@ -178,7 +181,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
 
       <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(26rem,100%),1fr))]">
         {view === "counters" ? (
-          <Panel title="Changing capacity" eyebrow="Checked before it is allowed">
+          <Panel title="Changing capacity" eyebrow="Not available in this demo">
             <p className="text-sm text-muted">Changes are audited and refused below what is already held or sold. The floor for each release is shown before you type.</p>
             <ul className="mt-2 text-xs text-dim">
               {batches

@@ -10,7 +10,7 @@ import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
 import { PRINCIPAL_LABEL } from "@/lib/roles";
 
-export const metadata = { title: "Door" };
+export const metadata = { title: "Check-in" };
 export const dynamic = "force-dynamic";
 
 type Loaded = { pins: DoorPin[]; devices: ScanDevice[]; episodes: ManifestEpisode[]; scans: ScanCounters; flags: FlagRow[]; lookup: { q: string; result: RosterRow | null } | null };

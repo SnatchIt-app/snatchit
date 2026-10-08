@@ -8,6 +8,7 @@ import { canEditEvents, canReadResalePolicy, showCounters } from "@/lib/roles";
 import type { Event, InventoryBatch, InventoryHold, TicketType } from "@/lib/types";
 import { Chip, StatusPill } from "@/components/ui/Bits";
 import { EmptyState, PartialCell } from "@/components/ui/State";
+import { Row, Rows } from "@/components/ui/Page";
 
 /**
  * Spec §7.1 — columns: title · venue · next session date · status · sold / capacity · resale mode · promoter count.
@@ -20,7 +21,6 @@ export function EventsTable({
   holds,
   ctx,
   basePath,
-  venueName,
   timeZone,
   now,
   filter,
@@ -31,7 +31,6 @@ export function EventsTable({
   holds: InventoryHold[];
   ctx: PreviewContext;
   basePath: string;
-  venueName: string;
   timeZone: string;
   now: Date;
   filter: { status?: string; q?: string };
@@ -87,74 +86,40 @@ export function EventsTable({
   }
 
   return (
-    <>
-      {/* xl / lg: table */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th className="hidden xl:table-cell">Venue</th>
-              <th>Next session</th>
-              <th>Status</th>
-              <th className="num">{counters ? "Sold of capacity" : "Still available"}</th>
-              {canReadResalePolicy(ctx.role) ? <th className="hidden lg:table-cell">Resale</th> : null}
-              <th className="num hidden lg:table-cell">Promoters</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((e) => {
-              const s = nextSession(e);
-              const sc = soldCap(e);
-              return (
-                <tr key={e.eventId}>
-                  <td>
-                    <Link className="link inline-flex min-h-6 items-center" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
-                      {e.title}
-                    </Link>
-                    {warnEventIds.has(e.eventId) ? (
-                      <span className="ml-2">
-                        <Chip tone="warning">Inventory warning</Chip>
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="hidden xl:table-cell text-muted">{venueName}</td>
-                  <td className="whitespace-nowrap">
-                    {s ? venueDate(s.startsAt, timeZone) : "—"}
-                    {s?.label ? <span className="text-dim"> · {s.label}</span> : null}
-                  </td>
-                  <td>
-                    <StatusPill status={e.status} />
-                  </td>
-                  <td className="num">{sc && sc.capacity > 0 ? (counters ? `${sc.sold} / ${sc.capacity}` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} available` : "None available") : <PartialCell why={sc ? "No releases yet" : "Sold/capacity unavailable"} />}</td>
-                  {canReadResalePolicy(ctx.role) ? <td className="hidden lg:table-cell">{RESALE_LABEL[e.resaleMode]}</td> : null}
-                  <td className="num hidden lg:table-cell">{e.promoterCount ?? <PartialCell why="Promoters are not readable from this data source yet" />}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {/* sm: summary cards (events list is not a mobile-critical surface — read-only summary, spec §3.2) */}
-      <ul className="space-y-2 md:hidden">
-        {rows.map((e) => {
-          const s = nextSession(e);
-          const sc = soldCap(e);
-          return (
-            <li key={e.eventId} className="border border-line-neutral p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <Link className="link inline-flex min-h-6 items-center font-bold" href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}>
-                  {e.title}
-                </Link>
+    /*
+      One list, not a desktop table plus a separate phone card deck. The table
+      carried two columns that could never say anything useful here: "Venue",
+      which is the same venue on every row, and "Promoters", which this data
+      source cannot read and so rendered a dash on every row. Resale mode moved
+      into the row's meta line for the roles that can see it.
+    */
+    <Rows>
+      {rows.map((e) => {
+        const s = nextSession(e);
+        const sc = soldCap(e);
+        const sales = sc && sc.capacity > 0 ? (counters ? `${sc.sold} of ${sc.capacity} sold` : sc.capacity - sc.sold > 0 ? `${sc.capacity - sc.sold} still available` : "None available") : null;
+        return (
+          <Row
+            key={e.eventId}
+            title={e.title}
+            href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}
+            badge={
+              <>
                 <StatusPill status={e.status} />
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                {s ? venueDate(s.startsAt, timeZone) : "—"} · {sc && sc.capacity > 0 ? (counters ? `${sc.sold} / ${sc.capacity} sold` : `${Math.max(0, sc.capacity - sc.sold)} available`) : "no releases yet"}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-    </>
+                {warnEventIds.has(e.eventId) ? <Chip tone="warning">Needs attention</Chip> : null}
+              </>
+            }
+            meta={
+              <>
+                {s ? venueDate(s.startsAt, timeZone) : "No date set"}
+                {s?.label ? ` · ${s.label}` : ""}
+                {canReadResalePolicy(ctx.role) ? ` · ${RESALE_LABEL[e.resaleMode]}` : ""}
+              </>
+            }
+            right={sales ? <span className="tabular-nums text-sm text-muted">{sales}</span> : <PartialCell why="No releases yet" />}
+          />
+        );
+      })}
+    </Rows>
   );
 }

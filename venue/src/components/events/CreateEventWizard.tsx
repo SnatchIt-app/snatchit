@@ -17,8 +17,8 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
       <header>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <p className="eyebrow text-dim">Create event</p>
-            <h1 className="text-2xl font-bold">New event</h1>
+            <p className="eyebrow-accent">Create event</p>
+            <h1 className="display display-xl mt-2">New event</h1>
           </div>
           <a className="link inline-flex min-h-6 items-center text-sm" href={withPreview(`${basePath}/events`, ctx)}>
             Cancel and go back to events
@@ -27,7 +27,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
         <p className="mt-2 text-sm text-muted">Three steps. It ends as a draft — visible to your staff only, not announced and not selling, so nothing is public until you choose to announce it.</p>
         <ol className="mt-3 flex flex-wrap gap-2 text-xs">
           {steps.map((s, i) => (
-            <li key={s} className={`border px-2 py-1 ${i + 1 === step ? "border-primary text-primary-ink" : i + 1 < step ? "border-success text-success" : "border-line-neutral text-dim"}`}>
+            <li key={s} className={`border-b-2 pb-1 ${i + 1 === step ? "border-primary font-semibold text-ink" : i + 1 < step ? "border-success text-success" : "border-line text-dim"}`}>
               {i + 1}. {s}
             </li>
           ))}

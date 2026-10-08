@@ -31,12 +31,12 @@ describe("shell", () => {
 });
 
 describe("events list (§7.1)", () => {
-  const props = { batches: BATCHES, types: TICKET_TYPES, holds: HOLDS, ctx: vm, basePath: base, venueName: VENUE.name, timeZone: VENUE.timeZone, now: PREVIEW_NOW };
+  const props = { batches: BATCHES, types: TICKET_TYPES, holds: HOLDS, ctx: vm, basePath: base, timeZone: VENUE.timeZone, now: PREVIEW_NOW };
   it("renders every event with status pills and an inventory warning chip on tonight's event", () => {
     const out = html(<EventsTable {...props} events={EVENTS} filter={{}} />);
     for (const e of EVENTS) expect(out).toContain(e.title);
-    expect(out).toContain("Inventory warning");
-    expect(out).toContain("411 / 520");
+    expect(out).toContain("Needs attention");
+    expect(out).toContain("411 of 520 sold");
   });
   it("distinguishes no events from no matches", () => {
     expect(html(<EventsTable {...props} events={[]} filter={{}} />)).toContain("No events yet.");
@@ -45,7 +45,7 @@ describe("events list (§7.1)", () => {
   it("shows availability, not counters, to org_member", () => {
     const out = html(<EventsTable {...props} ctx={{ role: "org_member", state: "live" }} events={EVENTS} filter={{}} />);
     expect(out).toContain("available");
-    expect(out).not.toContain("411 / 520");
+    expect(out).not.toContain("411 of 520 sold");
   });
 });
 

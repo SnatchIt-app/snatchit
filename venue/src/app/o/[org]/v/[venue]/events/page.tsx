@@ -123,7 +123,6 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
           holds={loaded.holds}
           ctx={ctx}
           basePath={basePath}
-          venueName={venueName}
           timeZone={p.timeZone}
           now={p.now}
           filter={{ status: ctx.state === "nodata" ? "zzz" : p.first("status"), q: p.first("q") }}

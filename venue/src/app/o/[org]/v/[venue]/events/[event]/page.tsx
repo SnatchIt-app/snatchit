@@ -13,7 +13,7 @@ import { DataSourceError } from "@/components/ui/DataSourceError";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 import { PRINCIPAL_LABEL } from "@/lib/roles";
 
-export const metadata = { title: "Event setup" };
+export const metadata = { title: "Event" };
 export const dynamic = "force-dynamic";
 
 export default async function EventPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {

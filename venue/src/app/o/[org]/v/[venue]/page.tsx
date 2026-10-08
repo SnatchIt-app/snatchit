@@ -11,7 +11,7 @@ import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
 import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
 
-export const metadata = { title: "Tonight" };
+export const metadata = { title: "Today" };
 export const dynamic = "force-dynamic";
 
 /**

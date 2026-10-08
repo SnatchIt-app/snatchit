@@ -25,10 +25,10 @@ const DONE = `${V}/events/smp_evt_done`;
  */
 const SHOTS = [
   ["overview", V, /Needs your attention|Nothing needs your attention/],
-  ["events", `${V}/events`, /Next session|No events yet/],
+  ["events", `${V}/events`, /Saturday Music Night|No events yet/],
   ["event", E, /Getting ready|Happening now|Finished/],
   ["event-blocked", `${V}/events/smp_evt_reggaeton`, /Add a ticket type before going on sale/],
-  ["tickets", `${E}/inventory`, /Needs attention|No ticket types yet/],
+  ["tickets", `${E}/inventory`, /Needs attention|No ticket types yet|Tickets/],
   ["guests", `${E}/attendees`, /Guest list|Who paid/],
   ["checkin", `${E}/door`, /Right now at the door|isn&#x27;t open to you/],
   ["create", `${V}/events/new`, /New event/],
@@ -77,11 +77,18 @@ for (const [name, path, marker] of SHOTS) {
   await warm(path, marker);
   for (const [size, dims] of [["desktop", "1280,2200"], ["phone", "500,1400"]]) {
     const file = `${outDir}/${label}-${name}-${size}.png`;
-    execFileSync(CHROME, [
+    // Chrome occasionally exits non-zero on an otherwise fine page; retry once
+    // rather than lose a whole run to a transient.
+    const shoot = () => execFileSync(CHROME, [
       "--headless", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
       `--window-size=${dims}`, `--screenshot=${file}`, "--virtual-time-budget=4000",
       `${base}${path}`,
     ], { stdio: "ignore" });
+    try {
+      shoot();
+    } catch {
+      shoot();
+    }
   }
   console.log(name);
 }
