@@ -54,7 +54,8 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
 - 1e. **After:** paste the complete event list again. A checks it is the before list plus exactly those 3, with
   nothing removed and the same id, URL, API version and status.
 
-**2. Console: deploy the reviewed merge commit**
+**2. Console: deploy the reviewed merge commit**  
+**DONE 2026-10-08 23:45Z:** `dpl_8xPaaBYGM7xgfGsS5fgNKib4gNXp` (READY, production, `f7e7e85f`) serves `snatchit-admin.vercel.app`. The build log shows the current pin was evaluated.
 - 2a. A, fresh reads:
   - `admin/operating-console` is still at `f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb`;
   - `dpl_74DoDNf53NLEmGuNHVwZx4pAqWiY` is CANCELED, production, for that sha;

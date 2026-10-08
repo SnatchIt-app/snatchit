@@ -2166,3 +2166,16 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - Read fresh afterwards: pin still `f7e7e85f…`; `snatchit-admin.vercel.app` still `dpl_J5Kr…`; `dpl_74DoDN…` still
     CANCELED/production/`f7e7e85f`; branch tip `f7e7e85f`.
   - Next: Redeploy from the exact deployment page, after checking four identifiers on it first.
+- **C5 DONE: console label release LIVE (2026-10-08 23:45:11Z; owner clicked Redeploy on `dpl_74DoDN…` with the Ignore
+  Build Step ticked).**
+  - New production deployment `dpl_8xPaaBYGM7xgfGsS5fgNKib4gNXp`: source redeploy, READY, target production, sha
+    `f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb`, ref `admin/operating-console`.
+  - `snatchit-admin.vercel.app` resolves to it (`vercel inspect`).
+  - **Build log shows the Redeploy ran the CURRENT pin:** `Running "test "$VERCEL_GIT_COMMIT_SHA" !=
+    "f7e7e85f…""`, then cloned `f7e7e85` and built (28s). This closes the assumption that a Redeploy re-evaluates the
+    project's current Ignore Build Step.
+  - Redeploy **is** offered on a CANCELED production deployment (owner).
+  - Warnings: 2 npm notices (eslint deprecation; install-scripts note), not build problems.
+  - Unauthenticated: `/login` 200 "Sign in · Console · production"; `/`, `/system`, `/api/health` → 307 to login.
+  - Rollback: Instant Rollback to `dpl_J5Kr…`, then the pin back to `ab3e17f1…`.
+  - **Next:** owner signs in (console access). Label wording on an order page is checked signed in.
