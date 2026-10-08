@@ -18,7 +18,7 @@
  * clipped — the listing screen was pushing two actions and two sub-lines through it.
  */
 
-import { StyleSheet, Text, View, useWindowDimensions, type ViewStyle } from 'react-native';
+import { type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -54,9 +54,15 @@ export interface StickyBarProps {
   layout?: StickyBarLayout;
   style?: ViewStyle;
   testID?: string;
+  /**
+   * Fires with the bar's MEASURED height. A screen whose content scrolls under this bar has to
+   * clear it, and at a large text size the bar grows — its labels scale — so a fixed padding
+   * constant stops being enough exactly when the content is longest. Measuring beats predicting.
+   */
+  onLayout?: (event: LayoutChangeEvent) => void;
 }
 
-export function StickyBar({ left, children, layout = 'row', style, testID }: StickyBarProps) {
+export function StickyBar({ left, children, layout = 'row', style, testID, onLayout }: StickyBarProps) {
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const insets = useSafeAreaInsets();
@@ -68,6 +74,7 @@ export function StickyBar({ left, children, layout = 'row', style, testID }: Sti
   return (
     <View
       testID={testID}
+      onLayout={onLayout}
       style={[
         styles.bar,
         stacked && styles.barStacked,

@@ -263,6 +263,31 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(src).not.toMatch(/fontScale\s*[><=]=?\s*1\./);
   });
 
+  it('LP11: the content clears the FIXED FOOTER by its measured height, not by a constant', async () => {
+    /*
+     * B's batch-4 candidate defect: at a3xl "Mobile transfer · DICE" is sliced by the footer, with
+     * the CTA top at 688 pt. The cause is that `s.scroll` padded the bottom with a constant while
+     * the footer is not constant — its labels scale, so it is tallest exactly when the content is
+     * longest. The bar now reports its measured height and the scroll pads by that.
+     *
+     * Source pins because this screen is mounted by no suite; the real check is the device
+     * capture scrolled to the very end, which is B's case 1.
+     */
+    const { readFileSync } = await import('node:fs');
+    const screen = readFileSync('src/screens/ListingDetailScreen.tsx', 'utf8');
+    expect(screen).toContain('const scrollPad = { paddingBottom: footerHeight + v2.space.lg };');
+    // Both scroll views pad by it — the screen has two, and only one of them renders at a time.
+    expect(screen.match(/contentContainerStyle=\{\[s\.scroll, scrollPad\]\}/g) ?? []).toHaveLength(2);
+    // And both bars report their height, or the padding would stay zero on whichever renders.
+    expect(screen.match(/onLayout=\{\(e\) => setFooterHeight\(e\.nativeEvent\.layout\.height\)\}/g) ?? [])
+      .toHaveLength(2);
+
+    const bar = readFileSync('src/components/ui/StickyBar.tsx', 'utf8');
+    expect(bar).toContain('onLayout?: (event: LayoutChangeEvent) => void;');
+    // Forwarded to the ROOT view: a handler on an inner box would measure the wrong thing.
+    expect(bar).toMatch(/<View\s+testID=\{testID\}\s+onLayout=\{onLayout\}/);
+  });
+
   it('LP7: the panel does no money arithmetic (source pin)', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('src/components/listing/TransactionPanel.tsx', 'utf8');

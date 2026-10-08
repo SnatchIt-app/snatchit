@@ -216,6 +216,31 @@ const UNREACHABLE: Record<string, string> = {};
  * lazy datasets, a first-load failure and a starting chip, so all three are reachable by URL and
  * nothing about how the screen decides what to paint changed.
  */
+/**
+ * `?amounts=long` — the same rows, priced into four figures.
+ *
+ * WHY IT EXISTS. Every fixture amount was five or six characters ($99.00, $132.00), so no capture
+ * could show what the price treatment does with a realistic premium ticket. The owner asked for
+ * representative LONGER amounts to be checked alongside $99.00, and none existed.
+ *
+ * It multiplies the rows' BASE prices and lets the app's own money module do the rest — the all-in
+ * figures, the separators and the rounding are all `allInFromDollars`, untouched. ×13 keeps the
+ * feed's variety and lands the longest at nine characters ("$1,859.00"), which is the shape that
+ * actually tests the line: a four-figure amount with a thousands separator and cents.
+ */
+const LONG_AMOUNT_FACTOR = 13;
+
+function withLongAmounts(rows: Listing[], amounts: string | undefined): Listing[] {
+  if (amounts !== 'long') return rows;
+  const up = (v: number | null | undefined) => (typeof v === 'number' ? v * LONG_AMOUNT_FACTOR : v);
+  return rows.map((l) => ({
+    ...l,
+    starting_bid: up(l.starting_bid),
+    current_bid: up(l.current_bid),
+    buy_now_price: up(l.buy_now_price),
+  })) as Listing[];
+}
+
 function fixtureFor(variant: string | undefined): HomeFixture | null {
   switch (variant) {
     case 'empty':
@@ -240,7 +265,9 @@ function fixtureFor(variant: string | undefined): HomeFixture | null {
 }
 
 export default function V3HomeHarness() {
-  const { variant, appearance, art } = useLocalSearchParams<{ variant?: string; appearance?: string; art?: string }>();
+  const { variant, appearance, art, amounts } = useLocalSearchParams<{
+    variant?: string; appearance?: string; art?: string; amounts?: string;
+  }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
   // dark and a light capture differ only in the value the app resolved.
@@ -260,8 +287,8 @@ export default function V3HomeHarness() {
     // screen agree about which row is first.
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
-    return { ...base, rows: withArt(base.rows, art, midnight.getTime()) };
-  }, [variant, art]);
+    return { ...base, rows: withArt(withLongAmounts(base.rows, amounts), art, midnight.getTime()) };
+  }, [variant, art, amounts]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 

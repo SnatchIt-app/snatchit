@@ -198,6 +198,14 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
   const { palette } = useTheme();
   const { fontScale: factFontScale } = useWindowDimensions();
+  /*
+   * The content scrolls UNDER the fixed footer, so it has to end above it. `s.scroll` padded by a
+   * constant, and the footer is not a constant: its labels scale, so at the largest accessibility
+   * size it is far taller than the padding and slices the last fact row (B, batch 4 at 91a5a58c —
+   * "Mobile transfer · DICE" cut, CTA top at 688 pt). The bar reports its measured height instead.
+   */
+  const [footerHeight, setFooterHeight] = useState(0);
+  const scrollPad = { paddingBottom: footerHeight + v2.space.lg };
   const s = useMemo(() => makeStyles(palette), [palette]);
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
@@ -1073,7 +1081,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     <View style={s.safe}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, scrollPad]}
         contentInsetAdjustmentBehavior="never"
       >
         <ListingHero
@@ -1088,6 +1096,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
       </ScrollView>
 
       <StickyBar
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
         left={
           handoff.priceAllIn ? (
             <PriceDisplay size="sticky" label={handoff.priceLabel} amount={handoff.priceAllIn} />
@@ -1327,7 +1336,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, scrollPad]}
         // The sticky bar sits over the bottom of the content; this keeps the last
         // section reachable instead of permanently hidden behind it.
         contentInsetAdjustmentBehavior="never"
@@ -1466,7 +1475,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
         The price is not repeated here. The panel at the top of the screen states it once, which
         is what the board draws and what "each number once" has meant on this screen since §5.
       */}
-      <StickyBar layout="stack">
+      <StickyBar layout="stack" onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
         {/* A dimmed control may not be the only place a listing's STATE is written: Button drops a
             disabled pill to 0.4. So an unavailable primary keeps its sentence OUTSIDE the pill, at
             full strength — the live actions below carry theirs inside. */}
