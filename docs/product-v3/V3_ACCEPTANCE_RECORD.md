@@ -135,7 +135,20 @@ blanket whole-app acceptance applies.
   "Sat 24 Oct · 1…" (`ListingHero` `when`, `numberOfLines={1}`). It is the same family as the
   feed-row title and date clamps, and not the money rule.
 - **Still not captured:** the feature's own amount at a3xl (gesture blocker; inferred, not measured).
-- **Window:** C has not yet stated a handback in a commit or message.
+- **HANDBACK (C message, 2026-10-07): the simulator and Metro `:8081` are B's.** Candidate
+  `3c03778a`, served and clean (E verified). The device is reset to large/light.
+- **Tests at this candidate (C's report, device down; E has not re-run them):** 174 files / 2979
+  tests, exit 0; typecheck clean; 0 lint errors.
+- **Feature amount at a3xl stays unmeasured.** Drags from the heading and identity text also
+  registered as taps on the feature.
+- **B's next pass at `3c03778a`:**
+  1. Review the new C-operated frames: `native/3d4d6a4a/` in C's repo.
+  2. Home and Search price and feed rows at the three sizes.
+  3. Listing scroll and footer, including measuring the bar's top for the 206 pt residue.
+  4. The remaining groups: Edit refusals, profile, Listing error/offline, the `?art=` list harnesses.
+
+  Carries from `91a5a58c`: Listing poster clearance (`ListingHero` untouched) and the Home artwork
+  per fixture.
 
 ## C-operated captures and price measurements: `37df36fd96c042ba5645021dfc90c13de1d96bcd` (2026-10-07 22:55; not B-reviewed; not yet handed back)
 - **Code is identical to `3d4d6a4a`**: `37df36fd` adds only `native/3d4d6a4a/` (six frames and
