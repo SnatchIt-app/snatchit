@@ -2190,3 +2190,18 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   transfer.created, transfer.reversed.
   - The 3 refund events were already subscribed (prior state; no change made).
   - O-R2 prerequisites (a), (b) and (c) are all met.
+- **O-R2 DONE: refund-state detection ENABLED (2026-10-08 23:54:39Z; owner, console, platform_admin).**
+  Prerequisites (a) v43 verified, (b) Stripe list 13/13 and (c) aal2 access were all met first.
+  - Action `b43f81ea-1b7a-4da1-819f-40b427fd1537`: `setting_set` `refund_state_detection_enabled` `{"value": true}`,
+    succeeded, no approval, result before false → after true. Reason as entered: "OR 2 oct 8th claude told me to".
+  - Audit: `action.requested` + `action.setting_set` succeeded, actor `2b117757`.
+  - The console's "Already submitted — no second action was created" was the second click reusing the idempotency key.
+    Exactly one action row exists.
+  - Read-back: setting `true` (updated 23:54:39 by `2b117757`); `alert_delivery_enabled` false and
+    `refund_execute_enabled` false (unchanged); detectors true.
+  - First tick after: 23:55:01 `refunds` succeeded, scanned 2, opened 0; `release_stuck` succeeded, opened 0. Open
+    refund cases are unchanged (2 pre-existing `refund_pending`, 2026-09-08).
+  - **Limit:** `payment_refund_state` has 0 rows, so the new branches ran over an empty table. "0 opened" is not
+    evidence they detect a failure. That is exercised by the first real refund event or by O-R4.
+  - Operator: owner, daily review (O-R3). The scheduled assistant check is supplementary until its access is
+    demonstrated.

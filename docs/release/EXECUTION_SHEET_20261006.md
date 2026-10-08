@@ -75,7 +75,8 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
   authenticator; the Today page loads.
 - 3b. A, read-only: factor `e677717c…` shows `last_challenged_at` after that sign-in.
 
-**4. Refund detection (O-R2), only once all three prerequisites are verified**
+**4. Refund detection (O-R2), only once all three prerequisites are verified**  
+**DONE 2026-10-08 23:54:39Z:** action `b43f81ea…` succeeded (false → true); first tick 23:55:01 opened 0 over an empty refund-state table (not detection evidence). Alerts unchanged.
 - **Prerequisites:**
   - (a) the new `stripe-webhook` verified: done (A; D's W3);
   - (b) step 1e's after-list shows the 3 events;
