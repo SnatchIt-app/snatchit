@@ -72,6 +72,11 @@ R0 also reads, for those payments:
 - `amount_refunded_cents`;
 - whether a payout is recorded.
 
+**Stripe subscription, as found 2026-10-08 (owner's live-mode read).** Endpoint `we_1TCqy5GdOzCmGbHwxBkCHKL2` already
+lists `refund.created`, `refund.failed` and `refund.updated`. How long it has, and what the handlers before v43 did with
+any such deliveries, is **unknown**: "0 deliveries this week" says nothing about the historical window. R1 reads the
+refunds from Stripe directly, so reconciliation does not depend on past deliveries.
+
 ## What R3 changes, and what it cannot undo
 
 - `payment_refund_state` rows are upserts, but `payment_refund_state_log` is **append-only** (150's trigger). A

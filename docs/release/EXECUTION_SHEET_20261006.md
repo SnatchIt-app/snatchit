@@ -38,6 +38,12 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
 ### Attended session: one ordered checklist (owner and A; D witnesses)
 
 **1. Stripe: verify the live endpoint, then subscribe the three refund events (O-R1)**
+- **Read 2026-10-08 (owner screenshot, live mode).** `we_1TCqy5GdOzCmGbHwxBkCHKL2` "SnatchIt payment events", Active,
+  URL as above, API `2026-02-25.clover`, 13 events.
+  - 11 visible, including `refund.created`, `refund.failed` and `refund.updated`, which were **already subscribed**,
+    so no change was made.
+  - This records prior state, not a before/after.
+  - **2 events below the cut are unread. The full-list check (precondition b) is OPEN.**
 - 1a. Open https://dashboard.stripe.com/webhooks with **Test mode off**.
 - 1b. Find the endpoint whose URL is exactly `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook`.
   **If there are none or more than one: stop.**
