@@ -2184,3 +2184,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     `last_challenged_at` 23:48:42Z, i.e. the aal2 step-up on the new console build `dpl_8xPaaBYGM…`.
   - O-R2 prerequisite (c) met.
   - Still open: (b) the 2 Stripe events below the cut; the signed-in label and wording views.
+- **STRIPE ENDPOINT FULL LIST (G3), owner, live mode, 2026-10-08.** `we_1TCqy5GdOzCmGbHwxBkCHKL2`, 13/13:
+  account.updated, charge.dispute.closed, charge.dispute.created, charge.refunded, payment_intent.payment_failed,
+  payment_intent.succeeded, payout.failed, payout.paid, refund.created, refund.failed, refund.updated,
+  transfer.created, transfer.reversed.
+  - The 3 refund events were already subscribed (prior state; no change made).
+  - O-R2 prerequisites (a), (b) and (c) are all met.

@@ -43,7 +43,7 @@ D verified and accepted each point and revised its sheet to agree (rev 3, `342f2
   - 11 visible, including `refund.created`, `refund.failed` and `refund.updated`, which were **already subscribed**,
     so no change was made.
   - This records prior state, not a before/after.
-  - **2 events below the cut are unread. The full-list check (precondition b) is OPEN.**
+  - ~~2 events below the cut are unread~~. **Full list, as text from the owner, 2026-10-08: 13/13.** `account.updated`, `charge.dispute.closed`, `charge.dispute.created`, `charge.refunded`, `payment_intent.payment_failed`, `payment_intent.succeeded`, `payout.failed`, `payout.paid`, `refund.created`, `refund.failed`, `refund.updated`, `transfer.created`, `transfer.reversed`. **Precondition (b) MET.**
 - 1a. Open https://dashboard.stripe.com/webhooks with **Test mode off**.
 - 1b. Find the endpoint whose URL is exactly `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook`.
   **If there are none or more than one: stop.**
