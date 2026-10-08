@@ -120,6 +120,29 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## B batch 5 at `91a5a58c` (`cb242fd8`, 2026-10-07): C-operated captures reviewed; **simulator handed to C**
+- **Applicability (B, checked by dependency):** the `7c9b270b` Home set carries exactly (no source
+  delta to `91a5a58c`). The `94ac8b4f` Listing set carries, because the Listing screen reaches
+  neither `FeedRow` nor `HomeFeature`. The files are copied to `docs/product-v3/native/Coperated/`,
+  so the review doesn't depend on C's worktree.
+- **Case 1, feed row at 3xl: PASS** (C-operated, B-reviewed). Price, "all-in" and the end time are
+  each complete on their own line.
+- **Case 2, a3xl:** the amounts and "all-in" survive, and the "al…" clip is fixed. The title, venue
+  and bid count are cut with "…". B records that as **degradation, not a defect**, because the row
+  stays identifiable. It corroborates the batch-4 price-size finding.
+- **Case 3, Listing scrolled:** default is complete. At a3xl, the stacked values are complete, but
+  **"Mobile transfer · DICE" is sliced by the fixed footer** (CTA top edge at 688.0 pt).
+  **Candidate defect:** B can't tell insufficient bottom padding from a mid-scroll frame. One
+  scroll-end capture settles it.
+- **Listing event name at a3xl:** not established, and not claimed.
+- **Handoff:** B's capture group is complete at `91a5a58c` (serving tree matched and clean at start
+  and end). **The device and Metro `:8081` belong to C** from `cb242fd8`.
+- **Captures B asked C for:**
+  1. Listing at a3xl, Light, scrolled to the end: does the last fact clear the footer?
+  2. Listing at a3xl, Light, scrolled to the event name.
+  3. The same two in Dark.
+  4. Home and feed row at the three sizes after the price fix, plus a longer amount (`$1,234.56`).
+
 ## B native batch 4 at `91a5a58c` (`a4e546d0`, 2026-10-07 22:03; `B_NATIVE_REVIEW_91a5a58c.md`)
 - **B's start check:** HEAD `91a5a58c`, clean, contains `d5217530`. B discarded three launcher
   frames (the dev client had fallen back to `:8083`). Every capture helper now asserts that the
