@@ -140,3 +140,42 @@ A's inference that refund events arriving while v42 was live were "acknowledged
 and discarded" is **not verified by D** — I have not read v42's handler. Note
 also that "0 deliveries this week" says nothing about historical deliveries,
 which is the period O-R4 is about.
+
+---
+
+## 8. Correction to §6 — the console is ONE gate, not two
+
+**§6 is wrong and is withdrawn.** I inferred from
+`ssoProtection.deploymentType = all_except_custom_domains` that the console's
+`*.vercel.app` hosts sit behind Vercel SSO, and told A and the owner that
+"console access confirmed" was two gates. A disputed it from the 09-08 record.
+A is right. Measured with unauthenticated `curl` (no cookies, no redirect
+following), 2026-10-08:
+
+| Host | Result |
+|---|---|
+| `snatchit-admin.vercel.app/login` | **HTTP 200**, body `<title>Sign in · Console · production</title>` |
+| `snatchit-admin.vercel.app/` | 307 → `/login?next=%2F` (the app's own redirect) |
+| `…-git-admin-operatin-389230-….vercel.app/login` | **302 → `vercel.com/sso-api`** + `_vercel_sso_nonce` cookie |
+| `…-jhe92fpqv-….vercel.app/login` (dpl_J5Kr's own URL) | **302 → `vercel.com/sso-api`** + `_vercel_sso_nonce` cookie |
+
+**Positive control satisfied:** the last two rows show the probe *does* detect
+Vercel SSO gating when it is present. So the 200 on the production alias is a
+real negative, not a logged-in false negative — which is the failure mode that
+would otherwise make the 09-08 observation untrustworthy.
+
+**The mechanism I had wrong:** the exemption in
+`all_except_custom_domains` is not about the `.vercel.app` suffix. Vercel treats
+the project's **production alias** as exempt; preview aliases and the
+deployment's own URL are not. `project.alias` is empty (0 entries), so there is
+no custom domain — the exempt host is the production alias itself.
+
+**Consequence, and it runs the other way from my §6 claim:** there is **no
+Vercel-layer backstop** in front of the production console. Its own
+authentication is the sole gate, so the console's MFA/`aal2` is load-bearing
+alone. That is not a new exposure — the 09-08 record has both founders on real
+MFA — but §6 stated a reassurance that does not exist, which is worse than
+stating nothing.
+
+C5 is unaffected: SSO was my own added concern, now withdrawn. Gaps 1 and 2
+in §5 stand unchanged.
