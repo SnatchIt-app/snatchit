@@ -94,3 +94,88 @@ Captures: `listing-reserving-flyer-{light,dark}.png`.
 * **Spoken VoiceOver output — pending.** No accessibility inspector available in this session.
 
 **Not whole-app acceptance.**
+
+---
+
+# Batch 5 — C-operated captures, B-reviewed · simulator handed to C
+
+Files copied into `native/Coperated/{94ac8b4f,7c9b270b}/` with C's `capture-log.txt`, so this
+review is durable independently of C's worktree. **C-operated, B-reviewed** throughout.
+
+## Applicability to `91a5a58c` — checked on dependencies, not just the screen files
+
+| set | delta to `91a5a58c` (excluding `docs/`, `native/`) | verdict |
+|---|---|---|
+| `7c9b270b` — Home, cases 1–2 | **no source changes at all** | **carries exactly** |
+| `94ac8b4f` — Listing, case 3 | `FeedRow.tsx`, `HomeFeature.tsx`, their test | **carries** — `grep` confirms `ListingDetailScreen`, `src/components/listing/` and `_dev/v3-listing` reach **neither** component |
+
+## Case 1 — feed row at 3XL · **PASS**
+
+`case1-home-3xl-light-feedrow-Coperated.png`. Rows stack; each carries, on its own line,
+**`$70.40` · `all-in` · `Ends Thu 06:09`**, complete and unclipped, for every row in view. **No
+essential value is lost at the largest standard size**, and this answers the comparison the owner
+asked for: the ellipsis question does not arise here at all.
+
+## Case 2 — identity block and feed row at A3XL · essential values survive; titles degrade
+
+`case2-home-a3xl-light-identity-Coperated.png`.
+
+* **Complete:** `$99.00`, and **`current bid, all-in` wrapping to two lines whole** — the `al…`
+  clipping I reported at `d5217530` is fixed. Feed row: **`$132.00`** and **`all-in`** complete.
+* **Ellipsised:** `Midnight Arcade pr…`, `Thu 8 Oct · …`, `2 × GA · 11…` — the **venue** and the
+  **bid count** are lost.
+
+**Not raised as a defect.** Date, quantity, price and the all-in qualifier all survive, so the row
+is still identifiable and openable and the full detail is one tap away. Per the owner's
+prioritisation this is degradation, not a blockage.
+
+**It does corroborate the batch-4 price finding**, in C's own capture: at A3XL `$132.00` renders no
+larger than the body text beside it and visibly smaller than the title above it. That finding is
+already filed; this is supporting evidence, not a second one.
+
+## Case 3 — Listing scrolled · **one candidate defect**
+
+`case3-listing-default-{light,dark}-scrolled-Coperated.png` at default: the breakdown, fact rows,
+commitment sentence and bid activity are **all complete and clean**. ✓
+
+`case3-listing-a3xl-{light,dark}-scrolled-Coperated.png` at A3XL: the fact rows stack correctly and
+their **values are complete** — `Service fee (10%)` / `$9.50`, `Delivery` / `Mobile transfer · DICE`
+— so C's stacking fixes hold.
+
+**But the last visible value is sliced by the fixed footer.** `Mobile transfer · DICE` runs under
+the sticky bar, with `DICE` cut through its glyphs. Measured: the red CTA's **top edge is at
+688.0 pt** in both appearances, and there is ink immediately above it.
+
+**I cannot tell from these frames whether that is insufficient bottom padding or simply mid-scroll**
+— they are not scroll-end captures, and I have no touch input. This is exactly the condition the
+owner named ("sufficient bottom padding to clear the fixed footer"), so it needs one capture to
+settle, not a judgement.
+
+## Listing event name at A3XL — not established
+
+The owner's rule is that the name need not be above the fold, but must be **fully reachable and
+readable by scrolling**. C's case-3 captures begin below it, so the name is in the scrollable region
+above — but **I have not seen it at A3XL** and I do not claim it. One capture settles it.
+
+---
+
+## Simulator handed to C
+
+**My capture group is complete at `91a5a58c`** (batches 4 and 5; serving tree HEAD matched and clean
+at both start and end, `git status --porcelain` empty). **The device and Metro `:8081` are C's.**
+
+C: alongside the price fix, four captures would close what I cannot reach. Same naming and
+`capture-log.txt` convention, content size and appearance read back **from the device**.
+
+1. **Listing, A3XL, Light — scrolled to the very end.** Does the last fact row clear the fixed
+   footer, or is it still under it? This decides the candidate defect above.
+2. **Listing, A3XL, Light — scrolled to the event name.** Is it complete and readable?
+3. **Listing, A3XL, Dark** — the same two.
+4. **Home and the feed row at the three sizes after the price fix**, so I can re-measure rendered
+   price height rather than re-derive it.
+
+When the price fix lands, please also capture a **longer amount** than `$99.00` — the owner asked
+for representative longer values, and `$1,234.56` is where a shrink-to-fit would show itself.
+
+**Explicitly pending, blocking nothing:** authenticated consumer Home, and spoken VoiceOver output.
+**Not whole-app acceptance.**
