@@ -1,5 +1,6 @@
 /* Preview-only additions layered on the shared brand sheet (globals.css). */
 
+@layer components {
 /* The "Preview data" indicator: always visible, never dismissible. Amber
    stripes with near-black text (≥ 9:1 on both stripes). */
 .preview-banner {
@@ -22,7 +23,8 @@
 
 /* Skeleton blocks for loading states. */
 .skel {
-  background: linear-gradient(90deg, #ececec 25%, #f7f7f7 50%, #ececec 75%);
+  background: linear-gradient(90deg, #ececeb 25%, #f6f6f5 50%, #ececeb 75%);
+  border-radius: 10px;
   background-size: 200% 100%;
   animation: skel 1.4s ease-in-out infinite;
   min-height: 0.9rem;
@@ -37,13 +39,14 @@
 }
 
 /* Capacity bar: sold | held | remaining, three written numbers beside it.
-   Segment colours match the legend text tokens (sold = brand red, held =
-   warning amber #b45309 ≥ 3:1 on white, remaining = the gray track). */
+   Segment colours match the legend text tokens (sold = ink, held =
+   a muted amber, remaining = the gray track). */
 .capbar {
   display: flex;
-  height: 10px;
+  height: 8px;
   width: 100%;
-  background: rgba(17, 17, 17, 0.1);
+  background: #ececeb;
+  border-radius: 9999px;
   overflow: hidden;
 }
 .capbar > span {
@@ -52,14 +55,14 @@
 }
 .capbar .sold,
 .legend-swatch.sold {
-  background: #ff1a1a;
+  background: #0f0f10;
 }
 .capbar .held,
 .legend-swatch.held {
-  background: #b45309;
+  background: #b0763f;
 }
 .legend-swatch.remaining {
-  background: rgba(17, 17, 17, 0.1);
+  background: #ececeb;
 }
 .legend-swatch {
   display: inline-block;
@@ -67,6 +70,7 @@
   height: 0.6rem;
   vertical-align: -1px;
   margin-right: 0.25rem;
+  border-radius: 9999px;
 }
 
 /* Door surfaces: large targets, one decision per screen (spec §2.8). */
@@ -78,4 +82,5 @@
 }
 .touch-row {
   min-height: 56px;
+}
 }

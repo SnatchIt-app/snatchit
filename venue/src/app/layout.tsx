@@ -1,16 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Oswald } from "next/font/google";
+import { Inter, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 /**
- * Oswald is the marketing site's display face (snatchitapp.com, measured
- * 2026-10-06 on its white "chapter" sections: Oswald 700, uppercase,
- * leading 0.85). It is used here for page and section headings and for the
- * name of a thing in a list — never for body copy, labels or controls, which
- * stay Inter in sentence case. That is the site's own rule.
+ * The serif is used once per page, for the page title (and a hero figure or
+ * name) — the treatment the reference dashboard uses for "Invite Guests".
+ * Everything a person reads or operates is Inter.
  */
-const oswald = Oswald({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--font-oswald" });
+const serif = Instrument_Serif({ subsets: ["latin"], weight: "400", display: "swap", variable: "--font-instrument" });
 
 export const metadata: Metadata = {
   title: { default: "Venue dashboard · DEMO", template: "%s · Venue dashboard · DEMO" },
@@ -19,14 +17,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: "#0f0f10",
   width: "device-width",
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${oswald.variable}`}>
+    <html lang="en" className={`${inter.variable} ${serif.variable}`}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { BATCHES, DEVICES, EVENTS, FLAGS, HOLDS, PREVIEW_NOW, SCANS, TICKET_TYPES } from "@/fixtures/venue";
 import { listEvents } from "@/lib/data";
 import { buildSignals, doorSummary, eventStage, stillAvailable, type SignalInput } from "@/lib/signals";
+import { sessionTotals } from "@/lib/inventory";
 import type { PreviewContext } from "@/lib/preview";
 import { EventsTable } from "@/components/events/EventsTable";
 import { Tonight } from "@/components/overview/Tonight";
@@ -108,12 +109,19 @@ describe("W1 — the overview answers 'what needs me now?'", () => {
         basePath={base}
         timeZone="America/New_York"
         now={PREVIEW_NOW}
+        sales={TICKET_TYPES.filter((t) => t.eventId === EVENTS[0].eventId).map((t) => {
+          const tot = sessionTotals(BATCHES, t.ticketTypeId, EVENTS[0].sessions[0].sessionId);
+          return { ticketTypeId: t.ticketTypeId, name: t.name, priceMinor: t.priceMinor, sold: tot.sold, capacity: tot.capacity, remaining: tot.remaining };
+        })}
       />,
     );
     expect(out).toContain("People inside");
     expect(out).toContain("Scanned in so far");
     expect(out).toContain("Scanners online");
     expect(out).toContain("Counted at this moment, not a total for the week.");
+    // Each ticket line says what its numbers are: sold of capacity, and what is left.
+    expect(out).toMatch(/\/ \d+ sold/);
+    expect(out).toMatch(/\d+ left|None left/);
     expect(out).toMatch(/other check(s)? ran and found nothing/);
   });
 });
