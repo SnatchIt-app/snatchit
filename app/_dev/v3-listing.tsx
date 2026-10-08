@@ -222,6 +222,35 @@ const NEEDS_VIEWER: readonly string[] = ['won', 'reserved-by-you', 'own-listing'
  * `null` means "this variant needs a viewer and there is none" — the caller paints the note rather
  * than a state the resolver would have named differently.
  */
+/**
+ * `?amounts=long` — the same board, priced into four figures.
+ *
+ * The bid fixtures are 90 and 85, so every amount on this screen was five or six characters and
+ * no capture could show the price treatment against a realistic premium ticket. The owner asked
+ * for an ordinary AND a four-figure bid amount to be captured, and none existed. Same control and
+ * same factor as the Home harness, so the two surfaces stay comparable.
+ *
+ * It scales the BASE numbers only. Every figure on screen is still produced by the app's own
+ * money module from them — `listingAllInV3` for the bid rows, `allInFromDollars` for the
+ * breakdown — so nothing about the pricing arithmetic is stood in for.
+ */
+const LONG_AMOUNT_FACTOR = 13;
+
+function withLongAmounts(fixture: ListingDetailFixture, amounts: string | undefined): ListingDetailFixture {
+  if (amounts !== 'long') return fixture;
+  const up = (v: number | null | undefined) => (typeof v === 'number' ? v * LONG_AMOUNT_FACTOR : v);
+  return {
+    ...fixture,
+    listing: {
+      ...fixture.listing,
+      starting_bid: up(fixture.listing?.starting_bid),
+      current_bid: up(fixture.listing?.current_bid),
+      buy_now_price: up(fixture.listing?.buy_now_price),
+    } as ListingDetailFixture['listing'],
+    bids: fixture.bids?.map((b) => ({ ...b, amount: up(b.amount) })) as ListingDetailFixture['bids'],
+  };
+}
+
 function fixtureFor(variant: string | undefined, viewerId: string | undefined): ListingDetailFixture | null {
   switch (variant) {
     case 'sold':
@@ -299,8 +328,8 @@ function fixtureFor(variant: string | undefined, viewerId: string | undefined): 
 }
 
 export default function V3ListingHarness() {
-  const { screen, variant, appearance, reserving, art } = useLocalSearchParams<{
-    screen?: string; variant?: string; appearance?: string; reserving?: string; art?: string;
+  const { screen, variant, appearance, reserving, art, amounts } = useLocalSearchParams<{
+    screen?: string; variant?: string; appearance?: string; reserving?: string; art?: string; amounts?: string;
   }>();
   // `?appearance=light|dark` drives the comparison capture deterministically from the app's own
   // preference — the same one Settings writes — rather than from a browser emulation flag, so a
@@ -342,15 +371,16 @@ export default function V3ListingHarness() {
    * param — the plate is still one of the cases worth looking at.
    */
   const fixture = useMemo(() => {
-    const base = fixtureFor(variant, user?.id);
-    if (!base) return base;
+    const selected = fixtureFor(variant, user?.id);
+    if (!selected) return selected;
+    const base = withLongAmounts(selected, amounts);
     const withReserving = reserving === '1' ? { ...base, reserving: true } : base;
     // `listingArt` returns null for an unknown key, so a crafted `?art=` is dropped rather than
     // forwarded into the cover field.
     const cover = listingArt(art);
     if (!cover) return withReserving;
     return { ...withReserving, listing: { ...withReserving.listing, cover_image_path: cover } };
-  }, [variant, user?.id, reserving, art]);
+  }, [variant, user?.id, reserving, art, amounts]);
 
   if (!IS_SANDBOX_BUILD && !__DEV__) return <Redirect href="/" />;
 

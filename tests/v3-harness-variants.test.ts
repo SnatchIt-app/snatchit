@@ -397,6 +397,28 @@ describe('the two states and the one screen that had no harness at all', () => {
     expect(missing.fixture?.listing ?? null).toBeNull();
   });
 
+  it('HV16b: v3-listing\u2019s `?amounts=long` scales the BASE numbers and nothing else', async () => {
+    /*
+     * Added so the owner's four-figure BID capture is possible: the fixtures are 90 and 85, so
+     * every amount on the screen was five or six characters. It scales base numbers only — every
+     * figure on screen is still produced by the app's money module from them, which is what keeps
+     * this a fixture control rather than a second pricing path.
+     */
+    const plain = await render('listing', { screen: 'listing', variant: 'listing' });
+    const long = await render('listing', { screen: 'listing', variant: 'listing', amounts: 'long' });
+    const f = (h: typeof plain) => (rootOf(h).props.fixture ?? {}) as {
+      listing?: { current_bid?: number }; bids?: { amount: number }[];
+    };
+    const a = f(plain), b = f(long);
+    expect(a.listing?.current_bid).toBeGreaterThan(0);
+    expect(b.listing!.current_bid!).toBe(a.listing!.current_bid! * 13);
+    expect(b.bids!.map((x) => x.amount)).toEqual(a.bids!.map((x) => x.amount * 13));
+    // Four figures is the point: a three-digit "long" amount would test nothing.
+    expect(b.bids![0].amount).toBeGreaterThanOrEqual(1000);
+    // And the row count and order are untouched — this scales, it does not reshape the board.
+    expect(b.bids).toHaveLength(a.bids!.length);
+  });
+
   it('HV17: v3-profile mounts the public profile, with the states the screen withholds', async () => {
     const at = async (params: Record<string, string | undefined>) => {
       const host = await render('profile', params);
