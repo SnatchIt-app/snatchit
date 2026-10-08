@@ -699,14 +699,14 @@ SELECT is((SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.r
   'P1: GATE-2 tables=27 — 096 adds no public table');
 SELECT is((SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public'
-              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 70,
-  'P2: GATE-2 functions=70 — 096 adds no public function (pgtap''s own extension-owned functions excluded)');
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')), 71,
+  'P2: GATE-2 functions=71 — 096 adds no public function (70 post-096 + 119''s guard_listing_seller_not_blocked; pgtap''s own extension-owned functions excluded)');
 SELECT is((SELECT count(*)::int FROM pg_policy pol JOIN pg_class c ON c.oid=pol.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='public'), 37,
   'P3: GATE-2 policies=37 — 096 adds no public policy');
 SELECT is((SELECT count(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-            WHERE n.nspname='public' AND NOT t.tgisinternal), 26,
-  'P4: GATE-2 triggers=26 — 096 adds no public trigger');
+            WHERE n.nspname='public' AND NOT t.tgisinternal), 27,
+  'P4: GATE-2 triggers=27 — 096 adds no public trigger (26 post-096 + 119''s trg_guard_listing_seller_not_blocked)');
 
 SELECT finish();
 ROLLBACK;
