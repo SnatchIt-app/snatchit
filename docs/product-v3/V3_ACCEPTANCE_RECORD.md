@@ -124,7 +124,7 @@ blanket whole-app acceptance applies.
 | Step | Owner | State |
 |---|---|---|
 | 1. Finish the unaffected refusal, profile, error/offline and artwork checks at `3c03778a`; commit them; **hand the simulator and Metro to C explicitly** | B | pending; no B commit after `e1c5f38e` |
-| 2. Prepare both fixes in the isolated worktree (below) | C | pending; nothing on any ref after `3c03778a` |
+| 2. Prepare both fixes in the isolated worktree (below) | C | **prepared: `b9222a163dfd3b0f95b4d04d9503df38a06ef89a`** (descends from `3c03778a`; not served; E verified the files) |
 | 3. After B's handback: validate, serve **one named clean successor**, then capture at **a3xl, Light and Dark**: bid activity with an ordinary **and** a four-figure amount; the Listing date/time line; the Home feature amount | C | pending |
 | 4. Hand back to B for focused verification of those three | C → B | pending |
 
@@ -145,6 +145,23 @@ blanket whole-app acceptance applies.
 **Preserve:**
 - the accepted poster, navigation, footer and reservation behaviour;
 - **no change to Listing spacing** on the existing evidence.
+
+**`b9222a16` contents (C; E checked the diff from `3c03778a`):**
+- `BidActivity.tsx`: above the shared threshold the row becomes a column and the amount owns its own
+  line; the compact form keeps its cap. The "Leading" chip is kept, and the bidder name no longer
+  clamps. There is a new test file.
+- `ListingHero.tsx`: **only** `numberOfLines={1}` is removed from the date line (E verified the
+  single changed line). C reports it stays one line at every standard size.
+- `?amounts=long` added to the Listing harness, so a four-figure bid can be shown.
+- Mutation controls: BA2, BA3 and LH1b each failed as C predicted.
+
+**Carry note:** `ListingHero` changed, but only below the poster. **B confirms the poster clearance
+once at default size** in the focused pass. The poster and navigation geometry is otherwise
+unaffected.
+
+**Home feature amount:** before reporting, C will tell gesture automation apart from a real defect,
+using a drag with a large first step. **No production interaction change** to make capture work. If
+it can't be reached, the check stays **untested**.
 
 **Outstanding, not blocking the rest:** authenticated consumer Home, and spoken VoiceOver. **The app
 is not fully accepted.**
