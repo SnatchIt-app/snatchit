@@ -179,3 +179,80 @@ stating nothing.
 
 C5 is unaffected: SSO was my own added concern, now withdrawn. Gaps 1 and 2
 in §5 stand unchanged.
+
+---
+
+## 9. C5 attempt 1 — wrong deployment, nothing reached production
+
+Owner clicked Redeploy ~23:39:33Z 2026-10-08 and stopped on the Error result.
+D's own reads:
+
+**The deployment created: `dpl_iAzLKA1UFtjD9qC2uc7fn8itcM8d`**
+
+| Field | Value |
+|---|---|
+| `source` | **`redeploy`** |
+| `target` | `null` → **Preview**, not production |
+| `meta.githubCommitRef` | **`feature/venue-native-and-product-v2`** |
+| `meta.githubCommitSha` | **`c4f562dad36ffcdcacb1fe3ba1387f7ab1bbf4cd`** |
+| `state` / `readyState` | ERROR |
+| `errorCode` | **`NOW_SANDBOX_WORKER_ROOTDIR_NOT_EXIST`** |
+| `errorMessage` | `The specified Root Directory "admin" does not exist. Please update your Project Settings.` |
+| `errorStep` | **`build-container-init`** |
+| `buildingAt → ready` | 23:39:34.870 → 23:39:37.710 = **2.84 s** |
+| `alias` | only the venue-branch preview alias |
+
+Its `meta` is identical to `dpl_HYCvcS9Ssv1Xcw7KNA85cyvs8PCB` (Sep-8, ERROR,
+preview, same ref and sha), which is what the owner's screenshot said
+("Redeploy of HYCvcS9Ss"). So the Redeploy was applied to a **September preview
+deployment of the venue branch**, not to `dpl_74DoDN`.
+
+**Root cause — already documented, now reproduced.**
+`docs/admin-console/DEPLOYMENT_RECORD_2026-09-08.md:113` records that Vercel
+validates the Root Directory **right after cloning and before running the
+Ignored Build Step**. `admin/` exists only on `admin/operating-console`. The
+venue branch has no `admin/` tree, so the container init fails. That is why
+this is ERROR (2.84s) and not CANCELED. Corroborated in the build log via CLI:
+`23:39:37.635Z The specified Root Directory "admin" does not exist.`
+
+### Three consequences
+
+1. **Nothing reached production.** Target was Preview; the production alias was
+   never a candidate.
+2. **The pin was never exercised.** `errorStep = build-container-init` precedes
+   the Ignored Build Step. So attempt 1 is **not** evidence about §5 gap 2
+   (whether Redeploy re-evaluates the current guard). That gap is still open.
+3. **The error message is a trap.** It says *"Please update your Project
+   Settings."* Root Directory `admin` is **correct** and must not change —
+   changing it would break the console build on the one branch that works. The
+   owner stopped instead of following it, which was right.
+
+### Post-attempt state re-read (D's own, after the failure)
+
+| Check | Result |
+|---|---|
+| `commandForIgnoringBuildStep` | **UNCHANGED** — `… != "f7e7e85f…74bb"` |
+| `rootDirectory` / `nodeVersion` | **UNCHANGED** — `admin` / `22.x` |
+| `project.updatedAt` | **1791430528219, byte-identical to the 03:35 read** |
+| `snatchit-admin.vercel.app` | `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr` |
+| `snatchit-admin-gnvprod-5449s-projects.vercel.app` | `dpl_J5Kr4QSBmRjxmJbu2nT7KovSxmsr` |
+| `dpl_74DoDN` | still CANCELED / production / `f7e7e85f` |
+
+The identical `updatedAt` is the stronger check: any settings PATCH — including
+a change made and reverted — would have bumped it. It did not move. No
+settings changed.
+
+A's independent re-read (717acde2) agrees on all four points.
+
+**Evidence limit:** the MCP build-logs endpoint returned 403 (scope
+`gnvprod-5449s-projects`). The structured `errorCode`/`errorMessage`/`errorStep`
+on the deployment object, plus the CLI `inspect --logs` line above, are the
+basis for the root-cause claim — not the MCP log stream.
+
+### Open question attempt 2 should also answer
+
+Why the owner landed on that row is unestablished. One live possibility is §5
+gap 1 — that Redeploy is **not offered** on the CANCELED production deployment,
+so the nearest row that offered it was used. Attempt 2 from the exact
+deployment URL settles gap 1 as a by-product: either the action is present on
+that page or it is not.
