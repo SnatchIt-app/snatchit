@@ -295,8 +295,15 @@ the owner to look (D, agreed).
 `received_at` and `processed`, so it cannot supply a refund id.
 - It holds **no `refund.*` event ever**. That is consistent with no refund having failed. It is **not** evidence of
   `succeeded`, because when `refund.*` was first subscribed is unknown.
-- D describes the read as authorised. A made no production read and has not confirmed which owner authorisation it
-  rests on; this is put to the owner.
+- **Contingent on the owner's ruling on scope.** `stripe_webhook_events` is not in R0's prepared read list. D's
+  stated basis is the owner's instruction to "use any existing authorised read-only evidence to establish the refund
+  details", which D read as permitting a read-only search of the already-authorised database. D notes that the phrase
+  admits a narrower reading. If the owner intends the narrower one, the read was out of scope, the refund-count
+  evidence above is **withdrawn**, and the count reverts to unevidenced. A made no production read.
+
+**Markers move in one step (D, adopted).** The five markers are filled together, once all five values exist, and never
+partially. A half-filled file would have a stable sha256 that could be mistaken for an approvable artifact. Partial
+evidence lives here and in the records; the R3 files stay untouched.
 
 **Existing evidence searched by A, nothing found.** A made no production read. The search covered:
 - the repo tree and full history;

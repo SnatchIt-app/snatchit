@@ -2335,3 +2335,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - The refund id remains unavailable, so O-R4 stays pending evidence.
     - The authorisation basis of D's read is put to the owner; A made no production read.
   - A owns the wrong assumption behind the "View details" request.
+  - D's webhook-ledger read: D states its basis (the owner's "any existing authorised read-only evidence", read as permitting search) and that a narrower reading would make it out of scope. The refund-count evidence is contingent on the owner's ruling. Markers are filled in one step only (D's rule, adopted).
