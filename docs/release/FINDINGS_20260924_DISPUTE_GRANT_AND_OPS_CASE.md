@@ -321,3 +321,15 @@ or set the opposite value believing they were correcting a failure. That matters
 "saved; display refreshing" with the new value. Never show the pre-change value as current.
 
 **Owner of the fix:** D (admin console). Separate from this release. Not fixed here.
+
+## F-MODE-BOUNDARY-DUPLICATED-1: the live-mode money boundary has one shared helper with one consumer (register item, 2026-10-09)
+
+`rowIsLiveActionable` (`_shared/payout-logic.ts:150`) is called once (`enforce-transfer-expiry:618`).
+- `ops-refund-execute` (`classify.ts:120–138`, `checkModeConsistency`, stricter: row mode must equal key mode) and
+  `stripe-webhook` (`native-dispute.ts`, `resolveDisputeRail`) implement equivalent rules independently. All three fail
+  closed today, but three implementations of one money boundary can drift apart.
+- In SQL, only `claim_payout_attempt` checks `stripe_livemode`. `record_refund_state`, `record_payment_refund` and
+  `ops.detect_refunds` do not.
+
+**Not a defect today.** It is a hardening item: one shared rule, or a SQL-level guard on the refund writers. Found by D
+during the O-R4 review; verified by A. A full enumeration of every edge money path and its gate has not been done.

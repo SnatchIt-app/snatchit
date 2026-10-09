@@ -161,11 +161,19 @@ therefore `least(refund_amount, total)`; there is no prior value.
 - **Reconcile the 2 live rows (#6, #7)** after R1 and the source decision.
 - **The 5 test-mode rows: exclusion RECOMMENDED (A and D), PENDING THE OWNER'S RULING.** This is a recommendation,
   not a decision. The owner chooses: **exclude**, or **reconcile for display consistency**.
-  - **Primary reason: the system's own boundary.** `_shared/payout-logic.ts:144–152` (`rowIsLiveActionable`) admits
-    only `stripe_livemode = true` rows into refund, payout and reconciliation paths. `false` rows are
-    "preserved-but-inert test-era audit data"; the only exception is a sandbox-only switch that the release checklist
-    asserts is absent in production. Production code already treats all five as inert, so R3 would be the only
-    money-rail write across that boundary.
+  - **Primary reason: the mode boundary lives at the edge, and R3 bypasses it** (D; verified by A at `abef9506` from
+    function bodies, not line numbers).
+    - `rowIsLiveActionable` (`_shared/payout-logic.ts:144–152`) admits only `stripe_livemode = true` rows into the
+      money rails. `false` means "preserved-but-inert test-era audit data". Its one call site is
+      `enforce-transfer-expiry:618`; `ops-refund-execute` and `stripe-webhook` enforce equivalent rules in their own
+      code.
+    - **R3's SQL path is mode-blind:** `record_refund_state` (150:125), `record_payment_refund` (`20260906120000`:457)
+      and `ops.detect_refunds` (150:262) contain no livemode check. Only `claim_payout_attempt` (`…120000`:559)
+      refuses non-live rows (`PAYMENT_NOT_LIVE`).
+    - So what keeps these five inert today is edge code, and a direct R3 call is not constrained by it.
+  - **Operational cost:** detection is on, and `ops.detect_refunds` has no livemode filter. A reconciled
+    failed/canceled test refund would open a **p1 `refund_failed` case about money that never moved**, in the queue
+    the owner works daily (O-R3).
   - **Secondary reason:** the write would permanently trip 150's rollback guard for payments where no money moved.
   - **Reversible alternative**, if they look wrong in an account view: a `stripe_livemode` display filter (D's lane).
 - **Provenance of `stripe_livemode`** (D, verified at source): it is recorded from Stripe's own `livemode`
