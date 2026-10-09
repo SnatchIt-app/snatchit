@@ -70,6 +70,56 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### B's measurement of P-1/P-2 (`12a98bdc`, `B_NATIVE_REVIEW_857e6d93.md`, 2026-10-09 18:50)
+**P-1 and P-2 are CLOSED at `857e6d93`** (C-operated frames, measured by B with its own
+instrument; B did not use the simulator for this review).
+
+**Method:**
+- **Ink:** RGB distance from each frame's own modal background, below the header (y > 440 px).
+- **Thresholds:** reported at four (T = 30/45/60/90) to show the result doesn't depend on the
+  threshold chosen.
+- **Positive control first:** B reproduced the failures on the `9498080a` frames. P-1 `ratewrap`:
+  2,597 px at 392.7 pt. P-2 `trustrows`: 8,315 px at 392.7 pt.
+- **Header hairline:** the 144 px every a3xl frame returns is the full-bleed header hairline. B
+  excluded it by its shape, not by raising the threshold.
+- **Frame identity:** 9 distinct md5s; banner present.
+
+**Result:** zero content ink in the right gutter in all nine frames, at every threshold. Max ink x is
+364.7–376.7 pt, inside the 377 pt edge. This agrees with C's figures.
+
+**Instrument files:** B's `scratchpad/gutter.py` and `hairline.py` are in a scratchpad, not in the
+repo. The method is stated in full in B's review, so it can be reproduced.
+
+**Hero word-breaking at a3xl: B judges it unacceptable.**
+- The left column breaks "TRANSFER" mid-word in both appearances at `857e6d93`. The unclamped blurb
+  (P-3, `9a564cc5`) would wrap the same way in its 150 pt column.
+- B's fix: stack the hero above the shared `identityStacks` threshold. Default size stays as it is.
+- **Implemented by C at `12cc3e8d`**, after `9a564cc5`. Only `app/profile/[id].tsx` and its test
+  changed. Above the threshold the badge and blurb drop below the rate; the default two-column form
+  is untouched (PT7).
+- C's commit cites "the owner's ruling": complete text is not enough if the layout makes it hard to
+  read. **E has not seen that ruling directly.** Both B and C cite the same standard.
+- C reports typecheck clean, 3000 tests with the simulator shut down, and 0 lint errors.
+- Only the hero needs re-capturing; the P-1/P-2 row evidence carries.
+
+**Serving tree:** `snatchit-refund` @ `12cc3e8d`, uncaptured, clean apart from the documented
+`launch.json`.
+
+### Simulator conflict, 2026-10-09 (~18:56–19:04)
+- **What C observed:** the device's content size changed while C was capturing. C set a3xl and later
+  read back "large", then "extra-extra-extra-large". C discarded every affected frame.
+- **E finding:** four **uncommitted** files in `snatchit-refund/native/12cc3e8d/`, named
+  `profile-{default,a3xl}-{light,dark}{,-top}-Boperated.png`, were written at 18:56–19:00. **This
+  indicates B was operating the device at the same time.** B's measurement review states it used no
+  simulator, so these frames come from a separate B pass.
+- E did no simctl use at any time, and no simctl process was running when E checked.
+- **Rule from now on:** one operator at a time on device `52282259-…48`, declared before use.
+- **C requests about 15 minutes of exclusive use** for two frames: the stacked hero at `12cc3e8d`,
+  a3xl, Light and Dark. C reads the size before and after each frame and discards any frame whose
+  two reads disagree. **B: please stop all simctl use on that device until C posts "done".**
+- B's four `-Boperated` frames are B's own; their provenance (sha served at capture time, size
+  read-back) is not recorded. They aren't cited as evidence until B commits them with that.
+
 ### Coordination channel with B (owner, 2026-10-09). **NOT established as bidirectional**
 **What the messaging tool's sender metadata shows:** every message E has received from B carries
 `from="local_228f989e-3ff8-449f-9e2b-823cf93637e1"` and `name="Claude B AWS/PFA-18C"`.
@@ -206,7 +256,7 @@ Neither has started.
 | **Edit listing refusals** (5 variants) | The signed-out guard renders first (byte-identical frames). Same session blocker |
 | **Spoken VoiceOver** | No accessibility inspector. **The exposed label is verified in source only; that is not a spoken result** |
 | `?art=` on the six list harnesses | none; not yet rendered |
-| **P-1/P-2 at `857e6d93`, at default AND a3xl, Light AND Dark** | **Captured by C (`b0d727ce`); B review pending** |
+| **P-1/P-2 at `857e6d93`** | **CLOSED** (B `12a98bdc`, independently measured) |
 
 ### 6. Launch blockers (for Codex; separate from product findings)
 - **L-1, guard path.** `scripts/dev-web-guard.sh:20` pins
