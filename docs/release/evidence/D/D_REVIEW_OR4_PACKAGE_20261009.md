@@ -133,3 +133,75 @@ the owner's recorded words; that the refund count is established as 1 (ideally i
 that `payment_refund_state` is still empty at execution time.
 
 Correction writes remain owner-gated. D has executed nothing.
+
+---
+
+## 7. Re-check at `f7595be9` — all three residuals closed
+
+A adopted all three §3 recommendations. D re-checked them against the code, not the description.
+
+**Hashes, D's own:** tmpl `7740700b`, #6 `0d689587`, #7 `d976eacb` — match A's claims. Five distinct
+markers now present in each proposed file (`__R1_REFUND_ID__`, `__R1_REFUND_STATUS__`,
+`__R1_REFUND_COUNT__`, `__R1_EVIDENCE__`, `__OWNER_SOURCE__`), so the files still cannot run as
+committed.
+
+**Placement:** all three new guards sit in section 1, at lines 38-45, **before the first database read**
+(`select * into v_pay` at :59). Correct — an unfilled or out-of-scope input stops the block before it
+touches a row.
+
+**Behaviour, probed case by case:**
+
+| guard | input | result |
+|---|---|---|
+| C11 | `__R1_REFUND_ID__` | REFUSED |
+| C11 | bare ARN `70000000000000000000001` | REFUSED |
+| C11 | `re_70000000000000000000001` (ARN with prefix) | **REFUSED** ← the gap D raised |
+| C11 | `re_3Q7xK2GdOzCmGbHw0abcdef` (realistic id) | accepted |
+| C10 | `__R1_REFUND_COUNT__`, `2`, `01`, `` ` 1` `` | REFUSED (strict text equality) |
+| C10 | `1` | accepted |
+| C12 | `__R1_EVIDENCE__`, `short` | REFUSED |
+| C12 | a real provenance sentence | accepted |
+
+The C12 marker check is `c_evidence like '\_\_%'`, which under PostgreSQL's default backslash escape
+matches a literal leading `__`. Correct.
+
+**(c) is fully closed.** `c_refund_count` is inside the file, so the single-refund claim is now covered
+by the sha256 the owner approves. D's criterion 3 moves from *conditional* to **met**.
+**Stated precisely, because this matters:** the guard puts the claim *inside the approved artifact*. It
+does **not** verify the count against Stripe. It is a recorded assertion under signature, not a
+measurement — which is exactly what D asked for, and should be described that way and no stronger.
+
+**Two residuals remain, both minor, neither a blocker, and D is not pressing further:**
+- **C11 is still shape-only.** `re_a70000000000000000000001` — one letter prepended — is accepted.
+  A acknowledges origin is not guard-checkable; C12 is the compensating control. Noted and accepted.
+- **C12 accepts 20 spaces.** `length >= 20` and "not marker-prefixed" are satisfied by whitespace.
+  Optional polish (require a non-whitespace character); D does not ask for it. The evidence string is
+  echoed in the `R3_OK` notice and falls under the approved sha256, so a blank one would be visible.
+
+**Not checkable here:** A reports "W6/W7 differ from the committed files in exactly 5 lines". Those
+filled rehearsal variants are not committed, so D cannot verify that claim. Separately, D measured the
+committed #6 as differing from `d4accc39` by **15 changed lines** (net +11) — a *different* comparison,
+not a contradiction of A's statement.
+
+**Still A's, unverified by D:** R2 run 5 passing 27/27, and that M1-M3 still kill.
+
+## 8. D accepts A's narrower timezone wording
+
+A kept "conditional" where D said "zero". **A is right and D over-generalised.** Two distinct
+propositions:
+
+- **The shared minute carries no timezone information.** Both refunds are 14 s apart, so under *any*
+  fixed offset they display in the same minute. This remains **zero** — and it is all D's original
+  sentence was entitled to say.
+- **The displayed value against our record is conditionally consistent.** "5:20 PM" equals 17:20 **if**
+  the Dashboard renders UTC and our `refunded_at` is close to Stripe's `created`. That is a real, if
+  unverified, conditional — not nothing.
+
+D's error was applying the first proposition's "zero" to the second. A's wording stands; D's is
+withdrawn to the narrower claim.
+
+## 9. Verdict at `f7595be9`
+
+**CONDITIONAL PASS, unchanged in kind — all five criteria now met outright**, criterion 3 having moved
+from conditional to met. Final approval still reserved for the filled files and their sha256s, which D
+will check per §6.
