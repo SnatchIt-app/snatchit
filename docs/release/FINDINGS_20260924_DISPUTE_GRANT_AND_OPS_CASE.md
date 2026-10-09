@@ -347,6 +347,9 @@ The return value (:402) is `{scanned, opened, resolved}` and carries no `state_o
 a tick with detection ON is byte-for-byte the same as a tick with it OFF. D measured this in production: 288 runs in
 the 24 h before the flip and 256 after, all with `items_scanned` = 2 and 0 cases
 (`review/d-records-20261005` `5be4d5dc`, `D_AUDIT_POST_O-R2_20261009.md`; D's read).
+The same data shows the instrument discriminates: `refund_resolution` reads `skipped` where the others read
+`succeeded`, and `items_scanned` varies across detectors (0/2/3/5/8/14). So the constant 2 for `refunds` is real, not
+a column that never varies. D confirmed the list and these corrections in `d375b5d8`.
 
 **Consequence for the O-R2 record:** the post-flip ticks are **no** evidence that the new branches run, not weak
 evidence. The setting's value and its audit chain are the evidence that the flag is on. The branches stay unexercised
