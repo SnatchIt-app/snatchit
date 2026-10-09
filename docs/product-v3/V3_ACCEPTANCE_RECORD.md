@@ -17,39 +17,78 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## Status index (E, 2026-10-06 23:25). Three tracks, kept separate
+## CURRENT STATUS (E, 2026-10-09; supersedes the 2026-10-06 status index. History follows below)
 
-### Track 1: B's completed native evidence (`d5217530`; window closed `17c7e670` and released to C)
-| Check | Result | Evidence |
+**Candidate and checkpoints (verified on `/Volumes/DEV-SSD`):**
+- **Code candidate:** `9498080ab7eb15a064bc455bb3d4f06e48eceaf0` (`v3/consumer-batch2`; on origin).
+- **Capture commit:** `c11b4a4931c01a7730843efe787223e41ede8fb3`, which is `9498080a` plus 16 a3xl
+  frames and the batch-8 handoff (`v3/midnight-app`; on origin).
+- **Local preservation checkpoints (not on origin):** `2919ba75`, then `b2b3e9d9`. They add
+  `tools/v3-capture/*` only, with no app code. The serving tree `snatchit-refund` sits at
+  `b2b3e9d9`.
+- **Working change:** `.claude/launch.json` in both C trees is the documented migration change.
+- **Latest B review:** batch 8, `605e35ad` (`B_NATIVE_REVIEW_9498080a.md`).
+- **Not whole-app acceptance.**
+
+### 1. Passed: evidence that still applies to `9498080a`
+| Check | Evidence |
+|---|---|
+| Home artwork per fixture (7 cases), 4:5 frame, no gradient, nothing on the poster | B `c9d6f0d7` @ `d5217530`; render path unchanged since |
+| Filters glyph (F-91-6), vector icons | B `f235ddb7` |
+| Option B footer at rest; reservation feedback ("Reserving…" on the second-position Buy Now) | B `f235ddb7`, re-checked B `a4e546d0` @ `91a5a58c`; footer complete at a3xl with four-figure CTAs (B `605e35ad`) |
+| Listing poster clear of the banner and navigation | B `a4e546d0` @ `91a5a58c`. `ListingHero` has changed since, in the date line only (`b0d74799`). **B to re-confirm once at default** |
+| Listing scroll-end clearance (footer slice) | B `e1c5f38e` (Light and Dark, accounted arithmetically) |
+| Event name reachable by scroll (R-4) | B `e1c5f38e` |
+| **Feed-row amounts** at a3xl (`$132.00` 63.7 pt, `$1,716.00` 58.0 pt) | C-operated, B-reviewed `e1c5f38e` |
+| **Home main-event (feature) amount** at a3xl (`$1,287.00` complete, caption whole). Separate from the feed-row evidence | C-operated, B-reviewed `605e35ad`; Light only |
+| Bid-activity amount (F-BA), ordinary and four-figure, a3xl | B `605e35ad`; max ink 376.7 pt, Light |
+| Listing full date/time (F-DT) wraps whole at a3xl | B `605e35ad` |
+| Profile prints no `null` | B `605e35ad` |
+| Listing error/offline; profile stats-unavailable and not-found | B `a1af6499` |
+| Feed-row title, date and bid-count shortening | acceptable list shortening (owner rule), because Listing carries the full details |
+
+### 2. Confirmed defects requiring C
+| ID | Defect | Evidence |
 |---|---|---|
-| Home artwork per fixture (7 cases), 4:5 frame, no gradient, nothing on the poster | **pass** | B `c9d6f0d7`, 14 sim captures |
-| Option B footer at rest | **pass** | B `f235ddb7` |
-| Reservation feedback (R-1 busy state) | **pass** | B `f235ddb7`, `listing-reserving-*` |
-| Filters glyph (F-91-6) | **pass** | B `f235ddb7` |
-| Remembered name collapse | **not reproduced, withdrawn** | B `f235ddb7` |
-| Home identity at 3xl / a3xl | **fail** at `d5217530` ("Ends…", "current bid, al…"). The caption wrap was fixed at `3c03778a`. **The feature amount size at a3xl is untested** (see batch 6) | B `f235ddb7` |
-| Listing poster at rest | **fail**: complete 4:5, but covered by the banner (79 pt) and the nav chips | B `17c7e670`, measured |
-| Listing panel at a3xl | **fail** (clipped amount "$95.0"; C found it in a C-operated capture) | C `d301ccb4` message; B's a3xl capture superseded |
-| VoiceOver, scrolling, signed-in Home | **not established** (no a11y inspection or touch in B's session; B does not type credentials) | B `17c7e670` |
+| **P-1** | Profile trust percentage splits across lines at a3xl ("10 / 0 / %"); ink at x=392.7 pt | C-recorded, B-confirmed `605e35ad` (`profile-a3xl-light-ratewrap`) |
+| **P-2** | Profile trust rows don't stack at a3xl; values clipped ("Member since" → "F"/"2"); 8,089 px of ink in the gutter | C-recorded, B-confirmed `605e35ad` (`profile-a3xl-light-trustrows`) |
+| B's recommendation | one shared label/value row, or one test enumerating every two-column row at a3xl, instead of per-surface sweeps | B `605e35ad` |
 
-### Track 2: Successor, affected checks (final `91a5a58c`; code = `7c9b270b`)
-- **Carry from `d5217530`:** Home artwork per fixture, frame, no gradient, nothing on the poster;
-  Filters glyph.
-- **Repeat:** Home identity block (default, 3xl, a3xl); harness next-section figure; all of Listing
-  (poster clear of the banner, nav outside printed artwork, R-4, artwork cases, footer,
-  `?reserving=1`, panel at large text, safe areas).
-- **New (C-operated, B-reviewed):** B's five cases: feed-row title at 3xl/a3xl; below-fold identity
-  at a3xl; Listing breakdown and activity; signed-in consumer Home at rest and scrolled one section;
-  price-caption accessibility exposure. Visible text and spoken text are recorded separately.
-- **New (C owner evidence, then B):** Edit refusals; Listing failure/offline; public profile;
-  Send/Receive not-found; the six harness-art screens.
-- **The poster fix completes the existing artwork requirement (R-3 "full poster content preserved",
-  2026-09-25). It is not a new design decision.** B's diagnosis applies: fix layout and safe-area
-  positioning, not cropping or image scaling. Navigation sits outside the printed artwork.
+### 3. Recorded but not yet ruled (C self-reported; B has not stated a verdict)
+- **P-3:** the profile badge blurb clamps at a3xl.
+- **P-4:** the no-rate profile shows "14 sale…" beside "No completed transfers yet"
+  (`profile-a3xl-light-norate`).
+  - E observation: the screen's own rate cell contradicts the sales count. Words also break
+    mid-word at a3xl ("TRANSFE/R", "complet/ed").
+  - C says the RPC can't return this shape. That is unverified by a second party.
+  - The **"Unrated"** branch of `reputation.ts` is **not visible** in the reviewed frames.
 
-### Track 3: Remaining whole-app coverage
-See **Remaining consumer screens** below. No screen outside Home and Listing is accepted, and no
-blanket whole-app acceptance applies.
+### 4. Untested, with the exact blocker
+| Check | Blocker |
+|---|---|
+| **Authenticated consumer Home** (with the dock and feed; the consumer next-section figure) | No signed-in session on the simulator. B and C both decline to type the test-buyer credential. Needs someone permitted to handle it. **Harness coverage is not a substitute** |
+| **Edit listing refusals** (5 variants) | The signed-out guard renders before them (identical frames, B `a1af6499`). Same session blocker |
+| **Spoken VoiceOver** | No accessibility inspector attached to the simulator. **The exposed label** (full string, including "all-in") **is verified in source only** (`HomeFeature`, test LT5). That is not a spoken result |
+| `?art=` on the six list harnesses (My listings, Bids, Tickets, Order/Send, Checkout, Search) | No blocker; not yet rendered by B (E correction to `a1af6499`) |
+| Dark measurement of P-1/P-2 | B's Dark threshold artefact; recorded as unmeasured, not clear |
+| Listing poster clearance re-confirmation at default | Needs one device pass (see window below) |
+
+### 5. Owner decisions still unresolved
+- The **"Unrated"** label and "N sales · transfer success unavailable" blurb, for a seller with sales
+  but no terminal transfer (C proposal, `01c236b2`).
+- Whether P-3/P-4 are defects. The rule exists for figures; it is unruled for prose.
+- Earlier, still open: the checkout fee label ("Service fee" vs "Service fee (10%)"); the uppercase
+  `label` token (TOTAL / HELD FOR YOU); the Settings header split; the Edit-listing platform list.
+
+### 6. Simulator and Metro ownership
+- **Held by no one.** The migration shut the simulator down, and nothing is listening on `:8081`
+  (E verified).
+- C's last handback to B was at `c11b4a49`.
+- **B's position (`605e35ad`):** C should take the next window, to fix and capture P-1/P-2. B will
+  re-measure afterwards.
+- **C's position:** C won't start until B agrees. B's committed statement is that agreement.
+- **Window to C** for P-1/P-2. Run from the SSD paths only; no suite while the device is booted.
+- Then hand back to B, for the P-1/P-2 re-measure and the one-time poster clearance check.
 
 ## Candidate under native review: `d52175303f22a575b80f005f38c0e8555be0dbdc` (named 2026-10-05; E verified 2026-10-06)
 - **Implementation (C), checked by E.** `v3/midnight-app` in `/Users/josetascon/snatchit-refund`
