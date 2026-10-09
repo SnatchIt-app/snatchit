@@ -70,6 +70,36 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### W batch, part 1: `58306942` (C, isolated worktree `v3/consumer-batch2`; not served; E verified the files)
+- **Base:** `834be7ab`. C reports typecheck clean, 3005 tests passing and 0 lint errors.
+- **Files:** `app/listing/edit/[id].tsx`, `app/settings/{index,appearance}.tsx`,
+  `src/lib/listing/ticketPlatforms.ts`, `src/screens/CreateListingScreen.tsx`, and tests and docs
+  (`docs/product-v3/V3_WORDING_W3_W4_W5.md`).
+- **W-5:** one constant, `ticketPlatforms.ts`, read by both Create and Edit. The parity test parses
+  migration 033 and asserts the constant equals `listings_ticket_platform_check` exactly.
+- **W-4: visible consequences of the chosen option, for B to review.**
+  1. The hub's back control loses its circular chip, because `SettingsHeader` renders `IconButton`
+     without `chip`.
+  2. The hub title becomes uppercase Oswald ("SETTINGS"), from `displaySm`.
+  - Old tests were re-pointed, not deleted; there is a negative test against the hub regrowing its
+    own chip.
+  - **Record correction (C):** nine sub-screens used `SettingsHeader`, not ten.
+    `app/settings/appearance.tsx` hand-rolled the same chip and title, and C **converted it too**.
+    `verify-phone.tsx` is an eleventh screen that already conformed.
+  - **E accepts converting Appearance as within W-4.** Leaving it would defeat W-4's purpose. It is
+    a one-file revert if anyone objects.
+- **W-3:** no change needed. C found every uppercase string is chrome or an eyebrow; none is content
+  or a sentence. The full list is in C's doc.
+- **Method note (C):** a mutant that deleted the `<SettingsHeader` element but kept its import
+  passed C's first check, because the check matched the bare name. The assertion was tightened.
+- **Not yet in it:** W-2 (resolved: plain "Service fee"; C hadn't received that when it built this)
+  and P-5 (tier word in the blurb).
+- **Device:** B released it (B's message, recorded at `66cf4004`; last simctl 19:12:59). It is
+  **booted but idle**, and `:8081` has no listener (E check).
+  - **The next window is C's,** declared here: C serves the final W sha and captures.
+  - **B reviews afterwards:** the Settings hub **and Appearance** at default and a3xl, Light and Dark;
+    the Edit platform picker; the Listing breakdown (W-2); the profile hero at a3xl (P-5).
+
 ### Profile batch closed at `12cc3e8d` (B `19faf133`, `6b7137f2`, `069eeb9c`; E verified that all three are on the audit branch)
 - **Identity, settled by the round trip.** B states that `COPPER-LANTERN-377` was invented by B in
   that message. It arrived with `from="local_228f989e-…"`, so **that session is B.** B withdraws its
