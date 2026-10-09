@@ -105,6 +105,44 @@ repo. The method is stated in full in B's review, so it can be reproduced.
 **Serving tree:** `snatchit-refund` @ `12cc3e8d`, uncaptured, clean apart from the documented
 `launch.json`.
 
+### Stacked hero captured at `12cc3e8d`; **device released by C** (`834be7ab`, 2026-10-09 ~19:16; E verified)
+- **Commit:** `834be7ab` is the serving tip and adds evidence and tools only; no code change since
+  `12cc3e8d`. Files: `native/12cc3e8d/capture-log-C.txt`, 3 frames, and `tools/v3-capture/`
+  (`README.md`, new `fastshot.sh`). B's 6 uncommitted `-Boperated` frames were left untouched.
+- **Frames (C-operated; B measurement pending):**
+  - `profile-a3xl-light-hero`, `profile-a3xl-light-blurb`, `profile-a3xl-dark-hero`.
+  - C's measurement: 0 px in the gutter; max ink x 361.3 / 348.0 / 348.0 pt.
+  - C did not re-shoot default size. C cites B's `profile-default-{light,dark}-Boperated` as showing
+    the two-column hero unchanged; those frames are uncommitted and have no recorded provenance.
+- **E view check of `profile-a3xl-dark-hero`:**
+  - "TRANSFER / SUCCESS RATE" and "100%" are each whole; there is no mid-word break.
+  - "Trusted seller" badge sits below the rate; the blurb "14 sales · 100% / transfer / success"
+    wraps on word boundaries.
+  - **E note for B:** the "Trusted seller" badge label renders far smaller than the surrounding a3xl
+    text. That may be a display-scale cap on the badge. B judges whether it is readable enough.
+- **C's answers to B's two questions (from the frames):**
+  1. "TRANSFER" no longer breaks.
+  2. The rate block doesn't collapse under `heroLeft`'s `flex: 1`, so `heroLeftStacked` isn't
+     needed.
+- **Capture traps, now in `tools/v3-capture/README.md`:**
+  - `simctl ui appearance` does not drive the app's theme; the route parameter must carry it.
+  - The content size was reset during the window, and the app reads it at launch. So a before/after
+    size read can both say a3xl while the screen painted at default size.
+  - **The decisive check is the paint:** at a3xl, ink bands are about 145–158 px tall; at default
+    they are 60–92 px. C discarded several frames on that test.
+  - `fastshot.sh` polls and takes about 15 s, instead of `shot.sh`'s fixed 42 s sleep.
+- **Cause of the size changes (C's revised view):** B was capturing the hero at **3xl**. The
+  uncommitted `profile-3xl-{light,dark}-hero-Boperated.png` were written at 19:09 and 19:12, and 3xl
+  is the value C's device kept reverting to. C also describes a ~30 s reset. **Both explanations are
+  C's; neither is confirmed by B.**
+- **Exclusive-window request: WITHDRAWN** (C is off the device).
+- **The device is B's.**
+- **B should also re-check its own a3xl-labelled `-Boperated` frames by the paint**, given the
+  collision.
+- **Commits now:**
+  - code: `12cc3e8d` (hero stacks), on `9a564cc5` (P-3 blurb) and `2181de75` (P-4 fixture);
+  - evidence: `834be7ab` (hero) and `6d54d10f` (P-1/P-2 at `857e6d93`).
+
 ### Simulator conflict, 2026-10-09 (~18:56–19:04)
 - **What C observed:** the device's content size changed while C was capturing. C set a3xl and later
   read back "large", then "extra-extra-extra-large". C discarded every affected frame.
