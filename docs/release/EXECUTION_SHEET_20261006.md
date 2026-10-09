@@ -23,13 +23,22 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     (F-DETECT-REFUNDS-UNOBSERVABLE-1).
 - **Fresh metadata re-check, 2026-10-09:** the deployments, pin, merge commits and function versions are unchanged
   (`SPRINT_STATUS_20260917.md`, SSD-resume entry).
-- **Open:**
-  - signed-in views of the web wording (`/account/purchases`, `/account/sales`, a transfer page) and of the console
-    labels;
-  - O-R4: the test-mode five are excluded (owner, 2026-10-09). R1 part 2 is still needed: from each refund's View
-    details, its id, status, amount, created and failure reason, and the refund count. Then the `source` for #6/#7,
-    then the owner's approval of the two filled R3 files by sha256 (prepared and rehearsed; package README §R3).
-- **Not authorised:** the final main integration (S7) and app distribution.
+- **Waived by the owner (2026-10-09), not verified:** the repeat signed-in sessions.
+  - Recorded as **owner-reported access**: "I have previously signed in successfully."
+  - The specific checks were **waived, not independently verified**: the web wording on `/account/purchases`,
+    `/account/sales` and a transfer page, the console labels from #98, and the authenticated flows.
+  - Separately, the 2026-10-08 console sign-in and TOTP challenge were confirmed from auth records then, by A and D.
+    That covers access, not wording.
+  - No further attended session is to be scheduled.
+- **Pending evidence, not blocking:** O-R4.
+  - The test-mode five are excluded and unchanged.
+  - The owner's final screenshots do not establish the refund ids, refund statuses, refund count, timezone or source.
+  - Production is unchanged; R3 is prepared but not executable. See the package README, §"Pending evidence".
+- **In progress:** deleting `origin/integration/s1-s2-trial-20261007` (owner-authorised, after D's push).
+  - No unique content: the trial head's tree equals the gate's S2 tree `2e2c31b4`.
+  - Only the remote branch is to be deleted. The local branch and A's temporary worktree are kept, so the cited
+    shas stay resolvable.
+- **Not authorised:** production correction writes, the final main integration (S7) and app distribution.
 
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)
 

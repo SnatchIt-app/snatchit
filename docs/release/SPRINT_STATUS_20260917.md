@@ -2301,3 +2301,24 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - `refunded_at` unchanged is structurally guaranteed;
     - completing O-R4 (O1) does not demonstrate detection.
 - **O-R4: D re-check PASS on all three new guards (D `8ba6cef7`, at `f7595be9`); all five criteria met outright; final approval reserved for the filled files.** README wording corrected per D: the count and evidence lines are owner-attested values under the sha256, not measurements against Stripe.
+- **Owner direction 2026-10-09 (final refund evidence; waivers):**
+  - **O-R4: PENDING EVIDENCE, production unchanged.**
+    - The owner's final "Refund details" dialogs show only each refund's ARN and "Made available 8/5…".
+    - Unavailable and not inferred: the refund ids, refund-object statuses, refund count, timezone and source.
+    - Existing evidence searched (repo, history, records, prior transcripts) holds no `re_…` id for these intents.
+    - R3 is prepared but not executable (unfilled markers refuse). The test-mode five are unchanged.
+    - Not blocking: only these two historical payments' display (legacy "Refund recorded") and their status-only
+      count in the console depend on it.
+  - **Signed-in checks WAIVED by the owner.** Recorded as owner-reported access. The web wording, console labels and
+    authenticated flows were waived, not independently verified. No attended session is to be scheduled.
+  - **Negative-balance notice:** the owner confirms it is visible on the #7 screenshot. Only what it shows is recorded;
+    no amount, cause or current balance is established, and no funding action is authorised.
+  - **Trial branch:** D is authorised to push its four local-only branches. A checked
+    `origin/integration/s1-s2-trial-20261007`:
+    - its two unique commits are the test-only merges, and their trees equal the gate's (S1 `5b9cca0d`, S2
+      `2e2c31b4`);
+    - no PR, ruleset or D branch depends on it;
+    - the one worktree holding it is A's own clean temporary trial worktree.
+    - The remote deletion waits on D's push confirmation. The local branch and worktree are kept.
+  - **E's fee question:** answered NO. Resale buyer_fee is always round(0.10 × base) (`_shared/money.ts`), but
+    primary-checkout uses the order's `buyer_fee_minor` under a different ruling. Label stays plain "Service fee".

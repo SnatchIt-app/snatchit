@@ -1,13 +1,15 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
-**Status:**
+**Status: PENDING EVIDENCE (2026-10-09). Production unchanged.**
 - R0 DONE.
-- Test-mode five EXCLUDED by the owner's ruling.
-- R1 PARTIAL: the owner's live Dashboard read gives amounts and displayed status. The refund ids, refund status and
-  refund-object count are still needed.
+- Test-mode five EXCLUDED by the owner's ruling; their records are unchanged.
+- R1 CLOSED AS SUPPLIED. The owner's final screenshots establish the amounts, the "Refunded" labels and each refund's
+  ARN. They do not establish the refund ids, the refund-object statuses, the refund count, the timezone or the
+  source. None of these is inferred.
 - R2 rehearsal PASS.
-- R3 PREPARED, NOT AUTHORISED.
-- No production writes.
+- R3 PREPARED, NOT EXECUTABLE: with five markers unfilled, the files refuse to run. It resumes only if refund-object
+  evidence becomes available (§"Pending evidence").
+- **Not blocking:** no other code, release step or app feature depends on O-R4 (§"Pending evidence").
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
 gated." Nothing here has been read from or written to production. Each production step below needs the owner's own
@@ -256,27 +258,63 @@ test mode or of the refund's origin.
 **Source** (`expiry|dashboard|admin|unfulfillable`) stays the owner's recorded decision per row. Stripe's refund
 object has no field for our taxonomy.
 
-**Observed, out of scope.** One screenshot only, the $2.20 page (#7, clock 5:56 PM), shows a Dashboard notice:
+**Observed, out of scope (the owner confirms it is visible; record only what it shows).** One screenshot only, the
+$2.20 page (#7, clock 5:56 PM), shows a Dashboard notice:
 - where: a popover at the top right, below the notifications bell, with a red warning icon;
 - text: "Add funds in USD to cover your negative balance";
 - it partly covers the "+ Add to block list" button, which reads "+ Add to bloc";
 - the $11.00 screenshot does not show it.
 
-It establishes nothing about the balance: not the amount, the date, the cause, or whether it is current. It is not
-part of O-R4. It may matter to any future refund execution, which stays off (`refund_execute_enabled = false`).
+It establishes nothing about the balance: not the amount, the date, the cause, or whether it is current. **No funding
+action is authorised.** It is not part of O-R4. It may matter to any future refund execution, which stays off
+(`refund_execute_enabled = false`).
 
-### R1 part 2: the one remaining request
+### R1 part 2: the owner's final evidence (2026-10-09; no further requests)
 
-For each of the two payments:
-- open the refund's **View details**, from "Payment refunded … View details";
-- report **each refund listed** (normally one): its id (`re_…`), its own status, its amount, its created date with year
-  and timezone, and its failure reason (if any);
-- state how many refunds the payment lists;
-- say how each refund was issued: by hand in the Dashboard, through our admin tool, by the expiry job, or because
-  the order could not be fulfilled. This is the owner's `source` decision; Stripe does not record our categories.
+The owner opened each refund's **View details** and supplied the result as final. The owner's words: "Do not ask me for
+more screenshots, another View details visit, or the same information again."
 
-If any refund is not a single `succeeded` refund equal to the total, that payment's script is revised and
-re-rehearsed before it is offered for approval (§R3).
+Each dialog is titled "Refund details" and shows only two things:
+- the ARN for that payment (not recorded here);
+- the text "Made available 8/5. It may take 5-10 business days for funds to settle."
+
+| fact R3 needs | #6 | #7 | basis |
+|---|---|---|---|
+| refund id (`re_…`) | **unavailable** | **unavailable** | not shown. The ARN is not a refund id. |
+| refund-object status | **unavailable** | **unavailable** | not shown. "Made available 8/5" is display text and is **not** mapped onto the refund status enum. The "Refunded" badge is the payment's. |
+| refund count | **unavailable** | **unavailable** | the dialog shows one ARN, but that does not establish how many refund objects exist |
+| refund `created`, year and timezone | **unavailable** | **unavailable** | "Aug 4, 5:20 PM" and "8/5" carry no year or timezone |
+| failure reason | **unavailable** | **unavailable** | not shown |
+| `source` | **unavailable** | **unavailable** | the owner did not state how each refund was issued; it is not inferred, and the "test" notes are not evidence of it |
+
+**Existing evidence searched, nothing found.** No production read was made. The search covered:
+- the repo tree and full history;
+- the release records;
+- prior session transcripts.
+
+None holds a `re_…` id for these intents. A memory record from 2026-08-04 says refunded payments then lacked
+`payments.stripe_refund_id` ("handler persists going forward"). That is a record, not a read, and it is unverified for
+these two rows. `payments.stripe_refund_id` was never read for them; reading it would be a new production read
+needing the owner's authorisation, and would at most give the id, not the status or count.
+
+## Pending evidence: what holds now, and what would resume it
+
+**O-R4 is recorded as pending evidence.** Production is unchanged:
+- no refund-state, log or ledger rows for #6 and #7;
+- `amount_refunded_cents` stays NULL;
+- the five test-mode payments are untouched.
+
+**Scope of the gap:** two historical payments only.
+- The app keeps showing them as the legacy "Refund recorded" (150 header).
+- The console's refunded-money figure (126) counts them by status only.
+- 150's rollback guard (`payment_refund_state` rows = 0) still holds.
+- No migration, deployment, release step or other feature depends on O-R4. Detection is unaffected: completing O-R4 as
+  O1 would not have exercised it anyway (§R3).
+
+**What would resume it:** refund-object evidence from any source the owner chooses to authorise, giving per refund
+the id, status, amount and count, plus the owner's `source` statement. One example is a read-only Stripe API or
+Events read. This is recorded as the resume condition; it is **not** a request. The prepared R3, R2 and R2b remain
+valid until the schema or the R0 prestate changes. The prestate guards re-check R0 at execution in any case.
 
 ## R2 rehearsal: PASS (2026-10-09, local clone of `pkg151_rehears`, ledger 164; never production)
 
