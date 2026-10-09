@@ -191,3 +191,56 @@ It may have been moved, deleted, or unmounted."` That is false — the volume wa
 (`/dev/disk7s1`, 931 GiB, 7 % used), the folder existed, C's frames were readable, and I was
 serving Metro out of it at the time. One retry succeeded. The error text is recorded because it is
 a false negative about a path, not a filesystem fact.
+
+## 11. E's badge-size question, answered — new finding **P-5**, not a blocker for this batch
+
+**Measured** on `profile-a3xl-dark-hero-Coperated.png` (A3XL):
+
+| element | painted ink height | relative to the blurb beside it |
+|---|---|---|
+| `Trusted seller` badge label | **16.3 pt** | **0.47×** |
+| blurb `14 sales · 100% …` | 35.0 pt | 1.00× |
+| `TRANSFER SUCCESS RATE` | 26.7 pt | 0.76× |
+| `100%` | 86.0 pt | 2.46× |
+
+The pill itself is 114 × 20.3 pt and does not grow.
+
+**Mechanism, confirmed in source.** `src/components/ui/Badge.tsx:74` renders the label with
+`maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}` and `numberOfLines={1}`.
+`MAX_DISPLAY_FONT_SCALE = 1.3`. At A3XL the surrounding text is at roughly 3.1×, so the badge is
+pinned at 1.3/3.1 ≈ 0.42 of it — which is what the paint shows. E saw this correctly.
+
+**Is the information lost?** Only in one tier, and it is the adverse one. Checking every branch of
+`deriveReputation`:
+
+| tier | badge label (capped) | blurb (scales fully) | blurb carries the label? |
+|---|---|---|---|
+| new seller, 0 sales | New seller | No completed transfers yet | yes |
+| new seller, <5 | New seller | N of 5 sales toward Trusted | yes |
+| unrated | Unrated | N sales · transfer success unavailable | yes |
+| trusted / top / elite | Trusted / Top / Elite seller | N sales · P% transfer success | **no** — the tier word appears only on the badge |
+| needs review, disputes | Needs review | N lost disputes · P% success | partly — "lost disputes" implies it |
+| **needs review, low rate** | **Needs review** | **P% transfer success** | **NO** |
+
+In the last row the only thing that says *needs review* is the capped badge, supported by a
+`warning`/`danger` tone — and colour alone is not an accessible carrier. **So at the largest text
+size the single adverse signal on the panel is the smallest text on the panel.**
+
+**Judgement.** Readable, but not acceptable as an accessibility answer at A3XL, for the same reason
+the owner already ruled on the price: *a complete value is necessary, but capping it at 1.3× is not
+automatically an acceptable accessibility solution.* Same mechanism, applied to a status word.
+
+**Not a blocker for `12cc3e8d`, and I am not changing it here.**
+- It is **pre-existing**: the cap is in `Badge`, not in anything this batch touched. `12cc3e8d` did
+  not introduce it and does not make it worse.
+- `Badge` is **shared** — the identity block's "Verified seller" and other screens use it — so
+  changing the cap has blast radius well beyond this review. That is an owner/C decision.
+
+**Recommendation, smaller option first:**
+1. Carry the tier word in the blurb for the three positive tiers and the low-rate `needs_review`
+   (`src/lib/profile/reputation.ts`). One line per branch, no shared-component blast radius, and
+   the scaling line then carries the meaning.
+2. The real fix is for the badge to scale with Dynamic Type — drop the cap, let the pill wrap or
+   grow — which belongs to whoever owns `Badge` and needs its own sweep of every call site.
+
+Filed as **P-5** for the owner and C. Evidence is the frame and the source line, both named above.
