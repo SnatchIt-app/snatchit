@@ -196,3 +196,45 @@ unavailable would produce a half-filled file with a **stable sha256** that could
 an approvable artifact. The markers should move from unfilled to filled in a single step, once all five
 values exist. The refund-count *evidence* belongs in the README and in this record; the *file* stays
 untouched.
+
+---
+
+## 11. Post-push closure: the abandoned scan finished, and it corroborates
+
+The slow per-file scan D abandoned mid-run (it had timed out and been backgrounded) completed after the
+push. D compared it rather than discarding it — it is an **independent instrument on the same
+question**, and the push had already happened.
+
+**It agrees on the decisive point.** Both ARNs appear on `review/d-records-20261005` only, in exactly
+the two files D identified, and on **none** of the three pushed branches. Two methods, same conclusion:
+the ARN exposure was confined to the branch D held.
+
+It also listed `sk_live_` / `sk_test_` / JWT hits in files D had only **spot-checked** (5 of them)
+before pushing. Since the push was already done, D closed that gap completely rather than by sample:
+
+**No real secret key was published.** Across the pushed branches, `sk_(live|test)_` followed by 20+ key
+characters: **0 occurrences**, with a control (32 anon-JWT matches) proving the pattern finds things.
+Every `sk_live_` instance is a short test placeholder — `sk_live_abc`, `sk_live_SECRET123`,
+`sk_live_abcdef123` — inside assertions that redaction works, or a line in a security doc recording a
+**zero** count. Exactly the material one wants to find.
+
+**Four files differed from the gate blob**, which D's pre-push spot-check had not covered:
+
+| file | branch | status |
+|---|---|---|
+| `tests/refund-dispute-webhook.test.ts` | wording | already public on `origin/admin/144-refund-resolution-detector` |
+| `tests/settlement-sweep.test.ts` | wording | already public on the same |
+| `docs/architecture/_governance/POST_FREEZE_AMENDMENTS.md` | labelrel | already public on `origin/admin/a11y-responsive-fixes` |
+| `eas.json` | labelrel | already public on `origin` |
+
+All four are byte-identical to a blob already on a public remote ref, and all four return **0**
+real-secret-shaped hits (control: the same pattern finds the anon-key assignment in `eas.json`, which
+is public-class by CLAUDE.md).
+
+**Conclusion: the push published nothing sensitive that was not already public.** Established by two
+independent scan methods, per-blob public-presence checks across all remote refs, and content checks
+with positive controls — not by the spot-check D actually relied on at push time.
+
+**The method lesson, recorded because D got there in the wrong order:** D pushed on the strength of a
+*sample* of flagged files, having already had one scan of this very question return a false clean. The
+complete check should have preceded the push. It happened to come out clean; that is luck, not method.
