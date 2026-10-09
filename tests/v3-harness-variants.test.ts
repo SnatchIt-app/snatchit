@@ -77,6 +77,8 @@ vi.mock('@/src/screens/checkout/CheckoutView', () => ({
   ConfirmationView: 'ConfirmationView', RefundView: 'RefundView',
 }));
 
+import { deriveReputation } from '@/src/lib/profile/reputation';
+import type { ProfileTrustStats } from '@/src/types';
 import { detailState, type DetailStateInput } from '@/src/lib/listing/detailState';
 import { activeFilterCount, DEFAULT_FILTERS } from '@/src/lib/home/filterModel';
 import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
@@ -441,6 +443,40 @@ describe('the two states and the one screen that had no harness at all', () => {
     expect((await at({ variant: 'stats-unavailable' })).statsUnavailable).toBe(true);
     expect((await at({ variant: 'no-listings' })).listings).toEqual([]);
     expect((await at({ variant: 'not-found' })).profile).toBeNull();
+  });
+
+  it('HV17b: the profile fixture is a REAL trust row, and the unknown-rate state is mountable', async () => {
+    /*
+     * The fixture used to be built from `completed_sales` / `on_time_rate` / `disputes` /
+     * `cancellations` and cast `as unknown as ProfileTrustStats`, so the screen read `undefined`
+     * for the denominator and printed `null% transfer success` (B, batch 7). The cast is what let
+     * the wrong shape through, so this pins the SHAPE through the ladder the screen uses \u2014 not
+     * the field names alone \u2014 and the absent cast keeps typecheck on the hook from here on.
+     */
+    const at = async (params: Record<string, string | undefined>) => {
+      const host = await render('profile', params);
+      return ((rootOf(host).props.fixture ?? {}) as { trust?: ProfileTrustStats }).trust!;
+    };
+
+    const def = await at({});
+    const rep = deriveReputation(def);
+    expect(typeof rep.successRate).toBe('number');
+    expect(rep.blurb).not.toMatch(/null|undefined|NaN/);
+    expect(def.seller_terminal_total).toBeGreaterThanOrEqual(def.completed_sales);  // migration 031
+
+    // `no-rate`: sales with no terminal transfer. Type-permitted, and NOT producible by
+    // get_profile_trust_stats \u2014 mounted so the guard can be looked at instead of inferred.
+    const noRate = await at({ variant: 'no-rate' });
+    expect(noRate.completed_sales).toBeGreaterThanOrEqual(5);
+    expect(noRate.seller_terminal_total).toBe(0);
+    const guarded = deriveReputation(noRate);
+    expect(guarded.successRate).toBeNull();
+    expect(guarded.blurb).not.toMatch(/null|undefined|NaN/);
+    expect(guarded.tier).not.toBe('needs_review');
+
+    // The fixture is typed, not cast into shape — checked on the CODE, since the comment above
+    // the fixture names the old cast on purpose.
+    expect(strip('app/_dev/v3-profile.tsx')).not.toContain('as unknown as ProfileTrustStats');
   });
 
   it('HV18: v3-edit-listing offers the four refusals a READ can produce, and seeds nothing else', async () => {

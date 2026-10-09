@@ -38,12 +38,37 @@ const PROFILE = {
   stripe_onboarding_complete: true,
 };
 
+/*
+ * A REAL `get_profile_trust_stats` row. This was built from `on_time_rate` / `disputes` /
+ * `cancellations` and cast `as unknown as ProfileTrustStats` — fields the RPC does not return —
+ * so the screen read `undefined` for the rate's denominator and printed `null% transfer success`
+ * (B, batch 7). No cast now: the field names are typecheck's problem, not a reviewer's.
+ *
+ * Migration 031's invariant holds here too: `seller_terminal_total` counts the statuses
+ * `completed_sales` counts PLUS disputed/expired/reversed, so it is never the smaller number.
+ */
 const TRUST: ProfileTrustStats = {
   completed_sales: 14,
-  on_time_rate: 0.93,
-  disputes: 0,
-  cancellations: 1,
-} as unknown as ProfileTrustStats;
+  completed_purchases: 3,
+  active_listings: 2,
+  disputes_opened: 1,
+  disputes_lost: 0,
+  seller_terminal_total: 15,
+  seller_terminal_successful: 15,
+  member_since: '2026-02-11T00:00:00Z',
+};
+
+/*
+ * Sales, but no terminal transfer — so there is no success rate to state. `get_profile_trust_stats`
+ * cannot return this row (see the invariant above); the TYPE permits it, and the ladder's guard
+ * against inventing a rate or a verdict is worth looking at rather than inferring.
+ */
+const TRUST_NO_RATE: ProfileTrustStats = {
+  ...TRUST,
+  seller_terminal_total: 0,
+  seller_terminal_successful: 0,
+  disputes_opened: 0,
+};
 
 const LISTING_BASE = {
   seller_id: 'fixture-seller',
@@ -78,6 +103,9 @@ function fixtureFor(variant: string | undefined, art: string | undefined): Publi
     case 'stats-unavailable': return { profile: PROFILE, statsUnavailable: true, listings: listings(art) };
     // A seller with history but nothing live right now.
     case 'no-listings': return { profile: PROFILE, trust: TRUST, listings: [] };
+    // Sales with no terminal transfer: the rate is UNKNOWN, and must read as neither 0% nor a
+    // verdict. Not a shape the RPC can return — mounted to make the guard visible.
+    case 'no-rate': return { profile: PROFILE, trust: TRUST_NO_RATE, listings: listings(art) };
     default: return { profile: PROFILE, trust: TRUST, listings: listings(art) };
   }
 }
