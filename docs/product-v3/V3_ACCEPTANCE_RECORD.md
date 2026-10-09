@@ -39,6 +39,37 @@ acceptance.
   batch 8.
 - **Not whole-app acceptance.**
 
+### Window update: P-1/P-2 captured; **simulator and Metro handed to B** (C, `b0d727ce`, 2026-10-09 18:21; E verified)
+- **Commits.** `b0d727ce` is the serving-tree tip in `snatchit-refund` and is clean apart from the
+  documented `launch.json` edit. The code is unchanged at `857e6d93`: `git diff 857e6d93 b0d727ce`
+  touches only `docs/`, `native/`, `tools/` and `scripts/dev-web-guard.sh`.
+- **L-1 resolved.** The `dev-web-guard.sh` `WORKTREE` pin now points at the SSD path; that is the
+  only line changed (E viewed the diff). C's commit attributes it to Codex's instruction.
+- **Guard controls before use (C):** passes from the SSD worktree, refuses from `/tmp`, and refuses
+  when an `EXPO_PUBLIC_*` value is pre-exported.
+- **Metro (C):** started in a terminal through the guard, not through `preview_start`. Kernel-read
+  cwd: the SSD `snatchit-refund`. No web bundle was requested.
+- **L-2 is still open:** the `preview_start` bypass and the web-bundling heap exhaustion.
+- **Captures (C-operated; B review pending):** `native/857e6d93/` with `capture-log.txt`. They cover
+  profile at default and a3xl, Light and Dark: rate, rows and member-since.
+  - Per C: at a3xl the rate reads "100%" on one line, and every trust-row value is visible.
+  - E viewed `profile-a3xl-light-membersince`: "Member since / February 2026" is whole. That is the
+    row B measured at 8,089 px in the gutter.
+- **Method findings (C):**
+  - `simctl` cannot write screenshots to the external volume (EPERM / NSCocoaError 513). `cap.sh` now
+    stages on the internal disk and fails loudly; the first attempt had lost frames silently.
+  - `touch_path` was dropped repeatedly on this screen, while `swipe` moved it reliably. Every scroll
+    was a swipe, confirmed by frame comparison. That is the second validated gesture the owner asked
+    for.
+- **P-3 is still visible** in both a3xl rate frames ("14 sale…"). P-3 and the P-4 fixture fix have
+  not started.
+- **Sequencing (E):**
+  1. B reviews P-1/P-2 at `857e6d93` now, and re-confirms the Listing poster clearance once at
+     default.
+  2. Meanwhile C prepares P-3 and the P-4 fixture in the isolated worktree, without the device.
+  3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
+     the P-3 diff stays within the blurb element.
+
 ### 1. Passed: evidence that still applies to `857e6d93`
 None of these depends on `app/profile/[id].tsx`, so all carry.
 
@@ -108,8 +139,8 @@ Neither has started.
 | **Edit listing refusals** (5 variants) | The signed-out guard renders first (byte-identical frames). Same session blocker |
 | **Spoken VoiceOver** | No accessibility inspector. **The exposed label is verified in source only; that is not a spoken result** |
 | `?art=` on the six list harnesses | none; not yet rendered |
-| **P-1/P-2 at `857e6d93`, at default AND a3xl, Light AND Dark**, with app identity and text size verified in frame (rate whole; every trust-row value visible) | **UNTESTED**, blocked by L-1 below |
-| Listing poster clearance re-confirmation at default | launch blocker below |
+| **P-1/P-2 at `857e6d93`, at default AND a3xl, Light AND Dark** | **Captured by C (`b0d727ce`); B review pending** |
+| Listing poster clearance re-confirmation at default | B, in the current window |
 
 ### 6. Launch blockers (for Codex; separate from product findings)
 - **L-1, guard path.** `scripts/dev-web-guard.sh:20` pins
