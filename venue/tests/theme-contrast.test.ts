@@ -40,8 +40,10 @@ function contrast(fg: string, bg: string): number {
 }
 
 describe("light appearance tokens", () => {
-  it("uses white primary surfaces and a light colour scheme", () => {
-    for (const t of ["bg", "card", "field"]) expect(token(t).toLowerCase()).toBe("#ffffff");
+  // v4 (approved concept, 2026-10-09): surfaces are warm white, not pure #fff.
+  // The guard that matters is that they stay light enough for every text token.
+  it("uses light primary surfaces and a light colour scheme", () => {
+    for (const t of ["bg", "card", "field"]) expect(luminance(rgb(token(t)))).toBeGreaterThan(0.95);
     expect(css).toMatch(/color-scheme:\s*light/);
   });
 
@@ -53,9 +55,14 @@ describe("light appearance tokens", () => {
     },
   );
 
-  it("brand red stays >= 3:1 as a fill/border/focus colour and black-on-red CTAs stay >= 4.5:1", () => {
+  // There is no red button any more (the primary action is warm black); red is a
+  // mark and the attention count badge, which carries white text.
+  it("brand red stays >= 3:1 as a mark, and white on the red count badge stays >= 4.5:1", () => {
     expect(contrast(token("primary"), token("bg"))).toBeGreaterThanOrEqual(3);
-    expect(contrast("#000000", token("primary"))).toBeGreaterThanOrEqual(4.5);
+    const badge = css.match(/\.count-alert\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i)?.[1];
+    expect(badge, "count-alert background").toBeTruthy();
+    expect(contrast("#ffffff", badge!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#fffdfa", token("solid"))).toBeGreaterThanOrEqual(4.5);
   });
 
   it("status colours stay >= 3:1 as borders on white", () => {

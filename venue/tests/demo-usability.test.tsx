@@ -115,13 +115,14 @@ describe("W1 — the overview answers 'what needs me now?'", () => {
         })}
       />,
     );
-    expect(out).toContain("People inside");
-    expect(out).toContain("Scanned in so far");
+    // v4 (approved concept): the figure reads "Checked in"; its definition sits under "How these are counted".
+    expect(out).toContain("Checked in");
+    expect(out).toMatch(/people inside\): scanned in so far/i);
     expect(out).toContain("Scanners online");
     expect(out).toContain("Counted at this moment, not a total for the week.");
     // Each ticket line says what its numbers are: sold of capacity, and what is left.
-    expect(out).toMatch(/\/ \d+ sold/);
-    expect(out).toMatch(/\d+ left|None left/);
+    expect(out).toMatch(/of \d+<\/span><span class="sr-only"> sold<\/span>/);
+    expect(out).toMatch(/ left<\/span>|Sold out/);
     expect(out).toMatch(/other check(s)? ran and found nothing/);
   });
 });
@@ -390,14 +391,15 @@ describe("the overview leads with where the event actually is", () => {
     const after = render(eventStage(EV.filter((e) => e.status === "completed"), [], PREVIEW_NOW));
 
     expect(during).toContain("Open check-in");
-    expect(during).toContain("Happening now");
+    expect(during).toMatch(/happening now/i);
+    expect(during).toContain("Tonight at");
 
     expect(before).toContain("Get this event ready");
-    expect(before).toContain("Next up");
+    expect(before).toContain("Next up at");
     expect(before).not.toContain("Open check-in");
 
     expect(after).toContain("Review this event");
-    expect(after).toContain("Last event");
+    expect(after).toContain("Last event at");
     expect(after).toContain("sales are closed");
     expect(after).not.toContain("Open check-in");
   });

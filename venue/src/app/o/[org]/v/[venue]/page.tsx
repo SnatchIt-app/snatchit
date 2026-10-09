@@ -1,3 +1,4 @@
+import { VENUE } from "@/fixtures/venue";
 import { listBatches, listDevices, listEvents, listFlags, listHolds, listTicketTypes, scanCounters, tonightSessions, PreviewReadError } from "@/lib/data";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
@@ -71,7 +72,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
             .filter((t) => t.eventId === stageView.event!.eventId)
             .map((t) => ({ t, tot: sessionTotals(batches, t.ticketTypeId, stageSession.sessionId) }))
             .filter(({ tot }) => tot.capacity > 0)
-            .map(({ t, tot }) => ({ ticketTypeId: t.ticketTypeId, name: t.name, priceMinor: t.priceMinor, sold: tot.sold, capacity: tot.capacity, remaining: tot.remaining, visibility: t.visibility }))
+            .map(({ t, tot }) => ({ ticketTypeId: t.ticketTypeId, name: t.name, priceMinor: t.priceMinor, sold: tot.sold, capacity: tot.capacity, remaining: tot.remaining, held: tot.held, visibility: t.visibility }))
         : [];
       const active = devices.filter((d) => d.status === "active");
       ready = {
@@ -127,6 +128,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
           countersVisible={showCounters(ctx.role, ctx)}
           arrivals={ready.stageView.stage === "during" ? ready.arrivals : []}
           scanners={ready.scanners}
+          venueName={VENUE.name}
         />
       )}
     </Shell>

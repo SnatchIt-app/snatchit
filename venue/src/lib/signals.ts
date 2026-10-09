@@ -35,6 +35,8 @@ export type Signal = {
   title: string;
   /** What happens if it is left alone. */
   consequence: string;
+  /** One short line for a dense list; the consequence stays available beside it. */
+  brief?: string;
   /** Exactly one next step. */
   action: { label: string; href: string };
 };
@@ -86,6 +88,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "act_now",
       title: stale.length === 1 ? `${d.label} last synced ${mins} minutes ago` : `${stale.length} scanners are out of sync — longest ${mins} minutes`,
       consequence: "It still admits people from the list it already has, but tickets sold or refunded since then are not on that list. Anyone holding one gets turned away.",
+      brief: "Admitting from an older list — recent sales and refunds will not match.",
       action: { label: "Go to check-in", href: eventHref(tonight[0].event.eventId, "/door") },
     });
   } else if (devices.length > 0) {
@@ -100,6 +103,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "act_now",
       title: `${openFlags.length} scan${openFlags.length === 1 ? "" : "s"} flagged at the door and not yet reviewed`,
       consequence: "Each one is a person who was refused entry. Until someone looks, they are waiting outside with a ticket they believe is valid.",
+      brief: "Someone was refused at the door and is waiting for a decision.",
       action: { label: "Review the flagged scans", href: eventHref(tonight[0].event.eventId, "/door#flags") },
     });
   } else if (tonight.length > 0) {
@@ -119,6 +123,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "act_now",
       title: `Holds on ${expiring[0].ticketTypeName} expire within the hour`,
       consequence: "When they expire the seats go back on public sale by themselves. If they were being held for someone, that is the moment you lose them.",
+      brief: "Unclaimed seats go back on public sale on their own.",
       action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   } else {
@@ -134,6 +139,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "soon",
       title: `${soldOut[0].ticketTypeName} for ${titleOf(eid)} is sold out`,
       consequence: "People are still arriving at a page with nothing to buy. Putting more tickets on sale is the only way to sell more; nothing does it automatically.",
+      brief: "Nothing left to buy until more tickets are released.",
       action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
@@ -145,6 +151,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "soon",
       title: `${low[0].ticketTypeName} is nearly gone — ${low[0].detail.replace(/\s*\(threshold \d+\)/, "")}`,
       consequence: "At this rate it sells out before doors, and the next person to look sees nothing available.",
+      brief: "At this rate it sells out before doors.",
       action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
@@ -159,6 +166,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "worth_knowing",
       title: `Door stock for ${titleOf(eid)} has not sold a single ticket`,
       consequence: "Those seats were deliberately kept back off the internet for walk-ups. If the box office is not selling them, they stay empty.",
+      brief: "Seats kept back for walk-ups are still unsold.",
       action: { label: "Go to tickets", href: eventHref(eid ?? "", "/inventory") },
     });
   }
@@ -177,6 +185,7 @@ export function buildSignals(input: SignalInput): SignalSet {
         severity: "soon",
         title: `${e.title} cannot go on sale yet`,
         consequence: `${blocker} Until that is done the event is announced but nobody can buy a ticket.`,
+        brief: blocker,
         action: { label: "Go to the event", href: eventHref(e.eventId) },
       });
     }
@@ -190,6 +199,7 @@ export function buildSignals(input: SignalInput): SignalSet {
       severity: "worth_knowing",
       title: `${drafts.length} event${drafts.length === 1 ? " is" : "s are"} still a draft`,
       consequence: "A draft is visible only to your staff. It is not announced and it is not selling.",
+      brief: "Visible only to your staff; not selling.",
       action: { label: drafts.length === 1 ? `Go to ${drafts[0].title}` : "See all events", href: drafts.length === 1 ? eventHref(drafts[0].eventId) : link(`${basePath}/events`) },
     });
   }
