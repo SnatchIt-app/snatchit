@@ -467,8 +467,11 @@ describe('the two states and the one screen that had no harness at all', () => {
     // `no-rate`: sales with no terminal transfer. Type-permitted, and NOT producible by
     // get_profile_trust_stats \u2014 mounted so the guard can be looked at instead of inferred.
     const noRate = await at({ variant: 'no-rate' });
-    expect(noRate.completed_sales).toBeGreaterThanOrEqual(5);
     expect(noRate.seller_terminal_total).toBe(0);
+    // B's classification: 14 sales with 0 terminal transfers is a shape migration 031 cannot
+    // return, so the fixture must not stage it. The invariant holds for this row as well.
+    expect(noRate.completed_sales).toBe(0);
+    expect(noRate.seller_terminal_total).toBeGreaterThanOrEqual(noRate.completed_sales);
     const guarded = deriveReputation(noRate);
     expect(guarded.successRate).toBeNull();
     expect(guarded.blurb).not.toMatch(/null|undefined|NaN/);

@@ -59,12 +59,20 @@ const TRUST: ProfileTrustStats = {
 };
 
 /*
- * Sales, but no terminal transfer — so there is no success rate to state. `get_profile_trust_stats`
- * cannot return this row (see the invariant above); the TYPE permits it, and the ladder's guard
- * against inventing a rate or a verdict is worth looking at rather than inferring.
+ * A seller with no terminal transfer, so there is no success rate to state.
+ *
+ * This row USED to keep TRUST's `completed_sales: 14` beside `seller_terminal_total: 0`, which
+ * migration 031 cannot return — the denominator counts a strict superset of the statuses
+ * `completed_sales` counts, so it is never the smaller number. B classified that as a fixture
+ * fault rather than a product defect, and it is corrected here: the harness now stages a shape
+ * the RPC can actually produce, and the ladder's `rate == null` branch stays pinned where it
+ * belongs, in tests/reputation.test.ts (R1), rather than on a screen that could never show it.
  */
 const TRUST_NO_RATE: ProfileTrustStats = {
   ...TRUST,
+  completed_sales: 0,
+  completed_purchases: 0,
+  active_listings: 0,
   seller_terminal_total: 0,
   seller_terminal_successful: 0,
   disputes_opened: 0,
@@ -103,8 +111,7 @@ function fixtureFor(variant: string | undefined, art: string | undefined): Publi
     case 'stats-unavailable': return { profile: PROFILE, statsUnavailable: true, listings: listings(art) };
     // A seller with history but nothing live right now.
     case 'no-listings': return { profile: PROFILE, trust: TRUST, listings: [] };
-    // Sales with no terminal transfer: the rate is UNKNOWN, and must read as neither 0% nor a
-    // verdict. Not a shape the RPC can return — mounted to make the guard visible.
+    // No terminal transfer, so no rate: the screen must read neither 0% nor a verdict.
     case 'no-rate': return { profile: PROFILE, trust: TRUST_NO_RATE, listings: listings(art) };
     default: return { profile: PROFILE, trust: TRUST, listings: listings(art) };
   }
