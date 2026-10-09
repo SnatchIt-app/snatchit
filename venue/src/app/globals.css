@@ -59,6 +59,12 @@
   --color-danger-soft: #f7e0da;
   --color-info-soft: #e3e9f7;
 
+  /* Charts: warm axis and grid, one brick series (the concept's arrivals bars are warm grey with a red latest). */
+  --color-axis: rgba(70, 50, 30, 0.38);
+  --color-grid: rgba(70, 50, 30, 0.1);
+  --color-series-1: #9c3f26;
+  --color-series-2: #b9aa9b;
+
   --font-sans: var(--font-inter, ui-sans-serif), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-serif: var(--font-newsreader), "Iowan Old Style", "Times New Roman", Georgia, serif;
   --font-display: var(--font-serif);
@@ -66,6 +72,7 @@
 
   --radius-sheet: 28px;
   --radius-panel: 20px;
+  --radius-card: 20px;
   --radius-inner: 14px;
   --radius-control: 14px;
 }
@@ -573,6 +580,8 @@
 
   .context-pill {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     gap: 0.45rem;
     min-height: 2rem;
