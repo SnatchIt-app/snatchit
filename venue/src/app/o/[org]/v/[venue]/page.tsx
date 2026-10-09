@@ -1,16 +1,14 @@
-import { VENUE } from "@/fixtures/venue";
 import { listBatches, listDevices, listEvents, listFlags, listHolds, listTicketTypes, scanCounters, tonightSessions, PreviewReadError } from "@/lib/data";
 import { readPage, type PageParams } from "@/lib/page";
 import { withPreview, type SearchParams } from "@/lib/preview";
 import { canReadEvents, PRINCIPAL_LABEL, showCounters } from "@/lib/roles";
 import { sessionTotals } from "@/lib/inventory";
-import { venueDate } from "@/lib/format";
 import { buildSignals, doorSummary, eventStage, stillAvailable } from "@/lib/signals";
 import { PreviewOutcome, Shell } from "@/components/shell/Shell";
-import { Tonight, type SalesLine } from "@/components/overview/Tonight";
+import { Tonight, TodaySkeleton, type SalesLine } from "@/components/overview/Tonight";
 import { NotWiredState } from "@/components/ui/DataSourceError";
 import { EntryGate } from "@/components/ui/EntryGate";
-import { DeniedState, ErrorState, Skeleton } from "@/components/ui/State";
+import { DeniedState, EmptyState, ErrorState } from "@/components/ui/State";
 
 export const metadata = { title: "Today" };
 export const dynamic = "force-dynamic";
@@ -73,7 +71,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
             .filter((t) => t.eventId === stageView.event!.eventId)
             .map((t) => ({ t, tot: sessionTotals(batches, t.ticketTypeId, stageSession.sessionId) }))
             .filter(({ tot }) => tot.capacity > 0)
-            .map(({ t, tot }) => ({ ticketTypeId: t.ticketTypeId, name: t.name, priceMinor: t.priceMinor, sold: tot.sold, capacity: tot.capacity, remaining: tot.remaining }))
+            .map(({ t, tot }) => ({ ticketTypeId: t.ticketTypeId, name: t.name, priceMinor: t.priceMinor, sold: tot.sold, capacity: tot.capacity, remaining: tot.remaining, visibility: t.visibility }))
         : [];
       const active = devices.filter((d) => d.status === "active");
       ready = {
@@ -98,21 +96,21 @@ export default async function OverviewPage({ params, searchParams }: { params: P
       event={ready?.stageView.event ? { eventId: ready.stageView.event.eventId, title: ready.stageView.event.title } : null}
       active="overview"
       signedInAs={p.signedInAs}
-      title="Today"
-      context={
-        <>
-          {venueDate(p.now.toISOString(), p.timeZone)}
-          <span className="hidden sm:inline"> · {VENUE.name}</span>
-        </>
-      }
+      title={readable && ctx.state !== "loading" && ready && ready.events.length > 0 ? undefined : "Today"}
     >
       <PreviewOutcome did={p.first("did")} />
       {!readable ? (
         <DeniedState surface="This dashboard" roleLabel={PRINCIPAL_LABEL[ctx.role]} />
       ) : ctx.state === "loading" ? (
-        <Skeleton rows={8} />
+        <TodaySkeleton />
       ) : failedRead || !ready ? (
         <ErrorState lost="Tonight" read={failedRead ?? "catalog.event"} retryHref={self} />
+      ) : ready.events.length === 0 ? (
+        <EmptyState title="No events yet. Today fills in once your first event is set up — what is selling, who is arriving and what needs you.">
+          <a className="btn btn-primary" href={withPreview(`${basePath}/events/new`, ctx)}>
+            Create an event
+          </a>
+        </EmptyState>
       ) : (
         <Tonight
           signals={ready.signals}

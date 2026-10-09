@@ -1,22 +1,21 @@
 import Link from "next/link";
 import { venueTime, relative, usd } from "@/lib/format";
-import type { ClearCheck, DoorSummary, Severity, Signal, Stage, StageView } from "@/lib/signals";
+import type { ClearCheck, DoorSummary, Signal, Stage, StageView } from "@/lib/signals";
 import { STATUS_LABEL } from "@/lib/events";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import type { Event, EventStatus } from "@/lib/types";
 import { Icon } from "@/components/ui/Icon";
+import { AttentionQueue, TicketViews, type QueueItem } from "@/components/overview/TodayClient";
 
 /**
- * Today — the venue's landing page.
+ * Today — the venue's first screen. It answers four questions, in order:
  *
- * Three questions, answered in this order and nothing before them:
- *   1. Where am I?               the event the venue is living through, in the
- *                                hero, with its stage named
- *   2. What needs my attention?  beside it, worst first, each with one action
- *   3. What can I do next?       one dark pill in the hero; one small pill per
- *                                attention item
- * Supporting detail (ticket sales, what is coming up) sits below, in panels
- * of their own, so it never competes with the three answers.
+ *   1. What am I looking at?   the event, its stage and time, at the top
+ *   2. What matters right now? four summary cards, then the attention queue
+ *   3. What should I do next?  one dark button in the header; one action per
+ *                              attention item
+ *   4. Where is the detail?    every card and row links to the screen that
+ *                              owns it (check-in, guest list, tickets, setup)
  */
 const STAGE_LABEL: Record<Stage, string> = {
   before: "Next up",
@@ -24,13 +23,13 @@ const STAGE_LABEL: Record<Stage, string> = {
   after: "Last event",
 };
 
-const SEVERITY_CHIP: Record<Severity, { label: string; tone: string }> = {
-  act_now: { label: "Now", tone: "badge-red" },
-  soon: { label: "Soon", tone: "badge-amber" },
-  worth_knowing: { label: "Worth knowing", tone: "badge-muted" },
-};
+export type SalesLine = { ticketTypeId: string; name: string; priceMinor: number; sold: number; capacity: number; remaining: number; visibility?: string };
 
-export type SalesLine = { ticketTypeId: string; name: string; priceMinor: number; sold: number; capacity: number; remaining: number };
+function areaOf(id: string): QueueItem["area"] {
+  if (id === "device_stale" || id === "flags_open") return "door";
+  if (id.startsWith("blocked_") || id === "drafts") return "events";
+  return "tickets";
+}
 
 export function Tonight({
   signals,
@@ -58,22 +57,17 @@ export function Tonight({
   basePath: string;
   timeZone: string;
   now: Date;
-  /** Per ticket type, for the stage event's session. */
   sales?: SalesLine[];
-  /** false when this role may only see what is still available. */
   countersVisible?: boolean;
-  /** Admissions per five minutes, oldest first. */
   arrivals?: number[];
-  /** Active scanners only — a retired device is not "offline". */
   scanners?: { online: number; total: number };
 }) {
   const link = (href: string) => withPreview(href, ctx);
-  const urgent = signals.filter((s) => s.severity !== "worth_knowing");
-  const rest = signals.filter((s) => s.severity === "worth_knowing");
   const ev = stageView.event;
   const sess = stageView.session;
   const evBase = ev ? `${basePath}/events/${ev.eventId}` : basePath;
   const scan = scanners ?? (door ? { online: door.devicesOnline, total: door.devicesTotal } : null);
+  const items: QueueItem[] = signals.map((s) => ({ ...s, area: areaOf(s.id) }));
 
   const primary =
     stageView.stage === "during"
@@ -96,243 +90,202 @@ export function Tonight({
 
   const totalSold = sales.reduce((n, l) => n + l.sold, 0);
   const totalCap = sales.reduce((n, l) => n + l.capacity, 0);
+  const inside = stageView.stage === "during" && door ? door : null;
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-12">
-      {/* 1. Where am I — the event the venue is living through. */}
+    <div className="flex flex-col gap-5 md:gap-6">
+      {/* 1 + 3 — the event, its stage, and the one thing to do. */}
       {ev ? (
-        <section aria-labelledby="stage-title" id="stage" className="panel flex min-w-0 flex-col p-5 md:p-7 lg:col-span-7 lg:row-start-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="badge">
-              {stageView.stage === "during" ? <span aria-hidden="true" className="live-dot" /> : null}
-              {STAGE_LABEL[stageView.stage]}
-            </span>
-            {sess ? (
-              <span className="text-[0.8125rem] text-muted">
-                {stageView.stage === "after"
-                  ? `Ran ${venueTime(sess.startsAt, timeZone, { date: true, zone: false })}`
-                  : stageView.stage === "during"
-                    ? `Started ${venueTime(sess.startsAt, timeZone, { date: false, zone: false })}${sess.doorsAt ? ` · doors ${venueTime(sess.doorsAt, timeZone, { date: false, zone: false })}` : ""}`
-                    : `${venueTime(sess.startsAt, timeZone, { date: true, zone: false })} · ${relative(sess.startsAt, now)}`}
+        <header className="enter flex flex-wrap items-end justify-between gap-x-8 gap-y-5 pb-1">
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-2">
+              <span className={`badge ${stageView.stage === "during" ? "badge-red" : ""}`}>
+                {stageView.stage === "during" ? <span aria-hidden="true" className="live-dot" /> : null}
+                {STAGE_LABEL[stageView.stage]}
               </span>
-            ) : null}
+              {sess ? (
+                <span className="text-[0.8125rem] text-muted">
+                  {stageView.stage === "after"
+                    ? `Ran ${venueTime(sess.startsAt, timeZone, { date: true, zone: false })}`
+                    : stageView.stage === "during"
+                      ? `Started ${venueTime(sess.startsAt, timeZone, { date: false, zone: false })}${sess.doorsAt ? ` · doors opened ${venueTime(sess.doorsAt, timeZone, { date: false, zone: false })}` : ""}`
+                      : `${venueTime(sess.startsAt, timeZone, { date: true, zone: false })} · ${relative(sess.startsAt, now)}`}
+                </span>
+              ) : null}
+            </p>
+            <h1 className="title-display mt-3 text-[2.25rem] md:text-[3.25rem]">{ev.title}</h1>
+            <p className="mt-2 max-w-xl text-[0.9375rem] leading-relaxed text-muted">
+              {stageView.stage === "during"
+                ? "Doors are open. The work tonight is at the door."
+                : stageView.stage === "after"
+                  ? "Finished — sales are closed and nothing here is still selling."
+                  : "Doors have not opened. The work now is getting the night ready."}
+            </p>
           </div>
-          <h2 id="stage-title" className="title-display mt-4 text-[2rem] md:text-[2.5rem]">
-            {ev.title}
-          </h2>
-
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <Link href={primary.href} className="btn btn-primary">
-              <Icon name={primary.icon} size={16} />
-              {primary.label}
-            </Link>
-            <Link href={secondary.href} className="btn btn-ghost">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={secondary.href} className="btn btn-ghost btn-lg">
               {secondary.label}
             </Link>
-          </div>
-
-          {stageView.stage === "during" && door ? (
-            <div className="mt-7 grid gap-5 border-t border-line pt-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end sm:gap-6">
-              <div>
-                <p className="text-[0.8125rem] font-medium text-muted">People inside</p>
-                <p className="mt-1 flex items-baseline gap-2">
-                  <span className="title-display text-[3.5rem] tabular-nums md:text-[4rem]">{door.admitted}</span>
-                  <span className="text-sm text-muted">of {door.expected}</span>
-                </p>
-                <div className="meter mt-3 max-w-sm" role="img" aria-label={`${door.admitted} of ${door.expected} tickets scanned in`}>
-                  <span style={{ width: `${Math.min(100, Math.round((door.admitted / Math.max(1, door.expected)) * 100))}%` }} />
-                </div>
-                <p className="mt-2 text-[0.8125rem] text-muted">Scanned in so far, of the tickets issued for tonight.</p>
-              </div>
-              {arrivals.length > 0 ? <Arrivals counts={arrivals} /> : null}
-            </div>
-          ) : stageView.stage === "after" ? (
-            <p className="mt-3 max-w-xl text-[0.9375rem] leading-relaxed text-muted">Finished — sales are closed and nothing here is still selling.</p>
-          ) : (
-            <p className="mt-3 max-w-xl text-[0.9375rem] leading-relaxed text-muted">Doors have not opened. The work now is getting the night ready.</p>
-          )}
-
-          {stageView.stage === "during" && door ? (
-            <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Stat label="Still to arrive" value={String(Math.max(0, door.expected - door.admitted))} />
-              {scan ? <Stat label="Scanners online" value={`${scan.online} of ${scan.total}`} warn={scan.online < scan.total} /> : null}
-              {sales.length > 0 && countersVisible ? <Stat label="Sold for tonight" value={`${totalSold} of ${totalCap}`} /> : null}
-            </dl>
-          ) : null}
-
-        </section>
-      ) : null}
-
-      {/* 2. What needs my attention — worst first, one action each. */}
-      <section aria-labelledby="attention-title" id="attention" className={`panel flex min-w-0 flex-col p-5 md:p-7 ${ev ? "lg:col-span-5 lg:col-start-8 lg:row-span-3 lg:row-start-1" : "lg:col-span-12"}`}>
-        <div className="flex items-center justify-between gap-3">
-          <h2 id="attention-title" className="title-section">
-            {urgent.length > 0 ? "Needs your attention" : "Nothing needs your attention"}
-          </h2>
-          {urgent.length > 0 ? <span className="count bg-[#0f0f10] text-white">{urgent.length}</span> : null}
-        </div>
-        {urgent.length === 0 ? (
-          <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Every check ran and found nothing. This is where a problem would show up.</p>
-        ) : (
-          <ul className="mt-4 flex flex-col gap-2.5">
-            {urgent.map((s) => (
-              <AttentionItem key={s.id} s={s} />
-            ))}
-          </ul>
-        )}
-        <div className="mt-auto pt-5">
-          {clear.length > 0 ? (
-            <details className="group">
-              <summary className="inline-flex items-center gap-1.5 text-[0.8125rem] text-muted hover:text-ink">
-                <Icon name="check" size={15} />
-                {clear.length} other {clear.length === 1 ? "check" : "checks"} ran and found nothing
-                <Icon name="down" size={14} className="transition-transform group-open:rotate-180" />
-              </summary>
-              <ul className="mt-2 space-y-1 pl-6 text-[0.8125rem] text-muted">
-                {clear.map((c) => (
-                  <li key={c.id}>{c.label}</li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-          {rest.length > 0 ? (
-            <details className="group mt-2">
-              <summary className="inline-flex items-center gap-1.5 text-[0.8125rem] text-muted hover:text-ink">
-                <Icon name="alert" size={15} />
-                {rest.length} more worth knowing
-                <Icon name="down" size={14} className="transition-transform group-open:rotate-180" />
-              </summary>
-              <ul className="mt-3 flex flex-col gap-2.5">
-                {rest.map((s) => (
-                  <AttentionItem key={s.id} s={s} />
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </div>
-      </section>
-
-      {/* Supporting: how the stage event's tickets are selling. */}
-      {ev && sales.length > 0 ? (
-        <section aria-labelledby="sales-title" className="panel min-w-0 p-5 md:p-7 lg:col-span-7 lg:row-start-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="sales-title" className="title-section">
-              Tickets {stageView.stage === "after" ? "sold" : stageView.stage === "during" ? "for tonight" : "on sale"}
-            </h2>
-            <Link href={link(`${evBase}/inventory`)} className="btn btn-soft btn-sm">
-              Manage tickets
-              <Icon name="chevron" size={14} />
+            <Link href={primary.href} className="btn btn-primary btn-lg">
+              <Icon name={primary.icon} size={17} />
+              {primary.label}
             </Link>
           </div>
-          <ul className="mt-4 divide-y divide-line">
-            {sales.map((l) => (
-              <li key={l.ticketTypeId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto]">
-                <div className="min-w-0">
-                  <p className="truncate text-[0.9375rem] font-medium text-ink">{l.name}</p>
-                  <p className="text-[0.8125rem] text-muted">{usd(l.priceMinor)}</p>
-                </div>
-                {countersVisible ? (
-                  <div className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto">
-                    <div className="meter" role="img" aria-label={`${l.sold} of ${l.capacity} sold`}>
-                      <span style={{ width: `${l.capacity > 0 ? Math.round((l.sold / l.capacity) * 100) : 0}%` }} />
-                    </div>
-                  </div>
-                ) : null}
-                <p className="text-right text-[0.8125rem] tabular-nums">
-                  {countersVisible ? (
-                    <>
-                      <span className="font-semibold text-ink">{l.sold}</span>
-                      <span className="text-muted"> / {l.capacity} sold</span>
-                    </>
-                  ) : null}
-                  <span className={`block ${l.remaining === 0 ? "font-medium text-danger" : "text-muted"}`}>{l.remaining === 0 ? "None left" : `${l.remaining} left`}</span>
-                </p>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-[0.8125rem] text-muted">
-            {available.toLocaleString()} tickets still available across everything on sale. Counted at this moment, not a total for the week.
-          </p>
-        </section>
+        </header>
+      ) : (
+        <header className="enter">
+          <h1 className="title-page">Today</h1>
+        </header>
+      )}
+
+      {/* 2 — summaries before detail. Each card opens the screen that owns it. */}
+      {ev ? (
+        <ul className="enter-2 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4" aria-label="At a glance">
+          {inside ? (
+            <SummaryCard
+              href={link(`${evBase}/door`)}
+              label="People inside"
+              value={String(inside.admitted)}
+              of={`of ${inside.expected}`}
+              meter={inside.admitted / Math.max(1, inside.expected)}
+              note="Scanned in so far, of the tickets issued for tonight."
+            />
+          ) : null}
+          {inside ? (
+            <SummaryCard
+              href={link(`${evBase}/attendees?checkIn=not_scanned`)}
+              label="Still to arrive"
+              value={String(Math.max(0, inside.expected - inside.admitted))}
+              note="Tickets issued that have not been scanned yet."
+            />
+          ) : null}
+          {sales.length > 0 && countersVisible ? (
+            <SummaryCard href={link(`${evBase}/inventory`)} label={stageView.stage === "during" ? "Sold for tonight" : "Tickets sold"} value={String(totalSold)} of={`of ${totalCap}`} meter={totalSold / Math.max(1, totalCap)} note={`${Math.max(0, totalCap - totalSold)} not sold yet`} />
+          ) : null}
+          {inside && scan ? (
+            <SummaryCard
+              href={link(`${evBase}/door`)}
+              label="Scanners online"
+              value={`${scan.online} of ${scan.total}`}
+              tone={scan.online < scan.total ? "warn" : "ok"}
+              note={scan.online < scan.total ? "An offline scanner keeps admitting from the list it last downloaded." : "Every active scanner is syncing."}
+            />
+          ) : null}
+          {!inside ? <SummaryCard href={link(`${basePath}/events`)} label="Still on sale" value={available.toLocaleString()} note="Across everything on sale, right now." /> : null}
+          {!inside && sess && stageView.stage === "before" ? <SummaryCard href={link(evBase)} label="Doors" value={relative(sess.doorsAt ?? sess.startsAt, now).replace(/^in /, "")} of="to go" note={venueTime(sess.doorsAt ?? sess.startsAt, timeZone, { date: true, zone: false })} /> : null}
+        </ul>
       ) : null}
 
-      {/* Supporting: what is coming up. */}
-      <section aria-labelledby="upcoming-title" className={`panel min-w-0 p-5 md:p-7 ${ev ? "lg:col-span-7 lg:row-start-3" : "lg:col-span-12"}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="upcoming-title" className="title-section">
-            Coming up
-          </h2>
-          <Link href={link(`${basePath}/events`)} className="btn btn-soft btn-sm">
-            All events
-            <Icon name="chevron" size={14} />
-          </Link>
+      {/* 2 — the work queue, with live context beside it. */}
+      <div className="grid items-start gap-5 md:gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <AttentionQueue items={items} clear={clear} />
+        <div className="flex min-w-0 flex-col gap-5 md:gap-6">
+          {inside && arrivals.length > 0 ? <ArrivalsCard counts={arrivals} href={link(`${evBase}/door`)} /> : null}
+          <section aria-labelledby="upcoming-title" className="panel enter-3 min-w-0 p-5 md:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="upcoming-title" className="title-section">
+                Coming up
+              </h2>
+              <Link href={link(`${basePath}/events`)} className="arrow-link">
+                All events
+                <Icon name="chevron" size={14} />
+              </Link>
+            </div>
+            {upcoming.length === 0 ? (
+              <p className="mt-3 text-[0.875rem] text-muted">Nothing else is scheduled.</p>
+            ) : (
+              <ul className="mt-2 flex flex-col">
+                {upcoming.map(({ e, s }) => (
+                  <li key={e.eventId}>
+                    <Link href={link(`${basePath}/events/${e.eventId}`)} className="group -mx-2 flex items-center gap-3 rounded-2xl px-2 py-2.5 transition-colors hover:bg-[#faf9f7]">
+                      {s ? <DateTile iso={s.startsAt} timeZone={timeZone} /> : null}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[0.875rem] font-semibold tracking-[-0.01em]">{e.title}</span>
+                        <span className="flex items-center gap-1.5 text-[0.75rem] text-muted">
+                          <StatusDot status={e.status} />
+                          {STATUS_LABEL[e.status]}
+                          {s ? ` · ${relative(s.startsAt, now)}` : ""}
+                        </span>
+                      </span>
+                      <Icon name="chevron" size={16} className="text-dim transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-        {upcoming.length === 0 ? (
-          <p className="mt-3 text-[0.9375rem] text-muted">Nothing else is scheduled.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-line">
-            {upcoming.map(({ e, s }) => (
-              <li key={e.eventId}>
-                <Link href={link(`${basePath}/events/${e.eventId}`)} className="group -mx-2 flex items-center gap-3.5 rounded-2xl px-2 py-3 hover:bg-[#fafaf9]">
-                  {s ? <DateTile iso={s.startsAt} timeZone={timeZone} /> : null}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[0.9375rem] font-medium text-ink">{e.title}</span>
-                    <span className="block text-[0.8125rem] text-muted">{s ? `${venueTime(s.startsAt, timeZone, { date: false, zone: false })} · ${relative(s.startsAt, now)}` : "No date yet"}</span>
-                  </span>
-                  <StatusBadge status={e.status} />
-                  <Icon name="chevron" size={16} className="text-dim group-hover:text-ink" />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      </div>
+
+      {/* 4 — the detail for this event, filterable. */}
+      {ev && sales.length > 0 ? (
+        <TicketViews
+          lines={sales.map((l) => ({ ...l, price: usd(l.priceMinor), visibility: l.visibility ?? "public" }))}
+          countersVisible={countersVisible}
+          manageHref={link(`${evBase}/inventory`)}
+          available={available}
+        />
+      ) : null}
     </div>
   );
 }
 
-function AttentionItem({ s }: { s: Signal }) {
-  const chip = SEVERITY_CHIP[s.severity];
-  // "Now" items carry their consequence; the rest are one line and an action —
-  // the consequence is still there, one click away on the screen that owns it.
-  const full = s.severity === "act_now";
+function SummaryCard({ href, label, value, of, note, meter, tone }: { href: string; label: string; value: string; of?: string; note: string; meter?: number; tone?: "warn" | "ok" }) {
   return (
-    <li className={`rounded-2xl bg-[#f6f6f5] px-4 ${full ? "py-3.5" : "py-3"}`}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`badge ${chip.tone} shrink-0`}>{chip.label}</span>
-        <p className="min-w-0 flex-1 text-[0.875rem] font-semibold leading-snug text-ink">{s.title}</p>
-      </div>
-      {full ? <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted">{s.consequence}</p> : <p className="sr-only">{s.consequence}</p>}
-      <Link href={s.action.href} className={`${full ? "mt-2" : "mt-1"} inline-flex min-h-8 items-center gap-1.5 text-[0.8125rem] font-semibold text-ink hover:underline hover:underline-offset-4`}>
-        {s.action.label}
-        <Icon name="arrow" size={14} />
+    <li className="min-w-0">
+      <Link href={href} className="panel card-link group flex h-full flex-col p-4 md:p-5">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-[0.8125rem] font-medium text-muted">{label}</span>
+          <Icon name="arrow" size={14} className="text-dim opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+        </span>
+        <span className="mt-2 flex items-baseline gap-1.5">
+          <span className={`figure text-[1.875rem] leading-none md:text-[2.25rem] ${tone === "warn" ? "text-danger" : ""}`}>{value}</span>
+          {of ? <span className="text-[0.8125rem] text-muted">{of}</span> : null}
+        </span>
+        {meter !== undefined ? (
+          <span className="meter mt-3 block" aria-hidden="true">
+            <span style={{ width: `${Math.min(100, Math.round(meter * 100))}%` }} />
+          </span>
+        ) : null}
+        <span className="mt-auto pt-3 text-[0.75rem] leading-snug text-muted">{note}</span>
       </Link>
     </li>
   );
 }
 
-function Stat({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div className="rounded-2xl bg-[#f6f6f5] px-4 py-3">
-      <dt className="text-[0.75rem] text-muted">{label}</dt>
-      <dd className={`figure mt-0.5 text-[1.25rem] ${warn ? "text-danger" : "text-ink"}`}>{value}</dd>
-    </div>
-  );
-}
-
-/** Admissions per five minutes — a shape, with its peak written down. */
-function Arrivals({ counts }: { counts: number[] }) {
+function ArrivalsCard({ counts, href }: { counts: number[]; href: string }) {
   const peak = Math.max(...counts, 1);
   const minutes = counts.length * 5;
+  const last = counts[counts.length - 1];
   return (
-    <figure className="min-w-0 sm:w-56">
-      <div className="flex h-14 items-end gap-1 sm:h-20" role="img" aria-label={`Arrivals every five minutes over the last ${minutes} minutes; busiest five minutes had ${peak}.`}>
+    <section aria-labelledby="arrivals-title" className="panel enter-2 p-5 md:p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="arrivals-title" className="title-section">
+          Arrivals
+        </h2>
+        <Link href={href} className="arrow-link">
+          Check-in
+          <Icon name="chevron" size={14} />
+        </Link>
+      </div>
+      <p className="mt-1 text-[0.8125rem] text-muted">
+        <span className="figure text-ink">{last}</span> in the last 5 minutes · peak {peak}
+      </p>
+      <div className="mt-4 flex h-24 items-end gap-1" role="img" aria-label={`Arrivals every five minutes over the last ${minutes} minutes; busiest five minutes had ${peak}; the last five minutes had ${last}.`}>
         {counts.map((c, i) => (
-          <span key={i} className={`flex-1 rounded-full ${i === counts.length - 1 ? "bg-[#0f0f10]" : "bg-[#d9d9d7]"}`} style={{ height: `${Math.max(8, Math.round((c / peak) * 100))}%` }} />
+          <span
+            key={i}
+            className={`flex-1 rounded-full transition-colors ${i === counts.length - 1 ? "bg-[#e3261c]" : c === peak ? "bg-ink" : "bg-[#e2ddd5] hover:bg-[#cfc8be]"}`}
+            style={{ height: `${Math.max(8, Math.round((c / peak) * 100))}%` }}
+            title={`${c} in five minutes`}
+          />
         ))}
       </div>
-      <figcaption className="mt-2 text-[0.75rem] text-muted">Arrivals, every 5 min · peak {peak}</figcaption>
-    </figure>
+      <p className="mt-2 flex justify-between text-[0.6875rem] text-muted">
+        <span>{minutes} min ago</span>
+        <span>now</span>
+      </p>
+    </section>
   );
 }
 
@@ -341,24 +294,57 @@ function DateTile({ iso, timeZone }: { iso: string; timeZone: string }) {
   const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone }).format(d);
   const day = new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone }).format(d);
   return (
-    <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#f1f1f0] text-center leading-none">
+    <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#f5f3ef] text-center leading-none">
       <span>
-        <span className="block text-[0.6875rem] font-medium uppercase text-muted">{month}</span>
-        <span className="block text-[1.125rem] font-semibold text-ink">{day}</span>
+        <span className="block text-[0.625rem] font-semibold uppercase tracking-wide text-muted">{month}</span>
+        <span className="block text-[1rem] font-bold">{day}</span>
       </span>
     </span>
   );
 }
 
-const STATUS_TONE: Record<EventStatus, string> = {
-  draft: "badge-muted",
-  announced: "",
-  on_sale: "badge-green badge-dot",
-  live: "badge-red badge-dot",
-  completed: "badge-muted",
-  cancelled: "badge-muted",
+const STATUS_DOT: Record<EventStatus, string> = {
+  draft: "bg-[#a8a29e]",
+  announced: "bg-[#1d4ed8]",
+  on_sale: "bg-[#137333]",
+  live: "bg-[#e3261c]",
+  completed: "bg-[#a8a29e]",
+  cancelled: "bg-[#a8a29e]",
 };
 
-function StatusBadge({ status }: { status: EventStatus }) {
-  return <span className={`badge hidden sm:inline-flex ${STATUS_TONE[status]}`}>{STATUS_LABEL[status]}</span>;
+function StatusDot({ status }: { status: EventStatus }) {
+  return <span aria-hidden="true" className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />;
+}
+
+/** Loading: the same shape as the page, so nothing jumps when it arrives. */
+export function TodaySkeleton() {
+  return (
+    <div className="flex flex-col gap-6" role="status" aria-live="polite" aria-label="Loading today">
+      <div>
+        <div className="skel h-6 w-32" />
+        <div className="skel mt-4 h-12 w-[min(32rem,90%)]" />
+        <div className="skel mt-3 h-4 w-[min(24rem,70%)]" />
+      </div>
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="panel p-5">
+            <div className="skel h-3 w-24" />
+            <div className="skel mt-4 h-8 w-20" />
+            <div className="skel mt-4 h-2 w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="panel space-y-4 p-6">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="skel h-12" />
+          ))}
+        </div>
+        <div className="panel p-6">
+          <div className="skel h-24" />
+        </div>
+      </div>
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
 }

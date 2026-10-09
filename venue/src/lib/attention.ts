@@ -13,7 +13,7 @@ import { withPreview, type PreviewContext } from "@/lib/preview";
 import { canReadEvents } from "@/lib/roles";
 import { buildSignals, eventStage } from "@/lib/signals";
 
-export type FrameAttention = { count: number; stageEvent: { eventId: string; title: string } | null };
+export type FrameAttention = { count: number; stageEvent: { eventId: string; title: string } | null; live: boolean };
 
 export function frameAttention(ctx: PreviewContext, basePath: string): FrameAttention | null {
   if (ctx.source === "database" || ctx.state !== "live" || !canReadEvents(ctx.role)) return null;
@@ -29,5 +29,6 @@ export function frameAttention(ctx: PreviewContext, basePath: string): FrameAtte
   return {
     count: signals.filter((s) => s.severity !== "worth_knowing").length,
     stageEvent: stage.event ? { eventId: stage.event.eventId, title: stage.event.title } : null,
+    live: stage.stage === "during",
   };
 }

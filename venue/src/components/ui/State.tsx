@@ -1,4 +1,16 @@
 import type { ReactNode } from "react";
+import { Icon, type IconName } from "@/components/ui/Icon";
+
+function StateCard({ icon, tone = "neutral", children, role }: { icon: IconName; tone?: "neutral" | "danger"; children: ReactNode; role?: "alert" }) {
+  return (
+    <div className="panel enter mx-auto flex max-w-xl flex-col items-center px-6 py-12 text-center md:px-10" role={role}>
+      <span className={`grid h-12 w-12 place-items-center rounded-full ${tone === "danger" ? "bg-[rgba(196,29,21,0.08)] text-danger" : "bg-[#f5f3ef] text-ink"}`}>
+        <Icon name={icon} size={22} />
+      </span>
+      {children}
+    </div>
+  );
+}
 
 /** Spec §18 — every surface declares loading · empty · error · permission-denied. These are the shared renderers. */
 
@@ -15,10 +27,10 @@ export function Skeleton({ rows = 5, className = "" }: { rows?: number; classNam
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="border-y border-line py-10">
-      <p className="max-w-xl text-base text-muted">{title}</p>
-      {children ? <div className="mt-4 flex flex-wrap items-center gap-4">{children}</div> : null}
-    </div>
+    <StateCard icon="calendar">
+      <p className="mt-4 max-w-md text-[1rem] font-medium leading-relaxed">{title}</p>
+      {children ? <div className="mt-5 flex flex-wrap items-center justify-center gap-3">{children}</div> : null}
+    </StateCard>
   );
 }
 
@@ -29,18 +41,21 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
  */
 export function ErrorState({ read, retryHref, lost = "This page" }: { read: string; retryHref: string; lost?: string }) {
   return (
-    <div className="max-w-2xl border-l-2 border-danger py-2 pl-4" role="alert">
-      <p className="display display-lg">{lost} couldn&apos;t be loaded.</p>
-      <p className="mt-2 text-base leading-relaxed text-muted">
+    <StateCard icon="alert" tone="danger" role="alert">
+      <p className="title-section mt-4 text-[1.25rem]">{lost} couldn&apos;t be loaded.</p>
+      <p className="mt-2 max-w-md text-[0.9375rem] leading-relaxed text-muted">
         Nothing is shown rather than showing you numbers that might be out of date. Try again; if it keeps failing, the rest of the dashboard still works.
       </p>
-      <a className="btn btn-ghost mt-4" href={retryHref}>
+      <a className="btn btn-primary mt-6" href={retryHref}>
         Try again
       </a>
-      <p className="mt-4 text-sm text-dim">
-        For support: the read that failed was <code className="font-mono">{read}</code>.
-      </p>
-    </div>
+      <details className="mt-5 text-[0.8125rem] text-muted">
+        <summary className="inline-flex min-h-8 items-center gap-1 hover:text-ink">For support</summary>
+        <p className="mt-1">
+          The read that failed was <code className="font-mono">{read}</code>.
+        </p>
+      </details>
+    </StateCard>
   );
 }
 
@@ -67,18 +82,18 @@ export function DeniedState({
   alternative?: { label: string; href: string };
 }) {
   return (
-    <div className="max-w-2xl border-l-2 border-line-strong py-2 pl-4" role="alert">
-      <p className="display display-lg">{surface} isn&apos;t open to you.</p>
-      <p className="mt-3 text-base leading-relaxed text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
-      <p className="mt-2 text-base leading-relaxed text-muted">
+    <StateCard icon="users" role="alert">
+      <p className="title-section mt-4 text-[1.25rem]">{surface} isn&apos;t open to you.</p>
+      <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
+      <p className="mt-2 max-w-md text-[0.875rem] leading-relaxed text-muted">
         {grantedBy} can give you access. Nothing about this screen&apos;s contents is shown either way — this is not a message about whether anything exists.
       </p>
       {alternative ? (
-        <a className="btn btn-ghost mt-5" href={alternative.href}>
+        <a className="btn btn-primary mt-6" href={alternative.href}>
           {alternative.label}
         </a>
       ) : null}
-    </div>
+    </StateCard>
   );
 }
 

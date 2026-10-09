@@ -23,7 +23,7 @@
 
 /* Skeleton blocks for loading states. */
 .skel {
-  background: linear-gradient(90deg, #ececeb 25%, #f6f6f5 50%, #ececeb 75%);
+  background: linear-gradient(90deg, #efece7 25%, #f5f3ef 50%, #efece7 75%);
   border-radius: 10px;
   background-size: 200% 100%;
   animation: skel 1.4s ease-in-out infinite;
@@ -45,7 +45,7 @@
   display: flex;
   height: 8px;
   width: 100%;
-  background: #ececeb;
+  background: #efece7;
   border-radius: 9999px;
   overflow: hidden;
 }
@@ -55,14 +55,14 @@
 }
 .capbar .sold,
 .legend-swatch.sold {
-  background: #0f0f10;
+  background: #1c1917;
 }
 .capbar .held,
 .legend-swatch.held {
   background: #b0763f;
 }
 .legend-swatch.remaining {
-  background: #ececeb;
+  background: #efece7;
 }
 .legend-swatch {
   display: inline-block;

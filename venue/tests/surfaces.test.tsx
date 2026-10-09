@@ -177,7 +177,9 @@ describe("shared states (§18)", () => {
     const bare = html(<DeniedState />);
     expect(bare).toContain("This screen isn&#x27;t open to you.");
     expect(bare).not.toContain("Saturday");
-    expect(bare).not.toContain("0");
+    // Visible text only: markup carries digits in class names and icon paths.
+    const bareText = bare.replace(/<[^>]*>/g, " ").replace(/&#x?[0-9a-f]+;/gi, " ");
+    expect(bareText).not.toMatch(/\d/);
     // Audit §P4 — the headline is what the manager lost; the read is support detail.
     const err = html(<ErrorState lost="The door screen" read="venue.scan" retryHref="/r" />);
     expect(err).toContain("The door screen couldn&#x27;t be loaded.");
