@@ -57,6 +57,21 @@ describe('W-5: one ticket-platform list, shared by Create and Edit', () => {
   });
 });
 
+describe('W-4 follow-on: the shared header does not clip its own title at large text', () => {
+  it('WH3: SettingsHeader lets the title wrap above the shared threshold, and keeps one line below', async () => {
+    /*
+     * Found by capturing W-4 rather than by reading it. At A3XL the hub reads "SETTIN…",
+     * Appearance reads "APPEA…" — and so does privacy.tsx, which used SettingsHeader long before
+     * this batch. So the clip is the shared header's, across all eleven screens; what W-4 did was
+     * extend it to two screens whose sentence-case titles used to wrap. Same rule as everywhere
+     * else in this batch: above the threshold the words win, below it nothing moves.
+     */
+    const src = strip('src/components/account/SettingsHeader.tsx');
+    expect(src).toContain('identityStacks');
+    expect(src).toMatch(/numberOfLines=\{[^}]*\?\s*undefined\s*:\s*1\}/);
+  });
+});
+
 describe('W-4: the Settings hub wears the same header as everything it leads to', () => {
   it('WH1: the hub uses SettingsHeader and no longer hand-rolls the chip and title', () => {
     const hub = strip('app/settings/index.tsx');

@@ -14,6 +14,8 @@ const h = vi.hoisted(() => ({ sandbox: false, pushed: [] as string[] }));
 vi.mock('@/src/config/envGuard', () => ({ get IS_SANDBOX_BUILD() { return h.sandbox; }, ENV_GUARD_FAILURE: null }));
 vi.mock('expo-router', () => ({ router: { push: (p: string) => { h.pushed.push(p); }, back: () => {}, replace: () => {} } }));
 vi.mock('react-native', () => ({
+  // SettingsHeader reads the font scale to decide whether its title may wrap (WH3).
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Alert: { alert: () => {} },
   AppState: { addEventListener: () => ({ remove: () => {} }), currentState: 'active' },
   Platform: { OS: 'ios', select: (o: Record<string, unknown>) => o.ios },

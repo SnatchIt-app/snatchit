@@ -8,8 +8,9 @@
 
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 
 import { IconButton } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
@@ -28,10 +29,21 @@ export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
   const styles = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  /*
+   * The title is a word, and at the largest accessibility sizes a single clamped line cut it:
+   * "SETTIN…", "APPEA…", "PRIVAC…" — the last of those long before this batch touched anything.
+   * Above the shared threshold it takes the lines it needs; below it nothing moves.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
   return (
     <View style={[styles.header, { paddingTop: topPad + v2.space.sm }]}>
       <IconButton glyph="back" onPress={onBack ?? (() => router.back())} accessibilityLabel="Back" />
-      <Text style={[textStyle('displaySm'), styles.title]} accessibilityRole="header" numberOfLines={1}>
+      <Text
+        style={[textStyle('displaySm'), styles.title]}
+        accessibilityRole="header"
+        numberOfLines={stacked ? undefined : 1}
+      >
         {title}
       </Text>
       <View style={styles.spacer} />
