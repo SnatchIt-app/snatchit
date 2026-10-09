@@ -332,3 +332,23 @@ A sweep intended to enumerate *every* edge money path and its gate **failed** (m
 output) and its results are discarded, not reported. So D makes **no** exhaustive claim of the form
 "every money path gates on mode". What is claimed is only the function-level facts in 9a-9c, each read
 directly at `abef9506`. A full enumeration remains undone.
+
+### 9f. Function-extent discrepancy with A — decomposed, not left open
+
+A reported `record_payment_refund` as `:457` + 97 lines (= :457-553); D's parser reported :457-558. The
+5-line gap is fully explained:
+
+```
+553	  );
+554	END; $function$;          <- true terminator
+555	(blank)
+556-558	-- ── 5. Payout attempt protocol ──   <- section header, not body
+559	CREATE OR REPLACE FUNCTION public.claim_payout_attempt(
+```
+
+True body is **:457-554**. A's window stops one line short of the terminator; D's over-includes four
+lines of blank + section comment, because D's parser split on the *next* `create function` line rather
+than matching to the dollar-quote end — A's instrument is the tighter one. **Neither affects the
+finding:** both windows strictly contain the real body and both returned zero `livemode` hits, and D's
+wider window is the conservative direction for a zero-hit claim. Recorded because an unexplained numeric
+difference between two sessions' reads is exactly what should not be left sitting in a record.
