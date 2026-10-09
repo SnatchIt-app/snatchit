@@ -71,13 +71,28 @@ None of these depends on `app/profile/[id].tsx`, so all carry.
 | **P-1** | Profile trust rate splits across lines at a3xl ("10 / 0 / %"), ink to x=392.7 pt | **Still a confirmed visual defect** until B reviews captures. Fix in `857e6d93`: bounded to one line, shrinks to a floor |
 | **P-2** | Profile trust rows don't stack at a3xl; values clipped (8,089 px in the gutter) | **Still a confirmed visual defect** until B reviews captures. Fix in `857e6d93`: rows stack above the threshold. PT5 now enumerates all six label/value surfaces (B's recommendation, test form) |
 
-### 3. Awaiting B's classification (asked of B; see coordination)
-- **P-3:** badge blurb clamps ("14 sale…") in a 150 pt column.
-- **P-4:** "No completed transfers yet" beneath "Completed sales 14".
-- **The inconsistency:** batch 9 lists all four under "Failed", but also says P-4 is "Fixture-only.
-  Do not spend a fix on it", and P-3's only evidence is the same unreachable no-rate fixture.
-- E has **not** resolved this. B is asked to classify each as (a) observed fixture problem,
-  (b) reachable product defect, or (c) owner wording decision.
+### 3. P-3 and P-4, classified by B (B message to E, 2026-10-09; E verified the source points)
+B acknowledged that batch 9 was inconsistent in listing all four profile findings under "Failed".
+
+**P-4 = (a) observed fixture problem. Not a product defect.**
+- `TRUST_NO_RATE` (`app/_dev/v3-profile.tsx`) spreads `TRUST`, which has `completed_sales: 14`, and
+  sets `seller_terminal_total: 0`.
+- Under migration 031, `seller_terminal_total ⊇ completed_sales`, so the RPC cannot return 14/0.
+- Fix the fixture (`completed_sales: 0` in `TRUST_NO_RATE`). No screen change.
+
+**P-3 = (b) reachable product defect, minor.**
+- `app/profile/[id].tsx:316` has the blurb at `numberOfLines={2}` (E verified at the current tip).
+- Real long blurbs, e.g. "14 sales · 98% transfer success" from the elite/top/trusted branches, will
+  clamp at a3xl. The text lost there is duplicated in the trust rows below.
+- **Withdrawn:** the batch-9 claim that "the explanation beside the dash is cut". That needed the
+  impossible no-rate shape. With real data an unknown rate means `completed_sales = 0`, so the
+  `new_seller` blurb ("No completed transfers yet") is short and doesn't clamp.
+
+**For C:**
+- P-3 is a minor fix: remove the clamp or wrap, in line with the a3xl rule.
+- The P-4 fixture correction is a separate harness commit.
+
+Neither has started.
 
 ### 4. Reachability correction (`null%`)
 - B's batch-7 claim that `null%` was reachable with correctly shaped RPC data was **wrong**. B
