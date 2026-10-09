@@ -70,6 +70,58 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### Profile batch closed at `12cc3e8d` (B `19faf133`, `6b7137f2`, `069eeb9c`; E verified that all three are on the audit branch)
+- **Identity, settled by the round trip.** B states that `COPPER-LANTERN-377` was invented by B in
+  that message. It arrived with `from="local_228f989e-…"`, so **that session is B.** B withdraws its
+  "different B" account. **E → B is still refused** (exact error above), so the channel is **not
+  bidirectional** and this record remains the E → B channel. B reads it.
+- **P-3: CLOSED at `12cc3e8d`** (B measured C's three a3xl frames with the same instrument and four
+  thresholds).
+  - Gutter: 0 px content ink in all three. Max ink x: 361.3 / 348.0 / 348.0 pt.
+  - The header hairline at y = 553 px confirms a3xl from the paint, not a readback.
+  - "TRANSFER / SUCCESS RATE" and the blurb break on whole words, in both appearances.
+- **P-1, P-2, P-3 are closed for the profile batch. P-4** is a fixture correction (`2181de75`).
+  **This is the profile batch only, not whole-app acceptance.**
+- **Default layout unchanged, shown by a diff, not by citation.** B's default frames at `12cc3e8d`
+  against C's at `857e6d93`: **0 differing pixels below y = 440 px**, Light and Dark. The only
+  whole-frame differences are the status bar (clock, battery).
+  - B's `-Boperated` frames are now committed with provenance in `19faf133`, at repo-root
+    `native/12cc3e8d/` in `snatchit-audit`. C's three a3xl frames are copied there too.
+- **B re-checked its own a3xl frames by the paint.** The header hairline sits at 553 px at a3xl and
+  417 px at default and 3xl, so all twelve a3xl frames are genuinely a3xl.
+  - B's two 3xl frames paint the stacked form (so fontScale ≥ 1.3) at 417 px, which places them above
+    default and below a3xl.
+  - B notes the hairline does **not** separate default from 3xl.
+- **Size collision, corrected diagnosis.** It was contention: each operator read back the other's
+  writes. B withdraws its "content size reverts across relaunch" finding and C's ~30 s-reset theory
+  is unnecessary. **B accepts the overlap was B's:** B didn't re-check before touching the device.
+  - The rule stands: **one operator at a time, declared before use.**
+  - The appearance trap stands: `simctl ui appearance` doesn't drive the app; the route must carry
+    `?appearance=`.
+- **Device and server: RELEASED by B.** B's last simctl use was at 19:12:59. Metro is stopped (E
+  verified: no listener on `:8081`).
+
+### P-5: reputation badge capped at 1.3× (B `069eeb9c`; E verified `Badge.tsx`). DECIDED under owner delegation
+- **Finding (B, measured on `profile-a3xl-dark-hero`):** the "Trusted seller" label paints at
+  16.3 pt beside the 35.0 pt blurb (0.47×).
+  - Cause: `src/components/ui/Badge.tsx` sets `maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}`
+    (1.3) and `numberOfLines={1}`.
+- **Information loss:** for trusted, top and elite, and for `needs_review` from a low rate, the blurb
+  doesn't restate the tier. **So "Needs review", the only adverse signal on that panel, is carried
+  only by the capped badge** (colour is not a carrier).
+- **B's judgement:** readable, but not acceptable as the accessibility answer at a3xl. Not a blocker
+  for `12cc3e8d`: the cap is pre-existing and Badge is shared.
+- **Options:**
+  - **A:** carry the tier word in the scaling blurb for those four `deriveReputation` branches, e.g.
+    "Needs review · 82% transfer success" and "Trusted seller · 14 sales · 100% transfer success".
+    This touches `reputation.ts` only. The badge is unchanged.
+  - **B:** let `Badge` scale, which means a sweep of every call site (identity block and other
+    screens).
+- **Chosen: A.** It removes the information loss now, in one file, with no change to the shared
+  component's other screens. The wording only restates what the badge already says.
+  - **Option B is recorded as a separate follow-up, not adopted.** The 1.3× badge cap remains a known
+    limitation on every Badge.
+
 ### Wording and product choices: DECIDED by E under owner delegation (2026-10-09)
 The owner delegated these decisions: two options each, E recommends one, and the recommendation is
 adopted without a further owner reply. No business rule or capability changes. C implements, and B
