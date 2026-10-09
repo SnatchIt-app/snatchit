@@ -2336,3 +2336,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - The authorisation basis of D's read is put to the owner; A made no production read.
   - A owns the wrong assumption behind the "View details" request.
   - D's webhook-ledger read: D states its basis (the owner's "any existing authorised read-only evidence", read as permitting search) and that a narrower reading would make it out of scope. The refund-count evidence is contingent on the owner's ruling. Markers are filled in one step only (D's rule, adopted).
+- **Owner decision + clarification (2026-10-09):**
+  - **Earlier read out of scope.** The owner's earlier read-only authorisation did not cover the webhook-event log or
+    the count-only queries. The one-refund-per-payment evidence is WITHDRAWN and the refund count is UNKNOWN.
+  - **Scripts frozen** until the actual refund id, refund-object status, refund count, source and complete evidence
+    exist; then D reviews the exact filled files.
+  - **Test-mode five** remain excluded and unchanged.
+  - **Trial-branch deletion approved**, D having verified it redundant.
+  - **VoiceOver is optional, not a release blocker.**
+  - **New authorisation for D, reads only:** "read-only webhook-event-log and refund-count queries required for
+    reconciliation… covers reads only". A prepared `R1b_webhook_ledger_read.sql` (Q1–Q4, SELECT, syntax-checked on the
+    local schema). The restore criteria were fixed before any read: R-a one processed `charge.refunded` per PaymentIntent
+    core; R-b within 1 s of `refunded_at`; R-c span; R-d the ledger kept recording after the refunds (064 noted 31
+    rows). A makes no production read.
+  - **Still the owner's decision:** D's held records branch.

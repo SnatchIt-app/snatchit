@@ -7,8 +7,10 @@
   ARN. They do not establish the refund ids, the refund-object statuses, the refund count, the timezone or the
   source. None of these is inferred.
 - R2 rehearsal PASS.
-- R3 PREPARED, NOT EXECUTABLE: with five markers unfilled, the files refuse to run. It resumes only if refund-object
-  evidence becomes available (§"Pending evidence").
+- R3 FROZEN (owner, 2026-10-09): prepared but not executable. It is filled only when the refund id, refund-object
+  status, refund count, source and complete evidence all exist; then D reviews the exact filled files.
+- Refund count UNKNOWN: the earlier evidence was withdrawn by the owner. It is restorable only by D's newly
+  authorised read-only query (§"Refund count: restore path").
 - **Not blocking:** no other code, release step or app feature depends on O-R4 (§"Pending evidence").
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
@@ -282,7 +284,7 @@ Each dialog is titled "Refund details" and shows only two things:
 |---|---|---|---|
 | refund id (`re_…`) | **unavailable** | **unavailable** | not shown. The ARN is not a refund id. |
 | refund-object status | **unavailable** | **unavailable** | not shown. "Made available 8/5" is display text and is **not** mapped onto the refund status enum. The "Refunded" badge is the payment's. |
-| refund count | **one `charge.refunded` event received** (strong, not conclusive) | **one received** (same) | D's production read of `public.stripe_webhook_events` (D `187f6986`). Exactly one `charge.refunded` event per payment: `evt_3U0XuwGdOzCmGbHw0QThD7ya`, received 2026-08-04 17:20:05.136Z, and `evt_3U0YzcGdOzCmGbHw0fSVw1MJ`, received 17:20:19.342Z; both processed. The event fires per refund. **Limit:** the ledger records only events we received, so an undelivered second event would not appear. |
+| refund count | **unknown** | **unknown** | **Evidence withdrawn by the owner's ruling (2026-10-09).** D's earlier ledger read (D `187f6986`) fell outside the authorisation then in force, so its result is not used. It can be restored only by D's newly authorised read (§"Refund count: restore path"). |
 | refund `created`, year and timezone | **unavailable** (bounded) | **unavailable** (bounded) | Stripe's `created` is not shown anywhere. Our receipt of each event, in UTC with the year (above), bounds it: the refund existed by then. That is consistent with the Dashboard displaying UTC, but it is not established. |
 | failure reason | **unavailable** | **unavailable** | not shown |
 | `source` | **unavailable** | **unavailable** | the owner did not state how each refund was issued; it is not inferred, and the "test" notes are not evidence of it |
@@ -295,15 +297,51 @@ the owner to look (D, agreed).
 `received_at` and `processed`, so it cannot supply a refund id.
 - It holds **no `refund.*` event ever**. That is consistent with no refund having failed. It is **not** evidence of
   `succeeded`, because when `refund.*` was first subscribed is unknown.
-- **Contingent on the owner's ruling on scope.** `stripe_webhook_events` is not in R0's prepared read list. D's
-  stated basis is the owner's instruction to "use any existing authorised read-only evidence to establish the refund
-  details", which D read as permitting a read-only search of the already-authorised database. D notes that the phrase
-  admits a narrower reading. If the owner intends the narrower one, the read was out of scope, the refund-count
-  evidence above is **withdrawn**, and the count reverts to unevidenced. A made no production read.
+- **Owner's ruling (2026-10-09):** "My earlier read-only authorization did not cover the webhook-event log or the
+  count-only queries. Withdraw the one-refund-per-payment evidence and mark refund count unknown." That evidence is
+  withdrawn; nothing above relies on it. D had stated its basis openly (D `133a6d75`). A made no production read.
 
-**Markers move in one step (D, adopted).** The five markers are filled together, once all five values exist, and never
-partially. A half-filled file would have a stable sha256 that could be mistaken for an approvable artifact. Partial
-evidence lives here and in the records; the R3 files stay untouched.
+### Refund count: restore path (owner clarification, 2026-10-09)
+
+The owner then authorised D for the reads only: "D now has explicit authorization to perform the read-only
+webhook-event-log and refund-count queries required for reconciliation. This authorization covers reads only; it does
+not authorize any production correction writes."
+
+**The read:** `R1b_webhook_ledger_read.sql`, Q1–Q4, all SELECT and run by D. It was syntax-checked by A on the local
+schema clone (the columns match 025 plus 064).
+
+**Restore criteria, fixed before the read.** The count for a payment is restored only if all of these hold:
+- **R-a:** Q4 returns exactly **one** `charge.refunded` event whose id shares that payment's PaymentIntent core
+  (`evt_3U0XuwGdOzCmGbHw…` / `evt_3U0YzcGdOzCmGbHw…`), and it is `processed`.
+- **R-b:** its `received_at` is within 1 s of that payment's `refunded_at` (17:20:05Z / 17:20:19Z). This ties the
+  event to the refund we recorded.
+- **R-c:** Q1's span covers both (`first_received` ≤ 17:20:05Z).
+  - A's source check: no code path deletes from the table (none at gate `abef9506`).
+- **R-d:** Q1's `rows_after_the_two_refunds` > 0, meaning the ledger kept recording after the refunds, so a later
+  second refund event would have been seen.
+  - If R-d fails, the count may still be restored, but with this limit stated: the ledger stopped recording, so
+    "no second event" covers only the moment of the refunds.
+  - Migration 064 noted "31 existing rows" when it was written, and D's earlier count was also 31, so this check
+    matters.
+- **Control, recorded either way:** Q3 shows whether the flows' other events reached the ledger.
+
+**If met:** restored as "one `charge.refunded` event received per payment (D's authorised read, citing D's record
+sha). Strong, not conclusive: the ledger holds only received events." That is the strength at which it can support
+`REFUND_COUNT`.
+
+**If not met:** the count stays unknown. Two or more events for a payment would mean several refunds; that payment
+then needs a revised plan of one call per refund, and it is still blocked on the refund ids.
+
+**What this cannot do:** supply a refund id or a refund status. The ledger has no payload, and no `refund.*` event says
+nothing about status. Restoring the count leaves R3 frozen.
+
+**R3 is frozen (owner, 2026-10-09).** "Keep both correction scripts paused. Do not fill any script or write production
+data without the actual refund ID, refund-object status, refund count, source, and complete evidence."
+- The five markers are filled together, once all five values and their evidence exist, and never partially (D's rule,
+  adopted). A half-filled file would have a stable sha256 that could be mistaken for an approvable artifact.
+- After filling, **D reviews the exact filled files** (its §6 checklist) before they go to the owner for approval.
+- Partial evidence lives here and in the records. The R3 files stay byte-identical: tmpl `7740700b`, #6 `0d689587`,
+  #7 `d976eacb`.
 
 **Existing evidence searched by A, nothing found.** A made no production read. The search covered:
 - the repo tree and full history;

@@ -31,10 +31,16 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     That covers access, not wording.
   - No further attended session is to be scheduled.
 - **Pending evidence, not blocking:** O-R4.
+  - Owner, 2026-10-09: the refund count is unknown; D's earlier ledger read was out of scope and its evidence is
+    withdrawn. D is now authorised for the read-only ledger and count queries only (`R1b_webhook_ledger_read.sql`,
+    restore criteria pre-set).
+  - The scripts are frozen until all five fields and complete evidence exist and D has reviewed the exact filled
+    files.
   - The test-mode five are excluded and unchanged.
   - The owner's final screenshots do not establish the refund ids, refund statuses, refund count, timezone or source.
   - Production is unchanged; R3 is prepared but not executable. See the package README, §"Pending evidence".
-- **Done 2026-10-09:** `origin/integration/s1-s2-trial-20261007` deleted (owner-authorised; D did not object).
+- **Done 2026-10-09:** `origin/integration/s1-s2-trial-20261007` deleted (owner-authorised; owner approved the
+  deletion afterwards because D verified it redundant).
   - Verified by `ls-remote`: 0 refs, with the gate listed as a control.
   - There was no unique content: the trial head's tree equals the gate's S2 tree `2e2c31b4`.
   - The local branch and A's temporary worktree are kept, so `3787d8a2`, cited by A and D, stays resolvable locally.
@@ -48,6 +54,9 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     - rewrite that history, which changes those three shas; A cites them and would update the citations;
     - keep it local.
   - A's own pushed history contains neither ARN: the full-history pickaxe finds 0, with a positive control.
+- **Not a release blocker (owner, 2026-10-09):** VoiceOver is optional.
+- **Still the owner's decision:** D's held `review/d-records-20261005` (public repo; real ARNs in the history of three
+  commits A cites).
 - **Not authorised:** production correction writes, the final main integration (S7) and app distribution.
 
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)
