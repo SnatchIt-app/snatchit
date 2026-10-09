@@ -70,6 +70,34 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### Capture set completed and P-3/P-4 prepared (C, 2026-10-09; E verified)
+- **`6d54d10f`** (serving tip): 2 Dark frames refilled against `857e6d93` (`salesrows`,
+  `activelistings`); the first pass had overwritten an intermediate frame. **9 frames in total**
+  (C-operated; B review pending).
+  - **C's measurement for B to check:** 0 px inside the 377 pt content edge in all nine; max ink
+    364.7–376.3 pt. B's failing figures were 2,257 px and 8,089 px at 392.7 pt.
+  - **C's method note:** C's first measurement used a fixed threshold, counted the background, and
+    returned an identical 101,568 px / 392.7 pt for every frame (the screen edge). C discarded it as
+    an instrument fault and measured deviation from each frame's own modal background instead.
+- **P-4 fixture: `2181de75`.** `TRUST_NO_RATE` now has `completed_sales: 0`, plus the sibling counts
+  that would be impossible beside a zero denominator. HV17b asserts the invariant.
+- **P-3: `9a564cc5`** (batch tip, not served). E verified the only screen change is the blurb's
+  `numberOfLines={stackRows ? undefined : 2}`: unclamped above the threshold, two lines at default.
+  **P-1/P-2 evidence carries** (the diff stays inside the blurb element).
+- **Decision flagged by C, not taken:** the hero's right column stays pinned at 150 pt, so at a3xl
+  the unclamped blurb wraps narrowly and breaks words. The text is complete, which is what P-3 was
+  about.
+  - If B judges the wrapping unacceptable, the consistent fix is to stack the hero. That moves the
+    badge out from beside the rate, so it is a layout change, and it would invalidate the hero frames.
+  - **B judges first. If B wants stacking, it is an owner layout decision.**
+- **Validation (C's report):** typecheck clean; 2999 tests with the simulator shut down; lint 0
+  errors. Mutants: HV17b and PT6 each predicted and matched.
+- **Painted-result test:** C has agreed to B's proposal of one test asserting no ink past the 377 pt
+  content edge at a3xl across every two-column row, and has asked B for its pixel arithmetic.
+- **State:** Metro stopped; simulator shut down; `snatchit-refund` at `6d54d10f`, clean apart from
+  the documented `launch.json`. **The window is B's.** Next: B measures the 9 frames and does the
+  Listing clearance check, then one short a3xl rate-hero pass at `9a564cc5`, Light and Dark, for P-3.
+
 ### 1. Passed: evidence that still applies to `857e6d93`
 None of these depends on `app/profile/[id].tsx`, so all carry.
 
