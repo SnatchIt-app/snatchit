@@ -305,13 +305,13 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
             </View>
           ) : (
             <>
-              <View style={s.hero}>
+              <View style={[s.hero, stackRows && s.heroStacked]}>
                 <View style={s.heroLeft}>
                   <Text style={[textStyle('micro'), s.heroLabel]}>Transfer success rate</Text>
                   <Text style={s.heroValue} numberOfLines={1} {...rateFit}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
                   {insufficientData ? <Text style={[textStyle('bodySm'), s.heroSub]}>No completed transfers yet</Text> : null}
                 </View>
-                <View style={s.heroRight}>
+                <View style={[s.heroRight, stackRows && s.heroRightStacked]}>
                   <Badge label={rep.label} tone={reputationTone(rep.tier)} />
                   {/*
                     * P-3: two lines is enough for the blurb at the default size and not enough at
@@ -319,7 +319,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
                     * is cut. Above the shared threshold it takes the lines it needs.
                     */}
                   <Text
-                    style={[textStyle('bodySm'), s.heroBlurb]}
+                    style={[textStyle('bodySm'), s.heroBlurb, stackRows && s.heroBlurbStacked]}
                     numberOfLines={stackRows ? undefined : 2}
                   >
                     {rep.blurb}
@@ -393,6 +393,15 @@ function makeStyles(p: Palette) {
   heroSub: { color: p.text.muted, marginTop: 2 },
   heroRight: { alignItems: 'flex-end', gap: v2.space.xs, maxWidth: 150 },
   heroBlurb: { color: p.text.muted, textAlign: 'right' },
+  /*
+   * Above the shared threshold the hero stacks: the badge and its explanation drop below the
+   * rate and take the full width. Unclamping alone left the blurb wrapping inside a 150 pt
+   * column, which breaks words — complete text that is still hard to read, which the owner
+   * ruled is not enough. The default two-column form above is untouched.
+   */
+  heroStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.sm },
+  heroRightStacked: { alignItems: 'flex-start', maxWidth: undefined },
+  heroBlurbStacked: { textAlign: 'left' },
 
   trustRows: { borderTopWidth: 1, borderTopColor: p.border.default },
   trustRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: v2.space.md },

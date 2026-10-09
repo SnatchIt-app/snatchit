@@ -91,6 +91,20 @@ async function mountProfile(fontScale: number, trust: ProfileTrustStats | null =
   return expandTree(host.output);
 }
 
+/** Every [element, parent] pair in the rendered tree. */
+function pairs(root: unknown): Array<[Element, Element | null]> {
+  const out: Array<[Element, Element | null]> = [];
+  const walk = (n: unknown, parent: Element | null): void => {
+    if (Array.isArray(n)) { n.forEach((c) => walk(c, parent)); return; }
+    const el = n as Element | null;
+    if (!el || typeof el !== 'object' || !('props' in el)) return;
+    out.push([el, parent]);
+    walk((el.props as { children?: unknown }).children, el);
+  };
+  walk(root, null);
+  return out;
+}
+
 /** Every element in the rendered tree, parents before children. */
 function nodes(root: unknown): Element[] {
   const out: Element[] = [];
@@ -197,6 +211,39 @@ describe('the public profile trust panel at the largest text size', () => {
     const bigBlurb = textWith(big, '14 sales \u00b7 100% transfer success');
     expect(bigBlurb, 'the blurb should render').toBeTruthy();
     expect(bigBlurb!.props.numberOfLines, 'at A3XL the blurb must not be cut').toBeUndefined();
+  });
+
+  it('PT7: at A3XL the hero stacks so the blurb has the width to wrap on whole words', async () => {
+    /*
+     * The owner's ruling after the first P-3 fix: complete text is not enough if the layout makes
+     * it hard to read. Unclamped inside a 150 pt column the blurb wraps mid-word at A3XL, the way
+     * "No completed transfers yet" already broke into "No / complet / ed / transfer / s yet" in
+     * the wider LEFT column. So above the threshold the hero stacks — the badge and its
+     * explanation move below the rate and take the full width — and the default stays as it is.
+     */
+    const column = (tree: unknown) => {
+      const ps = pairs(tree);
+      // NOT the first Badge in the tree — that is "Verified seller" in the identity block.
+      const badge = ps.find(([el]) => el.type === 'Badge' && el.props.label === 'Trusted seller');
+      expect(badge, 'the reputation badge should render').toBeTruthy();
+      const right = badge![1]!;
+      const hero = ps.find(([el]) => el === right)![1]!;
+      return { right: flat(right.props.style), hero: flat(hero.props.style) };
+    };
+
+    const def = column(await mountProfile(1));
+    expect(def.hero.flexDirection, 'the default hero is two columns').toBe('row');
+    expect(def.right.maxWidth, 'the default right column keeps its width bound').toBe(150);
+    expect(def.right.alignItems).toBe('flex-end');
+
+    const big = column(await mountProfile(A3XL));
+    expect(big.hero.flexDirection, 'at A3XL the hero must not stay side-by-side').not.toBe('row');
+    expect(big.right.maxWidth, 'the stacked column must not keep a 150 pt bound').toBeUndefined();
+    expect(big.right.alignItems).toBe('flex-start');
+
+    // And the blurb reads left-to-right from the margin once it owns the width.
+    const blurb = textWith(await mountProfile(A3XL), '14 sales \u00b7 100% transfer success');
+    expect(flat(blurb!.props.style).textAlign).toBe('left');
   });
 
   it('PT5: every two-column label/value surface consults the shared stacking rule', async () => {
