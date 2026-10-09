@@ -1,0 +1,74 @@
+C-operated captures at 857e6d93656d1d8126d56ccc22c00505a732fb6a (v3/midnight-app)
+=================================================================================
+The P-1 / P-2 trust-panel fix, photographed at BOTH sizes and BOTH appearances.
+
+Serving tree HEAD 857e6d93 (docs commits sit above it; `git diff 857e6d93..HEAD` touches no app
+source). Device SN V3 393x852 (52282259-961E-4A1A-B32B-CEFA858CFF48), iOS 26.5, native
+development build. No production call, reservation, payment or fixture write.
+
+APP IDENTITY AND TEXT SIZE
+--------------------------
+Every frame is gated on the SANDBOX — TEST MONEY ONLY banner, so no frame can be the dev-client
+launcher or another app. The size was read back from `simctl ui … content_size` beside each
+capture, and a content-size change is applied by RELAUNCHING, never by setting it under a
+running app:
+
+  default  -> content_size=large                                  appearance=light | dark
+  A3XL     -> content_size=accessibility-extra-extra-extra-large   appearance=light | dark
+
+METRO PROVENANCE
+----------------
+Started through the repaired guard, in a terminal, NOT through the preview tool:
+
+  bash -lc "cd /Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund \
+    && ./scripts/dev-web-guard.sh && exec npx expo start --port 8081"
+
+  dev-web-guard OK  dir=/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund
+  Starting project at /Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund
+  iOS Bundled 2784ms node_modules/expo-router/entry.js (2356 modules)
+
+The running process's own working directory was read back from the kernel, not from the config:
+`lsof -a -p <pid> -d cwd` -> /Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund. No browser tab
+was pointed at 8081 at any time, so no web bundle was ever requested.
+
+THE GUARD, BEFORE IT WAS USED
+-----------------------------
+Codex's repair changes exactly one line (the WORKTREE pin). Verified with one positive and two
+negative controls, so the pass means something:
+
+  from the SSD worktree          -> dev-web-guard OK   exit 0
+  from /tmp                      -> REFUSED, working directory is /tmp…        exit 1
+  with an exported EXPO_PUBLIC_* -> REFUSED, … already exported … would override .env.local
+
+FRAMES
+------
+profile-default-light-Coperated.png     rate "100%" whole; all six row values visible, including
+                                        "February 2026"; two-column layout preserved
+profile-default-dark-Coperated.png      the same in Dark
+profile-a3xl-light-rate-Coperated.png   rate "100%" on ONE line (was "10 / 0 / %")
+profile-a3xl-light-rows-Coperated.png   Active listings 2, Disputes opened 1, Disputes lost 0 —
+                                        each value stacked under its label, none in the gutter
+profile-a3xl-light-membersince-Coperated.png  "Member since / February 2026" whole — the value
+                                        B measured with 8,089 px inside the right gutter
+profile-a3xl-dark-rate-Coperated.png    rate "100%" on one line, Dark
+profile-a3xl-dark-rows-Coperated.png    Disputes opened 1, Disputes lost 0, Member since
+                                        February 2026 — all whole, Dark
+
+WHAT THE FRAMES SHOW THAT IS NOT FIXED
+--------------------------------------
+P-3 is visible and untouched in both A3XL rate frames: the badge blurb still clamps to
+"14 sale…". B classified it as a reachable minor defect after these captures were planned; it is
+NOT part of 857e6d93 and is not claimed as fixed here.
+
+TWO METHOD NOTES, BOTH LEARNED BY LOSING FRAMES
+-----------------------------------------------
+1. `simctl io screenshot` CANNOT WRITE TO THE EXTERNAL VOLUME. The screenshot is taken by the
+   CoreSimulator service, not by the shell, and that service is refused:
+     NSCocoaErrorDomain code=513 … "You don't have permission to save the file" (EPERM)
+   This shell writes to the same directory without trouble. The first attempt of this window
+   lost every frame to it SILENTLY, because cap.sh sent simctl's stderr to /dev/null. cap.sh now
+   stages the capture on the internal disk, copies it into place, and fails loudly instead.
+2. `touch_path` was dropped repeatedly on this screen while `swipe` moved it the same distance
+   immediately. Every scroll here is a `swipe`, and each one was confirmed by comparing frames
+   before anything was kept. A dropped synthetic gesture is not a product scrolling defect —
+   the screen scrolls, as these frames show.

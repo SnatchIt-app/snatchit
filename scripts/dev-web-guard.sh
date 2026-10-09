@@ -17,7 +17,7 @@
 # Exit 0 = safe to launch. Any non-zero = do not launch.
 set -euo pipefail
 
-WORKTREE='/Users/josetascon/snatchit-refund'
+WORKTREE='/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund'
 SANDBOX_REF='ofaidukbieeekqaboscm'
 SANDBOX_HOST="https://${SANDBOX_REF}.supabase.co"
 PROD_REF='hqycwntpfoztoinemqns'
