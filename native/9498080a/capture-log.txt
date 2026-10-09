@@ -1,0 +1,84 @@
+C-operated captures at 9498080ab7eb15a064bc455bb3d4f06e48eceaf0 (v3/midnight-app)
+=================================================================================
+Serving tree /Users/josetascon/snatchit-refund, HEAD 9498080a, `git status --porcelain`
+EMPTY at the start and the end of the window. Metro :8081 (the same process B handed over).
+Device SN V3 393x852 (52282259-961E-4A1A-B32B-CEFA858CFF48), iOS 26.5, native development
+build. No production call, reservation, payment or fixture write.
+
+Text size: accessibility-extra-extra-extra-large (A3XL) for EVERY frame. A content-size change
+only takes effect on relaunch, so each appearance/variant group below was captured after a
+terminate + dev-client relaunch, and the size was read back from `simctl ui ... content_size`
+on each capture. Every frame is gated on the SANDBOX banner being present, so no frame can be
+the dev-client launcher.
+
+FRAMES
+------
+listing-a3xl-light-bidactivity-Coperated.png       leading row, $99.00 complete (F-BA fix)
+listing-a3xl-dark-bidactivity-Coperated.png        same, Dark
+listing-a3xl-light-bidactivity-long-Coperated.png  $1,287.00 and $1,215.50 complete
+listing-a3xl-dark-bidactivity-long-Coperated.png   same, Dark
+listing-a3xl-light-footer-long-Coperated.png       four-figure CTA: $1,292.50 / $1,716.00
+listing-a3xl-light-datetime-Coperated.png          "Sat 24 Oct · 19:30 · Lantern Room" wrapped whole (F-DT fix)
+listing-a3xl-dark-datetime-Coperated.png           same, Dark
+home-a3xl-light-feature-amount-Coperated.png       FEATURE amount $99.00 + "current bid, all-in"
+home-a3xl-light-feature-longamount-Coperated.png   FEATURE amount $1,287.00 + the same caption
+profile-a3xl-light-trusthero-Coperated.png         corrected fixture: "Trusted seller", a real rate
+profile-a3xl-light-ratewrap-Coperated.png          the rate renders "10 / 0 / %" — see FINDING P-1
+profile-a3xl-dark-ratewrap-Coperated.png           same wrap, Dark
+profile-a3xl-light-norate-Coperated.png            unknown rate: "—" and no null%
+profile-a3xl-dark-norate-Coperated.png             the "Unrated" badge, neutral tone, Dark
+profile-a3xl-light-default-Coperated.png           top of the screen (the display name clamps to "Lanter…")
+profile-a3xl-light-trustrows-Coperated.png         FINDING P-2: trust-row VALUES clipped at the right edge
+
+MEASUREMENTS (pixels / 3 = points; 393 pt screen, 16 pt gutters, content edge 377 pt)
+--------------------------------------------------------------------------------------
+listing bid activity, Light, ordinary   $99.00       ink x 19.0 → 262.0 pt
+listing bid activity, Light, four-figure $1,287.00   ink x 19.0 → 368.3 pt   (8.7 pt clear)
+home feature, Light, four-figure         $1,287.00   ink x 23.0 → 366.3 pt   (10.7 pt clear)
+B's failing frame at 3c03778a            $99.        ink to 387.7 pt, 984 px INSIDE the gutter
+
+GESTURE METHOD — and what it says about the Home "scrolling defect"
+-------------------------------------------------------------------
+Three distinct causes of a "drag did nothing", each identified by a control, none of them a
+product defect:
+  1. The drag landed on the FIXED FOOTER. At A3XL the Listing footer occupies roughly the
+     bottom 300 pt, so a drag starting at y=700 pt is on the sticky bar. Moving the start to
+     the content band (y 460 → 170) scrolled immediately.
+  2. Two touch paths injected back-to-back: the second is dropped. The identical path sent
+     again after a ~20 s gap scrolled. Every gesture here is therefore preceded by a >= 2 s
+     pause, and each scroll is verified by diffing the frame before overwriting anything.
+  3. A fast release flicks with momentum and overshoots. A damped tail (three samples with
+     <= 2 pt of movement and 60/120/150 ms gaps) lands where it is aimed.
+
+HOME FEATURE: a drag that starts INSIDE the feature card scrolled on 3 of 4 trials and opened
+the listing on 1. The amount is therefore REACHABLE — it is captured above, at A3XL, not at a
+smaller size — so there is no product scrolling defect to report. The one navigation is the
+press winning a marginal press/pan decision under synthetic injection; a real finger was not
+available to me, so I state the trial counts rather than a verdict on the gesture itself.
+Nothing in the app's interaction was changed for any of this.
+
+FINDINGS FOUND BY THESE CAPTURES (not in this batch's scope — for B and the owner)
+----------------------------------------------------------------------------------
+P-1  Public profile, Trust & activity, A3XL, Light AND Dark. The success rate renders as
+     three stacked lines — "10", "0", "%" — i.e. a number broken mid-digit-run. Same class as
+     the amount rule the owner ruled on, on a percentage rather than money.
+     Source: `heroValue` in app/profile/[id].tsx carries no numberOfLines and no shrink-to-fit.
+P-2  Same screen: every TrustRow value is clipped at the right edge at A3XL ("Member since"
+     shows "F… 2…", "Completed sales" shows "1"), because the row is a fixed
+     row/space-between with no stacking. The established `identityStacks` treatment is the
+     same fix that closed this class in BidActivity.
+P-3  The blurb beside the badge clamps at A3XL ("14 sale…"), so in the unknown-rate state the
+     only thing a reader gets is the dash — the explanation is cut.
+P-4  The screen's `insufficientData` sub-line prints "No completed transfers yet" beneath a
+     "Completed sales 14" row in the `no-rate` state. A contradiction, but only in a shape the
+     RPC cannot return (migration 031); recorded, not fixed.
+I did not change the profile screen: it is outside the owner's scope for this batch and the
+fix is a layout decision on an approved surface. The treatment is ready to apply on a word.
+
+HARNESS OPERATION NOTE
+----------------------
+Re-navigating the SAME dev route with different params does not re-seed ListingDetailScreen's
+`listing` state (it is seeded once; `bids` are read every render). The first long-amount frame
+therefore showed four-figure BID rows beside an unscaled CTA. That is a navigation artefact,
+not a product defect, and it is why the long-amount frames above were taken after a relaunch —
+the CTA then reads $1,292.50 / $1,716.00. Noted so nobody reads the earlier shape as a finding.
