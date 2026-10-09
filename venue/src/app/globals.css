@@ -131,6 +131,11 @@
       0 0 0 1px rgba(28, 25, 23, 0.05),
       0 12px 32px -12px rgba(28, 25, 23, 0.16);
   }
+  /* Panels that hold reading content over busy content (drawer, popovers):
+     nearly opaque, so nothing behind can ghost through the text. */
+  .glass-solid {
+    background: rgba(255, 255, 255, 0.95);
+  }
   /* The sticky header band: lighter edge, no float shadow. */
   .glass-bar {
     background: rgba(245, 243, 239, 0.84);
@@ -237,7 +242,7 @@
     letter-spacing: -0.03em;
     font-weight: 650;
   }
-  .overline {
+  .kicker {
     font-size: var(--text-label);
     font-weight: 600;
     letter-spacing: 0.02em;

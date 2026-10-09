@@ -7,6 +7,7 @@ import { frameAttention } from "@/lib/attention";
 import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
 import { canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses, canManualLookup } from "@/lib/roles";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { PopoverDismiss } from "@/components/ui/PopoverDismiss";
 
 export type NavEvent = { eventId: string; title: string } | null;
 type Active = "overview" | "events" | "setup" | "inventory" | "attendees" | "door";
@@ -73,6 +74,9 @@ export function Shell({
 
   return (
     <div className="min-h-dvh">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white">
+        Skip to content
+      </a>
       <aside className="glass fixed bottom-3 left-3 top-3 z-40 hidden w-[16.5rem] flex-col rounded-[28px] p-3 lg:flex">
         <div className="flex items-center gap-2.5 px-2 pb-4 pt-1.5">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink">
@@ -87,7 +91,7 @@ export function Shell({
 
         {place ? (
           <div className="mb-4 rounded-2xl bg-[#faf9f7] px-3 py-2.5 shadow-[0_0_0_1px_rgba(28,25,23,0.06)]">
-            <p className="overline">Venue</p>
+            <p className="kicker">Venue</p>
             <p className="truncate text-[0.875rem] font-semibold">{place}</p>
             <p className="text-[0.75rem] text-muted">{VENUE.neighborhood}</p>
           </div>
@@ -149,7 +153,7 @@ export function Shell({
                 ))}
               </ol>
             </nav>
-            <details className="relative lg:hidden">
+            <details data-popover className="relative lg:hidden">
               <summary aria-label="About this data">
                 <DataPill ctx={ctx} />
               </summary>
@@ -188,6 +192,7 @@ export function Shell({
         </main>
       </div>
 
+      <PopoverDismiss />
       <TabBar items={[...venueNav.slice(0, 1), ...eventNav.slice(0, 3), ...venueNav.slice(1)].slice(0, 5)} active={active} />
     </div>
   );
@@ -236,11 +241,11 @@ function TabBar({ items, active }: { items: NavItem[]; active: string }) {
 
 function Account({ initials, place, who, signedInAs }: { initials: string; place: string | null; who: string | null; signedInAs?: string | null }) {
   return (
-    <details className="relative">
+    <details data-popover className="relative">
       <summary className="grid h-10 w-10 place-items-center rounded-full bg-ink text-[0.8125rem] font-semibold text-white transition-transform active:scale-95" aria-label="Account">
         {initials}
       </summary>
-      <div className="popover glass right-0 w-72 p-4">
+      <div className="popover glass glass-solid right-0 w-72 p-4">
         {place ? <p className="text-sm font-semibold">{place}</p> : null}
         {signedInAs ? <p className="break-words text-sm">{signedInAs}</p> : null}
         {who ? <p className="mt-0.5 text-sm text-muted">{who}</p> : <p className="mt-0.5 text-sm text-muted">No verified role at this venue</p>}
@@ -305,12 +310,12 @@ function DataSource({ ctx, surface }: { ctx: PreviewContext; surface: Surface })
 
 function DemoControls({ ctx, surface }: { ctx: PreviewContext; surface: Surface }) {
   return (
-    <details className="relative mt-2">
+    <details data-popover className="relative mt-2">
       <summary className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[0.75rem] font-semibold shadow-[0_0_0_1px_rgba(28,25,23,0.1)] hover:shadow-[0_0_0_1px_rgba(28,25,23,0.25)]">
         Viewing as {PRINCIPAL_LABEL[ctx.role]}
         <Icon name="down" size={13} />
       </summary>
-      <form method="get" className="popover glass bottom-10 left-0 grid w-[min(19rem,calc(100vw-3rem))] gap-3 p-4 lg:bottom-auto">
+      <form method="get" className="popover glass glass-solid bottom-10 left-0 grid w-[min(19rem,calc(100vw-3rem))] gap-3 p-4 lg:bottom-auto">
         <p className="text-sm font-semibold">Demo controls</p>
         <label className="grid gap-1 text-[0.8125rem]">
           <span className="text-muted">Viewing as</span>

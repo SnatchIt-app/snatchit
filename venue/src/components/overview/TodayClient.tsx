@@ -46,13 +46,14 @@ export function AttentionQueue({ items, clear }: { items: QueueItem[]; clear: { 
           {urgent.length > 0 ? <span className="count count-alert">{urgent.length}</span> : null}
         </div>
         {areas.length > 1 ? (
-          <div className="seg" role="group" aria-label="Show attention items for">
+          <div className="seg min-w-0" role="group" aria-label="Show attention items for">
             <button type="button" aria-pressed={area === "all"} onClick={() => setArea("all")}>
               All
             </button>
             {areas.map((a) => (
               <button key={a} type="button" aria-pressed={area === a} onClick={() => setArea(a)}>
                 {AREA_LABEL[a]}
+                <span className="sr-only">, </span>
                 <span className="count">{items.filter((i) => i.area === a && i.severity !== "worth_knowing").length}</span>
               </button>
             ))}
@@ -155,11 +156,12 @@ export function TicketViews({ lines, countersVisible, manageHref, available }: {
         <h2 id="tickets-title" className="title-section">
           Tickets for this event
         </h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="seg" role="group" aria-label="Saved views">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          <div className="seg min-w-0" role="group" aria-label="Saved views">
             {views.map((v) => (
               <button key={v.key} type="button" aria-pressed={view === v.key} onClick={() => setView(v.key)}>
                 {v.label}
+                <span className="sr-only">, </span>
                 <span className="count">{lines.filter(v.test).length}</span>
               </button>
             ))}
