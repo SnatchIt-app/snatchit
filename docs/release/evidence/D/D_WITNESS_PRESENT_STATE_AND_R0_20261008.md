@@ -249,3 +249,86 @@ for display consistency"). The narrowing of R1 is downstream of that ruling: if 
 display consistency, R1 must also read records 1-5 in test mode, because writing a refund state without
 first reading the real one reintroduces precisely the defect 150 fixed. The package should read
 *excluded pending the owner's ruling*, with R1 narrowed *conditionally*.
+
+---
+
+## 9. The mode boundary, verified at function level — and R3 bypasses all of it
+
+A's package now gives the `rowIsLiveActionable` boundary as the **primary** reason to exclude records
+1-5, citing it "used at `enforce-transfer-expiry:618`, `ops-refund-execute/classify.ts:117` and
+`stripe-webhook/native-dispute.ts:206`". Since that argument is now load-bearing for an owner decision,
+D verified it rather than inheriting it. Read at gate tip `abef9506`.
+
+### 9a. Only one of the three is a call site
+
+Scanning every `.ts` under `supabase/functions/` for **call syntax** (`rowIsLiveActionable(`), excluding
+comment lines, returns exactly two hits: its definition (`_shared/payout-logic.ts:150`) and **one real
+invocation** — `enforce-transfer-expiry/index.ts:618`.
+
+A's other two citations are **prose**:
+- `ops-refund-execute/classify.ts:117` is inside a doc comment — *"the `rowIsLiveActionable` rule in
+  _shared/payout-logic.ts"*.
+- `stripe-webhook/native-dispute.ts:206` is a comment saying the code *"mirrors `rowIsLiveActionable`"*.
+
+The substance survives — both paths **do** enforce the boundary — but by **independent
+implementations**, not by calling the shared helper. That distinction matters for a claim about a money
+boundary: three separate implementations can drift from one another; a single shared function cannot.
+Worth noting too that a shared boundary helper with exactly one consumer, while two other paths hand-roll
+equivalents, is itself a mild smell.
+
+The two independent enforcements, read directly:
+- `ops-refund-execute/classify.ts:120-138` — `checkModeConsistency(keyMode, stripeLivemode)` rejects
+  `key_mode_unknown`; `row_mode_unclassified` when not a boolean; and `cross_mode` when
+  `(keyMode === 'live') !== stripeLivemode`. **Stricter than `rowIsLiveActionable`**: on a live key a
+  `false` row is refused outright. Fails closed for records 1-5.
+- `stripe-webhook/native-dispute.ts:211-232` — `resolveDisputeRail` step (3) requires
+  `eventLivemode === true && paymentRow.stripe_livemode === true`, else routes `not_livemode` with
+  ack + alert and no native write. Its own comment records that `record_dispute_native` "enforces neither
+  rail nor livemode … the edge is the only guard and it fails closed."
+
+### 9b. The database functions R3 would call are mode-blind
+
+Function bodies mapped by parsing `create … function` boundaries (not by grep line numbers — see 9d):
+
+| function | lines | livemode in body |
+|---|---|---|
+| `public.record_refund_state` (150) | :125-261 | **none** |
+| `public.record_payment_refund` | :457-558 | **none** |
+| `ops.detect_refunds` (150) | :262-406 | **none** |
+| `public.claim_payout_attempt` | :559-677 | :633,636,637 — **raises `PAYMENT_NOT_LIVE`** |
+
+So `PAYMENT_NOT_LIVE` guards the **payout claim** path only. **Neither function in R3's call path
+checks `stripe_livemode`.** R3 is `select public.record_refund_state(…)`, which at :224 calls
+`record_payment_refund` — both mode-blind. Nothing in the database would refuse to write test-mode rows
+into `payment_refund_state`, `payment_refund_state_log` and `payment_refunds`.
+
+**This inverts the shape of the argument, in the direction of exclusion.** The earlier framing was "R3
+would be the only money-rail write crossing a stated boundary". The accurate framing is stronger: the
+boundary that keeps records 1-5 inert lives **at the edge** (one `rowIsLiveActionable` call plus two
+independent equivalents) and, in the database, only on the payout path. **A direct SQL call bypasses
+every one of them.** R3 is not constrained by the mechanism that currently makes these rows harmless.
+
+### 9c. New consequence: the live detector has no mode filter
+
+`ops.detect_refunds` (:262-406) contains **no livemode reference**. Detection is now **on**. So if R3
+wrote refund-state rows for the five test-mode payments, the live detector would scan them like any
+other, and a reconciled `failed`/`canceled` test-mode refund could open a **p1 case** — an alert about
+money that never moved, in the queue the owner has committed to working daily under O-R3.
+
+This was not stated anywhere before. It is an operational cost of reconciling the test rows that falls on
+the owner personally, and it is independent of the rollback-guard cost.
+
+### 9d. Method note — a near-miss of my own
+
+I first read `20260906120000` lines 625-660 off a grep hit list and was about to report that
+`record_payment_refund` carries a `PAYMENT_NOT_LIVE` gate. It does not: that region belongs to
+`claim_payout_attempt` (:559-677). Caught before reporting by mapping function boundaries and testing
+containment instead of trusting grep line numbers. Same class as the earlier `:52-54` / `:508-510`
+citation error — a line number means nothing until the enclosing object is established.
+
+### 9e. Limit on completeness
+
+A sweep intended to enumerate *every* edge money path and its gate **failed** (malformed paths, partial
+output) and its results are discarded, not reported. So D makes **no** exhaustive claim of the form
+"every money path gates on mode". What is claimed is only the function-level facts in 9a-9c, each read
+directly at `abef9506`. A full enumeration remains undone.
