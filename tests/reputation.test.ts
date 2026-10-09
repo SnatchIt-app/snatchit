@@ -33,6 +33,10 @@ describe('reputation ladder', () => {
     const r = deriveReputation(null);
     expect(r.tier).toBe('new_seller');
     expect(r.successRate).toBeNull();
+    // Pinned after a P-5 mutant added a tier word here and nothing failed: a FAILED read is not
+    // a seller with a tier, and this branch's wording must not drift into claiming one.
+    expect(r.blurb).toBe('No completed transfers yet');
+    expect(r.label).toBe('New seller');
   });
 
   it('any lost dispute is the trust floor, even at high volume', () => {
@@ -128,6 +132,31 @@ describe('an unknown transfer-success rate is neither a zero nor a failure', () 
     const r = deriveReputation(stats());
     expect(r.successRate).toBeNull();
     expect(r.blurb).toBe('No completed transfers yet');
+  });
+
+  it('R6: the tier word rides in the blurb, because the badge is capped at 1.3x', async () => {
+    /*
+     * P-5 (B, 069eeb9c): Badge pins its label to MAX_DISPLAY_FONT_SCALE, so at A3XL the word
+     * "Needs review" paints at 0.47x the blurb beside it — the only adverse signal on the panel
+     * is the smallest text on it, and colour is not a carrier. Until the badge can scale, the
+     * four branches whose tier word appears nowhere else carry it in the blurb too.
+     */
+    const cases: Array<[Partial<ProfileTrustStats>, string]> = [
+      [{ completed_sales: 120, seller_terminal_total: 120, seller_terminal_successful: 120 }, 'Elite seller'],
+      [{ completed_sales: 30,  seller_terminal_total: 100, seller_terminal_successful: 99 },  'Top seller'],
+      [{ completed_sales: 10,  seller_terminal_total: 100, seller_terminal_successful: 96 },  'Trusted seller'],
+      [{ completed_sales: 20,  seller_terminal_total: 100, seller_terminal_successful: 82 },  'Needs review'],
+    ];
+    for (const [over, word] of cases) {
+      const r = deriveReputation(stats(over));
+      expect(r.label, JSON.stringify(over)).toBe(word);
+      expect(r.blurb, `${word} must say so in the blurb as well as the badge`).toContain(word);
+      expect(r.blurb).toMatch(/\d+%/);           // and still carries the number
+    }
+    // The two branches whose blurb already says what the badge says keep their wording.
+    expect(deriveReputation(stats()).blurb).toBe('No completed transfers yet');
+    expect(deriveReputation(stats({ completed_sales: 14, seller_terminal_total: 0 })).blurb)
+      .toBe('14 sales \u00b7 transfer success unavailable');
   });
 
   it('R5: a lost dispute is still the floor, and its blurb was already guarded', () => {

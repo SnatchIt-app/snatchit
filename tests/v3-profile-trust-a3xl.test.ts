@@ -203,12 +203,12 @@ describe('the public profile trust panel at the largest text size', () => {
      * impossible no-rate shape) and classified what remains as a real but minor defect.
      */
     const def = await mountProfile(1);
-    const defBlurb = textWith(def, '14 sales \u00b7 100% transfer success');
+    const defBlurb = textWith(def, 'Trusted seller \u00b7 14 sales \u00b7 100% transfer success');
     expect(defBlurb, 'the blurb should render').toBeTruthy();
     expect(defBlurb!.props.numberOfLines, 'the default layout is unchanged').toBe(2);
 
     const big = await mountProfile(A3XL);
-    const bigBlurb = textWith(big, '14 sales \u00b7 100% transfer success');
+    const bigBlurb = textWith(big, 'Trusted seller \u00b7 14 sales \u00b7 100% transfer success');
     expect(bigBlurb, 'the blurb should render').toBeTruthy();
     expect(bigBlurb!.props.numberOfLines, 'at A3XL the blurb must not be cut').toBeUndefined();
   });
@@ -242,7 +242,7 @@ describe('the public profile trust panel at the largest text size', () => {
     expect(big.right.alignItems).toBe('flex-start');
 
     // And the blurb reads left-to-right from the margin once it owns the width.
-    const blurb = textWith(await mountProfile(A3XL), '14 sales \u00b7 100% transfer success');
+    const blurb = textWith(await mountProfile(A3XL), 'Trusted seller \u00b7 14 sales \u00b7 100% transfer success');
     expect(flat(blurb!.props.style).textAlign).toBe('left');
   });
 

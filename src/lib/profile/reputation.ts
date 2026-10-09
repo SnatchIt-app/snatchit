@@ -15,6 +15,12 @@
  * The same rule holds INSIDE a successful read: a seller with sales but no terminal transfer has no
  * success rate, so the rate is `null`, not 0 — a 0 would print as a rate AND fail every tier
  * gate, branding that seller "Needs review" on no evidence (B, batch 7: `null% transfer success`).
+ *
+ * P-5: the four branches whose tier word appears NOWHERE but the badge repeat it in the blurb.
+ * Badge caps its label at 1.3x, so at the largest accessibility size "Needs review" paints at
+ * 0.47x the text beside it — the only adverse signal on the panel is its smallest text, and
+ * colour is not a carrier. The two branches whose blurb already says what the badge says are
+ * left alone.
  */
 
 import type { ProfileTrustStats, SellerReputationTier } from '@/src/types';
@@ -80,16 +86,16 @@ export function deriveReputation(stats: ProfileTrustStats | null): Reputation {
   }
 
   if (sales >= 100 && rate >= 0.99) {
-    return { tier: 'elite', label: 'Elite seller', blurb: `${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
+    return { tier: 'elite', label: 'Elite seller', blurb: `Elite seller · ${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
   }
   if (sales >= 25 && rate >= 0.98) {
-    return { tier: 'top', label: 'Top seller', blurb: `${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
+    return { tier: 'top', label: 'Top seller', blurb: `Top seller · ${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
   }
   if (sales >= 5 && rate >= 0.95) {
-    return { tier: 'trusted', label: 'Trusted seller', blurb: `${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
+    return { tier: 'trusted', label: 'Trusted seller', blurb: `Trusted seller · ${sales} sales · ${ratePct}% transfer success`, successRate: ratePct };
   }
   // Has volume but rate below the tier floor → review.
-  return { tier: 'needs_review', label: 'Needs review', blurb: `${ratePct}% transfer success`, successRate: ratePct };
+  return { tier: 'needs_review', label: 'Needs review', blurb: `Needs review · ${ratePct}% transfer success`, successRate: ratePct };
 }
 
 /** The V2 Badge tone for a tier — restrained, word-carried, never a rainbow. */

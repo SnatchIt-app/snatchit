@@ -1252,7 +1252,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     ...(showBreakdown
       ? [
           { label: 'Tickets', value: minBidBase, money: true },
-          { label: 'Service fee (10%)', value: minBidFee, money: true },
+          { label: 'Service fee', value: minBidFee, money: true },
         ]
       : []),
     { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },

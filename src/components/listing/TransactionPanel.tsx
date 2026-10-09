@@ -133,7 +133,7 @@ export function TransactionPanel({
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidBase}</Text>
           </View>
           <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
-            <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee (10%)</Text>
+            <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee</Text>
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidFee}</Text>
           </View>
         </View>

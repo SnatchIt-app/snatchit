@@ -131,7 +131,11 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(host, 'Tickets')).toBeDefined();
     expect(byText(host, 'Tickets (2 × GA)')).toBeUndefined();
     expect(byText(host, '$95.00')).toBeDefined();
-    expect(byText(host, 'Service fee (10%)')).toBeDefined();
+    // W-2: the rate left the label. A confirmed the buyer fee is NOT 10% on every payment type —
+    // the venue primary rail uses the order's own buyer_fee_minor — so the label states the fee
+    // and the number states the amount. No amount changed with it.
+    expect(byText(host, 'Service fee')).toBeDefined();
+    expect(byText(host, 'Service fee (10%)')).toBeUndefined();
     expect(byText(host, '$9.50')).toBeDefined();
     // R-2 (B): no total row — the CTA sub-label states the minimum all-in; the figure must not
     // appear in the panel at all.
@@ -157,7 +161,7 @@ describe('TransactionPanel — the §5 panel', () => {
     // a would-be total on a closed auction is an offer that no longer exists.
     const closedWithValues = await mountPanel({ mode: 'closed', clock: null });
     expect(byText(closedWithValues, 'If you bid the minimum')).toBeUndefined();
-    expect(byText(closedWithValues, 'Service fee (10%)')).toBeUndefined();
+    expect(byText(closedWithValues, 'Service fee')).toBeUndefined();
   });
 
   it('LP5: sold shows what it went for, no bid arithmetic — and keeps its one fee sentence', async () => {

@@ -36,13 +36,23 @@ arguments and needed no change. Nothing here writes outside the path it is given
 simctl reports light (B hit this and discarded the frame). Always pass `?appearance=light|dark`
 in the route — every script here does.
 
-**The content size is reset by something else on this machine, roughly every 30 s.** Not these
-scripts: set / terminate / openurl all preserve it, and it also drops during pure idle. Two
-things follow. The app reads the size AT LAUNCH, so setting it under a running app changes
-nothing — both size reads can say A3XL while the paint is default-sized. And `shot.sh`'s fixed
-42 s sleep loses the race, which is why `fastshot.sh` exists: it polls for the banner instead
-and finishes in ~15 s, setting the size immediately before the launch.
+**CORRECTED.** I first wrote that something resets the content size every ~30 s. That was wrong,
+and B was right: it was plain contention — two sessions driving one simulator, each seeing the
+other's writes. My "pure idle" control was not a control, because B was still working at 19:12
+while I ran it. With B off the device the size held A3XL for 160 s across eight samples. There
+is no simulator reset. **One operator at a time, declared before use** — that is the actual fix,
+and B has adopted it too.
+
+What remains true and still matters: **the app reads the content size AT LAUNCH.** Setting it
+under a running app changes nothing, so both size reads can say A3XL while the paint is
+default-sized — verified. `fastshot.sh` polls for the banner instead of `shot.sh`'s fixed 42 s
+sleep and finishes in ~15 s, setting the size immediately before the launch; that is worth
+keeping because it shortens the window in which anything — a peer, or your own next command —
+can change the size out from under the frame.
 
 Never trust simctl's answer alone. Fingerprint the PAINT: at this device size a known-A3XL
 frame has 145-158 px tall ink bands and the default has 60-92. If the two disagree, the frame
-is void.
+is void. B offers two more witnesses: the header hairline's y is scroll-independent (553 px at
+A3XL, 417 px at both default and 3XL — so it separates A3XL from the rest, but NOT default from
+3XL), and a frame painting the stacked hero is above the 1.3 threshold by construction, since
+that is the branch `identityStacks` takes.
