@@ -1,4 +1,13 @@
-# O-R4 historical refund reconciliation: R0 DONE; R1 PENDING (owner's Dashboard read); no writes (A, 2026-10-09)
+# O-R4 historical refund reconciliation (A, 2026-10-09)
+
+**Status:**
+- R0 DONE.
+- Test-mode five EXCLUDED by the owner's ruling.
+- R1 PARTIAL: the owner's live Dashboard read gives amounts and displayed status. The refund ids, refund status and
+  refund-object count are still needed.
+- R2 rehearsal PASS.
+- R3 PREPARED, NOT AUTHORISED.
+- No production writes.
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
 gated." Nothing here has been read from or written to production. Each production step below needs the owner's own
@@ -159,8 +168,13 @@ therefore `least(refund_amount, total)`; there is no prior value.
 
 **Proposed scope:**
 - **Reconcile the 2 live rows (#6, #7)** after R1 and the source decision.
-- **The 5 test-mode rows: exclusion RECOMMENDED (A and D), PENDING THE OWNER'S RULING.** This is a recommendation,
-  not a decision. The owner chooses: **exclude**, or **reconcile for display consistency**.
+- **The 5 test-mode rows: EXCLUDED by the owner's ruling (2026-10-09).** The owner's words: "I approve excluding
+  the five identified test-mode payments from the live historical refund reconciliation. Preserve their records and
+  document the exclusion; this is not permission to delete records or change their mode."
+  - #1–#5 stay as they are: no refund-state, log or ledger rows; `stripe_livemode` unchanged; nothing deleted.
+  - Their test-mode Stripe reads are not required.
+  - The R3 script refuses any non-live payment in any case (R2 control C6, killed only by its own guard, M1).
+  - The reasoning recorded for the recommendation follows, kept as history.
   - **Primary reason: the mode boundary lives at the edge, and R3 bypasses it** (D; verified by A at `abef9506` from
     function bodies, not line numbers).
     - `rowIsLiveActionable` (`_shared/payout-logic.ts:144–152`) admits only `stripe_livemode = true` rows into the
@@ -191,4 +205,143 @@ cannot read these. For each PaymentIntent above:
 2. Report: live or test, and **for every refund on it**: refund id (`re_…`), status, amount, date, and failure reason
    if any.
 
-**Live read, required now:** #6 and #7. **The test-mode five: conditional.** If the owner rules exclude, no read is needed. If the owner chooses to reconcile them, R1 must also read #1–#5 in the real account's **test mode** (`https://dashboard.stripe.com/test/payments/<pi>`) before anything is written. Writing a refund state without reading the real one would reintroduce the defect 150 fixed. They are not in the sandbox: D's CLI read returned `resource_missing` in `acct_1T6Fb1…`.
+**Scope after the owner's ruling:** #6 and #7 only. The test-mode five are excluded (above), so no test-mode read is
+needed.
+
+### R1 part 1: the owner's live Dashboard screenshots (2026-10-09)
+
+The owner supplied two live-mode payment pages and stated, "I confirm this is Live mode". The screenshots truncate
+the PaymentIntent ids; the full ids come from R0.
+
+**Matching to R0.** Each item is checked against our own rows, not inferred from the screenshot:
+
+| check | #6 `32913315` | #7 `700d469b` |
+|---|---|---|
+| PaymentIntent prefix shown | `pi_3U0XuwGdOzCmGbHw0WVJ…` = R0 `pi_3U0XuwGdOzCmGbHw0WVJfW3y` | `pi_3U0YzcGdOzCmGbHw0Z6l7b…` = R0 `pi_3U0YzcGdOzCmGbHw0Z6l7bf7` |
+| Payment amount shown = R0 `total` | $11.00 = 1100 | $2.20 = 220 |
+| **Pairing** | the larger amount sits on the `…0WVJ…` intent in both sources | (same) |
+| Payment status shown | Refunded = R0 `status` refunded | Refunded = R0 `status` refunded |
+| "Refunded amount" line | −$11.00, equal to the total | −$2.20, equal to the total |
+| Live mode | owner's statement **and** R0 `stripe_livemode = true` (recorded from Stripe's own `livemode`) | (same) |
+| Refund activity shown | "Aug 4, 5:20 PM" | "Aug 4, 5:20 PM" |
+| R0 `refunded_at` (UTC) | 2026-08-04 17:20:05 | 2026-08-04 17:20:19 |
+
+The amount pairing is the real cross-check: two different amounts land on the right two intents. The PaymentIntent
+prefixes alone would be weaker.
+
+**On the time.** "5:20 PM" equals our recorded 17:20 **only if the Dashboard displays UTC**. The display timezone is
+not established, and this machine's local zone is UTC−4, so the agreement is recorded as conditional.
+- `refunded_at` is when *our* row was marked refunded, not Stripe's refund `created`. The two may differ.
+
+**Disregarded, as the owner instructed:** the activity notes "test" and "test 2". They are not evidence of Stripe
+test mode or of the refund's origin.
+
+**Not established by the screenshots** (owner's list, with D's additions):
+1. **The refund id (`re_…`).** The 23-digit ARN shown on each page is an Acquirer
+   Reference Number for the card network, not a refund id. It is never substituted for one (R2 control C2 refuses an
+   ARN).
+2. **The refund object's status.** "Refunded" is the **payment's** badge, and it is not even a value of the refund
+   status enum (`pending|requires_action|succeeded|failed|canceled`). A payment can read Refunded while its refund is
+   `pending`, or later `failed`; telling those apart is what 150 exists for. The badge is never mapped onto the refund
+   status.
+3. **How many refund objects** each payment has. One aggregate "Refunded amount" line cannot exclude two partial
+   refunds that sum to the total, and one activity entry is suggestive, not conclusive. R3 makes one call per refund
+   object.
+4. **The refund's `created`** with year and timezone. It is not an R3 input (`record_refund_state` takes no
+   timestamp), but it is provenance and a cross-check against `refunded_at`.
+5. **The failure reason**, if any.
+6. **Provenance** (how the refund was initiated), and whether the customer's bank received it. Neither is claimed.
+
+**Source** (`expiry|dashboard|admin|unfulfillable`) stays the owner's recorded decision per row. Stripe's refund
+object has no field for our taxonomy.
+
+**Observed, out of scope:** the second screenshot shows a Dashboard notice, "Add funds in USD to cover your negative
+balance". It is not part of O-R4 and is not interpreted here. It may matter to any future refund execution, which
+stays off (`refund_execute_enabled = false`).
+
+### R1 part 2: the one remaining request
+
+For each of the two payments:
+- open the refund's **View details**, from "Payment refunded … View details";
+- report **each refund listed** (normally one): its id (`re_…`), its own status, its amount, its created date with year
+  and timezone, and its failure reason (if any);
+- state how many refunds the payment lists.
+
+Separately, decide the `source` for each of #6 and #7.
+
+## R2 rehearsal: PASS (2026-10-09, local clone of `pkg151_rehears`, ledger 164; never production)
+
+Run with `bash rehearsal/run_R2.sh or4_r2_rehears_<n>` against a fresh clone. Predictions were written before run 1
+(`rehearsal/R2_predictions.txt`).
+
+**Fixtures.** #6 and #7 use their real ids, PaymentIntents, totals and `refunded_at`. Control payments cover test
+mode, an existing ledger row, a paid transfer, a pre-set `stripe_refund_id`, and a genuine partial refund. They were
+seeded with `session_replication_role = replica` for setup only; every call under test ran with all triggers on.
+
+**Run 4: 24 PASS, 0 FAIL** (`rehearsal/out/R2_run_4.txt`; run 3 was identical before the ARN redaction):
+- **Refusals, nothing written:** C1–C9.
+  - C1: the committed file with its markers unfilled.
+  - C2: the ARN given as the refund id.
+  - C3–C5: status `pending`, source `reconcile`, amount 600 of 1100.
+  - C6: a test-mode payment.
+  - C7: a ledger row under another key.
+  - C8: a paid transfer.
+  - C9: `payments.stripe_refund_id` already set to another id.
+- **Writes:** W6 and W7 used the committed files, with exactly the 3 marker lines replaced.
+  - Read-back per record: `amount_refunded_cents` = total; cents (requested, succeeded, failed) = (0, total, 0);
+    `refunded_at` unchanged.
+  - One succeeded state row (via `reconcile`), one log row, one ledger row. The transfer is unchanged; 0 cases.
+  - A second run of W6 is refused before writing.
+- **Detection:** `ops.detect_refunds()` read `opened 0` before and after.
+  - **Positive control:** a *failed* state row opens exactly one `refund_failed` case in the same DB, so the 0 for
+    succeeded rows discriminates.
+- **Mutants, rolled back, each shown applied:**
+  - M1: livemode guard removed → the test-mode write goes through. C6's refusal comes from that guard alone; no
+    postcondition covers live mode.
+  - M2: ledger guard removed → caught by the postcondition `ledger rows: 2`.
+  - M3: payout guard removed → caught by `payout records changed`.
+- **Raw hazard-1 control (no script):** a second refund id for 600 turns a 600 partial into `refunded` 1100. The
+  hazard is real, and C7/M2 are what stop it.
+
+**Run 1 found a gap, now fixed.** The after-payout flag writes `payout_attempts` and `payout_decisions`, not
+`transfers`, so a "transfer unchanged" postcondition could not see hazard 2. The template now snapshots both payout
+tables before the write and asserts they are unchanged after. Runs 1–3 are kept in `rehearsal/out/`, with the real ARN that C2 first used redacted; C2 now uses a synthetic 23-digit value.
+
+## R3: prepared, NOT authorised
+
+**Files:**
+
+| file | sha256 (with markers) |
+|---|---|
+| `R3_record_refund.sql.tmpl` (source) | `97f1d0a1370e92a5b22142807bacb91a99e50119f8b86d46ac32fbe63cdcef9d` |
+| `R3_proposed_6_32913315.sql` | `74cfe59a69da8d7d77deefb8887a1bc32e24ab556155938553a9661fd5fa5298` |
+| `R3_proposed_7_700d469b.sql` | `41372b17fd232ffc44db37f4ec9cc9b7cb18423d3ca8a228d95d9ff42cd5828f` |
+
+Each file is one atomic `DO` block: input guards, then prestate guards (exactly R0), then
+`record_refund_state(pi, re_…, 'succeeded', total, null, <source>, 'reconcile')`, then postconditions. Any failure
+rolls the whole block back.
+
+**Markers.** Three remain in each file: `__R1_REFUND_ID__`, `__R1_REFUND_STATUS__` and `__OWNER_SOURCE__`. As
+committed, each file refuses to run (C1).
+- After R1 part 2 and the source decision, A fills the three markers and nothing else.
+- A then presents the filled files, a diff showing exactly 3 changed lines, and their new sha256.
+- **The owner approves those exact shas.**
+
+**Scope.** Only a single succeeded refund equal to the total is handled. If R1 shows anything else for a record
+(pending, failed, canceled, a partial, or more than one refund object), the script refuses and that record gets its
+own plan, with the expected case or flag stated before anything runs.
+
+**Expected effect per record:**
+- one state row, one log row, one ledger row (with the owner's source);
+- `amount_refunded_cents` NULL → total, and `stripe_refund_id` set;
+- `status` and `refunded_at` unchanged; no case, no payout flag, no transfer change;
+- the app shows a confirmed refund instead of the legacy "Refund recorded";
+- the console's refunded-money figure (126) counts these two from the ledger instead of status only.
+
+**Irreversible once run:**
+- the log and ledger are append-only;
+- `stripe_refund_id` and `refunded_at` are set-once, and `amount_refunded_cents` is non-decreasing;
+- 150's rollback guard stops holding.
+
+**Run, when approved:** one Management API request per file, then `R4_readback.sql` (read-only), then the next
+`refunds` tick's `ops.job_run` row and a case check. D witnesses.

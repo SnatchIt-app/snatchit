@@ -1,0 +1,45 @@
+== R2 run 2026-10-09T22:07:57Z on or4_r2_rehears (ledger 164)
+== proposed files: 1bac0333d6ab88d8 R3_proposed_6_32913315.sql; 5995f2d5567c7486 R3_proposed_7_700d469b.sql; 
+== after fixtures: 0 state, 0 log, 2 ledger, 0 cases
+== settings: refund_execute_enabled=false, refund_resolution_detector_enabled=false, refund_state_detection_enabled=true
+== R4 read-back BEFORE
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:05 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:19 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+== refusals
+PASS C1 refused: R3_GUARD input: __R1_REFUND_ID__ is not a Stripe refund id
+PASS C2 refused: R3_GUARD input: <real ARN redacted 2026-10-09> is not a Stripe refund id
+PASS C3 refused: R3_GUARD input: refund status pending is out of scope (succeeded only); stop and re-plan
+PASS C4 refused: R3_GUARD input: source reconcile is not one of the four owner-decided values
+PASS C5 refused: R3_GUARD input: refund amount 600 differs from total 1100; partial or split refunds need their own plan
+PASS C6 refused: R3_GUARD prestate: stripe_livemode is f; only live payments are reconciled
+PASS C7 refused: R3_GUARD prestate: 1 ledger row(s) already exist for this payment or refund id
+PASS C8 refused: R3_GUARD prestate: 1 transfer(s) of this payment carry a payout
+PASS C9 refused: R3_GUARD prestate: payments.stripe_refund_id already holds re_R2PREEXISTING0000001, not re_R2CONTROL00000000001
+PASS nothing written by C1-C9: 0 state, 0 log, 2 ledger, 0 cases
+== writes: the committed files with only the three markers replaced
+PASS w6 differs from the committed file in exactly 3 lines
+PASS w7 differs from the committed file in exactly 3 lines
+PASS W6: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+PASS W7: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "700d469b-045c-430f-8d16-351d9ff3b838", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+   detect_refunds before: {"opened": 0, "scanned": 0, "resolved": 0}
+   detect_refunds after:  {"opened": 0, "scanned": 0, "resolved": 0}
+PASS detect_refunds unchanged, 0 opened
+== R4 read-back AFTER
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 | 1100 | 0 | 1100 | 0 | re_R2REHEARSAL0000000006 | 2026-08-04 17:20:05 | [{"re": "re_R2REHEARSAL0000000006", "via": "reconcile", "amount": 1100, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_R2REHEARSAL0000000006", "amount": 1100, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 | 220 | 0 | 220 | 0 | re_R2REHEARSAL0000000007 | 2026-08-04 17:20:19 | [{"re": "re_R2REHEARSAL0000000007", "via": "reconcile", "amount": 220, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_R2REHEARSAL0000000007", "amount": 220, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+PASS totals after writes: 2 state, 2 log, 4 ledger, 0 cases
+FAIL W6-again rc=3: psql:/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-converge/docs/release/packages/OR4_reconciliation_20261008/rehearsal/out/gen/w6.sql:148: ERROR:  R3_GUARD prestate: amount_refunded_cents is 1100, expected NULL
+CONTEXT:  PL/pgSQL function inline_code_block line 53 at RAISE
+== mutants (rolled back)
+PASS M1: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "a2000000-0000-4000-8000-000000000001", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+PASS M2 refused: R3_ASSERT ledger rows: 2
+FAIL M3 rc=0: psql:/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-converge/docs/release/packages/OR4_reconciliation_20261008/rehearsal/out/gen/M3.sql:146: NOTICE:  R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "a2000000-0000-4000-8000-000000000003", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 1100}, "source": "dashboard", "refund_id": "re_R2MUTANT000000000001", "payment_id": "a2000000-0000-4000-8000-000000000003", "amount_refunded_cents": 1100}
+PASS mutants rolled back: 2 state, 2 log, 4 ledger, 0 cases
+== raw hazard-1 control (no script, rolled back)
+   BEGIN|succeeded 600|true|refunded 1100|ROLLBACK|
+FAIL raw control: BEGIN
+succeeded 600
+true
+refunded 1100
+ROLLBACK
+== RESULT: FAILURES

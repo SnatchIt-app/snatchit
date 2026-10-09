@@ -2254,3 +2254,23 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Sign-in chain closed by D from `auth`:** user `2b117757` signed in 23:48:03, factor `e677717c` verified,
     challenge 23:48:42, and the 23:54:39 setting change was by the same id.
   - **Single owner-actions list agreed with D**, with A's amendment: add the R3 write approval as its own step.
+- **O-R4: OWNER RULING + R1 PART 1 + R2 PASS + R3 PREPARED (A, 2026-10-09; no production writes).**
+  - **Ruling (owner):** the five test-mode payments (#1–#5) are EXCLUDED from the live reconciliation. Their records are
+    preserved and their mode is unchanged; nothing is deleted. No test-mode reads are needed.
+  - **R1 part 1:** the owner supplied live Dashboard pages for #6 and #7. They match R0 on PaymentIntent prefix, amount
+    (1100 / 220, and the pairing), payment status, refunded amount = total, and live mode (two sources).
+    - "5:20 PM" agrees with R0's 17:20Z only if the Dashboard displays UTC; this is not established.
+    - The notes "test"/"test 2" are disregarded.
+    - The ARN is not a refund id.
+    - The "Refunded" badge is the payment's status, not the refund's.
+    - Still needed from **View details:** the refund id, the refund status, the amount, created (with year and
+      timezone), the failure reason, and how many refunds each payment lists. Plus the owner's `source` per row.
+  - **R2 rehearsal PASS:** run 4, 24/24, on a fresh local clone of `pkg151_rehears`.
+    - Covered: C1–C9 refusals; W6/W7 from the committed files; a positive control for detect_refunds' 0; mutants M1–M3;
+      the raw hazard-1 control.
+    - Run 1 caught a real gap. The after-payout flag writes `payout_attempts`/`payout_decisions`, not `transfers`, so
+      the template now asserts both are unchanged.
+  - **R3 prepared, NOT authorised:** `R3_proposed_6_32913315.sql` `74cfe59a…` and `R3_proposed_7_700d469b.sql`
+    `41372b17…`, with three markers each. A fills the markers after R1 part 2 and the source decision; the owner then
+    approves the filled files' sha256.
+  - Package README §R1 part 1/2, §R2, §R3. D's input on the remaining fields is incorporated (D `fbe41284`).

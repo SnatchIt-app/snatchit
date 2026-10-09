@@ -26,7 +26,9 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
 - **Open:**
   - signed-in views of the web wording (`/account/purchases`, `/account/sales`, a transfer page) and of the console
     labels;
-  - O-R4: the owner's R1 read, the ruling on the test-mode five, `source` for #6/#7; R3 writes are separately gated.
+  - O-R4: the test-mode five are excluded (owner, 2026-10-09). R1 part 2 is still needed: from each refund's View
+    details, its id, status, amount, created and failure reason, and the refund count. Then the `source` for #6/#7,
+    then the owner's approval of the two filled R3 files by sha256 (prepared and rehearsed; package README §R3).
 - **Not authorised:** the final main integration (S7) and app distribution.
 
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)
