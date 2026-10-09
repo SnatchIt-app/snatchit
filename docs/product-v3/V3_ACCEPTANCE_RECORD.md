@@ -120,6 +120,64 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## State after the SSD migration (E verified 2026-10-09 on `/Volumes/DEV-SSD`, UUID `6A74DBD6-…E510`)
+**Working paths:** the SSD paths from `migration-records/MIGRATION_HANDOFF.md`. The Mac originals
+are retained, not used.
+
+**Successor `9498080ab7eb15a064bc455bb3d4f06e48eceaf0` (C, 2026-10-08):**
+- **Contents:** `b0d74799` (F-BA bid activity, F-DT date/time wrap), `b9222a16` (long-bid fixture),
+  `01c236b2` (profile rate fix) and `9498080a` (profile fixture corrected).
+- **Code range from `3c03778a`:** `BidActivity.tsx`, `ListingHero.tsx`, `reputation.ts`,
+  `_dev/v3-listing.tsx`, `_dev/v3-profile.tsx`, plus tests.
+- **Origin:** `v3/consumer-batch2` = `9498080a`; `v3/midnight-app` = `c11b4a49` (`9498080a` plus
+  captures and the handoff doc).
+
+**C-operated captures (`c11b4a49`, `docs/product-v3/V3_BATCH8_HANDOFF.md`):** 16 frames at a3xl,
+banner-gated, in `native/9498080a/` in C's repo. **None is B-reviewed yet.**
+- Bid activity (ordinary and four-figure), Light and Dark.
+- Full date/time, Light and Dark.
+- Four-figure CTA.
+- **Home feature amount at a3xl**, ordinary and long.
+- Profile rate, corrected and unknown.
+
+**Home drag (C):** not a product defect. Inside the feature, 3 of 4 drags scrolled and 1 opened the
+listing. C traced the earlier "every drag taps" to three automation faults, each with a control: the
+drag landed on the fixed footer; back-to-back touch paths dropped the second; a fast release flicked
+past. No app interaction was changed. B reviews this.
+
+**Profile fix:**
+- A seller with volume but no terminal transfer now gets `rate = null`: no percentage, no "Needs
+  review".
+- **Proposed label "Unrated", blurb "N sales · transfer success unavailable" (tier `new_seller`,
+  neutral tone). NOT SETTLED: the owner decides the trust-presentation wording.**
+- **C's backend claim:** migration 031 makes this shape unproducible by `get_profile_trust_stats`
+  (denominator status set ⊇ `completed_sales`), so the defect is latent, not live, and the device
+  string came from the malformed fixture.
+  - **E has not verified this.** It is a backend question, routed to A/D under the frontend-only
+    scope.
+  - The guard stands either way.
+
+**New profile findings at a3xl (C recorded them, did not fix them; for B and the owner):**
+- The trust percentage breaks mid-number ("10 / 0 / %"), Light and Dark.
+- Trust-row values clip at the right edge.
+- The badge blurb clamps.
+- One sub-line contradicts the sales count, in a shape C says the RPC cannot return.
+
+The first two are the same class as the money-wrap fixes.
+
+**Window:** C handed the simulator and Metro back to B at `9498080a` (`c11b4a49`). The migration
+then shut down the simulator and stopped all smoke-test servers. **Ownership must be re-agreed
+between B and C before either restarts Metro or boots the device** (owner, 2026-10-09).
+
+**Serving tree on the SSD:** `snatchit-refund` at `2919ba75`, which is local-only. It is `c11b4a49`
+plus capture helpers under `tools/v3-capture/`, with no app code. Its `.claude/launch.json` is
+modified; that is a documented migration change (`runtime-path-changes.json`).
+
+**Next, for B:**
+- Focused review at `9498080a` of C's 16 frames.
+- Re-confirm the poster clearance at default once, because `ListingHero` changed.
+- Rule on the profile findings.
+
 ## B batch 7 at `3c03778a` (`a1af6499`, 2026-10-08): **simulator and Metro handed to C**
 | Item | Status | Evidence |
 |---|---|---|
@@ -162,9 +220,9 @@ input or another validated gesture before classifying it. Then C hands back to B
 | Step | Owner | State |
 |---|---|---|
 | 1. Finish the unaffected refusal, profile, error/offline and artwork checks at `3c03778a`; commit them; **hand the simulator and Metro to C explicitly** | B | **done: `a1af6499`** (handed to C) |
-| 2. Prepare both fixes in the isolated worktree (below) | C | **prepared: `b9222a163dfd3b0f95b4d04d9503df38a06ef89a`** (descends from `3c03778a`; not served; E verified the files) |
-| 3. After B's handback: validate, serve **one named clean successor**, then capture at **a3xl, Light and Dark**: bid activity with an ordinary **and** a four-figure amount; the Listing date/time line; the Home feature amount | C | pending |
-| 4. Hand back to B for focused verification of those three | C → B | pending |
+| 2. Prepare both fixes in the isolated worktree (below) | C | **done**: `b0d74799` + `b9222a16`, then the profile fix `01c236b2` + `9498080a` |
+| 3. After B's handback: validate, serve **one named clean successor**, then capture at **a3xl, Light and Dark**: bid activity with an ordinary **and** a four-figure amount; the Listing date/time line; the Home feature amount | C | **done**: successor `9498080a`; 16 frames in `c11b4a49` |
+| 4. Hand back to B for focused verification of those three | C → B | **handed back** (`c11b4a49`). B's review is pending; the window must be re-agreed after the migration |
 
 **Fix F-BA (bid activity amount):**
 - Stack the row where needed, and keep the whole amount readable, including cents and separators.
