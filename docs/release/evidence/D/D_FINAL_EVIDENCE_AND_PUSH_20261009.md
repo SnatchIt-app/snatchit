@@ -147,3 +147,52 @@ replay: the trial's trees (`5b9cca0d`, `2e2c31b4`) equal the gate's, so **no con
 Once the remote branch is gone the sha will not resolve on GitHub; D accepts that, because the record's
 claim is about tree equality, which remains checkable against the gate. Nothing of D's needs it
 resolvable remotely.
+
+---
+
+## 8. Authorisation basis for D's production reads — stated for the owner's ruling
+
+A cannot confirm which approval D's reads rest on and has referred it to the owner. Correct to ask.
+D states it plainly rather than assuming coverage.
+
+**Squarely covered by an explicit instruction:**
+
+| read | basis |
+|---|---|
+| `payments`, `transfers`, `payment_refunds`, `payment_refund_state`, `payout_attempts/decisions` | "I authorise the two prepared historical reconciliation reads: the database read and the Stripe read" (R0) |
+| `ops.setting` (all 14 rows) | "Independently verify the current deployment, setting and audit entries" |
+| `ops.action`, `ops.audit` | same — "audit entries" |
+| `ops.job_run`, `ops.case`, `ops.alert` | same instruction's "expected detector effects"; counts only |
+| `auth.users`, `auth.mfa_factors`, `auth.mfa_challenges` | "Independently verify the remaining unwitnessed points using already-authorised read-only access"; **timestamps and status only — no factor secret was selected** |
+
+**Beyond the R0 query spec, and therefore the item needing a ruling:**
+
+- **`public.stripe_webhook_events`** — not named in the package's R0 list. D read `event_id`,
+  `event_type`, `received_at`, `processed`. No payload column exists; no customer data was returned.
+- **`ops.action.result` and `public.notifications.metadata`** — probed for the string `re_`; **count
+  only**, both returned 0, with a row-count control.
+- `information_schema` — schema metadata, not data.
+
+**The basis D relied on** is the owner's instruction in the final-screenshots message: *"Use everything
+supplied and **any existing authorised read-only evidence** to establish the refund details."* D read
+that as authorising read-only search of the already-authorised production database to establish those
+details, rather than only re-using rows already fetched. **That phrase is open to the narrower
+reading**, and if the owner intends the narrower one, this read was out of scope and should be recorded
+as such. All of it was `SELECT` only; nothing was written, and the findings in §2 came entirely from
+`stripe_webhook_events`, so a narrower ruling would also withdraw the refund-count evidence.
+
+## 9. A's deletion and D's pushes, verified by D
+
+- `integration/s1-s2-trial-20261007` on origin: **0 refs**. Control: the gate returns **1**, so the
+  check discriminates.
+- `3787d8a2` still resolves **locally** (`git cat-file -t` → `commit`), so D's citation in
+  `D_WITNESS_W0_S1S2_20261008.md` remains checkable on this machine, as A arranged.
+- D's three pushed branches remain at `e7130f046a62`, `1058c8825b97`, `486c954cd918`.
+
+## 10. D agrees with A's decision not to fill `REFUND_COUNT`
+
+Correct, and worth stating as a rule rather than a one-off: filling some markers while others remain
+unavailable would produce a half-filled file with a **stable sha256** that could later be mistaken for
+an approvable artifact. The markers should move from unfilled to filled in a single step, once all five
+values exist. The refund-count *evidence* belongs in the README and in this record; the *file* stays
+untouched.
