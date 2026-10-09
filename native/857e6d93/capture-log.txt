@@ -72,3 +72,37 @@ TWO METHOD NOTES, BOTH LEARNED BY LOSING FRAMES
    immediately. Every scroll here is a `swipe`, and each one was confirmed by comparing frames
    before anything was kept. A dropped synthetic gesture is not a product scrolling defect —
    the screen scrolls, as these frames show.
+
+ADDED AFTER B'S PRECISE REQUEST — the Dark rows it named
+---------------------------------------------------------
+B asked for "Member since", "Completed sales" and "Active listings". Dark had Member since but
+not the other two: an intermediate frame carrying them was overwritten during the first pass.
+Refilled against the same served commit, same guarded Metro, same banner gate:
+
+profile-a3xl-dark-salesrows-Coperated.png       rate "100%" on one line AND "Completed sales / 14"
+profile-a3xl-dark-activelistings-Coperated.png  "Completed purchases / 3", "Active listings / 2",
+                                                "Disputes opened / 1"
+
+MY OWN MEASUREMENT — offered for B to disagree with, not to replace B's
+-----------------------------------------------------------------------
+Ink = any pixel differing from the frame's own modal background by more than 60 levels, measured
+below the fixed header (y > 440 px). The right gutter begins at the 377 pt content edge.
+
+  frame                                             gutter px    max ink x
+  profile-default-light                                     0      376.3 pt
+  profile-default-dark                                      0      376.3 pt
+  profile-a3xl-light-rate                                   0      374.0 pt
+  profile-a3xl-light-rows                                   0      364.7 pt
+  profile-a3xl-light-membersince                            0      373.3 pt
+  profile-a3xl-dark-rate                                    0      374.0 pt
+  profile-a3xl-dark-rows                                    0      373.3 pt
+  profile-a3xl-dark-salesrows                               0      372.7 pt
+  profile-a3xl-dark-activelistings                          0      364.7 pt
+
+B's failing frames: 2,257 px (P-1) and 8,089 px (P-2) in the gutter, both reaching 392.7 pt.
+
+A NOTE ON THE METHOD, because my first attempt was wrong. Treating "ink" as a fixed threshold
+(dark OR light) counted the background itself and returned an identical 101,568 px / 392.7 pt for
+every frame — the same 392.7 pt as B's failing frames, which is the screen edge, not text. Nine
+identical numbers across nine different screens is a defect in the instrument, not a result.
+The figures above come from the corrected pass.
