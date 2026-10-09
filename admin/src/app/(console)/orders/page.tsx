@@ -127,7 +127,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       />
 
       {/* What needs a person — counts first, and each card is the view. */}
-      <nav aria-label="Work queues" className="enter-2 mb-6">
+      <nav aria-labelledby="queues-h" className="enter-2 mb-6">
+        <h2 id="queues-h" className="sr-only">
+          Work queues
+        </h2>
         <ul className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
           {QUEUES.map((v, i) => {
             const n = countOf(queueRes[i]);
@@ -160,7 +163,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         </ul>
       </nav>
 
-      <section aria-label="Orders" className="panel enter-3 min-w-0 overflow-visible">
+      <section aria-labelledby="orders-h" className="panel enter-3 min-w-0 overflow-visible">
+        <h2 id="orders-h" className="sr-only">
+          {filterCount || q ? "Matching orders" : "All orders"}
+        </h2>
         <div className="flex flex-wrap items-center gap-2 border-b border-line p-3 md:p-4">
           <div className="flex flex-wrap items-center gap-2">
             <DimensionChip title="Payment" name="payment_status" kind="check" options={PAYMENT_STATUSES.map((v) => [v, PAYMENT_STATUS_LABELS[v] ?? v])} applied={applied} q={q} />
