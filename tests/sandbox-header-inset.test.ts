@@ -72,7 +72,12 @@ describe('the helper: production unchanged, sandbox adds the badge, no text-size
 // Each site keeps the spacing token it had, so production spacing is identical.
 const SITES: { file: string; expr: string }[] = [
   { file: 'app/my-listings.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
-  { file: 'app/settings/index.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
+  // app/settings/index.tsx and app/settings/appearance.tsx used to pay their own inset here,
+  // because each hand-rolled the same back chip and title. Both now render SettingsHeader
+  // (W-4, acceptance record d5365925), which pays it once — so they moved to the HOSTS rule
+  // below, which asserts a host pays NO inset of its own. The badge-aware inset is still
+  // enforced end to end: SettingsHeader is a SITE, and every settings screen renders it
+  // (tests/v3-wording-w4-w5.test.ts enumerates the directory).
   { file: 'app/transfer/send/[id].tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'app/transfer/receive/[id].tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/screens/PlaceBidScreen.tsx', expr: 'paddingTop: topPad + v2.space.sm' },

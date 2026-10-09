@@ -45,6 +45,7 @@ import {
   type TextStyle,
 } from 'react-native';
 import { useKeyboardUp } from '@/src/hooks/useKeyboardUp';
+import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
 import { ctaLift } from '@/src/lib/nav/keyboardLift';
 
 import { supabase } from '@/src/lib/supabase';
@@ -96,25 +97,6 @@ const TRANSFER_METHODS: { value: TransferMethod; label: string }[] = [
 ];
 const DURATION_OPTIONS: DurationHours[] = [1, 3, 6, 12, 24, 48];
 
-// Confirmed platforms only — see TRANSFER_METHOD_RESEARCH.md. Miami-market order.
-const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
-  { value: 'ticketmaster', label: 'Ticketmaster' },
-  { value: 'tixr',         label: 'Tixr' },
-  { value: 'dice',         label: 'DICE' },
-  { value: 'posh',         label: 'Posh' },
-  { value: 'eventbrite',   label: 'Eventbrite' },
-  { value: 'axs',          label: 'AXS' },
-  { value: 'seatgeek',     label: 'SeatGeek' },
-  { value: 'mlb_ballpark', label: 'MLB Ballpark' },
-  { value: 'fever',        label: 'Fever' },
-  { value: 'shotgun',      label: 'Shotgun' },
-  { value: 'universe',     label: 'Universe' },
-  { value: 'see_tickets',  label: 'See Tickets' },
-  { value: 'stubhub',      label: 'StubHub' },
-  { value: 'vivid_seats',  label: 'Vivid Seats' },
-  { value: 'gametime',     label: 'Gametime' },
-  { value: 'other',        label: 'Other' },
-];
 
 // ─── Date/time helpers (unchanged) ──────────────────────────────────────────────
 

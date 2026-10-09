@@ -30,14 +30,14 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '@/src/lib/supabase';
 import { SIGN_OUT_FAILED_COPY, signOutAllDevices, signOutThisDevice } from '@/src/lib/auth/signOut';
-import { Button, IconButton } from '@/src/components/ui';
+import { Button } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { SettingsRow } from '@/src/components/account/SettingsRow';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
-import { useTopInset } from '@/src/lib/nav/navInsets';
 import { IS_SANDBOX_BUILD } from '@/src/config/envGuard';
 
 type SettingsRoute = | '/_dev/transfer-states' | '/settings/edit-profile'
@@ -58,7 +58,6 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
-  const topPad = useTopInset();
 
   const [signingOut, setSigningOut] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -308,11 +307,7 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
   return (
     <View style={s.root}>
       {/* ── Header — V3 pushed-screen pattern: circular back chip, centred title ── */}
-      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Settings</Text>
-        <View style={s.headerSpacer} />
-      </View>
+      <SettingsHeader title="Settings" />
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* ── Deletion banners ──────────────────────────────── */}
@@ -395,13 +390,6 @@ export default function SettingsScreen({ deletionFixture }: { deletionFixture?: 
 function makeStyles(p: Palette) {
   return StyleSheet.create({
   root: { flex: 1, backgroundColor: p.surface.canvas },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-  },
-  headerTitle: { color: p.text.primary },
-  headerSpacer: { width: 44 },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
 

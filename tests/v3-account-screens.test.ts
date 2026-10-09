@@ -68,10 +68,24 @@ describe('Profile — the board, over an untouched data layer', () => {
 describe('Settings hub — board banners over the untouched OR-17 machine', () => {
   const src = read('app/settings/index.tsx');
 
-  it('S1: pushed-screen header — circular back chip, sentence-case title, no V2 display token', () => {
-    expect(src).toMatch(/IconButton glyph="back" chip/);
-    expect(src).toMatch(/textStyle\('screenTitle'\), s\.headerTitle\]\} accessibilityRole="header">Settings</);
-    expect(src).not.toMatch(/textStyle\('displaySm'\)/);
+  it('S1: the hub wears the shared header, chip and sentence case given up with it', () => {
+    /*
+     * W-4 (acceptance record d5365925) chose "the hub adopts SettingsHeader" over "the ten
+     * sub-screens adopt the hub's inline style". This test used to pin the hub's own chip back
+     * button and sentence-case screenTitle, and BOTH are gone as a consequence, not by accident:
+     * SettingsHeader renders IconButton without `chip` and titles with textStyle('displaySm') in
+     * uppercase Oswald, which is why the record described it as such. The old `displaySm` ban
+     * here was a ban on the hub owning a second title treatment; the hub now owns no title
+     * token at all, and the one it inherits is the same one every settings screen wears.
+     */
+    expect(src).toMatch(/<SettingsHeader\b/);
+    expect(src).toMatch(/title="Settings"/);
+    expect(src).not.toMatch(/IconButton glyph="back" chip/);   // the chip went with the refactor
+
+    const header = read('src/components/account/SettingsHeader.tsx');
+    expect(header).toMatch(/IconButton glyph="back"/);
+    expect(header).toMatch(/textStyle\('displaySm'\)/);
+    expect(header).toMatch(/accessibilityRole="header"/);
   });
 
   it('S2: the deletion-pending banner is the board\'s warning accent panel with an OUTLINED withdraw', () => {
@@ -128,9 +142,11 @@ describe('Appearance — board radios over untouched preference machinery', () =
     expect(src).toMatch(/accessibilityState=\{\{ checked: checked \}\}/);
   });
 
-  it('A4: pushed-screen header, and the old check-mark treatment is gone', () => {
-    expect(src).toMatch(/IconButton glyph="back" chip/);
-    expect(src).toMatch(/textStyle\('screenTitle'\), s\.headerTitle\]\} accessibilityRole="header">Appearance</);
+  it('A4: the shared header, and the old check-mark treatment is still gone', () => {
+    // Appearance hand-rolled the same chip and title the hub did; it was the one settings screen
+    // the W-4 record's count missed, and leaving it would have defeated the point of the change.
+    expect(src).toMatch(/<SettingsHeader\b/);
+    expect(src).toMatch(/title="Appearance"/);
     expect(src).not.toMatch(/'✓'/);
   });
 });

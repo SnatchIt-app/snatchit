@@ -18,8 +18,8 @@ import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { IconButton } from '@/src/components/ui';
-import { useTopInset } from '@/src/lib/nav/navInsets';
+import { SettingsHeader } from '@/src/components/account/SettingsHeader';
+
 import type { AppearancePreference } from '@/src/lib/appearance/appearanceStore';
 import { useAppearancePreference, useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -33,19 +33,13 @@ const OPTIONS: { key: AppearancePreference; label: string; description?: string 
 ];
 
 export default function AppearanceScreen() {
-  const topPad = useTopInset();
   const { palette } = useTheme();
   const { preference, setPreference } = useAppearancePreference();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
   return (
     <View style={s.root}>
-      {/* V3 pushed-screen header: circular back chip, centred sentence-case title, 44pt spacer. */}
-      <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
-        <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Appearance</Text>
-        <View style={s.headerSpacer} />
-      </View>
+      <SettingsHeader title="Appearance" />
 
       <ScrollView contentContainerStyle={s.body} accessibilityRole="radiogroup">
         {OPTIONS.map((o) => {
@@ -88,12 +82,6 @@ const RADIO_DOT = 12;
 function makeStyles(p: Palette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: p.surface.canvas },
-    header: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    },
-    headerTitle: { color: p.text.primary },
-    headerSpacer: { width: 44 },
     body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, gap: v2.space.md },
     row: {
       flexDirection: 'row', alignItems: 'center', gap: v2.space.md,

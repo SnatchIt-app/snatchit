@@ -16,6 +16,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
@@ -32,14 +33,6 @@ import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, TicketPlatform } from '@/src/types';
 
-const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
-  { value: 'dice',         label: 'DICE' },
-  { value: 'eventbrite',   label: 'Eventbrite' },
-  { value: 'posh',         label: 'Posh' },
-  { value: 'axs',          label: 'AXS' },
-  { value: 'ticketmaster', label: 'Ticketmaster' },
-  { value: 'other',        label: 'Other' },
-];
 
 /**
  * The dev harness's seed (`app/_dev/v3-edit-listing.tsx`). It stands in for the READ and nothing
