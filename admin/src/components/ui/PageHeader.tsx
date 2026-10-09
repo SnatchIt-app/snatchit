@@ -3,10 +3,9 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 
 /**
- * The page's own header row: serif title, a context pill beside it (the
- * reference's "Invite Guests  [Uncommon Presents: The Weekend]"), and the
- * page's actions on the right. The workspace's search and account sit to the
- * right of this row on md+, which is why the row leaves room for them.
+ * The page's own header: what kind of page this is (overline), a large title,
+ * a context pill (counts, a period, a status), one line of explanation, and
+ * the page's actions on the right.
  */
 export function PageHeader({
   eyebrow,
@@ -16,33 +15,33 @@ export function PageHeader({
   meta,
   back,
 }: {
-  /** What kind of page this is (a section, a record type). Shown as the pill when there is no `meta`. */
   eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  /** Counts, a period, a status — shown as the pill beside the title. */
   meta?: ReactNode;
   back?: { href: string; label: string };
 }) {
-  const pill = meta ?? eyebrow;
   return (
-    <div className="mb-6 md:pr-[21.5rem]">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {back ? (
-          <Link href={back.href} className="btn-icon" aria-label={back.label} title={back.label}>
-            <Icon name="back" />
-          </Link>
+    <div className="enter mb-6 flex flex-wrap items-end justify-between gap-x-8 gap-y-4 md:mb-8">
+      <div className="min-w-0">
+        {back || eyebrow ? (
+          <p className="mb-2 flex items-center gap-2">
+            {back ? (
+              <Link href={back.href} className="btn-icon h-8 w-8" aria-label={back.label} title={back.label}>
+                <Icon name="back" size={16} />
+              </Link>
+            ) : null}
+            {eyebrow ? <span className="kicker">{eyebrow}</span> : null}
+          </p>
         ) : null}
-        <h1 className="title-page min-w-0 break-words">{title}</h1>
-        {pill ? <span className="context-pill">{pill}</span> : null}
-      </div>
-      {description || actions ? (
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-          {description ? <p className="max-w-2xl text-[0.875rem] leading-relaxed text-muted">{description}</p> : <span />}
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="title-page min-w-0 break-words">{title}</h1>
+          {meta ? <span className="context-pill">{meta}</span> : null}
         </div>
-      ) : null}
+        {description ? <p className="mt-2 max-w-2xl text-[0.9375rem] leading-relaxed text-muted">{description}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

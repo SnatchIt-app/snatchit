@@ -26,6 +26,8 @@ export function OrderTable({
   emptyText = "No orders match.",
   caption = "Orders",
   hideParties = false,
+  openHref,
+  selectedId,
 }: {
   rows: OrderRow[];
   basePath: string;
@@ -35,9 +37,12 @@ export function OrderTable({
   emptyText?: string;
   caption?: string;
   hideParties?: boolean;
+  /** When set, the order name opens a preview (the Orders drawer) instead of the full page. */
+  openHref?: (paymentId: string) => string;
+  selectedId?: string | null;
 }) {
   const columns: Column<OrderRow>[] = [
-    { key: "order", header: "Order", render: (r) => <OrderName r={r} /> },
+    { key: "order", header: "Order", render: (r) => <OrderName r={r} openHref={openHref} /> },
     ...(hideParties
       ? []
       : ([
@@ -86,10 +91,11 @@ export function OrderTable({
       emptyText={emptyText}
       caption={caption}
       dense
+      isSelected={selectedId ? (r) => r.payment_id === selectedId : undefined}
       card={(r) => (
-        <article className="rounded-2xl bg-white p-4">
+        <article className="panel p-4">
           <div className="flex items-start justify-between gap-3">
-            <OrderName r={r} />
+            <OrderName r={r} openHref={openHref} />
             <span className="shrink-0 whitespace-nowrap text-right">
               <Money cents={r.amount} className="font-semibold" />
               <span className="block text-[0.75rem] text-muted">
@@ -119,12 +125,17 @@ export function OrderTable({
   );
 }
 
-function OrderName({ r }: { r: OrderRow }) {
+function OrderName({ r, openHref }: { r: OrderRow; openHref?: (paymentId: string) => string }) {
   const title = r.event_name ?? (r.payment_id ? `Order ${shortId(r.payment_id)}` : "Order");
   return (
     <span className="flex min-w-0 flex-col items-start gap-0.5 md:min-w-[12rem]">
       {r.payment_id ? (
-        <Link href={`/orders/${r.payment_id}`} className="group inline-flex items-center gap-1 font-semibold text-ink hover:underline hover:underline-offset-4">
+        <Link
+          href={openHref ? openHref(r.payment_id) : `/orders/${r.payment_id}`}
+          scroll={openHref ? false : undefined}
+          data-row-link={r.payment_id}
+          className="group inline-flex items-center gap-1 font-semibold text-ink hover:underline hover:underline-offset-4"
+        >
           {title}
           <Icon name="chevron" size={14} className="text-dim group-hover:text-ink" />
         </Link>

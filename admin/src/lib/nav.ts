@@ -10,15 +10,17 @@ import type { IconName } from "@/components/ui/Icon";
  * created it, /transfers/:id redirects to that order, and the Orders filter and
  * search still select by transfer state and tr_ id.
  */
-export const NAV: readonly { href: string; label: string; short?: string; key: string; icon: IconName; primary?: boolean }[] = [
+export type NavGroup = "Work" | "Money" | "People" | "Platform";
+
+export const NAV: readonly { href: string; label: string; short?: string; key: string; icon: IconName; primary?: boolean; group?: NavGroup }[] = [
   { href: "/", label: "Today", key: "t", icon: "today", primary: true },
-  { href: "/cases", label: "Cases", key: "c", icon: "case", primary: true },
-  { href: "/orders", label: "Orders", key: "o", icon: "receipt", primary: true },
-  { href: "/money", label: "Money", key: "m", icon: "money", primary: true },
-  { href: "/users", label: "Users", key: "u", icon: "users" },
-  { href: "/marketplace", label: "Marketplace", short: "Market", key: "k", icon: "store" },
-  { href: "/reports", label: "Reports", key: "r", icon: "flag" },
-  { href: "/system", label: "System", key: "s", icon: "pulse" },
+  { href: "/cases", label: "Cases", key: "c", icon: "case", primary: true, group: "Work" },
+  { href: "/orders", label: "Orders & transfers", short: "Orders", key: "o", icon: "receipt", primary: true, group: "Money" },
+  { href: "/money", label: "Money & refunds", short: "Money", key: "m", icon: "money", primary: true, group: "Money" },
+  { href: "/users", label: "Users", key: "u", icon: "users", group: "People" },
+  { href: "/marketplace", label: "Marketplace", short: "Market", key: "k", icon: "store", group: "Platform" },
+  { href: "/reports", label: "Reports", key: "r", icon: "flag", group: "People" },
+  { href: "/system", label: "System", key: "s", icon: "pulse", group: "Platform" },
 ];
 
 /** Today is active only on `/`; a section is active on itself and its detail pages, never on a look-alike prefix. */

@@ -46,6 +46,7 @@ export function DataTable<T>({
   cursorParam = "cursor",
   id,
   card,
+  isSelected,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -62,6 +63,8 @@ export function DataTable<T>({
   id?: string;
   /** Phone layout: each row as a card. When set, the table shows from `md` up and the cards below it. */
   card?: (row: T, index: number) => ReactNode;
+  /** Marks the row whose detail is open (aria-selected), e.g. the order shown in the drawer. */
+  isSelected?: (row: T) => boolean;
 }) {
   const currentSort = typeof searchParams.sort === "string" ? searchParams.sort : undefined;
   const currentDir = searchParams.dir === "asc" ? "asc" : "desc";
@@ -134,7 +137,7 @@ export function DataTable<T>({
               </tr>
             ) : (
               rows.map((row, i) => (
-                <tr key={rowKey(row, i)}>
+                <tr key={rowKey(row, i)} aria-selected={isSelected ? isSelected(row) : undefined}>
                   {columns.map((c) => (
                     <td key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.className ?? ""}`}>
                       {c.render(row, i)}

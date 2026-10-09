@@ -9,7 +9,7 @@ export function EnvBadge() {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[0.75rem] font-semibold ${
-        IS_PRODUCTION_ENV_LABEL ? "bg-primary-ink text-white" : "bg-amber-400 text-[#0f0f10]"
+        IS_PRODUCTION_ENV_LABEL ? "bg-primary-ink text-white" : "bg-amber-300 text-ink"
       }`}
       title={`Environment: ${ENV_LABEL}`}
     >
@@ -18,53 +18,59 @@ export function EnvBadge() {
   );
 }
 
-/**
- * The line on the dark frame above the workspace: which environment this is,
- * how fresh the page's data is, and the keyboard hint. Always visible.
- */
-export function StatusLine({ email, role }: { email: string | null; role: string }) {
+/** Foot of the sidebar: which environment this is and who is signed in. Always visible on desktop. */
+export function SidebarFooter({ email, role }: { email: string | null; role: string }) {
   return (
-    <div className="on-frame flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2 text-[0.75rem] text-white/75 md:px-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="mt-3 rounded-2xl bg-[#faf9f7] p-3 shadow-[0_0_0_1px_rgba(28,25,23,0.06)]">
+      <div className="flex items-center justify-between gap-2">
         <EnvBadge />
-        <span className="text-white/75 [&_*]:!text-inherit">
+        <span className="text-[0.75rem] text-muted">
           <FreshnessSlot />
         </span>
       </div>
-      <p className="hidden items-center gap-1.5 lg:flex">
-        <kbd className="border-white/20 bg-white/10 text-white/80">/</kbd> search
-        <span aria-hidden="true">·</span>
-        <kbd className="border-white/20 bg-white/10 text-white/80">g</kbd> then a key to jump
+      <p className="mt-2 truncate text-[0.8125rem] font-semibold" title="Signed-in operator">
+        {email ?? "—"}
       </p>
-      <p className="truncate text-white/75" title="Signed-in operator">
-        {email ?? "—"} · {humanize(role.replace("platform_", ""))}
-      </p>
+      <p className="text-[0.75rem] text-muted">{humanize(role.replace("platform_", ""))}</p>
     </div>
   );
 }
 
-/** Top right of the workspace: search, and the account. */
-export function SheetTools({ email, role }: { email: string | null; role: string }) {
+/** The sticky glass header: search first, then environment (phones), keyboard hint, account. */
+export function TopBar({ email, role }: { email: string | null; role: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="min-w-0 flex-1 md:w-[19rem] md:flex-none">
-        <SearchBox />
-      </div>
-      <details className="relative shrink-0">
-        <summary className="grid h-10 w-10 place-items-center rounded-full bg-frame text-[0.8125rem] font-semibold text-white" aria-label="Account">
-          {(email ?? "?").slice(0, 1).toUpperCase()}
-        </summary>
-        <div className="absolute right-0 top-12 z-50 w-64 rounded-2xl bg-white p-4 shadow-[0_12px_40px_rgba(0,0,0,0.14)]">
-          <p className="break-words text-sm font-semibold text-ink">{email ?? "—"}</p>
-          <p className="mt-0.5 text-sm text-muted">{humanize(role.replace("platform_", ""))}</p>
-          <form action={signOutAction} className="mt-3">
-            <button type="submit" className="btn btn-ghost btn-sm w-full">
-              <Icon name="logout" size={15} />
-              Sign out
-            </button>
-          </form>
+    <header className="glass-bar sticky top-0 z-30">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1440px] items-center gap-3 px-4 md:px-8">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink lg:hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sn-logo-white.svg" alt="Snatch It" width={22} height={8} className="h-auto w-[1.35rem]" />
+        </span>
+        <div className="min-w-0 flex-1 md:max-w-md">
+          <SearchBox />
         </div>
-      </details>
-    </div>
+        <span className="hidden flex-1 md:block" />
+        <span className="lg:hidden">
+          <EnvBadge />
+        </span>
+        <p className="hidden items-center gap-1.5 text-[0.75rem] text-muted xl:flex">
+          <kbd>/</kbd> search · <kbd>g</kbd> then a key to jump
+        </p>
+        <details data-popover className="relative shrink-0">
+          <summary className="grid h-10 w-10 place-items-center rounded-full bg-ink text-[0.8125rem] font-semibold text-white transition-transform active:scale-95" aria-label="Account">
+            {(email ?? "?").slice(0, 1).toUpperCase()}
+          </summary>
+          <div className="popover glass glass-solid right-0 w-72 p-4">
+            <p className="break-words text-sm font-semibold">{email ?? "—"}</p>
+            <p className="mt-0.5 text-sm text-muted">{humanize(role.replace("platform_", ""))}</p>
+            <form action={signOutAction} className="mt-3">
+              <button type="submit" className="btn btn-ghost btn-sm w-full">
+                <Icon name="logout" size={15} />
+                Sign out
+              </button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </header>
   );
 }

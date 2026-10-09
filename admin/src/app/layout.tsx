@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { ENV_LABEL } from "@/lib/env";
 
@@ -7,9 +7,6 @@ import { ENV_LABEL } from "@/lib/env";
 // 'swap' + the system stack in --font-sans keep the UI legible if the font
 // file is missing.
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
-/** The serif sets the page title only — shared with the venue dashboard (globals.css header). */
-const serif = Instrument_Serif({ subsets: ["latin"], weight: "400", display: "swap", variable: "--font-instrument" });
-
 export const metadata: Metadata = {
   title: { default: `Console · ${ENV_LABEL}`, template: `%s · Console · ${ENV_LABEL}` },
   description: "Snatch It operating console",
@@ -17,14 +14,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f0f10",
+  themeColor: "#f5f3ef",
   width: "device-width",
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${serif.variable}`}>
+    <html lang="en" className={`${inter.variable}`}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );

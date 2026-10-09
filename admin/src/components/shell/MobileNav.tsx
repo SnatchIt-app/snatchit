@@ -19,8 +19,8 @@ export function MobileTabBar() {
   const pathname = usePathname() ?? "/";
   const primary = NAV.filter((n) => n.primary);
   return (
-    <div className="on-frame fixed inset-x-3 bottom-3 z-40 md:hidden">
-      <nav aria-label="Main sections" className="rounded-[1.75rem] bg-frame/95 px-1.5 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur">
+    <div className="fixed inset-x-3 bottom-3 z-40 lg:hidden">
+      <nav aria-label="Main sections" className="glass rounded-[26px] p-1.5">
         <ul className="flex items-stretch">
           {primary.map((item) => {
             const on = isNavActive(pathname, item.href);
@@ -29,10 +29,10 @@ export function MobileTabBar() {
                 <Link
                   href={item.href}
                   aria-current={on ? "page" : undefined}
-                  className={`flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-[1.375rem] px-1 ${on ? "bg-white text-[#0f0f10]" : "text-white/75"}`}
+                  className={`flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-[20px] px-1 transition-colors ${on ? "bg-ink text-white" : "text-[rgba(28,25,23,0.72)] hover:bg-[rgba(28,25,23,0.05)]"}`}
                 >
                   <Icon name={item.icon} size={19} />
-                  <span className={`truncate text-[0.6875rem] leading-tight ${on ? "font-semibold" : ""}`}>{item.label}</span>
+                  <span className={`truncate text-[0.6875rem] leading-tight ${on ? "font-semibold" : ""}`}>{item.short ?? item.label}</span>
                 </Link>
               </li>
             );
@@ -64,11 +64,11 @@ export function MobileNav() {
   }, [open]);
 
   return (
-    <div className="md:hidden">
+    <div className="lg:hidden">
       <button
         ref={buttonRef}
         type="button"
-        className={`flex min-h-[3.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.375rem] px-1 ${open ? "bg-white text-[#0f0f10]" : "text-white/75"}`}
+        className={`flex min-h-[3.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-[20px] px-1 transition-colors ${open ? "bg-ink text-white" : "text-[rgba(28,25,23,0.72)] hover:bg-[rgba(28,25,23,0.05)]"}`}
         aria-expanded={open}
         aria-controls="mobile-nav"
         aria-label={open ? "Close the list of sections" : "All sections"}
@@ -85,7 +85,7 @@ export function MobileNav() {
 export function MobileNavPanel({ id, open, pathname, onNavigate }: { id: string; open: boolean; pathname: string; onNavigate: () => void }) {
   if (!open) return null;
   return (
-    <nav id={id} aria-label="Console sections (menu)" className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] max-h-[70dvh] overflow-y-auto rounded-[1.5rem] bg-white p-2 text-ink shadow-[0_12px_40px_rgba(0,0,0,0.3)] md:hidden">
+    <nav id={id} aria-label="Console sections (menu)" className="glass popover absolute inset-x-0 bottom-[calc(100%+0.5rem)] max-h-[70dvh] overflow-y-auto rounded-[24px] p-2 lg:hidden">
       <ul className="grid grid-cols-2 gap-1">
         {NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
@@ -95,7 +95,7 @@ export function MobileNavPanel({ id, open, pathname, onNavigate }: { id: string;
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-12 items-center gap-3 rounded-2xl px-3 text-[0.9375rem] font-medium ${active ? "bg-[#0f0f10] text-white" : "text-ink hover:bg-[#f1f1f0]"}`}
+                className={`flex min-h-12 items-center gap-3 rounded-2xl px-3 text-[0.9375rem] font-medium transition-colors ${active ? "bg-ink text-white" : "text-ink hover:bg-[rgba(28,25,23,0.05)]"}`}
               >
                 <Icon name={item.icon} size={18} />
                 {item.label}

@@ -46,12 +46,14 @@ describe("F9 mobile menu rendering", () => {
     expect(html).toMatch(/<a[^>]*aria-current="page"[^>]*href="\/cases"|<a[^>]*href="\/cases"[^>]*aria-current="page"/);
   });
 
-  it("the toggle is a real button, collapsed by default, wired to the panel, and hidden from md up", () => {
+  it("the toggle is a real button, collapsed by default, wired to the panel, and hidden from lg up", () => {
     const html = renderToStaticMarkup(createElement(MobileNav));
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="mobile-nav"');
     expect(html).toMatch(/<button[^>]*type="button"/);
-    expect(html).toContain("md:hidden");
+    // The desktop sidebar appears at lg (1024 px) in v3, so the toggle hides from lg up.
+    expect(html).toContain("lg:hidden");
+    expect(html).not.toMatch(/(^|\s)md:hidden/);
     expect(html).not.toContain("<nav");
   });
 });

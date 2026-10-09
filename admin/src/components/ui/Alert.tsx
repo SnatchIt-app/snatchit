@@ -41,7 +41,7 @@ export function Alert({
     <div
       role={state === "failed" || state === "denied" ? "alert" : "status"}
       aria-live="polite"
-      className={`flex gap-3 rounded-[var(--radius-control)] border border-line bg-card ${compact ? "px-3 py-2" : "px-4 py-3"} text-[0.875rem]`}
+      className={`enter flex gap-3 rounded-2xl bg-card shadow-[0_0_0_1px_rgba(28,25,23,0.08)] ${compact ? "px-3 py-2.5" : "px-4 py-3.5"} text-[0.875rem]`}
     >
       <span aria-hidden="true" className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.tone}`}>
         {s.glyph}
@@ -53,8 +53,8 @@ export function Alert({
       </p>
       {children ? <div className="mt-0.5 text-[0.8125rem] text-muted">{children}</div> : null}
       {retryHref ? (
-        <p className="mt-2">
-          <Link href={retryHref} className="link text-[0.8125rem]">
+        <p className="mt-3">
+          <Link href={retryHref} className="btn btn-ghost btn-sm">
             {retryLabel}
           </Link>
         </p>

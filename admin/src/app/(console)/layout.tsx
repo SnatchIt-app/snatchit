@@ -4,9 +4,10 @@ import { requireOperator } from "@/lib/auth/session";
 import { callOps } from "@/lib/ops";
 import { toSettings } from "@/lib/types";
 import { Sidebar } from "@/components/shell/Sidebar";
-import { SheetTools, StatusLine } from "@/components/shell/Header";
+import { SidebarFooter, TopBar } from "@/components/shell/Header";
 import { MobileTabBar } from "@/components/shell/MobileNav";
 import { KeyboardShortcuts } from "@/components/shell/KeyboardShortcuts";
+import { PopoverDismiss } from "@/components/ui/PopoverDismiss";
 import { FreshnessProvider } from "@/components/shell/Freshness";
 
 /**
@@ -24,7 +25,7 @@ async function consolePaused(role: string): Promise<boolean> {
 
 function PausedNotice() {
   return (
-    <div role="status" aria-live="polite" className="mx-2 mb-2.5 rounded-2xl bg-white px-4 py-3 text-[0.8125rem] text-ink md:mx-0">
+    <div role="status" aria-live="polite" className="enter mb-6 rounded-2xl bg-white px-4 py-3 text-[0.8125rem] text-ink shadow-[0_0_0_1px_rgba(154,71,6,0.25)]">
       <span className="mr-2 inline-flex items-center gap-1.5 font-semibold text-warning">
         <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-amber-500" />
         Actions paused
@@ -51,27 +52,32 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
       >
         Skip to content
       </a>
-      <div className="flex min-h-dvh bg-frame">
-        <aside className="hidden w-[5.75rem] shrink-0 md:block">
-          <div className="sticky top-0 h-dvh overflow-y-auto">
-            <Sidebar />
-          </div>
+      <div className="min-h-dvh">
+        <aside className="glass fixed bottom-3 left-3 top-3 z-40 hidden w-[16.5rem] flex-col rounded-[28px] p-3 lg:flex">
+          <Link href="/" className="flex items-center gap-2.5 rounded-2xl px-2 pb-4 pt-1.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/sn-logo-white.svg" alt="" width={22} height={8} className="h-auto w-[1.35rem]" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[0.9375rem] font-semibold leading-tight tracking-[-0.01em]">Snatch It</span>
+              <span className="block text-[0.75rem] text-muted">Operations console</span>
+            </span>
+          </Link>
+          <Sidebar />
+          <SidebarFooter email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
         </aside>
-        <div className="flex min-w-0 flex-1 flex-col md:pb-2.5 md:pr-2.5">
-          <StatusLine email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
-          {paused ? <PausedNotice /> : null}
-          <div className="sheet relative flex min-w-0 flex-1 flex-col pb-28 md:pb-0">
-            <div className="px-4 pt-4 md:absolute md:right-8 md:top-7 md:z-20 md:p-0">
-              <SheetTools email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
-            </div>
-            <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-10 pt-5 md:px-8 md:pt-7">
-              {children}
-            </main>
-          </div>
+        <div className="flex min-h-dvh min-w-0 flex-col lg:pl-[18rem]">
+          <TopBar email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
+          <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-32 pt-6 md:px-8 md:pt-8 lg:pb-12">
+            {paused ? <PausedNotice /> : null}
+            {children}
+          </main>
         </div>
         <MobileTabBar />
       </div>
       <KeyboardShortcuts />
+      <PopoverDismiss />
     </FreshnessProvider>
   );
 }
