@@ -68,7 +68,11 @@ describe('W-4 follow-on: the shared header does not clip its own title at large 
      */
     const src = strip('src/components/account/SettingsHeader.tsx');
     expect(src).toContain('identityStacks');
-    expect(src).toMatch(/numberOfLines=\{[^}]*\?\s*undefined\s*:\s*1\}/);
+    // One line always; above the threshold it shrinks to fit. Wrapping was tried first and the
+    // capture showed "SETTING / S" — a single word cannot break on a space, so it must not break.
+    expect(src).toMatch(/numberOfLines=\{1\}/);
+    expect(src).toContain('adjustsFontSizeToFit: true');
+    expect(src).toContain('minimumFontScale: AMOUNT_MIN_FONT_SCALE');
   });
 });
 

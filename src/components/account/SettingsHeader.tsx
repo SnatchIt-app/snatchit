@@ -13,7 +13,7 @@ import { useTopInset } from '@/src/lib/nav/navInsets';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 
 import { IconButton } from '@/src/components/ui';
-import { textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -30,9 +30,12 @@ export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
   /*
-   * The title is a word, and at the largest accessibility sizes a single clamped line cut it:
+   * The title is ONE WORD, and at the largest accessibility sizes a clamped line cut it:
    * "SETTIN…", "APPEA…", "PRIVAC…" — the last of those long before this batch touched anything.
-   * Above the shared threshold it takes the lines it needs; below it nothing moves.
+   * Letting it wrap instead produced "SETTING / S", a word split across lines, which is the same
+   * fault wearing different clothes. A single word cannot break on a space, so above the shared
+   * threshold it keeps its line and shrinks to fit, the treatment the amounts already use.
+   * Below the threshold nothing moves.
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
@@ -42,7 +45,8 @@ export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
       <Text
         style={[textStyle('displaySm'), styles.title]}
         accessibilityRole="header"
-        numberOfLines={stacked ? undefined : 1}
+        numberOfLines={1}
+        {...(stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null)}
       >
         {title}
       </Text>
