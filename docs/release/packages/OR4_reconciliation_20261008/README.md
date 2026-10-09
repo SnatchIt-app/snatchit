@@ -15,7 +15,7 @@ read**; R0 establishes it.
 
 | Step | Kind | What | Gate |
 |---|---|---|---|
-| R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, `total`, `amount_refunded_cents`, `status`, `refunded_at`, and `mode`. **Correction:** `mode` is the purchase type (`buy_now`/`auction`), not the Stripe mode. Live or test is established only in R1. Query below | owner authorises the read |
+| R0 | production read (DB, read-only) | list the payments recorded as refunded that have no `payment_refund_state` row: payment id, `stripe_payment_intent_id`, `total`, `amount_refunded_cents`, `status`, `refunded_at`, and `mode`. **Correction:** `mode` is the purchase type (`buy_now`/`auction`). The Stripe mode is **`payments.stripe_livemode`** (D, verified by A). Query below | owner authorises the read |
 | R1 | Stripe read (read-only) | for each PaymentIntent from R0, in the right mode (live or test): every refund's `id`, `status`, `amount`, `created`, `failure_reason`. The owner reads in the Dashboard, or authorises a restricted read-only key. A holds no Stripe credential | owner authorises the read |
 | R2 | local rehearsal | build R0's rows **with their existing `payment_refunds` ledger rows** on a prod-shape local DB, then run R3's exact calls. Asserts and controls below (§R2) | none (local) |
 | R3 | production write | one call per refund: `select public.record_refund_state(<pi>, <re_…>, <status>, <amount_cents>, <failure_reason or null>, <source>, 'reconcile');` with `source` ∈ {`expiry`,`dashboard`,`admin`,`unfulfillable`}. **Where a `payment_refunds` row exists, `source` is that row's `source`. Where none exists, the original path is not recoverable**: Stripe's refund object has no field for our source taxonomy. Then `source` is **the owner's decision per row, recorded as a decision**, never a script default. It is written to `payment_refund_state.source` and `payment_refunds.source`, carried in the after-payout event, and `record_payment_refund` branches on it. One request per call, with a read-back | **separately gated** (owner) |
@@ -116,17 +116,30 @@ All seven PaymentIntents carry the account segment `GdOzCmGbHw`, the same as the
 so they are all on the production Stripe account. The 2026-09-22 record says only the 2026-08-04 pair was live; R1
 confirms each.
 
-| # | payment | PaymentIntent | type | total | refunded_at (UTC) | transfer | proposed `source` (evidence) | mode per record |
+| # | payment | PaymentIntent | type | total | refunded_at (UTC) | transfer | proposed `source` (evidence) | `stripe_livemode` (measured) |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `50f9a2e3` | `pi_3TFPZiGdOzCmGbHw1JOFjc65` | buy_now | $157.50 | 2026-03-29 22:01 | **none** | **owner decision**: no transfer, no ledger row; the path is not recoverable (`dashboard`, `admin` or `unfulfillable`) | test |
-| 2 | `d15dd918` | `pi_3TFRdxGdOzCmGbHw1sfT7nF6` | auction | $78.75 | 2026-04-01 20:25 | expired | `expiry` (the transfer expired; the expiry job refunds expired transfers) | test |
-| 3 | `4460d80f` | `pi_3THufwGdOzCmGbHw1ehCiZqd` | buy_now | $31.50 | 2026-04-02 23:35 | expired | `expiry` | test |
-| 4 | `49304db7` | `pi_3THuOyGdOzCmGbHw1nGe4nXM` | buy_now | $26.25 | 2026-04-03 23:15 | expired | `expiry` | test |
-| 5 | `e52c98e3` | `pi_3TpCE5GdOzCmGbHw1OWqPwF3` | buy_now | $330.00 | 2026-07-04 18:56 | expired | `expiry` | test |
-| 6 | `32913315` | `pi_3U0XuwGdOzCmGbHw0WVJfW3y` | buy_now | $11.00 | 2026-08-04 17:20 | **reversed** | **owner decision**: a reversed transfer is not the expiry path. This is the Aug-3 incident's $11 refund; `dashboard` if you refunded it by hand | **live** |
-| 7 | `700d469b` | `pi_3U0YzcGdOzCmGbHw0Z6l7bf7` | buy_now | $2.20 | 2026-08-04 17:20 | **reversed** | **owner decision**, as for #6 | **live** |
+| 1 | `50f9a2e3` | `pi_3TFPZiGdOzCmGbHw1JOFjc65` | buy_now | $157.50 | 2026-03-29 22:01 | **none** | **owner decision**: no transfer, no ledger row; the path is not recoverable (`dashboard`, `admin` or `unfulfillable`) | false |
+| 2 | `d15dd918` | `pi_3TFRdxGdOzCmGbHw1sfT7nF6` | auction | $78.75 | 2026-04-01 20:25 | expired | `expiry` (the transfer expired; the expiry job refunds expired transfers) | false |
+| 3 | `4460d80f` | `pi_3THufwGdOzCmGbHw1ehCiZqd` | buy_now | $31.50 | 2026-04-02 23:35 | expired | `expiry` | false |
+| 4 | `49304db7` | `pi_3THuOyGdOzCmGbHw1nGe4nXM` | buy_now | $26.25 | 2026-04-03 23:15 | expired | `expiry` | false |
+| 5 | `e52c98e3` | `pi_3TpCE5GdOzCmGbHw1OWqPwF3` | buy_now | $330.00 | 2026-07-04 18:56 | expired | `expiry` | false |
+| 6 | `32913315` | `pi_3U0XuwGdOzCmGbHw0WVJfW3y` | buy_now | $11.00 | 2026-08-04 17:20 | **reversed** | **owner decision**: a reversed transfer is not the expiry path. This is the Aug-3 incident's $11 refund; `dashboard` if you refunded it by hand | **true** |
+| 7 | `700d469b` | `pi_3U0YzcGdOzCmGbHw0Z6l7bf7` | buy_now | $2.20 | 2026-08-04 17:20 | **reversed** | **owner decision**, as for #6 | **true** |
 
-`amount_refunded_cents` is NULL on all seven: they were marked refunded before that column was written.
+`amount_refunded_cents` is NULL **table-wide** (0 non-null of 57 payments), not just on these seven. The recompute is
+therefore `least(refund_amount, total)`; there is no prior value.
+
+**Live/test, measured** (`payments.stripe_livemode`): #1–#5 are `false` (test); **#6 and #7 are `true` (live)**, refunded
+14 seconds apart. Production has 8 live and 49 test payments in total. Only two records involve real money.
+
+**Control weights:**
+- **The payout control is the 23/36 transfers.** `payout_attempts` has **0 rows table-wide**, so "0 attempts for these
+  seven" carries no weight.
+- **The chargeback exclusion has zero members here** (no dispute id, empty ledger). It remains a guard on what R3 must
+  refuse; it filtered nothing in this data set.
+- **The first detector tick after O-R2** (opened 0 over 0 refund-state rows) shows the job runs without erroring. It is
+  not detection evidence. The first such evidence can only exist after an authorised R3, or the first real refund
+  event.
 
 **What reconciliation would do, per R1 outcome** (R3 stays separately gated):
 - **Succeeded, amount = total:**
@@ -146,8 +159,10 @@ confirms each.
 
 **Proposed scope:**
 - **Reconcile the 2 live rows (#6, #7)** after R1 and the source decision.
-- For the 5 test-mode rows (no real money), the recommendation is **exclude**, leaving them legacy "Refund recorded";
-  reconcile only if the owner wants tidy test data.
+- **Exclude the 5 test-mode rows** (A and D agree):
+  - no money moved, and R3 would write synthetic rows into two money tables and the append-only log;
+  - that would permanently trip 150's rollback guard;
+  - if they look wrong in an account view, the reversible fix is a `stripe_livemode` display filter (D's lane).
 
 ## R1: the owner's Dashboard read (A holds no live-account access)
 
@@ -158,4 +173,4 @@ cannot read these. For each PaymentIntent above:
 2. Report: live or test, and **for every refund on it**: refund id (`re_…`), status, amount, date, and failure reason
    if any.
 
-The minimum for the proposed scope is #6 and #7 (live). The other five confirm their test-mode status.
+**Live read, required:** #6 and #7. The test-mode five are already measured as test (`stripe_livemode=false`); they are in the real account's test mode, not the sandbox. D's CLI read returned `resource_missing` in `acct_1T6Fb1…`. No read is needed for the proposed scope.
