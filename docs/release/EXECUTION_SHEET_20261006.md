@@ -5,6 +5,28 @@ switched on, and nothing in this sheet does any of that. Every step marked *owne
 that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks. §6 records where they differed;
 D verified and accepted each point and revised its sheet to agree (rev 3, `342f2ab3`).
 
+## Current state (A, 2026-10-09; read this first)
+
+The paragraph above describes 2026-10-06. The dated status blocks below are history: each was true when written,
+and later blocks supersede earlier ones, including the 10-07 "Not done" line and the 10-08 "#98 … Not deployed".
+
+- **Done and verified:**
+  - MM-1.
+  - W4: #97 live on `snatchti.com`.
+  - C3–C5: #98 merged; pin at `f7e7e85f`; Redeploy produced `dpl_8xPaaBYGM7xgfGsS5fgNKib4gNXp`, READY 23:45:11Z.
+  - S1/S2.
+  - 150/151, X1–X4.
+  - Stripe endpoint 13/13; no change was needed.
+  - Console aal2 access.
+  - O-R2 enabled.
+- **Fresh metadata re-check, 2026-10-09:** the deployments, pin, merge commits and function versions are unchanged
+  (`SPRINT_STATUS_20260917.md`, SSD-resume entry).
+- **Open:**
+  - signed-in views of the web wording (`/account/purchases`, `/account/sales`, a transfer page) and of the console
+    labels;
+  - O-R4: the owner's R1 read, the ruling on the test-mode five, `source` for #6/#7; R3 writes are separately gated.
+- **Not authorised:** the final main integration (S7) and app distribution.
+
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)
 
 **Rulesets:**

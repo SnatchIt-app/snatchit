@@ -2213,3 +2213,30 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - R1 needs the owner's live-Dashboard read: the local Stripe CLI is the sandbox account `acct_1T6Fb1…`.
   - Correction: `payments.mode` is the purchase type, not the Stripe mode.
   - Also recorded: F-CONSOLE-SETTING-STALE-1 (FINDINGS_20260924…), D's to fix.
+- **A RESUMED FROM SSD (2026-10-09).** `/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-converge`, volume UUID
+  `6A74DBD6-ACDE-4D44-B19D-9057E671E510`; branch `release/candidate-20260918` at `b1b1cd1c`, equal to origin; Git common
+  dir on the SSD; only working change is the untracked, uncommitted `_A_SCRATCH_EVIDENCE_20261009/`.
+  - **Fresh metadata reads (no production data queried):** #94 → `92a72cbd`, #95 → `abef9506` (gate head), #97 →
+    `0b389584` (web branch head), #98 → `f7e7e85f` (console branch head), all MERGED. Web production target
+    `dpl_9n8Jps9WdkGCmjEEgpTf8ryVLvon` READY at `0b389584`, alias `snatchti.com`. Console production target
+    `dpl_8xPaaBYGM7xgfGsS5fgNKib4gNXp` READY at `f7e7e85f`; pin unchanged (`!= f7e7e85f…74bb`), root `admin`.
+    `stripe-webhook` v43 (updated 02:38:59Z) and `enforce-transfer-expiry` v42 (02:39:58Z), unchanged since 2026-10-08.
+  - **Not re-read:** the production database (ledger 164, `refund_state_detection_enabled`, R0 rows). Recorded values
+    stand on A's 2026-10-08 reads and D's present read (`D_WITNESS_PRESENT_STATE_AND_R0_20261008.md`); a re-read needs
+    the owner's authorisation for that read.
+  - **Reconciled with D** (`review/d-records-20261005` `c6cde150`, local-only: `D_RESUME_VERIFICATION_SSD_20261009.md`,
+    and the 2026-10-08 present-state witness). No open discrepancy. D's §9f extent difference is already decomposed
+    (true body of `record_payment_refund` is :457–554); the sandbox-bound Stripe CLI is already recorded above.
+  - **O-R2 attribution note (per D §3).** The audit reason reads "OR 2 oct 8th claude told me to". The decision was the
+    owner's own: O-R2 was approved in the owner's turn on 2026-10-07, conditional on the prerequisites, and the owner
+    executed it at the console. `approval_id` is null: a single-actor change with no second-party approval record,
+    which must not later be cited as having had one. History is not rewritten; this note is the correction.
+  - **Git metadata event, repaired.** A's `git fetch origin --prune` deleted 95 ad-hoc `refs/remotes/origin/pr/N`
+    tracking refs from the shared store (the refspec covers only `refs/heads/*`). All 95 were restored with
+    create-only `update-ref` from the migration inventory (`migration-records/source-resume.json`) after confirming
+    every commit object was present. Ref names now equal the inventory's 681; the three SHA differences are branches
+    other sessions advanced after the inventory (B/E audit, C `v3/midnight-app`, D records).
+  - Scratch helper `pkgrun.sh` still `cd`s to the Mac package path; it must be pointed at the SSD before any reuse.
+  - **Outstanding (owner):** R1 live Stripe read of #6 `pi_3U0XuwGdOzCmGbHw0WVJfW3y` and #7
+    `pi_3U0YzcGdOzCmGbHw0Z6l7bf7`; the ruling on the test-mode five (exclude recommended, or reconcile); the
+    `source` for #6/#7; R3 correction writes (separately gated). Signed-in wording/label views remain unverified.
