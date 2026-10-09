@@ -2288,3 +2288,15 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Negative-balance note:** kept, pointed to its exact location (the #7 screenshot only, a top-right popover) and
     scoped. It establishes no balance amount, date or cause.
   - **D asked to review 77778156** (delivered to D's new session).
+- **O-R4: D's review CONDITIONAL PASS (D `addd4670`) on `77778156`/`d4accc39`; A adopted D's three residuals.**
+  - **Guards added:**
+    - (a) an all-digit `re_` suffix is refused (C11);
+    - (b) `c_evidence` records where status, id and count were read, inside the sha256 (C12);
+    - (c) `c_refund_count` must be 1 (C10).
+  - **New hashes, five markers each:** tmpl `7740700b…`, #6 `0d689587…`, #7 `d976eacb…`. R2 run 5 passed 27/27 on a
+    fresh clone.
+  - **Final approval still reserved by D** until the markers are filled.
+  - **Recorded with D's input:**
+    - O2's 120 h-from-reconciliation is two-party (A by rehearsal, D from source);
+    - `refunded_at` unchanged is structurally guaranteed;
+    - completing O-R4 (O1) does not demonstrate detection.

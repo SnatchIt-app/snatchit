@@ -1,0 +1,47 @@
+== R2 run 2026-10-09T22:55:27Z on or4_r2_rehears (ledger 164)
+== proposed files: 0d68958730ac1329 R3_proposed_6_32913315.sql; d976eacbccd4af24 R3_proposed_7_700d469b.sql; 
+== after fixtures: 0 state, 0 log, 2 ledger, 0 cases
+== settings: refund_execute_enabled=false, refund_resolution_detector_enabled=false, refund_state_detection_enabled=true
+== R4 read-back BEFORE
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:05 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:19 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+== refusals
+PASS C1 refused: R3_GUARD input: __R1_REFUND_ID__ is not a Stripe refund id
+PASS C2 refused: R3_GUARD input: 70000000000000000000001 is not a Stripe refund id
+PASS C3 refused: R3_GUARD input: refund status pending is out of scope (succeeded only); stop and re-plan
+PASS C4 refused: R3_GUARD input: source reconcile is not one of the four owner-decided values
+PASS C5 refused: R3_GUARD input: refund amount 600 differs from total 1100; partial or split refunds need their own plan
+PASS C6 refused: R3_GUARD prestate: stripe_livemode is f; only live payments are reconciled
+PASS C7 refused: R3_GUARD prestate: 1 ledger row(s) already exist for this payment or refund id
+PASS C8 refused: R3_GUARD prestate: 1 transfer(s) of this payment carry a payout
+PASS C9 refused: R3_GUARD prestate: payments.stripe_refund_id already holds re_R2PREEXISTING0000001, not re_R2CONTROL00000000001
+PASS C10 refused: R3_GUARD input: refund count 2 is out of scope (exactly one); one call per refund needs its own plan
+PASS C11 refused: R3_GUARD input: re_70000000000000000000001 is not a Stripe refund id
+PASS C12 refused: R3_GUARD input: evidence for the refund details is not recorded: __R1_EVIDENCE__
+PASS nothing written by C1-C12: 0 state, 0 log, 2 ledger, 0 cases
+== writes: the committed files with only the five markers replaced
+PASS w6 differs from the committed file in exactly 5 lines
+PASS w7 differs from the committed file in exactly 5 lines
+PASS W6: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+PASS W7: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "700d469b-045c-430f-8d16-351d9ff3b838", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+   detect_refunds before: {"opened": 0, "scanned": 0, "resolved": 0}
+   detect_refunds after:  {"opened": 0, "scanned": 0, "resolved": 0}
+PASS detect_refunds unchanged, 0 opened
+== R4 read-back AFTER
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 | 1100 | 0 | 1100 | 0 | re_R2REHEARSAL0000000006 | 2026-08-04 17:20:05 | [{"re": "re_R2REHEARSAL0000000006", "via": "reconcile", "amount": 1100, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_R2REHEARSAL0000000006", "amount": 1100, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 | 220 | 0 | 220 | 0 | re_R2REHEARSAL0000000007 | 2026-08-04 17:20:19 | [{"re": "re_R2REHEARSAL0000000007", "via": "reconcile", "amount": 220, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_R2REHEARSAL0000000007", "amount": 220, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+PASS totals after writes: 2 state, 2 log, 4 ledger, 0 cases
+PASS W6-again refused: R3_GUARD prestate: amount_refunded_cents is 1100, expected NULL
+== mutants (rolled back)
+PASS M1: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "a2000000-0000-4000-8000-000000000001", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0
+PASS M2 refused: R3_ASSERT ledger rows: 2
+PASS M3 refused: R3_ASSERT payout records changed: {
+PASS mutants rolled back: 2 state, 2 log, 4 ledger, 0 cases
+== raw hazard-1 control (no script, rolled back)
+   succeeded 600|true|refunded 1100|
+PASS hazard 1 is real: a second key turns a 600 partial into a full refund
+== positive control for the '0 opened' above (rolled back): a FAILED refund state must open a case here
+   true|1|1|
+PASS detect_refunds opens a refund_failed case for a failed state, so its 0 for succeeded rows discriminates
+PASS positive control rolled back: 2 state, 2 log, 4 ledger, 0 cases
+== RESULT: ALL PASS

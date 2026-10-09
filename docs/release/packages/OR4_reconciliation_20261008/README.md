@@ -229,7 +229,8 @@ the PaymentIntent ids; the full ids come from R0.
 The amount pairing is the real cross-check: two different amounts land on the right two intents. The PaymentIntent
 prefixes alone would be weaker.
 
-**On the time.** "5:20 PM" equals our recorded 17:20 **only if the Dashboard displays UTC**. The display timezone is
+**On the time.** "5:20 PM" equals our recorded 17:20 **only if the Dashboard displays UTC**. That both payments
+show the same minute carries no timezone information, because the two refunds are 14 s apart (D). The display timezone is
 not established, and this machine's local zone is UTC−4, so the agreement is recorded as conditional.
 - `refunded_at` is when *our* row was marked refunded, not Stripe's refund `created`. The two may differ.
 
@@ -286,8 +287,9 @@ Run with `bash rehearsal/run_R2.sh or4_r2_rehears_<n>` against a fresh clone. Pr
 mode, an existing ledger row, a paid transfer, a pre-set `stripe_refund_id`, and a genuine partial refund. They were
 seeded with `session_replication_role = replica` for setup only; every call under test ran with all triggers on.
 
-**Run 4: 24 PASS, 0 FAIL** (`rehearsal/out/R2_run_4.txt`; run 3 was identical before the ARN redaction):
-- **Refusals, nothing written:** C1–C9.
+**Run 5: 27 PASS, 0 FAIL** (`rehearsal/out/R2_run_5.txt`). This is the current template, after D's review added
+C10–C12. Run 4 passed 24/24 on the previous template.
+- **Refusals, nothing written:** C1–C12.
   - C1: the committed file with its markers unfilled.
   - C2: the ARN given as the refund id.
   - C3–C5: status `pending`, source `reconcile`, amount 600 of 1100.
@@ -295,7 +297,10 @@ seeded with `session_replication_role = replica` for setup only; every call unde
   - C7: a ledger row under another key.
   - C8: a paid transfer.
   - C9: `payments.stripe_refund_id` already set to another id.
-- **Writes:** W6 and W7 used the committed files, with exactly the 3 marker lines replaced.
+  - C10: a refund count of 2.
+  - C11: `re_` plus 23 digits (an ARN in a refund id's shape).
+  - C12: the evidence marker left unfilled.
+- **Writes:** W6 and W7 used the committed files, with exactly the 5 marker lines replaced.
   - Read-back per record: `amount_refunded_cents` = total; cents (requested, succeeded, failed) = (0, total, 0);
     `refunded_at` unchanged.
   - One succeeded state row (via `reconcile`), one log row, one ledger row. The transfer is unchanged; 0 cases.
@@ -321,18 +326,23 @@ tables before the write and asserts they are unchanged after. Runs 1–3 are kep
 
 | file | sha256 (with markers) |
 |---|---|
-| `R3_record_refund.sql.tmpl` (source) | `97f1d0a1370e92a5b22142807bacb91a99e50119f8b86d46ac32fbe63cdcef9d` |
-| `R3_proposed_6_32913315.sql` | `74cfe59a69da8d7d77deefb8887a1bc32e24ab556155938553a9661fd5fa5298` |
-| `R3_proposed_7_700d469b.sql` | `41372b17fd232ffc44db37f4ec9cc9b7cb18423d3ca8a228d95d9ff42cd5828f` |
+| `R3_record_refund.sql.tmpl` (source) | `7740700bf8ef41fdbbc8a9044d5e25dddf029a1d2475a3ff1ed6978029396c81` |
+| `R3_proposed_6_32913315.sql` | `0d68958730ac132933d3e3f7319c3f68516c485ab8c9639d636d71317a8b2630` |
+| `R3_proposed_7_700d469b.sql` | `d976eacbccd4af2469a4356ce132d1c368956ac6e89d7dfc36a915a782333d4b` |
+
+These supersede `97f1d0a1` / `74cfe59a` / `41372b17` (`77778156`), which D reviewed (conditional pass, D `addd4670`). The
+only change is three guards from D's review; see "D's review" below.
 
 Each file is one atomic `DO` block: input guards, then prestate guards (exactly R0), then
 `record_refund_state(pi, re_…, 'succeeded', total, null, <source>, 'reconcile')`, then postconditions. Any failure
 rolls the whole block back.
 
-**Markers.** Three remain in each file: `__R1_REFUND_ID__`, `__R1_REFUND_STATUS__` and `__OWNER_SOURCE__`. As
-committed, each file refuses to run (C1).
-- After R1 part 2 and the source decision, A fills the three markers and nothing else.
-- A then presents the filled files, a diff showing exactly 3 changed lines, and their new sha256.
+**Markers.** Five remain in each file: `__R1_REFUND_ID__`, `__R1_REFUND_STATUS__`, `__OWNER_SOURCE__`,
+`__R1_REFUND_COUNT__` and `__R1_EVIDENCE__`. As committed, each file refuses to run (C1).
+- The refund count and the evidence line exist so that the approved sha256 covers two facts the guards cannot
+  otherwise check: that exactly one refund exists, and where the status, id and count were read.
+- After R1 part 2 and the source decision, A fills the five markers and nothing else.
+- A then presents the filled files, a diff showing exactly 5 changed lines, and their new sha256.
 - **The owner approves those exact shas.**
 
 **Scope.** Only a single succeeded refund equal to the total is handled. If R1 shows anything else for a record
@@ -354,7 +364,8 @@ object.
 
 In every branch:
 - `payments.status` stays `refunded`; it is terminal, even when the refund failed;
-- `refunded_at` is unchanged;
+- `refunded_at` is unchanged. This is **structurally guaranteed**, not only observed: `record_payment_refund` writes
+  `coalesce(refunded_at, now())`, and `guard_payment_transitions` makes `refunded_at` set-once (D, from source);
 - the transfer is unchanged, and no payout rows are written (no payout exists).
 
 The ledger entry carries the owner's `source`. **What the app then displays** for each branch is not verified in this
@@ -364,6 +375,40 @@ The console's refunded-money figure (126) would count a ledger row; a failed ref
 
 **If the details show anything other than O1 for a payment, A revises that payment's script and rehearses it**, with
 the exact effects (including any case) stated before it is offered for approval.
+
+**Two-party on O2.** The 120 h clock starts at reconciliation. A found this by rehearsal (O2t). D found it from source,
+independently: `first_observed_at` is absent from 150's INSERT column list (:204–206), so it defaults to now().
+
+**Completing O-R4 does not demonstrate detection (D).** After a successful O1 reconciliation the detector still opens
+nothing: a succeeded row is selected by neither gated branch. "Reconciliation done, detector clean" is **not** evidence
+that refund-state detection works (F-DETECT-REFUNDS-UNOBSERVABLE-1). Only a failed, canceled or long-pending refund
+exercises it.
+
+### D's review: CONDITIONAL PASS (D `addd4670`, on `77778156` and `d4accc39`)
+
+All five of D's pre-registered criteria are met against the code:
+- no ARN substituted for a refund id;
+- no badge-derived status;
+- no assumed refund count;
+- no defaulted source;
+- nothing written for the excluded five.
+
+D verified the sha256s by its own hashing, and the git blob ids are identical across the two commits. D reserves
+final approval until the markers are filled, because the reviewed files are not what would run.
+
+**D's three residuals, all adopted in the current template:**
+- **(a)** The `re_` check is shape-only; `re_` plus the ARN's digits would pass. Fixed: an all-digit suffix is refused
+  (C11). Origin is still not checkable by a guard, which is why the evidence line exists.
+- **(b)** No guard can tell a `succeeded` copied from the payment badge. Fixed: `c_evidence` records where status, id
+  and count were read, inside the approved sha256 (C12 refuses it unfilled).
+- **(c)** The single-refund fact sat outside the artifact. If two refunds existed and the total were entered against
+  one id, every guard would pass. Fixed: `c_refund_count` must be `'1'` (C10).
+
+**D's limits, as D states them:**
+- D ran no rehearsal; runs 1–5 and O1–O7 are A's.
+- The fixtures' `amount`/`buyer_fee` (1000/100, 200/20) are invented, and R0 never read them. No script line reads
+  them.
+
 
 **Irreversible once run:**
 - the log and ledger are append-only;

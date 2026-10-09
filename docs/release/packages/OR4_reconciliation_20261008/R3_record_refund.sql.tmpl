@@ -22,6 +22,8 @@ declare
   c_status      constant text        := '{{STATUS}}';       -- R1: the REFUND object's status, never the payment badge
   c_amount      constant integer     := {{AMOUNT_CENTS}};   -- R1: that refund object's amount
   c_source      constant text        := '{{SOURCE}}';       -- the owner's recorded decision for this row
+  c_refund_count constant text       := '{{REFUND_COUNT}}'; -- R1: how many refunds the payment lists; must be 1
+  c_evidence    constant text        := '{{EVIDENCE}}';     -- where status, id and count were read (under the sha256)
   v_pay   public.payments%rowtype;
   v_tr0   jsonb;
   v_tr1   jsonb;
@@ -31,8 +33,16 @@ declare
   v_res   jsonb;
 begin
   -- 1. inputs: unfilled markers and out-of-scope outcomes stop here, before anything is read
-  if c_refund_id !~ '^re_[A-Za-z0-9]{10,64}$' then
+  if c_refund_id !~ '^re_[A-Za-z0-9]{10,64}$' or c_refund_id ~ '^re_[0-9]+$' then
+    -- shape only: an all-digit suffix (an ARN with re_ prepended) is refused; the id's origin is the evidence below
     raise exception 'R3_GUARD input: % is not a Stripe refund id', c_refund_id;
+  end if;
+  if c_refund_count is distinct from '1' then
+    raise exception 'R3_GUARD input: refund count % is out of scope (exactly one); one call per refund needs its own plan',
+      c_refund_count;
+  end if;
+  if c_evidence is null or length(c_evidence) < 20 or c_evidence like '\_\_%' then
+    raise exception 'R3_GUARD input: evidence for the refund details is not recorded: %', c_evidence;
   end if;
   if c_status is distinct from 'succeeded' then
     raise exception 'R3_GUARD input: refund status % is out of scope (succeeded only); stop and re-plan', c_status;
@@ -159,6 +169,7 @@ begin
   end if;
 
   raise notice 'R3_OK %', jsonb_build_object('payment_id', c_payment_id, 'refund_id', c_refund_id,
-    'source', c_source, 'amount_refunded_cents', v_pay.amount_refunded_cents, 'result', v_res);
+    'source', c_source, 'refund_count', c_refund_count, 'evidence', c_evidence,
+    'amount_refunded_cents', v_pay.amount_refunded_cents, 'result', v_res);
 end
 $r3$;

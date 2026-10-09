@@ -11,7 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMPL = os.path.join(HERE, "R3_record_refund.sql.tmpl")
-SAFE = re.compile(r"^[A-Za-z0-9_:+. #/()-]*$")
+SAFE = re.compile(r"^[A-Za-z0-9_:+., #/()-]*$")
 
 
 def main(argv):

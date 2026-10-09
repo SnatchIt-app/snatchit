@@ -24,7 +24,8 @@ fill6() { # out, then KEY=VALUE overrides on #6's values (bash 3.2: no associati
   local out=$1; shift
   local defaults=("LABEL=R2 #6 variant" PAYMENT_ID=32913315-2bf7-4e58-b837-f6c5c34b722b
     PI=pi_3U0XuwGdOzCmGbHw0WVJfW3y TOTAL_CENTS=1100 "REFUNDED_AT=2026-08-04 17:20:05+00"
-    REFUND_ID=$RID6 STATUS=succeeded AMOUNT_CENTS=1100 SOURCE=dashboard)
+    REFUND_ID=$RID6 STATUS=succeeded AMOUNT_CENTS=1100 SOURCE=dashboard REFUND_COUNT=1
+    "EVIDENCE=R2 rehearsal value, not production evidence")
   local args=() d o skip
   for d in "${defaults[@]}"; do
     skip=0; for o in "$@"; do [ "${o%%=*}" = "${d%%=*}" ] && skip=1; done
@@ -68,15 +69,18 @@ fixture "$GEN/c6.sql" a2000000-0000-4000-8000-000000000001 pi_R2TESTMODE00000000
 fixture "$GEN/c7.sql" a2000000-0000-4000-8000-000000000002 pi_R2HAZARDONE00000000001; expect_raise C7 "$GEN/c7.sql" "1 ledger row(s) already exist"
 fixture "$GEN/c8.sql" a2000000-0000-4000-8000-000000000003 pi_R2HAZARDTWO00000000001; expect_raise C8 "$GEN/c8.sql" "1 transfer(s) of this payment carry a payout"
 fixture "$GEN/c9.sql" a2000000-0000-4000-8000-000000000004 pi_R2REFIDSET000000000001; expect_raise C9 "$GEN/c9.sql" "payments.stripe_refund_id already holds"
-c=$(counts); [ "$c" = "0 state, 0 log, 2 ledger, 0 cases" ] && pass "nothing written by C1-C9: $c" || fail "after refusals: $c"
+fill6 "$GEN/c10.sql" REFUND_COUNT=2;                     expect_raise C10 "$GEN/c10.sql" "refund count 2 is out of scope"
+fill6 "$GEN/c11.sql" REFUND_ID=re_70000000000000000000001; expect_raise C11 "$GEN/c11.sql" "re_70000000000000000000001 is not a Stripe refund id"
+fill6 "$GEN/c12.sql" EVIDENCE=__R1_EVIDENCE__;           expect_raise C12 "$GEN/c12.sql" "evidence for the refund details is not recorded"
+c=$(counts); [ "$c" = "0 state, 0 log, 2 ledger, 0 cases" ] && pass "nothing written by C1-C12: $c" || fail "after refusals: $c"
 
-echo "== writes: the committed files with only the three markers replaced"
-sed -e "s/__R1_REFUND_ID__/$RID6/" -e "s/__R1_REFUND_STATUS__/succeeded/" -e "s/__OWNER_SOURCE__/dashboard/" "$P6" > "$GEN/w6.sql"
-sed -e "s/__R1_REFUND_ID__/$RID7/" -e "s/__R1_REFUND_STATUS__/succeeded/" -e "s/__OWNER_SOURCE__/dashboard/" "$P7" > "$GEN/w7.sql"
+echo "== writes: the committed files with only the five markers replaced"
+sed -e "s/__R1_REFUND_ID__/$RID6/" -e "s/__R1_REFUND_STATUS__/succeeded/" -e "s/__OWNER_SOURCE__/dashboard/" -e "s/__R1_REFUND_COUNT__/1/" -e "s/__R1_EVIDENCE__/R2 rehearsal value, not production evidence/" "$P6" > "$GEN/w6.sql"
+sed -e "s/__R1_REFUND_ID__/$RID7/" -e "s/__R1_REFUND_STATUS__/succeeded/" -e "s/__OWNER_SOURCE__/dashboard/" -e "s/__R1_REFUND_COUNT__/1/" -e "s/__R1_EVIDENCE__/R2 rehearsal value, not production evidence/" "$P7" > "$GEN/w7.sql"
 for n in 6 7; do
   src=$P6; [ $n = 7 ] && src=$P7
   d=$(diff "$src" "$GEN/w$n.sql" | grep -c '^>')
-  [ "$d" = 3 ] && pass "w$n differs from the committed file in exactly 3 lines" || fail "w$n differs in $d lines"
+  [ "$d" = 5 ] && pass "w$n differs from the committed file in exactly 5 lines" || fail "w$n differs in $d lines"
 done
 before=$(q -c "select ops.detect_refunds()::text")
 expect_notice W6 "$GEN/w6.sql" "R3_OK"
@@ -101,7 +105,8 @@ if t.count(block) != 1: sys.exit(1)
 t = t.replace(block, "")
 vals = {"LABEL": "R2 mutant", "PAYMENT_ID": pid, "PI": pi, "TOTAL_CENTS": "1100",
         "REFUNDED_AT": "2026-08-04 17:20:05+00", "REFUND_ID": "re_R2MUTANT000000000001", "STATUS": "succeeded",
-        "AMOUNT_CENTS": "1100", "SOURCE": "dashboard"}
+        "AMOUNT_CENTS": "1100", "SOURCE": "dashboard", "REFUND_COUNT": "1",
+        "EVIDENCE": "R2 rehearsal value, not production evidence"}
 for k, v in vals.items(): t = t.replace("{{" + k + "}}", v)
 assert "{{" not in t
 open(out, "w").write("begin;\n" + t + "\nrollback;\n")
