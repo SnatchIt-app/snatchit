@@ -21,3 +21,10 @@ Gesture rules these scripts do not enforce, and which cost a frame each to learn
 3. A fast release flicks with momentum. A damped tail — three samples with <= 2 pt of
    movement at 60/120/150 ms — lands where it is aimed.
 4. Device points are 393x852; the screenshots are 1179x2556 (@3x), so divide by 3.
+
+## Paths after the SSD migration (9 October 2026)
+
+`shot.sh` and `nav.sh` called `/tmp/cap.sh`, which the migration record flags as exactly the
+assumption not to carry over. They now resolve `cap.sh` beside themselves, so the set works
+from wherever this folder lives. `ink.py` / `ink2.py` / `mut_rep.py` take their paths as
+arguments and needed no change. Nothing here writes outside the path it is given.

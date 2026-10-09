@@ -4,6 +4,7 @@
 # deep-links twice (the first often lands before the bundle is ready), and captures only once
 # the sandbox banner proves the app — not the dev-client launcher — is on screen.
 set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 D=52282259-961E-4A1A-B32B-CEFA858CFF48
 SIZE="$1"; APPEAR="$2"; ROUTE="$3"; OUT="$4"
 xcrun simctl ui "$D" content_size "$SIZE" >/dev/null
@@ -15,5 +16,5 @@ xcrun simctl openurl "$D" "snatchit://$ROUTE" >/dev/null 2>&1
 sleep 8
 xcrun simctl openurl "$D" "snatchit://$ROUTE" >/dev/null 2>&1
 sleep 9
-/tmp/cap.sh "$OUT" 120 || exit 1
+"$HERE/cap.sh" "$OUT" 120 || exit 1
 echo "captured $OUT  size=$(xcrun simctl ui "$D" content_size) appearance=$(xcrun simctl ui "$D" appearance)"
