@@ -147,7 +147,7 @@ export function Shell({
               <ol className="flex min-w-0 items-center gap-1.5 text-[0.8125rem] text-muted">
                 {crumbs.map((c, n) => (
                   <li key={c} className={`flex min-w-0 items-center gap-1.5 ${n === 0 && crumbs.length > 1 ? "hidden sm:flex" : ""}`}>
-                    {n > 0 ? <Icon name="chevron" size={13} className="shrink-0 text-dim" /> : null}
+                    {n > 0 ? <Icon name="chevron" size={13} className={`shrink-0 text-dim ${n === 1 ? "hidden sm:block" : ""}`} /> : null}
                     <span className={`truncate ${n === crumbs.length - 1 ? "font-semibold text-ink" : ""}`}>{c}</span>
                   </li>
                 ))}
