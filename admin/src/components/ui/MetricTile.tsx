@@ -40,22 +40,23 @@ export function MetricTile({
   const body = (
     <>
       <p className="text-[0.8125rem] font-medium text-muted">{heading}</p>
-      <p className={`mt-1.5 ${unavailable ? "text-[0.9375rem] font-medium text-dim" : "text-[1.5rem] font-semibold leading-tight text-ink"}`}>{headline}</p>
+      <p className={`mt-2 ${unavailable ? "text-[0.9375rem] font-medium text-dim" : "stat-num !text-[2rem] text-ink"}`}>{headline}</p>
       {note ? <p className="mt-1.5 text-[0.75rem] text-warning">{note}</p> : null}
       {sub ? <p className="mt-1 text-[0.75rem] text-dim">{sub}</p> : null}
     </>
   );
   if (href) {
     return (
-      <Link href={href} className="block rounded-[var(--radius-card)] border border-line bg-card p-4 transition-colors hover:border-line-strong hover:bg-raised focus-visible:bg-raised">
+      <Link href={href} className="group block h-full bg-[#fffdfa] p-5 transition-colors hover:bg-white focus-visible:bg-white">
         {body}
       </Link>
     );
   }
-  return <div className={`rounded-[var(--radius-card)] border border-line bg-card p-4 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(17,17,17,0.04)_6px_12px)]" : ""}`}>{body}</div>;
+  return <div className={`h-full bg-[#fffdfa] p-5 ${unavailable ? "bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(70,50,30,0.04)_6px_12px)]" : ""}`}>{body}</div>;
 }
 
 export function MetricGrid({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 | 6 }) {
   const md = cols === 6 ? "md:grid-cols-6" : cols === 3 ? "md:grid-cols-3" : cols === 2 ? "md:grid-cols-2" : "md:grid-cols-4";
-  return <div className={`grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 ${md}`}>{children}</div>;
+  // Grouped figures (approved concept): one quiet panel, cells divided by hairlines.
+  return <div className={`grid grid-cols-1 gap-px overflow-hidden rounded-[var(--radius-panel)] border border-[rgba(70,50,30,0.09)] bg-[rgba(70,50,30,0.09)] min-[420px]:grid-cols-2 ${md}`}>{children}</div>;
 }

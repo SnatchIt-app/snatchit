@@ -53,23 +53,21 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         Skip to content
       </a>
       <div className="min-h-dvh">
-        <aside className="glass fixed bottom-3 left-3 top-3 z-40 hidden w-[16.5rem] flex-col rounded-[28px] p-3 lg:flex">
-          <Link href="/" className="flex items-center gap-2.5 rounded-2xl px-2 pb-4 pt-1.5">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sn-logo-white.svg" alt="" width={22} height={8} className="h-auto w-[1.35rem]" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[0.9375rem] font-semibold leading-tight tracking-[-0.01em]">Snatch It</span>
-              <span className="block text-[0.75rem] text-muted">Operations console</span>
-            </span>
+        <aside className="glass fixed bottom-4 left-4 top-4 z-40 hidden w-[15.5rem] flex-col rounded-[26px] px-3.5 pb-3.5 pt-6 lg:flex">
+          <Link href="/" className="block rounded-[14px] px-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/sn-logo.svg" alt="" width={56} height={20} className="h-auto w-14" />
+            <span className="serif mt-2 block text-[1.75rem] leading-none tracking-[-0.02em]">Snatch It</span>
+            <span className="mt-1.5 block text-[0.75rem] text-muted">Operations console</span>
           </Link>
-          <Sidebar />
+          <div className="mt-5 min-h-0 flex-1 overflow-y-auto border-t border-line pt-4">
+            <Sidebar />
+          </div>
           <SidebarFooter email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
         </aside>
-        <div className="flex min-h-dvh min-w-0 flex-col lg:pl-[18rem]">
+        <div className="flex min-h-dvh min-w-0 flex-col lg:pl-[17.5rem]">
           <TopBar email={operator.whoami.email_masked ?? operator.email} role={operator.role} />
-          <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-32 pt-6 md:px-8 md:pt-8 lg:pb-12">
+          <main id="main" className="mx-auto w-full min-w-0 max-w-[1440px] flex-1 px-4 pb-32 pt-5 md:px-8 lg:pb-14 lg:pt-2">
             {paused ? <PausedNotice /> : null}
             {children}
           </main>

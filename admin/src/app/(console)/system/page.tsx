@@ -140,11 +140,11 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
               <MetricTile label="Approvals pending" value={approvals.length} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
 
-            <Panel eyebrow="ops.job_state" title="Console jobs (detectors)">
+            <Panel eyebrow="Run by the console" title="Console jobs (detectors)">
               <OpsJobTable jobs={health.ops_jobs} canRetry={canRequest(me.role, "job_retry")} />
             </Panel>
 
-            <Panel eyebrow="pg_cron" title="Cron jobs">
+            <Panel eyebrow="Scheduled in the database" title="Cron jobs">
               {!health.cron.available ? (
                 <Alert state="info" title="Run history unavailable." compact>
                   {health.cron.note ?? "cron.job_run_details is not present on this database."}
@@ -156,7 +156,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </Panel>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <Panel eyebrow="stripe_webhook_events" title="Webhook backlog">
+              <Panel eyebrow="From Stripe" title="Webhook backlog">
                 <div id="webhooks" />
                 <KeyValue
                   columns={2}
@@ -228,7 +228,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           <p className="mt-3 text-[0.6875rem] text-dim">Approval is bound to the exact action terms; if anything about the request changes it is voided. You cannot approve your own request. Approvals expire after the configured TTL.</p>
         </Panel>
 
-        <Panel eyebrow="ops.setting" title="Settings">
+        <Panel eyebrow="Console switches" title="Settings">
           <div id="settings" />
           {!isAdmin ? (
             <Alert state="info" title="Settings are visible to platform_admin only." compact />

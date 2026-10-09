@@ -27,10 +27,8 @@ import { OpsFailureAlert } from "@/components/ui/Alert";
 export function SampleDataNotice() {
   if (!/local|harness|rehears|sample|preview/i.test(ENV_LABEL)) return null;
   return (
-    <p role="note" className="mb-6 flex items-start gap-2 rounded-[var(--radius-control)] border border-warning/30 bg-warning-soft px-3 py-2 text-[0.8125rem] text-ink">
-      <span aria-hidden="true" className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-warning text-[0.625rem] font-bold text-white">
-        !
-      </span>
+    <p role="note" className="panel mb-6 flex items-start gap-3 px-4 py-3 text-[0.8125rem] text-ink">
+      <span aria-hidden="true" className="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-[#e08a2e]" />
       <span>
         <strong className="font-semibold">Sample data.</strong> This console is connected to the local synthetic harness ({ENV_LABEL}). Every figure and
         chart below is fixture data, not Snatch It business data.
@@ -60,9 +58,9 @@ const SEVERITY: Record<string, "critical" | "warning" | "info"> = {
 };
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 } as const;
 const SEVERITY_STYLE = {
-  critical: { dot: "bg-danger-soft text-danger", glyph: "✕", word: "Urgent" },
-  warning: { dot: "bg-warning-soft text-warning", glyph: "!", word: "Soon" },
-  info: { dot: "bg-info-soft text-info", glyph: "i", word: "Queue" },
+  critical: { dot: "bg-[#f7e0da] text-[#a82d17]", glyph: "!", word: "Urgent" },
+  warning: { dot: "bg-[#fbead6] text-[#8f4605]", glyph: "!", word: "Soon" },
+  info: { dot: "bg-[rgba(70,50,30,0.07)] text-[rgba(35,30,26,0.72)]", glyph: "i", word: "Queue" },
 } as const;
 const SHORT_LABEL: Record<string, string> = {
   transfers_overdue: "Transfers past seller deadline",
@@ -89,60 +87,63 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
   const clear = counted.filter((m) => m.n === 0);
   const urgent = active.filter((m) => m.sev === "critical").length;
   return (
-    <div>
-      <p className="mb-3 text-[0.875rem] text-muted">
+    <div className="panel px-5 pb-3 pt-4 md:px-6">
+      <p className="pb-3 text-[0.875rem] text-muted">
         {active.length === 0 ? (
-          <span className="font-medium text-success">✓ Nothing needs attention right now.</span>
+          <span className="font-medium text-success">Nothing needs attention right now.</span>
         ) : (
           <>
-            <span className="font-semibold text-ink">
+            <span className="font-medium text-ink">
               {urgent} urgent · {active.length - urgent} other
             </span>{" "}
-            signals need attention. Each links to the queue where you act on it.
+            — each opens the queue where you act on it.
           </>
         )}
       </p>
       {active.length ? (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ul className="border-t border-line">
           {active.map((m) => {
-            const s = SEVERITY_STYLE[m.sev];
+            const st = SEVERITY_STYLE[m.sev];
             const href = metricHref(m.key);
-            const body = (
-              <>
-                <span className="flex items-center gap-2 text-[0.8125rem] font-medium text-muted">
-                  <span aria-hidden="true" className={`flex h-5 w-5 items-center justify-center rounded-full text-[0.6875rem] font-bold ${s.dot}`}>
-                    {s.glyph}
-                  </span>
-                  <span className="sr-only">{s.word}: </span>
-                  {SHORT_LABEL[m.key] ?? m.label}
-                </span>
-                <span className="mt-1.5 block text-[1.625rem] font-semibold leading-tight text-ink">{m.n.toLocaleString("en-US")}</span>
-                <span className="mt-1 block text-[0.75rem] leading-snug text-dim">{m.definition ?? definitions[m.key]}</span>
-              </>
-            );
+            const def = m.definition ?? definitions[m.key];
             return (
-              <li key={m.key}>
+              <li key={m.key} className="group/row grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 border-b border-line py-3 last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+                <span aria-hidden="true" className={`status-icon text-[0.8125rem] font-bold ${st.dot}`}>
+                  {st.glyph}
+                </span>
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-baseline gap-x-2.5">
+                    <span className="sr-only">{st.word}: </span>
+                    <span className="serif text-[1.375rem] leading-none tabular-nums">{m.n.toLocaleString("en-US")}</span>
+                    <span className="text-[0.9375rem] font-medium">{SHORT_LABEL[m.key] ?? m.label}</span>
+                  </p>
+                  {def ? (
+                    <details className="group/why">
+                      <summary className="mt-0.5 inline-flex min-h-7 items-center gap-1 rounded-md text-[0.75rem] text-dim hover:text-ink">
+                        What this counts
+                        <span aria-hidden="true" className="transition-transform group-open/why:rotate-180">⌄</span>
+                      </summary>
+                      <p className="mb-1 max-w-xl rounded-[10px] bg-white/70 px-3 py-2 text-[0.8125rem] leading-relaxed text-muted">{def}</p>
+                    </details>
+                  ) : null}
+                </div>
                 {href ? (
-                  <Link
-                    href={href}
-                    className={`block h-full rounded-[var(--radius-card)] border bg-card p-4 transition-colors hover:bg-raised ${m.sev === "critical" ? "border-danger/35" : "border-line"}`}
-                  >
-                    {body}
+                  <Link href={href} className="btn btn-soft btn-sm col-start-2 mt-2 justify-self-start sm:col-start-3 sm:mt-0">
+                    Open queue
+                    <span aria-hidden="true" className="transition-transform group-hover/row:translate-x-0.5">›</span>
                   </Link>
-                ) : (
-                  <div className="h-full rounded-[var(--radius-card)] border border-line bg-card p-4">{body}</div>
-                )}
+                ) : null}
               </li>
             );
           })}
         </ul>
       ) : null}
       {clear.length ? (
-        <details className="mt-3 rounded-[var(--radius-control)]">
-          <summary className="inline-block rounded-[var(--radius-control)] px-2 py-1 text-[0.8125rem] text-dim">
+        <details className="border-t border-line pt-2.5">
+          <summary className="inline-flex min-h-9 items-center rounded-lg text-[0.8125rem] text-muted hover:text-ink">
             {clear.length} check{clear.length === 1 ? "" : "s"} clear
           </summary>
-          <p className="px-2 pt-1 text-[0.8125rem] text-dim">{clear.map((m) => SHORT_LABEL[m.key] ?? m.label).join(" · ")}</p>
+          <p className="pb-2 text-[0.8125rem] text-muted">{clear.map((m) => SHORT_LABEL[m.key] ?? m.label).join(" · ")}</p>
         </details>
       ) : null}
     </div>

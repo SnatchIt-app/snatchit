@@ -36,9 +36,9 @@ export function KpiTile({
         : "text-danger";
   const glyph = delta?.kind === "up" ? "↑" : delta?.kind === "down" ? "↓" : "";
   return (
-    <div className="flex h-full flex-col rounded-[var(--radius-card)] border border-line bg-card p-4">
+    <div className="panel flex h-full flex-col p-5">
       <p className="text-[0.8125rem] font-medium text-muted">{label}</p>
-      <p className={`mt-1.5 leading-tight ${muted ? "text-[1.0625rem] font-medium text-dim" : "text-[1.625rem] font-semibold text-ink"}`}>{value}</p>
+      <p className={`mt-2 ${muted ? "text-[1.0625rem] font-medium leading-tight text-dim" : "stat-num !text-[2rem] text-ink"}`}>{value}</p>
       {valueNote ? <p className="mt-1 text-[0.8125rem] text-muted">{valueNote}</p> : null}
       {delta ? (
         <p className={`mt-1.5 text-[0.8125rem] ${tone}`}>

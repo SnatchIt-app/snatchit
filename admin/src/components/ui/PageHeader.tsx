@@ -26,13 +26,13 @@ export function PageHeader({
     <div className="enter mb-6 flex flex-wrap items-end justify-between gap-x-8 gap-y-4 md:mb-8">
       <div className="min-w-0">
         {back || eyebrow ? (
-          <p className="mb-2 flex items-center gap-2">
+          <p className="mb-3 flex items-center gap-2.5">
             {back ? (
               <Link href={back.href} className="btn-icon h-8 w-8" aria-label={back.label} title={back.label}>
                 <Icon name="back" size={16} />
               </Link>
             ) : null}
-            {eyebrow ? <span className="kicker">{eyebrow}</span> : null}
+            {eyebrow ? <span className="eyebrow-caps">{eyebrow}</span> : null}
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

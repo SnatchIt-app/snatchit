@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/orders", useRouter: () => ({ push: () => {} }) }));
+vi.mock("server-only", () => ({}));
 
 import { splitLabel, StatusBadge } from "@/components/ui/StatusBadge";
 import { OrderTable } from "@/components/orders/OrderTable";
@@ -106,5 +107,21 @@ describe("a failed read says what was lost, keeps the reason, offers recovery", 
     const plain = renderToStaticMarkup(createElement(OpsFailureAlert, { failure, retryHref: "/x" }));
     expect(plain).toContain("Request failed");
     expect(plain).not.toContain("couldn&#x27;t be loaded");
+  });
+});
+
+describe("a person in a record reads as a name, never as JSON", () => {
+  it("renders { id, display_name } as a link to the user, at any depth", async () => {
+    const { renderValue } = await import("@/components/generic/GenericRpc");
+    const party = { id: "b0000000-0000-4000-8000-000000000002", display_name: "Jordan Kim" };
+    for (const depth of [0, 1]) {
+      const html = renderToStaticMarkup(createElement("div", null, renderValue("buyer", party, depth)));
+      expect(html).toContain('href="/users/b0000000-0000-4000-8000-000000000002"');
+      expect(html).toContain("Jordan Kim");
+      expect(html).not.toContain("display_name");
+    }
+    // Other objects keep their generic rendering.
+    const other = renderToStaticMarkup(createElement("div", null, renderValue("meta", { a: 1, b: 2 }, 1)));
+    expect(other).toContain("&quot;a&quot;");
   });
 });

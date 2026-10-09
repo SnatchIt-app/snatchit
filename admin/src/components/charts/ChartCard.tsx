@@ -28,7 +28,7 @@ export function ChartCard({
   return (
     <figure className="rounded-[var(--radius-card)] border border-line bg-card p-5">
       <figcaption>
-        <h3 className="text-[0.9375rem] font-semibold text-ink">{title}</h3>
+        <h3 className="title-section !text-[1.25rem]">{title}</h3>
         <p className="mt-0.5 text-[0.8125rem] text-dim">{description}</p>
       </figcaption>
       <div className="mt-4">
@@ -89,7 +89,7 @@ export function ChartSkeleton({ title }: { title: string }) {
   return (
     <figure className="rounded-[var(--radius-card)] border border-line bg-card p-5" aria-busy="true">
       <figcaption>
-        <h3 className="text-[0.9375rem] font-semibold text-ink">{title}</h3>
+        <h3 className="title-section !text-[1.25rem]">{title}</h3>
         <p className="mt-0.5 text-[0.8125rem] text-dim">Loading…</p>
       </figcaption>
       <div className="mt-4 h-[220px] animate-pulse rounded-[var(--radius-control)] bg-[linear-gradient(to_top,var(--color-raised)_1px,transparent_1px)] bg-[length:100%_55px]" role="status" aria-label={`Loading ${title}`} />

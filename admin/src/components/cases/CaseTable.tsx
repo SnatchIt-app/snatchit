@@ -1,3 +1,4 @@
+import { humanize } from "@/lib/format";
 import Link from "next/link";
 import { DataTable, type Column, type SearchParamsLike } from "@/components/ui/DataTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -43,7 +44,7 @@ export function CaseTable({
         </div>
       ),
     },
-    { key: "case_type", header: "Type", sortKey: "case_type", render: (c) => <span className="font-mono text-[0.75rem]">{c.case_type ?? "—"}</span> },
+    { key: "case_type", header: "Type", sortKey: "case_type", render: (c) => (c.case_type ? <span title={c.case_type}>{humanize(c.case_type)}</span> : <span className="text-muted">—</span>) },
     { key: "status", header: "Status", sortKey: "status", render: (c) => <StatusBadge status={c.status} /> },
     {
       key: "subject",

@@ -131,31 +131,33 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <h2 id="queues-h" className="sr-only">
           Work queues
         </h2>
-        <ul className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+        {/* Grouped figures (approved concept): one panel, cells divided by hairlines. Each cell is the view. */}
+        <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-[20px] border border-[rgba(70,50,30,0.09)] bg-[rgba(70,50,30,0.09)] xl:grid-cols-4">
           {QUEUES.map((v, i) => {
             const n = countOf(queueRes[i]);
             const on = activeQueue === v.key;
             return (
-              <li key={v.key}>
+              <li key={v.key} className="min-w-0">
                 <Link
                   href={on ? href({ q: q || undefined }) : href({ ...v.params, q: q || undefined })}
                   aria-current={on ? "page" : undefined}
                   aria-label={`${v.label}: ${n ?? "count unavailable"}${on ? " — showing; select to clear" : ""}`}
-                  className={`card-link group flex h-full flex-col rounded-[22px] p-4 md:p-5 ${on ? "bg-ink text-white shadow-[0_14px_30px_-14px_rgba(28,25,23,0.5)]" : "panel"}`}
+                  className={`group relative flex h-full flex-col px-5 pb-4 pt-4 transition-colors md:px-6 ${on ? "bg-white" : "bg-[#fffdfa] hover:bg-white"}`}
                 >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className={`grid h-8 w-8 place-items-center rounded-full ${on ? "bg-white/15" : n ? "bg-[rgba(227,38,28,0.08)] text-danger" : "bg-[#f5f3ef]"}`}>
-                      <Icon name={v.icon} size={16} />
+                  {on ? <span aria-hidden="true" className="absolute inset-x-5 bottom-0 h-[3px] rounded-full bg-[#26211d] md:inset-x-6" /> : null}
+                  <span className="flex items-center justify-between gap-2 text-[0.875rem] text-muted group-hover:text-ink">
+                    <span className="flex items-center gap-2">
+                      <Icon name={v.icon} size={16} strokeWidth={1.6} className={n ? "text-[#a82d17]" : ""} />
+                      {v.label}
                     </span>
-                    <span aria-hidden="true" className={`text-[0.75rem] font-medium ${on ? "text-white/80" : "text-muted"}`}>{on ? "Showing · clear" : "View"}</span>
+                    <span aria-hidden="true" className="text-[0.75rem]">{on ? "Clear" : ""}</span>
                   </span>
                   {n === null ? (
-                    <span className={`mt-4 text-[0.9375rem] font-medium leading-[2.25rem] ${on ? "text-white/80" : "text-muted"}`}>Count unavailable</span>
+                    <span className="mt-3 text-[0.9375rem] font-medium leading-[2.625rem] text-muted">Count unavailable</span>
                   ) : (
-                    <span className="figure mt-4 text-[2rem] leading-none md:text-[2.25rem]">{n}</span>
+                    <span className="stat-num mt-3">{n}</span>
                   )}
-                  <span className="mt-2 text-[0.875rem] font-semibold tracking-[-0.01em]">{v.label}</span>
-                  <span className={`text-[0.75rem] ${on ? "text-white/75" : "text-muted"}`}>{v.hint}</span>
+                  <span className="mt-2 text-[0.75rem] text-muted">{v.hint}</span>
                 </Link>
               </li>
             );

@@ -83,7 +83,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
 
       <div className="space-y-10">
         <section aria-labelledby="money-summary">
-          <h2 id="money-summary" className="mb-3 text-[1.125rem] font-semibold text-ink">
+          <h2 id="money-summary" className="mb-3 title-section">
             Summary
           </h2>
           <Suspense key={`k-${from}-${to}`} fallback={<div className="h-[230px] animate-pulse rounded-[var(--radius-card)] bg-raised" role="status" aria-label="Loading money summary" />}>
@@ -92,7 +92,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         </section>
 
         <section aria-labelledby="money-trends">
-          <h2 id="money-trends" className="mb-3 text-[1.125rem] font-semibold text-ink">
+          <h2 id="money-trends" className="mb-3 title-section">
             Trends
           </h2>
           <Suspense

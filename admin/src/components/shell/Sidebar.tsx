@@ -20,23 +20,20 @@ export function Sidebar() {
     const active = isNavActive(pathname, n.href);
     return (
       <li key={n.href}>
-        <Link href={n.href} aria-current={active ? "page" : undefined} title={`${n.label} — press g then ${n.key}`} className="nav-item group ml-3">
-          <Icon name={n.icon} size={18} />
-          <span className="flex-1">{n.label}</span>
-          <kbd aria-hidden="true" className="opacity-0 transition-opacity group-hover:opacity-100">
-            g {n.key}
-          </kbd>
+        <Link href={n.href} aria-current={active ? "page" : undefined} title={`${n.label} — press g then ${n.key}`} className="nav-item group">
+          <Icon name={n.icon} size={20} strokeWidth={1.5} />
+          <span className="min-w-0 flex-1 truncate">{n.label}</span>
         </Link>
       </li>
     );
   };
   return (
-    <nav aria-label="Console sections" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
-      <ul className="flex flex-col gap-0.5">{NAV.filter((n) => !n.group).map(item)}</ul>
+    <nav aria-label="Console sections" className="flex flex-col gap-4">
+      <ul className="flex flex-col gap-1">{NAV.filter((n) => !n.group).map(item)}</ul>
       {GROUPS.map((g) => (
         <div key={g}>
           <p className="nav-group mb-1.5">{g}</p>
-          <ul className="flex flex-col gap-0.5">{NAV.filter((n) => n.group === g).map(item)}</ul>
+          <ul className="flex flex-col gap-1">{NAV.filter((n) => n.group === g).map(item)}</ul>
         </div>
       ))}
     </nav>

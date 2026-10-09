@@ -57,6 +57,15 @@ export function renderValue(key: string, v: unknown, depth = 0): ReactNode {
     return <GenericTable rows={v.filter(isRecord)} basePath="" />;
   }
   if (isRecord(v)) {
+    // A person ({ id, display_name }) is shown as their name, linked to their page — never as JSON.
+    if (typeof v.id === "string" && ("display_name" in v || "email_masked" in v) && Object.keys(v).length <= 4) {
+      const name = typeof v.display_name === "string" && v.display_name ? v.display_name : null;
+      return (
+        <Link href={`/users/${v.id}`} className="link" title={v.id}>
+          {name ?? <code className="font-mono text-[0.75rem]">{v.id.slice(0, 8)}</code>}
+        </Link>
+      );
+    }
     if (depth >= 1) return <code className="whitespace-pre-wrap font-mono text-[0.6875rem]">{JSON.stringify(v, null, 1).slice(0, 400)}</code>;
     return <KeyValue columns={1} items={Object.entries(v).map(([k, val]) => ({ key: k, value: renderValue(k, val, depth + 1) }))} />;
   }
