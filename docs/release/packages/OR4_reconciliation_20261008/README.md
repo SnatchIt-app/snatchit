@@ -339,8 +339,9 @@ rolls the whole block back.
 
 **Markers.** Five remain in each file: `__R1_REFUND_ID__`, `__R1_REFUND_STATUS__`, `__OWNER_SOURCE__`,
 `__R1_REFUND_COUNT__` and `__R1_EVIDENCE__`. As committed, each file refuses to run (C1).
-- The refund count and the evidence line exist so that the approved sha256 covers two facts the guards cannot
-  otherwise check: that exactly one refund exists, and where the status, id and count were read.
+- The refund count and the evidence line are **owner-attested values under the approved sha256, not
+  measurements**. The database never checks the count against Stripe. Their value is that the owner's approval then
+  covers both claims: that exactly one refund exists, and where the status, id and count were read (D).
 - After R1 part 2 and the source decision, A fills the five markers and nothing else.
 - A then presents the filled files, a diff showing exactly 5 changed lines, and their new sha256.
 - **The owner approves those exact shas.**
@@ -402,10 +403,27 @@ final approval until the markers are filled, because the reviewed files are not 
 - **(b)** No guard can tell a `succeeded` copied from the payment badge. Fixed: `c_evidence` records where status, id
   and count were read, inside the approved sha256 (C12 refuses it unfilled).
 - **(c)** The single-refund fact sat outside the artifact. If two refunds existed and the total were entered against
-  one id, every guard would pass. Fixed: `c_refund_count` must be `'1'` (C10).
+  one id, every guard would pass. Fixed: `c_refund_count` must be `'1'` (C10). This is an assertion under signature,
+  not a check against Stripe.
+
+**D's re-check at `f7595be9`: PASS on all three guards; criterion 3 now met outright (D `8ba6cef7`).**
+- D probed each guard: C11 refuses `re_` plus the real ARN's digits; C10 refuses `2`, `01` and `" 1"`; C12 refuses the
+  marker and short strings.
+- All three guards run before the first read.
+- Accepted as known, not pressed:
+  - C11 is shape-only (one prepended letter passes); C12 is the compensating control.
+  - C12 accepts 20 spaces; a blank one would still be visible in `R3_OK` and under the sha256.
+- D will check the filled files against its record §6 before the run:
+  - only the five markers changed, with the hashes recomputed;
+  - status `succeeded`;
+  - amount = total = the R1 amount;
+  - the source in the owner's own words;
+  - count `1`, and evidence naming where it was read;
+  - `payment_refund_state` still empty at execution.
 
 **D's limits, as D states them:**
-- D ran no rehearsal; runs 1–5 and O1–O7 are A's.
+- D ran no rehearsal: runs 1–5, O1–O7, M1–M3 and the W6/W7 "5 changed lines" (W files are generated, not committed)
+  are A's alone.
 - The fixtures' `amount`/`buyer_fee` (1000/100, 200/20) are invented, and R0 never read them. No script line reads
   them.
 

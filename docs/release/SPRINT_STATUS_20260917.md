@@ -2300,3 +2300,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - O2's 120 h-from-reconciliation is two-party (A by rehearsal, D from source);
     - `refunded_at` unchanged is structurally guaranteed;
     - completing O-R4 (O1) does not demonstrate detection.
+- **O-R4: D re-check PASS on all three new guards (D `8ba6cef7`, at `f7595be9`); all five criteria met outright; final approval reserved for the filled files.** README wording corrected per D: the count and evidence lines are owner-attested values under the sha256, not measurements against Stripe.
