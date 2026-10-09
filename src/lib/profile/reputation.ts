@@ -11,6 +11,10 @@
  * Elite. `null` stats (RPC failure) is handled by the screen as "unavailable",
  * which is distinct from "no history" (a zero would misrepresent an established
  * seller on the one screen whose job is trust).
+ *
+ * The same rule holds INSIDE a successful read: a seller with sales but no terminal transfer has no
+ * success rate, so the rate is `null`, not 0 — a 0 would print as a rate AND fail every tier
+ * gate, branding that seller "Needs review" on no evidence (B, batch 7: `null% transfer success`).
  */
 
 import type { ProfileTrustStats, SellerReputationTier } from '@/src/types';
@@ -31,8 +35,11 @@ export function deriveReputation(stats: ProfileTrustStats | null): Reputation {
   const sales = stats.completed_sales;
   const denom = stats.seller_terminal_total;
   const num = stats.seller_terminal_successful;
-  const rate = denom > 0 ? num / denom : 0;
-  const ratePct = denom > 0 ? Math.round(rate * 100) : null;
+  // No denominator, no rate. A 0 here is an INVENTED FAILURE twice over: it prints as a rate the
+  // data does not carry, and it fails every tier gate below, which brands the seller "Needs
+  // review". `null` is the same answer this module already gives for a failed read — unknown.
+  const rate = denom > 0 ? num / denom : null;
+  const ratePct = rate == null ? null : Math.round(rate * 100);
 
   // Any lost dispute → trust floor. Highest precedence after no-data.
   if (stats.disputes_lost > 0) {
@@ -51,6 +58,24 @@ export function deriveReputation(stats: ProfileTrustStats | null): Reputation {
       label: 'New seller',
       blurb: sales === 0 ? 'No completed transfers yet' : `${sales} of 5 sales toward Trusted`,
       successRate: ratePct,
+    };
+  }
+
+  // Volume, but no terminal transfer to judge it by. Neither the floor nor a promotion: both would
+  // be verdicts on data that does not exist. The screen already prints "—" for a null rate.
+  //
+  // NOT reachable from `get_profile_trust_stats` as it stands (migration 031: the denominator's
+  // status set is a strict superset of the one `completed_sales` counts, so denom >= sales for any
+  // row the RPC returns) — but the type permits it and the ladder must not invent a verdict.
+  // LABEL IS A TRUST-PRESENTATION CHOICE, flagged to the owner: "Unrated" claims neither newness
+  // nor failure; "New seller" would contradict the sales count beside it; "Needs review" is the
+  // invented failure this fix removes. Tier stays `new_seller` because its tone is the neutral one.
+  if (rate == null) {
+    return {
+      tier: 'new_seller',
+      label: 'Unrated',
+      blurb: `${sales} sales · transfer success unavailable`,
+      successRate: null,
     };
   }
 
