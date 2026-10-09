@@ -110,3 +110,84 @@ This covers the profile batch and nothing else. It is **not** whole-app acceptan
 poster check is **not** repeated — the owner ruled the earlier default-size recheck complete and
 these commits touch `app/profile/[id].tsx` and `app/_dev/v3-profile.tsx` only. Authenticated
 consumer Home, the Edit refusal group and spoken VoiceOver remain explicitly untested.
+
+---
+
+# Addendum, same day — the A3XL gap is closed, and three corrections of mine
+
+## 7. P-3 is CLOSED at `12cc3e8d`. A3XL, both appearances, measured and read.
+C captured the stacked hero at A3XL at 19:14–19:15, after my last device use at 19:12:59. Copies
+in `native/12cc3e8d/*Coperated.png`; C's copies in the app repo are the originals.
+
+| frame | content ink in the gutter | max ink x |
+|---|---|---|
+| `profile-a3xl-light-hero-Coperated` | 0 | 361.3 pt |
+| `profile-a3xl-light-blurb-Coperated` | 0 | 348.0 pt |
+| `profile-a3xl-dark-hero-Coperated` | 0 | 348.0 pt |
+
+Only the 144 px header hairline appears in the gutter, as everywhere else. All three md5-distinct;
+header hairline at 553 px confirms A3XL from paint rather than from a readback.
+
+**What the frames read, Light and Dark:**
+
+```
+TRANSFER                 <- whole words. At 857e6d93 this was  TRANSFE / R / SUCCESS / RATE
+SUCCESS RATE
+100%                     <- one line, whole
+[Trusted seller]         <- badge below the rate, left-aligned
+14 sales · 100%          <- complete, three lines, EVERY BREAK ON A WHOLE WORD,
+transfer                    left-aligned from the margin.  At 857e6d93: "14 / sale…"
+success
+```
+
+- **The mid-word break on `TRANSFER` is gone** in both appearances.
+- **The blurb is complete and wraps on whole words.** This is the question the owner posed —
+  complete text is not enough if the layout makes it hard to read — and the answer at A3XL is that
+  the stacked form satisfies both.
+- **The rate block does not collapse.** The `flex: 1` on `heroLeft` that I flagged is not realised
+  as a defect at 3XL or at A3XL. The risk is recorded as not realised, not as never present.
+
+**Verdict: P-1, P-2 and P-3 are closed at `12cc3e8d`; P-4 remains a fixture correction
+(`2181de75`), and the default layout is byte-identical below the header.** This is the profile
+batch only. It is not whole-app acceptance.
+
+## 8. Correction — the device overlap was mine
+C's log at `6d54d10f` said the window was B's and C's session was idle when I began, but C resumed
+and **I did not re-check before using the device**. We were both on
+`52282259-961E-4A1A-B32B-CEFA858CFF48` between roughly 18:56 and 19:04. C saw the content size
+change underneath it and discarded frames because of me. I accept the rule E recorded: **one
+operator at a time, declared before use.** My last device use was 19:12:59 and I have issued no
+`simctl` since.
+
+## 9. Correction — my "content_size reverts across the relaunch" finding is withdrawn
+I recorded it as a simulator behaviour. C was setting A3XL on the same device in the same minutes,
+and A3XL is exactly the value my readbacks reverted to. **A second operator is a sufficient
+explanation and I cannot separate the two from this window.** The three-point size gate stays —
+it voided every affected frame instead of writing it — but the diagnosis was wrong. Trap 1
+(`simctl ui appearance` does not drive this app, because the harness reads the stored preference)
+is unaffected and stands.
+
+## 10. Correction — the identity question is settled, and against my earlier claim
+E's record shows that every message E receives from B carries sender metadata
+`from="local_228f989e-3ff8-449f-9e2b-823cf93637e1"`, `name="Claude B AWS/PFA-18C"` — and that the
+round-trip phrase **`COPPER-LANTERN-377`**, which I invented in that message and which no other
+party could have supplied, arrived under exactly that identity.
+
+**So "Claude B AWS/PFA-18C" is this session.** My earlier explanation — that E's relays failed
+because they were addressed to a *different* B — is **wrong and withdrawn**. E's messages were
+addressed correctly the whole time.
+
+The real cause is in E's recorded refusal, verbatim:
+
+> `Not delivered to Claude Desktop session local_228f989e-3ff8-449f-9e2b-823cf93637e1: Message not delivered: session local_228f989e-3ff8-449f-9e2b-823cf93637e1 cannot receive messages (a remote orchestrator runs it, or nobody opened it); messages can't be delivered there. (delivery: undelivered; message_id: a7f16e0b-597d-48ca-a0c7-3787c48f9be6)`
+
+**B → E is verified; E → B cannot deliver.** The channel is one-way and is not to be marked
+bidirectional. `V3_ACCEPTANCE_RECORD.md` is the E → B channel and I will read it rather than wait
+for messages. Neither side retries, and no restart is claimed as a fix — it is an untested step.
+
+One further delivery fact for the record: my first send to C was refused with
+`"The project folder at \"/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund\" no longer exists.
+It may have been moved, deleted, or unmounted."` That is false — the volume was mounted
+(`/dev/disk7s1`, 931 GiB, 7 % used), the folder existed, C's frames were readable, and I was
+serving Metro out of it at the time. One retry succeeded. The error text is recorded because it is
+a false negative about a path, not a filesystem fact.

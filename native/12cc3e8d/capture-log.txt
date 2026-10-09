@@ -37,22 +37,52 @@ TWO TRAPS FOUND IN THIS WINDOW, BOTH OF WHICH VOIDED FRAMES BEFORE THEY WERE CAU
    discarded and recaptured. This is the same contamination that nearly produced a false
    "system appearance does not work" finding in an earlier batch.
 
-2. `content_size` CAN SILENTLY REVERT ACROSS THE RELAUNCH. Setting extra-extra-extra-large reads
-   back correctly, and then after the dev-client relaunch reads back as
-   accessibility-extra-extra-extra-large. Observed on 3 of 5 attempts. shot.sh reads the size back
-   only AFTER the capture, so the first pair of frames I took were labelled 3XL while the device
-   had reverted to A3XL. The capture is now gated on three readbacks — after setting, after the
-   relaunch, and after the capture — and any disagreement voids the frame without writing it.
-   The two mislabelled frames were deleted.
+2. `content_size` DISAGREED WITH ITSELF ACROSS THE RELAUNCH — AND MY FIRST DIAGNOSIS WAS WRONG.
+   Setting extra-extra-extra-large read back correctly, and then after the dev-client relaunch read
+   back as accessibility-extra-extra-extra-large. I recorded that as a simulator behaviour.
+   IT IS WITHDRAWN AS SUCH. E's record shows C was operating this same device between roughly
+   18:56 and 19:04, and C independently saw the size change under it. C sets a3xl; a3xl is exactly
+   what my readbacks reverted to; the timings coincide. A SECOND OPERATOR IS A SUFFICIENT
+   EXPLANATION AND I CANNOT SEPARATE THE TWO FROM THIS WINDOW. The three-point gate below is still
+   the right discipline — it voided every affected frame rather than writing it — but the cause was
+   contention, not a simulator fault, and it was my fault for using the device without declaring it.
 
-   A CORRECTION TO MY OWN WORKING: I first claimed those two frames were "byte-identical" to the
-   A3XL pair. They were not. I had compared a float32 sum of a cropped band, which saturates and
-   collides, instead of the md5 I had used correctly on C's nine frames an hour earlier. The
-   frames were distinct; the reason to discard them was the failed size readback alone. Identity
-   claims in this log are md5.
+   The gate: the size is read back after setting, after the relaunch and after the capture, and any
+   disagreement voids the frame without writing it. Two mislabelled frames were deleted.
 
-   The safest reading of both traps: READ THE SIZE AND THE APPEARANCE OFF THE PAINTED FRAME, and
-   treat simctl's readback as corroboration, not as the record.
+   A CORRECTION TO MY OWN WORKING: I first said those two frames were "byte-identical" to the A3XL
+   pair. They were not — I compared a float32 sum of a cropped band, which saturates and collides,
+   instead of the md5 I had used correctly on C's nine frames an hour earlier. The frames were
+   distinct; the failed size readback alone was the reason to discard them. Identity claims are md5.
+
+SIZE PROVENANCE TAKEN FROM PAINT, NOT FROM simctl
+--------------------------------------------------
+Three operators touched this device inside one window, so a simctl readback is corroboration at
+best. Two witnesses that live in the frame itself:
+
+  * THE HEADER HAIRLINE'S y POSITION, which is scroll-independent:
+      default and 3XL   417 px (139.0 pt)
+      A3XL              553 px (184.3 pt)
+    All twelve A3XL frames across both capture sets agree at 553 px; all four default frames and
+    both of my 3XL frames agree at 417 px. So the witness separates A3XL from everything else. It
+    does NOT separate default from 3XL, because the header title is capped and stops growing.
+
+  * THE LAYOUT BRANCH ITSELF. identityStacks(fontScale) is true only at fontScale >= 1.3
+    (IDENTITY_STACK_SCALE), so a frame painting the STACKED hero and stacked trust rows is above the
+    threshold by construction. My two 3XL frames paint the stacked form; the four default frames
+    paint the two-column form. Combined with the hairline at 417 px, that places the 3XL frames
+    strictly above default and strictly below A3XL — which is the claim made for them.
+
+C's A3XL FRAMES, COPIED IN SO THE EVIDENCE SURVIVES IN ONE PLACE
+-----------------------------------------------------------------
+C captured the stacked hero at A3XL at 19:14-19:15, after my last device use at 19:12:59:
+
+  profile-a3xl-light-hero-Coperated.png    A3XL  light   label and rate
+  profile-a3xl-light-blurb-Coperated.png   A3XL  light   badge and blurb
+  profile-a3xl-dark-hero-Coperated.png     A3XL  dark    the whole hero in one frame
+
+These are C-operated. They are copied here because B's own native evidence has been lost to a
+vanished scratchpad once before; C's copies in the app repo remain the originals.
 
 WHAT IS NOT HERE, AND WHY
 -------------------------
@@ -64,8 +94,8 @@ action in this session, attach included, is refused with:
 
 simctl injects no touch either. B can drive the Simulator through System Events, but that takes
 the foreground from whatever the owner is using, so it was not done unasked. The A3XL hero in
-Light and Dark is requested from C, who has the capability; Metro was left running on 8081 out of
-snatchit-refund at 12cc3e8d for that purpose.
+Light and Dark was therefore captured by C, who has the capability — see the three C-operated
+frames above. Metro was left running on 8081 out of snatchit-refund at 12cc3e8d for that purpose.
 
 3XL is above the IDENTITY_STACK_SCALE = 1.3 threshold, so it exercises the same stacked branch,
 and at that size the whole hero is above the fold. It is supporting evidence for the mechanism,
