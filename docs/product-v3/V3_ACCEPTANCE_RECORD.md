@@ -120,10 +120,48 @@ blanket whole-app acceptance applies.
   it reproduces and whether it is a defect; the design may intend a two-line clamp.
 - **Still owed for Home:** Dynamic Type (largest standard and accessibility sizes) and safe areas.
 
+## B batch 7 at `3c03778a` (`a1af6499`, 2026-10-08): **simulator and Metro handed to C**
+| Item | Status | Evidence |
+|---|---|---|
+| **Edit refusals** (not-found, not-owner, has-bids, inactive, read-failed) | **UNTESTED.** All five render the same signed-out screen (md5 `da44e338a711` across the Light captures): the signed-out guard runs before the refusal states, so they never render. Not a pass. Needs a session (same blocker as signed-in Home) | `native/3c03778a/edit-*` |
+| **Public profile, default / no-listings, Light and Dark** | **FAILED.** It renders the literal "null% transfer success" | `profile-default-{light,dark}`, `profile-no-listings-light` |
+| Public profile, stats-unavailable | REVIEWED, PASS (refuses to read as zero sales) | `profile-stats-unavailable-light` |
+| Public profile, not-found | REVIEWED, PASS | `profile-not-found-light` |
+| Public profile, blocked | captured (`profile-blocked-light`); no verdict stated in the commit message | — |
+| Listing error / offline, Light and Dark | REVIEWED, PASS (the copy says nothing was sent) | `listing-{error,offline}-*` |
+| Artwork on the six list harnesses (My listings, Bids, Tickets, Order/Send, Checkout, Search) | **UNTESTED. E correction:** B's batch 7 carries "artwork" from batch 1 at `d5217530`, but batch 1 covered only Home (and later Listing). `?art=` on these harnesses arrived in `a587d2a1`, after `d5217530`, and no B render of them exists. The carry applies to Home and Listing only | — |
+
+**Profile `null%` defect.**
+- **Root cause** (B; E verified `reputation.ts`): `ratePct` is null when `seller_terminal_total = 0`.
+  The tier returns at `:58`, `:61`, `:64` and `:67` interpolate it unguarded; the `disputes_lost`
+  branch at `:42` guards it.
+- **Reachable with correctly shaped real data:** `completed_sales >= 5` with
+  `seller_terminal_total = 0`.
+- **E addition:** in that case `rate` is set to **0** (`:34`, `denom > 0 ? num/denom : 0`). So the
+  seller also **fails every tier gate and is labelled "Needs review"** (`:67`). The invented zero
+  decides the tier, not just the text.
+- **Owner requirement:** guard it "without inventing a zero or implying success". The fix must
+  therefore address the **tier selection** as well as the blurb.
+- **Ruling needed:** which tier a seller with sales but no terminal-transfer data gets is a
+  trust-presentation choice. **C proposes; E flags it to the owner** if the proposal changes the
+  label.
+- **Fixture:** it is separately malformed (wrong field names behind `as unknown as`). Correct it
+  separately, and **add a test of the correctly shaped real-data case**, so that fixing the fixture
+  can't hide the branch.
+
+**Successor scope (owner, 2026-10-08):** `b9222a16` plus the profile fix. Then validate and serve one
+named clean successor, and capture:
+- bid amounts (ordinary and long) and the full date/time at a3xl, Light and Dark;
+- the profile correction;
+- the Home feature amount at a3xl.
+
+**A failed synthetic drag alone is not a product scrolling defect.** Compare with reliable manual
+input or another validated gesture before classifying it. Then C hands back to B for focused review.
+
 ## Sequence after batch 6 (owner, 2026-10-08; no further owner design decision needed)
 | Step | Owner | State |
 |---|---|---|
-| 1. Finish the unaffected refusal, profile, error/offline and artwork checks at `3c03778a`; commit them; **hand the simulator and Metro to C explicitly** | B | pending; no B commit after `e1c5f38e` |
+| 1. Finish the unaffected refusal, profile, error/offline and artwork checks at `3c03778a`; commit them; **hand the simulator and Metro to C explicitly** | B | **done: `a1af6499`** (handed to C) |
 | 2. Prepare both fixes in the isolated worktree (below) | C | **prepared: `b9222a163dfd3b0f95b4d04d9503df38a06ef89a`** (descends from `3c03778a`; not served; E verified the files) |
 | 3. After B's handback: validate, serve **one named clean successor**, then capture at **a3xl, Light and Dark**: bid activity with an ordinary **and** a four-figure amount; the Listing date/time line; the Home feature amount | C | pending |
 | 4. Hand back to B for focused verification of those three | C → B | pending |
