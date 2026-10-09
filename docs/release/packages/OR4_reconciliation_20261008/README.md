@@ -159,10 +159,20 @@ therefore `least(refund_amount, total)`; there is no prior value.
 
 **Proposed scope:**
 - **Reconcile the 2 live rows (#6, #7)** after R1 and the source decision.
-- **Exclude the 5 test-mode rows** (A and D agree):
-  - no money moved, and R3 would write synthetic rows into two money tables and the append-only log;
-  - that would permanently trip 150's rollback guard;
-  - if they look wrong in an account view, the reversible fix is a `stripe_livemode` display filter (D's lane).
+- **The 5 test-mode rows: exclusion RECOMMENDED (A and D), PENDING THE OWNER'S RULING.** This is a recommendation,
+  not a decision. The owner chooses: **exclude**, or **reconcile for display consistency**.
+  - **Primary reason: the system's own boundary.** `_shared/payout-logic.ts:144–152` (`rowIsLiveActionable`) admits
+    only `stripe_livemode = true` rows into refund, payout and reconciliation paths. `false` rows are
+    "preserved-but-inert test-era audit data"; the only exception is a sandbox-only switch that the release checklist
+    asserts is absent in production. Production code already treats all five as inert, so R3 would be the only
+    money-rail write across that boundary.
+  - **Secondary reason:** the write would permanently trip 150's rollback guard for payments where no money moved.
+  - **Reversible alternative**, if they look wrong in an account view: a `stripe_livemode` display filter (D's lane).
+- **Provenance of `stripe_livemode`** (D, verified at source): it is recorded from Stripe's own `livemode`
+  (`create-payment-intent`, `confirm-payment`). The only path that writes `false` afterwards is the cross-mode
+  quarantine in `enforce-transfer-expiry`, which matches Stripe's "similar object exists in test mode" error. That
+  correction is logged to Sentry, not the row. So the right wording is **"Stripe classifies these as test mode"**, not
+  "never live". Whether any of #1–#5 was quarantined is unestablished (Sentry unread).
 
 ## R1: the owner's Dashboard read (A holds no live-account access)
 
@@ -173,4 +183,4 @@ cannot read these. For each PaymentIntent above:
 2. Report: live or test, and **for every refund on it**: refund id (`re_…`), status, amount, date, and failure reason
    if any.
 
-**Live read, required:** #6 and #7. The test-mode five are already measured as test (`stripe_livemode=false`); they are in the real account's test mode, not the sandbox. D's CLI read returned `resource_missing` in `acct_1T6Fb1…`. No read is needed for the proposed scope.
+**Live read, required now:** #6 and #7. **The test-mode five: conditional.** If the owner rules exclude, no read is needed. If the owner chooses to reconcile them, R1 must also read #1–#5 in the real account's **test mode** (`https://dashboard.stripe.com/test/payments/<pi>`) before anything is written. Writing a refund state without reading the real one would reintroduce the defect 150 fixed. They are not in the sandbox: D's CLI read returned `resource_missing` in `acct_1T6Fb1…`.
