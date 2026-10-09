@@ -181,6 +181,24 @@ describe('the public profile trust panel at the largest text size', () => {
     expect(textWith(noHistory, '—')).toBeTruthy();
   });
 
+  it('PT6: at A3XL the badge blurb may use the lines it needs; at the default size it still clamps', async () => {
+    /*
+     * P-3. The blurb is clamped at two lines, and a real row the RPC can return — "14 sales ·
+     * 98% transfer success" — does not fit two lines at A3XL, so the explanation beside the
+     * badge is cut. B withdrew the stronger framing (that only a dash survives, which needed the
+     * impossible no-rate shape) and classified what remains as a real but minor defect.
+     */
+    const def = await mountProfile(1);
+    const defBlurb = textWith(def, '14 sales \u00b7 100% transfer success');
+    expect(defBlurb, 'the blurb should render').toBeTruthy();
+    expect(defBlurb!.props.numberOfLines, 'the default layout is unchanged').toBe(2);
+
+    const big = await mountProfile(A3XL);
+    const bigBlurb = textWith(big, '14 sales \u00b7 100% transfer success');
+    expect(bigBlurb, 'the blurb should render').toBeTruthy();
+    expect(bigBlurb!.props.numberOfLines, 'at A3XL the blurb must not be cut').toBeUndefined();
+  });
+
   it('PT5: every two-column label/value surface consults the shared stacking rule', async () => {
     /*
      * The recurring failure is not a bad rule, it is a surface the sweep did not reach:

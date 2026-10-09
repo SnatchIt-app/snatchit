@@ -313,7 +313,17 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
                 </View>
                 <View style={s.heroRight}>
                   <Badge label={rep.label} tone={reputationTone(rep.tier)} />
-                  <Text style={[textStyle('bodySm'), s.heroBlurb]} numberOfLines={2}>{rep.blurb}</Text>
+                  {/*
+                    * P-3: two lines is enough for the blurb at the default size and not enough at
+                    * A3XL, where a row the RPC can return — "14 sales · 98% transfer success" —
+                    * is cut. Above the shared threshold it takes the lines it needs.
+                    */}
+                  <Text
+                    style={[textStyle('bodySm'), s.heroBlurb]}
+                    numberOfLines={stackRows ? undefined : 2}
+                  >
+                    {rep.blurb}
+                  </Text>
                 </View>
               </View>
               <View style={s.trustRows}>
