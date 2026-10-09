@@ -205,3 +205,13 @@ withdrawn to the narrower claim.
 **CONDITIONAL PASS, unchanged in kind — all five criteria now met outright**, criterion 3 having moved
 from conditional to met. Final approval still reserved for the filled files and their sha256s, which D
 will check per §6.
+
+---
+
+**Redaction (2026-10-09, before this branch was first pushed).** `SnatchIt-app/snatchit` is a **public**
+repository. The two real Acquirer Reference Numbers from the owner's screenshots have been replaced
+with the synthetic all-digit value `70000000000000000000001`, matching the convention A adopted for the
+rehearsal controls. The guard probes keep their meaning — the point is that an all-digit suffix is
+refused, which the synthetic value demonstrates identically. The real ARNs remain in the owner's
+screenshots and are deliberately not committed. The sandbox Stripe account id is truncated for the same
+reason. No finding, verdict or control in this record depends on the redacted values.

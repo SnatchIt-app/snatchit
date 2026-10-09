@@ -46,7 +46,7 @@ Stripe read.** D has no access to that account (`captures_20261008/stripe_r1_wro
 | refund activity | Aug 4, 5:20 PM | Aug 4, 5:20 PM |
 | payment created | Aug 4, 2:17 AM | Aug 4, 3:26 AM |
 | Payment ID (truncated) | `pi_3U0XuwGdOzCmGbHw0WVJ…` | `pi_3U0YzcGdOzCmGbHw0Z6l7b…` |
-| refunded amount line | −$11.00, ARN `70000000000000000000001` | −$2.20, ARN `70000000000000000000001` |
+| refunded amount line | −$11.00, ARN shown (value redacted, see Redaction note) | −$2.20, ARN shown (value redacted, see Redaction note) |
 | processing fees | −$0.62 | −$0.36 |
 | note | "test" | "test 2" |
 
@@ -136,3 +136,13 @@ chargeback exclusion does not apply. Hazard 1 has no member (ledger empty). Dete
 reconciled `failed`/`canceled` refund opens a p1 case within ~5 minutes — intended, and the owner works it.
 
 Correction writes remain owner-gated. D has executed nothing.
+
+---
+
+**Redaction (2026-10-09, before this branch was first pushed).** `SnatchIt-app/snatchit` is a **public**
+repository. The two real Acquirer Reference Numbers from the owner's screenshots have been replaced
+with the synthetic all-digit value `70000000000000000000001`, matching the convention A adopted for the
+rehearsal controls. The guard probes keep their meaning — the point is that an all-digit suffix is
+refused, which the synthetic value demonstrates identically. The real ARNs remain in the owner's
+screenshots and are deliberately not committed. The sandbox Stripe account id is truncated for the same
+reason. No finding, verdict or control in this record depends on the redacted values.
