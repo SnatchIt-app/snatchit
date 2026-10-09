@@ -77,21 +77,29 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
   return (
     <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
-      <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow text-dim">{venueName}</p>
-          <h1 className="text-2xl font-bold">Events</h1>
+      <header className="enter mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
+        <div className="min-w-0">
+          <p className="eyebrow-caps">{venueName}</p>
+          <h1 className="title-page mt-3">Events</h1>
+          <p className="mt-3 max-w-2xl text-[0.9375rem] leading-relaxed text-muted">Every event at this venue, the next date first. Open one to set it up, sell it and run its door.</p>
         </div>
         {readable && entryOpen && canEditEvents(ctx.role) && ctx.writesEnabled !== false ? (
-          <Link className="btn btn-primary btn-sm" href={withPreview(`${basePath}/events/new`, ctx)}>
+          <Link className="btn btn-primary btn-lg" href={withPreview(`${basePath}/events/new`, ctx)}>
             Create event
           </Link>
         ) : null}
       </header>
+      <section aria-label="Events" className="panel enter-2 px-5 pb-2 pt-4 md:px-6">
       {readable && entryOpen ? (
-        <form method="get" className="mb-3 flex flex-wrap gap-2">
+        <form method="get" role="search" className="mb-3 flex flex-wrap gap-2">
           <PreviewHidden ctx={ctx} />
-          <input className="field !w-auto" name="q" placeholder="Search title" defaultValue={p.first("q") ?? ""} aria-label="Search events" />
+          <label className="search-pill min-w-[14rem] flex-1 md:max-w-sm">
+            <span className="sr-only">Search events</span>
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className="text-dim">
+              <path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3" />
+            </svg>
+            <input name="q" type="search" placeholder="Search title" defaultValue={p.first("q") ?? ""} />
+          </label>
           <select className="field !w-auto" name="status" defaultValue={p.first("status") ?? ""} aria-label="Status filter">
             <option value="">Any status</option>
             {["draft", "announced", "on_sale", "live", "completed", "cancelled"].map((s) => (
@@ -100,7 +108,7 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
               </option>
             ))}
           </select>
-          <button className="btn btn-ghost btn-sm" type="submit">
+          <button className="btn btn-ghost" type="submit">
             Filter
           </button>
         </form>
@@ -128,6 +136,7 @@ export default async function EventsPage({ params, searchParams }: { params: Pro
           filter={{ status: ctx.state === "nodata" ? "zzz" : p.first("status"), q: p.first("q") }}
         />
       )}
+      </section>
     </Shell>
   );
 }

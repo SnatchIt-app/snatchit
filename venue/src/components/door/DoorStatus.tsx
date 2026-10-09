@@ -6,6 +6,7 @@ import type { DoorPin, Event, EventSession, FlagRow, ManifestEpisode, RosterRow,
 import { AuditNote, Chip, Panel } from "@/components/ui/Bits";
 import { EmptyState } from "@/components/ui/State";
 import { PreviewHidden } from "@/components/events/EventSetup";
+import { ArrivalsChart, EventHeader, Stats } from "@/components/ui/Event";
 
 /**
  * Spec §12 — the venue's view of the door, on the web. xl: three-pane
@@ -48,68 +49,38 @@ export function DoorStatus({
   const nonAdmit = scans.duplicate + scans.invalid + scans.frozen + scans.fraudReview;
   const maxBar = Math.max(1, ...scans.arrivalsPer5Min);
 
-  const Counters = (
-    <div>
-      <p className="eyebrow text-dim">Admitted, of tickets issued</p>
-      <p className="door-counter">
-        {scans.admitted}
-        <span className="text-dim"> / {scans.issued}</span>
-      </p>
-      <p className="mt-1 text-sm text-muted">
-        {pct(scans.admitted, scans.issued)} · last scan {scans.lastScanAt ? relative(scans.lastScanAt, now) : "—"}
-        {ctx.state === "error" ? " · stale" : ""}
-      </p>
-    </div>
+  const counters = (
+    <Stats
+      label="At the door"
+      items={[
+        { label: "Admitted", value: scans.admitted, of: `of ${scans.issued} issued · ${pct(scans.admitted, scans.issued)}` },
+        { label: SCAN_RESULT_LABEL.duplicate, value: scans.duplicate, tone: scans.duplicate > 0 ? "warn" : undefined },
+        { label: SCAN_RESULT_LABEL.invalid, value: scans.invalid, tone: scans.invalid > 0 ? "warn" : undefined },
+        { label: SCAN_RESULT_LABEL.frozen, value: scans.frozen, tone: scans.frozen > 0 ? "warn" : undefined },
+        { label: SCAN_RESULT_LABEL.fraud_review, value: scans.fraudReview, tone: scans.fraudReview > 0 ? "danger" : undefined },
+      ]}
+    />
   );
 
   const ScanBoard = (
-    <Panel title="Right now at the door" eyebrow="Live">
+    <Panel title="Right now at the door" eyebrow={`Last scan ${scans.lastScanAt ? relative(scans.lastScanAt, now) : "—"}${ctx.state === "error" ? " · stale" : ""}`}>
       {scans.admitted === 0 && nonAdmit === 0 ? (
         <EmptyState title="No scans yet — doors haven't opened." />
       ) : (
         <>
-          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(7rem,100%),1fr))]">
-            {(
-              [
-                ["admitted", scans.admitted],
-                ["duplicate", scans.duplicate],
-                ["invalid", scans.invalid],
-                ["frozen", scans.frozen],
-                ["fraud_review", scans.fraudReview],
-              ] as const
-            ).map(([k, v]) => (
-              <div key={k} className={`border p-2 ${k === "admitted" ? "border-success" : v > 0 ? "border-warning" : "border-line-neutral"}`}>
-                <p className="text-xs text-dim">{SCAN_RESULT_LABEL[k]}</p>
-                <p className="text-xl font-bold tabular-nums">{v}</p>
-              </div>
-            ))}
-          </div>
           {scans.arrivalsPer5Min.length > 0 ? (
-            <div className="mt-4">
-              <p className="eyebrow text-dim">Arrivals per 5 minutes</p>
-              <div className="relative mt-1 h-16" role="img" aria-label={`Arrivals per five minutes: ${scans.arrivalsPer5Min.join(", ")}; peak ${maxBar}`}>
-                {[25, 50, 75, 100].map((pct) => (
-                  <span key={pct} aria-hidden="true" className="absolute inset-x-0 border-t border-dashed border-line-neutral" style={{ bottom: `${pct}%` }} />
-                ))}
-                <div className="flex h-full items-end gap-0.5">
-                  {scans.arrivalsPer5Min.map((n, i) => (
-                    <span key={i} className="flex-1 bg-primary" style={{ height: `${(n / maxBar) * 100}%` }} title={`${n} arrivals`} />
-                  ))}
-                </div>
-              </div>
-              <p className="mt-1 flex justify-between text-xs text-dim" aria-hidden="true">
-                <span>oldest</span>
-                <span>
-                  peak <span className="tabular-nums text-muted">{maxBar}</span> · latest
-                </span>
+            <div>
+              <p className="mb-3 text-[0.8125rem] text-muted">
+                Arrivals every 5 minutes · peak <span className="font-semibold text-ink">{maxBar}</span>
               </p>
+              <ArrivalsChart counts={scans.arrivalsPer5Min} now={now} timeZone={timeZone} />
             </div>
           ) : null}
-          <ul className="mt-4 divide-y divide-line-neutral text-xs">
+          <ul className="mt-5 divide-y divide-line border-t border-line text-[0.875rem]">
             {devices
               .filter((d) => d.status === "active")
               .map((d) => (
-                <li key={d.deviceId} className="flex justify-between py-1">
+                <li key={d.deviceId} className="flex justify-between py-2.5">
                   <span>{d.label}</span>
                   <span className="tabular-nums text-muted">{d.admittedTonight} admitted</span>
                 </li>
@@ -305,9 +276,14 @@ export function DoorStatus({
   ) : null;
 
   const Reasons = (
-    <details className="border border-line-neutral p-3 text-xs">
-      <summary className="cursor-pointer font-bold">What to say when a pass is refused (six reasons)</summary>
-      <ul className="mt-2 space-y-1">
+    <details className="panel group px-5 py-4 text-[0.875rem] md:px-6">
+      <summary className="flex min-h-9 items-center justify-between gap-3 rounded-lg font-medium">
+        What to say when a pass is refused (six reasons)
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className="transition-transform group-open:rotate-180">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </summary>
+      <ul className="mt-3 space-y-2 text-muted">
         {(Object.keys(REJECT_COPY) as (keyof typeof REJECT_COPY)[]).map((k) => (
           <li key={k}>
             <strong>{REJECT_TITLE[k]}</strong> — {REJECT_COPY[k]}
@@ -318,14 +294,22 @@ export function DoorStatus({
   );
 
   return (
-    <div className="space-y-4">
-      <header className="pb-2">
-        <p className="eyebrow-accent">{event.title}</p>
-        <h1 className="display display-xl mt-2">Check-in</h1>
-        <p className="mt-3 max-w-xl text-base text-muted">
-          {session.label ?? venueTime(session.startsAt, timeZone)} · doors {session.doorsAt ? venueTime(session.doorsAt, timeZone, { date: false, zone: true }) : "not set"}. This is the screen for the people on the door.
-        </p>
-      </header>
+    <div>
+      <EventHeader
+        eventTitle={event.title}
+        title="Check-in"
+        meta={
+          <>
+            <span>{session.label ?? venueTime(session.startsAt, timeZone)}</span>
+            <span aria-hidden="true">·</span>
+            <span>doors {session.doorsAt ? venueTime(session.doorsAt, timeZone, { date: false, zone: true }) : "not set"}</span>
+            <span aria-hidden="true">·</span>
+            <span>the screen for the people on the door</span>
+          </>
+        }
+      >
+        {canReadScanBoard(ctx.role) ? counters : null}
+      </EventHeader>
 
       {/*
         One ordered column, not three panes rendered twice.
@@ -336,13 +320,8 @@ export function DoorStatus({
         how many are in → what is happening → look someone up → what is stuck
         → the equipment → the list itself.
       */}
-      <div className="space-y-10">
-        {canReadScanBoard(ctx.role) ? (
-          <div>
-            {Counters}
-            <div className="mt-6">{ScanBoard}</div>
-          </div>
-        ) : null}
+      <div className="enter-2 space-y-6">
+        {canReadScanBoard(ctx.role) ? ScanBoard : null}
         {Lookup}
         {Flags}
         {Devices}
@@ -351,7 +330,7 @@ export function DoorStatus({
         {Reasons}
       </div>
 
-      <p className="text-xs text-dim">
+      <p className="mt-6 text-[0.75rem] text-dim">
         This surface never goes offline; it reports device state. Nothing here caches a write.{" "}
         <a className="link" href={withPreview(self, ctx)}>
           Reload

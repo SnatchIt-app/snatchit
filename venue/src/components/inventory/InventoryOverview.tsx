@@ -1,3 +1,4 @@
+import { EventHeader } from "@/components/ui/Event";
 import { RELEASE_LABEL, availability, capacityFloor, doorHoldback, inventoryWarnings, remaining, sessionTotals, warningLabel } from "@/lib/inventory";
 import { usd, venueTime, relative } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
@@ -27,15 +28,16 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
   if (batches.length === 0) return <EmptyState title="No releases yet — add one so this type can sell." />;
 
   return (
-    <div className="space-y-6">
-      <header className="pb-2">
-        <p className="eyebrow-accent">{event.title}</p>
-        <h1 className="display display-xl mt-2">Tickets</h1>
-        <p className="mt-3 max-w-xl text-base text-muted">
-          What is on sale for this night, how much is left, and what is being held back.
-          {session ? ` ${session.label ?? venueTime(session.startsAt, timeZone)}.` : ""} Each night has its own capacity.
-        </p>
-      </header>
+    <div className="space-y-6 [&>header]:mb-2">
+      <EventHeader
+        eventTitle={event.title}
+        title="Tickets"
+        meta={
+          <span>
+            What is on sale, how much is left, and what is held back.{session ? ` ${session.label ?? venueTime(session.startsAt, timeZone)}.` : ""} Each night has its own capacity.
+          </span>
+        }
+      />
 
       {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner /> : null}
 
@@ -159,7 +161,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
           const tot = session ? sessionTotals(batches, t.ticketTypeId, session.sessionId) : { capacity: 0, held: 0, sold: 0, remaining: 0 };
           const myWarnings = warnings.filter((w) => w.ticketTypeName === t.name);
           return (
-            <li key={t.ticketTypeId} className="border border-line-neutral p-3">
+            <li key={t.ticketTypeId} className="panel p-4">
               <div className="flex items-baseline justify-between">
                 <p className="font-bold">{t.name}</p>
                 <p className="tabular-nums text-muted">{usd(t.priceMinor)}</p>

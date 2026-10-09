@@ -17,25 +17,25 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
       <header>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <p className="eyebrow-accent">Create event</p>
-            <h1 className="display display-xl mt-2">New event</h1>
+            <p className="eyebrow-caps">Create event</p>
+            <h1 className="title-page mt-3">New event</h1>
           </div>
           <a className="link inline-flex min-h-6 items-center text-sm" href={withPreview(`${basePath}/events`, ctx)}>
             Cancel and go back to events
           </a>
         </div>
-        <p className="mt-2 text-sm text-muted">Three steps. It ends as a draft — visible to your staff only, not announced and not selling, so nothing is public until you choose to announce it.</p>
-        <ol className="mt-3 flex flex-wrap gap-2 text-xs">
+        <p className="mt-3 text-[0.9375rem] leading-relaxed text-muted">Three steps. It ends as a draft — visible to your staff only, not announced and not selling, so nothing is public until you choose to announce it.</p>
+        <ol className="mt-5 grid grid-cols-3 gap-2 text-[0.8125rem]">
           {steps.map((s, i) => (
-            <li key={s} className={`border-b-2 pb-1 ${i + 1 === step ? "border-primary font-semibold text-ink" : i + 1 < step ? "border-success text-success" : "border-line text-dim"}`}>
-              {i + 1}. {s}
+            <li key={s} aria-current={i + 1 === step ? "step" : undefined} className={`border-t-2 pt-2 ${i + 1 === step ? "border-[#26211d] font-medium text-ink" : i + 1 < step ? "border-[#2f6b33] text-success" : "border-line text-dim"}`}>
+              <span className="tabular-nums">{i + 1}</span> · {s}
             </li>
           ))}
         </ol>
       </header>
 
       {!venueApproved ? (
-        <p className="border border-warning bg-warning/10 px-3 py-2 text-sm text-warning">This venue isn&apos;t approved to sell yet. Snatch It has to approve it first.</p>
+        <p className="panel px-4 py-3 text-sm text-warning">This venue isn&apos;t approved to sell yet. Snatch It has to approve it first.</p>
       ) : step === 1 ? (
         <Panel title="Basics" eyebrow="Step 1 of 3">
           <form method="get" action={withPreview(self, ctx)} className="space-y-3">

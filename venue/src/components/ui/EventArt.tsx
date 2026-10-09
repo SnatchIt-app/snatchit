@@ -36,9 +36,18 @@ export function EventArt({ title, variant = "poster", className = "" }: { title:
   const W = poster ? 300 : 320;
   const H = poster ? 400 : 240;
   const cx = poster ? 70 + (h % 160) : 60 + (h % 200);
-  const cy = poster ? 70 + ((h >> 8) % 90) : 50 + ((h >> 8) % 60);
-  const r = poster ? 46 + ((h >> 16) % 20) : 40 + ((h >> 16) % 18);
+  const cy = poster ? 70 + ((h >> 8) % 90) : 60 + ((h >> 8) % 70);
+  const r = poster ? 46 + ((h >> 16) % 20) : 54 + ((h >> 16) % 30);
   const ls = lines(title, poster ? 4 : 3);
+  // Three palettes drawn from the brand (ember, amber, rose) and three
+  // compositions, so neighbouring events never look like copies.
+  const PALETTES = [
+    { a: "#e2563a", b: "#a8301d", bg0: "#2a211c", bg1: "#120e0c" },
+    { a: "#e89a3c", b: "#b0581b", bg0: "#2b231a", bg1: "#14100b" },
+    { a: "#d65a6a", b: "#8f2a3a", bg0: "#271d20", bg1: "#110c0e" },
+  ];
+  const pal = PALETTES[h % 3];
+  const comp = (h >> 4) % 3;
   const size = poster ? (ls.some((l) => l.length > 7) ? 40 : 48) : 30;
   const startY = H - 34 - (ls.length - 1) * size * 0.92;
 
@@ -46,13 +55,12 @@ export function EventArt({ title, variant = "poster", className = "" }: { title:
     <svg aria-hidden="true" focusable="false" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice" className={className}>
       <defs>
         <linearGradient id={`${id}-bg`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#2a211c" />
-          <stop offset="0.55" stopColor="#1b1613" />
-          <stop offset="1" stopColor="#120e0c" />
+          <stop offset="0" stopColor={pal.bg0} />
+          <stop offset="1" stopColor={pal.bg1} />
         </linearGradient>
         <radialGradient id={`${id}-sun`} cx="0.45" cy="0.4" r="0.6">
-          <stop offset="0" stopColor="#e2563a" />
-          <stop offset="1" stopColor="#a8301d" />
+          <stop offset="0" stopColor={pal.a} />
+          <stop offset="1" stopColor={pal.b} />
         </radialGradient>
         <filter id={`${id}-grain`} x="0" y="0" width="100%" height="100%">
           <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed={h % 97} result="n" />
@@ -64,12 +72,16 @@ export function EventArt({ title, variant = "poster", className = "" }: { title:
       <circle cx={cx} cy={cy} r={r} fill={`url(#${id}-sun)`} opacity="0.92" />
       <rect width={W} height={H} fill="#fff" filter={`url(#${id}-grain)`} />
       <rect x="0" y={H * 0.62} width={W} height={H * 0.38} fill="#0f0c0a" opacity="0.35" />
-      {!poster ? (
+      {!poster && comp === 0 ? (
         <>
-          <rect x="0" y={H * 0.72} width={W} height="2" fill="#f6efe6" opacity="0.14" />
+          <rect x="0" y={H * 0.72} width={W} height="2" fill="#f6efe6" opacity="0.16" />
           <rect x="0" y={H * 0.8} width={W} height="1" fill="#f6efe6" opacity="0.1" />
         </>
       ) : null}
+      {!poster && comp === 1 ? <circle cx={W - cx / 2} cy={H * 0.9} r={r * 1.6} fill="none" stroke="#f6efe6" strokeOpacity="0.14" strokeWidth="1.5" /> : null}
+      {!poster && comp === 2
+        ? [0, 1, 2, 3].map((i) => <rect key={i} x={W * 0.08 + i * 18} y={H * 0.5 - i * 14} width="6" height={H} fill="#f6efe6" opacity={0.06 + i * 0.02} />)
+        : null}
       {(poster ? ls : []).map((l, i) => (
         <text
           key={i}

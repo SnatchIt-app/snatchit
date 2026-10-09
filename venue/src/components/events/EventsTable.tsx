@@ -1,3 +1,4 @@
+import { EventArt } from "@/components/ui/EventArt";
 import Link from "next/link";
 import { RESALE_LABEL } from "@/lib/events";
 import { sessionTotals } from "@/lib/inventory";
@@ -102,6 +103,8 @@ export function EventsTable({
           <Row
             key={e.eventId}
             title={e.title}
+            serif
+            leading={<EventArt title={e.title} variant="thumb" className="h-14 w-[4.5rem] overflow-hidden rounded-[6px]" />}
             href={withPreview(`${basePath}/events/${e.eventId}`, ctx)}
             badge={
               <>
@@ -116,7 +119,7 @@ export function EventsTable({
                 {canReadResalePolicy(ctx.role) ? ` · ${RESALE_LABEL[e.resaleMode]}` : ""}
               </>
             }
-            right={sales ? <span className="tabular-nums text-sm text-muted">{sales}</span> : <PartialCell why="No releases yet" />}
+            right={sales ? <span className="tabular-nums text-[0.875rem] text-muted">{sales}</span> : <PartialCell why="No releases yet" />}
           />
         );
       })}

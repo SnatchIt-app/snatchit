@@ -54,7 +54,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
 
   return (
     <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="setup" signedInAs={p.signedInAs}>
-      <Page eyebrow="Event" title={event?.title ?? "Event"}>
+      <Page eyebrow={event?.title ?? "Event"} title={event ? "Event setup" : "Event"} art={event?.title}>
         {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
         {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />

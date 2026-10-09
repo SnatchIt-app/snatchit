@@ -1,3 +1,4 @@
+import { EventHeader } from "@/components/ui/Event";
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import { canManualLookup, canReadOrders, canSeeCheckIn, exportTemplate, rosterClasses, PRINCIPAL_LABEL } from "@/lib/roles";
@@ -75,25 +76,26 @@ export function Attendees({
   const filtered = !!filter.q || !!filter.checkIn;
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-        <div className="min-w-0">
-          <p className="eyebrow-accent">{event.title}</p>
-          <h1 className="display display-xl mt-2">{view === "holders" ? "Guest list" : "Who paid"}</h1>
-          <p className="mt-3 max-w-xl text-base text-muted">
+    <div className="space-y-6 [&>header]:mb-2">
+      <EventHeader
+        eventTitle={event.title}
+        title={view === "holders" ? "Guest list" : "Who paid"}
+        meta={
+          <span>
             {view === "holders"
               ? "Everyone holding a ticket for this night — not who bought it. A table of six shows six people."
               : "The orders behind the tickets. A ticket that was refunded shows as voided."}{" "}
             {session.label ?? venueTime(session.startsAt, timeZone)}
-          </p>
-        </div>
+          </span>
+        }
+        actions={
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {hasMoney ? (
-            <nav className="flex items-center gap-1 border border-line p-1" aria-label="List view">
-              <a className={`px-3 py-1.5 text-sm font-semibold ${view === "holders" ? "bg-ink text-white" : "text-muted hover:bg-raised"}`} href={withPreview(self, ctx)} aria-current={view === "holders" ? "page" : undefined}>
+            <nav className="seg" aria-label="List view">
+              <a href={withPreview(self, ctx)} aria-current={view === "holders" ? "page" : undefined}>
                 Guests
               </a>
-              <a className={`px-3 py-1.5 text-sm font-semibold ${view === "purchasers" ? "bg-ink text-white" : "text-muted hover:bg-raised"}`} href={withPreview(`${self}?view=purchasers`, ctx)} aria-current={view === "purchasers" ? "page" : undefined}>
+              <a href={withPreview(`${self}?view=purchasers`, ctx)} aria-current={view === "purchasers" ? "page" : undefined}>
                 Orders
               </a>
             </nav>
@@ -107,13 +109,14 @@ export function Attendees({
               </button>
             </form>
           ) : null}
-        </div>
-      </header>
+          </div>
+        }
+      />
 
       {view === "holders" ? (
         <>
           {/* Search sticky on md/sm; filters from a closed set. */}
-          <form method="get" action={self} className="sticky top-[5.25rem] z-30 flex flex-wrap gap-2 border border-line-neutral bg-bg p-2 md:static">
+          <form method="get" action={self} role="search" className="panel sticky top-[4.5rem] z-20 flex flex-wrap gap-2 p-2 md:static">
             <PreviewHidden ctx={ctx} />
             <input className="field flex-1 touch-row md:min-h-0" name="q" placeholder="Name, order ref, or exact email" defaultValue={filter.q ?? ""} aria-label="Search attendees" />
             {hasOps ? (
@@ -191,7 +194,7 @@ export function Attendees({
                 {roster.map((r) => {
                   const ci = checkInText(r, timeZone);
                   return (
-                    <li key={r.customerRef} className="touch-row border border-line-neutral p-3">
+                    <li key={r.customerRef} className="touch-row panel p-4">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-bold">{r.name}</p>
                         {hasOps ? <Chip tone={ci.tone}>{ci.label}</Chip> : null}

@@ -7,6 +7,7 @@ import type { Event, EventStatus } from "@/lib/types";
 import { Icon } from "@/components/ui/Icon";
 import { EventArt } from "@/components/ui/EventArt";
 import { AttentionQueue, TicketViews, type QueueItem } from "@/components/overview/TodayClient";
+import { ArrivalsChart } from "@/components/ui/Event";
 
 /**
  * Today — the venue's first screen, composed to the approved concept:
@@ -284,12 +285,7 @@ function Stat({ href, label, value, of, note }: { href: string; label: string; v
 /** Admissions per five minutes, with a real axis — the peak named, the latest five minutes in red. */
 function ArrivalsCard({ counts, now, timeZone, href }: { counts: number[]; now: Date; timeZone: string; href: string }) {
   const peak = Math.max(...counts, 1);
-  const top = Math.max(10, Math.ceil(peak / 10) * 10);
-  const minutes = counts.length * 5;
   const last = counts[counts.length - 1];
-  const start = new Date(now.getTime() - minutes * 60000);
-  const mid = new Date(now.getTime() - (minutes / 2) * 60000);
-  const t = (d: Date) => venueTime(d.toISOString(), timeZone, { date: false, zone: false });
   return (
     <section aria-labelledby="arrivals-title" className="panel enter-2 px-5 pb-5 pt-5 md:px-6">
       <div className="flex items-baseline justify-between gap-3">
@@ -304,37 +300,8 @@ function ArrivalsCard({ counts, now, timeZone, href }: { counts: number[]; now: 
         <span className="stat-num">{last}</span>
         <span className="text-[1.0625rem] text-ink">in the last 5 min</span>
       </p>
-      <div className="mt-5 grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2">
-        <div aria-hidden="true" className="flex h-32 flex-col justify-between text-right text-[0.6875rem] text-dim">
-          <span>{top}</span>
-          <span>{top / 2}</span>
-          <span>0</span>
-        </div>
-        <div className="relative h-32">
-          <div aria-hidden="true" className="absolute inset-x-0 top-0 border-t border-dashed border-line" />
-          <div aria-hidden="true" className="absolute inset-x-0 top-1/2 border-t border-dashed border-line" />
-          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 border-t border-line" />
-          <div
-            className="relative flex h-full items-end gap-[3px]"
-            role="img"
-            aria-label={`Arrivals every five minutes over the last ${minutes} minutes: busiest five minutes ${peak}, latest five minutes ${last}.`}
-          >
-            {counts.map((c, i) => (
-              <span
-                key={i}
-                title={`${c} in five minutes`}
-                className={`flex-1 rounded-t-[3px] ${i === counts.length - 1 ? "bg-[#c8361f]" : "bg-[#b9aa9b] hover:bg-[#8f7f70]"}`}
-                style={{ height: `${Math.max(3, Math.round((c / top) * 100))}%` }}
-              />
-            ))}
-          </div>
-        </div>
-        <span />
-        <div aria-hidden="true" className="mt-2 flex justify-between text-[0.6875rem] text-dim">
-          <span>{t(start)}</span>
-          <span>{t(mid)}</span>
-          <span>now</span>
-        </div>
+      <div className="mt-5">
+        <ArrivalsChart counts={counts} now={now} timeZone={timeZone} />
       </div>
       <Link href={href} className="arrow-link mt-3 text-[0.8125rem]">
         Check-in
