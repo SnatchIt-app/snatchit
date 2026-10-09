@@ -28,3 +28,21 @@ Gesture rules these scripts do not enforce, and which cost a frame each to learn
 assumption not to carry over. They now resolve `cap.sh` beside themselves, so the set works
 from wherever this folder lives. `ink.py` / `ink2.py` / `mut_rep.py` take their paths as
 arguments and needed no change. Nothing here writes outside the path it is given.
+
+## Two device traps found on 9 October 2026
+
+**`simctl ui … appearance` does not drive this app's theme.** The harness reads
+`useAppearancePreference`, so the stored preference wins and a frame can come back Dark while
+simctl reports light (B hit this and discarded the frame). Always pass `?appearance=light|dark`
+in the route — every script here does.
+
+**The content size is reset by something else on this machine, roughly every 30 s.** Not these
+scripts: set / terminate / openurl all preserve it, and it also drops during pure idle. Two
+things follow. The app reads the size AT LAUNCH, so setting it under a running app changes
+nothing — both size reads can say A3XL while the paint is default-sized. And `shot.sh`'s fixed
+42 s sleep loses the race, which is why `fastshot.sh` exists: it polls for the banner instead
+and finishes in ~15 s, setting the size immediately before the launch.
+
+Never trust simctl's answer alone. Fingerprint the PAINT: at this device size a known-A3XL
+frame has 145-158 px tall ink bands and the default has 60-92. If the two disagree, the frame
+is void.
