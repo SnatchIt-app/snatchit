@@ -91,3 +91,20 @@ describe("multi-value filters", () => {
     expect(list("")).toBeUndefined();
   });
 });
+
+describe("a failed read says what was lost, keeps the reason, offers recovery", () => {
+  it("leads with the subject, keeps the database reason and code for support, and links Try again", async () => {
+    const { OpsFailureAlert } = await import("@/components/ui/Alert");
+    const failure = { ok: false as const, kind: "error" as const, message: "canceling statement due to statement timeout", code: "57014" };
+    const led = renderToStaticMarkup(createElement(OpsFailureAlert, { failure, fn: "list_orders", retryHref: "/orders", subject: "Orders" }));
+    expect(led).toContain("Orders couldn&#x27;t be loaded.");
+    expect(led).toContain("canceling statement due to statement timeout");
+    expect(led).toContain("57014");
+    expect(led).toMatch(/href="\/orders"[^>]*>Try again|>Try again/);
+    expect(led).toContain('role="alert"');
+    // Without a subject the shared wording elsewhere in the console is unchanged.
+    const plain = renderToStaticMarkup(createElement(OpsFailureAlert, { failure, retryHref: "/x" }));
+    expect(plain).toContain("Request failed");
+    expect(plain).not.toContain("couldn&#x27;t be loaded");
+  });
+});

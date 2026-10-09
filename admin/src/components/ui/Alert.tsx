@@ -65,7 +65,7 @@ export function Alert({
 }
 
 /** Render an OpsFailure with the right state and copy. */
-export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailure; retryHref?: string; fn?: string }) {
+export function OpsFailureAlert({ failure, retryHref, fn, subject }: { failure: OpsFailure; retryHref?: string; fn?: string; /** What the reader lost, e.g. "Orders" — leads the message when given. */ subject?: string }) {
   if (failure.kind === "denied") {
     return (
       <Alert state="denied" title="Your account is not allowed to do this.">
@@ -85,6 +85,20 @@ export function OpsFailureAlert({ failure, retryHref, fn }: { failure: OpsFailur
     return (
       <Alert state="warning" title="Actions are paused by a founder — read-only until re-enabled from System → Settings." retryHref="/system#setting-actions_enabled" retryLabel="Open settings">
         Nothing was changed. ops.setting <code className="font-mono">actions_enabled</code> is false; every mutation is refused until a platform_admin sets it back to true.
+      </Alert>
+    );
+  }
+  if (subject && !failure.unavailable) {
+    return (
+      <Alert state="failed" title={`${subject} couldn't be loaded.`} retryHref={retryHref} retryLabel="Try again">
+        Nothing is shown rather than numbers that might be out of date. Nothing was changed.
+        <details className="mt-2">
+          <summary className="inline-flex min-h-7 items-center text-[0.75rem] hover:text-ink">For support</summary>
+          <span className="mt-1 block text-[0.75rem]">
+            {fn ? <code className="font-mono">ops.{fn}</code> : null} {failure.message}
+            {failure.code ? <span className="ml-2 font-mono text-[0.6875rem] text-dim">{failure.code}</span> : null}
+          </span>
+        </details>
       </Alert>
     );
   }

@@ -146,7 +146,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                     </span>
                     <span aria-hidden="true" className={`text-[0.75rem] font-medium ${on ? "text-white/80" : "text-muted"}`}>{on ? "Showing · clear" : "View"}</span>
                   </span>
-                  <span className="figure mt-4 text-[2rem] leading-none md:text-[2.25rem]">{n ?? "—"}</span>
+                  {n === null ? (
+                    <span className={`mt-4 text-[0.9375rem] font-medium leading-[2.25rem] ${on ? "text-white/80" : "text-muted"}`}>Count unavailable</span>
+                  ) : (
+                    <span className="figure mt-4 text-[2rem] leading-none md:text-[2.25rem]">{n}</span>
+                  )}
                   <span className="mt-2 text-[0.875rem] font-semibold tracking-[-0.01em]">{v.label}</span>
                   <span className={`text-[0.75rem] ${on ? "text-white/75" : "text-muted"}`}>{v.hint}</span>
                 </Link>
@@ -191,7 +195,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <div className="p-2 md:p-1">
           {!res.ok ? (
             <div className="p-3">
-              <OpsFailureAlert failure={res} fn="list_orders" retryHref="/orders" />
+              <OpsFailureAlert failure={res} fn="list_orders" retryHref="/orders" subject="Orders" />
             </div>
           ) : rows.length === 0 ? (
             <div className="flex flex-col items-center px-6 py-14 text-center">
