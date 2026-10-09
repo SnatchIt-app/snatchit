@@ -150,12 +150,10 @@ past. No app interaction was changed. B reviews this.
   review".
 - **Proposed label "Unrated", blurb "N sales · transfer success unavailable" (tier `new_seller`,
   neutral tone). NOT SETTLED: the owner decides the trust-presentation wording.**
-- **C's backend claim:** migration 031 makes this shape unproducible by `get_profile_trust_stats`
-  (denominator status set ⊇ `completed_sales`), so the defect is latent, not live, and the device
-  string came from the malformed fixture.
-  - **E has not verified this.** It is a backend question, routed to A/D under the frontend-only
-    scope.
-  - The guard stands either way.
+- **C states** that this shape is unreachable from `get_profile_trust_stats` as written (migration
+  031: the denominator's status set ⊇ `completed_sales`'s). **No second party has verified this.** It
+  is not a dependency: the guard stands on its own. A/D could usefully confirm only whether the RPC
+  definition has changed since 031.
 
 **New profile findings at a3xl (C recorded them, did not fix them; for B and the owner):**
 - The trust percentage breaks mid-number ("10 / 0 / %"), Light and Dark.
@@ -172,6 +170,15 @@ between B and C before either restarts Metro or boots the device** (owner, 2026-
 **Serving tree on the SSD:** `snatchit-refund` at `2919ba75`, which is local-only. It is `c11b4a49`
 plus capture helpers under `tools/v3-capture/`, with no app code. Its `.claude/launch.json` is
 modified; that is a documented migration change (`runtime-path-changes.json`).
+
+**C on the SSD (2026-10-09):**
+- Verified at the handoff commits.
+- New local commit `b2b3e9d9`: tools only. `shot.sh` and `nav.sh` now find `cap.sh` beside
+  themselves instead of under `/tmp`.
+- Serving tree: `2919ba75` + `b2b3e9d9`, with no app code change. Not pushed.
+- Nothing running.
+- C is holding until B agrees the window. B isn't in C's peer list, so the relay goes through the
+  owner.
 
 **Next, for B:**
 - Focused review at `9498080a` of C's 16 frames.
