@@ -150,16 +150,16 @@ therefore `least(refund_amount, total)`; there is no prior value.
   not detection evidence. The first such evidence can only exist after an authorised R3, or the first real refund
   event.
 
-**What reconciliation would do, per R1 outcome** (R3 stays separately gated):
-- **Succeeded, amount = total:**
-  - writes a refund-state row and a log row, and the first ledger row (source as decided);
-  - `amount_refunded_cents` NULL → total; `status` stays `refunded`; `refunded_at` unchanged;
-  - no payout flag; no case;
-  - the app's "Refund recorded" becomes a confirmed refund.
+**What reconciliation would do, per R1 outcome** (written at R0; **superseded by the rehearsed matrix in §R3
+"Effects depend on what R1 part 2 returns"**, which is the reference):
+- **Succeeded, amount = total:** a refund-state row, a log row and the first ledger row; `amount_refunded_cents`
+  NULL → total; `status` and `refunded_at` unchanged; no payout flag; no case. What the app then displays is not
+  verified in this package.
 - **Failed or canceled:**
   - `refund_failed_cents > 0`, and with detection now on, a **p1 `refund_failed` case** opens within 5 minutes;
   - **the buyer may never have been repaid**; the owner follows O-R3.
-- **Pending:** a `refund_pending` case after 120 h.
+- **Pending:** a `refund_pending` case 120 h after **reconciliation** (the clock is `first_observed_at`, not Stripe's
+  `created`).
 - **Amount < total:**
   - the cents would be recorded below total while `status` stays `refunded` (the monotonic trigger);
   - **stop for the owner** before writing.
@@ -255,9 +255,14 @@ test mode or of the refund's origin.
 **Source** (`expiry|dashboard|admin|unfulfillable`) stays the owner's recorded decision per row. Stripe's refund
 object has no field for our taxonomy.
 
-**Observed, out of scope:** the second screenshot shows a Dashboard notice, "Add funds in USD to cover your negative
-balance". It is not part of O-R4 and is not interpreted here. It may matter to any future refund execution, which
-stays off (`refund_execute_enabled = false`).
+**Observed, out of scope.** One screenshot only, the $2.20 page (#7, clock 5:56 PM), shows a Dashboard notice:
+- where: a popover at the top right, below the notifications bell, with a red warning icon;
+- text: "Add funds in USD to cover your negative balance";
+- it partly covers the "+ Add to block list" button, which reads "+ Add to bloc";
+- the $11.00 screenshot does not show it.
+
+It establishes nothing about the balance: not the amount, the date, the cause, or whether it is current. It is not
+part of O-R4. It may matter to any future refund execution, which stays off (`refund_execute_enabled = false`).
 
 ### R1 part 2: the one remaining request
 
@@ -265,9 +270,12 @@ For each of the two payments:
 - open the refund's **View details**, from "Payment refunded … View details";
 - report **each refund listed** (normally one): its id (`re_…`), its own status, its amount, its created date with year
   and timezone, and its failure reason (if any);
-- state how many refunds the payment lists.
+- state how many refunds the payment lists;
+- say how each refund was issued: by hand in the Dashboard, through our admin tool, by the expiry job, or because
+  the order could not be fulfilled. This is the owner's `source` decision; Stripe does not record our categories.
 
-Separately, decide the `source` for each of #6 and #7.
+If any refund is not a single `succeeded` refund equal to the total, that payment's script is revised and
+re-rehearsed before it is offered for approval (§R3).
 
 ## R2 rehearsal: PASS (2026-10-09, local clone of `pkg151_rehears`, ledger 164; never production)
 
@@ -331,12 +339,31 @@ committed, each file refuses to run (C1).
 (pending, failed, canceled, a partial, or more than one refund object), the script refuses and that record gets its
 own plan, with the expected case or flag stated before anything runs.
 
-**Expected effect per record:**
-- one state row, one log row, one ledger row (with the owner's source);
-- `amount_refunded_cents` NULL → total, and `stripe_refund_id` set;
-- `status` and `refunded_at` unchanged; no case, no payout flag, no transfer change;
-- the app shows a confirmed refund instead of the legacy "Refund recorded";
-- the console's refunded-money figure (126) counts these two from the ledger instead of status only.
+**Effects depend on what R1 part 2 returns.** None of the effects below is a promise until the actual refund
+details are in. They were rehearsed per branch on the #6 fixture (`rehearsal/run_R2b_outcomes.sh`, run 2: 8/8 PASS,
+all rolled back; predictions in `R2b_outcomes_predictions.txt`). The calls were raw `record_refund_state`, one per refund
+object.
+
+| R1 shows | state / log / ledger rows | `amount_refunded_cents` | cents (requested, succeeded, failed) | case on the next tick | handled by the current script? |
+|---|---|---|---|---|---|
+| O1 one refund, `succeeded`, = total | 1 / 1 / 1 | NULL → total | (0, total, 0) | none | **yes** (the only branch) |
+| O2/O3 one refund, `pending` or `requires_action` | 1 / 1 / 1 | NULL → total | (total, 0, 0) | none at first. A p1 `refund_pending` opens **120 h after reconciliation** (simulated, O2t) | no: revise, then rehearse |
+| O4/O5 one refund, `failed` or `canceled` | 1 / 1 / **0** | stays NULL | (0, 0, total) | **p1 `refund_failed` opens** | no: revise, then rehearse |
+| O6 two refunds, both `succeeded`, summing to total | 2 / 2 / 2 | NULL → total | (0, total, 0) | none | no: one call per refund; revise |
+| O7 two refunds, `failed` then `succeeded` (a retry) | 2 / 2 / 1 | NULL → total | (0, total, total) | none (the failure is covered) | no: revise |
+
+In every branch:
+- `payments.status` stays `refunded`; it is terminal, even when the refund failed;
+- `refunded_at` is unchanged;
+- the transfer is unchanged, and no payout rows are written (no payout exists).
+
+The ledger entry carries the owner's `source`. **What the app then displays** for each branch is not verified in this
+package; that is C's surface, and it needs a device or app check before any claim is made about it.
+
+The console's refunded-money figure (126) would count a ledger row; a failed refund adds none.
+
+**If the details show anything other than O1 for a payment, A revises that payment's script and rehearses it**, with
+the exact effects (including any case) stated before it is offered for approval.
 
 **Irreversible once run:**
 - the log and ledger are append-only;

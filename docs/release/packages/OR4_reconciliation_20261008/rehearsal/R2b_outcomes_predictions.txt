@@ -1,0 +1,28 @@
+O-R4 R2b: outcome matrix. Predictions written before the first run (A, 2026-10-09).
+
+Purpose: the R3 effects depend on what R1 part 2 returns. Each branch below is rehearsed on the #6 fixture
+(total 1100; live; refunded; one reversed, unpaid transfer). The calls are raw record_refund_state, one per refund object,
+via 'reconcile'; that is what a revised R3 would call. Each branch runs in its own rolled-back transaction, with
+refund-state detection on. Columns: state/log/ledger rows; amount_refunded_cents; (requested, succeeded, failed) cents;
+payments.status; refunded_at unchanged?; cases opened by the next detect_refunds tick.
+
+O1 one refund, succeeded 1100      -> 1/1/1; 1100; (0,1100,0); refunded; unchanged; 0 cases
+O2 one refund, pending 1100        -> 1/1/1; 1100; (1100,0,0); refunded; unchanged; 0 cases now.
+                                      O2t: first_observed_at backdated past 120 h (a SIMULATION of elapsed time)
+                                      -> 1 refund_pending case (p1). The clock starts at reconciliation, not at Stripe's
+                                      created, so a refund pending since August would wait another 120 h.
+O3 one refund, requires_action     -> as O2: 1/1/1; 1100; (1100,0,0); 0 cases now
+O4 one refund, failed 1100         -> 1/1/0 (a failed refund never enters the ledger); amount_refunded_cents stays NULL;
+                                      (0,0,1100); status stays refunded (terminal); 1 refund_failed case (p1)
+O5 one refund, canceled 1100       -> as O4: 1/1/0; NULL; (0,0,1100); 1 refund_failed case
+O6 two refunds, succeeded 600+500  -> 2/2/2; 1100; (0,1100,0); 0 cases
+O7 two refunds, failed 1100 then
+   succeeded 1100 (a retry)        -> 2/2/1; 1100; (0,1100,1100); 0 cases (the failed one is covered:
+                                      refund_succeeded_cents is not < total)
+In every branch: no transfer change and no payout_decisions or payout_attempts rows (no payout exists).
+
+Run 1 (22:49Z): every measured value matched the predictions; the comparison failed on two harness errors, now fixed.
+  (1) The record_refund_state result rows leaked into the compared text; the calls now run under \o /dev/null.
+  (2) The case lookup sat in the same statement as detect_refunds(). One statement sees its starting snapshot, so it
+      could not see the case the function had just inserted. "opened 1" was right and "cases none" was the snapshot.
+      The lookup is now a separate statement.

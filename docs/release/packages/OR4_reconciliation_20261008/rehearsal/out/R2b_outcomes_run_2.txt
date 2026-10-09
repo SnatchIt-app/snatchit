@@ -1,0 +1,11 @@
+== R2b run 2026-10-09T22:49:43Z on or4_r2_rehears_b; detection: true
+PASS O1: 1/1/1; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+PASS O2: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+PASS O2t: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_pending:p1
+PASS O3: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+PASS O4: 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_failed:p1
+PASS O5: 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_failed:p1
+PASS O6: 2/2/2; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+PASS O7: 2/2/1; 1100; (0,1100,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+== after all branches (all rolled back): 0 state rows, 0 cases
+== RESULT: ALL PASS

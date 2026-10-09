@@ -2274,3 +2274,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     `41372b17…`, with three markers each. A fills the markers after R1 part 2 and the source decision; the owner then
     approves the filled files' sha256.
   - Package README §R1 part 1/2, §R2, §R3. D's input on the remaining fields is incorporated (D `fbe41284`).
+- **O-R4 follow-up (A, 2026-10-09, owner's direction):**
+  - **Exclusion:** the five test-mode payments stay excluded, records unchanged.
+  - **Effects are now conditional:** an outcome matrix was rehearsed per branch (`run_R2b_outcomes.sh`, run 2: 8/8,
+    rolled back). Branches covered: one succeeded; pending or requires_action (a p1 case 120 h after
+    *reconciliation*); failed or canceled (no ledger row, `amount_refunded_cents` stays NULL, status stays refunded,
+    a p1 `refund_failed` case); two succeeded; failed then succeeded.
+    - Only the single-succeeded branch is handled by the current script; any other branch is revised and
+      re-rehearsed first.
+    - The app display is not claimed for any branch.
+    - Run 1 failed on two harness errors, with every value correct. One: one statement cannot see a case its own
+      `detect_refunds()` call inserted.
+  - **Negative-balance note:** kept, pointed to its exact location (the #7 screenshot only, a top-right popover) and
+    scoped. It establishes no balance amount, date or cause.
+  - **D asked to review 77778156** (delivered to D's new session).

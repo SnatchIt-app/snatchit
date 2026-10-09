@@ -1,0 +1,27 @@
+== R2b run 2026-10-09T22:49:14Z on or4_r2_rehears_b; detection: true
+FAIL O1
+     want: 1/1/1; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+     got:  {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 1100} 1/1/1; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+FAIL O2
+     want: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+     got:  {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "pending", "stale_ignored": false, "requested_cents": 1100, "succeeded_cents": 0} 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+FAIL O2t
+     want: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_pending:p1
+     got:  {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "pending", "stale_ignored": false, "requested_cents": 1100, "succeeded_cents": 0} 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases none
+FAIL O3
+     want: 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+     got:  {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "requires_action", "stale_ignored": false, "requested_cents": 1100, "succeeded_cents": 0} 1/1/1; 1100; (1100,0,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+FAIL O4
+     want: 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_failed:p1
+     got:  {"counted": false, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 1100, "refund_status": "failed", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 0} 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases none
+FAIL O5
+     want: 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases refund_failed:p1
+     got:  {"counted": false, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 1100, "refund_status": "canceled", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 0} 1/1/0; NULL; (0,0,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 1; cases none
+FAIL O6
+     want: 2/2/2; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+     got:  {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 600} {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 1100} 2/2/2; 1100; (0,1100,0); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+FAIL O7
+     want: 2/2/1; 1100; (0,1100,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+     got:  {"counted": false, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 1100, "refund_status": "failed", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 0} {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 1100, "refund_status": "succeeded", "stale_ignored": false, "requested_cents": 0, "succeeded_cents": 1100} 2/2/1; 1100; (0,1100,1100); refunded; refunded_at unchanged; transfer unchanged; payout rows 0 opened 0; cases none
+== after all branches (all rolled back): 0 state rows, 0 cases
+== RESULT: FAILURES
