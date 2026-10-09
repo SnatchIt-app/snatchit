@@ -1,2 +1,2 @@
 <claude-code-hint v="1" type="plugin" value="stripe@claude-plugins-official" />
-▸ Running in SNATCH IT  sandbox · sandbox (acct_1T6Fb1GlD5aqtxIw)
+▸ Running in SNATCH IT  sandbox · sandbox (acct_1T6Fb1(truncated))
