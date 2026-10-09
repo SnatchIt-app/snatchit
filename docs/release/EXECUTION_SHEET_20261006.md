@@ -34,10 +34,20 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - The test-mode five are excluded and unchanged.
   - The owner's final screenshots do not establish the refund ids, refund statuses, refund count, timezone or source.
   - Production is unchanged; R3 is prepared but not executable. See the package README, §"Pending evidence".
-- **In progress:** deleting `origin/integration/s1-s2-trial-20261007` (owner-authorised, after D's push).
-  - No unique content: the trial head's tree equals the gate's S2 tree `2e2c31b4`.
-  - Only the remote branch is to be deleted. The local branch and A's temporary worktree are kept, so the cited
-    shas stay resolvable.
+- **Done 2026-10-09:** `origin/integration/s1-s2-trial-20261007` deleted (owner-authorised; D did not object).
+  - Verified by `ls-remote`: 0 refs, with the gate listed as a control.
+  - There was no unique content: the trial head's tree equals the gate's S2 tree `2e2c31b4`.
+  - The local branch and A's temporary worktree are kept, so `3787d8a2`, cited by A and D, stays resolvable locally.
+  - It can be restored by pushing the local branch.
+- **D's branch push:** three of four pushed and verified by D with `ls-remote`: `web/wording-truth-conditions`,
+  `admin/label-console-release` and `review/d-integ-94-95`.
+  - `review/d-records-20261005` is **held for the owner's decision**. Its history contains the two real ARNs in
+    `fbe41284`, `addd4670` and `8ba6cef7`, which D redacted going forward at `bab4060b`.
+  - The repository is **public**. The options:
+    - push it as it is, which publishes the ARNs;
+    - rewrite that history, which changes those three shas; A cites them and would update the citations;
+    - keep it local.
+  - A's own pushed history contains neither ARN: the full-history pickaxe finds 0, with a positive control.
 - **Not authorised:** production correction writes, the final main integration (S7) and app distribution.
 
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)

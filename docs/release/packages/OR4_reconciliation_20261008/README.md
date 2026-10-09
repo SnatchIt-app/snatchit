@@ -282,12 +282,23 @@ Each dialog is titled "Refund details" and shows only two things:
 |---|---|---|---|
 | refund id (`re_…`) | **unavailable** | **unavailable** | not shown. The ARN is not a refund id. |
 | refund-object status | **unavailable** | **unavailable** | not shown. "Made available 8/5" is display text and is **not** mapped onto the refund status enum. The "Refunded" badge is the payment's. |
-| refund count | **unavailable** | **unavailable** | the dialog shows one ARN, but that does not establish how many refund objects exist |
-| refund `created`, year and timezone | **unavailable** | **unavailable** | "Aug 4, 5:20 PM" and "8/5" carry no year or timezone |
+| refund count | **one `charge.refunded` event received** (strong, not conclusive) | **one received** (same) | D's production read of `public.stripe_webhook_events` (D `187f6986`). Exactly one `charge.refunded` event per payment: `evt_3U0XuwGdOzCmGbHw0QThD7ya`, received 2026-08-04 17:20:05.136Z, and `evt_3U0YzcGdOzCmGbHw0fSVw1MJ`, received 17:20:19.342Z; both processed. The event fires per refund. **Limit:** the ledger records only events we received, so an undelivered second event would not appear. |
+| refund `created`, year and timezone | **unavailable** (bounded) | **unavailable** (bounded) | Stripe's `created` is not shown anywhere. Our receipt of each event, in UTC with the year (above), bounds it: the refund existed by then. That is consistent with the Dashboard displaying UTC, but it is not established. |
 | failure reason | **unavailable** | **unavailable** | not shown |
 | `source` | **unavailable** | **unavailable** | the owner did not state how each refund was issued; it is not inferred, and the "test" notes are not evidence of it |
 
-**Existing evidence searched, nothing found.** No production read was made. The search covered:
+**A's error, owned.** A's consolidated request assumed that "View details" shows the refund id and status. It shows
+only the ARN and "Made available 8/5". The request rested on that wrong assumption, and the gap is not a failure by
+the owner to look (D, agreed).
+
+**The webhook ledger (D's read).** `public.stripe_webhook_events` stores no payload, only `event_id`, `event_type`,
+`received_at` and `processed`, so it cannot supply a refund id.
+- It holds **no `refund.*` event ever**. That is consistent with no refund having failed. It is **not** evidence of
+  `succeeded`, because when `refund.*` was first subscribed is unknown.
+- D describes the read as authorised. A made no production read and has not confirmed which owner authorisation it
+  rests on; this is put to the owner.
+
+**Existing evidence searched by A, nothing found.** A made no production read. The search covered:
 - the repo tree and full history;
 - the release records;
 - prior session transcripts.

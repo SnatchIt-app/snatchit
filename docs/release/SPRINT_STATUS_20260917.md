@@ -2322,3 +2322,16 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - The remote deletion waits on D's push confirmation. The local branch and worktree are kept.
   - **E's fee question:** answered NO. Resale buyer_fee is always round(0.10 × base) (`_shared/money.ts`), but
     primary-checkout uses the order's `buyer_fee_minor` under a different ruling. Label stays plain "Service fee".
+- **Trial branch deleted; D's push 3 of 4; D's webhook-ledger evidence (A, 2026-10-09):**
+  - `origin/integration/s1-s2-trial-20261007` deleted after the uniqueness check, with D not objecting. Verified by
+    `ls-remote` (0 refs; gate control). The local branch and worktree are kept.
+  - D pushed three of its four branches and verified them; `review/d-records-20261005` is held for the owner. Its
+    history carries the real ARNs in `fbe41284`/`addd4670`/`8ba6cef7`, shas A cites, and the repo is public. A's own
+    pushed history has 0 ARN occurrences (full-history pickaxe with a positive control).
+  - **O-R4 evidence update (D's read of `stripe_webhook_events`, D `187f6986`):** one `charge.refunded` event per
+    payment, received 17:20:05.136Z and 17:20:19.342Z.
+    - This is strong, not conclusive, evidence of one refund each (received events only).
+    - The ledger has no payload, so no refund id; and no `refund.*` events, which is not evidence of status.
+    - The refund id remains unavailable, so O-R4 stays pending evidence.
+    - The authorisation basis of D's read is put to the owner; A made no production read.
+  - A owns the wrong assumption behind the "View details" request.
