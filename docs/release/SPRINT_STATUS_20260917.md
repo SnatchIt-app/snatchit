@@ -2205,3 +2205,11 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     evidence they detect a failure. That is exercised by the first real refund event or by O-R4.
   - Operator: owner, daily review (O-R3). The scheduled assistant check is supplementary until its access is
     demonstrated.
+- **O-R4 R0 DONE (2026-10-09 00:02Z, owner-authorised read-only DB read).**
+  - 7 refunded payments (as recorded). 0 refund-state rows; **0 ledger rows**; all 6 transfers expired or reversed with
+    no payout (control: 23/36 transfers have payouts); 1 payment has no transfer. **Neither hazard applies.**
+  - Per-record proposals in the package. **2 live (2026-08-04, $11.00 and $2.20, transfers reversed): reconcile; the
+    source is the owner's decision. 5 test-mode: propose exclude.**
+  - R1 needs the owner's live-Dashboard read: the local Stripe CLI is the sandbox account `acct_1T6Fb1…`.
+  - Correction: `payments.mode` is the purchase type, not the Stripe mode.
+  - Also recorded: F-CONSOLE-SETTING-STALE-1 (FINDINGS_20260924…), D's to fix.

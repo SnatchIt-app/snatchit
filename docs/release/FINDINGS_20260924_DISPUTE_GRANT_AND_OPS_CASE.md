@@ -301,3 +301,23 @@ list be trusted where they differ.
   - It will be a separate change from #94, although #94 edits the same file.
   - Until then the console annotates these rows as "confirmation not read by this writer (recorded false)".
 
+
+## F-CONSOLE-SETTING-STALE-1: System → Settings shows a stale value after a successful change (UI; owner-requested record, 2026-10-09)
+
+**Observed (owner's screenshot, 2026-10-08 ~23:55Z, console `dpl_8xPaaBYGM…`):**
+- Production `ops.action` `b43f81ea-1b7a-4da1-819f-40b427fd1537` (`setting_set` `refund_state_detection_enabled` → `true`)
+  **succeeded at 23:54:39Z**. `ops.setting` read `true`, updated 23:54:39Z by the owner.
+- Afterwards the panel still showed `Current: false` and "Last changed 2026-10-08 02:37 UTC (seed)"; the header said
+  "Data as of 2m ago".
+- A second click on Save reused the form's idempotency key. The console answered "Already submitted — no second action
+  was created. Current state: SUCCEEDED". Exactly one action row exists.
+
+**Why it matters.** An operator who sees the old value will assume the change failed. Retrying in the same form is safe:
+the idempotency key prevented a duplicate. **A reload creates a new key**, so a confused operator could submit again,
+or set the opposite value believing they were correcting a failure. That matters most for safety switches such as
+`actions_enabled` and `refund_execute_enabled`.
+
+**Expected.** On a successful `setting_set`, refresh the displayed setting (revalidate the System data), or mark the row
+"saved; display refreshing" with the new value. Never show the pre-change value as current.
+
+**Owner of the fix:** D (admin console). Separate from this release. Not fixed here.
