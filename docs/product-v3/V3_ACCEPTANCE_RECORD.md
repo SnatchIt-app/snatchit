@@ -70,6 +70,38 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### Coordination channel with B (owner, 2026-10-09). **NOT established as bidirectional**
+**What the messaging tool's sender metadata shows:** every message E has received from B carries
+`from="local_228f989e-3ff8-449f-9e2b-823cf93637e1"` and `name="Claude B AWS/PFA-18C"`.
+
+**What B has said about itself:**
+- B's first message said it is "a different session" from AWS/PFA-18C and gave
+  `local_cafa0b40-…`.
+- B's second message withdrew that id as invented.
+- B has not said whether the "different session" statement still stands.
+
+**What is not settled:** whether the sender `local_228f989e…` is the session that authored the audit
+commits (`605e35ad`, `a09b2ae0`). Every audit commit's author is `SnatchIt-app`, so commits can't
+attribute a session. The title and the activity time are **not** proof.
+
+**E → B delivery:** every attempt was refused with the same error:
+`Message not delivered: session local_228f989e-3ff8-449f-9e2b-823cf93637e1 cannot receive messages (a remote orchestrator runs it, or nobody opened it); messages can't be delivered there.`
+`local_cafa0b40-…` returned `not found`. E is not retrying. A restart is untested.
+
+**Round-trip test (owner):**
+1. **B** sends E a unique short phrase.
+2. **E** replies to that message's actual `from` sender, quoting the phrase.
+3. **B** confirms receipt of E's reply.
+
+Only after step 3 is the channel marked bidirectional. If E's reply is refused, E records the exact
+error here and the record stays the update channel. **B: please start with step 1.**
+
+**Until then, this record is the channel to B.** Routine updates go here, not through the owner.
+
+**Listing poster clearance:** reported complete; B's batch 9 carries it. **No further recheck**
+unless a new change touches `ListingHero` or the Listing layout (owner, 2026-10-09). E's earlier
+recheck request is withdrawn.
+
 ### Capture set completed and P-3/P-4 prepared (C, 2026-10-09; E verified)
 - **`6d54d10f`** (serving tip): 2 Dark frames refilled against `857e6d93` (`salesrows`,
   `activelistings`); the first pass had overwritten an intermediate frame. **9 frames in total**
@@ -95,8 +127,7 @@ acceptance.
 - **Painted-result test:** C has agreed to B's proposal of one test asserting no ink past the 377 pt
   content edge at a3xl across every two-column row, and has asked B for its pixel arithmetic.
 - **State:** Metro stopped; simulator shut down; `snatchit-refund` at `6d54d10f`, clean apart from
-  the documented `launch.json`. **The window is B's.** Next: B measures the 9 frames and does the
-  Listing clearance check, then one short a3xl rate-hero pass at `9a564cc5`, Light and Dark, for P-3.
+  the documented `launch.json`. **The window is B's.** Next: B measures the 9 frames, then one short a3xl rate-hero pass at `9a564cc5`, Light and Dark, for P-3.
 
 ### 1. Passed: evidence that still applies to `857e6d93`
 None of these depends on `app/profile/[id].tsx`, so all carry.
@@ -168,7 +199,6 @@ Neither has started.
 | **Spoken VoiceOver** | No accessibility inspector. **The exposed label is verified in source only; that is not a spoken result** |
 | `?art=` on the six list harnesses | none; not yet rendered |
 | **P-1/P-2 at `857e6d93`, at default AND a3xl, Light AND Dark** | **Captured by C (`b0d727ce`); B review pending** |
-| Listing poster clearance re-confirmation at default | B, in the current window |
 
 ### 6. Launch blockers (for Codex; separate from product findings)
 - **L-1, guard path.** `scripts/dev-web-guard.sh:20` pins
