@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "resource_missing",
+    "doc_url": "https://stripe.com/docs/error-codes/resource-missing",
+    "message": "No such payment_intent: 'pi_3TFPZiGdOzCmGbHw1JOFjc65'",
+    "param": "payment_intent",
+    "request_log_url": "https://dashboard.stripe.com/acct_1T6Fb1GlD5aqtxIw/test/workbench/logs?object=req_SrjWboXecge7GT",
+    "type": "invalid_request_error"
+  }
+}
+

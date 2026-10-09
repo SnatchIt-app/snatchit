@@ -1,0 +1,26 @@
+{
+  "_redaction_note": "Whitelisted fields only. The raw /v9/projects response contained an 'env' array and other key/secret-named fields; those were NOT copied. No secret VALUES appear in this file.",
+  "_source": "vercel api /v9/projects/snatchit-admin  (capture T2_2026-10-08T19-42Z_after-failed-redeploy-attempt-1)",
+  "buildCommand": null,
+  "commandForIgnoringBuildStep": "test \"$VERCEL_GIT_COMMIT_SHA\" != \"f7e7e85f38c3d14e6ce38bb2fa1131fb66ec74bb\"",
+  "createdAt": 1773967961696,
+  "devCommand": null,
+  "directoryListing": false,
+  "framework": "nextjs",
+  "id": "prj_o17cASVVqqyGKPUtiklJRvAMVgNB",
+  "latestDeployment_subset": {},
+  "link_subset": {
+    "org": "SnatchIt-app",
+    "productionBranch": "admin/operating-console",
+    "repo": "snatchit",
+    "type": "github"
+  },
+  "live": false,
+  "name": "snatchit-admin",
+  "nodeVersion": "22.x",
+  "rootDirectory": "admin",
+  "ssoProtection": {
+    "deploymentType": "all_except_custom_domains"
+  },
+  "updatedAt": 1791430528219
+}
