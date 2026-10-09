@@ -27,8 +27,10 @@ acceptance.
   - C reports typecheck clean, 176 files / 2998 tests passing with the device down, and 0 lint
     errors. E has not re-run them.
   - **Uncaptured.**
-- **Launch-blocker note:** `c45dd762` (`docs/product-v3/V3_SSD_LAUNCH_BLOCKER.md`), which is the head
-  of `v3/midnight-app` in `snatchit-refund`. `v3/consumer-batch2` in `snatchit-v3batch` is at
+- **Launch-blocker note:** `c45dd762`, then `0a1fb072` (`docs/product-v3/V3_SSD_LAUNCH_BLOCKER.md`).
+  `0a1fb072` preserves the L-2 launch command, process provenance, exit 134 and a log excerpt, with
+  no environment values. It is docs only; E verified there is no non-doc change since `857e6d93`.
+  `0a1fb072` is the head of `v3/midnight-app` in `snatchit-refund`. `v3/consumer-batch2` in `snatchit-v3batch` is at
   `857e6d93`.
 - **On origin:** `v3/consumer-batch2` = `9498080a`, `v3/midnight-app` = `c11b4a49`. **`857e6d93` and
   `c45dd762` are local only.**
@@ -91,7 +93,7 @@ None of these depends on `app/profile/[id].tsx`, so all carry.
 | **Edit listing refusals** (5 variants) | The signed-out guard renders first (byte-identical frames). Same session blocker |
 | **Spoken VoiceOver** | No accessibility inspector. **The exposed label is verified in source only; that is not a spoken result** |
 | `?art=` on the six list harnesses | none; not yet rendered |
-| P-1/P-2 fix captures, Light and Dark | **launch blocker** below |
+| **P-1/P-2 at `857e6d93`, at default AND a3xl, Light AND Dark**, with app identity and text size verified in frame (rate whole; every trust-row value visible) | **UNTESTED**, blocked by L-1 below |
 | Listing poster clearance re-confirmation at default | launch blocker below |
 
 ### 6. Launch blockers (for Codex; separate from product findings)
