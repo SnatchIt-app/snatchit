@@ -136,6 +136,20 @@ verified.**
 | W-4 | Settings header: the hub uses an inline sentence-case title with a chip back button; 10 sub-screens use `SettingsHeader` (uppercase Oswald) | **The hub adopts `SettingsHeader`** | The 10 sub-screens adopt the hub's inline style | **A.** One component, one change, and it matches the app's other screen titles (Profile renders "PROFILE" in the same treatment) |
 | W-5 | Edit-listing platform list: Edit offers 6, Create offers 16 | **Edit uses the same 16-platform list as Create**, from one shared constant | Keep Edit at 6 | **A.** The database check `listings_ticket_platform_check` was expanded "6 → 16 confirmed platforms" in migration `033`, and Create already offers those 16. With B, a listing created as e.g. StubHub cannot show or keep its own platform in Edit. No new platform is invented |
 
+**W-2 RESOLVED → Option B (plain "Service fee" everywhere)** (A, 2026-10-09; from code at gate
+`abef9506` and the production function list; no new production reads):
+- **Resale** (`create-payment-intent`, buy-now and auction): `round(0.10 × base)`, unconditional
+  (`supabase/functions/_shared/money.ts:28,38-41`; `create-payment-intent:713-720`).
+- **Venue primary rail** (`primary-checkout`, `payments.mode = 'native_primary'`): `buyer_fee` comes
+  from the order's own `buyer_fee_minor`. The file explicitly forbids the 10% helper
+  (`primary-checkout/index.ts:80-83`).
+- So "(10%)" is **not** true for every payment type. By the stated rule, **drop "(10%)" from
+  Listing (`ListingDetailScreen.tsx:1255`) and `TransactionPanel.tsx:136`**. The label is "Service
+  fee" everywhere. The fee amounts are unchanged.
+- **A's limits:** source was read at the gate, not the deployed v48 bundle. `primary-checkout` was
+  absent from today's production function list, and venue ticketing is not authorised. Scoping
+  "(10%)" to resale-only surfaces would be a separate owner decision; **not proposed**.
+
 **Implementation (C, isolated worktree; then one serve and capture for B):**
 - W-2 after A's answer;
 - W-4;
