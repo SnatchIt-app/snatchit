@@ -5,10 +5,11 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-const SCRIPT = readFileSync("new URL("./contrast-probe.js", import.meta.url)", "utf8");
+const SCRIPT = readFileSync(new URL("./contrast-probe.js", import.meta.url), "utf8");
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9777;
-const V = "http://localhost:3300/o/smp_org_wynwood/v/smp_ven_room";
+// node scripts/run-contrast.mjs [base]   (default http://localhost:3300)
+const V = `${process.argv[2] ?? "http://localhost:3300"}/o/smp_org_wynwood/v/smp_ven_room`;
 const E = `${V}/events/smp_evt_sat_music`;
 const PAGES = [
   ["overview", V], ["events", `${V}/events`], ["event", E], ["tickets", `${E}/inventory`],
