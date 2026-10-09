@@ -193,3 +193,59 @@ A recorded the 23:55:01 tick as `refunds succeeded, scanned 2, opened 0` and not
 refund-state rows. D's independent count confirms `payment_refund_state = 0`, so the tick **cannot** be
 evidence that detection works — it is evidence only that the job runs and does not error. First real
 evidence would be a tick over a non-empty table, which only exists after an authorised R3.
+
+---
+
+## 8. Provenance of `stripe_livemode` — my own concern, checked and withdrawn
+
+Before relying on this column to exclude five money records, I traced where it is written. **It is never
+inferred.** Two write paths, both grounded in Stripe's own statement:
+
+1. **At creation / confirmation** — `create-payment-intent/index.ts:1143-1147`:
+   *"Mode boundary (migration 045): stripe_livemode is recorded from Stripe's OWN livemode field, never
+   inferred"*, writing `livemode: stripeData.livemode ?? null`. Same in `confirm-payment:274` and
+   `enforce-transfer-expiry:398` (`typeof pi.livemode === 'boolean' ? pi.livemode : null`).
+2. **The quarantine path** — `enforce-transfer-expiry/index.ts:884-887` does
+   `update({ stripe_livemode: false })`, but **only** inside
+   `if (isCrossModeStripeError(msg))`, which (`_shared/payout-logic.ts:140-142`) matches Stripe's own
+   message `/similar object exists in (test|live) mode/i`. So that `false` is Stripe telling us the
+   object lives in the other mode, not a guess.
+
+**I raised the worry that we would be excluding five money records on the strength of an unverified
+internal flag. That worry is answered and I withdraw it** — the flag is Stripe's answer, recorded.
+Supporting reads: `livemode` is `true` 8 / `false` 49 / **null 0** across 57 payments (so no pre-045
+unclassified rows here), and both values are present, so the column discriminates.
+
+**One residual, stated precisely.** On the quarantine path the `false` is a *correction* of a prior
+`true`, and that correction is captured only via `captureException(... legacy_test_record: true)` — i.e.
+in Sentry, not in the payments row. So the database cannot distinguish "always test" from "was marked
+live until Stripe corrected us". This does **not** change the handling (Stripe classifies the object as
+test mode either way), but it is why the exclusion should be worded as *"Stripe classifies these as test
+mode"* rather than *"these were never live"*. D cannot read Sentry, so whether any of records 1-5 was
+quarantined is unestablished.
+
+### This strengthens the exclusion argument materially
+
+`payout-logic.ts:144-152` defines the system's existing boundary:
+
+> *"The mode boundary for financial automation: only rows explicitly marked live
+> (payments.stripe_livemode = true) may enter refund/payout/reconciliation paths. false =
+> preserved-but-inert test-era audit data; null = unclassified and therefore NOT actionable (fail
+> closed)."*
+
+`rowIsLiveActionable()` returns true only for `true` — plus a sandbox-only `ALLOW_TEST_MODE_MONEY`
+switch that the release checklist asserts is absent in production. **So production code already treats
+all five as inert for every refund, payout and reconciliation path.** Reconciling them through R3 would
+be the only money-rail write that crosses a boundary the codebase states explicitly. Exclusion is
+therefore the choice *consistent with the system's own design*, not merely the cautious one — which is a
+better argument than the rollback-guard cost I gave first, and it should be the one put to the owner.
+
+### Scope status of the exclusion — not yet decided
+
+A's package (fda362e5) records the test-mode five as "excluded jointly" and narrows R1 to the live read
+of records 6-7 only. **D's position: the exclusion is a recommendation from D that A agrees with. It is
+not the owner's ruling, and the owner was explicitly offered the alternative** ("exclude, or reconcile
+for display consistency"). The narrowing of R1 is downstream of that ruling: if the owner chooses
+display consistency, R1 must also read records 1-5 in test mode, because writing a refund state without
+first reading the real one reintroduces precisely the defect 150 fixed. The package should read
+*excluded pending the owner's ruling*, with R1 narrowed *conditionally*.
