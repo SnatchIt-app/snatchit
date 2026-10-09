@@ -2240,3 +2240,17 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Outstanding (owner):** R1 live Stripe read of #6 `pi_3U0XuwGdOzCmGbHw0WVJfW3y` and #7
     `pi_3U0YzcGdOzCmGbHw0Z6l7bf7`; the ruling on the test-mode five (exclude recommended, or reconcile); the
     `source` for #6/#7; R3 correction writes (separately gated). Signed-in wording/label views remain unverified.
+- **D post-O-R2 audit reconciled (A, 2026-10-09).** D `5be4d5dc` (`D_AUDIT_POST_O-R2_20261009.md`, D's own reads).
+  A verified every source-level claim at gate `abef9506`:
+  - **The ticks carry no detection evidence.** Before the flip: 288 runs; after: 256; all with `items_scanned` 2 and
+    0 cases. A confirmed from source why: the gated branches iterate only the empty `payment_refund_state`, and the
+    result omits `state_on`. This supersedes the 10-08 entry's limit; see F-DETECT-REFUNDS-UNOBSERVABLE-1.
+  - **O-R2 enabled one of two refund detectors.** `refund_resolution_detector_enabled` (144) is still `false`, as
+    designed: activation is rollout step 6b, after the refund-classification console (step 4,
+    `admin/refund-classification-console` `3dab1614`). That console is **not** in the live build (`3dab1614` is not
+    an ancestor of `f7e7e85f`), so the prerequisite is unmet and nothing is pending on it now.
+  - `refund-execute-tick` (*/2) and `payout-execute-tick` (*/10) are scheduled (`133`:416/419). Each is held by a
+    setting checked in its job body, not by an absent job; both settings read `false` (D's read).
+  - **Sign-in chain closed by D from `auth`:** user `2b117757` signed in 23:48:03, factor `e677717c` verified,
+    challenge 23:48:42, and the 23:54:39 setting change was by the same id.
+  - **Single owner-actions list agreed with D**, with A's amendment: add the R3 write approval as its own step.

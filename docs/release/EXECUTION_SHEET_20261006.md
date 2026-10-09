@@ -18,7 +18,9 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - 150/151, X1–X4.
   - Stripe endpoint 13/13; no change was needed.
   - Console aal2 access.
-  - O-R2 enabled.
+  - O-R2 enabled: **refund-state detection only**. The separate refund-resolution detector (144) stays off by
+    design until the classification console ships. The ticks since the flip do not show detection running
+    (F-DETECT-REFUNDS-UNOBSERVABLE-1).
 - **Fresh metadata re-check, 2026-10-09:** the deployments, pin, merge commits and function versions are unchanged
   (`SPRINT_STATUS_20260917.md`, SSD-resume entry).
 - **Open:**

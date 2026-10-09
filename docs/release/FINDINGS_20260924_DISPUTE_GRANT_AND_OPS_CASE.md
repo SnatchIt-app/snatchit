@@ -333,3 +333,31 @@ or set the opposite value believing they were correcting a failure. That matters
 
 **Not a defect today.** It is a hardening item: one shared rule, or a SQL-level guard on the refund writers. Found by D
 during the O-R4 review; verified by A. A full enumeration of every edge money path and its gate has not been done.
+
+## F-DETECT-REFUNDS-UNOBSERVABLE-1: the refunds tick cannot show whether refund-state detection ran (register item, 2026-10-09)
+
+`ops.detect_refunds()` (`20260925000000_refund_lifecycle_state.sql` at gate `abef9506`) increments `v_scanned` at four
+sites:
+- :293 is in the ungated loop over refunded payments and transfers (:277).
+- :334 is in the ungated loop over `refund_execute` actions (:320).
+- :363 and :388 are in the two loops behind `if v_state_on` (:351–399). Both iterate only `public.payment_refund_state`,
+  for `failed`/`canceled` and `pending`/`requires_action` rows.
+
+The return value (:402) is `{scanned, opened, resolved}` and carries no `state_on`. With `payment_refund_state` empty,
+a tick with detection ON is byte-for-byte the same as a tick with it OFF. D measured this in production: 288 runs in
+the 24 h before the flip and 256 after, all with `items_scanned` = 2 and 0 cases
+(`review/d-records-20261005` `5be4d5dc`, `D_AUDIT_POST_O-R2_20261009.md`; D's read).
+
+**Consequence for the O-R2 record:** the post-flip ticks are **no** evidence that the new branches run, not weak
+evidence. The setting's value and its audit chain are the evidence that the flag is on. The branches stay unexercised
+until a real refund event or an authorised O-R4 R3 write creates a state row.
+
+**Contrast:** `refund_resolution` (144) logs `{"reason":"refund_resolution_disabled"}` on every skip.
+
+**Fix (hardening; not a defect in what the function decides):** add `state_on` to `detect_refunds`'s returned jsonb
+so `ops.job_run.detail` can tell the two cases apart. This is a SQL function change, so it needs a new migration.
+- A assigns the number from the registry.
+- It touches the four-file set and needs a rollback restoring 150's body.
+- It is applied owner-gated, like any migration.
+
+D proposed it; verified by A from source.
