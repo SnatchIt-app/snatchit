@@ -70,6 +70,36 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### Wording and product choices: DECIDED by E under owner delegation (2026-10-09)
+The owner delegated these decisions: two options each, E recommends one, and the recommendation is
+adopted without a further owner reply. No business rule or capability changes. C implements, and B
+reviews the rendered result. **Until then, each one is decided but not yet implemented or
+verified.**
+
+| # | Choice | Option A | Option B | **Chosen**, and why |
+|---|---|---|---|---|
+| W-1 | Seller with sales but no terminal-transfer rate (`reputation.ts`, unreachable from the current RPC) | **"Unrated"**, blurb "N sales · transfer success unavailable", tier `new_seller` (neutral tone) | "New seller", blurb "No transfer rate yet" | **A.** It claims neither newness, which the sales count beside it would contradict, nor failure. It is already implemented in `01c236b2`; no change is needed |
+| W-2 | Fee label: Listing says "Service fee (10%)", checkout and the Apple Pay sheet say "Service fee" | **"Service fee (10%)"** everywhere the buyer fee is itemised in-app (Listing, TransactionPanel, CheckoutView). The Apple Pay sheet keeps "Service fee" | Plain "Service fee" everywhere, dropping "(10%)" from Listing | **A, conditional.** It states how the fee is computed, at the same point everywhere. **Condition:** the in-app checkout shows the **server's** `buyer_fee`, not the client constant. So "(10%)" may appear there only if A confirms the server always charges `round(10% × amount)` (client constant `BUYER_FEE_RATE = 0.10`, `packages/core/src/money.ts:16`). **If A cannot confirm, B is chosen**, because the label must never state a rate the charged amount might not match |
+| W-3 | All-caps `label` token (CURRENT BID, TOTAL, HELD FOR YOU, TRANSFER SUCCESS RATE) | **Keep the uppercase `label` token** for short chrome and eyebrow labels only. Names, venues, values, instructions and sentences are never uppercased | Make the `label` token sentence case app-wide | **A.** The approved 2026-09-22 typography ruling forbids uppercasing **content** (names are preserved as typed) and keeps the display tokens uppercase; these labels are chrome. B would change every approved surface for no rule. Any uppercase string that is a sentence or content is a defect under A |
+| W-4 | Settings header: the hub uses an inline sentence-case title with a chip back button; 10 sub-screens use `SettingsHeader` (uppercase Oswald) | **The hub adopts `SettingsHeader`** | The 10 sub-screens adopt the hub's inline style | **A.** One component, one change, and it matches the app's other screen titles (Profile renders "PROFILE" in the same treatment) |
+| W-5 | Edit-listing platform list: Edit offers 6, Create offers 16 | **Edit uses the same 16-platform list as Create**, from one shared constant | Keep Edit at 6 | **A.** The database check `listings_ticket_platform_check` was expanded "6 → 16 confirmed platforms" in migration `033`, and Create already offers those 16. With B, a listing created as e.g. StubHub cannot show or keep its own platform in Edit. No new platform is invented |
+
+**Implementation (C, isolated worktree; then one serve and capture for B):**
+- W-2 after A's answer;
+- W-4;
+- W-5: a single exported constant, with a test asserting parity with Create and with 033's list;
+- W-1 and W-3 need no code change. Under W-3, C lists any uppercase string that is content or a
+  sentence.
+
+### Owner access waiver (2026-10-09). Recorded separately; **NOT passed**
+- **Owner-reported access:** the owner reports having signed in successfully before. That is the
+  owner's statement; no session in this review has verified it.
+- **Waived, unverified checks:** a repeat owner sign-in session for **authenticated consumer Home**
+  (dock, real feed, consumer next-section figure) and the **Edit-listing refusal group**. These are
+  **waived by the owner, not tested.** They are not marked passed, and the owner will not be asked
+  to repeat them.
+- **Not waived:** spoken VoiceOver remains untested (no inspector).
+
 ### B's measurement of P-1/P-2 (`12a98bdc`, `B_NATIVE_REVIEW_857e6d93.md`, 2026-10-09 18:50)
 **P-1 and P-2 are CLOSED at `857e6d93`** (C-operated frames, measured by B with its own
 instrument; B did not use the simulator for this review).
