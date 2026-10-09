@@ -14,7 +14,7 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { allInFromDollarsV3 } from '@/src/lib/money';
@@ -25,7 +25,8 @@ import { Badge, Button, EmptyState, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { deriveReputation, reputationTone } from '@/src/lib/profile/reputation';
-import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -78,9 +79,14 @@ function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {
   );
 }
 
-function TrustRow({ label, value, emphasize, last, s }: { label: string; value: string; emphasize?: boolean; last?: boolean; s: Styles }) {
+function TrustRow({ label, value, emphasize, last, stacked, s }: { label: string; value: string; emphasize?: boolean; last?: boolean; stacked?: boolean; s: Styles }) {
+  /*
+   * Side by side the label takes the width it needs and the VALUE is what runs off the screen —
+   * B measured 8,089 px of "Member since"'s value inside the right gutter at A3XL. Above the
+   * shared threshold the row stacks, exactly as the bid rows and the fact rows do.
+   */
   return (
-    <View style={[s.trustRow, !last && s.trustRowBorder]}>
+    <View style={[stacked ? s.trustRowStacked : s.trustRow, !last && s.trustRowBorder]}>
       <Text style={[textStyle('body'), s.trustRowLabel]}>{label}</Text>
       <Text style={[textStyle('body'), emphasize ? s.trustRowValueEmphasize : s.trustRowValue]}>{value}</Text>
     </View>
@@ -108,6 +114,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
+  const { fontScale } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
   const sellerId = id ?? '';
   const isSelf = !!user?.id && user.id === sellerId;
@@ -260,6 +267,15 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
 
   const rep = deriveReputation(trustStats);
   const insufficientData = !trustStats || trustStats.seller_terminal_total < 1;
+  /*
+   * One shared rule, the same one the feature, the feed row, the panel, the fact rows and the bid
+   * rows use. The rate is a NUMBER: it is bounded to its line and shrinks to fit rather than
+   * breaking after the second digit, which is how "100%" came to render as "10 / 0 / %".
+   */
+  const stackRows = identityStacks(fontScale);
+  const rateFit = stackRows
+    ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE }
+    : { maxFontSizeMultiplier: MAX_DISPLAY_FONT_SCALE };
 
   return (
     <View style={s.root}>
@@ -292,7 +308,7 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
               <View style={s.hero}>
                 <View style={s.heroLeft}>
                   <Text style={[textStyle('micro'), s.heroLabel]}>Transfer success rate</Text>
-                  <Text style={s.heroValue}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
+                  <Text style={s.heroValue} numberOfLines={1} {...rateFit}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
                   {insufficientData ? <Text style={[textStyle('bodySm'), s.heroSub]}>No completed transfers yet</Text> : null}
                 </View>
                 <View style={s.heroRight}>
@@ -301,12 +317,12 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
                 </View>
               </View>
               <View style={s.trustRows}>
-                <TrustRow label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} s={s} />
-                <TrustRow label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} s={s} />
-                <TrustRow label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} s={s} />
-                <TrustRow label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} s={s} />
-                <TrustRow label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} s={s} />
-                <TrustRow label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last s={s} />
+                <TrustRow stacked={stackRows} label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} s={s} />
+                <TrustRow stacked={stackRows} label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} s={s} />
+                <TrustRow stacked={stackRows} label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last s={s} />
               </View>
             </>
           )}
@@ -370,6 +386,7 @@ function makeStyles(p: Palette) {
 
   trustRows: { borderTopWidth: 1, borderTopColor: p.border.default },
   trustRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: v2.space.md },
+  trustRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs, paddingVertical: v2.space.md },
   trustRowBorder: { borderBottomWidth: 1, borderBottomColor: p.border.default },
   trustRowLabel: { color: p.text.muted },
   trustRowValue: { color: p.text.primary },
