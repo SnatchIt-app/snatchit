@@ -19,7 +19,7 @@
  * `bidPriceLinesV3` does for the bid screen. It computes no fee and no rounding of its own.
  */
 
-import { buyerFeeCents, buyerTotalCents, dollarsToCents, formatCentsV3 } from '@/src/lib/money';
+import { BUYER_FEE_RATE, buyerFeeCents, buyerTotalCents, dollarsToCents, formatCentsV3 } from '@/src/lib/money';
 import type { TransferStatus } from '@/src/types';
 
 /**
@@ -41,6 +41,21 @@ export interface ListingPriceLinesV3 {
   /** What the buyer pays all-in, e.g. "$104.50". */
   allIn: string;
 }
+
+/**
+ * The label for the buyer-fee row in the RESALE bid family — the Listing minimum-bid breakdown
+ * and the panel that mirrors it. It states the rate because the number beside it is computed
+ * right here, by `buyerFeeCents`, at exactly BUYER_FEE_RATE: the label describes arithmetic the
+ * app just did rather than a claim about what any server will charge.
+ *
+ * That is why the CHECKOUT keeps a plain "Service fee" and this does not. There the amount comes
+ * from the order's own breakdown, and the venue primary rail carries its own buyer_fee — so a
+ * rate in that label would be a promise the app cannot keep (W-2, A's ruling).
+ *
+ * Derived, never typed: PlaceBidScreen builds the same string from the same constant, and a rate
+ * change must move both labels or neither.
+ */
+export const RESALE_FEE_LABEL = `Service fee (${Math.round(BUYER_FEE_RATE * 100)}%)`;
 
 export function listingPriceLinesV3(baseDollars: number): ListingPriceLinesV3 {
   const cents = dollarsToCents(baseDollars);

@@ -19,6 +19,7 @@ import { Animated, StyleSheet, Text, useWindowDimensions, View } from 'react-nat
 
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { usePulseOnChange } from '@/src/hooks/usePulseOnChange';
+import { RESALE_FEE_LABEL } from '@/src/lib/listing/detailState';
 import { bidCountText } from '@/src/lib/listing/feedRowState';
 import { textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
@@ -133,7 +134,7 @@ export function TransactionPanel({
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidBase}</Text>
           </View>
           <View style={stacked ? styles.bRowStacked : styles.bRow} testID="panel-breakdown-row">
-            <Text style={[textStyle('bodySm'), styles.bLabel]}>Service fee</Text>
+            <Text style={[textStyle('bodySm'), styles.bLabel]}>{RESALE_FEE_LABEL}</Text>
             <Text style={[textStyle('bodySm'), styles.bValue]} numberOfLines={stacked ? undefined : 2}>{minBidFee}</Text>
           </View>
         </View>
