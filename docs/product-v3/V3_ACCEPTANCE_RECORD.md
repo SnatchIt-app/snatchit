@@ -85,6 +85,24 @@ acceptance.
 - **Branch note:** `7d957100` is a **merge**, not a fast-forward. The serving and batch branches
   diverged for the first time. C did not rebase, because `v3/consumer-batch2` is pushed.
 
+### W-6 implemented: code `64e2212f`, evidence `e1bbcd66` (C, 2026-10-09; E verified `payout-setup.tsx:162`). **IMPLEMENTED AND SOURCE-PINNED, NOT VISUALLY VERIFIED**
+- **Copy:** "…we send your payout (the sale price, less the seller fee and any refund) to your
+  Stripe account." Device and Metro released by C.
+- **Why not visible:** the sentence is in the `connected` status branch. That status comes from a
+  server probe with no fixture seam, so seeing it needs an authenticated account with Stripe
+  connected. Repeat sign-in is waived; this is the same boundary as the Edit picker.
+- **The kept frame** shows the signed-out `not_connected` state ("SET UP PAYOUTS"). It proves that
+  state is undisturbed. **It is not evidence of the new sentence.**
+- **Pinned by tests:** P-COPY1 and P-COPY2. Mutants: restoring the rate or dropping the refund clause
+  kills P-COPY1; re-promising the payout on the **sale** rather than the **release** kills P-COPY2.
+  **A's older "payout on release" ruling was unguarded until this test.**
+- **Tests (C's report):** typecheck clean, 3015 tests, 0 lint errors.
+- **Still pending from the W-2 correction below:** restoring "(10%)" at `ListingDetailScreen.tsx:1255`
+  and `TransactionPanel.tsx:136`. Both still read plain "Service fee" at `e1bbcd66` (E verified). C
+  hadn't received the correction when it built W-6.
+- **`bidEntry.ts:133,143` is settled by the correction:** the bid confirmation keeps "10%". C still
+  lists it as open, so this record answers it.
+
 ### CORRECTION by E: W-2 was over-broad. Rescoped under owner delegation (2026-10-09)
 **E missed an owner ruling.**
 - `PlaceBidScreen.tsx:424` renders the bid summary as `Fee (${BUYER_FEE_RATE×100}%)`, i.e.
