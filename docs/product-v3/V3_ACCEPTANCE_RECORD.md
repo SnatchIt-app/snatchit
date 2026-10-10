@@ -70,6 +70,39 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### S-1 fixed for multi-word labels: code `e6a38aef`, evidence `b18d1f47` (C, 2026-10-09; E verified; **device and Metro released by C**)
+- **Chain:** `a98389fc` (wrap; C's window declared there) → `e6a38aef` (two lines plus
+  shrink-to-fit), changing `src/components/account/SettingsRow.tsx` only. Evidence commits:
+  `c6164048`, `96c66452` (intermediate sets kept) and `b18d1f47` (the frame that rejected the first
+  fix).
+- **Tests (C's report):** typecheck clean, 3011 tests with the simulator shut down, 0 lint errors.
+  Mutants SR1, SR2 and SR3 were each predicted and matched.
+- **Frames:** 4 in `native/e6a38aef/`: hub and Appearance at a3xl, Light and Dark. Default size
+  matches `1ab2c8e2` by pixel diff (0 differing pixels below the header).
+- **State:** E verified no listener on `:8081` and no booted device. The serving tree is
+  `b18d1f47`, clean apart from the documented `launch.json`. B's six `-Boperated` files remain
+  untouched.
+- **Fixed:** multi-word labels now wrap on words with the chevron kept. E viewed
+  `settings-hub-a3xl-light`: "Edit / profile" and "Phone / verification" read in full. The
+  accessibility label is unchanged.
+- **Not fixed: S-1b, single-word labels.** "Notifications" still breaks mid-word at a3xl
+  ("Notificatio / ns"; E viewed it). Shrink stops once the broken form fits two lines.
+- **Pattern, recorded:** at a3xl, wrapping fixes only text that contains spaces. This is the third
+  occurrence in the batch (profile blurb, header title, row label). A single long word needs shrink,
+  or shorter copy.
+
+**S-1b DECIDED under owner delegation:**
+- **Option A:** a label with no space takes one line plus shrink-to-fit, as the header title does at
+  `1ab2c8e2`. Multi-word labels keep two-line wrapping. Only words that cannot break shrink, and
+  only by as much as they need.
+- **Option B:** shorter copy for that row (e.g. "Alerts"). This changes an established term that
+  the Notifications sub-screen and other surfaces also use.
+- **Option C (C's, rejected):** one line with heavy shrink for every row. It would shrink all labels
+  below the requested size to fix one word.
+- **Chosen: A.** It keeps the wording, confines the shrink to the labels that cannot wrap, and reuses
+  the title treatment already applied.
+- **C implements; B reviews it at a3xl, Light and Dark.**
+
 ### W batch complete: code `1ab2c8e2`, evidence `db58c433` (C, 2026-10-09; E verified; **device and Metro released by C**)
 - **Chain:** `58306942` (W-4, W-5) → `b64e5dd6` (P-5, W-2) → `c303eab6` → `1ab2c8e2` (Settings
   header fix, in two steps). `db58c433` adds 15 frames in `native/1ab2c8e2/` with `capture-log.txt`,
