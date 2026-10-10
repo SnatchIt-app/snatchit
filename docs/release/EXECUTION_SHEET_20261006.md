@@ -30,8 +30,8 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - Separately, the 2026-10-08 console sign-in and TOTP challenge were confirmed from auth records then, by A and D.
     That covers access, not wording.
   - No further attended session is to be scheduled.
-- **O-R4: evidence complete; R3 filled and rehearsed; awaiting D's review, then the owner's hash approval**
-  (2026-10-10).
+- **O-R4: evidence complete; R3 filled, rehearsed and D-reviewed (PASS, D `45fbe3dd`); awaiting the owner's hash
+  approval** (2026-10-10).
   - From Stripe's live API: each payment has exactly one refund, `succeeded`, for the full amount.
     - #6 `re_3U0XuwGdOzCmGbHw0bL9UYzT`, #7 `re_3U0YzcGdOzCmGbHw0Av5k7ZH`.
     - Source `dashboard` on evidence: the handler's `refundSource` rule and the code history.

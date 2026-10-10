@@ -2387,3 +2387,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       - A's first Stripe filter epoch was a day late. The unfiltered lists and a corrected epoch close it.
       - The `logs.all` API was removed, and its notice was misread as zero rows; the positive controls caught it.
   - **F-PAYOUT-FEE-FAILOPEN-1: 0 affected rows.**
+- **O-R4 R3: D review PASS (D `45fbe3dd`)** on the exact filled files: #6 `d7f31cf1…`, #7 `dca8cb00…`. D recomputed the hashes, checked the guards against the filled values, re-read the prestate (= R0) and verified the origin. To be put to the owner with D's framing: source 'dashboard' was derived from our own code's classification rule, and approving the hash ratifies that derivation. Not executed; this awaits the owner.

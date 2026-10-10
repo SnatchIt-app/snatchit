@@ -1,7 +1,7 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
-**Status (2026-10-10): EVIDENCE COMPLETE; R3 FILLED AND REHEARSED; awaiting D's review of the exact filled files,
-then the owner's approval of their sha256. Production unchanged.**
+**Status (2026-10-10): EVIDENCE COMPLETE; R3 FILLED, REHEARSED and D-REVIEWED (PASS, D `45fbe3dd`); awaiting the
+owner's approval of the two sha256s. Production unchanged.**
 - R0 done. The test-mode five are excluded and unchanged.
 - R1 is **complete from Stripe's live API** (owner-authorised read, 2026-10-10; §"Evidence complete").
   - Each payment has exactly one refund, `succeeded`, for the full amount.
@@ -516,9 +516,24 @@ tables before the write and asserts they are unchanged after. Runs 1–3 are kep
 - `c_evidence`, which names the Stripe read, the count, the status, the amount, the created time, the source basis
   and D's blind check.
 
-The template comment on `c_source` says "the owner's recorded decision". Here the source was established from
-evidence, under the owner's instruction to establish origin where possible. The owner's hash approval is the
-decision.
+**How `source` arose, so that approving it ratifies the right thing.** The template comment on `c_source` says "the
+owner's recorded decision for this row". The value was **derived**, not chosen. In D's words, which A adopts:
+"`source = 'dashboard'` was derived from your own code's classification rule, which assigns that value to any refund
+your expiry path did not create. Approving the hash ratifies that derivation."
+- That is a claim about our taxonomy, not about an unobserved human action. `refundSource()` returns `dashboard` for a
+  Dashboard click and for a direct API call alike, so the conclusion does not depend on telling them apart.
+- The comment is not edited: that would break the five-line rule and the reviewed hashes. The owner's approval
+  becomes the recorded decision.
+
+**D's review: PASS** (D `45fbe3dd`).
+- D recomputed both sha256s independently: #6 `d7f31cf1…0d88`, #7 `dca8cb00…2996`.
+- Each diff is exactly 5 lines removed and 5 added. `c_amount` = `c_total` = Stripe's refund amount.
+- D re-evaluated every input guard against the filled values: C3, C4, C5, C10, C11, C12.
+- D re-read the live prestate itself, and it equals R0 (so `stripe_refund_id` is free).
+- D verified both limbs of the origin determination and withdrew its earlier leave-it-unknown position.
+- **Scope, as D states it:** the files are correct, the inputs evidenced and the prestate matching. D does not
+  authorise execution; that is the owner's separate approval. If production changes before then, the prestate guards
+  refuse.
 
 **Rehearsal of the exact files:** `rehearsal/run_R3_filled.sh` on a fresh clone of `pkg151_rehears`, ledger 164.
 - It checks each sha256 first.
