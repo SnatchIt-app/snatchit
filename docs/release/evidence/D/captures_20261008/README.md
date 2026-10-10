@@ -21,7 +21,7 @@ copied. No secret values are present here. The evidence actually cited — `comm
 ## Stripe R1 access evidence
 
 `stripe_r1_wrong_account.stdout.txt` / `.stderr.txt` — the raw output establishing that the local CLI is
-bound to `acct_1T6Fb1(truncated)` ("SNATCH IT sandbox"), a different Stripe account from the one holding
+bound to `acct_1T6Fb1GlD5aqtxIw` ("SNATCH IT sandbox"), a different Stripe account from the one holding
 the seven refunded payments, returning `resource_missing: No such payment_intent`. This is the basis for
 "R1 cannot be executed by D". Scanned clean — no keys or tokens.
 

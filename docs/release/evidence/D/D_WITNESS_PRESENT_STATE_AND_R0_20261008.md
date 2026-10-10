@@ -142,12 +142,12 @@ The owner authorised the Stripe read; D cannot execute it. Measured, not assumed
 
 ```
 $ stripe refunds list --payment-intent pi_3TFPZiGdOzCmGbHw1JOFjc65
-▸ Running in SNATCH IT  sandbox · sandbox (acct_1T6Fb1…)
+▸ Running in SNATCH IT  sandbox · sandbox (acct_1T6Fb1GlD5aqtxIw)
 { "error": { "code": "resource_missing",
              "message": "No such payment_intent: 'pi_3TFPZiGdOzCmGbHw1JOFjc65'", … } }
 ```
 
-The local CLI is bound to **`acct_1T6Fb1…` ("SNATCH IT sandbox")** — a *different* Stripe
+The local CLI is bound to **`acct_1T6Fb1GlD5aqtxIw` ("SNATCH IT sandbox")** — a *different* Stripe
 account from the one holding these records. Corroborating identifier evidence: every PaymentIntent and
 the live webhook endpoint `we_1TCqy5GdOzCmGbHwxBkCHKL2` share the fragment `GdOzCmGbHw`, which does
 **not** appear in the CLI's account id; and `GlD5aqtxIw` does not appear in any PaymentIntent. So this is

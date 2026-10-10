@@ -238,3 +238,24 @@ with positive controls — not by the spot-check D actually relied on at push ti
 **The method lesson, recorded because D got there in the wrong order:** D pushed on the strength of a
 *sample* of flagged files, having already had one scan of this very question return a false clean. The
 complete check should have preceded the push. It happened to come out clean; that is luck, not method.
+
+---
+
+## 12. The account-id truncation is reverted — it was never sensitive
+
+D truncated the sandbox Stripe account id alongside the ARNs. **That was wrong and is undone.**
+
+`acct_1T6Fb1GlD5aqtxIw` is **already public** on `origin/release/production-gate-20260918` and
+`origin/web/wording-truth-conditions` in **17 files each**, including hard-coded in source:
+
+```
+src/config/envGuard.ts:35:const SANDBOX_ACCT_FRAGMENT = '51T6Fb1'; // acct_1T6Fb1GlD5aqtxIw (Stripe Sandbox)
+```
+
+It is the **sandbox** account, it appears in every Dashboard URL for it, and this project treats it as
+ordinary configuration. Truncating it in three D records while seventeen other files on the same branch
+carry it in full achieved nothing and was actively misleading — it implied a sensitivity the repository
+itself does not assign. Restored in full.
+
+**Control that the ARN judgement was the right one:** the same check across those public refs returns
+**0** files containing either ARN. So the ARN was a genuine, unique exposure and the account id was not.
