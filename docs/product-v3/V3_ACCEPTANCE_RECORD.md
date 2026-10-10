@@ -96,9 +96,27 @@ acceptance.
 - **Not decided by E; recorded for the right owner:**
   - `app/settings/legal.tsx:94,211-212` ("A 10% service fee… a 10% marketplace fee…") is **legal
     text, which stays with the owner.**
-  - `app/settings/payout-setup.tsx:159` ("…minus the 10% seller fee") is seller-fee copy, and its
-    truth across rails is a question for **A**.
+  - `app/settings/payout-setup.tsx:159`: **decided as W-6**, below.
   - `src/lib/bid/bidEntry.ts:60` is a code comment only.
+
+**W-6, payout copy (`payout-setup.tsx:159`), DECIDED under owner delegation.** A answered from code
+at gate `abef9506`, with no production reads.
+- **What A confirmed:** only resale payouts reach this screen. The primary rail has no individual
+  seller (`seller_id` NULL, `seller_fee` 0, and 093's rail CHECK). The resale `seller_fee` is written
+  as `round(base × 0.10)` and frozen on success.
+- **What A cannot confirm:** `claim_payout_attempt` pays `amount − coalesce(seller_fee, 0)`. A live
+  row with a NULL `seller_fee` would pay out with no fee withheld, and A's records don't rule that
+  out. A also notes that after a partial refund the payout is not "sale price minus fee".
+- **Option A:** "…we send your payout (the sale price minus the seller fee) to your Stripe account."
+- **Option B:** "…we send your payout (the sale price, less the seller fee and any refund) to your
+  Stripe account."
+- **Chosen: B.** It drops the rate A can't confirm for every row, and it stays literally true in the
+  partial-refund case A identified. Copy only; **C implements.**
+
+**Backend data question raised by A (not frontend; recorded once for A and the owner):**
+- Are there live, unpaid `payments` rows with a NULL `seller_fee`, or one that doesn't equal
+  `round(amount × 0.10)`? Any such row would pay the seller with no fee withheld.
+- Settling it needs a **production read, which only the owner can authorise**. A has not run it.
 
 **P-5 note:** the badge's 1.3× cap is `Badge`'s own limitation, a separate follow-up that has not
 been adopted. `reputation.ts` now carries the tier word, so no information is lost.
