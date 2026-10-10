@@ -70,6 +70,39 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### S-1b implemented: code `1a6ac1c3`, evidence `e1ed4226` (C, 2026-10-09; E verified; **device and Metro released by C**)
+- **Change:** `SettingsRow.tsx` only. A label with no whitespace gets one line and shrink-to-fit; a
+  label with whitespace keeps two lines at full size. Below the threshold neither changes (SR1, SR6).
+- **Frames:** `native/1a6ac1c3/settings-hub-a3xl-{light,dark}`. Per C, "Notifications" is whole on
+  one line and slightly smaller, the other labels keep full size, and every chevron is present.
+  Default size matches `1ab2c8e2` by pixel diff (0 differing pixels below the header).
+- **Tests (C's report):** typecheck clean, 3013 tests with the simulator shut down, 0 lint errors,
+  4 mutants.
+  - **Trap, recorded:** inverting the stacked branch killed 4 tests instead of 1, because the
+    ternary's false branch is shared with the default-size case.
+- **Evidence trail:** C's capture log at `e1ed4226` records all three attempts at S-1. Each passed
+  its tests, and each of the first two was rejected by a frame.
+- **State:** E verified no listener on `:8081` and no booted device. The serving tree is
+  `e1ed4226`, clean apart from the documented `launch.json`.
+
+**Remaining "10%" statements, found by C and E (source search at `e1ed4226`):**
+- **W-2b, decided under owner delegation.** `TransactionPanel.tsx:80`, shown in the sold state:
+  "Price includes the 10% service fee."
+  - **Option A:** "Price includes the service fee."
+  - **Option B:** keep "10%". That is true on the resale rail, which is the only rail a Listing shows
+    today.
+  - **Chosen: A**, for consistency with W-2's rule that buyer-fee labels state no rate. **C
+    implements**: copy only, no change to any amount.
+- **Not decided by E; recorded for the right owner:**
+  - `app/settings/legal.tsx:94,211-212` ("A 10% service fee… a 10% marketplace fee…") is **legal
+    text, which stays with the owner.**
+  - `app/settings/payout-setup.tsx:159` ("…minus the 10% seller fee") is seller-fee copy, and its
+    truth across rails is a question for **A**.
+  - `src/lib/bid/bidEntry.ts:60` is a code comment only.
+
+**P-5 note:** the badge's 1.3× cap is `Badge`'s own limitation, a separate follow-up that has not
+been adopted. `reputation.ts` now carries the tier word, so no information is lost.
+
 ### S-1 fixed for multi-word labels: code `e6a38aef`, evidence `b18d1f47` (C, 2026-10-09; E verified; **device and Metro released by C**)
 - **Chain:** `a98389fc` (wrap; C's window declared there) → `e6a38aef` (two lines plus
   shrink-to-fit), changing `src/components/account/SettingsRow.tsx` only. Evidence commits:
