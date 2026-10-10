@@ -11,9 +11,10 @@
  */
 
 import { useMemo } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -46,6 +47,14 @@ export function SettingsRow({
   const { palette } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale(!disabled && !!onPress);
+  /*
+   * S-1: the label IS the navigation. Clamped to one line it was cut to "Edit prof…",
+   * "Notificat…", "Phone v…", "Payout s…" at the largest accessibility size — and two of those
+   * cannot be told apart, so the row stops saying where it goes. Above the shared threshold it
+   * takes the lines it needs and breaks on words; below it, nothing moves.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
   const titleColor = tone === 'destructive' ? palette.status.error : palette.text.primary;
 
   return (
@@ -62,7 +71,12 @@ export function SettingsRow({
         testID={testID}
       >
         <View style={styles.textCol}>
-          <Text style={[textStyle('title'), { color: titleColor }]} numberOfLines={1}>{label}</Text>
+          <Text
+            style={[textStyle('title'), { color: titleColor }]}
+            numberOfLines={stacked ? undefined : 1}
+          >
+            {label}
+          </Text>
           {description ? (
             <Text style={[textStyle('bodySm'), styles.description]} numberOfLines={2}>{description}</Text>
           ) : null}
