@@ -92,3 +92,35 @@ dropped.
   history including the real ARNs.
 - The real ARNs also remain in the owner's own screenshots.
 - `3787d8a2` (deleted trial branch) still resolves locally via A's retained worktree.
+
+---
+
+## 7. Closure: the full-history sensitive scan finished, and three flags are cleared
+
+A broader history scan D had started before the rewrite completed afterwards. It covered classes the
+pre-push sweep had not individually tested, so D ran down every hit rather than letting the earlier
+confirmation rest on a narrower check.
+
+**Scope caveat first:** that scan used `git log --all … <branch>`, so `--all` made it search **every
+ref in the repository**, not only D's branch. Its counts are therefore repo-wide and do not by
+themselves say anything was on D's branches.
+
+| flag | count (repo-wide) | resolved |
+|---|---|---|
+| `sk_live_` / `sk_test_` + 20 or more chars | **0** | nothing to check |
+| `rk_live_` | 3 commits | **0 files at the tip of D's pushed branch.** Not published by D. |
+| `BEGIN … PRIVATE KEY` | 9 commits | 4 files at D's tip, all **test assertions that the code rejects a private key** (`expect(normalizeSpkiPublicKey('-----BEGIN PRIVATE KEY-----…'))`), and all four blobs **identical to the public gate**. Pre-existing, already published, and the right kind of code to find. |
+| `authenticator code` | 1 commit | UI copy on the admin login page — "Operators only. An authenticator code…". Interface text, not a code. |
+| `SUPABASE_SERVICE_ROLE` | 70 commits | the variable **name**; the targeted check for an assigned value found only the literal placeholder in `scripts/seed-demo.ts` (§5). |
+| `password` | 265 commits | the word, in prose and identifiers; no assigned value found by the targeted checks. |
+
+**Production identifiers that remain in D's records, for the owner's visibility:** 8 PaymentIntents,
+6 Vercel deployment ids, 5 Stripe event ids, the owner's email (already in every commit's author
+field) and one operator user id. The PaymentIntents and payment uuids are the same identifiers A's
+package already published. No customer names, emails, card data or exports.
+
+**The captures whitelist held:** no `env`, `secret`, `token`, `key` or `password` field survived into
+the committed Vercel JSON.
+
+**Conclusion unchanged, now on a complete basis rather than a sample:** nothing D pushed exposes a
+credential, token, ARN, production dump or private screenshot.
