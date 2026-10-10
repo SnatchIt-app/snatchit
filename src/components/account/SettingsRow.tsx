@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
@@ -50,8 +50,13 @@ export function SettingsRow({
   /*
    * S-1: the label IS the navigation. Clamped to one line it was cut to "Edit prof…",
    * "Notificat…", "Phone v…", "Payout s…" at the largest accessibility size — and two of those
-   * cannot be told apart, so the row stops saying where it goes. Above the shared threshold it
-   * takes the lines it needs and breaks on words; below it, nothing moves.
+   * cannot be told apart, so the row stops saying where it goes.
+   *
+   * Wrapping alone was not enough, and the frame said so: "Edit profile" broke on its space, but
+   * "Notifications" became "Notificatio / ns" and "Phone verification" ended "verificatio / n".
+   * A single word has nowhere to break. So above the threshold the label gets two lines AND
+   * shrinks to fit inside them — multi-word labels break on words, long single words get smaller
+   * instead of splitting. Below the threshold nothing moves.
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
@@ -73,7 +78,8 @@ export function SettingsRow({
         <View style={styles.textCol}>
           <Text
             style={[textStyle('title'), { color: titleColor }]}
-            numberOfLines={stacked ? undefined : 1}
+            numberOfLines={stacked ? 2 : 1}
+            {...(stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null)}
           >
             {label}
           </Text>

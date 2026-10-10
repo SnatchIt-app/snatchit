@@ -66,13 +66,18 @@ describe('S-1: a settings row label is navigation, so it must not be cut', () =>
     const label = textWith(els, 'Phone verification');
     expect(label, 'the label should render').toBeTruthy();
     expect(label!.props.numberOfLines).toBe(1);
+    expect(label!.props.adjustsFontSizeToFit, 'the default size must not shrink').toBeFalsy();
   });
 
   it('SR2: at A3XL the label may use the lines it needs', async () => {
     const els = await mountRow(3.1);
     const label = textWith(els, 'Phone verification');
     expect(label, 'the label should render').toBeTruthy();
-    expect(label!.props.numberOfLines, 'a cut label is a row you cannot identify').toBeUndefined();
+    // Two lines AND shrink-to-fit: wrapping alone left "Notificatio / ns" and "verificatio / n"
+    // in the frame, because a single word cannot break on a space.
+    expect(label!.props.numberOfLines, 'a cut label is a row you cannot identify').toBe(2);
+    expect(label!.props.adjustsFontSizeToFit).toBe(true);
+    expect(label!.props.minimumFontScale).toBeGreaterThan(0);
   });
 
   it('SR3: the chevron survives at both sizes — a row must still read as navigation', async () => {
