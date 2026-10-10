@@ -230,6 +230,17 @@
     border-left: 0;
     padding-left: 0;
   }
+  /* Phones: figures wrap into two columns; hairlines would land on the wrong cell. */
+  @media (max-width: 639px) {
+    .stat-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 1.25rem;
+    }
+    .stat-row > * {
+      border-left: 0;
+      padding: 0;
+    }
+  }
 
   .enter {
     animation: rise 360ms var(--ease) both;

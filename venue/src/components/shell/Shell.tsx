@@ -129,7 +129,7 @@ export function Shell({
             <div className="mx-auto flex min-h-16 w-full max-w-[1340px] items-center gap-2 px-4 md:px-8 lg:min-h-[4.5rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/sn-logo.svg" alt="Snatch It" width={40} height={14} className="h-auto w-10 lg:hidden" />
-              <nav aria-label="Breadcrumb" className="min-w-0 flex-1 pl-2 lg:pl-0">
+              <nav aria-label="Breadcrumb" className="hidden min-w-0 flex-1 pl-2 sm:block lg:pl-0">
                 <ol className="flex min-w-0 items-center gap-2 text-[0.875rem] text-muted">
                   {crumbs.map((c, n) => (
                     <li key={c} className={`flex min-w-0 items-center gap-2 ${n < crumbs.length - 1 ? "hidden sm:flex" : ""}`}>
@@ -141,6 +141,7 @@ export function Shell({
                   ))}
                 </ol>
               </nav>
+              <span className="flex-1 sm:hidden" />
               <details data-popover className="relative lg:hidden">
                 <summary aria-label="About this data" className="rounded-full">
                   <DataPill ctx={ctx} />

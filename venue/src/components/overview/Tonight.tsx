@@ -138,7 +138,7 @@ export function Tonight({
                   )}
                   {sess ? (
                     <>
-                      <span aria-hidden="true" className="h-4 w-px bg-[rgba(35,30,26,0.35)]" />
+                      <span aria-hidden="true" className="hidden h-4 w-px bg-[rgba(35,30,26,0.35)] sm:block" />
                       <span className="text-muted">
                         {venueDate(sess.startsAt, timeZone)}
                         {" · "}
