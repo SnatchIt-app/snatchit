@@ -70,6 +70,56 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### W batch complete: code `1ab2c8e2`, evidence `db58c433` (C, 2026-10-09; E verified; **device and Metro released by C**)
+- **Chain:** `58306942` (W-4, W-5) → `b64e5dd6` (P-5, W-2) → `c303eab6` → `1ab2c8e2` (Settings
+  header fix, in two steps). `db58c433` adds 15 frames in `native/1ab2c8e2/` with `capture-log.txt`,
+  and no code change.
+- **Code files since `834be7ab`:** `app/listing/edit/[id].tsx`, `app/settings/{index,appearance}.tsx`,
+  `src/components/account/SettingsHeader.tsx`, `src/components/listing/TransactionPanel.tsx`,
+  `src/lib/listing/ticketPlatforms.ts`, `src/lib/profile/reputation.ts`,
+  `src/screens/CreateListingScreen.tsx`, `src/screens/ListingDetailScreen.tsx`.
+- **Tests:** C reports 3007 passing, typecheck clean, 0 lint errors.
+- **Serving tree:** `db58c433`, clean apart from the documented `launch.json`. E verified: no
+  listener on `:8081`, no booted device.
+- **Uncommitted files in C's tree:** B's six `-Boperated` frames in `native/12cc3e8d/` (B has
+  committed copies at `19faf133` in `snatchit-audit`), and C's intermediate `native/b64e5dd6/` and
+  `native/c303eab6/`. **Nobody deletes another session's files on a relayed instruction.** B decides
+  about its own.
+- **The captures changed the code twice.**
+  1. W-4 put the shared `SettingsHeader` on the hub and Appearance. At a3xl the title clipped
+     ("SETTIN…", "APPEA…"). `privacy.tsx` showed it already clipped ("PRIVAC…"), so the clip belongs
+     to the shared header on all 11 screens, and W-4 extended it to two screens.
+  2. C's first fix wrapped the title, giving "SETTING / S". **Fix at `1ab2c8e2`:** the title keeps
+     one line and shrinks to the floor.
+  - E viewed `settings-hub-a3xl-light`: "SETTINGS" is whole.
+  - The fix is in the shared `SettingsHeader`, so it applies to all 11 settings screens.
+- **W-2 on the device:** "Service fee $9.50" with no rate, at default and a3xl.
+- **P-5 on the device:** "Trusted seller · 14 sales · 100% transfer success" beside the small badge
+  at a3xl. At default, the longer blurb fits its two-line, 150 pt column (trusted branch captured;
+  the other branches are arithmetically similar and **not shot**).
+- **W-5 on the device: BLOCKED.** Signed out, Edit renders "Sign in required" before any variant;
+  the frame is kept as `edit-picker-default-light-BLOCKED`. Repeat sign-in is waived, so **the
+  picker is untested visually**. W-5 rests on the test that parses migration 033 against the shared
+  constant (implementation evidence).
+- **Default-size frames** were taken at `b64e5dd6`. C reports a re-shoot at `1ab2c8e2` differs by 0
+  pixels below the header (B's technique).
+- **Contention diagnosis:** C accepts B's correction. With B off the device the size held for 160 s
+  across 8 samples. C's "~30 s reset" claim is removed from `tools/v3-capture/README.md`.
+
+**NEW DEFECT S-1, for C (E confirms from `settings-hub-a3xl-light`; B to review):**
+- Every `SettingsRow` label clips at a3xl: "Edit prof…", "Notificat…", "Phone v…", "Payout s…".
+  It is pre-existing, and affects the hub and all ten sub-screens.
+- These labels are the navigation, so a reader at a3xl cannot tell rows apart. **Defect, not an
+  owner choice.**
+- **Fix:** labels wrap on words, with the chevron kept, the same rule as the rest of the batch. Lists
+  a3xl Light and Dark, the hub plus one sub-screen.
+
+**B review owed at `1ab2c8e2`** (C-operated frames):
+- Settings hub and Appearance (default and a3xl, Light and Dark), including the shrink-to-floor title.
+- Listing breakdown (W-2).
+- Profile hero (P-5).
+- Then S-1, after C's fix.
+
 ### W batch, part 1: `58306942` (C, isolated worktree `v3/consumer-batch2`; not served; E verified the files)
 - **Base:** `834be7ab`. C reports typecheck clean, 3005 tests passing and 0 lint errors.
 - **Files:** `app/listing/edit/[id].tsx`, `app/settings/{index,appearance}.tsx`,
