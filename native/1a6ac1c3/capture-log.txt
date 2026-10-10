@@ -1,0 +1,29 @@
+C-operated captures at 1a6ac1c3 (v3/midnight-app) — S-1b, the per-label line budget
+====================================================================================
+Window declared to C in the code commit; B had released the device and Metro, and I held both
+from boot to shutdown. Metro through the repaired guard, cwd read from the kernel as
+/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund. Both frames banner-gated with the content
+size read on either side.
+
+settings-hub-a3xl-light-Coperated.png
+settings-hub-a3xl-dark-Coperated.png
+
+WHAT THEY SHOW
+--------------
+"Notifications" reads WHOLE on ONE line — it was "Notificatio / ns" at e6a38aef and
+"Notificat…" before the batch touched it. It is slightly smaller than its neighbours, which is
+the whole point of the chosen option: only a label that cannot break on a space pays anything.
+"Edit profile" and "Phone verification" keep their full size and break on their spaces. Every
+chevron is present.
+
+Default size settled by pixel diff rather than re-shot: default light at 1ab2c8e2 versus
+1a6ac1c3 differs by ZERO pixels below the header.
+
+THE THIRD ATTEMPT AT ONE DEFECT, AND WHY EACH WAS WRONG
+-------------------------------------------------------
+a98389fc  wrap             "Edit profile" fixed; "Notificatio / ns", "Phone verificatio / n"
+e6a38aef  wrap + shrink    multi-word fixed; the single word untouched, because shrink stops
+                           as soon as the text fits the lines allowed and the broken form did
+1a6ac1c3  budget per label one line for a label with no space (so it must shrink), two lines at
+                           full size for a label with one
+Each step was rejected by a frame, not by argument. The tests passed at every stage.
