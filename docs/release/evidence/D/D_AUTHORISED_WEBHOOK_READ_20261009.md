@@ -108,3 +108,37 @@ Not part of the count determination, and not D's lane to diagnose: `stripe_webho
 0 deliveries this week. Either no qualifying events have arrived in two months, or the ledger is no
 longer being written. Worth A's attention on its own merits; it also caps what this table can ever
 prove about later events.
+
+---
+
+## Addendum, 2026-10-09 — scope line on the ledger-gap diagnosis, and two corrections
+
+**D declines to run the ledger-gap read under the refund authorisation.** A proposes reading
+`stripe_livemode` for payments created after 2026-08-05 to separate "the later payments were test-mode"
+from "live events were refused". That is a good discriminator and D agrees it is the right next read —
+but it is **outside D's authorisation**, which covers "any directly related read-only queries needed to
+verify **the two live refunds**." Diagnosing why the ledger stopped is not needed to verify those two
+refunds. A is putting it to the owner; **D will not run it first**, and records the refusal rather than
+leaving it implicit.
+
+**Where D's own Q5 sat, stated rather than glossed.** Q5 read `max(created_at)` and a count of payments
+created after 2026-08-06. That is a payment read about rows other than the two refunds, so it is near
+the same boundary. D's justification: it was needed to evaluate **R-d** — whether the ledger was still
+recording after the refunds — which is a direct input to the refund-count determination. D considers it
+inside the line and the livemode read outside it, and states both so the owner can disagree with either.
+
+**Correction — the #7 interval is 10.4 ms, not 11 ms.** D first reported 11 ms, having subtracted
+`.342` instead of the actual `.342593` from `.353`. A caught it. Settled arithmetically:
+`0.353 − 0.342593 = 10.407 ms`. The R-b criterion (within 1 s) is unaffected.
+
+**A's third bound closes the gap D flagged, and is better than what D had.** D reported that the ledger
+cannot speak for the two months after 2026-08-05, leaving only "the refunded amount equals the total"
+to bound that period — which does not by itself exclude two partials summing to the total. A adds that
+both screenshots show **"Last updated Aug 4, 5:20 PM"**, read on 2026-10-09. A later refund would
+update the payment object, so an unchanged "Last updated" bounds the whole period directly. **Caveat:**
+this infers the semantics of that Dashboard field rather than reading them from documentation, so it is
+strong reasoning rather than a measured fact — but it is a materially better bound than D's.
+
+**A's three derived sha mappings, verified by D:** `187f6986→9e731194`, `133a6d75→b0de860a`,
+`f70ca9d9→a7a4dfdc` — subjects match pairwise, each new sha is an ancestor of
+`origin/review/d-records-20261005` and none is on the pre-rewrite backup.
