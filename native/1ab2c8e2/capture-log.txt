@@ -1,0 +1,52 @@
+C-operated captures at 1ab2c8e21eada2b279cfca943ddc0a86909c26e1 (v3/midnight-app)
+=================================================================================
+The W batch: W-2, W-3, W-4, W-5 and P-5, plus the header fix the captures themselves forced.
+
+Metro started in a terminal through the repaired guard, cwd read back from the kernel as
+/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund. Device SN V3 393x852, iOS 26.5. Every frame
+banner-gated, with the content size read immediately before and after. ONE OPERATOR: B released
+the device and Metro before this window and I held it throughout; the size was stable for 160 s
+across eight samples with B off it, which is what settled the earlier "simulator resets the
+size" theory as plain contention — B's diagnosis, not mine, and B was right.
+
+WHAT THE FRAMES SHOW
+--------------------
+settings-hub-a3xl-{light,dark}       W-4: "SETTINGS" whole, one line, shrunk to fit
+appearance-a3xl-{light,dark}         W-4: the same header on the screen the record's count missed
+settings-hub-default-{light,dark}    W-4 at default: uppercase title, plain back chevron, no chip
+appearance-default-{light,dark}      the same
+listing-breakdown-default-{light,dark}  W-2: "Service fee  $9.50" — the rate is gone, not the fee
+listing-breakdown-a3xl-light         W-2 at large text: label and amount stacked, both whole
+profile-hero-a3xl-dark               P-5: "Trusted seller · 14 sales · 100% transfer success"
+profile-hero-default-light           P-5 at default: the longer blurb still fits its two lines
+edit-picker-default-light-BLOCKED    NOT the picker — see below
+
+The default-size frames were taken at b64e5dd6, one commit before the header fix. They still
+describe 1ab2c8e2: a re-shoot of settings-hub-default-light after the fix differs from the
+b64e5dd6 frame by ZERO pixels below y=440, the whole-frame difference being the status-bar clock
+at y 70-107. The fix only touches the branch above the stacking threshold.
+
+THE CAPTURES CHANGED THE CODE TWICE. Worth reading as method rather than as narrative:
+ 1. W-4 adopted SettingsHeader, and at A3XL the hub read "SETTIN…" and Appearance "APPEA…".
+    privacy.tsx — which has used that header since long before this batch — read "PRIVAC…", so
+    the clip is the shared header's across all eleven screens; W-4 extended it to two that used
+    to wrap. Fixed in SettingsHeader (c303eab6).
+ 2. That first fix let the title WRAP, and the next frame read "SETTING / S" — one word split
+    across two lines, the very thing I had objected to for the profile blurb. A single word has
+    nowhere to break, so the title now keeps its line and shrinks to the amount floor (1ab2c8e2).
+    No test could have caught either: both versions set defensible props. Only the paint showed it.
+
+STILL CLIPPED, NOT FIXED HERE — for B and the owner
+---------------------------------------------------
+Every SettingsRow label clips at A3XL: "Edit prof…", "Notificat…", "Phone v…", "Payout s…". It
+is SettingsRow, it predates this batch, it affects the hub and all ten sub-screens, and it is the
+same class as everything the batch has fixed. Visible in settings-hub-a3xl-{light,dark}.
+
+BLOCKED, NOT SKIPPED
+--------------------
+The Edit platform picker (W-5) cannot be captured. Signed out, app/listing/edit/[id].tsx renders
+"Sign in required / You need to be signed in to edit a listing. / Back" before any variant is
+read, and the owner waived repeat sign-in. The frame above is that screen, kept as the evidence.
+W-5's parity is proven instead by a test that parses migration 033 and asserts the shared
+constant equals listings_ticket_platform_check exactly — which is a stronger claim than a
+screenshot of sixteen rows, because it is checked against the column the app writes to.
