@@ -85,6 +85,39 @@ acceptance.
 - **Branch note:** `7d957100` is a **merge**, not a fast-forward. The serving and batch branches
   diverged for the first time. C did not rebase, because `v3/consumer-batch2` is pushed.
 
+### W-2 correction implemented: code `6b6b8f48`, merged as `2ada44bd`, evidence `9bbeaec6` (C, 2026-10-09; E verified). **Device and Metro released**
+- **Change:** "Service fee (10%) $9.50" is restored on the Listing minimum-bid breakdown and on
+  `TransactionPanel`, captured at default **scrolled to the rows**.
+- **Built from the constant, not typed:** `RESALE_FEE_LABEL =
+  \`Service fee (${Math.round(BUYER_FEE_RATE * 100)}%)\``, at `detailState.ts:58`. That is the same
+  pattern as `PlaceBidScreen`'s "Fee (10%)". A test pins the rendered text.
+- **E accepts the departure from the literal:** the label can't drift from the rate that computes
+  the amount (`listingPriceLinesV3().fee → buyerFeeCents → round(cents × 0.10)`, per C's reading).
+- **Unchanged, as intended:** the bid confirmation and bid summary ("10%"); plain checkout and Apple
+  Pay; the W-2b sold note; the W-6 payout line.
+- **Trap, recorded:** C served with `git merge --ff-only … | tail -1 && … && expo start`. A pipeline
+  returns its last command's status, so the refused merge was hidden and Metro served the old code.
+  The first frame was discarded after reading HEAD.
+- **Branch note:** `2ada44bd` is a second merge commit (no rebase of a pushed branch), for the same
+  reason as `7d957100`.
+- **Tests (C's report):** typecheck clean, 3015 tests, 0 lint errors, two mutants on the derived
+  label.
+- **C's item `bidEntry.ts:133,143` is CLOSED:** it keeps "10%" under the W-2 correction.
+
+### B: consolidated review list. Serving tip `9bbeaec6`; code at `6b6b8f48` (all C-operated frames; the device is free)
+| Item | Frames (C's repo, `native/<sha>/`) | Status |
+|---|---|---|
+| W-4 Settings header (hub, Appearance) incl. shrink-to-floor title | `1ab2c8e2/` (default and a3xl, L/D) | B review owed |
+| S-1 / S-1b SettingsRow labels | `e6a38aef/`, `1a6ac1c3/` (a3xl, L/D) | B review owed |
+| P-5 tier word in blurb | `1ab2c8e2/profile-hero-*` | B review owed |
+| W-2 and its correction, fee labels (minimum-bid "(10%)", checkout plain) | `1ab2c8e2/listing-breakdown-*`, `6b6b8f48/` or `9bbeaec6` set | B review owed |
+| W-2b sold note | `24393d0b/` set (scrolled frame) | B review owed |
+| W-5 Edit platform picker | `edit-picker-…-BLOCKED` | **untested** (sign-in waived); parity is test-pinned |
+| W-6 payout line | `not_connected` frame only | **source-pinned, not visually verified** |
+
+**Default-size claims** for this batch rest on C's pixel diffs; B may re-run them with its own
+instrument. **Not whole-app acceptance.**
+
 ### W-6 implemented: code `64e2212f`, evidence `e1bbcd66` (C, 2026-10-09; E verified `payout-setup.tsx:162`). **IMPLEMENTED AND SOURCE-PINNED, NOT VISUALLY VERIFIED**
 - **Copy:** "…we send your payout (the sale price, less the seller fee and any refund) to your
   Stripe account." Device and Metro released by C.
