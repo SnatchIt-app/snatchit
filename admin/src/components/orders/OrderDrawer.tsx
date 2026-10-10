@@ -36,7 +36,7 @@ export function OrderDrawer({ id, closeHref, title, children }: { id: string; cl
     const back = () => {
       const target = Array.from(document.querySelectorAll<HTMLElement>(`[data-row-link="${CSS.escape(id)}"]`)).find((el) => el.offsetParent !== null);
       if (target && !document.getElementById("drawer-title")) target.focus();
-      else if (tries++ < 20) window.setTimeout(back, 50);
+      else if (tries++ < 80) window.setTimeout(back, 50);
     };
     window.setTimeout(back, 50);
   }
