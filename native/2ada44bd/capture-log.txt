@@ -1,0 +1,35 @@
+C-operated captures at 2ada44bd (v3/midnight-app) — the resale fee label, restored
+===================================================================================
+Window declared to C; device and Metro held from boot to shutdown, Metro through the repaired
+guard. Frames banner-gated, size read either side.
+
+listing-breakdown-default-light-Coperated.png
+  "IF YOU BID THE MINIMUM" / "Tickets $95.00" / "Service fee (10%)  $9.50"
+  Scrolled TO THE ROWS, because the last diff I offered for a fee label covered a region the
+  sentence was not in. A frame of the thing itself, not a diff of somewhere else.
+
+payout-setup-default-light-Coperated.png (carried from 64e2212f, unchanged by this commit)
+  The not_connected state. It still does NOT show W-6's sentence, which lives in the connected
+  branch behind a server probe with no fixture seam. Repeat sign-in is waived, so that copy
+  remains source-pinned and unseen on a device.
+
+WHY THE RATE IS BACK HERE AND STILL GONE AT CHECKOUT
+-----------------------------------------------------
+Checked in the code, not taken from the relay: this row's amount is
+listingPriceLinesV3().fee -> buyerFeeCents(cents) -> round(cents × BUYER_FEE_RATE), and
+BUYER_FEE_RATE is 0.10. The number is computed by the app, in this file, at exactly ten percent,
+so the label describes arithmetic that just happened. At CHECKOUT the amount comes from the
+order's own breakdown and the venue primary rail carries its own buyer_fee, so a rate there
+would be a promise the app cannot keep. Both labels are right for different reasons — which is
+why one rule could not cover both, and why W-2 was over-broad.
+
+The label is RESALE_FEE_LABEL, built from BUYER_FEE_RATE the way PlaceBidScreen already builds
+"Fee (10%)". Restoring a typed "(10%)" would have left two literals free to drift.
+
+A TOOLING TRAP THAT ALMOST PUT A WRONG FRAME IN THIS FOLDER
+------------------------------------------------------------
+I served with `git merge --ff-only … | tail -1 && … && exec npx expo start`. A pipeline exits
+with the status of its LAST command, so `tail` returned 0 when the merge had refused, the `&&`
+chain carried on, and Metro came up on the commit WITHOUT the restore. The first frame I took
+was of the old code and was discarded. What caught it was reading HEAD rather than the command's
+output. Never pipe a command whose exit status you are about to depend on.
