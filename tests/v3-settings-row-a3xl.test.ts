@@ -80,6 +80,28 @@ describe('S-1: a settings row label is navigation, so it must not be cut', () =>
     expect(label!.props.minimumFontScale).toBeGreaterThan(0);
   });
 
+  it('SR5: a label with NO space takes one shrinking line, because it cannot break', async () => {
+    /*
+     * S-1b. "Notifications" has nowhere to break, so two lines gave "Notificatio / ns" and
+     * shrink-to-fit never triggered — the broken form already fitted the lines it was allowed.
+     * One line forces the shrink, and only the labels that need it pay for it; the multi-word
+     * labels above keep their full size and break on a space.
+     */
+    const els = await mountRow(3.1, { label: 'Notifications' });
+    const label = textWith(els, 'Notifications');
+    expect(label, 'the label should render').toBeTruthy();
+    expect(label!.props.numberOfLines, 'one word gets one line').toBe(1);
+    expect(label!.props.adjustsFontSizeToFit).toBe(true);
+    expect(label!.props.minimumFontScale).toBeGreaterThan(0);
+  });
+
+  it('SR6: at the default size a single-word label is unchanged — one line, no shrinking', async () => {
+    const els = await mountRow(1, { label: 'Notifications' });
+    const label = textWith(els, 'Notifications');
+    expect(label!.props.numberOfLines).toBe(1);
+    expect(label!.props.adjustsFontSizeToFit).toBeFalsy();
+  });
+
   it('SR3: the chevron survives at both sizes — a row must still read as navigation', async () => {
     for (const scale of [1, 3.1]) {
       const els = await mountRow(scale);

@@ -54,12 +54,18 @@ export function SettingsRow({
    *
    * Wrapping alone was not enough, and the frame said so: "Edit profile" broke on its space, but
    * "Notifications" became "Notificatio / ns" and "Phone verification" ended "verificatio / n".
-   * A single word has nowhere to break. So above the threshold the label gets two lines AND
-   * shrinks to fit inside them — multi-word labels break on words, long single words get smaller
-   * instead of splitting. Below the threshold nothing moves.
+   * Two lines plus shrink-to-fit fixed the multi-word labels and NOT the single word, because
+   * shrink stops as soon as the text fits the lines it is allowed and "Notificatio / ns" already
+   * fitted two.
+   *
+   * So the line budget follows the label (S-1b): a label with no space in it gets ONE line and
+   * must therefore shrink to fit it, and a label with a space keeps two lines at full size and
+   * breaks on the space. Only the labels that cannot break pay anything, and only as much as
+   * they need. Below the threshold nothing moves.
    */
   const { fontScale } = useWindowDimensions();
   const stacked = identityStacks(fontScale);
+  const canBreak = /\s/.test(label);
   const titleColor = tone === 'destructive' ? palette.status.error : palette.text.primary;
 
   return (
@@ -78,7 +84,7 @@ export function SettingsRow({
         <View style={styles.textCol}>
           <Text
             style={[textStyle('title'), { color: titleColor }]}
-            numberOfLines={stacked ? 2 : 1}
+            numberOfLines={stacked && canBreak ? 2 : 1}
             {...(stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null)}
           >
             {label}
