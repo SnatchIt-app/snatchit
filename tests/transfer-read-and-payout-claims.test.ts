@@ -19,6 +19,7 @@
  * and D's safeguards.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import { transferReadOutcome } from '@/src/lib/transfer/transferState';
 import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
@@ -340,5 +341,30 @@ describe('the seller is told a payout moved only when the payout itself was reco
     await mount('receive');
     expect(h.selects.some((c) => c.includes('payout_released_at'))).toBe(true);
     expect(h.selects.some((c) => c.includes('listing:listings!listing_id('))).toBe(true);   // witness
+  });
+});
+
+describe('W-6: the payout screen promises no rate and no exact arithmetic', () => {
+  /*
+   * "(the sale price minus the 10% seller fee)" said two things the app cannot stand behind.
+   * A cannot confirm 10% is withheld on every row — a NULL seller_fee pays with no fee at all —
+   * and after a partial refund the payout is not "sale price minus fee" by any reading. Same
+   * rule as W-2 and W-2b on the buyer side: name the deduction, never the rate.
+   *
+   * Pinned from the SOURCE rather than from a render. The copy lives in the `connected` branch
+   * of the screen's status map, and that status comes from a server probe with no fixture seam,
+   * so it cannot be reached signed out — and repeat sign-in is waived. This is the strongest
+   * check available, and its weakness is stated rather than hidden.
+   */
+  const payoutSrc = readFileSync('app/settings/payout-setup.tsx', 'utf8');
+
+  it('P-COPY1: the connected description names the deduction without a rate', () => {
+    expect(payoutSrc).toContain('(the sale price, less the seller fee and any refund)');
+    expect(payoutSrc).not.toContain('minus the 10% seller fee');
+    expect(payoutSrc).not.toMatch(/10%\s*seller/);
+  });
+
+  it('P-COPY2: it still says a payout follows the RELEASE, not the sale', () => {
+    expect(payoutSrc).toContain('After an order is released');
   });
 });

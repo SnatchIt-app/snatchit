@@ -156,7 +156,10 @@ export default function PayoutSetupScreen() {
       title: 'Payouts connected',
       // A's ruling (2026-09-24): a payout follows the order's RELEASE, not the sale, and eligibility
       // applies — "deposit automatically when your listings sell" promised both away.
-      description: 'Your account is connected. After an order is released, we send your payout (the sale price minus the 10% seller fee) to your Stripe account.',
+      // W-6: and the amount names no rate. A cannot confirm 10% is withheld on every row — a NULL
+      // seller_fee pays with no fee — and after a partial refund the payout is not "sale price
+      // minus fee" under any reading. Same rule as the buyer side: name the deduction, not the rate.
+      description: 'Your account is connected. After an order is released, we send your payout (the sale price, less the seller fee and any refund) to your Stripe account.',
       tone: 'success', statusLabel: 'Connected', statusSub: 'Your banking details are securely managed by Stripe.', btnLabel: 'Manage payouts',
     },
   };
