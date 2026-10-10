@@ -70,6 +70,49 @@ acceptance.
   3. When C names that sha, one short a3xl profile pass covers P-3 only. P-1/P-2 evidence carries if
      the P-3 diff stays within the blurb element.
 
+### W-2b on the device (`24393d0b`, merged to the serving branch as `7d957100`, evidence `4c8efc9c`; C; E verified)
+- **Change:** `TransactionPanel.tsx:80` now reads "Price includes the service fee." beside an
+  unchanged "SOLD FOR $132.00 total". Device and Metro released by C.
+- **C's own correction, recorded:** the default pixel diff E asked for covered the wrong region. The
+  fee sentence is below the fold, so the diff only shows that nothing else moved. **The scrolled
+  frame is the proof, not the diff.**
+- **C's corrected count** of user-facing 10% claims (C's earlier count came from a grep truncated with
+  `head`):
+  - W-2 fixed `ListingDetailScreen.tsx` and `TransactionPanel.tsx:136`.
+  - W-2b fixed `TransactionPanel.tsx:80`.
+  - **Not changed:** `bidEntry.ts:133,143`, the bid confirmation ("…includes the 10% service fee").
+  - Legal and payout copy are routed elsewhere.
+- **Branch note:** `7d957100` is a **merge**, not a fast-forward. The serving and batch branches
+  diverged for the first time. C did not rebase, because `v3/consumer-batch2` is pushed.
+
+### CORRECTION by E: W-2 was over-broad. Rescoped under owner delegation (2026-10-09)
+**E missed an owner ruling.**
+- `PlaceBidScreen.tsx:424` renders the bid summary as `Fee (${BUYER_FEE_RATE×100}%)`, i.e.
+  **"Fee (10%)"**. That is the **owner's own ruling** in the original brief: "Bid summary is Bid /
+  Fee (10%) / Total above a plain Place bid".
+- C's grep didn't catch it, because the rate is computed in a template, not written as "10%".
+- E's W-2 rule ("no rate anywhere") removed "(10%)" from the Listing **minimum-bid breakdown**
+  (`ListingDetailScreen.tsx:1255`, `TransactionPanel.tsx:136`). That breakdown is part of the same
+  bid family as the owner's bid summary. **A delegated wording choice cannot override an explicit
+  owner ruling.**
+
+**Rescoped rule:**
+- **Option A, chosen:** state the rate on **resale bid surfaces whose figure is the client's 10%
+  calculation.**
+  - The bid summary keeps "Fee (10%)", per the owner's ruling.
+  - The bid confirmation, `bidEntry.ts:133,143`, stays unchanged.
+  - The Listing minimum-bid breakdown is **restored** to "Service fee (10%)".
+  - **Plain "Service fee" where the figure comes from the server and could be either rail**: the
+    in-app checkout and the Apple Pay sheet.
+  - The **sold note** stays plain (W-2b). It describes a completed charge, and no rate is needed.
+- **Option B, rejected:** no rate anywhere. It would override the owner's explicit bid-summary
+  ruling.
+- **Why A is accurate:** A confirmed that resale is unconditionally `round(10% × base)`, and bid
+  surfaces are resale-only. The checkout is the only in-app fee surface that can carry a
+  primary-rail fee.
+- **C implements:** restore "(10%)" at `ListingDetailScreen.tsx:1255` and `TransactionPanel.tsx:136`
+  only. Copy only, no amount change.
+
 ### S-1b implemented: code `1a6ac1c3`, evidence `e1ed4226` (C, 2026-10-09; E verified; **device and Metro released by C**)
 - **Change:** `SettingsRow.tsx` only. A label with no whitespace gets one line and shrink-to-fit; a
   label with whitespace keeps two lines at full size. Below the threshold neither changes (SR1, SR6).
