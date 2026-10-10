@@ -58,16 +58,7 @@ import { ListingHero } from '@/src/components/listing/ListingHero';
 import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
 import { OutbidToast } from '@/src/components/listing/OutbidToast';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import {
-  offersBid,
-  BID_COMMITMENT_COPY,
-  LISTING_READ_FAILED_COPY,
-  detailState,
-  listingAllInV3,
-  listingPriceLinesV3,
-  reserveBusy,
-  type ActionKind,
-} from '@/src/lib/listing/detailState';
+import { BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, RESALE_FEE_LABEL, detailState, listingAllInV3, listingPriceLinesV3, offersBid, reserveBusy, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
@@ -1252,7 +1243,7 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     ...(showBreakdown
       ? [
           { label: 'Tickets', value: minBidBase, money: true },
-          { label: 'Service fee', value: minBidFee, money: true },
+          { label: RESALE_FEE_LABEL, value: minBidFee, money: true },
         ]
       : []),
     { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },

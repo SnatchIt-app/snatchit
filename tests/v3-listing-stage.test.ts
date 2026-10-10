@@ -41,7 +41,7 @@ const ins = vi.hoisted(() => ({ top: 0 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useTopInset: () => ins.top }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 
-import { BID_COMMITMENT_COPY } from '@/src/lib/listing/detailState';
+import { BID_COMMITMENT_COPY, RESALE_FEE_LABEL } from '@/src/lib/listing/detailState';
 import { findElement, HookHost } from './helpers/nav-stack-harness';
 
 const byText = (host: HookHost, text: string) =>
@@ -131,11 +131,18 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(byText(host, 'Tickets')).toBeDefined();
     expect(byText(host, 'Tickets (2 × GA)')).toBeUndefined();
     expect(byText(host, '$95.00')).toBeDefined();
-    // W-2: the rate left the label. A confirmed the buyer fee is NOT 10% on every payment type —
-    // the venue primary rail uses the order's own buyer_fee_minor — so the label states the fee
-    // and the number states the amount. No amount changed with it.
-    expect(byText(host, 'Service fee')).toBeDefined();
-    expect(byText(host, 'Service fee (10%)')).toBeUndefined();
+    /*
+     * W-2 was over-broad and this row was corrected back (E, under owner delegation): the RESALE
+     * bid family states the rate, because the number beside it is computed right here by
+     * buyerFeeCents at exactly BUYER_FEE_RATE — the label describes the app's own arithmetic, not
+     * a promise about a server. The CHECKOUT keeps a plain "Service fee", where the amount comes
+     * from the order's breakdown and the venue rail carries its own fee.
+     *
+     * Asserted against the DERIVED constant, not a typed "(10%)": a rate change must move the
+     * label and the number together or fail here.
+     */
+    expect(byText(host, RESALE_FEE_LABEL)).toBeDefined();
+    expect(RESALE_FEE_LABEL).toBe('Service fee (10%)');
     expect(byText(host, '$9.50')).toBeDefined();
     // R-2 (B): no total row — the CTA sub-label states the minimum all-in; the figure must not
     // appear in the panel at all.
@@ -161,7 +168,7 @@ describe('TransactionPanel — the §5 panel', () => {
     // a would-be total on a closed auction is an offer that no longer exists.
     const closedWithValues = await mountPanel({ mode: 'closed', clock: null });
     expect(byText(closedWithValues, 'If you bid the minimum')).toBeUndefined();
-    expect(byText(closedWithValues, 'Service fee')).toBeUndefined();
+    expect(byText(closedWithValues, RESALE_FEE_LABEL)).toBeUndefined();
   });
 
   it('LP5: sold shows what it went for, no bid arithmetic — and keeps its one fee sentence', async () => {
