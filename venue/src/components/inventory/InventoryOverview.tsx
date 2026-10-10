@@ -24,8 +24,13 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
   const warnings = inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now });
   const hb = session ? doorHoldback(batches, session.sessionId) : { door: 0, total: 0 };
 
-  if (types.length === 0) return <EmptyState title="No ticket types yet" />;
-  if (batches.length === 0) return <EmptyState title="No releases yet — add one so this type can sell." />;
+  if (types.length === 0 || batches.length === 0)
+    return (
+      <div>
+        <EventHeader eventTitle={event.title} title="Tickets" />
+        <EmptyState title={types.length === 0 ? "No ticket types yet" : "No releases yet — add one so this type can sell."} />
+      </div>
+    );
 
   return (
     <div className="space-y-6 [&>header]:mb-2">

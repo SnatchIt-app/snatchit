@@ -50,7 +50,7 @@ export default async function InventoryPage({ params, searchParams }: { params: 
   }
 
   return (
-    <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="inventory" signedInAs={p.signedInAs}>
+    <Shell ctx={ctx} event={event ? { eventId: event.eventId, title: event.title } : null} active="inventory" signedInAs={p.signedInAs} title={event && readable && ctx.state !== "loading" && !failedRead && loaded ? undefined : "Tickets"}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
       {!entryOpen ? (
         <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(withPreview(self, ctx))}`} retryHref={withPreview(self, ctx)} />

@@ -20,7 +20,7 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
   if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   if (p.ctx.source === "database") {
     return (
-      <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs}>
+      <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs} title="Check-in">
         {p.entry.kind === "ok" ? <NotWiredState surface="Door status" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
@@ -51,7 +51,7 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
   }
 
   return (
-    <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="door">
+    <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="door" title={readable && ctx.state !== "loading" && !failedRead && loaded ? undefined : "Check-in"}>
       <PreviewOutcome did={p.first("did")} />
       {!readable ? (
         <DeniedState surface="The door screen" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={{ label: "Go to this event", href: withPreview(`${basePath}/events/${event.eventId}`, ctx) }} />

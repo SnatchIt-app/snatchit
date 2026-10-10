@@ -18,7 +18,7 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
   if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
   if (p.ctx.source === "database") {
     return (
-      <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs}>
+      <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="attendees" signedInAs={p.signedInAs} title="Guest list">
         {p.entry.kind === "ok" ? <NotWiredState surface="Attendees" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(p.scope.basePath)}`} retryHref={p.scope.basePath} />}
       </Shell>
     );
@@ -48,7 +48,7 @@ export default async function AttendeesPage({ params, searchParams }: { params: 
   }
 
   return (
-    <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="attendees">
+    <Shell ctx={ctx} event={{ eventId: event.eventId, title: event.title }} active="attendees" title={ctx.state !== "denied" && ctx.state !== "loading" && hasRoster && !failedRead && !!loaded ? undefined : "Guest list"}>
       <PreviewOutcome did={p.first("did")} />
       {ctx.state === "denied" ? (
         <DeniedState surface="The attendee list" roleLabel={PRINCIPAL_LABEL[ctx.role]} alternative={alt} />
