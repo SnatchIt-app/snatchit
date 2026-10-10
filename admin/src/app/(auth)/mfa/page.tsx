@@ -13,13 +13,13 @@ export default async function MfaPage({ searchParams }: { searchParams: Promise<
   const next = safeInternalPath(first(sp.next) ?? null, "/");
   return (
     <>
-      <h1 className="title-display text-[1.875rem]">Two-factor authentication</h1>
-      <p className="mt-1 text-[0.8125rem] text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
-      <div className="mt-5">
+      <h1 className="title-page md:text-[2.25rem]">Two-factor authentication</h1>
+      <p className="mt-2 text-[0.9375rem] leading-relaxed text-muted">Every console session must be verified with an authenticator app (TOTP).</p>
+      <div className="mt-6">
         <MfaFlow next={next} />
       </div>
-      <form action={signOutAction} className="mt-6 border-t border-line-neutral pt-4 text-right">
-        <button type="submit" className="link text-[0.75rem]">
+      <form action={signOutAction} className="mt-6 border-t border-line pt-4 text-right">
+        <button type="submit" className="link text-[0.8125rem]">
           Sign out
         </button>
       </form>

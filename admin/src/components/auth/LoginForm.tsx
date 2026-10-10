@@ -22,7 +22,7 @@ export function LoginForm({ next }: { next: string }) {
         </label>
         <input id="password" name="password" type="password" autoComplete="current-password" required className="field mt-1" />
       </div>
-      <button type="submit" disabled={isPending} className="btn btn-primary w-full">
+      <button type="submit" disabled={isPending} className="btn btn-primary btn-lg w-full">
         {isPending ? "Signing in…" : "Continue"}
       </button>
     </form>

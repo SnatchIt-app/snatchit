@@ -3,8 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
-import { newIdempotencyKey } from "@/lib/idempotency";
-import { CASE_PRIORITIES, CASE_STATUSES, toCaseDetail } from "@/lib/types";
+import { toCaseDetail } from "@/lib/types";
 import { humanize } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
@@ -12,7 +11,8 @@ import { KeyValue } from "@/components/ui/KeyValue";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import { ConfirmForm } from "@/components/ui/ConfirmForm";
+import { Icon } from "@/components/ui/Icon";
+import { CaseControls, CaseFacts, CaseNotes, caseEnvelope } from "@/components/cases/CaseWork";
 import { GenericTable, hrefFor, renderValue } from "@/components/generic/GenericRpc";
 
 export const metadata: Metadata = { title: "Case" };
@@ -47,8 +47,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const path = `/cases/${id}`;
   // Every mutation carries the version we rendered, so a concurrent edit is
   // rejected server-side as stale_state instead of silently overwriting.
-  const expected = c.version !== undefined ? { version: c.version } : {};
-  const envelope = { subjectKind: "case", subjectId: id, expected, revalidate: path };
+  const envelope = caseEnvelope(c, id, path);
   const subjectHref = hrefFor(c.subject_kind, c.subject_id);
   const closed = c.status === "resolved" || c.status === "dismissed";
 
@@ -60,7 +59,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             <Link href="/cases" className="hover:text-ink">
               Cases
             </Link>{" "}
-            / {c.case_type ?? "case"}
+            / {humanize(c.case_type ?? "case")}
           </>
         }
         title={c.title ?? humanize(c.case_type ?? "Case")}
@@ -87,67 +86,61 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Panel eyebrow="Case" title="Details">
-            <KeyValue
-              columns={3}
-              items={[
-                { key: "id", value: <code className="font-mono text-[0.75rem]">{c.id}</code> },
-                { key: "detector", value: c.detector },
-                { key: "dedupe_key", value: c.dedupe_key ? <code className="font-mono text-[0.75rem]">{c.dedupe_key}</code> : null },
-                { key: "assignee", value: c.assignee ? (c.assignee === me.id ? "me" : c.assignee_label ?? c.assignee_email_masked ?? c.assignee) : "unassigned" },
-                { key: "due_at", value: <DateTime value={c.due_at} /> },
-                { key: "last_seen_at", value: <DateTime value={c.last_seen_at} /> },
-                { key: "resolved_at", value: <DateTime value={c.resolved_at} /> },
-                { key: "resolved_by", value: c.resolved_by },
-                { key: "resolution_note", value: c.resolution_note },
-              ]}
-            />
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 space-y-6">
+          <Panel title="The case">
+            <CaseFacts c={c} meId={me.id} />
+            <details className="group mt-3">
+              <summary className="inline-flex min-h-9 items-center gap-1.5 rounded-lg text-[0.8125rem] text-muted hover:text-ink">
+                For support
+                <Icon name="down" size={14} className="transition-transform group-open:rotate-180" />
+              </summary>
+              <dl className="mt-2 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-2xl bg-[rgba(255,255,255,0.6)] p-4 text-[0.75rem]">
+                <dt className="text-muted">Case id</dt>
+                <dd className="select-all break-all font-mono">{c.id}</dd>
+                <dt className="text-muted">Raised by</dt>
+                <dd className="break-all font-mono">{c.detector ?? "—"}</dd>
+                <dt className="text-muted">Duplicate key</dt>
+                <dd className="break-all font-mono">{c.dedupe_key ?? "—"}</dd>
+                <dt className="text-muted">Resolved by</dt>
+                <dd className="break-all font-mono">{c.resolved_by ?? "—"}</dd>
+              </dl>
+            </details>
           </Panel>
 
           {detail.subject ? (
-            <Panel eyebrow="Subject" title={humanize(c.subject_kind ?? "subject")}>
+            <Panel eyebrow="What this case is about" title={humanize(c.subject_kind ?? "subject")}>
               <KeyValue columns={3} items={Object.entries(detail.subject).map(([k, v]) => ({ key: k, value: renderValue(k, v, 1) }))} />
             </Panel>
           ) : null}
 
-          <Panel eyebrow={`${detail.notes.length}`} title="Notes">
-            {detail.notes.length === 0 ? (
-              <p className="text-dim">No notes yet.</p>
-            ) : (
-              <ol className="space-y-3">
-                {detail.notes.map((n, i) => (
-                  <li key={n.id ?? i} className="border-l-2 border-line-strong pl-3">
-                    <p className="whitespace-pre-wrap text-[0.8125rem] text-ink">{n.body ?? "—"}</p>
-                    <p className="mt-1 text-[0.6875rem] text-dim">
-                      {n.author_email_masked ?? (n.author === me.id ? "me" : n.author?.slice(0, 8)) ?? "—"} · <DateTime value={n.created_at} />
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
-            <div className="mt-4 border-t border-line-neutral pt-4">
-              <ConfirmForm key={`note-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_note" {...envelope} label="Add note" reasonRequired={false}>
-                <label htmlFor="note-body" className="eyebrow block text-dim">
-                  New note
-                </label>
-                <textarea id="note-body" name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Append-only; visible to all operators." />
-              </ConfirmForm>
-            </div>
+          <Panel title="Notes" description={`${detail.notes.length} ${detail.notes.length === 1 ? "note" : "notes"} · append-only`}>
+            <CaseNotes c={c} detail={detail} meId={me.id} envelope={envelope} idPrefix="page" />
           </Panel>
 
-          <Panel eyebrow={`${detail.events.length}`} title="Timeline">
+          <Panel title="Timeline">
             {detail.events.length === 0 ? (
-              <p className="text-dim">No events.</p>
+              <p className="text-[0.875rem] text-muted">No events.</p>
             ) : (
-              <ol className="space-y-2">
+              <ol className="flex flex-col">
                 {detail.events.map((e, i) => (
-                  <li key={e.id ?? i} className="flex flex-wrap items-baseline gap-2 border-b border-line-neutral pb-2 text-[0.8125rem]">
-                    <DateTime value={e.at} />
-                    <StatusBadge status={e.kind} variant="neutral" />
-                    <span className="text-ink">{e.label ?? humanize(e.kind ?? "event")}</span>
-                    {e.actor ? <span className="text-dim">by {e.actor === me.id ? "me" : e.actor}</span> : null}
+                  <li key={e.id ?? i} className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3">
+                    <span className="flex flex-col items-center">
+                      <span aria-hidden="true" className="mt-1.5 h-2 w-2 rounded-full bg-[#b9aa9b]" />
+                      {i < detail.events.length - 1 ? <span aria-hidden="true" className="w-px flex-1 bg-[rgba(70,50,30,0.14)]" /> : null}
+                    </span>
+                    <div className="pb-4 text-[0.875rem]">
+                      <p className="font-medium">{e.label ?? humanize(e.kind ?? "event")}</p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[0.8125rem] text-muted">
+                        <DateTime value={e.at} />
+                        {e.actor ? <span>by {e.actor === me.id ? "me" : e.actor}</span> : null}
+                        {e.kind ? (
+                          <span className="font-mono text-[0.75rem]" title="Event kind">
+                            {e.kind}
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -155,72 +148,16 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           </Panel>
 
           {detail.actions.length ? (
-            <Panel eyebrow={`${detail.actions.length}`} title="Actions on this case">
+            <Panel title="Actions on this case" description={`${detail.actions.length} recorded`} flush>
               <GenericTable rows={detail.actions} basePath={path} />
             </Panel>
           ) : null}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 lg:sticky lg:top-24">
           {closed ? <Alert state="info" title={`This case is ${c.status}.`} compact /> : null}
-
-          <Panel eyebrow="Ownership" title="Assign">
-            <ConfirmForm key={`assign-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_assign" {...envelope} label="Assign">
-              <label htmlFor="assignee" className="eyebrow block text-dim">
-                Assignee
-              </label>
-              <select id="assignee" name="param.assignee" defaultValue={c.assignee ?? ""} className="field mt-1">
-                <option value="">Unassigned</option>
-                <option value={me.id}>Me ({me.whoami.email_masked ?? me.email ?? me.id.slice(0, 8)})</option>
-                {detail.operators
-                  .filter((o) => o.user_id && o.user_id !== me.id)
-                  .map((o) => (
-                    <option key={o.user_id} value={o.user_id}>
-                      {o.display ?? o.email_masked ?? o.user_id} {o.role ? `· ${o.role.replace("platform_", "")}` : ""}
-                    </option>
-                  ))}
-              </select>
-            </ConfirmForm>
-          </Panel>
-
-          <Panel eyebrow="State" title="Status">
-            <ConfirmForm key={`status-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_status" {...envelope} label="Set status">
-              <label htmlFor="status" className="eyebrow block text-dim">
-                Status
-              </label>
-              <select id="status" name="param.status" defaultValue={c.status ?? "open"} className="field mt-1">
-                {CASE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
-            </ConfirmForm>
-          </Panel>
-
-          <Panel eyebrow="Triage" title="Priority">
-            <ConfirmForm key={`priority-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_priority" {...envelope} label="Set priority">
-              <label htmlFor="priority" className="eyebrow block text-dim">
-                Priority
-              </label>
-              <select id="priority" name="param.priority" defaultValue={c.priority ?? "p3"} className="field mt-1">
-                {CASE_PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </ConfirmForm>
-          </Panel>
-
-          <Panel eyebrow="SLA" title="Due">
-            <ConfirmForm key={`due-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_due" {...envelope} label="Set due">
-              <label htmlFor="due" className="eyebrow block text-dim">
-                Due (your local time; stored as UTC)
-              </label>
-              <input id="due" type="datetime-local" name="param.due_at" defaultValue={c.due_at ? c.due_at.slice(0, 16) : ""} className="field mt-1" />
-              <p className="mt-1 text-[0.6875rem] text-dim">Leave empty to clear the due date.</p>
-            </ConfirmForm>
+          <Panel title="Work this case" description="Each change needs a reason and is written to the audit log.">
+            <CaseControls c={c} detail={detail} me={{ id: me.id, label: me.whoami.email_masked ?? me.email ?? me.id.slice(0, 8) }} envelope={envelope} idPrefix="page" />
           </Panel>
         </div>
       </div>

@@ -116,14 +116,14 @@ export function MfaFlow({ next }: { next: string }) {
           <Alert state="info" title="First sign-in: enrol an authenticator." compact>
             Scan the QR code with your authenticator app, or enter the secret manually, then type the code it shows.
           </Alert>
-          <div className="flex flex-col items-center gap-3 border border-line-neutral bg-white p-3">
+          <div className="flex flex-col items-center gap-3 rounded-[20px] bg-white p-4 ring-1 ring-[rgba(70,50,30,0.1)]">
             {/* qr_code is an SVG data URL from Supabase; a plain img is the correct element. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={phase.qr} alt="TOTP enrolment QR code" width={180} height={180} />
           </div>
           <details className="text-[0.75rem] text-muted">
-            <summary className="cursor-pointer">Can&apos;t scan? Show the secret</summary>
-            <code className="mt-2 block break-all border border-line-neutral bg-raised p-2 font-mono text-[0.75rem] text-ink">{phase.secret}</code>
+            <summary className="inline-flex min-h-9 cursor-pointer items-center rounded-lg hover:text-ink">Can&apos;t scan? Show the secret</summary>
+            <code className="mt-2 block break-all rounded-[12px] bg-[rgba(255,255,255,0.7)] p-2.5 font-mono ring-1 ring-[rgba(70,50,30,0.1)] text-[0.75rem] text-ink">{phase.secret}</code>
             <p className="mt-1 break-all font-mono text-[0.6875rem] text-dim">{phase.uri}</p>
           </details>
         </div>
@@ -144,11 +144,11 @@ export function MfaFlow({ next }: { next: string }) {
           autoFocus
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="field mt-1 font-mono text-lg tracking-[0.4em]"
+          className="field mt-1.5 text-center font-mono text-[1.375rem] tracking-[0.45em]"
         />
       </div>
       {error ? <Alert state="failed" title={error} compact /> : null}
-      <button type="submit" disabled={busy} className="btn btn-primary w-full">
+      <button type="submit" disabled={busy} className="btn btn-primary btn-lg w-full">
         {busy ? "Verifying…" : phase.kind === "enroll" ? "Enrol and verify" : "Verify"}
       </button>
     </form>
