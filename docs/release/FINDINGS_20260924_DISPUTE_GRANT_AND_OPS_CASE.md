@@ -433,3 +433,50 @@ the whole sale price, with no fee withheld, instead of being refused.
   migration, numbered by A, owner-gated.
 - **Consequence for copy:** E's W-6 drops the rate from the payout-setup copy ("the sale price, less the seller fee
   and any refund").
+
+### F-WEBHOOK-LEDGER-GAP-1: EXPLAINED (2026-10-10). No qualifying live activity; no rejection evidenced
+
+These were owner-authorised read-only reads: Stripe live API (`acct_1T6FarGdOzCmGbHw`), the production database, and
+Supabase function logs. D blind-checked the Stripe and database facts (`78d9572a`).
+
+**What each source shows:**
+- **Last recorded event.** The ledger's final row, a `transfer.created` at 2026-08-05 23:39:41.913Z, is the last live
+  payout: transfer `d6f3e170`, `payout_released_at` 23:39:41.699Z, Stripe `tr_3U1EKk…` created 1785973181 (= 23:39:41Z).
+  The ledger was recording correctly at the last live event.
+- **Stripe, complete object lists for the live account.**
+  - Refunds: 2 ever, the two O-R4 refunds of 2026-08-04.
+  - Transfers: 2 ever, the later being `tr_3U1EKk…`.
+  - Disputes: 0 ever. Payouts: 0 ever.
+  - PaymentIntents created at or after the gap: exactly 2, `pi_3U1Pqt…` (2026-08-06) and `pi_3UBboO…` (2026-09-03).
+    Both are `requires_payment_method`, with `amount_received 0`, no charge, no `last_payment_error` and no payment
+    method: never attempted.
+  - So since the gap there has been no refund, transfer, dispute or payout, and no succeeded or failed payment.
+- **Stripe events.** `/v1/events` returns **0** live events. That covers its 30-day retention, roughly 2026-09-10
+  onward.
+- **Stripe endpoint.** There is one live endpoint, `we_1TCqy5…`. It is `enabled`, has the 13 events, and its URL is
+  `https://hqycwntpfoztoinemqns.supabase.co/functions/v1/stripe-webhook`.
+- **Database.** The same two post-gap payments, both live and `pending`, with no transfer.
+- **Application logs.** Supabase's `logs` endpoint, using `logs.all`'s replacement; the old endpoint now returns a
+  removal message that A's first parser misread as zero rows, caught by the controls. Retention covers 2026-10-03
+  onward. In that window `stripe-webhook` was invoked once: A's unsigned probe, POST 400 at 2026-10-08 02:39:36.701Z.
+  That one invocation is the positive control.
+
+**Conclusion.** The ledger stopped because nothing in the subscribed set has happened on the live account since
+2026-08-05 23:39:41Z. That covers the payment, refund, dispute, transfer and payout types, which together account for
+11 of the 13 subscribed events.
+
+**Not covered.** `account.updated` for the platform's own account between 2026-08-06 and about 2026-09-10 cannot be
+enumerated, because Stripe events are older than 30 days and app logs older than 7. Nothing indicates one occurred,
+and it would change no payment state.
+
+**Status:** explained, no action. A live event handled after a correctly signed delivery has still not been observed
+since 2026-08-05. The first real live payment is the natural witness.
+
+### F-PAYOUT-FEE-FAILOPEN-1: data check (2026-10-10). Zero affected rows
+
+- Live succeeded resale payments: 2. Unpaid among them (a transfer with no payout and not expired or reversed): **0**.
+- With `seller_fee` NULL or not round(amount × 0.10): **0**, both among unpaid rows and across all live succeeded
+  resale payments.
+- The filter matched 2 rows, so the zero is not an empty filter.
+- D's own control: 8 of 8 live payments carry a fee.
+- The fail-open coalesce remains a hardening item; there is no data exposure today.

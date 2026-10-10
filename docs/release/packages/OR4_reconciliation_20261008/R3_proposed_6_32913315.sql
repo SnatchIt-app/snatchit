@@ -18,12 +18,12 @@ declare
   c_pi          constant text        := 'pi_3U0XuwGdOzCmGbHw0WVJfW3y';
   c_total       constant integer     := 1100;
   c_refunded_at constant timestamptz := '2026-08-04 17:20:05+00';  -- R0, UTC, to the second
-  c_refund_id   constant text        := '__R1_REFUND_ID__';    -- R1: the refund object's id (re_...), never the ARN
-  c_status      constant text        := '__R1_REFUND_STATUS__';       -- R1: the REFUND object's status, never the payment badge
+  c_refund_id   constant text        := 're_3U0XuwGdOzCmGbHw0bL9UYzT';    -- R1: the refund object's id (re_...), never the ARN
+  c_status      constant text        := 'succeeded';       -- R1: the REFUND object's status, never the payment badge
   c_amount      constant integer     := 1100;   -- R1: that refund object's amount
-  c_source      constant text        := '__OWNER_SOURCE__';       -- the owner's recorded decision for this row
-  c_refund_count constant text       := '__R1_REFUND_COUNT__'; -- R1: how many refunds the payment lists; must be 1
-  c_evidence    constant text        := '__R1_EVIDENCE__';     -- where status, id and count were read (under the sha256)
+  c_source      constant text        := 'dashboard';       -- the owner's recorded decision for this row
+  c_refund_count constant text       := '1'; -- R1: how many refunds the payment lists; must be 1
+  c_evidence    constant text        := 'Stripe live API read 2026-10-10 acct_1T6FarGdOzCmGbHw by A: refund list for the PI count 1 has_more false, status succeeded, 1100 usd, created 2026-08-04T17:20:02Z, metadata empty so source dashboard per stripe-webhook refundSource, D blind check 78d9572a';     -- where status, id and count were read (under the sha256)
   v_pay   public.payments%rowtype;
   v_tr0   jsonb;
   v_tr1   jsonb;

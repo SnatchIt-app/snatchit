@@ -2369,3 +2369,21 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - One read-only query on payments created after that point tells them apart; it needs the owner's authorisation.
   - Per D: the bounds are reordered ("Last updated" first, with its caveat that it infers the field's meaning). #7's gap is exactly 10.407 ms. D's Q5 is recorded as judged inside its authorisation and the livemode read as declined, both open to the owner's ruling.
 - **F-PAYOUT-FEE-FAILOPEN-1 registered (A, 2026-10-09):** `claim_payout_attempt` coalesces a NULL `seller_fee` to 0. No current writer produces NULL; the data check needs an owner-authorised read, which E has raised. Two owner-authorised reads are now pending, both read-only: this one, and F-WEBHOOK-LEDGER-GAP-1's livemode query.
+- **Owner-authorised investigation reads (A led, D blind-checked; 2026-10-10). Reads only: no refunds, payouts,
+  production corrections, settings changes or deployments.**
+  - **O-R4 evidence complete** (Stripe live, `acct_1T6FarGdOzCmGbHw`).
+    - #6 `re_3U0XuwGdOzCmGbHw0bL9UYzT` and #7 `re_3U0YzcGdOzCmGbHw0Av5k7ZH`: both `succeeded`, 1100 and 220 usd, created
+      17:20:02Z and 17:20:18Z, count 1 each (conclusive), no failure reason, metadata `{}`.
+    - Source `dashboard`, from the handler's `refundSource` rule and the code history (all 7 expiry-path versions set
+      `metadata[source]`).
+    - The prestate re-read equals R0.
+    - Both payments were made by the owner (`buyer_id 2b117757…`).
+  - **R3 filled in one step:** #6 `d7f31cf1…`, #7 `dca8cb00…`, each 5 lines from the frozen versions. The exact files
+    were rehearsed ALL PASS on a fresh clone. Sent to D for review; the owner's hash approval comes after.
+  - **F-WEBHOOK-LEDGER-GAP-1 explained.** The last ledger row is the last live payout's `transfer.created`. Since the
+    gap: 2 never-attempted PaymentIntents, no refunds, transfers, disputes or payouts; 0 Stripe events in 30 days; one
+    enabled endpoint at our URL; app logs since 10-03 show only A's probe.
+    - Method notes:
+      - A's first Stripe filter epoch was a day late. The unfiltered lists and a corrected epoch close it.
+      - The `logs.all` API was removed, and its notice was misread as zero rows; the positive controls caught it.
+  - **F-PAYOUT-FEE-FAILOPEN-1: 0 affected rows.**

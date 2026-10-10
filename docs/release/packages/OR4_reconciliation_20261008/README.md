@@ -1,18 +1,68 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
-**Status: PENDING EVIDENCE (2026-10-09). Production unchanged.**
-- R0 DONE.
-- Test-mode five EXCLUDED by the owner's ruling; their records are unchanged.
-- R1 CLOSED AS SUPPLIED. The owner's final screenshots establish the amounts, the "Refunded" labels and each refund's
-  ARN. They do not establish the refund ids, the refund-object statuses, the refund count, the timezone or the
-  source. None of these is inferred.
-- R2 rehearsal PASS.
-- R3 FROZEN (owner, 2026-10-09): prepared but not executable. It is filled only when the refund id, refund-object
-  status, refund count, source and complete evidence all exist; then D reviews the exact filled files.
-- Refund count: ONE per payment, strong but not conclusive. It was restored from D's newly authorised read, which
-  met all four pre-set criteria. The earlier, out-of-scope evidence stays withdrawn.
-- Still unavailable: the refund ids and the refund-object statuses. R3 therefore stays frozen.
-- **Not blocking:** no other code, release step or app feature depends on O-R4 (§"Pending evidence").
+**Status (2026-10-10): EVIDENCE COMPLETE; R3 FILLED AND REHEARSED; awaiting D's review of the exact filled files,
+then the owner's approval of their sha256. Production unchanged.**
+- R0 done. The test-mode five are excluded and unchanged.
+- R1 is **complete from Stripe's live API** (owner-authorised read, 2026-10-10; §"Evidence complete").
+  - Each payment has exactly one refund, `succeeded`, for the full amount.
+  - Source is `dashboard`, on evidence.
+- R3 is filled in one step. Each file differs from its frozen marker version in exactly 5 lines.
+  - Rehearsed byte-for-byte on a fresh clone: ALL PASS (`rehearsal/out/R3_filled_run_1.txt`).
+  - Final files: #6 `d7f31cf1…`, #7 `dca8cb00…` (§R3 table).
+- Not executed. The production write needs D's review and then the owner's approval of these exact hashes.
+
+## Evidence complete (2026-10-10; owner-authorised read-only Stripe and database reads; A led, D blind-checked)
+
+**Account.** The Stripe MCP reaches `acct_1T6FarGdOzCmGbHw`, `livemode = true`. That is the `GdOzCmGbHw` account
+holding the payments, not the sandbox.
+
+**Refunds.** `GET /v1/refunds?payment_intent=…` returned `count 1` and `has_more false` for each PaymentIntent. The
+account-wide refund list holds exactly these two live refunds, ever.
+
+| field | #6 `pi_3U0XuwGdOzCmGbHw0WVJfW3y` | #7 `pi_3U0YzcGdOzCmGbHw0Z6l7bf7` |
+|---|---|---|
+| refund id | `re_3U0XuwGdOzCmGbHw0bL9UYzT` | `re_3U0YzcGdOzCmGbHw0Av5k7ZH` |
+| refund-object status | `succeeded` | `succeeded` |
+| amount / currency | 1100 / usd (= total) | 220 / usd (= total) |
+| created | 2026-08-04 **17:20:02Z** (1785864002) | 2026-08-04 **17:20:18Z** (1785864018) |
+| failure reason | none (absent; status succeeded) | none (absent; status succeeded) |
+| `reason` / `metadata` | null / `{}` | null / `{}` |
+| count | **1, conclusive** (Stripe list) | **1, conclusive** |
+| ARN | matches the owner's screenshot (value not recorded here) | matches |
+
+**Corroboration:**
+- PaymentIntent and charge: `livemode true`, `amount_refunded = amount`, `refunded true`, no dispute, no
+  destination transfer.
+- The Dashboard's "5:20 PM" is therefore UTC.
+- Our ledger received `charge.refunded` 3.1 s after each refund's `created`, and our `refunded_at` followed 29 ms and
+  10.4 ms after that.
+- Both PaymentIntents carry `metadata.buyer_id = 2b117757…`, the owner's own user, on the same card. **The owner was
+  the buyer on both; no third party is owed anything** (D).
+
+**Origin: `dashboard`, established from evidence, not inferred from the Dashboard notes:**
+- **Our system's own rule.** The live handler's `refundSource()` (`stripe-webhook/index.ts:25–27`, gate `abef9506`)
+  classifies any refund whose `metadata.source` does not start with `enforce-transfer-expiry` as `dashboard`. Both
+  refunds have `metadata {}`.
+- **Code history.** The only code in our repo that ever created a refund before 2026-08-04 17:20Z is
+  `enforce-transfer-expiry`. Every one of its seven versions (`9a411946` … `083ee172`, the last committed 17:15Z) sets
+  `metadata[source]`, `[reason]` and `[transfer_id]`. No admin refund tool existed then; the console went live
+  2026-09-08.
+- So the refunds were created outside our code: in the Stripe Dashboard, or by a direct call with the account's key.
+  Our taxonomy calls both `dashboard`.
+- **Not read:** the creating request's own source. Stripe exposes request logs in the Dashboard only, and its events
+  API keeps 30 days.
+- D independently found the metadata inconsistent with the expiry path, and left the source to A's comparison of all
+  paths (D `78d9572a`).
+
+**Prestate re-read (2026-10-10 05:46Z), equal to R0:**
+- both payments: `refunded`, live, `amount_refunded_cents` NULL, refund cents (0, 0, 0), `stripe_refund_id` NULL;
+- no state, log or ledger rows;
+- one reversed, unpaid transfer each; 0 cases.
+
+The R3 prestate guards would pass.
+
+**D's blind check** (D `78d9572a`, committed before A sent any figure) matches every refund field above, live mode,
+and the post-gap PaymentIntents.
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
 gated." Nothing here has been read from or written to production. Each production step below needs the owner's own
@@ -457,8 +507,25 @@ tables before the write and asserts they are unchanged after. Runs 1–3 are kep
 | file | sha256 (with markers) |
 |---|---|
 | `R3_record_refund.sql.tmpl` (source) | `7740700bf8ef41fdbbc8a9044d5e25dddf029a1d2475a3ff1ed6978029396c81` |
-| `R3_proposed_6_32913315.sql` | `0d68958730ac132933d3e3f7319c3f68516c485ab8c9639d636d71317a8b2630` |
-| `R3_proposed_7_700d469b.sql` | `d976eacbccd4af2469a4356ce132d1c368956ac6e89d7dfc36a915a782333d4b` |
+| `R3_proposed_6_32913315.sql` **filled (final)** | `d7f31cf175410b313a77b3475fe6444b6e34eac5f40b3ddc6b36c3ce0af20d88` |
+| `R3_proposed_7_700d469b.sql` **filled (final)** | `dca8cb00db615104eef01c8ac3cb58f7cf075c294ba7a5aaa018348ad8d2a996` |
+| marker versions, superseded by the fill | #6 `0d68958730ac1329…`, #7 `d976eacbccd4af24…` |
+
+**Fill (2026-10-10), in one step:** each file differs from its marker version in exactly five lines:
+- `c_refund_id`, `c_status = 'succeeded'`, `c_source = 'dashboard'`, `c_refund_count = '1'`;
+- `c_evidence`, which names the Stripe read, the count, the status, the amount, the created time, the source basis
+  and D's blind check.
+
+The template comment on `c_source` says "the owner's recorded decision". Here the source was established from
+evidence, under the owner's instruction to establish origin where possible. The owner's hash approval is the
+decision.
+
+**Rehearsal of the exact files:** `rehearsal/run_R3_filled.sh` on a fresh clone of `pkg151_rehears`, ledger 164.
+- It checks each sha256 first.
+- Result: R3_OK ×2; payments 1100/1100 and 220/220 with cents (0, total, 0), the real refund ids and `refunded_at`
+  unchanged; state rows succeeded/dashboard/reconcile; 2 log and 2 ledger rows; 0 cases; `detect_refunds` opened 0;
+  a re-run refused.
+- Output: `rehearsal/out/R3_filled_run_1.txt`.
 
 These supersede `97f1d0a1` / `74cfe59a` / `41372b17` (`77778156`), which D reviewed (conditional pass, D `c9544868`). The
 only change is three guards from D's review; see "D's review" below.

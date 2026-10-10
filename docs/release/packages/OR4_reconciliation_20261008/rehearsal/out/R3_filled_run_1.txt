@@ -1,0 +1,20 @@
+PASS #6 file is d7f31cf175410b313a77b3475fe6444b6e34eac5f40b3ddc6b36c3ce0af20d88
+PASS #7 file is dca8cb00db615104eef01c8ac3cb58f7cf075c294ba7a5aaa018348ad8d2a996
+PASS no marker remains in either file
+== R3 filled run 2026-10-10T05:51:55Z on or4_r3_filled (ledger 164)
+== R4 read-back BEFORE
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:05 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 |  | 0 | 0 | 0 |  | 2026-08-04 17:20:19 |  | 0 |  | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+PASS #6: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "32913315-2bf7-4e58-b837-f6c5c34b722b", "failed_cents": 0, "refund_status": "succeeded", "sta
+PASS #7: R3_OK {"result": {"counted": true, "recorded": true, "payment_id": "700d469b-045c-430f-8d16-351d9ff3b838", "failed_cents": 0, "refund_status": "succeeded", "sta
+== R4 read-back AFTER
+32913315-2bf7-4e58-b837-f6c5c34b722b | pi_3U0XuwGdOzCmGbHw0WVJfW3y | t | refunded | 1100 | 1100 | 0 | 1100 | 0 | re_3U0XuwGdOzCmGbHw0bL9UYzT | 2026-08-04 17:20:05 | [{"re": "re_3U0XuwGdOzCmGbHw0bL9UYzT", "via": "reconcile", "amount": 1100, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_3U0XuwGdOzCmGbHw0bL9UYzT", "amount": 1100, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+700d469b-045c-430f-8d16-351d9ff3b838 | pi_3U0YzcGdOzCmGbHw0Z6l7bf7 | t | refunded | 220 | 220 | 0 | 220 | 0 | re_3U0YzcGdOzCmGbHw0Av5k7ZH | 2026-08-04 17:20:19 | [{"re": "re_3U0YzcGdOzCmGbHw0Av5k7ZH", "via": "reconcile", "amount": 220, "source": "dashboard", "status": "succeeded"}] | 1 | [{"re": "re_3U0YzcGdOzCmGbHw0Av5k7ZH", "amount": 220, "source": "dashboard"}] | [{"status": "reversed", "payout_released_at": null, "has_stripe_transfer": false, "payout_review_status": null}] | 0
+PASS payments after: 1100:1100:0,1100,0:re_3U0XuwGdOzCmGbHw0bL9UYzT:refunded:17:20:05 220:220:0,220,0:re_3U0YzcGdOzCmGbHw0Av5k7ZH:refunded:17:20:19
+PASS state rows: re_3U0XuwGdOzCmGbHw0bL9UYzT:succeeded:1100:dashboard:reconcile re_3U0YzcGdOzCmGbHw0Av5k7ZH:succeeded:220:dashboard:reconcile
+PASS rows: 2 log, 2 ledger, 0 cases
+   detect_refunds before: {"opened": 0, "scanned": 0, "resolved": 0}
+   detect_refunds after:  {"opened": 0, "scanned": 0, "resolved": 0}
+PASS detect_refunds opened 0, unchanged
+PASS re-running #6 is refused: R3_GUARD prestate: amount_refunded_cents is 1100, expected NULL
+== RESULT: ALL PASS

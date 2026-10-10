@@ -30,15 +30,17 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - Separately, the 2026-10-08 console sign-in and TOTP challenge were confirmed from auth records then, by A and D.
     That covers access, not wording.
   - No further attended session is to be scheduled.
-- **Pending evidence, not blocking:** O-R4.
-  - Refund count: **one per payment, strong but not conclusive.** It was restored from D's newly authorised read
-    (D `a7a4dfdc`), which met all four pre-set criteria. D's earlier, out-of-scope evidence stays withdrawn.
-  - The refund ids and refund-object statuses remain unavailable.
-  - The scripts are frozen until all five fields and complete evidence exist and D has reviewed the exact filled
-    files.
+- **O-R4: evidence complete; R3 filled and rehearsed; awaiting D's review, then the owner's hash approval**
+  (2026-10-10).
+  - From Stripe's live API: each payment has exactly one refund, `succeeded`, for the full amount.
+    - #6 `re_3U0XuwGdOzCmGbHw0bL9UYzT`, #7 `re_3U0YzcGdOzCmGbHw0Av5k7ZH`.
+    - Source `dashboard` on evidence: the handler's `refundSource` rule and the code history.
+  - Final files: #6 `d7f31cf1…`, #7 `dca8cb00…`. Each is a 5-line fill of the frozen versions; the exact files were
+    rehearsed ALL PASS. Not executed.
   - The test-mode five are excluded and unchanged.
-  - The owner's final screenshots do not establish the refund ids, refund statuses, refund count, timezone or source.
-  - Production is unchanged; R3 is prepared but not executable. See the package README, §"Pending evidence".
+- **F-WEBHOOK-LEDGER-GAP-1 explained:** no qualifying live activity since 2026-08-05 23:39:41Z, and no rejection
+  evidenced. Stripe, the database and the application logs were compared.
+- **F-PAYOUT-FEE-FAILOPEN-1:** 0 affected rows.
 - **Done 2026-10-09:** `origin/integration/s1-s2-trial-20261007` deleted (owner-authorised; owner approved the
   deletion afterwards because D verified it redundant).
   - Verified by `ls-remote`: 0 refs, with the gate listed as a control.
