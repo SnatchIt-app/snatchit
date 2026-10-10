@@ -77,7 +77,7 @@ export function TransactionPanel({
       <View style={styles.wrap}>
         <PriceDisplay size="detail" label="Sold for" amount={soldAllIn} muted />
         <Text style={[textStyle('bodySm'), styles.note]}>
-          Price includes the 10% service fee.
+          Price includes the service fee.
         </Text>
       </View>
     );

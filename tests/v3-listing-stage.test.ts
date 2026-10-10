@@ -169,7 +169,10 @@ describe('TransactionPanel — the §5 panel', () => {
     expect(priceDisplay(host, 'Sold for')).toBeDefined();
     expect(byText(host, 'If you bid the minimum')).toBeUndefined();
     // With no breakdown on a sold view, this sentence is the only place the fee is explained.
-    expect(byText(host, 'Price includes the 10% service fee.')).toBeDefined();
+    // W-2b: the same rule as the breakdown label — a buyer-fee line states no rate, because the
+    // fee is not 10% on every rail (A: the venue primary rail uses the order's own buyer_fee).
+    expect(byText(host, 'Price includes the service fee.')).toBeDefined();
+    expect(byText(host, 'Price includes the 10% service fee.')).toBeUndefined();
   });
 
   it('LP6: the buy-now amount lives on its CTA — the panel no longer prints it', async () => {
