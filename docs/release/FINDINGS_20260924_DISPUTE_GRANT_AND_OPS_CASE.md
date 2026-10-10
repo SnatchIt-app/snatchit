@@ -364,3 +364,46 @@ so `ops.job_run.detail` can tell the two cases apart. This is a SQL function cha
 - It is applied owner-gated, like any migration.
 
 D proposed it; verified by A from source.
+
+## F-WEBHOOK-LEDGER-GAP-1: no Stripe event has been recorded since 2026-08-05 23:39 (A, 2026-10-09; open)
+
+**Observed (D's authorised read, D `a7a4dfdc`):** `public.stripe_webhook_events` holds 31 rows, spanning 2026-06-05
+18:29:18 → **2026-08-05 23:39:41**, and nothing since.
+- Payments were created up to 2026-09-03 14:40:20.
+- `stripe-webhook` was redeployed (v43) on 2026-10-08.
+- The live endpoint showed 0 deliveries in the week before 2026-10-08 (owner's read).
+- Migration 064's comment already says "The 31 existing rows", so the count has not moved since 064 was written.
+
+**What the code says** (`stripe-webhook/index.ts` at gate `abef9506`):
+- Every request is HMAC-verified against one `STRIPE_WEBHOOK_SECRET` (:39, :140). A failure returns 400 "Invalid
+  signature" (:184) **before** the ledger is touched.
+- Every verified event is then claimed through `claim_stripe_webhook_event` (:214), which inserts the ledger row (064).
+- No code path deletes from the table.
+- So "no row since 2026-08-05" means **no event has passed signature verification at this function since then**.
+
+**Two explanations, and they differ in severity:**
+- **H1, benign:** no event signed with this secret was sent. For example, after the switch to live keys around
+  2026-08-04 (Build 13 is `pk_live`-only), the later payments were test-mode. Test events are signed with a test-mode
+  secret and would be refused with 400, or there is no test endpoint at all. Supporting: the ledger did record
+  test-mode events before then (`evt_3TpCE5…`, 2026-07-04, an excluded test payment). 0 deliveries in one week fits
+  low live traffic.
+- **H2, serious:** live events were sent and refused, or not recorded. Then live payment, refund, dispute and payout
+  webhooks would not be processed at all.
+
+**The one read that tells them apart.** It is read-only and needs the owner's authorisation; D's current
+authorisation covers only the two refunds:
+```sql
+select id, created_at, stripe_livemode, status
+  from public.payments
+ where created_at > '2026-08-05 23:39:41+00'
+ order by created_at;
+```
+If every such payment is `stripe_livemode = false`, the gap is consistent with H1. If any is live and `succeeded`, its
+`payment_intent.succeeded` should be in the ledger and is not, which is H2.
+- The Stripe-side equivalent is the live endpoint's delivery log for that payment's events.
+
+**Not affected:** the O-R4 count determination, which rests on events received before the gap.
+
+**Not claimed:** that the handler is broken. v43's boot probe answered 400 "Invalid signature" to an unsigned request
+on 2026-10-08, so the function runs and verifies. Whether a correctly signed live event is recorded has not been
+observed since 2026-08-05.

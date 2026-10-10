@@ -9,8 +9,9 @@
 - R2 rehearsal PASS.
 - R3 FROZEN (owner, 2026-10-09): prepared but not executable. It is filled only when the refund id, refund-object
   status, refund count, source and complete evidence all exist; then D reviews the exact filled files.
-- Refund count UNKNOWN: the earlier evidence was withdrawn by the owner. It is restorable only by D's newly
-  authorised read-only query (§"Refund count: restore path").
+- Refund count: ONE per payment, strong but not conclusive. It was restored from D's newly authorised read, which
+  met all four pre-set criteria. The earlier, out-of-scope evidence stays withdrawn.
+- Still unavailable: the refund ids and the refund-object statuses. R3 therefore stays frozen.
 - **Not blocking:** no other code, release step or app feature depends on O-R4 (§"Pending evidence").
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
@@ -284,7 +285,7 @@ Each dialog is titled "Refund details" and shows only two things:
 |---|---|---|---|
 | refund id (`re_…`) | **unavailable** | **unavailable** | not shown. The ARN is not a refund id. |
 | refund-object status | **unavailable** | **unavailable** | not shown. "Made available 8/5" is display text and is **not** mapped onto the refund status enum. The "Refunded" badge is the payment's. |
-| refund count | **unknown** | **unknown** | **Evidence withdrawn by the owner's ruling (2026-10-09).** D's earlier ledger read (D `187f6986`) fell outside the authorisation then in force, so its result is not used. It can be restored only by D's newly authorised read (§"Refund count: restore path"). |
+| refund count | **one refund** (strong, not conclusive) | **one refund** (same) | **Restored 2026-10-09** from D's newly authorised read, which met every pre-set criterion (§"Refund count: restore path"; D `a7a4dfdc` on `review/d-records-20261005` @ `5278f7bc`). D's earlier read (`9e731194`) was withdrawn by the owner and is not used. |
 | refund `created`, year and timezone | **unavailable** (bounded) | **unavailable** (bounded) | Stripe's `created` is not shown anywhere. Our receipt of each event, in UTC with the year (above), bounds it: the refund existed by then. That is consistent with the Dashboard displaying UTC, but it is not established. |
 | failure reason | **unavailable** | **unavailable** | not shown |
 | `source` | **unavailable** | **unavailable** | the owner did not state how each refund was issued; it is not inferred, and the "test" notes are not evidence of it |
@@ -299,7 +300,7 @@ the owner to look (D, agreed).
   `succeeded`, because when `refund.*` was first subscribed is unknown.
 - **Owner's ruling (2026-10-09):** "My earlier read-only authorization did not cover the webhook-event log or the
   count-only queries. Withdraw the one-refund-per-payment evidence and mark refund count unknown." That evidence is
-  withdrawn; nothing above relies on it. D had stated its basis openly (D `133a6d75`). A made no production read.
+  withdrawn; nothing above relies on it. D had stated its basis openly (D `b0de860a`). A made no production read.
 
 ### Refund count: restore path (owner clarification, 2026-10-09)
 
@@ -334,6 +335,33 @@ then needs a revised plan of one call per refund, and it is still blocked on the
 
 **What this cannot do:** supply a refund id or a refund status. The ledger has no payload, and no `refund.*` event says
 nothing about status. Restoring the count leaves R3 frozen.
+
+**Result: all four criteria PASS** (D's authorised read, D `a7a4dfdc`; D ran its own SELECTs covering Q1–Q4). The
+authorisation was given to D directly, and D re-derived the result rather than restoring the withdrawn one.
+- **R-a:** exactly one `charge.refunded` per core, processed, 0 attempts, no error.
+  - #6: `evt_3U0XuwGdOzCmGbHw0QThD7ya`, received 17:20:05.136Z.
+  - #7: `evt_3U0YzcGdOzCmGbHw0fSVw1MJ`, received 17:20:19.343Z.
+- **R-b:** 29 ms (#6) and 10 ms (#7) before our `refunded_at`.
+  - D earlier gave 11 ms for #7. The stored value is 17:20:19.342593, which is .342 truncated and .343 rounded,
+    against `refunded_at` .353. That is the whole difference; the data did not change.
+- **R-c:** the span is 2026-06-05 18:29:18 → 2026-08-05 23:39:41.
+- **R-d:** 4 rows after the second refund.
+- **Control (Q3):** each core also returns its `payment_intent.succeeded` event, so the query is not one that can only
+  return one row.
+
+**Determination, at its real strength: one refund per payment, strong, not conclusive.** The limit is sharper than R-d
+alone suggests:
+- The ledger has recorded **nothing since 2026-08-05 23:39:41**, while payments were created up to 2026-09-03. It also
+  holds only 14 `payment_intent.succeeded` rows against 57 payments.
+- So it is not a complete record of what Stripe sent (F-WEBHOOK-LEDGER-GAP-1). "No second refund" is well supported
+  only for the ~30 h it kept recording.
+- **Later, the bound comes from the owner's screenshots, taken as displayed:**
+  - the refunded amount equals the full total, and Stripe cannot refund beyond the charge;
+  - each payment shows one "Payment refunded" activity entry;
+  - both payment pages show "Last updated Aug 4, 5:20 PM". What that field covers is Stripe's semantics and is not
+    verified here.
+
+The count supports `REFUND_COUNT` only at this strength, and only together with the other four fields.
 
 **R3 is frozen (owner, 2026-10-09).** "Keep both correction scripts paused. Do not fill any script or write production
 data without the actual refund ID, refund-object status, refund count, source, and complete evidence."
@@ -424,7 +452,7 @@ tables before the write and asserts they are unchanged after. Runs 1–3 are kep
 | `R3_proposed_6_32913315.sql` | `0d68958730ac132933d3e3f7319c3f68516c485ab8c9639d636d71317a8b2630` |
 | `R3_proposed_7_700d469b.sql` | `d976eacbccd4af2469a4356ce132d1c368956ac6e89d7dfc36a915a782333d4b` |
 
-These supersede `97f1d0a1` / `74cfe59a` / `41372b17` (`77778156`), which D reviewed (conditional pass, D `addd4670`). The
+These supersede `97f1d0a1` / `74cfe59a` / `41372b17` (`77778156`), which D reviewed (conditional pass, D `c9544868`). The
 only change is three guards from D's review; see "D's review" below.
 
 Each file is one atomic `DO` block: input guards, then prestate guards (exactly R0), then
@@ -479,7 +507,7 @@ nothing: a succeeded row is selected by neither gated branch. "Reconciliation do
 that refund-state detection works (F-DETECT-REFUNDS-UNOBSERVABLE-1). Only a failed, canceled or long-pending refund
 exercises it.
 
-### D's review: CONDITIONAL PASS (D `addd4670`, on `77778156` and `d4accc39`)
+### D's review: CONDITIONAL PASS (D `c9544868`, on `77778156` and `d4accc39`)
 
 All five of D's pre-registered criteria are met against the code:
 - no ARN substituted for a refund id;
@@ -500,7 +528,7 @@ final approval until the markers are filled, because the reviewed files are not 
   one id, every guard would pass. Fixed: `c_refund_count` must be `'1'` (C10). This is an assertion under signature,
   not a check against Stripe.
 
-**D's re-check at `f7595be9`: PASS on all three guards; criterion 3 now met outright (D `8ba6cef7`).**
+**D's re-check at `f7595be9`: PASS on all three guards; criterion 3 now met outright (D `dac702c1`).**
 - D probed each guard: C11 refuses `re_` plus the real ARN's digits; C10 refuses `2`, `01` and `" 1"`; C12 refuses the
   marker and short strings.
 - All three guards run before the first read.

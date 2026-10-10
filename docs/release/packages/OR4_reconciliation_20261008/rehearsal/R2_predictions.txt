@@ -39,7 +39,7 @@ Amendments after run 1 (2026-10-09 22:07Z); the predictions above are left as wr
   Added after run 2: positive control for detect_refunds' 0 -> a FAILED state row opens one refund_failed case (rolled back).
   Redaction (2026-10-09): C2 first used the real ARN from the owner's screenshot; it is now a synthetic 23-digit value, and runs 1-3 have that value redacted. The public repo carries no ARN.
 
-Amendment after D's review (addd4670), before run 5: three guards added to the template.
+Amendment after D's review (c9544868; pre-rewrite addd4670), before run 5: three guards added to the template.
   C10 refund count 2                    -> R3_GUARD input: refund count 2 is out of scope (exactly one)
   C11 re_ + 23 digits (an ARN in shape)  -> R3_GUARD input: re_70000000000000000000001 is not a Stripe refund id
   C12 evidence marker unfilled          -> R3_GUARD input: evidence for the refund details is not recorded

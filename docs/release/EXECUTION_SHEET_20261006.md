@@ -31,9 +31,9 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     That covers access, not wording.
   - No further attended session is to be scheduled.
 - **Pending evidence, not blocking:** O-R4.
-  - Owner, 2026-10-09: the refund count is unknown; D's earlier ledger read was out of scope and its evidence is
-    withdrawn. D is now authorised for the read-only ledger and count queries only (`R1b_webhook_ledger_read.sql`,
-    restore criteria pre-set).
+  - Refund count: **one per payment, strong but not conclusive.** It was restored from D's newly authorised read
+    (D `a7a4dfdc`), which met all four pre-set criteria. D's earlier, out-of-scope evidence stays withdrawn.
+  - The refund ids and refund-object statuses remain unavailable.
   - The scripts are frozen until all five fields and complete evidence exist and D has reviewed the exact filled
     files.
   - The test-mode five are excluded and unchanged.
@@ -45,18 +45,22 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - There was no unique content: the trial head's tree equals the gate's S2 tree `2e2c31b4`.
   - The local branch and A's temporary worktree are kept, so `3787d8a2`, cited by A and D, stays resolvable locally.
   - It can be restored by pushing the local branch.
-- **D's branch push:** three of four pushed and verified by D with `ls-remote`: `web/wording-truth-conditions`,
-  `admin/label-console-release` and `review/d-integ-94-95`.
-  - `review/d-records-20261005` is **held for the owner's decision**. Its history contains the two real ARNs in
-    `fbe41284`, `addd4670` and `8ba6cef7`, which D redacted going forward at `bab4060b`.
-  - The repository is **public**. The options:
-    - push it as it is, which publishes the ARNs;
-    - rewrite that history, which changes those three shas; A cites them and would update the citations;
-    - keep it local.
-  - A's own pushed history contains neither ARN: the full-history pickaxe finds 0, with a positive control.
+- **D's branch push: all four on origin**, verified by D with `ls-remote` and re-checked by A:
+  `web/wording-truth-conditions` `e7130f04`, `admin/label-console-release` `1058c882`, `review/d-integ-94-95`
+  `486c954c` and `review/d-records-20261005` `5278f7bc`.
+  - The records branch was **rewritten before the push** to remove the two real ARNs, under the owner's push
+    authorisation ("after checking for credentials and private evidence").
+  - A verified the rewrite: the eight commits map one-to-one by subject, and apart from the ARNs (now a synthetic
+    value) the only change was an account-id truncation that D later reverted.
+  - The ARN pickaxe finds 0 on the pushed branch and 3 on D's local backup ref (the control).
+  - **Old → new shas, as cited by A:** `fbe41284` → `54430e02`, `addd4670` → `c9544868`, `8ba6cef7` → `dac702c1`,
+    `187f6986` → `9e731194`, `133a6d75` → `b0de860a`, `f70ca9d9` → `a7a4dfdc`. The pre-rewrite shas resolve only on D's
+    local `review/d-records-PREREWRITE-BACKUP`, which is never pushed.
+  - A's own pushed history contains neither ARN (full-history pickaxe with a positive control).
+- **Open finding (A's lane): F-WEBHOOK-LEDGER-GAP-1.** No Stripe event has passed signature verification at
+  `stripe-webhook` since 2026-08-05 23:39. One read-only query, needing the owner's authorisation, tells "no live
+  traffic" apart from "live events refused".
 - **Not a release blocker (owner, 2026-10-09):** VoiceOver is optional.
-- **Still the owner's decision:** D's held `review/d-records-20261005` (public repo; real ARNs in the history of three
-  commits A cites).
 - **Not authorised:** production correction writes, the final main integration (S7) and app distribution.
 
 ## Status: MM-1 preparation executed (A, 2026-10-07 ~02:40Z; owner-authorised; D verifies)

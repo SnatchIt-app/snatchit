@@ -2273,7 +2273,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **R3 prepared, NOT authorised:** `R3_proposed_6_32913315.sql` `74cfe59a…` and `R3_proposed_7_700d469b.sql`
     `41372b17…`, with three markers each. A fills the markers after R1 part 2 and the source decision; the owner then
     approves the filled files' sha256.
-  - Package README §R1 part 1/2, §R2, §R3. D's input on the remaining fields is incorporated (D `fbe41284`).
+  - Package README §R1 part 1/2, §R2, §R3. D's input on the remaining fields is incorporated (D `54430e02`).
 - **O-R4 follow-up (A, 2026-10-09, owner's direction):**
   - **Exclusion:** the five test-mode payments stay excluded, records unchanged.
   - **Effects are now conditional:** an outcome matrix was rehearsed per branch (`run_R2b_outcomes.sh`, run 2: 8/8,
@@ -2288,7 +2288,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Negative-balance note:** kept, pointed to its exact location (the #7 screenshot only, a top-right popover) and
     scoped. It establishes no balance amount, date or cause.
   - **D asked to review 77778156** (delivered to D's new session).
-- **O-R4: D's review CONDITIONAL PASS (D `addd4670`) on `77778156`/`d4accc39`; A adopted D's three residuals.**
+- **O-R4: D's review CONDITIONAL PASS (D `c9544868`) on `77778156`/`d4accc39`; A adopted D's three residuals.**
   - **Guards added:**
     - (a) an all-digit `re_` suffix is refused (C11);
     - (b) `c_evidence` records where status, id and count were read, inside the sha256 (C12);
@@ -2300,7 +2300,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     - O2's 120 h-from-reconciliation is two-party (A by rehearsal, D from source);
     - `refunded_at` unchanged is structurally guaranteed;
     - completing O-R4 (O1) does not demonstrate detection.
-- **O-R4: D re-check PASS on all three new guards (D `8ba6cef7`, at `f7595be9`); all five criteria met outright; final approval reserved for the filled files.** README wording corrected per D: the count and evidence lines are owner-attested values under the sha256, not measurements against Stripe.
+- **O-R4: D re-check PASS on all three new guards (D `dac702c1`, at `f7595be9`); all five criteria met outright; final approval reserved for the filled files.** README wording corrected per D: the count and evidence lines are owner-attested values under the sha256, not measurements against Stripe.
 - **Owner direction 2026-10-09 (final refund evidence; waivers):**
   - **O-R4: PENDING EVIDENCE, production unchanged.**
     - The owner's final "Refund details" dialogs show only each refund's ARN and "Made available 8/5…".
@@ -2326,9 +2326,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - `origin/integration/s1-s2-trial-20261007` deleted after the uniqueness check, with D not objecting. Verified by
     `ls-remote` (0 refs; gate control). The local branch and worktree are kept.
   - D pushed three of its four branches and verified them; `review/d-records-20261005` is held for the owner. Its
-    history carries the real ARNs in `fbe41284`/`addd4670`/`8ba6cef7`, shas A cites, and the repo is public. A's own
+    history carries the real ARNs in `fbe41284`/`addd4670`/`8ba6cef7` (pre-rewrite shas; see the rewrite entry below), and the repo is public. A's own
     pushed history has 0 ARN occurrences (full-history pickaxe with a positive control).
-  - **O-R4 evidence update (D's read of `stripe_webhook_events`, D `187f6986`):** one `charge.refunded` event per
+  - **O-R4 evidence update (D's read of `stripe_webhook_events`, D `9e731194`; later withdrawn by the owner):** one `charge.refunded` event per
     payment, received 17:20:05.136Z and 17:20:19.342Z.
     - This is strong, not conclusive, evidence of one refund each (received events only).
     - The ledger has no payload, so no refund id; and no `refund.*` events, which is not evidence of status.
@@ -2350,3 +2350,20 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     core; R-b within 1 s of `refunded_at`; R-c span; R-d the ledger kept recording after the refunds (064 noted 31
     rows). A makes no production read.
   - **Still the owner's decision:** D's held records branch.
+- **D: records branch sanitised and pushed; authorised ledger read; count restored (A verified, 2026-10-09):**
+  - **All four D branches are on origin.**
+    - `review/d-records-20261005` `5278f7bc` was rewritten to remove the ARNs before the push.
+    - A checked the rewrite: commits map one-to-one by subject; the only non-ARN change was an account-id truncation,
+      later reverted. The ARN pickaxe finds 0 on origin and 3 on D's local backup ref.
+    - A's citations are re-pointed (mapping in the sheet). The pre-rewrite shas remain only where a line states that
+      those commits held the ARNs.
+  - **Refund count restored: one per payment, strong but not conclusive.** D's authorised read (`a7a4dfdc`, given to
+    D directly) met R-a to R-d.
+    - The 11 ms vs 10 ms for #7 is truncation vs rounding of 17:20:19.342593.
+    - Limit: the ledger stopped at 2026-08-05 23:39:41. For the period after, the bound is the owner's screenshots:
+      refunded amount = total, one activity entry, "Last updated Aug 4, 5:20 PM".
+    - The refund ids and statuses remain unavailable, so R3 stays frozen.
+  - **F-WEBHOOK-LEDGER-GAP-1 opened (A's lane).** No event has passed signature verification at `stripe-webhook`
+    since 2026-08-05 23:39 (code: verification precedes the ledger claim).
+    - H1: no live traffic, with test events refused. H2: live events refused.
+    - One read-only query on payments created after that point tells them apart; it needs the owner's authorisation.
