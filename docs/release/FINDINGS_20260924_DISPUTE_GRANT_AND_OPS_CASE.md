@@ -407,3 +407,29 @@ If every such payment is `stripe_livemode = false`, the gap is consistent with H
 **Not claimed:** that the handler is broken. v43's boot probe answered 400 "Invalid signature" to an unsigned request
 on 2026-10-08, so the function runs and verifies. Whether a correctly signed live event is recorded has not been
 observed since 2026-08-05.
+
+## F-PAYOUT-FEE-FAILOPEN-1: a missing `seller_fee` pays the seller in full (register item, A, 2026-10-09)
+
+`claim_payout_attempt` computes the payout as `v_amt := amount − coalesce(seller_fee, 0)`
+(`20260906120000`:658–659, at gate `abef9506`). A payable live payment with `seller_fee` NULL would therefore pay out
+the whole sale price, with no fee withheld, instead of being refused.
+
+- **Code, today:** `create-payment-intent` always writes `seller_fee = round(base × 0.10)` (`_shared/money.ts`;
+  the rate has been 0.10 since `75ed88bd`, 2026-07-15). `guard_payment_transitions` freezes it once the payment
+  succeeds. Only live payments pay out (`PAYMENT_NOT_LIVE`, :639). So no current path writes a NULL fee on a resale
+  payment.
+- **Data, unverified:** whether any live, unpaid payment has `seller_fee` NULL or a value other than
+  round(amount × 0.10). That needs an owner-authorised read-only query. E raised it with the owner
+  (`V3_ACCEPTANCE_RECORD.md`); A does not duplicate the request:
+  ```sql
+  select count(*) filter (where p.seller_fee is null) as null_fee,
+         count(*) filter (where p.seller_fee is distinct from round(p.amount * 0.10)) as non_10pct
+    from public.payments p
+   where p.stripe_livemode and p.status = 'succeeded' and p.mode in ('buy_now','auction')
+     and exists (select 1 from public.transfers t where t.payment_id = p.id and t.payout_released_at is null
+                   and t.stripe_transfer_id is null);
+  ```
+- **Hardening, not a defect today:** refuse with `SELLER_FEE_MISSING` instead of coalescing to 0. This would be a
+  migration, numbered by A, owner-gated.
+- **Consequence for copy:** E's W-6 drops the rate from the payout-setup copy ("the sale price, less the seller fee
+  and any refund").
