@@ -2367,3 +2367,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     since 2026-08-05 23:39 (code: verification precedes the ledger claim).
     - H1: no live traffic, with test events refused. H2: live events refused.
     - One read-only query on payments created after that point tells them apart; it needs the owner's authorisation.
+  - Per D: the bounds are reordered ("Last updated" first, with its caveat that it infers the field's meaning). #7's gap is exactly 10.407 ms. D's Q5 is recorded as judged inside its authorisation and the livemode read as declined, both open to the owner's ruling.

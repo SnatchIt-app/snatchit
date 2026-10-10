@@ -342,8 +342,8 @@ authorisation was given to D directly, and D re-derived the result rather than r
   - #6: `evt_3U0XuwGdOzCmGbHw0QThD7ya`, received 17:20:05.136Z.
   - #7: `evt_3U0YzcGdOzCmGbHw0fSVw1MJ`, received 17:20:19.343Z.
 - **R-b:** 29 ms (#6) and 10 ms (#7) before our `refunded_at`.
-  - D earlier gave 11 ms for #7. The stored value is 17:20:19.342593, which is .342 truncated and .343 rounded,
-    against `refunded_at` .353. That is the whole difference; the data did not change.
+  - Exact for #7: .353 − .342593 = 10.407 ms. D's earlier "11 ms" subtracted a truncated .342; the data did not
+    change.
 - **R-c:** the span is 2026-06-05 18:29:18 → 2026-08-05 23:39:41.
 - **R-d:** 4 rows after the second refund.
 - **Control (Q3):** each core also returns its `payment_intent.succeeded` event, so the query is not one that can only
@@ -355,11 +355,19 @@ alone suggests:
   holds only 14 `payment_intent.succeeded` rows against 57 payments.
 - So it is not a complete record of what Stripe sent (F-WEBHOOK-LEDGER-GAP-1). "No second refund" is well supported
   only for the ~30 h it kept recording.
-- **Later, the bound comes from the owner's screenshots, taken as displayed:**
-  - the refunded amount equals the full total, and Stripe cannot refund beyond the charge;
+- **Later, the bound comes from the owner's screenshots (read 2026-10-09), taken as displayed, strongest first:**
+  - both payment pages show **"Last updated Aug 4, 5:20 PM"**. A later refund would be expected to move that field,
+    so this is the bound that excludes a second, later partial refund.
+    - **Caveat:** that infers what the Dashboard field covers. It is strong reasoning, not a documented or measured
+      fact.
   - each payment shows one "Payment refunded" activity entry;
-  - both payment pages show "Last updated Aug 4, 5:20 PM". What that field covers is Stripe's semantics and is not
-    verified here.
+  - the refunded amount equals the full total. Stripe cannot refund beyond the charge, but on its own this does not
+    exclude two partials summing to the total. The bound above is what closes that.
+- **The read's scope boundary, stated by D.**
+  - D's Q5 (the latest payment `created_at`, and a count of payments after 2026-08-06) touched rows other than the
+    two refunds. D judges it inside the authorisation because R-d needed it.
+  - D declined the livemode read for F-WEBHOOK-LEDGER-GAP-1 as outside it.
+  - Both judgements are recorded for the owner to overrule (D `5278f7bc` and later).
 
 The count supports `REFUND_COUNT` only at this strength, and only together with the other four fields.
 
