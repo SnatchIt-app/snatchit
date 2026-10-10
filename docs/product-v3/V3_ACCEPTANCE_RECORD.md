@@ -110,7 +110,7 @@ acceptance.
 | W-4 Settings header (hub, Appearance) incl. shrink-to-floor title | `1ab2c8e2/` (default and a3xl, L/D) | B review owed |
 | S-1 / S-1b SettingsRow labels | `e6a38aef/`, `1a6ac1c3/` (a3xl, L/D) | B review owed |
 | P-5 tier word in blurb | `1ab2c8e2/profile-hero-*` | B review owed |
-| W-2 and its correction, fee labels (minimum-bid "(10%)", checkout plain) | `1ab2c8e2/listing-breakdown-*`, `6b6b8f48/` or `9bbeaec6` set | B review owed |
+| W-2 and its correction, fee labels (minimum-bid "(10%)", checkout plain) | `1ab2c8e2/listing-breakdown-*`; restore at `2ada44bd/` (default, scrolled to the rows) | B review owed |
 | W-2b sold note | `24393d0b/` set (scrolled frame) | B review owed |
 | W-5 Edit platform picker | `edit-picker-…-BLOCKED` | **untested** (sign-in waived); parity is test-pinned |
 | W-6 payout line | `not_connected` frame only | **source-pinned, not visually verified** |
