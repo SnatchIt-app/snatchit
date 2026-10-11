@@ -2411,3 +2411,13 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **F-PAYOUT-FEE-FAILOPEN-1 data query complete:** 0 affected rows. The coalesce hardening proceeds as a local
     migration only.
   - **Correction (A):** F-PAYOUT-FEE-FAILOPEN-1's NULL premise was wrong. `seller_fee` is NOT NULL DEFAULT 0 (baseline:984, 022:43), so the coalesce is dead code; the live definition is 20260924000000:153. No migration is prepared. The zero-default residual (a resale row written without a fee) has 0 live instances and is a product decision.
+- **Release-readiness review (A, 2026-10-11): `RELEASE_READINESS_20261011.md`** is the single consolidated list:
+  blockers, owner-waived, unevidenced, optional, completed, and the approvals in order.
+  - **New release blocker found:** `v3/midnight-app` CI has been red since at least 2026-10-07. The single
+    timezone-dependent test ML7 fails on the UTC runner; it passes on UTC−4 Macs. Sent to C.
+  - **S5 trial** `integration/s5-trial-20261011` @ `9ed130d5` (test only): clean merge; `app/` and `src/` identical
+    to `9bbeaec6`; CI red only on the same ML7.
+  - **C4 static client-read check PASS at `9bbeaec6`**: 63 chains and 25 RPCs, 0 missing; 5/5 planted defects
+    caught. `packages/S5_candidate_20261011/`.
+  - **Migration 153 prepared** (`fix/153-detect-refunds-state-on` @ `ce95e503`). CI green: pgTAP 99 files / 5,625
+    tests PASS, including 220. Registry row added. Not applied; D reviews.

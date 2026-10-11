@@ -1,0 +1,77 @@
+# S5 combined candidate: A's §5.3 checks (A, 2026-10-11)
+
+These are local checks and a CI trial only. Nothing has been merged into the gate or `main`, and nothing has been
+deployed. S5 (`v3/midnight-app` → gate), S7 (gate → `main`) and distribution (G2/X11) each remain the owner's approval.
+
+## The trial merge
+
+- **Trial:** `integration/s5-trial-20261011` @ `9ed130d5`, a merge commit whose parents are the gate `abef9506` and
+  `v3/midnight-app` `9bbeaec6`. Its tree is `c49160cf`. The branch is marked "test only, never merge".
+- **Clean.** There are no conflicts. 0 of the 1805 blobs in the result are new to either parent, so the trial publishes
+  nothing that was not already on origin.
+- **Changed-surface inventory (§5.3 item 1).** `app/` and `src/` in the merge result are **identical to `9bbeaec6`**,
+  the tip B and E reviewed.
+  - The gate had changed `src/lib/checkout/holdState.ts` and `src/screens/checkout/CheckoutNative.tsx`: the three
+    2026-09-19 escrow-line commits, `bbd3e1bf`, `9eebcac2` and `19b6fc2b`.
+  - v3 rewrote both files. The merge resolves them to v3's versions **byte for byte**, so v3 already carries that
+    behaviour; `showEscrowNote` is present at `9bbeaec6`.
+  - S5 adds to the gate: `src` (94 files), `tests` (98), `app` (42), `native` (16), and `tools`, `assets`, `docs`,
+    `scripts`, `packages`, `components` and `package.json`.
+  - The gate adds to v3: `supabase` (38), `tests` (8), `scripts`, `docs` and `.github`. v3 changes nothing under
+    `supabase/`.
+
+## CI at the combined candidate (§5.3 item 2): RED, with one failure that predates the merge
+
+Run [38159624076](https://github.com/SnatchIt-app/snatchit/actions/runs/38159624076) on `9ed130d5`:
+- Migrations (fresh DB), Deno, Web build and Admin console: **success**.
+- **Typecheck / Lint / Unit tests: failure**, from exactly one test:
+  `tests/v3-mylistings-bids-stage.test.ts` › SellerListingCard › **ML7**.
+  - Expected `"Sold Sat 17 Oct"`; received `"Sold Sun 18 Oct"`.
+  - The input is `2026-10-17T21:00:00-04:00`, which is 01:00 UTC on 18 October. `soldOnLabel` formats in the
+    runner's local zone. The CI runner is on UTC; the developer Macs are on UTC−4. So the test passes in Eastern time
+    and fails in CI.
+- **This is not caused by the merge.** `v3/midnight-app`'s own CI has failed the same way on every push since at
+  least 2026-10-07:
+  - [38028668549](https://github.com/SnatchIt-app/snatchit/actions/runs/38028668549) at `9bbeaec6`: the same ML7
+    assertion; 1 of 178 test files fails;
+  - `c11b4a49`, `9498080a`, `3c03778a` and `91a5a58c`.
+- **Owner of the fix: C.** Either the test pins a timezone, or `soldOnLabel` formats in a fixed zone. Which zone the
+  product should use for "Sold <day>" is C's call, or the owner's. After the fix, the trial must be re-merged and
+  re-run.
+
+## The static client-read check, C4 (§5.3 item 3): PASS at `9bbeaec6`
+
+Tool: `c4_client_read_check.py` (this folder).
+- **Source:** `git archive origin/v3/midnight-app@9bbeaec6` (`app/`, `src/`, `packages/`; tests excluded).
+- **Schema:** the local `pkg151_rehears` clone at ledger 164, the same ledger as production after 150/151.
+- **Resolved automatically:** 63 `.from()` chains and 25 `.rpc()` calls. That covers tables, selected and embedded
+  columns, filter columns, `insert`/`update`/`upsert` keys, RPC names and every argument name. **MISSING: 0.**
+  Output: `out/c4_run_9bbeaec6.txt`.
+- **Positive controls.** Five planted defects in a copy were all caught, each with its own message: a column, a table,
+  an RPC argument, an RPC name, and a **second** RPC argument (`out/c4_mutants.txt`).
+  - The first two versions of the tool had bugs, both caught this way. One read no arguments at all; the other checked
+    only the first key of an argument object. Both are fixed, and the second-key mutant (M5) proves the fix.
+- **16 dynamic sites, resolved by hand. All exist in the production schema.**
+  - `get_my_security_notices()` and `mark_security_notices_read(p_ids)`.
+  - `revoke_push_token(p_token)` and `revoke_all_push_bindings()`.
+  - `mark_listing_sold` and `complete_auction_payment`, each `(p_listing_id, p_user_id)`.
+  - `register_push_token(p_token, p_platform, p_device_secret, p_device_name)`.
+  - `push_tokens` `{user_id, token, platform, is_active, last_used}`.
+  - The six `notification_preferences` toggles.
+  - `LISTING_SUMMARY_COLUMNS`: 8 `listings` columns.
+  - `BIDS_SELECT`: `*, profiles(display_name, avatar_url)`, over an FK from bids to profiles.
+  - The three `src/lib/venue/client.ts` helpers (`schema('venue'|'catalog'|'kernel').rpc(fn, args)`) are imported
+    by nothing outside `src/lib/venue/`, so they are **unreachable in this build**.
+- **Limits:**
+  - This checks existence, not column privileges or RLS.
+  - The schema is the ledger-164 rehearsal clone, not a fresh production read.
+  - It covers `9bbeaec6` without S6. If 152 and C's blocking client half join the candidate, rerun it.
+  - **D verifies C4 (§5.3 item 6).**
+
+## Still owed by others for §5.3
+
+- **Item 4:** a native build of the candidate from a fresh install (C/B, on "SN V3 393x852").
+- **Item 5:** delta acceptance. There are no app-source changes beyond `9bbeaec6`, so the delta is E's one open
+  evidence item (four default-size Settings frames) plus whatever the ML7 fix touches.
+- **Item 6:** D's verification of C4.
+- **Item 7:** G2, an EAS production build from the exact candidate sha, which is owner-authorised.

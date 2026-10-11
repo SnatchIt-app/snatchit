@@ -1,0 +1,7 @@
+# C4 positive controls, mutated copy (5 planted defects: bogus column, table, rpc arg, rpc name, second rpc arg)
+resolved: 63 .from() chains, 25 .rpc() calls; MISSING 5, UNRESOLVED 16
+MISSING    app/my-listings.tsx:177  function public.cancel_listing has no overload with args ['p_user_id', 'p_zz_bogus_arg']
+MISSING    app/settings/payout-setup.tsx:51  function public.zz_bogus_fn
+MISSING    app/(tabs)/home.tsx:248  table/view public.zz_bogus_table
+MISSING    app/transfer/send/[id].tsx:222  function public.mark_transfer_sent has no overload with args ['p_transfer_evidence_path', 'p_transfer_id', 'p_zz_second_bogus']
+MISSING    src/screens/ListingDetailScreen.tsx:349  column public.listings.zz_bogus_col (select)
