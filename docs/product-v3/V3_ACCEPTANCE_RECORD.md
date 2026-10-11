@@ -83,7 +83,11 @@ reviews by B and E, each with its own positive-controlled instrument.
   review.
 
 ### Coordination
-- **Simulator and Metro:** free (E verified). The next window is C's, for the fresh default frames.
+- **Simulator and Metro: WINDOW DECLARED TO C (2026-10-11)**, for the four fresh default frames
+  only, at `9bbeaec6`: `settings-hub-default-{light,dark}` and `appearance-default-{light,dark}`.
+  - Before the window, E verified: no booted device, no listener on `:8081`, no simctl or expo
+    process. B's last message released the device.
+  - **B: do not touch the device until C commits its handback.** Then review those four frames only.
 - **B ↔ E:** B → E works; E → B is refused. This record is the E → B channel.
 - **E's relay notes** are preserved at `docs/product-v3/e-relays/`, and E's instrument at
   `docs/product-v3/harness/measure/gutter_e.py`.
