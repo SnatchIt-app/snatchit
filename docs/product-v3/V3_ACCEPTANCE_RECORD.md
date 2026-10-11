@@ -85,6 +85,34 @@ acceptance.
 - **Branch note:** `7d957100` is a **merge**, not a fast-forward. The serving and batch branches
   diverged for the first time. C did not rebase, because `v3/consumer-batch2` is pushed.
 
+### E review of the W batch at `9bbeaec6` (owner direction 2026-10-11; E, independent of C's figures; B has not reviewed)
+**Instrument:** B's stated method, re-implemented by E.
+- Ink is RGB distance from each frame's modal background, below y = 440 px.
+- Full-bleed hairlines are excluded by shape (rows ≥95% inked).
+- Right gutter is x ∈ [1131, 1178]; thresholds T = 30/45/60/90.
+- **Positive control first:** E's instrument reproduced both known failures at `9498080a`: `ratewrap`
+  2,600 px and `trustrows` 8,325 px at T = 60. B measured 2,597 and 8,315.
+
+**Results:** 23 frames, **0 px in the gutter at every threshold.** Max ink x is ≤ 377.0 pt.
+- The 377.0 pt figure is row dividers that end exactly at the content edge.
+- Sets: `1ab2c8e2/` (14 frames), `e6a38aef/` (4), `1a6ac1c3/` (2), `2ada44bd/` (2), `7d957100/` (1).
+
+| Item | E verdict | Evidence (E viewed) |
+|---|---|---|
+| W-4 Settings header, hub and Appearance | **PASS.** "SETTINGS" and "APPEARANCE" are whole, on one line, at a3xl | `1a6ac1c3/settings-hub-a3xl-dark`, `1ab2c8e2/appearance-a3xl-light` |
+| S-1 / S-1b row labels | **PASS.** "Edit / profile" and "Phone / verification" break on words; "Notifications" is whole on one line; chevrons present | `1a6ac1c3/settings-hub-a3xl-dark` |
+| P-5 tier word | **PASS.** "Trusted seller · 14 sales · 100% transfer success" wraps on words. The badge remains capped, which is Badge's follow-up | `1ab2c8e2/profile-hero-a3xl-dark` |
+| W-2 correction, minimum-bid "(10%)" | **PASS.** "Service fee (10%) $9.50" | `2ada44bd/listing-breakdown-default-light` |
+| W-2b sold note | **PASS.** "Price includes the service fee." beside "SOLD FOR $132.00 total" | `7d957100/listing-sold-default-light-Coperated.png` |
+| W-5 Edit platform picker | **UNTESTED**: signed-out guard; repeat sign-in owner-waived. Parity is test-pinned only | `…-BLOCKED` frame |
+| W-6 payout line | **SOURCE-PINNED, NOT VISUALLY VERIFIED**: needs a connected Stripe account | `2ada44bd/payout-setup-default-light` shows `not_connected` |
+
+**Limits:**
+- E reviewed the a3xl frames in the appearances captured, not every appearance at every size.
+- Default-size "unchanged" claims rest on C's pixel diffs; E did not re-run them.
+- **Not whole-app acceptance.** Signed-in checks remain owner-waived and **are not marked passed.**
+- Spoken VoiceOver is **optional and not a release blocker** (owner, 2026-10-11). It is untested.
+
 ### W-2 correction implemented: code `6b6b8f48`, merged as `2ada44bd`, evidence `9bbeaec6` (C, 2026-10-09; E verified). **Device and Metro released**
 - **Change:** "Service fee (10%) $9.50" is restored on the Listing minimum-bid breakdown and on
   `TransactionPanel`, captured at default **scrolled to the rows**.
@@ -107,11 +135,11 @@ acceptance.
 ### B: consolidated review list. Serving tip `9bbeaec6`; code at `6b6b8f48` (all C-operated frames; the device is free)
 | Item | Frames (C's repo, `native/<sha>/`) | Status |
 |---|---|---|
-| W-4 Settings header (hub, Appearance) incl. shrink-to-floor title | `1ab2c8e2/` (default and a3xl, L/D) | B review owed |
-| S-1 / S-1b SettingsRow labels | `e6a38aef/`, `1a6ac1c3/` (a3xl, L/D) | B review owed |
-| P-5 tier word in blurb | `1ab2c8e2/profile-hero-*` | B review owed |
+| W-4 Settings header (hub, Appearance) incl. shrink-to-floor title | `1ab2c8e2/` (default and a3xl, L/D) | **E PASS** (above); B optional |
+| S-1 / S-1b SettingsRow labels | `e6a38aef/`, `1a6ac1c3/` (a3xl, L/D) | **E PASS** (above); B optional |
+| P-5 tier word in blurb | `1ab2c8e2/profile-hero-*` | **E PASS** (above); B optional |
 | W-2 and its correction, fee labels (minimum-bid "(10%)", checkout plain) | `1ab2c8e2/listing-breakdown-*`; restore at `2ada44bd/` (default, scrolled to the rows) | B review owed |
-| W-2b sold note | `24393d0b/` set (scrolled frame) | B review owed |
+| W-2b sold note | `7d957100/listing-sold-default-light-Coperated.png` (scrolled to the note; path verified by C and E) | **E PASS** (above); B optional |
 | W-5 Edit platform picker | `edit-picker-…-BLOCKED` | **untested** (sign-in waived); parity is test-pinned |
 | W-6 payout line | `not_connected` frame only | **source-pinned, not visually verified** |
 
@@ -207,10 +235,10 @@ at gate `abef9506`, with no production reads.
 - **Chosen: B.** It drops the rate A can't confirm for every row, and it stays literally true in the
   partial-refund case A identified. Copy only; **C implements.**
 
-**Backend data question raised by A (not frontend; recorded once for A and the owner):**
-- Are there live, unpaid `payments` rows with a NULL `seller_fee`, or one that doesn't equal
-  `round(amount × 0.10)`? Any such row would pay the seller with no fee withheld.
-- Settling it needs a **production read, which only the owner can authorise**. A has not run it.
+**Backend data question raised by A: CLOSED (owner, 2026-10-11).** The question was whether any
+live, unpaid `payments` row had a NULL or non-10% `seller_fee`. The owner reports that the seller-fee
+production read is **complete, according to A and D**. E has not seen the read's result. The owner
+request is removed. W-6's copy is unaffected.
 
 **P-5 note:** the badge's 1.3× cap is `Badge`'s own limitation, a separate follow-up that has not
 been adopted. `reputation.ts` now carries the tier word, so no information is lost.
