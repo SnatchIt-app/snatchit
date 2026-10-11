@@ -50,14 +50,26 @@ reviews by B and E, each with its own positive-controlled instrument.
 - **Wording decided under owner delegation:** W-1 "Unrated"; W-2 and its correction; W-2b; W-3
   uppercase chrome labels; W-4; W-5; W-6. They are recorded below and closed.
 
-### Open: one evidence item
-- **Default size after the header change (W-4, S-1, S-1b), not yet shown by kept frames.**
-  - The default frames in `1ab2c8e2/` are byte-identical copies of `b64e5dd6/`; C declares the copy.
-  - C's "a re-shoot differs by zero" was not kept, so **the historical before/after comparison
-    cannot be made from committed frames.** That remains labelled as missing.
-  - The supporting argument is structural: the changes apply only when `identityStacks` is true.
-  - **Next:** C captures **fresh** default-size frames at `9bbeaec6` and keeps them: Settings hub and
-    Appearance, Light and Dark. Then B gives a narrow review of those four frames only.
+### Default size after the header change: VERIFIED by kept frames (C `32c0804a`; E independently re-diffed). B's narrow review pending
+- **Fresh captures** at the served tip `9bbeaec6`, through `_dev/v3-account` (the real Settings and
+  Appearance screens): `native/9bbeaec6/settings-hub-default-{light,dark}` and
+  `appearance-default-{light,dark}`, with `capture-log.txt`.
+- **Size from the paint:** C fixed the rule in advance from committed frames (max ink band ≤ 30 pt
+  means default; ≥ 40 pt means a3xl). The new frames measure 16.3–24.0 pt.
+- C discarded two frames that landed on Sign in rather than filing them.
+- **E's own diff against the retained `b64e5dd6` frames, both inputs committed:** **0 differing
+  pixels below y = 440 in all four.** All differences (1,459–1,857 px) sit in a box
+  x 162–266, y 69–106 px, which is the status-bar clock. The new and old files are distinct (different
+  md5), so this is not a file compared with itself, and the non-zero clock difference shows the diff
+  can detect change.
+- **Conclusion:** default-size Settings and Appearance at the final code are pixel-identical below
+  the header to `b64e5dd6`, which is before the header fix (`c303eab6` / `1ab2c8e2`) and before
+  S-1/S-1b. So W-4, S-1 and S-1b left default size unchanged, **now shown by kept frames.**
+- **Still labelled as historical and unverifiable:** the earlier "0 px vs `1ab2c8e2`" claims at
+  `e6a38aef` and `1a6ac1c3`, and the `1ab2c8e2/` default frames (byte-identical copies of
+  `b64e5dd6`). They are superseded by the above, not retroactively verified.
+- **Device:** E verified no booted device and no listener on `:8081` after C's commit.
+- **B: the window is yours for a narrow review of these four frames only.**
 
 ### Follow-ups, explicitly not release blockers (no concrete loss of information)
 - **Badge 1.3× cap** (`Badge.tsx`, shared). The tier word is now also carried in the scaling blurb
@@ -83,8 +95,8 @@ reviews by B and E, each with its own positive-controlled instrument.
   review.
 
 ### Coordination
-- **Simulator and Metro: WINDOW DECLARED TO C (2026-10-11)**, for the four fresh default frames
-  only, at `9bbeaec6`: `settings-hub-default-{light,dark}` and `appearance-default-{light,dark}`.
+- **Simulator and Metro:** C's window for the four default frames is complete (`32c0804a`); the device
+  is released. B may review from the saved frames, with no device needed.
   - Before the window, E verified: no booted device, no listener on `:8081`, no simctl or expo
     process. B's last message released the device.
   - **B: do not touch the device until C commits its handback.** Then review those four frames only.
