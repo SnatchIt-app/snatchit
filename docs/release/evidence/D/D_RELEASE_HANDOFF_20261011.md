@@ -107,6 +107,26 @@ a refund is genuinely pending or failed — or sooner, if the hardening item in 
    (`rowIsLiveActionable` with a single call site, plus two independent equivalents). They agree today;
    three implementations can drift. A full enumeration of edge money paths has **not** been done.
 
+### §5.1 addendum — two conditions on the detector-logging migration (D, 2026-10-11)
+
+A has numbered it **153**. Two conditions, both from D's own analysis, recorded before it is written:
+
+1. **It must be timestamped, not numbered.** `ops.detect_refunds` is owned by
+   `20260925000000_refund_lifecycle_state.sql` (150). Under `LC_ALL=C`, `153_*.sql` sorts **before**
+   `20260925000000_*`, so on a fresh replay 153 would run first and 150 would then redefine the
+   function and **silently wipe the change**. This is the recorded "134 trap", whose own fix was to
+   rename 134 to `20260916000000_processing_sweep_arm.sql`. 153 must carry a timestamp later than
+   `20260925010000` (151). Verified by sorting the three filenames.
+
+2. **`state_on` alone does not close the gap.** The defect is that three cases are indistinguishable:
+   the gated branch skipped (flag off), the branch ran over zero rows, and the branch ran over rows.
+   `state_on` separates only the first. The existing `scanned` counter mixes gated and ungated loops,
+   which is why it read 2 before the flag, 2 after, and 2 with live data. A **separate counter for the
+   gated loops** is needed for the run log to discriminate.
+   **The acceptance test follows directly:** with the flag **off** the output must differ from the flag
+   **on with zero rows**. If those two produce identical output, the change has fixed nothing — which
+   is exactly today's defect restated.
+
 ## 6. NOT blockers
 
 VoiceOver (owner: optional). The five excluded payments (owner ruling, closed). The webhook ledger gap
