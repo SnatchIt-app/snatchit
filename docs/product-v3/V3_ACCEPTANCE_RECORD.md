@@ -19,8 +19,18 @@ acceptance.
 
 ## CURRENT ACCEPTANCE STATUS (E, 2026-10-11). THE ONLY CURRENT SUMMARY; every section below is dated history
 
-**Candidate:** code at `9bbeaec6` (`v3/midnight-app`, serving tip). The last code commit is
-`6b6b8f48` (`v3/consumer-batch2`).
+**Candidate:** app code as of `9bbeaec6`. The last code commit is `6b6b8f48`
+(`v3/consumer-batch2`).
+- The serving tip is now **`10dbcdf4`** (`v3/midnight-app`, on origin). Since `9bbeaec6` it adds
+  only `native/` frames and **one test file** (`tests/v3-mylistings-bids-stage.test.ts`). App code
+  is unchanged, so all evidence below applies.
+- **CI on `v3/midnight-app` was red on every push from about 2026-10-07 until `9bbeaec6`.** Recorded
+  conclusions: `failure` at `9498080a`, `c11b4a49` and `9bbeaec6`. The cause was a
+  timezone-dependent assertion in C's test ML7: green at UTC−4 locally, red on the UTC runner (found
+  by A).
+  - Fixed in `10dbcdf4` (test only). C reports 3016 passing under `TZ=UTC`.
+  - **CI at `10dbcdf4` was `in_progress` when E checked (2026-10-11 ~17:55Z). Green is NOT yet
+    evidenced.**
 - Both are on origin; E verified with `git ls-remote` on 2026-10-11.
 - This record's branch was backed up by B at `6b8080bd` (fast-forward, no rewrite).
 
