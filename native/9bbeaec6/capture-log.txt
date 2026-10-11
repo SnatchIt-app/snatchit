@@ -54,11 +54,17 @@ Fixture           Settings hub: SettingsDeletionFixture = 'active' (the harness 
                   Appearance screen: NO fixture. The harness passes none; the screen has no read
                   to short-circuit.
                   No sign-in, no session, no waived check touched.
-Appearance        Set twice and consistently for every frame: the simulator's own trait
-                  (simctl ui appearance <light|dark>) AND the app's own preference, through the
-                  harness's ?appearance= param, which writes the same store Settings writes.
+Appearance        Driven by the ROUTE — the harness's ?appearance=<light|dark> param, which
+                  writes the same preference store Settings writes. That is the one that decides
+                  what the app paints. simctl ui appearance was ALSO set to match, for the status
+                  bar and system chrome, and its value is printed per frame below — but it is a
+                  corroborating read, not the control.
+                  B's finding, recorded because it would otherwise look like belt-and-braces
+                  pedantry: simctl ui appearance does NOT drive this app, because the harness
+                  reads the stored preference. B had an A3XL frame come back Dark while simctl
+                  reported light. Setting both and agreeing on both is what keeps that from
+                  producing a frame filed under the wrong appearance.
                   For screen=appearance the param is also the case under test — the radio.
-                  Both reads are printed per frame below.
 
 ASSERTED TEXT SIZE: default, asserted from the PAINT
 -----------------------------------------------------
@@ -112,8 +118,24 @@ Fresh 9bbeaec6 frame vs the retained b64e5dd6 frame of the same name:
 Every difference in all four is inside a ~105x38 px box in the status bar: the clock. Nothing
 else on any of these screens moved between b64e5dd6 and the served tip.
 
-This is what the batch asserted three times and could not show. It is now checkable: both files
-are committed, under native/b64e5dd6/ and native/9bbeaec6/.
+WHAT THIS DIFF DOES AND DOES NOT DO TO THE OLD CLAIMS (E's labelling rule, 2026-10-11)
+---------------------------------------------------------------------------------------
+These four frames establish DEFAULT-SIZE BEHAVIOUR AT THE FINAL CODE, and nothing more.
+
+They do NOT retroactively verify the earlier diffs. The historical S-1 and S-1b claims — "Default
+size matches 1ab2c8e2 by pixel diff (0 differing pixels below the header)" at e6a38aef and at
+1a6ac1c3, and the re-shoot claim in the 1ab2c8e2 log — remain **UNVERIFIABLE**. Their inputs were
+not kept, and no measurement taken today can reach back and check a comparison whose other half
+no longer exists. They stay recorded as unverifiable, not as confirmed.
+
+What is now checkable is only this: at the served tip, both sides of the comparison above are
+committed — native/b64e5dd6/ and native/9bbeaec6/ — so anyone can re-run it without the device.
+
+B reached the same conclusion from the other direction and recorded an error worth repeating
+here: B "re-ran" the original diff, got zero across the whole frame including the clock, and
+briefly read that as confirmation. It was a file compared with itself — the duplicate described
+above. A zero from two identical inputs has exactly the shape of proof and is not one. That is
+the second reason the old claims cannot be rescued by re-running anything.
 
 
 WHAT THIS DOES NOT ESTABLISH — read before citing it
@@ -144,3 +166,22 @@ METHOD NOTES, kept because they cost time
 3. The pixel diff is what finally distinguishes "right screen" from "plausible screen". Zero
    differing pixels below the status bar against a known-good frame is a stronger identity check
    than reading the screenshot.
+
+
+HANDBACK
+--------
+Window closed 2026-10-11 13:46. Metro's terminal tab was closed and the device shut down, then
+verified: 0 booted devices, 0 listeners on :8081. Nothing of mine is running.
+
+The simulator goes back to B. B's five usability conditions, stated in its request, are each met
+by these four frames:
+  1. served SHA read from the serving tree in the same window (git rev-parse with Metro already
+     listening) and used as the directory name — native/9bbeaec6/      met
+  2. banner gate on every frame, via cap.sh                            met
+  3. content_size read BEFORE and AFTER each frame, frame void if they disagree — fastshot.sh
+     brackets it; none disagreed                                       met
+  4. appearance driven by the ROUTE param, not by simctl alone         met (see above)
+  5. every frame a claim rests on kept, including the baseline side    met — both native/b64e5dd6/
+     and native/9bbeaec6/ are committed and pushed
+The A3XL pair was not re-shot. B states A3XL is already settled by paint with its own
+discrimination control, and the owner's gap was default size.
