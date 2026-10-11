@@ -85,7 +85,27 @@ acceptance.
 - **Branch note:** `7d957100` is a **merge**, not a fast-forward. The serving and batch branches
   diverged for the first time. C did not rebase, because `v3/consumer-batch2` is pushed.
 
-### E review of the W batch at `9bbeaec6` (owner direction 2026-10-11; E, independent of C's figures; B has not reviewed)
+### W batch at `9bbeaec6`: B and E reviewed independently and AGREE
+- **B's review:** `9c970b05`, `B_NATIVE_REVIEW_9bbeaec6.md`; B pushed it.
+- **E correction:** E's review below was written without having seen B's. "B has not reviewed" was
+  wrong.
+- **B's verdicts:**
+  - W-4, S-1/S-1b, P-5, W-2 and W-2b **pass**. That's 24 banner-gated frames, 0 gutter ink, max ink
+    x 339.3–376.7 pt.
+  - W-5 and W-6 are **not passed**.
+- **B's extra findings:**
+  1. **Evidence gap.** The default frames in `1ab2c8e2/` are byte-identical copies of the
+     `b64e5dd6` frames (C declares this). So C's "the re-shoot differs by zero pixels" claim **can't
+     be verified from the committed frames**. B withdraws its own re-run, which compared a file with
+     itself. **Default-size "unchanged" for the header change is therefore unverified by frames.**
+     Supporting evidence: B's a3xl diff confines the change to the header band, and the default
+     branch cannot change by construction.
+  2. **P-5 residual.** The dispute branch of `deriveReputation` still doesn't name the tier in the
+     blurb. That isn't a regression. The Badge 1.3× cap remains a follow-up.
+  3. B also noted that the review list pointed at `24393d0b/`, which doesn't exist on disk. That is
+     now corrected to `7d957100/`.
+
+### E review of the W batch at `9bbeaec6` (owner direction 2026-10-11; E, independent of C's figures)
 **Instrument:** B's stated method, re-implemented by E.
 - Ink is RGB distance from each frame's modal background, below y = 440 px.
 - Full-bleed hairlines are excluded by shape (rows ≥95% inked).
