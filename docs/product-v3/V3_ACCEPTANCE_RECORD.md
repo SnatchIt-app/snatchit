@@ -29,8 +29,17 @@ acceptance.
   timezone-dependent assertion in C's test ML7: green at UTC−4 locally, red on the UTC runner (found
   by A).
   - Fixed in `10dbcdf4` (test only). C reports 3016 passing under `TZ=UTC`.
-  - **CI at `10dbcdf4` was `in_progress` when E checked (2026-10-11 ~17:55Z). Green is NOT yet
-    evidenced.**
+  - **CI is STILL RED at `10dbcdf4` and `11e50ca0`** (runs `38161514218` and `38161692129`,
+    conclusion `failure`; E read the logs).
+    - The timezone fix worked: the root suite now reports **178/178 test files passed**.
+    - **A second, previously masked failure:** `core/tests/domain-parity.test.ts` fails with
+      `Cannot find package '@/src/lib/money' imported from src/config/app.ts`. At `9bbeaec6` the step
+      stopped at the ML7 failure, so this suite never ran.
+    - `src/config/app.ts` last changed at `90235b74` (2026-09-24, "one fee rate has one home"). So
+      this is likely pre-existing since then, hidden behind ML7. That's an inference from history;
+      the earlier runs weren't re-examined.
+    - **Owner: C** (test/config resolution in the core package's test run, not app behaviour).
+      **CI green is not evidenced.**
 - **C's handback is committed at `11e50ca0`.** The device is shut down and `:8081` is clear (C, and
   E's earlier check). **The simulator is B's.**
 - **Lint (C's correction):** the tip has 44 warnings, all pre-existing. C's earlier "29" was stale.
