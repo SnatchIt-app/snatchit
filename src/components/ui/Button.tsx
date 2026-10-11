@@ -10,13 +10,19 @@
  *  - Destructive is a DIFFERENT red (`status.error`) and is never a filled block,
  *    so a delete can never look like a purchase. In the legacy theme they were
  *    the same colour, which is a usability defect rather than a style choice.
- *  - Radius 0. There is no pill button in this brand.
+ *  - V3 (owner 2026-09-24, pkg8 boards): the action is a PILL with a sentence-case
+ *    label. The V2 rule this replaced — "Radius 0, there is no pill button in this
+ *    brand", with an uppercase 2.2-tracked label — was measured from the V2 web
+ *    system and is superseded by the approved boards. Black-on-red is unchanged.
  *  - There is no filled secondary. Secondary is a hairline and a white label.
  */
 
 import { Animated, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { useMemo } from 'react';
 
 import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 import { usePressScale } from './press';
@@ -69,25 +75,27 @@ export function Button({
   accessibilityHint,
   testID,
 }: ButtonProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const inert = disabled || loading;
   const press = usePressScale(!inert);
   const showPending = loading && !!pendingLabel;
 
   const fill: ViewStyle =
     variant === 'primary'
-      ? { backgroundColor: v2.brand.red }
+      ? { backgroundColor: palette.brand.red }
       : variant === 'secondary'
-        ? { borderWidth: 1, borderColor: v2.border.strong }
+        ? { borderWidth: 1, borderColor: palette.border.control }
         : variant === 'destructive'
-          ? { borderWidth: 1, borderColor: v2.status.error }
+          ? { borderWidth: 1, borderColor: palette.status.error }
           : {};
 
   const labelColor =
     variant === 'primary'
-      ? v2.text.inverse
+      ? palette.text.inverse
       : variant === 'destructive'
-        ? v2.status.error
-        : v2.text.primary;
+        ? palette.status.error
+        : palette.text.primary;
 
   return (
     <Animated.View style={[block ? styles.block : undefined, press.style]}>
@@ -99,14 +107,23 @@ export function Button({
         hitSlop={HIT_SLOP[size]}
         // Disabled dims the whole control rather than recolouring it: a disabled
         // primary that changes hue reads as a different button.
-        style={[
+        style={({ pressed }) => [
           styles.base,
           // minHeight (not height): the box grows if the label wraps taller at
           // large Dynamic Type instead of clipping. Normal-size height is unchanged.
           { minHeight: HEIGHT[size] },
           fill,
+          // F-30: a primary that is pressed shows the measured pressed red (lighter, so the black
+          // label keeps ≥ 4.5:1 in both appearances) on top of the scale feedback.
+          variant === 'primary' && pressed && !inert ? { backgroundColor: palette.brand.redPressed } : null,
           block && styles.block,
-          disabled && styles.disabled,
+          // A dim that is right for a control is wrong for a STATUS. `payControl` (and the reserve and
+          // bid flows) return loading AND disabled together, so an in-flight label — "Confirming
+          // payment", "Reserving…", "Submitting bid…" — was being rendered at 40% opacity, the
+          // faintest thing on the screen and worst in Light (B measured it on checkout, 2026-09-24).
+          // The control stays inert and still reports `busy`; only the dim goes, and only while a
+          // pending LABEL is carrying the news. A spinner-only loading state keeps it.
+          disabled && !showPending && styles.disabled,
           style,
         ]}
         accessibilityRole="button"
@@ -114,6 +131,12 @@ export function Button({
         accessibilityLabel={showPending ? pendingLabel : (accessibilityLabel ?? label)}
         accessibilityHint={accessibilityHint}
         accessibilityState={{ disabled: inert, busy: loading }}
+        /*
+         * The pending label is the ONLY statement of an in-flight status on some screens — checkout's
+         * six payControl branches among them — so the control announces its own change rather than
+         * relying on a sentence elsewhere. Polite: it reports progress, it does not interrupt.
+         */
+        accessibilityLiveRegion={showPending ? 'polite' : 'none'}
         testID={testID}
       >
         {/* The label stays mounted but invisible while loading, so the button
@@ -122,7 +145,7 @@ export function Button({
             row takes its place at the same (or the wider) width. */}
         <Text
           style={[
-            textStyle('label'),
+            textStyle('action'),
             { color: labelColor },
             loading && styles.hidden,
             showPending && styles.ghost,
@@ -141,7 +164,7 @@ export function Button({
           >
             {showPending ? <Spinner color={labelColor} label={pendingLabel} /> : null}
             <Text
-              style={[textStyle('label'), { color: labelColor }]}
+              style={[textStyle('action'), { color: labelColor }]}
               numberOfLines={1}
               maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}
             >
@@ -161,9 +184,10 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   base: {
-    borderRadius: v2.radius.none,
+    borderRadius: v2.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: v2.space.lg,
@@ -177,4 +201,5 @@ const styles = StyleSheet.create({
   ghost: { height: 0, opacity: 0, overflow: 'hidden' },
   pendingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
   spinnerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-});
+  });
+}

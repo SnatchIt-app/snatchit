@@ -146,7 +146,10 @@ describe('adaptive nav — shipped-source guards', () => {
     // rounded, not radius 0 (read from source to avoid importing native modules)
     const radius = Number(read('src/lib/nav/navInsets.ts').match(/DOCK_RADIUS\s*=\s*(\d+)/)?.[1]);
     expect(radius).toBeGreaterThan(16);
-    expect(dock).toMatch(/rgba\(18,18,20,0\.72\)/); // dark translucent glass
+    // Translucent glass from the palette's chrome group (owner 2026-09-24): dark over Midnight,
+    // near-white over Daylight — never a literal in the dock.
+    expect(dock).toMatch(/backgroundColor: p\.chrome\.glass,/);
+    expect(dock).not.toMatch(/rgba\(18,18,20/);
     // no brand-red rectangular frame / top marker anywhere in the dock
     expect(dock).not.toMatch(/brand\.red/);
   });
@@ -193,10 +196,13 @@ describe('adaptive nav — shipped-source guards', () => {
     expect(create).toContain('marginBottom: ctaLift({ keyboardUp, dockOffset: ctaDockOffset })'); // F-SELL-1: the lift is dropped only while the keyboard (and no dock) is up
   });
 
-  it('Home wiring stays minimal and discovery is untouched', () => {
+  it('Home wiring stays minimal and discovery renders through the V3 feature + rows', () => {
     expect(home).toContain('onHomeScroll');
     expect(home).toContain('useDockClearance');
-    expect(home).toContain('DiscoveryCard');
+    // V3 (owner 2026-09-22, package §3): DiscoveryCard was replaced by HomeFeature + FeedRow.
+    // The dock-facing wiring this test guards is unchanged.
+    expect(home).toContain('HomeFeature');
+    expect(home).toContain('FeedRow');
   });
 
   it('Create CTA is a separate surface that clears the dock by an explicit gap', () => {

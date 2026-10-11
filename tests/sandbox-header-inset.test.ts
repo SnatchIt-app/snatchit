@@ -72,13 +72,21 @@ describe('the helper: production unchanged, sandbox adds the badge, no text-size
 // Each site keeps the spacing token it had, so production spacing is identical.
 const SITES: { file: string; expr: string }[] = [
   { file: 'app/my-listings.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
-  { file: 'app/settings/index.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
+  // app/settings/index.tsx and app/settings/appearance.tsx used to pay their own inset here,
+  // because each hand-rolled the same back chip and title. Both now render SettingsHeader
+  // (W-4, acceptance record d5365925), which pays it once — so they moved to the HOSTS rule
+  // below, which asserts a host pays NO inset of its own. The badge-aware inset is still
+  // enforced end to end: SettingsHeader is a SITE, and every settings screen renders it
+  // (tests/v3-wording-w4-w5.test.ts enumerates the directory).
   { file: 'app/transfer/send/[id].tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'app/transfer/receive/[id].tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/screens/PlaceBidScreen.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/account/SettingsHeader.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/auth/AuthScreen.tsx', expr: 'paddingTop: topPad + v2.space.xl' },
-  { file: 'src/components/listing/ListingHero.tsx', expr: 'top: topPad + v2.space.sm' },
+  // The hero's inset moved from the absolutely positioned overlay to the navigation area above
+  // the poster (owner, 2026-10-06: navigation and the banner must not cover printed content),
+  // so it now reads like the other eight sites instead of being the one exception.
+  { file: 'src/components/listing/ListingHero.tsx', expr: 'paddingTop: topPad + v2.space.sm' },
   { file: 'src/components/listing/OutbidToast.tsx', expr: 'paddingTop: v2.space.sm + topPad' },
 ];
 
@@ -91,14 +99,21 @@ describe('the eleven surfaces use the badge-aware inset with their original spac
       expect(src).not.toMatch(/insets\.top/);
     });
   }
-  it('src/screens/checkout/CheckoutNative.tsx (top bar and both confirmation bodies)', () => {
-    const src = stripComments(read('src/screens/checkout/CheckoutNative.tsx'));
-    expect(src.split('const topPad = useTopInset();').length - 1).toBe(3);
+  it('src/screens/checkout/CheckoutView.tsx (top bar and the shared terminal face)', () => {
+    /*
+     * RETARGETED 2026-09-24: checkout's presentation moved to CheckoutView.tsx. The inset obligation
+     * is unchanged, and the count drops from three readers to two because the refund and the
+     * confirmation faces are now ONE component — a single `TerminalFace` — instead of two copies.
+     */
+    const src = stripComments(read('src/screens/checkout/CheckoutView.tsx'));
+    expect(src.split('const topPad = useTopInset();').length - 1).toBe(2);
     expect(src).toContain('paddingTop: topPad + v2.space.sm');
-    expect(src.split('paddingTop: topPad + v2.space.xxl').length - 1).toBe(2);
+    expect(src.split('paddingTop: topPad + v2.space.xxl').length - 1).toBe(1);
     expect(src).not.toMatch(/insets\.top/);
     // the bottom bars still pay the bottom inset
-    expect(src.split('insets.bottom').length - 1).toBe(3);
+    expect(src.split('insets.bottom').length - 1).toBe(2);
+    // And the screen that owns the payment flow no longer reads an inset at all.
+    expect(stripComments(read('src/screens/checkout/CheckoutNative.tsx'))).not.toContain('useTopInset');
   });
 });
 

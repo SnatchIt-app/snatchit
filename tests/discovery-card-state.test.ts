@@ -163,7 +163,7 @@ describe('home and search — shipped-source guards', () => {
 
   it('formats every price through the one money helper', () => {
     for (const [name, src] of [['home', home], ['search', search]] as const) {
-      expect(src, `${name} must use allInFromDollars`).toContain('allInFromDollars(');
+      expect(src, `${name} must use allInFromDollars`).toContain('allInFromDollarsV3(');
       expect(src, `${name} must not do money arithmetic`).not.toMatch(/\* 100|\/ 100/);
     }
     expect(card).not.toMatch(/\* 100|\/ 100/);

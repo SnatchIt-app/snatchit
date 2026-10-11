@@ -15,10 +15,12 @@
 // by luck — build 14 crashed at cold launch when that luck ran out.
 import 'react-native-get-random-values';
 
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { router, Stack } from 'expo-router';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { AppearanceProvider, useTheme } from '@/src/theme/appearance';
+import { router, Stack, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,7 +36,6 @@ import ErrorBoundary from '@/src/components/ErrorBoundary';
 // Imported from the leaf module (not the ui barrel) so the web-safe root layout
 // pulls in no native-only siblings. Spinner's own deps are all platform-safe.
 import { Spinner } from '@/src/components/ui/Spinner';
-import * as v2 from '@/src/theme/v2';
 import { useBrandFonts } from '@/src/theme/fonts';
 
 // Platform-resolved: .native.tsx wraps in StripeProvider + Sentry;
@@ -50,6 +51,45 @@ import {
 export const unstable_settings = {
   anchor: '(tabs)',
 };
+
+// Hold the native splash until the brand fonts AND the persisted appearance choice are ready
+// (B, package 8 §6): the first painted frame must be the chosen appearance, never a System
+// frame that then flips. AppearanceProvider withholds its tree until the choice is read, and
+// ThemedShell — which mounts only inside that tree — releases the splash once fonts land. On
+// web the call resolves as a no-op.
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
+/**
+ * Appearance (owner 2026-09-23): the navigation theme and the status bar follow the resolved
+ * scheme — System by default, or the user's explicit Light/Dark — instead of a hard-coded dark.
+ */
+function ThemedShell({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
+  const { scheme, palette } = useTheme();
+  // Mounted only once the appearance choice is read; fonts ready here means both gates are open.
+  useEffect(() => {
+    if (fontsReady) void SplashScreen.hideAsync().catch(() => {});
+  }, [fontsReady]);
+  const navTheme = useMemo(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: palette.brand.red,
+        background: palette.surface.canvas,
+        card: palette.surface.surface,
+        text: palette.text.primary,
+        border: palette.border.default,
+      },
+    };
+  }, [scheme, palette]);
+  return (
+    <ThemeProvider value={navTheme}>
+      {children}
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
 
 function RootLayout() {
   const { session, loading } = useAuth();
@@ -102,8 +142,19 @@ function RootLayout() {
     setSentryUser(session ? { id: session.user.id, email: session.user.email ?? undefined } : null);
   }, [session, loading]);
 
+  // The V3 rendering harness under `app/_dev/` must paint a screen without a session, and the
+  // auth gate below would replace the route before it ever renders. The exemption is false FOR A
+  // PRODUCTION PAIRING at runtime — __DEV__ is false in a release bundle, and IS_SANDBOX_BUILD
+  // requires the env guard's three conjuncts (guard passed, APP_ENV 'sandbox', sandbox host) —
+  // so the gate behaves exactly as before there, though the _dev modules do still ship. The
+  // app/_dev/_layout.tsx gate is the second, independent runtime refusal.
+  // (owner 2026-09-24: web rendering of the approved boards; wording per A's review.)
+  const segments = useSegments();
+  const inDevHarness = (__DEV__ || IS_SANDBOX_BUILD) && segments[0] === '_dev';
+
   // Navigation is a separate concern and runs only on a real phase boundary.
   useEffect(() => {
+    if (inDevHarness) return;
     const phase = authPhase(session);
     const decision = rootRouteDecision({
       loading,
@@ -115,7 +166,7 @@ function RootLayout() {
     if (!decision.navigate) return;
     routedPhaseRef.current = phase;
     router.replace(decision.to);
-  }, [session, loading, isRecovery, onboarding]);
+  }, [session, loading, isRecovery, onboarding, inDevHarness]);
 
   // Reduce Motion: every push and pop still happens, as a cross-fade (CFT-206).
   const reduceMotion = useReducedMotion();
@@ -124,7 +175,8 @@ function RootLayout() {
     <ErrorBoundary>
     <AppShell>
     <SafeAreaProvider>
-    <ThemeProvider value={DarkTheme}>
+    <AppearanceProvider>
+    <ThemedShell fontsReady={fontsReady}>
       {fontsReady ? (
       <Stack screenOptions={{ headerShown: false, animation: reduceMotion ? 'fade' : 'default' }}>
         <Stack.Screen name="(tabs)" />
@@ -153,13 +205,7 @@ function RootLayout() {
       </Stack>
       ) : null}
 
-      {(loading || !fontsReady) && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <View style={styles.splash}>
-            <Spinner size="large" color={v2.brand.red} label="Loading Snatch It" />
-          </View>
-        </View>
-      )}
+      {(loading || !fontsReady) && <SplashOverlay />}
 
       {/* Environment pairing failure: a non-dismissible blocker. Rendered last so
           it covers everything, and it captures touches (no pointerEvents="none")
@@ -180,8 +226,8 @@ function RootLayout() {
       {/* Unmistakable label so a sandbox build is never mistaken for production. */}
       {IS_SANDBOX_BUILD ? <SandboxBadge /> : null}
 
-      <StatusBar style="light" />
-    </ThemeProvider>
+    </ThemedShell>
+    </AppearanceProvider>
     </SafeAreaProvider>
     </AppShell>
     </ErrorBoundary>
@@ -197,6 +243,22 @@ export default wrapRootComponent(RootLayout);
  * SANDBOX_BADGE_EXTRA, which screen headers add through useTopInset()
  * (F-SELL-1: the seller form's heading sat under it on build 17).
  */
+/**
+ * The in-app splash held over the navigator while auth resolves. It is a child of
+ * ThemedShell, so it mounts only after the stored appearance choice is read — which is why
+ * it can read the palette and never shows a Midnight canvas to someone in Light.
+ */
+function SplashOverlay() {
+  const { palette } = useTheme();
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[styles.splash, { backgroundColor: palette.surface.canvas }]}>
+        <Spinner size="large" color={palette.brand.red} label="Loading Snatch It" />
+      </View>
+    </View>
+  );
+}
+
 function SandboxBadge() {
   const insets = useSafeAreaInsets();
   return (
@@ -230,9 +292,10 @@ const styles = StyleSheet.create({
   },
   // Line height + the 6 pt below it = SANDBOX_BADGE_EXTRA, which headers add (useTopInset).
   sandboxBadgeText: { color: '#ffd9a0', fontSize: 11, lineHeight: SANDBOX_BADGE_EXTRA - 6, fontWeight: '700', letterSpacing: 1 },
+  // The canvas comes from the resolved palette at render (SplashOverlay); everything
+  // else about the overlay is appearance-independent.
   splash: {
     flex: 1,
-    backgroundColor: v2.surface.canvas,
     justifyContent: 'center',
     alignItems: 'center',
   },

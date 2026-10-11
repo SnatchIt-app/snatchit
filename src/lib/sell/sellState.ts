@@ -17,9 +17,8 @@
  */
 
 import {
-  allInFromDollars,
-  allInLabel,
-  sellerNetFromDollars,
+  allInFromDollarsV3,
+  formatDollarsV3,
   sellerNetDollars,
 } from '@/src/lib/money';
 import type {
@@ -112,6 +111,34 @@ export function isSellValid(errors: SellErrors): boolean {
 // ─── Selling method + CTA copy ─────────────────────────────────────────────────
 
 /** One truthful sentence describing how the sale works given the Buy Now toggle. */
+/**
+ * What stops a publish BEFORE the phone, payout and risk gates run.
+ *
+ * `CreateListingScreen` used to spell this `if (!isValid || !user) return;` — two unrelated
+ * conditions behind one silent return (E, 2026-10-05). The invalid half is not silent, because the
+ * fields show their own errors; the signed-out half had nothing to say, so a seller with a complete
+ * form and an ended session tapped Publish and the screen did not move.
+ *
+ * The session is answered first, which is the order `handleBuyNow` already uses: correcting the
+ * form does not help someone who is signed out. The sentence is the app's existing one, from the
+ * four places that already refuse an action to a signed-out viewer.
+ */
+export const PUBLISH_SIGNED_OUT = {
+  title: 'Sign in required',
+  body: 'You need to be signed in to publish a listing.',
+} as const;
+
+export type PublishBlock =
+  /** The fields say so, and they say it themselves — this is not a dialog. */
+  | { kind: 'invalid' }
+  | { kind: 'signed-out'; title: string; body: string };
+
+export function publishBlock(i: { valid: boolean; signedIn: boolean }): PublishBlock | null {
+  if (!i.signedIn) return { kind: 'signed-out', ...PUBLISH_SIGNED_OUT };
+  if (!i.valid) return { kind: 'invalid' };
+  return null;
+}
+
 export function sellingMethodBlurb(buyNowEnabled: boolean): string {
   return buyNowEnabled
     ? 'Buyers bid until the auction ends. Buy Now also lets someone take it instantly at your set price.'
@@ -128,13 +155,13 @@ export function submitCtaLabel(quantity: number): string {
 export interface PriceSummary {
   /** False when the dollar amount is not a usable positive number. */
   valid: boolean;
-  /** What the seller nets per ticket after the seller fee, e.g. "$90". */
+  /** What the seller nets for the listing after the seller fee, e.g. "$81.00". */
   sellerNet: string;
   /** Seller net as a number, for the sticky bar's "You get" line. */
   sellerNetValue: number;
-  /** What a buyer pays all-in per ticket, e.g. "$110". */
+  /** What a buyer pays all-in for the listing, e.g. "$99.00". */
   buyerAllIn: string;
-  /** The all-in with its trailing word, e.g. "$110 total". */
+  /** The all-in with its trailing word, e.g. "$99.00 total". */
   buyerAllInLabel: string;
 }
 
@@ -143,6 +170,12 @@ export interface PriceSummary {
  * NO arithmetic of its own: it names which money helper produces each line, so the
  * preview can never drift from what the seller is actually paid or the buyer
  * actually charged. An unusable amount returns `valid: false` and empty strings.
+ *
+ * V3 (pkg8-create boards, 2026-09-24): the DISPLAY faces go through the V3
+ * formatters — every shown amount carries its two decimals ("Buyers pay $99.00
+ * total", "$81.00"). Display only: the amounts are the same seller-net and
+ * buyer-all-in numbers as before, the listing is still validated, previewed and
+ * submitted as whole dollars, and nothing stored or sent changes shape.
  */
 export function priceSummary(dollars: number): PriceSummary {
   if (!Number.isFinite(dollars) || dollars < 1) {
@@ -150,10 +183,10 @@ export function priceSummary(dollars: number): PriceSummary {
   }
   return {
     valid: true,
-    sellerNet: sellerNetFromDollars(dollars),
+    sellerNet: formatDollarsV3(sellerNetDollars(dollars)),
     sellerNetValue: sellerNetDollars(dollars),
-    buyerAllIn: allInFromDollars(dollars),
-    buyerAllInLabel: allInLabel(dollars),
+    buyerAllIn: allInFromDollarsV3(dollars),
+    buyerAllInLabel: `${allInFromDollarsV3(dollars)} total`,
   };
 }
 
@@ -233,8 +266,16 @@ export function parseRiskCheckResponse(
   return { status: 'ok', reason: 'ok', tier: risk_tier };
 }
 
-/** The seller-facing copy for each risk reason. Unchanged wording. */
+/**
+ * The seller-facing copy for each risk reason.
+ *
+ * `check_unavailable` is NOT a server reason: it is the client's own state for "the check did not
+ * answer". It exists because a transient failure used to borrow `medium_risk_warning`, telling a
+ * seller the app had noticed recent issues on their account when in fact the request never arrived.
+ * Submission still proceeds on a transient failure — only the sentence changed.
+ */
 export const RISK_COPY = {
+  check_unavailable:   "We couldn't check your account status just now. You can still publish.",
   medium_risk_warning: "We've noticed some recent issues. Please double-check your listing details.",
   high_risk_warning:   'Your account is under review. Incorrect listings may result in restrictions.',
   critical_risk:       'You cannot create listings at this time. Contact support.',
@@ -253,4 +294,24 @@ export function proceedsLabel(sellerNet: string, quantity: number): string {
 
 export function proceedsKicker(quantity: number): string {
   return quantity > 1 ? `You get for ${quantity} tickets` : 'You get';
+}
+
+/**
+ * WHAT THE PROCEEDS FIGURE IS (A's ruling, 2026-09-24). The sticky preview's net is computed from the
+ * Buy Now price, falling back to the starting bid — but an auction settles on the WINNING bid, so for
+ * an auction-only listing the figure is a FLOOR, not the amount. The old sub-line said only "after the
+ * seller fee", which named the deduction and left the basis unstated, so an auction's preview read as
+ * a promise of that exact net.
+ *
+ * The floor claim is sound: `listings` opens with `current_bid = starting_bid` (migration 072's insert
+ * guard requires it, and the create screen sets it), and `canPlaceBid` accepts only `selected >=
+ * minimum` where the minimum is the current bid plus the increment — so a winning bid can never be
+ * below the starting bid.
+ *
+ * B owns the layout; this owns the claim.
+ */
+export function proceedsBasis(i: { buyNowEnabled: boolean; buyNowPriceSet: boolean }): string {
+  return i.buyNowEnabled && i.buyNowPriceSet
+    ? 'at the Buy Now price, after the seller fee'
+    : 'the least you get, after the seller fee — a higher winning bid pays more';
 }

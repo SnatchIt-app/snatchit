@@ -1,0 +1,4 @@
+case2-home-a3xl-light-identity-Coperated.png | content_size=accessibility-extra-extra-extra-large | appearance=light | sha=7c9b270b | _dev/v3-home?variant=feed&art=all&appearance=light | one dwell-drag to the identity block and the first feed row
+case2-home-a3xl-light-atrest-Coperated.png | content_size=accessibility-extra-extra-extra-large | appearance=light | sha=7c9b270b | _dev/v3-home?variant=feed&art=all&appearance=light | at rest
+case1-home-3xl-light-atrest-Coperated.png | content_size=extra-extra-extra-large | appearance=light | sha=7c9b270b | same route | at rest
+case1-home-3xl-light-feedrow-Coperated.png | content_size=extra-extra-extra-large | appearance=light | sha=7c9b270b | same route | one dwell-drag to the first feed rows

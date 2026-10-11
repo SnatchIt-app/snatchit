@@ -17,15 +17,39 @@
  *  - The header hardcoded `paddingTop: 56`. It reads the real safe-area inset.
  *  - The floating "List Tickets" button is gone: Create is a tab, and the button
  *    was a second route to the same screen.
+ *
+ * V3 (owner 2026-09-22; B's package §3). Presentation only, again: the two-up grid becomes one
+ * full-bleed FEATURE (the first live listing, name over the curve-scrimmed artwork) above
+ * single-column ROWS — artwork 62pt tall, name in the display voice, all-in price right-aligned,
+ * content-driven heights. The data layer is still byte-for-byte the V2 one.
+ *
+ * V3 POSTERS (owner 2026-09-24): every piece of event artwork on this screen is a 4:5 portrait
+ * poster, so the feature's frame is as tall as the ratio makes it (~491pt at 393pt wide, where the
+ * retired §3 formula gave ~205pt) and each row's artwork is 50 wide by the approved 62 tall. Both
+ * shapes are decided in the media layer and reached through it — this screen carries no ratio, no
+ * height and no item size, and its FlatList measures every cell, so nothing here needed the number.
+ *
+ * V3 SECTION HEADINGS (owner 2026-09-24, on the pkg8 home boards). The previous revision left the
+ * boards' "Tonight" / "This week" headings UNDRAWN because their grouping rule was not written
+ * anywhere, and a heading the data cannot guarantee is a small lie. The rule is now written — one
+ * pure function in `src/lib/home/sections.ts` — so the headings are drawn from it and from
+ * nothing else. The feed is REGROUPED by that rule (soonest first, order preserved inside each
+ * section); no row is added, removed or filtered by it, and a bucket that cannot be honestly named
+ * — anything already past, which is every row of the Recently sold and Ended datasets — is drawn
+ * with no heading at all rather than borrowing the one above it.
+ *
+ * Still presentation only. Every read, the realtime channel, the blocked-seller filtering, the
+ * neighbourhood sort, the lazy sold/ended loads, their F-HOME-1 load states and the one-second
+ * ticker are untouched.
  */
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
-import { allInFromDollars } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import ScreenState from '@/src/components/ScreenState';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { classifyLoadFailure } from '@/src/lib/ui/loadState';
@@ -39,32 +63,30 @@ import {
 import { failureSurface } from '@/src/lib/screens/refreshPolicy';
 import { textStyle } from '@/src/theme/typography';
 import { applyBlockedSellerFilter, useBlockedUserIds } from '@/src/hooks/useBlockedUserIds';
-import { Chip, EmptyState } from '@/src/components/ui';
+import { EmptyState } from '@/src/components/ui';
 import { useDockScroll } from '@/src/components/nav/dockContext';
 import { useDockClearance } from '@/src/lib/nav/navInsets';
-import {
-  initialFilterBarState,
-  reduceFilterBarScroll,
-  type FilterBarState,
-} from '@/src/lib/home/filterBarMachine';
+import { groupByEventDate } from '@/src/lib/home/sections';
+import { ROW_GUTTER } from '@/src/lib/design/featureMetrics';
 import {
   DEFAULT_FILTERS,
   activeFilterCount,
-  hasPriceFilter,
-  hasSheetFilters,
   sheetFilterCount,
   type Filters,
   type QuickChip,
 } from '@/src/lib/home/filterModel';
-import { useReducedMotion } from '@/src/hooks/useReducedMotion';
-import { DiscoveryCard } from '@/src/components/discovery/DiscoveryCard';
 import { DiscoveryGridSkeleton } from '@/src/components/discovery/DiscoveryGridSkeleton';
+import { FeedRow } from '@/src/components/discovery/FeedRow';
 import { FilterSheet } from '@/src/components/discovery/FilterSheet';
+import { HomeFeature } from '@/src/components/discovery/HomeFeature';
 import { HomeHeader } from '@/src/components/discovery/HomeHeader';
-import { cardPresentation, countdownLabel } from '@/src/lib/listing/cardState';
+import { cardPresentation } from '@/src/lib/listing/cardState';
 import { stageCardHandoff } from '@/src/lib/listing/cardHandoff';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, MyProfileRPC } from '@/src/types';
+import { setDockAvatar } from '@/src/lib/nav/dockAvatar';
 
 // ─── Neighborhood prefs helper ───────────────────────────────────────────────
 
@@ -72,6 +94,9 @@ async function getUserNeighborhoods(): Promise<Set<string>> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Set();
   const { data } = await supabase.rpc('get_my_profile').returns<MyProfileRPC[]>().maybeSingle();
+  // V3: this read already carries the avatar — publish it for the dock's "You" item. Only a
+  // successful read publishes; a failure must never blank an already-correct photo.
+  if (data) setDockAvatar(user.id, data.avatar_path ?? data.avatar_url);
   return new Set(data?.preferred_neighborhoods ?? []);
 }
 
@@ -88,9 +113,8 @@ function sortByNeighborhoods(listings: Listing[], prefs: Set<string>): Listing[]
 // ─── Filter types ────────────────────────────────────────────────────────────
 
 // The filter model (QuickChip, Filters, DEFAULT_FILTERS, active-state helpers)
-// lives in src/lib/home/filterModel.ts so the quick row and the full FilterSheet
-// read exactly one model. The Home quick row shows three controls; the rest of
-// the taxonomy lives inside the sheet.
+// lives in src/lib/home/filterModel.ts. Home reads it for the header control's
+// count; the sheet owns the whole taxonomy, `your_scene` and price included.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,52 +130,56 @@ function coverPath(listing: Listing): string | null {
       || null;
 }
 
-/** "Sat, Oct 17 · 10:00 PM" */
-function whenLabel(date: string, time: string): string {
-  const d = new Date(`${date}T${time}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  }).replace(/,([^,]*)$/, ' ·$1');
+// V3: date formatting for rows/feature lives in src/lib/listing/feedRowState.ts, inside the
+// components, so home and search cannot drift apart.
+
+/**
+ * The harness seam's shape (`app/_dev/v3-home.tsx`). It stands in for the THREE reads and for the
+ * realtime subscription, and for nothing else: every filter, sort, section, countdown and piece of
+ * copy still runs exactly as it does in the app.
+ *
+ * The lazy datasets and the failure arm are here because their states are otherwise unreachable for
+ * review: "Nothing sold yet", "No ended auctions" and the failed-read view each need a read that
+ * ACTUALLY RAN — the settled-empty copy is gated on `mayShowEmptyCopy`, which is what stops a slow or
+ * failed read from telling a shopper the marketplace is empty. A fixture that only replaced the main
+ * feed could not produce any of them, which is exactly what the harness agent found.
+ */
+export interface HomeFixture {
+  /** The live feed's rows. */
+  rows?: Listing[];
+  /** The lazily-loaded datasets, so their settled-empty copy is reachable. */
+  sold?: Listing[];
+  ended?: Listing[];
+  /** A FIRST-LOAD failure of the live feed, which is the state that shows ScreenState. */
+  failure?: 'offline' | 'error';
+  /** Which chip the harness starts on, so a dataset's own empty state is the one on screen. */
+  chip?: QuickChip;
 }
 
-export default function HomeScreen() {
+export interface HomeScreenProps {
+  /**
+   * Render harness seam ONLY. Never passed by a route. An array is the live feed's rows, which is
+   * what the first version of this seam took.
+   */
+  fixture?: Listing[] | HomeFixture;
+}
+
+export default function HomeScreen({ fixture: rawFixture }: HomeScreenProps = {}) {
+  const fixture: HomeFixture | undefined = Array.isArray(rawFixture) ? { rows: rawFixture } : rawFixture;
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   // Adaptive dock: feed scroll direction in, and give the list bottom clearance
   // so its last row is not hidden behind the floating dock.
   const { onScroll: onHomeScroll, expand } = useDockScroll('home');
   const dockClearance = useDockClearance();
 
-  // ── Quick-filter bar (disappearing toolbar) ────────────────────────────────
-  // The bar is an OVERLAY on the feed, moved with a transform on the native
-  // driver. The previous revision animated its layout HEIGHT above the list,
-  // which re-laid out the scroll container on every frame of an active gesture
-  // and fed the resulting offset changes straight back into the same state
-  // machine — the loop that made a half-finished collapse stick or judder when
-  // the finger reversed. Nothing about the feed's layout changes while scrolling
-  // now: the list carries a constant top padding equal to the bar, and only the
-  // bar's translateY moves, so a reversal simply retargets a UI-thread animation.
-  const reduceMotion = useReducedMotion();
-  const [filterBar, setFilterBar] = useState<FilterBarState>(initialFilterBarState);
-  const [filterBarHeight, setFilterBarHeight] = useState(0);
-  const barAnim = useRef(new Animated.Value(0)).current; // 0 = shown, 1 = hidden
-
-  useEffect(() => {
-    Animated.timing(barAnim, {
-      toValue: filterBar.hidden ? 1 : 0,
-      duration: reduceMotion ? 0 : 200,
-      useNativeDriver: true, // transform + opacity only
-    }).start();
-  }, [filterBar.hidden, reduceMotion, barAnim]);
-
-  // Which section the sheet opens on: PRICE lands on price, FILTERS on the top.
-  const [sheetFocus, setSheetFocus] = useState<'price' | undefined>(undefined);
-
-  const onFeedScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    onHomeScroll(e); // bottom dock — independent state, unchanged
-    const y = e.nativeEvent.contentOffset.y;
-    setFilterBar((prev) => reduceFilterBarScroll(prev, y));
-  }, [onHomeScroll]);
+  // ── Filters ────────────────────────────────────────────────────────────────
+  // ONE control, on the header line (B's H1 at 911f65fd; the owner's placement ruling). What used to
+  // be here: a three-chip overlay on the feed, slid out of the way on scroll by its own state
+  // machine. B's finding is that the row is not in the approved composition at all — the board goes
+  // header → section heading → feature — so the row, the overlay, its top inset and the machine that
+  // hid it are all gone. Nothing was lost with them: the sheet the control opens already owned the
+  // taxonomy, and `your_scene` and price are groups in it now.
 
   const [allListings,   setAllListings]   = useState<Listing[]>([]);
   const [soldListings,  setSoldListings]  = useState<Listing[]>([]);
@@ -180,7 +208,10 @@ export default function HomeScreen() {
   offlineRef.current = isOffline;
   const [loadError,     setLoadError]     = useState<'offline' | 'error' | null>(null);
   const [now,           setNow]           = useState(() => Date.now());
-  const [filters,       setFilters]       = useState<Filters>(DEFAULT_FILTERS);
+  // The harness may start on a chip, so a lazy dataset's own empty state is the one on screen.
+  const [filters,       setFilters]       = useState<Filters>(
+    fixture?.chip ? { ...DEFAULT_FILTERS, chip: fixture.chip } : DEFAULT_FILTERS,
+  );
   const [modalOpen,     setModalOpen]     = useState(false);
 
   const initialLoadDone   = useRef(false);
@@ -204,6 +235,13 @@ export default function HomeScreen() {
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   async function fetchListings() {
+    // The harness seam, and the only thing it replaces: the read. Nothing below this line changes.
+    if (fixture) {
+      // The harness seam, and the only thing it replaces: the read. A fixture failure takes the same
+      // path a real one does — `setLoadError` — so the screen decides what to paint, not the fixture.
+      if (fixture.failure) { setLoadError(fixture.failure); setAllListings([]); return; }
+      setAllListings(fixture.rows ?? []); setLoadError(null); return;
+    }
     neighborhoodPrefs.current = await getUserNeighborhoods();
 
     const baseQuery = supabase
@@ -212,7 +250,7 @@ export default function HomeScreen() {
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .limit(50);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error) {
       console.warn('[HomeScreen] fetch error:', error.message);
@@ -229,13 +267,14 @@ export default function HomeScreen() {
 
   async function fetchSoldListings() {
     markFilterLoading('recently_sold');
+    if (fixture) { setSoldListings(fixture.sold ?? []); markFilterLoaded('recently_sold'); soldLoadedOnce.current = true; return; }
     const baseQuery = supabase
       .from('listings')
       .select('*')
       .eq('status', 'sold')
       .order('sold_at', { ascending: false })
       .limit(30);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error || !data) {
       // Rows already on screen stay: a failed refresh never empties the feed (F-BIDS-1's rule).
@@ -253,6 +292,7 @@ export default function HomeScreen() {
 
   async function fetchEndedListings() {
     markFilterLoading('ended');
+    if (fixture) { setEndedListings(fixture.ended ?? []); markFilterLoaded('ended'); endedLoadedOnce.current = true; return; }
     // Ended = auction_status 'ended' but not yet sold
     const baseQuery = supabase
       .from('listings')
@@ -261,7 +301,7 @@ export default function HomeScreen() {
       .neq('status', 'sold')
       .order('ends_at', { ascending: false })
       .limit(30);
-    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIds);
+    const { data, error } = await applyBlockedSellerFilter(baseQuery, blockedIdsRef.current);
 
     if (error || !data) {
       console.warn('[HomeScreen] ended fetch error:', error?.message ?? 'no rows returned');
@@ -278,7 +318,36 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchListings().finally(() => { setLoading(false); initialLoadDone.current = true; });
+    /*
+     * A HARNESS THAT STARTS ON A LAZY CHIP MUST READ THAT DATASET (B's F-91-7 at 91062ab1: the
+     * sold-empty and ended-empty variants painted NOTHING below the header). The lazy datasets are
+     * fetched when a selection asks for them, and a fixture that SEEDS the chip never made that
+     * selection — so the dataset had no settled read, `mayShowEmptyCopy` was false, and the screen
+     * correctly refused to say the marketplace was empty. The seed now performs the read the
+     * selection would have performed. Nothing changes for a real session, which has no `fixture`.
+     */
+    if (fixture?.chip === 'recently_sold') void fetchSoldListings();
+    if (fixture?.chip === 'ended') void fetchEndedListings();
   }, []);
+
+  /*
+   * THE BLOCK SET ARRIVES AFTER THE FIRST READ (A's finding, 2026-09-24). `useBlockedUserIds` starts
+   * empty and answers asynchronously, and both callers above hold the first render's `fetchListings`
+   * — `deps: []` and `deps: [expand]` — so nothing re-read when the real set landed. A blocked
+   * seller's rows were therefore on Home on every load and every return to the tab, until a
+   * pull-to-refresh, whose handler is the only one re-created each render.
+   *
+   * The reads now filter through `blockedIdsRef` (which the realtime handlers already used), so no
+   * read can hold a stale set; and this corrects what is ALREADY on screen when the set changes,
+   * without the user doing anything. It cannot loop: a fetch does not change the block set.
+   */
+  useEffect(() => {
+    if (!initialLoadDone.current || blockedIds.size === 0) return;
+    void fetchListings();
+    if (soldLoadedOnce.current) void fetchSoldListings();
+    if (endedLoadedOnce.current) void fetchEndedListings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockedIds]);
 
   useFocusEffect(
     useCallback(() => {
@@ -291,6 +360,7 @@ export default function HomeScreen() {
 
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (fixture) return; // harness: no server, no subscription
     const channel = supabase
       .channel('home-listings-feed')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'listings' },
@@ -378,21 +448,41 @@ export default function HomeScreen() {
     return result;
   }, [allListings, soldListings, endedListings, filters, now]);
 
-  // ── Chip tap ──────────────────────────────────────────────────────────────
-  function onChipTap(key: QuickChip) {
-    const nextChip = key === filters.chip ? 'all' : key;
-    setFilters(prev => ({ ...prev, chip: nextChip }));
-    // Lazy-load on first tap
-    if (nextChip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
-    if (nextChip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
-  }
+  // ── Sections (V3) ─────────────────────────────────────────────────────────
+  // The bucket an event falls in changes once a DAY, not once a second, so the grouping is keyed
+  // to local midnight rather than to the ticker — otherwise every countdown tick would rebuild
+  // the whole feed. `sectionFor` normalises to the same midnight, so this is the exact basis.
+  const todayStart = useMemo(() => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, [now]);
+
+  const { ordered, headingFor, dividerAfter } = useMemo(() => {
+    const sections = groupByEventDate(filteredListings, (l) => l.event_date, todayStart);
+    const flat = sections.flatMap((s) => s.items);
+    // A heading belongs to the FIRST row of its section. A section whose bucket cannot be named
+    // (anything already past — the whole of the sold and ended datasets) gets none.
+    const heading = new Map<string, string>();
+    for (const s of sections) {
+      if (s.label && s.items.length > 0) heading.set(s.items[0].id, s.label);
+    }
+    // The §3 divider separates rows INSIDE a section. Where a heading follows, the heading and its
+    // own rule are the break, and the board draws no second hairline above it.
+    const divider = new Set<string>();
+    for (let i = 0; i < flat.length - 1; i += 1) {
+      if (!heading.has(flat[i + 1].id)) divider.add(flat[i].id);
+    }
+    return { ordered: flat, headingFor: heading, dividerAfter: divider };
+  }, [filteredListings, todayStart]);
 
   function onFiltersApply(next: {
     chip: QuickChip; neighborhoods: Set<string>; categories: Set<string>; priceMin: string; priceMax: string;
   }) {
     setFilters(prev => ({ ...prev, ...next }));
     setModalOpen(false);
-    // Same lazy-load the quick chips did: these two are separate datasets.
+    // The lazy loads the removed quick row also did: sold and ended are separate datasets, fetched
+    // the first time a selection asks for them.
     if (next.chip === 'recently_sold' && !soldLoadedOnce.current)  fetchSoldListings();
     if (next.chip === 'ended'         && !endedLoadedOnce.current) fetchEndedListings();
   }
@@ -409,11 +499,8 @@ export default function HomeScreen() {
   }
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // FILTERS signals what the sheet owns. Price and Your scene have their own
-  // controls, so they are not counted here and never double-signalled.
+  // The one control signals EVERY applied filter, so a narrowed feed never looks unnarrowed.
   const sheetCount = sheetFilterCount(filters);
-  const priceActive = hasPriceFilter(filters);
-  const yourSceneActive = filters.chip === 'your_scene';
 
   // F-HOME-1: which lazy dataset the active chip is showing, and how its last read went.
   const activeDataset: FilterDataset | null =
@@ -436,23 +523,28 @@ export default function HomeScreen() {
 
   return (
     <View style={s.container}>
-      {/* Brand header stays put: the owner's note was about the filter controls. */}
-      <HomeHeader onSearch={() => router.push('/(tabs)/explore')} />
+      {/* The approved composition: this header, then the headings and rows. The one filter control
+          sits on the header's line and carries the count of everything currently applied. */}
+      <HomeHeader
+        onSearch={() => router.push('/(tabs)/explore')}
+        onFilters={() => setModalOpen(true)}
+        filterCount={sheetCount}
+      />
 
-      {/* The feed and the quick-filter overlay share this region. `overflow:
-          hidden` clips the bar as it slides up, so it never rides over the
-          header. */}
       <View style={s.feed}>
       <FlatList
-        data={loading ? [] : filteredListings}
+        data={loading ? [] : ordered}
         keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={s.column}
-        // Constant top inset for the bar: the feed's layout never changes while
-        // scrolling, which is what keeps the gesture smooth and interruptible.
-        contentContainerStyle={[s.list, { paddingTop: filterBarHeight, paddingBottom: dockClearance }]}
+        // §3: 1px divider, inset to the row gutter, drawn 10pt above the next row's top. The
+        // clearance ABOVE it is the rows' own ROW_META_CLEARANCE — content-driven, never a height.
+        // It is suppressed immediately before a section heading, which carries its own rule.
+        ItemSeparatorComponent={({ leadingItem }: { leadingItem?: Listing }) =>
+          leadingItem && !dividerAfter.has(leadingItem.id) ? null : <View style={s.divider} />
+        }
+        contentContainerStyle={[s.list, { paddingBottom: dockClearance }]}
         showsVerticalScrollIndicator={false}
-        onScroll={onFeedScroll}
+        // The dock's own machine is the only consumer of the feed's scroll now.
+        onScroll={(e) => onHomeScroll(e)}
         scrollEventThrottle={16}
         // The ticker drives every countdown on screen; without this the cells
         // memoize and the clocks freeze.
@@ -465,11 +557,17 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={v2.brand.red}
+            tintColor={palette.brand.red}
           />
         }
         ListHeaderComponent={
-          loading || datasetBusy ? <DiscoveryGridSkeleton /> :
+          // The placeholder holds the geometry THIS feed is about to paint: the live feed opens
+          // with the full-bleed 4:5 feature above rows, while a lazy dataset (sold, ended) never
+          // features a row that cannot be bought, so its placeholder is rows only. It used to draw
+          // a two-up card grid, which no longer exists on this screen at all.
+          loading || datasetBusy ? (
+            <DiscoveryGridSkeleton shape={datasetBusy ? 'rows' : 'feature-then-rows'} />
+          ) :
           datasetFailure === 'inline' && datasetState?.error ? (
             <View style={s.notice} accessibilityRole="alert">
               <Text style={[textStyle('bodySm'), s.noticeText]}>
@@ -495,89 +593,73 @@ export default function HomeScreen() {
             <EmptyState title={emptyCopy.title} body={emptyCopy.body} />
           )
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const presentation = cardPresentation(item, now);
           // All-in, through the one money helper. No arithmetic here.
-          const priceAllIn = allInFromDollars(presentation.priceDollars);
+          // V3 (pkg8-home boards): displayed money carries cents — $132.00, not $132. Display
+          // only; the underlying dollars and every calculation are unchanged.
+          const priceAllIn = allInFromDollarsV3(presentation.priceDollars);
+          const shared = {
+            eventName: item.event_name,
+            venue: item.venue,
+            eventDate: item.event_date,
+            eventTime: item.event_time,
+            quantity: item.quantity,
+            ticketType: item.ticket_type,
+            coverPath: coverPath(item),
+            presentation,
+            bidCount: item.bid_count ?? null,
+            priceAllIn,
+            endsAt: item.ends_at,
+            nowMs: now,
+            onPress: () => {
+              // Display-only handoff so the detail screen paints this card's
+              // content on its first frame. The route is unchanged, and the
+              // fresh row still gates every action there.
+              stageCardHandoff(item.id, {
+                coverPath: coverPath(item),
+                eventName: item.event_name,
+                venue: item.venue,
+                eventDate: item.event_date,
+                eventTime: item.event_time,
+                neighborhood: item.neighborhood,
+                priceLabel: presentation.priceLabel,
+                priceAllIn,
+              });
+              router.push(`/listing/${item.id}`);
+            },
+          };
+          // The first LIVE listing is the full-bleed feature. Sold/ended datasets (and a feed
+          // whose first row is no longer buyable) get plain rows: a feature is a spotlight, and
+          // a spotlight on something that cannot be bought reads as an offer.
+          const featured =
+            index === 0 && presentation.status !== 'sold' && presentation.status !== 'ended';
+          const body = featured ? <HomeFeature {...shared} /> : <FeedRow {...shared} />;
+          // The heading is drawn ABOVE the first item of its section — over the feature on the
+          // board, over the first row of every section after it. `headingFor` is the only source.
+          const heading = headingFor.get(item.id);
+          if (!heading) return body;
           return (
-            <DiscoveryCard
-              eventName={item.event_name}
-              venue={item.venue}
-              whenLabel={whenLabel(item.event_date, item.event_time)}
-              coverPath={coverPath(item)}
-              presentation={presentation}
-              priceAllIn={priceAllIn}
-              altAllIn={presentation.altDollars != null ? allInFromDollars(presentation.altDollars) : null}
-              countdown={presentation.showsCountdown ? countdownLabel(item.ends_at, now) : null}
-              onPress={() => {
-                // Display-only handoff so the detail screen paints this card's
-                // content on its first frame. The route is unchanged, and the
-                // fresh row still gates every action there.
-                stageCardHandoff(item.id, {
-                  coverPath: coverPath(item),
-                  eventName: item.event_name,
-                  venue: item.venue,
-                  eventDate: item.event_date,
-                  eventTime: item.event_time,
-                  neighborhood: item.neighborhood,
-                  priceLabel: presentation.priceLabel,
-                  priceAllIn,
-                });
-                router.push(`/listing/${item.id}`);
-              }}
-            />
+            <View>
+              <Text
+                style={[textStyle('sectionLabel'), s.sectionLabel]}
+                accessibilityRole="header"
+                numberOfLines={1}
+              >
+                {heading}
+              </Text>
+              <View style={s.sectionRule} />
+              {body}
+            </View>
           );
         }}
       />
 
-      {/* Quick controls: three, and only three. Everything else is behind
-          Filters. Hidden state is removed from the a11y tree and untappable. */}
-      <Animated.View
-        style={[
-          s.filterBar,
-          {
-            opacity: barAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-            transform: [{
-              translateY: barAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, -(filterBarHeight || 0)],
-              }),
-            }],
-          },
-        ]}
-        onLayout={(e) => {
-          const h = e.nativeEvent.layout.height;
-          if (h > 0 && h !== filterBarHeight) setFilterBarHeight(h);
-        }}
-        pointerEvents={filterBar.hidden ? 'none' : 'auto'}
-        accessibilityElementsHidden={filterBar.hidden}
-        importantForAccessibility={filterBar.hidden ? 'no-hide-descendants' : 'auto'}
-      >
-        <View style={s.quickRow}>
-          <Chip
-            label="Your scene"
-            selected={yourSceneActive}
-            onPress={() => onChipTap('your_scene')}
-          />
-          <Chip
-            label="Price"
-            selected={priceActive}
-            onPress={() => { setSheetFocus('price'); setModalOpen(true); }}
-          />
-          <Chip
-            label="Filters"
-            count={sheetCount > 0 ? sheetCount : undefined}
-            selected={hasSheetFilters(filters)}
-            onPress={() => { setSheetFocus(undefined); setModalOpen(true); }}
-          />
-        </View>
-      </Animated.View>
       </View>
 
       <FilterSheet
         visible={modalOpen}
         value={filters}
-        focus={sheetFocus}
         onApply={onFiltersApply}
         onClose={() => setModalOpen(false)}
       />
@@ -587,7 +669,8 @@ export default function HomeScreen() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -595,38 +678,36 @@ const s = StyleSheet.create({
     gap: v2.space.sm,
     paddingBottom: v2.space.md,
   },
-  noticeText: { color: v2.text.muted, flexShrink: 1 },
-  noticeAction: { color: v2.brand.red },
-  container: { flex: 1, backgroundColor: v2.surface.canvas },
-  // Holds the feed and the overlay bar; clips the bar as it slides up so it
-  // never rides over the brand header.
-  feed: { flex: 1, overflow: 'hidden' },
-  // Overlay, not a layout row: moving it never re-lays out the feed.
-  filterBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: v2.surface.canvas,
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: v2.space.sm,
-    paddingHorizontal: v2.space.lg,
-    paddingBottom: v2.space.lg,
-    alignItems: 'center',
-  },
-  chips: {
-    paddingHorizontal: v2.space.lg,
-    paddingBottom: v2.space.lg,
-    gap: v2.space.sm,
-    alignItems: 'center',
-  },
+  noticeText: { color: p.text.muted, flexShrink: 1 },
+  noticeAction: { color: p.brand.redText },
+  container: { flex: 1, backgroundColor: p.surface.canvas },
+  // The feed region: nothing floats over it any more, so it needs no clipping.
+  feed: { flex: 1 },
   // The tab bar sits over the last row; this keeps it reachable.
   list: { paddingBottom: 96 },
-  column: {
-    paddingHorizontal: v2.space.lg,
-    gap: v2.space.lg,
-    marginBottom: v2.space.xl,
+  // §3 divider: 1px, inset to the 20pt row gutter, with the 10pt gap to the next row's top.
+  // INK, settled: the pkg8 home boards draw it as `border.default` in both appearances — #28292D
+  // on Midnight and #DFE0E4 on Daylight, sampled off the boards at 2×. It used to be the over-art
+  // hairline white, which renders #1A1A1A on Midnight and was flagged as unsettled.
+  divider: {
+    height: 1,
+    marginHorizontal: ROW_GUTTER,
+    marginBottom: 10,
+    backgroundColor: p.border.default,
   },
-});
+  /** V3 section heading: the `sectionLabel` token carries the voice; only layout lives here. */
+  sectionLabel: {
+    color: p.text.secondary,
+    paddingHorizontal: ROW_GUTTER,
+    marginTop: v2.space.md,
+  },
+  /** The board's hairline under the heading: same ink and inset as the row divider. */
+  sectionRule: {
+    height: 1,
+    marginHorizontal: ROW_GUTTER,
+    marginTop: v2.space.xs,
+    marginBottom: v2.space.sm,
+    backgroundColor: p.border.default,
+  },
+  });
+}

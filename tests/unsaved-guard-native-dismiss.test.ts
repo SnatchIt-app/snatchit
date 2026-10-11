@@ -43,6 +43,15 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@react-navigation/native', async () => await import('@react-navigation/core'));
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Alert: {
     alert: (title: string, message?: string, buttons?: { text?: string; style?: string; onPress?: () => void }[]) => {
@@ -322,7 +331,7 @@ describe('the modelled native layer still matches the installed library source',
     expect(fork).toContain('(0, native_1.useNavigationBuilder)(native_1.StackRouter, {');
     expect(fork).toMatch(/<NavigationContent>\s*<native_stack_1\.NativeStackView \{\.\.\.rest\}/);
     const layout = readFileSync(join(REPO_ROOT, 'app/_layout.tsx'), 'utf8');
-    expect(layout).toContain("import { router, Stack } from 'expo-router';");
+    expect(layout).toContain("import { router, Stack, useSegments } from 'expo-router';");
     expect(layout).not.toMatch(/presentation:\s*'(modal|formSheet|transparentModal|fullScreenModal)'/);
   });
 });

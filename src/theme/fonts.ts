@@ -128,7 +128,16 @@ export function useBrandFonts(): boolean {
  */
 export function fontFamily(role: TypeRole): string | undefined {
   if (Platform.OS === 'web') {
-    return role === 'display' ? 'Oswald' : 'Inter';
+    // The web document declares one @font-face per role in `app/+html.tsx`, under these same
+    // per-face family names and from the same .ttf files the native runtime loads. So web asks
+    // for exactly what native asks for, and a role maps 1:1 to a shipped face — no synthetic
+    // weight, and no drift between the two targets.
+    //
+    // It previously returned the canonical 'Oswald' / 'Inter' on the reasoning that "the web
+    // app's own CSS font pipeline" supplies them. That pipeline is the Next.js app in `web/`,
+    // which does not use this module; the Expo web bundle declared no faces at all, so every
+    // web screen rendered in the browser's default serif (owner 2026-09-24).
+    return FAMILY[role];
   }
   return FONTS_INSTALLED && facesLoaded ? FAMILY[role] : undefined;
 }

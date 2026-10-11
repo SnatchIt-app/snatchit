@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+
 const root = resolve(__dirname, '..');
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8');
 const stripComments = (s: string) =>
@@ -29,7 +30,7 @@ describe('Listing detail — Buy Now', () => {
   it('the reserve path is unchanged inside the lock', () => {
     const start = code.indexOf('async function reserveAndCheckout()');
     const body = code.slice(start, code.indexOf('// ── Transfer actions', start) > 0 ? code.indexOf('// ── Transfer actions', start) : start + 4000);
-    for (const marker of ["rpc('reserve_buy_now'", 'await fetchData();', 'navigateToCheckout();', 'setReserving(false);']) {
+    for (const marker of ["rpc('reserve_buy_now'", 'await fetchData(true);', 'navigateToCheckout();', 'setReserving(false);']) {
       expect(body, marker).toContain(marker);
     }
   });
@@ -86,24 +87,32 @@ describe('Delivery form — the shared Button', () => {
 });
 
 describe('Checkout — pay control and completion (display only; for A)', () => {
+  // RETARGETED 2026-09-24: checkout's presentation moved to CheckoutView.tsx so it can be rendered
+  // on a path with no payment module in its import graph. The screen still decides; these three
+  // cases are about what is PAINTED, so they read the view — and the screen half of each (the pay
+  // control's inputs, the purchase key it passes) is asserted alongside.
   const screen = read('src/screens/checkout/CheckoutNative.tsx');
+  const view = read('src/screens/checkout/CheckoutView.tsx');
   const code = stripComments(screen);
+  const viewCode = stripComments(view);
 
   it('the pending states payControl names are visible beside the spinner', () => {
-    expect(screen).toContain('pendingLabel={pay.loading ? pay.label : undefined}');
+    expect(view).toContain('pendingLabel={pay.loading ? pay.label : undefined}');
+    expect(screen).toMatch(/pay=\{\{ label: pay\.label, loading: pay\.loading, disabled: pay\.disabled \}\}/);
   });
 
   it('one success haptic, keyed on the completed outcome only, once per purchase', () => {
     // A's nit on 4b705c4: a settled checkout that remounts (3-D Secure return)
     // must not buzz twice, so the latch lives outside the component.
-    expect(screen).toContain('const celebratedPurchases = new Set<string>();');
-    expect(code).toMatch(/if \(!completed \|\| celebratedPurchases\.has\(purchaseKey\)\) return;\s*celebratedPurchases\.add\(purchaseKey\);\s*hapticSuccess\(\);/);
+    expect(view).toContain('const celebratedPurchases = new Set<string>();');
+    expect(viewCode).toMatch(/if \(!completed \|\| celebratedPurchases\.has\(purchaseKey\)\) return;\s*celebratedPurchases\.add\(purchaseKey\);\s*hapticSuccess\(\);/);
     expect(screen).toContain('purchaseKey={listingId}');
-    expect(code.split('hapticSuccess').length - 1).toBe(2); // import + the one call
+    expect(viewCode.split('hapticSuccess').length - 1).toBe(2); // import + the one call
+    expect(code).not.toContain('hapticSuccess');                // the screen no longer buzzes
   });
 
   it('the hold countdown uses tabular digits (CFT-207)', () => {
-    expect(code).toMatch(/hold: \{[^}]*fontVariant: \['tabular-nums'\]/);
+    expect(viewCode).toMatch(/hold: \{[^}]*fontVariant: \['tabular-nums'\]/);
   });
 
   it('nothing in the pay decision or handlers changed', () => {
