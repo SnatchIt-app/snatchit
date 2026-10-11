@@ -30,7 +30,7 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - Separately, the 2026-10-08 console sign-in and TOTP challenge were confirmed from auth records then, by A and D.
     That covers access, not wording.
   - No further attended session is to be scheduled.
-- **O-R4: EXECUTED 2026-10-11 16:33Z** on the owner's approval of the exact hashes (#6 `d7f31cf1…`, #7 `dca8cb00…`).
+- **O-R4: CLOSED. Executed 2026-10-11 16:33Z; do not rerun.** Run on the owner's approval of the exact hashes (#6 `d7f31cf1…`, #7 `dca8cb00…`).
   - Both records were read back exactly as predicted.
   - The next `refunds` run (16:35Z) opened 0; no new case.
   - The excluded five are unchanged. **D witnessed and confirmed (D `1046b78e`)**; D's #6 prestate was a day old, with
@@ -41,9 +41,9 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
   - Final files: #6 `d7f31cf1…`, #7 `dca8cb00…`. Each is a 5-line fill of the frozen versions; the exact files were
     rehearsed ALL PASS. Not executed.
   - The test-mode five are excluded and unchanged.
-- **F-WEBHOOK-LEDGER-GAP-1 explained:** no qualifying live activity since 2026-08-05 23:39:41Z, and no rejection
+- **F-WEBHOOK-LEDGER-GAP-1: COMPLETE (explained).** no qualifying live activity since 2026-08-05 23:39:41Z, and no rejection
   evidenced. Stripe, the database and the application logs were compared.
-- **F-PAYOUT-FEE-FAILOPEN-1:** 0 affected rows.
+- **F-PAYOUT-FEE-FAILOPEN-1: COMPLETE and CORRECTED.** 0 affected rows. `seller_fee` is NOT NULL DEFAULT 0, so the NULL path is unreachable; no migration. The zero-default residual is a product decision.
 - **Done 2026-10-09:** `origin/integration/s1-s2-trial-20261007` deleted (owner-authorised; owner approved the
   deletion afterwards because D verified it redundant).
   - Verified by `ls-remote`: 0 refs, with the gate listed as a control.

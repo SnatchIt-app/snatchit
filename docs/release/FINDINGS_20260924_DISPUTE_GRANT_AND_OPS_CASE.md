@@ -480,3 +480,28 @@ since 2026-08-05. The first real live payment is the natural witness.
 - The filter matched 2 rows, so the zero is not an empty filter.
 - D's own control: 8 of 8 live payments carry a fee.
 - The fail-open coalesce remains a hardening item; there is no data exposure today.
+
+### F-PAYOUT-FEE-FAILOPEN-1: CORRECTED (A, 2026-10-11). The NULL premise was wrong; no migration
+
+**The correction.** `payments.seller_fee` is `int NOT NULL DEFAULT 0 CHECK (seller_fee >= 0)`
+(`000_baseline_schema.sql`:984; `022_seller_fee_column.sql`:43; confirmed on the production-schema clone). A NULL
+fee cannot exist, so the `coalesce(v_p.seller_fee, 0)` in `claim_payout_attempt` is dead code. The live definition is
+now `20260924000000`:153, not the `20260906120000`:658 A first cited. The "pays the seller in full when the fee is
+NULL" path is unreachable.
+
+**The real, narrower residual.** The column defaults to 0. A resale payment inserted *without* a fee would get 0, and
+the payout would be the full amount: `v_amt = amount − 0`, and the `<= 0` refusal does not fire.
+- Writers today: `create-payment-intent` always writes round(base × 0.10); `primary-checkout` writes 0 explicitly, but
+  that rail has no seller payout.
+- Rows that took the default when 022 added the column are pre-022 historical rows.
+- The owner-authorised read (2026-10-10) found 0 live succeeded resale payments with a fee other than 10%.
+
+**Why no migration.** Guarding against a zero fee would either copy the 10% rate into SQL, as a second source of truth
+beside `_shared/money.ts`, or forbid any zero-fee resale, such as a future promotion. Both are product decisions, not
+corrections.
+- Recorded as a note. If the owner wants a guard, the cheapest form is a `CHECK` on new resale rows, or a refusal in
+  `claim_payout_attempt` when `mode in ('buy_now','auction')` and `seller_fee = 0`. That would be its own owner-scoped
+  decision.
+
+**For E's record:** the "NULL seller_fee" data question is answered. NULL is impossible by schema, and the authorised
+read found 0 affected rows. E's W-6 copy decision ("less the seller fee and any refund", no rate) is unaffected.

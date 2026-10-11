@@ -2402,3 +2402,12 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The two `payout_decisions` rows on #6/#7 date from 2026-08-04 (`PAYOUT_TRANSFER_FAILED`) and predate the run.
   - 150's rollback guard no longer holds. Record: `packages/OR4_reconciliation_20261008/EXECUTION_20261011.md`.
   - **D witnessed and confirmed** the O-R4 execution (D `1046b78e`). Its limit: no independent immediately-before prestate for #6 (its verdict-stage read was a day old; the atomic guards were the backstop). Observation, out of scope: 4 of the excluded five carry `stripe_refund_id` with `amount_refunded_cents` NULL, pre-existing.
+- **Closed by the owner's direction (2026-10-11):**
+  - **O-R4 CLOSED.** Executed and witnessed (A; D `1046b78e`); do not rerun. The five test-mode payments stay
+    excluded and unchanged.
+  - **F-WEBHOOK-LEDGER-GAP-1 complete** at A/D's evidence strength. No qualifying live activity since 2026-08-05
+    23:39:41Z; no rejection evidenced. Residual: platform `account.updated` events 08-06 to ~09-10 cannot be
+    enumerated.
+  - **F-PAYOUT-FEE-FAILOPEN-1 data query complete:** 0 affected rows. The coalesce hardening proceeds as a local
+    migration only.
+  - **Correction (A):** F-PAYOUT-FEE-FAILOPEN-1's NULL premise was wrong. `seller_fee` is NOT NULL DEFAULT 0 (baseline:984, 022:43), so the coalesce is dead code; the live definition is 20260924000000:153. No migration is prepared. The zero-default residual (a resale row written without a fee) has 0 live instances and is a product decision.
