@@ -33,6 +33,20 @@ const MAPPING = {
   'wifi.slash': 'wifi-off',
   'exclamationmark.triangle': 'warning',
   'magnifyingglass': 'search',
+  /*
+   * Chrome controls (IconButton). These replace text CHARACTERS that were rendering in an
+   * unpredictable face: B measured the bundled Inter and Oswald cmaps and found the marks the
+   * control used — the hamburger, the magnifier, the multiplication sign and the midline ellipsis —
+   * absent from both, so iOS was substituting some fallback font for all four. Their weight, size
+   * and vertical alignment were therefore outside our control.
+   *
+   * `line.3.horizontal.decrease` is the filter mark specifically: three lines of decreasing length.
+   * The control used to draw a hamburger, which means MENU in an interface (and IDENTICAL TO in
+   * mathematics) — never "filters". Material's `filter-list` is the same shape.
+   */
+  'chevron.left': 'chevron-left',
+  'ellipsis': 'more-horiz',
+  'line.3.horizontal.decrease': 'filter-list',
 } as IconMapping;
 
 /**

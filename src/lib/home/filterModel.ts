@@ -5,8 +5,10 @@
  * same option list; there is one filter model, not two. No query semantics change:
  * `chip` still selects exactly the datasets/predicates it always did.
  *
- * The quick row on Home shows only three controls (Your scene, Price, Filters).
- * Everything else — ticket type, sale type, ended, sold — lives inside the sheet.
+ * V3 (B's H1 at pin 911f65fd, under the owner's placement ruling 2026-09-24): Home carries ONE
+ * filter control, on the header line — the approved composition goes header → section heading →
+ * feature, with no chip row in it. So the whole taxonomy now lives in the sheet, `your_scene`
+ * included, and nothing the old quick row reached became unreachable.
  */
 
 export type QuickChip =
@@ -19,8 +21,21 @@ export type QuickChip =
   | 'ended'
   | 'recently_sold';
 
-/** Grouped for the sheet. `all` is the unfiltered feed and is not a visible chip. */
+/**
+ * Grouped for the sheet. `all` is the unfiltered feed and is not a visible chip.
+ *
+ * Every group writes the SAME `chip` field, so the whole set is one single-select family shown under
+ * four headings: choosing GA clears Buy now. `your_scene` joins it here rather than beside the
+ * neighbourhood multi-select below, because it is that same field — putting it with the areas would
+ * have implied it combines with them when in fact it replaces the selection.
+ */
 export const CHIP_GROUPS: { title: string; options: { key: QuickChip; label: string }[] }[] = [
+  {
+    title: 'Scope',
+    options: [
+      { key: 'your_scene', label: 'Your scene' },
+    ],
+  },
   {
     title: 'Sale type',
     options: [
@@ -66,15 +81,17 @@ export function hasPriceFilter(f: Pick<Filters, 'priceMin' | 'priceMax'>): boole
 }
 
 /**
- * Anything the FILTERS control is responsible for signalling. Price and Your
- * scene have their own controls, so they are deliberately excluded here and are
- * not double-counted.
+ * What the one filter control is responsible for signalling — which is now EVERYTHING, since it is
+ * the only control (B's H1). Price and `your_scene` used to be excluded because each had a control
+ * of its own to show its state; after the move, a filter this does not count is a filter the user
+ * cannot see is applied. A price RANGE counts once: it is one filter with two bounds.
  */
 export function sheetFilterCount(f: Filters): number {
   return (
     f.neighborhoods.size +
     f.categories.size +
-    (f.chip !== 'all' && f.chip !== 'your_scene' ? 1 : 0)
+    (f.chip !== 'all' ? 1 : 0) +
+    (hasPriceFilter(f) ? 1 : 0)
   );
 }
 

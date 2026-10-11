@@ -7,11 +7,15 @@
  */
 
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 
 import { IconButton } from '@/src/components/ui';
-import { textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface SettingsHeaderProps {
@@ -21,12 +25,29 @@ export interface SettingsHeaderProps {
 }
 
 export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
+  /*
+   * The title is ONE WORD, and at the largest accessibility sizes a clamped line cut it:
+   * "SETTIN…", "APPEA…", "PRIVAC…" — the last of those long before this batch touched anything.
+   * Letting it wrap instead produced "SETTING / S", a word split across lines, which is the same
+   * fault wearing different clothes. A single word cannot break on a space, so above the shared
+   * threshold it keeps its line and shrinks to fit, the treatment the amounts already use.
+   * Below the threshold nothing moves.
+   */
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
   return (
     <View style={[styles.header, { paddingTop: topPad + v2.space.sm }]}>
       <IconButton glyph="back" onPress={onBack ?? (() => router.back())} accessibilityLabel="Back" />
-      <Text style={[textStyle('displaySm'), styles.title]} accessibilityRole="header" numberOfLines={1}>
+      <Text
+        style={[textStyle('displaySm'), styles.title]}
+        accessibilityRole="header"
+        numberOfLines={1}
+        {...(stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null)}
+      >
         {title}
       </Text>
       <View style={styles.spacer} />
@@ -34,7 +55,8 @@ export function SettingsHeader({ title, onBack }: SettingsHeaderProps) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -42,8 +64,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: v2.space.md,
     paddingBottom: v2.space.sm,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
-  title: { color: v2.text.primary, flex: 1, textAlign: 'center', marginHorizontal: v2.space.sm },
+  title: { color: p.text.primary, flex: 1, textAlign: 'center', marginHorizontal: v2.space.sm },
   spacer: { width: 44 },
-});
+  });
+}

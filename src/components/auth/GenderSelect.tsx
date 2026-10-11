@@ -10,11 +10,14 @@
  * three unrelated buttons.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Chip } from '@/src/components/ui';
 import { GENDER_OPTIONS, type GenderValue } from '@/src/lib/auth/signupFlow';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface GenderSelectProps {
@@ -24,6 +27,8 @@ export interface GenderSelectProps {
 }
 
 export function GenderSelect({ value, onChange, label = 'Gender' }: GenderSelectProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View accessibilityRole="radiogroup" accessibilityLabel={label}>
       <Text style={[textStyle('micro'), s.label]}>{label}</Text>
@@ -43,8 +48,10 @@ export function GenderSelect({ value, onChange, label = 'Gender' }: GenderSelect
   );
 }
 
-const s = StyleSheet.create({
-  label: { color: v2.text.muted, marginBottom: v2.space.sm },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  label: { color: p.text.muted, marginBottom: v2.space.sm },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm },
   chip: { marginBottom: 0 },
-});
+  });
+}

@@ -192,8 +192,8 @@ describe('Visual discipline (CFT-207) and press response on the seller card (CFT
     }
   });
   it('countdowns use tabular digits', () => {
-    expect(read('src/components/listing/ListingStatusBanner.tsx')).toContain("detail: { color: v2.text.secondary, fontVariant: ['tabular-nums'] }");
-    expect(read('app/transfer/receive/[id].tsx')).toContain("countdownText: { color: v2.status.warning, fontVariant: ['tabular-nums'] }");
+    expect(read('src/components/listing/ListingStatusBanner.tsx')).toContain("detail: { color: p.text.secondary, fontVariant: ['tabular-nums'] }");
+    expect(read('app/transfer/receive/[id].tsx')).toContain("countdownText: { color: p.status.warning, fontVariant: ['tabular-nums'] }");
   });
   it('the seller card and its row actions are Tappable, not bare Pressables', () => {
     const card = stripComments(read('src/components/SellerListingCard.tsx'));
@@ -201,8 +201,10 @@ describe('Visual discipline (CFT-207) and press response on the seller card (CFT
     expect(card.split('<Tappable').length - 1).toBe(4);
     expect(card).toContain('accessibilityLabel={a11yLabel}');
   });
-  it('the sticky price beside Place bid is capped like the CTA (item 52)', () => {
+  it('the large amount beside Place bid is capped like the CTA (item 52)', () => {
+    // V3 (owner 2026-09-23): the sticky side-total is gone; the large figure beside the button
+    // is now the summary's Total row, and it keeps the same cap.
     const bid = read('src/screens/PlaceBidScreen.tsx');
-    expect(bid).toMatch(/s\.stickyTotal\]\} numberOfLines=\{1\} maxFontSizeMultiplier=\{MAX_DISPLAY_FONT_SCALE\}/);
+    expect(bid).toMatch(/s\.summaryTotalValue\]\}\s+numberOfLines=\{1\}\s+maxFontSizeMultiplier=\{MAX_DISPLAY_FONT_SCALE\}/);
   });
 });

@@ -5,7 +5,7 @@
  * action labels.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/src/components/ui/Button';
@@ -14,9 +14,13 @@ import { useSecurityNotices } from '@/src/hooks/useSecurityNotices';
 import { actionsFor, NOTICE_ACTION_LABEL } from '@/src/lib/security/notices';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export function SecurityNoticeBanner() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
   const { notice, busy, error, dismiss, signOutAll } = useSecurityNotices(user?.id);
   // Mounted above <Tabs>, so it is the topmost element and pays the top inset itself
@@ -48,10 +52,12 @@ export function SecurityNoticeBanner() {
   );
 }
 
-const s = StyleSheet.create({
-  wrap: { paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md, backgroundColor: v2.surface.elevated, borderBottomWidth: 1, borderBottomColor: v2.status.warning, gap: v2.space.xs },
-  title: { color: v2.text.primary, fontWeight: '700' },
-  body: { color: v2.text.secondary },
-  error: { color: v2.status.error },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  wrap: { paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md, backgroundColor: p.surface.elevated, borderBottomWidth: 1, borderBottomColor: p.status.warning, gap: v2.space.xs },
+  title: { color: p.text.primary, fontWeight: '700' },
+  body: { color: p.text.secondary },
+  error: { color: p.status.error },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: v2.space.sm, marginTop: v2.space.xs },
-});
+  });
+}

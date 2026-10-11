@@ -18,14 +18,18 @@
  * can be scrolled to when the keyboard takes the space. Only the mark is fixed.
  */
 
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { AuthBrandMark } from './AuthBrandMark';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export function AuthScreen({ children }: { children: ReactNode }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
 
@@ -52,8 +56,9 @@ export function AuthScreen({ children }: { children: ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   header: { paddingBottom: v2.space.lg },
   flex: { flex: 1 },
   // flexGrow keeps the previous centred composition when there is room, and lets
@@ -64,4 +69,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingBottom: v2.space.xl,
   },
-});
+  });
+}

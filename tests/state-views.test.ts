@@ -53,7 +53,8 @@ describe('which state a failed load shows', () => {
 describe('the Premium state view and the screens that use it', () => {
   it('StateView uses the Premium primitives, one glyph treatment, an accessible Retry, and no emoji or legacy theme', () => {
     const s = stripComments(read('src/components/ui/StateView.tsx'));
-    expect(s).toContain("textStyle('displaySm')");
+    // Updated 2026-09-22 (V3, owner-approved): the heading joined the mixed-case display voice.
+    expect(s).toContain("textStyle('nameState')");
     expect(s).toContain('<Button');
     expect(s).toContain('<IconSymbol');
     expect(s).toContain("accessibilityRole={failure ? 'alert' : undefined}");

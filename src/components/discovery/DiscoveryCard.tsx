@@ -13,13 +13,17 @@
  * also how the old "Bid now" label stopped appearing on Buy Now listings.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { Badge, usePressScale } from '@/src/components/ui';
 import type { CardPresentation } from '@/src/lib/listing/cardState';
 import { textStyle } from '@/src/theme/typography';
+import { NameText } from '@/src/components/NameText';
+import { ROW_META_CLEARANCE } from '@/src/lib/design/rowMetrics';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface DiscoveryCardProps {
@@ -56,6 +60,8 @@ function DiscoveryCardImpl({
   countdown,
   onPress,
 }: DiscoveryCardProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
   const dimmed = presentation.status === 'sold' || presentation.status === 'ended';
 
@@ -76,7 +82,9 @@ function DiscoveryCardImpl({
         }
         accessibilityHint={presentation.actionHint}
       >
-        <View style={dimmed ? styles.dimmed : undefined}>
+        {/* The Badge is a WORD and must not be scaled with the art, so the dim goes on EventMedia
+            itself rather than on a wrapper that also contains the badge (BidCard's shape). */}
+        <View>
           {/* `fluid` measures the real column width and requests a derivative at
               exactly that size, so the two-up grid fits a 375pt phone. */}
           <EventMedia
@@ -85,21 +93,24 @@ function DiscoveryCardImpl({
             title={eventName}
             fluid
             decorative
-          >
-            {presentation.statusLabel ? (
-              <View style={styles.badge} pointerEvents="none">
-                <Badge label={presentation.statusLabel} tone={TONE[presentation.statusTone]} />
-              </View>
-            ) : null}
-          </EventMedia>
+            style={dimmed ? styles.dimmed : undefined}
+          />
+          {/* Absolutely positioned over the artwork but a SIBLING of it, so the dim that recedes a
+              sold or ended cover never scales the word that says so. */}
+          {presentation.statusLabel ? (
+            <View style={styles.badge} pointerEvents="none">
+              <Badge label={presentation.statusLabel} tone={TONE[presentation.statusTone]} />
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.body}>
-          {/* Inter, sentence case, two lines. Not Oswald: this is the venue's
-              content, not Snatch It's voice. */}
-          <Text style={[textStyle('title'), styles.title]} numberOfLines={2}>
+          {/* V3 (owner 2026-09-22): the NAME is the one display voice on the row —
+              Oswald_700Bold in the seller's own capitalisation, two lines, cut on a
+              word boundary. Everything else on the card stays Inter. */}
+          <NameText token="nameRow" maxLines={2} style={styles.title}>
             {eventName}
-          </Text>
+          </NameText>
           <Text style={[textStyle('bodySm'), styles.meta]} numberOfLines={1}>
             {venue}
           </Text>
@@ -146,23 +157,27 @@ function DiscoveryCardImpl({
 
 export const DiscoveryCard = memo(DiscoveryCardImpl);
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { flex: 1 },
   // Sold and ended listings stay in the feed but stop competing with what is
   // still buyable.
   dimmed: { opacity: 0.55 },
   badge: { position: 'absolute', left: v2.space.sm, bottom: v2.space.sm },
-  body: { paddingTop: v2.space.sm, gap: 2 },
-  title: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
+  // V3 §3: the row grows with its contents, and the last metadata line keeps ≥ ROW_META_CLEARANCE
+  // of clear space before whatever follows — never crowding a divider. No height is hard-coded.
+  body: { paddingTop: v2.space.sm, gap: 2, paddingBottom: ROW_META_CLEARANCE },
+  title: { color: p.text.primary },
+  meta: { color: p.text.muted },
   priceRow: { marginTop: v2.space.xs },
-  priceLabel: { color: v2.text.muted },
-  price: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  priceDimmed: { color: v2.text.secondary },
+  priceLabel: { color: p.text.muted },
+  price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  priceDimmed: { color: p.text.secondary },
   // "all in" rides on the same line, smaller and quieter, so the number keeps
   // the hierarchy while the promise stays visible.
-  allIn: { color: v2.text.muted },
-  alt: { color: v2.text.muted },
-  clock: { color: v2.text.secondary, fontVariant: ['tabular-nums'] },
-  clockUrgent: { color: v2.status.error },
-});
+  allIn: { color: p.text.muted },
+  alt: { color: p.text.muted },
+  clock: { color: p.text.secondary, fontVariant: ['tabular-nums'] },
+  clockUrgent: { color: p.status.error },
+  });
+}

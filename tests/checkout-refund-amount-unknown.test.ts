@@ -1,3 +1,10 @@
+/*
+ * RETARGETED (A's interim refund ruling, 2026-09-24). Every refund row is written the moment the
+ * refund is CREATED, and today's columns cannot distinguish that from a completed one, so "Refunded
+ * $X" and "Full refund" asserted a settlement the data does not establish. Until migration 150 gives
+ * the lifecycle its own columns the word is "initiated", and the partial line drops "of $total",
+ * which implied a settled shortfall. Details: REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md.
+ */
 /**
  * The checkout refund state when the refunded amount is unknown (owner's remedy (i), 2026-09-18).
  *
@@ -159,8 +166,8 @@ describe('the copy says only what the recorded amounts establish', () => {
   });
 
   it('K4: partial and full state the recorded amount, nothing more', () => {
-    expect(refundViewModel('partially_refunded', 5000).body).toBe('A partial refund of $50 was recorded for this payment.');
-    expect(refundViewModel('refunded', TOTAL).body).toBe('A full refund of $110 was recorded for this payment.');
+    expect(refundViewModel('partially_refunded', 5000).body).toBe('A partial refund of $50 was initiated for this payment.');
+    expect(refundViewModel('refunded', TOTAL).body).toBe('A refund of $110 was initiated for this payment.');
     for (const k of KINDS) expect(viewFor(k).kicker).not.toBe('Payment refunded');
   });
 });
@@ -186,6 +193,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const screenSrc = () => readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutNative.tsx'), 'utf8');
+/**
+ * RETARGETED 2026-09-24: checkout's presentation moved to `CheckoutView.tsx`, a module with no
+ * payment module in its import graph, so the owner's "rendering path that cannot mount payment
+ * setup" is possible at all. The refund FACE is there; the decision to show it, and the view model
+ * it is built from, are still the screen's.
+ */
+const viewSrc = () => readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutView.tsx'), 'utf8');
 const slice = (src: string, from: string, to: string) => {
   const a = src.indexOf(from), b = src.indexOf(to, a + 1);
   expect(a, from).toBeGreaterThan(-1);
@@ -195,19 +209,22 @@ const slice = (src: string, from: string, to: string) => {
 
 describe('the screen uses the view model and the shared refund state', () => {
   it('S1: RefundView\'s only control goes where the view model says — never back(), never the listing', () => {
-    const view = slice(screenSrc(), 'function RefundView(', '// -- Sub-components');
-    expect(view).toContain('refundViewModel(state.kind, state.refundedCents)');
-    expect(view).toContain('label={view.cta.label}');
-    expect(view).toContain('onPress={() => router.replace(view.cta.href)}');
+    // The screen builds the model; nothing else may decide refund wording.
+    expect(screenSrc()).toContain('refundViewModel(refundState.kind, refundState.refundedCents)');
+    const view = slice(viewSrc(), 'export function RefundView(', 'const celebratedPurchases');
+    expect(view).toContain('label: view.cta.label');
+    expect(view).toContain('router.replace(view.cta.href as never)');
     expect(view).not.toMatch(/router\.back\(\)|Back to listing|Try again|view\.pointer|Tickets/);
+    // The refund face composes no copy of its own: every string it shows came from the model.
+    expect(view).not.toMatch(/'[A-Z][a-z]+ [a-z]/);
   });
 
   it('S3: the refund screen takes precedence over the confirmation and the pay UI (D\'s DM1)', () => {
     // Everything that keeps Pay away after a refund rests on this early return coming first in CheckoutScreen.
-    const body = slice(screenSrc(), 'export default function CheckoutScreen()', '// A-03: a refund is its own screen.');
+    const body = slice(screenSrc(), 'export default function CheckoutScreen()', 'const preparing = authLoading || paymentLoading;');
     const refund = body.indexOf('  if (refundState) {');
     const settled = body.indexOf('  if (settlement) {');
-    const main = body.indexOf('\n  return (');
+    const main = body.length;   // the main view is the last return, after both early ones
     expect(refund).toBeGreaterThan(-1);
     expect(settled).toBeGreaterThan(refund);
     expect(main).toBeGreaterThan(settled);

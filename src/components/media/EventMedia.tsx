@@ -27,7 +27,7 @@
  */
 
 import { Image } from 'expo-image';
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useState, type ReactNode, useMemo } from 'react';
 import {
   PixelRatio,
   StyleSheet,
@@ -37,9 +37,12 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName } from '@/src/lib/media/slots';
+import { scrimBackgroundImage } from '@/src/lib/design/scrim';
+import { MEDIA_SLOTS, type Breakpoint, type MediaSlotName, type SlotSpec } from '@/src/lib/media/slots';
 import { resolveImage, type MediaAsset } from '@/src/lib/media/url';
 import { fontFamily } from '@/src/theme/fonts';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface EventMediaProps {
@@ -55,6 +58,17 @@ export interface EventMediaProps {
    * measure itself.
    */
   width?: number;
+  /**
+   * The HEIGHT this instance is laid out at, in points, with the width derived from the slot's
+   * ratio. Use this wherever the height is the constrained edge — a list row, a summary line —
+   * which under the 4:5 poster direction is every thumbnail: a row's rhythm is vertical, so the
+   * poster has to fit the row's height and take whatever width the ratio gives it.
+   *
+   * Exactly one of `width` / `height` / `fluid` decides the box. When both are passed `height`
+   * wins, because a caller that knows its row height is the one that would otherwise overflow it.
+   * The ratio arithmetic stays here so no screen computes a poster edge for itself.
+   */
+  height?: number;
   /**
    * Fill the parent's width and derive the height from the slot ratio, measuring
    * the real width before any image is requested. This is the correct mode for
@@ -79,18 +93,30 @@ export interface EventMediaProps {
   children?: ReactNode;
 }
 
-/** A deterministic, brand-safe plate for when there is no renderable image. */
-function FallbackPlate({ title, height }: { title?: string; height: number }) {
-  const initial = (title ?? '').trim().charAt(0).toUpperCase();
+/**
+ * A deterministic, brand-safe plate for when there is no renderable image.
+ *
+ * V3 (B's H3 at 262c908b, confirmed on pkg8-home row 3): the approved fallback is the SN
+ * MONOGRAM on the plate, filling the slot's treatment — not the event's first letter floating
+ * in an empty block. The monogram is drawn as text in the display face rather than the PNG
+ * asset: the plate must not look like artwork, and the ink follows the palette.
+ */
+function FallbackPlate({ height, overlaid }: { title?: string; height: number; overlaid?: boolean }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
-    <View style={[styles.fallback, { height }]}>
+    <View style={[styles.fallback, overlaid && styles.fallbackOverlaid, { height }]}>
       <Text
-        style={[styles.fallbackInitial, { fontFamily: fontFamily('display') }]}
+        style={[
+          styles.fallbackInitial,
+          overlaid && styles.fallbackInitialOverlaid,
+          { fontFamily: fontFamily('display') },
+        ]}
         // The plate is decoration; the accessible name comes from the wrapper.
         accessibilityElementsHidden
         importantForAccessibility="no"
       >
-        {initial || 'S'}
+        SN
       </Text>
     </View>
   );
@@ -101,13 +127,17 @@ function EventMediaImpl({
   slot,
   breakpoint = 'mobile',
   width,
+  height,
   fluid = false,
   title,
   style,
   decorative = false,
   children,
 }: EventMediaProps) {
-  const spec = MEDIA_SLOTS[slot];
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  // Widened to the spec type so a slot literal never narrows the contract at a call site.
+  const spec: SlotSpec = MEDIA_SLOTS[slot];
 
   // Fluid frames measure themselves. Nothing is requested until the real width is
   // known, because requesting the slot's nominal width and then laying out at a
@@ -118,7 +148,11 @@ function EventMediaImpl({
     if (w > 0 && w !== measured) setMeasured(w);
   };
 
-  const resolvedWidth = fluid ? measured : (width ?? spec.layoutWidth[breakpoint]);
+  const resolvedWidth = fluid
+    ? measured
+    : height != null
+      ? Math.round(height * spec.aspectRatio)
+      : (width ?? spec.layoutWidth[breakpoint]);
 
   // The URI that failed to load, if any. A URI rather than a boolean: this
   // instance is recycled across list rows, and a new asset must start clean.
@@ -137,7 +171,7 @@ function EventMediaImpl({
             aspectRatio: spec.aspectRatio,
             borderRadius: spec.radius,
             overflow: 'hidden',
-            backgroundColor: v2.surface.surface,
+            backgroundColor: palette.surface.surface,
           },
           style,
         ]}
@@ -148,13 +182,17 @@ function EventMediaImpl({
   }
 
   const boxWidth = resolvedWidth as number;
-  const boxHeight = Math.round(boxWidth / spec.aspectRatio);
+  // A caller-given height is used EXACTLY, not re-derived from the rounded width: round-tripping
+  // 62 → 50 → 62.5 would put a half-point of poster outside an approved row.
+  const boxHeight = !fluid && height != null ? height : Math.round(boxWidth / spec.aspectRatio);
 
   const resolved = resolveImage(asset, slot, {
     breakpoint,
-    // The real laid-out width and the real screen density, so the request
-    // matches the box instead of the slot default.
+    // The real laid-out box and the real screen density, so the request matches the frame instead
+    // of the slot default — and carries a height, without which this endpoint returns a sliver
+    // that loads successfully and defeats every fallback we have.
     layoutWidth: boxWidth,
+    layoutHeight: boxHeight,
     devicePixelRatio: PixelRatio.get(),
   });
 
@@ -168,6 +206,12 @@ function EventMediaImpl({
         accessibilityLabel: title ? `Artwork for ${title}` : 'Event artwork',
       };
 
+  // Content layered over the media draws in the over-artwork inks, which are white in BOTH
+  // appearances (palette.ts). So every surface that can end up BEHIND those inks — the frame while
+  // the image loads, and the fallback plate when there is no image — takes the invariant plate
+  // instead of the appearance-following one. B measured the Light consequence at 911f65fd §3.
+  const overlaid = !!children;
+
   const frame: ViewStyle = {
     // Fluid frames keep a percentage width so they reflow on rotation; the
     // measured width still drives the pixel request above.
@@ -175,7 +219,7 @@ function EventMediaImpl({
     height: boxHeight,
     borderRadius: spec.radius,
     overflow: 'hidden',
-    backgroundColor: v2.surface.surface,
+    backgroundColor: overlaid ? palette.onArt.plate : palette.surface.surface,
   };
 
   // A load failure takes the same branch as "no renderable image": same frame,
@@ -185,7 +229,7 @@ function EventMediaImpl({
   if (resolved.kind === 'fallback' || failed) {
     return (
       <View style={[frame, styles.edge, style]} onLayout={fluid ? onLayout : undefined} {...a11y}>
-        <FallbackPlate title={title} height={boxHeight} />
+        <FallbackPlate title={title} height={boxHeight} overlaid={overlaid} />
         {children ? (
           <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
             {children}
@@ -206,7 +250,7 @@ function EventMediaImpl({
       */}
       {isFit ? (
         <Image
-          source={{ uri: resolved.backdropUri }}
+          source={resolved.moduleSource ?? { uri: resolved.backdropUri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           blurRadius={54}
@@ -219,7 +263,7 @@ function EventMediaImpl({
       ) : null}
 
       <Image
-        source={{ uri: resolved.uri }}
+        source={resolved.moduleSource ?? { uri: resolved.uri }}
         style={StyleSheet.absoluteFill}
         contentFit={isFit ? 'contain' : 'cover'}
         // Focal point: keeps the subject rather than the geometric centre.
@@ -247,7 +291,11 @@ function EventMediaImpl({
         <View
           style={[
             styles.scrimBase,
-            spec.scrim === 'strong' ? styles.scrimStrong : styles.scrimBottom,
+            spec.scrim === 'curve'
+              ? styles.scrimCurve
+              : spec.scrim === 'strong'
+                ? styles.scrimStrong
+                : styles.scrimBottom,
           ]}
           pointerEvents="none"
         />
@@ -269,21 +317,29 @@ function EventMediaImpl({
 
 export const EventMedia = memo(EventMediaImpl);
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   /**
    * A hairline edge so a dark image does not dissolve into the black canvas.
    * Neutral rather than red: over artwork a red hairline fights the image.
    */
   edge: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: v2.border.overArt,
+    borderColor: p.border.overArt,
   },
   fallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: v2.surface.surface,
+    backgroundColor: p.surface.surface,
   },
+  /**
+   * The plate WITH content layered over it (B's review at 911f65fd §3). Whatever a caller layers on
+   * the media draws in the over-artwork vocabulary, which is white in both appearances by contract;
+   * so the plate under it cannot follow the appearance, or Light paints white on near-white. One
+   * value, both schemes — the same reason `onArt` itself has one value.
+   */
+  fallbackOverlaid: { backgroundColor: p.onArt.plate },
   scrimBase: {
     position: 'absolute',
     left: 0,
@@ -292,8 +348,12 @@ const styles = StyleSheet.create({
   },
   fallbackInitial: {
     fontSize: 32,
-    color: 'rgba(255,255,255,0.20)',
+    // The plate's initial is a hint, not information, but it must survive both canvases: the
+    // palette's muted ink clears 3:1 (large text) on the plate in each appearance.
+    color: p.text.muted,
   },
+  /** On the invariant plate the monogram joins the inks that sit on artwork. */
+  fallbackInitialOverlaid: { color: p.onArt.muted },
   /*
    * A real gradient band, not a flat wash over the whole image.
    *
@@ -312,4 +372,14 @@ const styles = StyleSheet.create({
     experimental_backgroundImage:
       'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.88) 100%)',
   },
-});
+  /*
+   * The V3 measured curve (owner 2026-09-22; package §3): full image height, a 0.20 floor by 30%
+   * of the height so glyph TOPS never sit on raw image, 0.97 at the baseline. The seven contrast
+   * bands B measured (worst 5.17:1) hold only with this exact curve — do not swap in a flat band.
+   */
+  scrimCurve: {
+    top: 0,
+    experimental_backgroundImage: scrimBackgroundImage(),
+  },
+  });
+}
