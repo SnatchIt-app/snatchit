@@ -2388,3 +2388,16 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       - The `logs.all` API was removed, and its notice was misread as zero rows; the positive controls caught it.
   - **F-PAYOUT-FEE-FAILOPEN-1: 0 affected rows.**
 - **O-R4 R3: D review PASS (D `45fbe3dd`)** on the exact filled files: #6 `d7f31cf1…`, #7 `dca8cb00…`. D recomputed the hashes, checked the guards against the filled values, re-read the prestate (= R0) and verified the origin. To be put to the owner with D's framing: source 'dashboard' was derived from our own code's classification rule, and approving the hash ratifies that derivation. Not executed; this awaits the owner.
+- **O-R4 EXECUTED (A, 2026-10-11, owner-approved exact hashes; D witnessing).**
+  - Hashes recomputed and matched. The prestate equalled R0.
+  - #6 ran 16:33:29Z (HTTP 201) and #7 ran 16:33:46Z (HTTP 201), once each. The helper refuses on a hash mismatch
+    before sending.
+  - Read-backs matched every prediction:
+    - #6: 1100, (0,1100,0), `re_3U0XuwGdOzCmGbHw0bL9UYzT`;
+    - #7: 220, (0,220,0), `re_3U0YzcGdOzCmGbHw0Av5k7ZH`;
+    - `refunded_at` unchanged; state/log/ledger one row each, `dashboard`/`reconcile`; transfers unchanged.
+  - The next `refunds` run (16:35:00Z) opened 0 and scanned 2, unchanged, which is expected and not detection
+    evidence. 21 cases, unchanged; none on the refund ids.
+  - The excluded five are unchanged.
+  - The two `payout_decisions` rows on #6/#7 date from 2026-08-04 (`PAYOUT_TRANSFER_FAILED`) and predate the run.
+  - 150's rollback guard no longer holds. Record: `packages/OR4_reconciliation_20261008/EXECUTION_20261011.md`.

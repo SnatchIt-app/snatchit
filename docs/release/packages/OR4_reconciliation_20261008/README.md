@@ -1,7 +1,11 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
-**Status (2026-10-10): EVIDENCE COMPLETE; R3 FILLED, REHEARSED and D-REVIEWED (PASS, D `45fbe3dd`); awaiting the
-owner's approval of the two sha256s. Production unchanged.**
+**Status (2026-10-11): EXECUTED in production on the owner's approval of the exact hashes. Every prediction held; D
+is witnessing.** See `EXECUTION_20261011.md`.
+- #6 and #7 are now each a confirmed refund: one state, log and ledger row, source `dashboard`.
+- The test-mode five are unchanged.
+
+**Previous status (2026-10-10):** evidence complete; R3 filled, rehearsed and D-reviewed (PASS, D `45fbe3dd`).
 - R0 done. The test-mode five are excluded and unchanged.
 - R1 is **complete from Stripe's live API** (owner-authorised read, 2026-10-10; §"Evidence complete").
   - Each payment has exactly one refund, `succeeded`, for the full amount.
