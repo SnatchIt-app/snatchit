@@ -17,7 +17,78 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## CURRENT STATUS (E, 2026-10-09 evening; supersedes the earlier 2026-10-09 summary. History follows below)
+## CURRENT ACCEPTANCE STATUS (E, 2026-10-11). THE ONLY CURRENT SUMMARY; every section below is dated history
+
+**Candidate:** code at `9bbeaec6` (`v3/midnight-app`, serving tip). The last code commit is
+`6b6b8f48` (`v3/consumer-batch2`).
+- Both are on origin; E verified with `git ls-remote` on 2026-10-11.
+- This record's branch was backed up by B at `6b8080bd` (fast-forward, no rewrite).
+
+**Native development build only. Not whole-app acceptance.** Evidence classes: C-operated captures;
+reviews by B and E, each with its own positive-controlled instrument.
+
+### Passed (B and E agree; closed)
+- **Home:** artwork per fixture, 4:5 frame, no gradient, nothing on the poster; feed-row and feature
+  amounts at a3xl; Filters glyph and icons.
+- **Listing:**
+  - poster clear of the banner and navigation;
+  - event name reachable by scroll (R-4);
+  - Option B footer;
+  - reservation feedback;
+  - scroll-end clearance;
+  - bid activity amounts (F-BA);
+  - full date and time (F-DT);
+  - error and offline states.
+- **Profile:** P-1, P-2 and P-3 closed at `12cc3e8d`; P-4 was a fixture problem (`2181de75`); no
+  `null%`.
+- **W batch at `9bbeaec6`:**
+  - W-4 header shrinks to fit at a3xl;
+  - S-1 and S-1b row labels;
+  - P-5 tier word;
+  - W-2 fee labels (resale minimum-bid shows "(10%)"; checkout plain);
+  - W-2b sold note.
+- **Wording decided under owner delegation:** W-1 "Unrated"; W-2 and its correction; W-2b; W-3
+  uppercase chrome labels; W-4; W-5; W-6. They are recorded below and closed.
+
+### Open: one evidence item
+- **Default size after the header change (W-4, S-1, S-1b), not yet shown by kept frames.**
+  - The default frames in `1ab2c8e2/` are byte-identical copies of `b64e5dd6/`; C declares the copy.
+  - C's "a re-shoot differs by zero" was not kept, so **the historical before/after comparison
+    cannot be made from committed frames.** That remains labelled as missing.
+  - The supporting argument is structural: the changes apply only when `identityStacks` is true.
+  - **Next:** C captures **fresh** default-size frames at `9bbeaec6` and keeps them: Settings hub and
+    Appearance, Light and Dark. Then B gives a narrow review of those four frames only.
+
+### Follow-ups, explicitly not release blockers (no concrete loss of information)
+- **Badge 1.3× cap** (`Badge.tsx`, shared). The tier word is now also carried in the scaling blurb
+  for every branch except lost disputes. Letting Badge scale needs its own sweep.
+- **Dispute-branch tier word** (`reputation.ts`). The blurb reads "N lost disputes · P% success"
+  without "Needs review". **No information is lost:** the adverse fact is stated in full, scaling
+  text. Adding the word is a routine wording change for a later batch.
+- **L-2 launch method** (Codex): `preview_start` started Metro outside the guard, and Metro exhausted
+  its heap building web bundles.
+
+### Untested by design (do not mark passed; do not ask the owner to repeat)
+- **Owner-waived signed-in checks:** authenticated consumer Home; the Edit refusal group; the W-5
+  Edit platform picker (parity is test-pinned only).
+- **W-6 payout line:** source-pinned only. It needs a connected Stripe account.
+- **Spoken VoiceOver:** optional, not a release blocker. The exposed label is verified in source
+  only.
+
+### Owner-reported, not personally verified by E
+- **The seller-fee production read is complete,** according to A and D. **The historical
+  reconciliation is complete,** according to A and D. E has not seen either result. **No owner
+  request remains open for either.**
+- **Legal text** (`legal.tsx` "10%" statements) stays with the owner. It is not a request from this
+  review.
+
+### Coordination
+- **Simulator and Metro:** free (E verified). The next window is C's, for the fresh default frames.
+- **B ↔ E:** B → E works; E → B is refused. This record is the E → B channel.
+- **E's relay notes** are preserved at `docs/product-v3/e-relays/`, and E's instrument at
+  `docs/product-v3/harness/measure/gutter_e.py`.
+
+## Status snapshot 2026-10-09 evening (SUPERSEDED by the section above; kept as history)
 
 **Candidate and checkpoints (E verified on `/Volumes/DEV-SSD`):**
 - **Code candidate: `857e6d93656d1d8126d56ccc22c00505a732fb6a`** (C, 2026-10-09 17:24).
