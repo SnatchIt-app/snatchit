@@ -143,3 +143,39 @@ disappears.
 - **Simulator and Metro: not held by B.** No booted device and nothing on `:8081` at the time of
   writing. B takes the device only after a declared handover and releases it afterwards.
 - No Mac original has been read-modified or deleted. No merge to `main`. No deployment.
+
+---
+
+## 10. Pre-registered prediction for the four fresh default frames
+Recorded **before** the frames exist, so the check is falsifiable rather than confirmed after the
+fact.
+
+The whole W-4 / S-1 / S-1b chain (`b64e5dd6..1a6ac1c3`) touches exactly **two** source files, and
+both gate their change on the same threshold:
+
+```
+SettingsHeader.tsx   numberOfLines={1}                      // already there, unchanged
+                     {...(stacked ? {adjustsFontSizeToFit, minimumFontScale} : null)}
+
+SettingsRow.tsx      numberOfLines={stacked && canBreak ? 2 : 1}   // false -> 1, as before
+                     {...(stacked ? {adjustsFontSizeToFit, minimumFontScale} : null)}
+```
+
+With `stacked === false` — every size below `IDENTITY_STACK_SCALE = 1.3` — both components render
+**precisely the props they rendered before the chain**. Not "one file looks safe": every file the
+chain touches.
+
+**Prediction.** Each fresh default frame, compared with its `b64e5dd6` counterpart, will differ
+**only in the status bar** — the clock and the battery, above y ≈ 110 px — and by **zero pixels
+below the fixed header**.
+
+**What each outcome means:**
+- **Prediction holds** → W-4 and S-1/S-1b move from §5 to §1 at default size as well, now on paint.
+- **Ink differs below the header** → something outside these two guards is moving the default
+  layout, and *that* is a finding worth more than the item it was meant to confirm. It would not be
+  explained by anything in this chain.
+- **The frames come back identical byte-for-byte** → they were copied again, not re-shot, and the
+  check has not been run.
+
+The third outcome is the reason this section exists. The failure mode here has never been a wrong
+conclusion; it has been a comparison that could not have come out any other way.
