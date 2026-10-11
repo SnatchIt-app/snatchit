@@ -2387,7 +2387,7 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
       - A's first Stripe filter epoch was a day late. The unfiltered lists and a corrected epoch close it.
       - The `logs.all` API was removed, and its notice was misread as zero rows; the positive controls caught it.
   - **F-PAYOUT-FEE-FAILOPEN-1: 0 affected rows.**
-- **O-R4 R3: D review PASS (D `45fbe3dd`)** on the exact filled files: #6 `d7f31cf1…`, #7 `dca8cb00…`. D recomputed the hashes, checked the guards against the filled values, re-read the prestate (= R0) and verified the origin. To be put to the owner with D's framing: source 'dashboard' was derived from our own code's classification rule, and approving the hash ratifies that derivation. Not executed; this awaits the owner.
+- **O-R4 R3: D review PASS (D `fefb83a9`)** on the exact filled files: #6 `d7f31cf1…`, #7 `dca8cb00…`. D recomputed the hashes, checked the guards against the filled values, re-read the prestate (= R0) and verified the origin. To be put to the owner with D's framing: source 'dashboard' was derived from our own code's classification rule, and approving the hash ratifies that derivation. Not executed; this awaits the owner.
 - **O-R4 EXECUTED (A, 2026-10-11, owner-approved exact hashes; D witnessing).**
   - Hashes recomputed and matched. The prestate equalled R0.
   - #6 ran 16:33:29Z (HTTP 201) and #7 ran 16:33:46Z (HTTP 201), once each. The helper refuses on a hash mismatch
@@ -2401,9 +2401,9 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The excluded five are unchanged.
   - The two `payout_decisions` rows on #6/#7 date from 2026-08-04 (`PAYOUT_TRANSFER_FAILED`) and predate the run.
   - 150's rollback guard no longer holds. Record: `packages/OR4_reconciliation_20261008/EXECUTION_20261011.md`.
-  - **D witnessed and confirmed** the O-R4 execution (D `1046b78e`). Its limit: no independent immediately-before prestate for #6 (its verdict-stage read was a day old; the atomic guards were the backstop). Observation, out of scope: 4 of the excluded five carry `stripe_refund_id` with `amount_refunded_cents` NULL, pre-existing.
+  - **D witnessed and confirmed** the O-R4 execution (D `6b9da194`). Its limit: no independent immediately-before prestate for #6 (its verdict-stage read was a day old; the atomic guards were the backstop). Observation, out of scope: 4 of the excluded five carry `stripe_refund_id` with `amount_refunded_cents` NULL, pre-existing.
 - **Closed by the owner's direction (2026-10-11):**
-  - **O-R4 CLOSED.** Executed and witnessed (A; D `1046b78e`); do not rerun. The five test-mode payments stay
+  - **O-R4 CLOSED.** Executed and witnessed (A; D `6b9da194`); do not rerun. The five test-mode payments stay
     excluded and unchanged.
   - **F-WEBHOOK-LEDGER-GAP-1 complete** at A/D's evidence strength. No qualifying live activity since 2026-08-05
     23:39:41Z; no rejection evidenced. Residual: platform `account.updated` events 08-06 to ~09-10 cannot be

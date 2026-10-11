@@ -99,7 +99,7 @@ Both predate the run by two months and come from the August payout incident. An 
 
 **Outcome: EXECUTED. Every prediction held; no stop condition was met; nothing was retried.**
 
-## D's witness: CONFIRMED (D `1046b78e`, `D_WITNESS_R3_EXECUTION_20261011.md`)
+## D's witness: CONFIRMED (D `6b9da194`, `D_WITNESS_R3_EXECUTION_20261011.md`)
 
 D's own reads confirm all four checks:
 - **(a)** Both rows changed as predicted. `refunded_at` is unchanged to the millisecond (17:20:05.165 / 17:20:19.353).
@@ -125,3 +125,20 @@ not validation.
 `amount_refunded_cents` is NULL. `record_payment_refund` sets both, so an earlier path or a backfill set the id alone.
 There is no baseline for that column on those rows, so it is stated as pre-existing, not as unchanged. It is worth
 someone's attention eventually; nothing here touched it.
+
+## Pointer map for D's rewritten records (2026-10-11)
+
+D re-leaked the two real ARNs in its Stripe-evidence commit, then rewrote and force-pushed its records branch. The ARN
+pickaxe finds 0 on origin `review/d-records-20261005` @ `b9d4e464`; the old commit still holds them, as the control.
+The pre-rewrite shas now resolve only on D's local backup. Same content, ARN values redacted:
+
+| cited as | resolves now as | content |
+|---|---|---|
+| `78d9572a` | `99e5cdea` | D's blind Stripe read (refund ids, succeeded, count) |
+| `45fbe3dd` | `fefb83a9` | D's verdict on the filled files |
+| `62829249` | `f83c9bb9` | D's first witness commit |
+| `1046b78e` | `6b9da194` | D's completed witness |
+
+**The executed files still say `D blind check 78d9572a` in `c_evidence`, and they stay unchanged.** They were
+approved and executed by their sha256 (#6 `d7f31cf1…`, #7 `dca8cb00…`), so editing them would break the approved
+hashes. Follow `78d9572a` → `99e5cdea`. Every other citation in A's records now uses the new shas.

@@ -437,7 +437,7 @@ the whole sale price, with no fee withheld, instead of being refused.
 ### F-WEBHOOK-LEDGER-GAP-1: EXPLAINED (2026-10-10). No qualifying live activity; no rejection evidenced
 
 These were owner-authorised read-only reads: Stripe live API (`acct_1T6FarGdOzCmGbHw`), the production database, and
-Supabase function logs. D blind-checked the Stripe and database facts (`78d9572a`).
+Supabase function logs. D blind-checked the Stripe and database facts (`99e5cdea`).
 
 **What each source shows:**
 - **Last recorded event.** The ledger's final row, a `transfer.created` at 2026-08-05 23:39:41.913Z, is the last live

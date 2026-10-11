@@ -33,7 +33,7 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
 - **O-R4: CLOSED. Executed 2026-10-11 16:33Z; do not rerun.** Run on the owner's approval of the exact hashes (#6 `d7f31cf1…`, #7 `dca8cb00…`).
   - Both records were read back exactly as predicted.
   - The next `refunds` run (16:35Z) opened 0; no new case.
-  - The excluded five are unchanged. **D witnessed and confirmed (D `1046b78e`)**; D's #6 prestate was a day old, with
+  - The excluded five are unchanged. **D witnessed and confirmed (D `6b9da194`)**; D's #6 prestate was a day old, with
     the atomic guards as backstop. Record: package `EXECUTION_20261011.md`.
   - From Stripe's live API: each payment has exactly one refund, `succeeded`, for the full amount.
     - #6 `re_3U0XuwGdOzCmGbHw0bL9UYzT`, #7 `re_3U0YzcGdOzCmGbHw0Av5k7ZH`.

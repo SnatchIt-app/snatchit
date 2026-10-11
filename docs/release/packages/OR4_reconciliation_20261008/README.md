@@ -1,14 +1,14 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
 **Status: CLOSED (2026-10-11). Do not rerun.** It was executed in production on the owner's approval of the exact
-hashes. Every prediction held, and D witnessed and confirmed (D `1046b78e`). The R3 files are spent:
+hashes. Every prediction held, and D witnessed and confirmed (D `6b9da194`). The R3 files are spent:
 - a second run is refused by their own prestate guards;
 - there is no further O-R4 work;
 - the five test-mode payments stay excluded and unchanged. See `EXECUTION_20261011.md`.
 - #6 and #7 are now each a confirmed refund: one state, log and ledger row, source `dashboard`.
 - The test-mode five are unchanged.
 
-**Previous status (2026-10-10):** evidence complete; R3 filled, rehearsed and D-reviewed (PASS, D `45fbe3dd`).
+**Previous status (2026-10-10):** evidence complete; R3 filled, rehearsed and D-reviewed (PASS, D `fefb83a9`).
 - R0 done. The test-mode five are excluded and unchanged.
 - R1 is **complete from Stripe's live API** (owner-authorised read, 2026-10-10; §"Evidence complete").
   - Each payment has exactly one refund, `succeeded`, for the full amount.
@@ -59,7 +59,7 @@ account-wide refund list holds exactly these two live refunds, ever.
 - **Not read:** the creating request's own source. Stripe exposes request logs in the Dashboard only, and its events
   API keeps 30 days.
 - D independently found the metadata inconsistent with the expiry path, and left the source to A's comparison of all
-  paths (D `78d9572a`).
+  paths (D `99e5cdea`).
 
 **Prestate re-read (2026-10-10 05:46Z), equal to R0:**
 - both payments: `refunded`, live, `amount_refunded_cents` NULL, refund cents (0, 0, 0), `stripe_refund_id` NULL;
@@ -68,7 +68,7 @@ account-wide refund list holds exactly these two live refunds, ever.
 
 The R3 prestate guards would pass.
 
-**D's blind check** (D `78d9572a`, committed before A sent any figure) matches every refund field above, live mode,
+**D's blind check** (D `99e5cdea`, committed before A sent any figure) matches every refund field above, live mode,
 and the post-gap PaymentIntents.
 
 **Owner direction (2026-10-07):** "Prepare the historical reconciliation package; correction writes remain separately
@@ -532,7 +532,7 @@ your expiry path did not create. Approving the hash ratifies that derivation."
 - The comment is not edited: that would break the five-line rule and the reviewed hashes. The owner's approval
   becomes the recorded decision.
 
-**D's review: PASS** (D `45fbe3dd`).
+**D's review: PASS** (D `fefb83a9`).
 - D recomputed both sha256s independently: #6 `d7f31cf1…0d88`, #7 `dca8cb00…2996`.
 - Each diff is exactly 5 lines removed and 5 added. `c_amount` = `c_total` = Stripe's refund amount.
 - D re-evaluated every input guard against the filled values: C3, C4, C5, C10, C11, C12.
