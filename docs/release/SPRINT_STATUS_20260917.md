@@ -2421,3 +2421,14 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     caught. `packages/S5_candidate_20261011/`.
   - **Migration 153 prepared** (`fix/153-detect-refunds-state-on` @ `ce95e503`). CI green: pgTAP 99 files / 5,625
     tests PASS, including 220. Registry row added. Not applied; D reviews.
+- **Combined candidate CI GREEN (A, 2026-10-11 18:06Z).**
+  - Trial r3 `integration/s5-trial-20261011-r3` @ `5450b348` merges the gate `abef9506` with v3 `d27aa449`. Run
+    38162239127: all jobs green, every step confirmed to execute (unit 182/3,084; parity 108; pgTAP 98/5,605). v3's
+    own CI is green at `d27aa449` (run 38162136552).
+  - **Two stacked failures cleared by C:** ML7 (a test that depended on the timezone; fixed in the test, `10dbcdf4`)
+    and the parity suite's load error (`d27aa449`, `packages/vitest.config.ts` only).
+  - **Gap recorded.** The APP_CONFIG fee-parity assertions did not execute for 17 days (from 2026-09-24, v3 only).
+    No value drifted.
+  - **Recommendation:** stop sequential steps masking each other (`if: ${{ !cancelled() }}`). This is a `ci.yml`
+    change and owner-gated; not made.
+  - E's four frames were pushed (`32c0804a`); B's narrow review is owed, through E's record.

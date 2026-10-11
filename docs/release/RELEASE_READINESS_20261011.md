@@ -20,8 +20,9 @@
 | `release/production-gate-20260918` | `abef9506` | Production backend source: 150/151 applied, ledger 164, stripe-webhook v43, enforce-transfer-expiry v42 |
 | `feature/web-accounts-foundation` | `0b389584` | Live on `snatchti.com` as `dpl_9n8Jps9W…` |
 | `admin/operating-console` | `f7e7e85f` | Live as `dpl_8xPaaBYG…`; the pin is unchanged |
-| `v3/midnight-app` | `9bbeaec6` | The v3 candidate B and E reviewed. It contains `v3/consumer-batch2` `6b6b8f48` |
-| `integration/s5-trial-20261011` | `9ed130d5` | A's trial merge of gate + v3, test only. CI red on the one pre-existing ML7 failure (below) |
+| `v3/midnight-app` | `d27aa449` | The v3 candidate. Its `app/` and `src/` are identical to `9bbeaec6`, the tip B and E reviewed. It adds C's ML7 test fix (`10dbcdf4`), E's four frames (`32c0804a`, `11e50ca0`) and the parity alias fix (`d27aa449`). v3's own CI is green (run 38162136552). It contains `v3/consumer-batch2` `6b6b8f48` |
+| `integration/s5-trial-20261011-r3` | `5450b348` | **A's trial merge of the gate and v3 `d27aa449`, test only. CI GREEN** (run 38162239127): 182 unit files / 3,084 tests, parity 108 tests, pgTAP 98 files / 5,605 tests |
+| `integration/s5-trial-20261011` (-r2) | `9ed130d5` (`4f162c24`) | Earlier trials, red on ML7 (r1) and then on the parity load error (r2). Kept as record |
 | `fix/153-detect-refunds-state-on` | `ce95e503` | Migration 153 (`20261011000000`), prepared and tested. CI green (run 38160107004, pgTAP 99 files / 5,625 tests PASS). **Not applied** |
 | `release/candidate-20260918` | this commit | A's records |
 | `design/frontend-audit-20260917` | `6f284925` | B and E's record, pushed |
@@ -31,21 +32,35 @@
 
 ## 1. Release blockers (must close before the v3 app ships)
 
-1. **v3 CI is red: one test that depends on the timezone. Owner: C.**
+1. **RESOLVED (2026-10-11 18:06Z): v3 CI was red; it is now green at `d27aa449`.** It had two stacked failures:
    - `tests/v3-mylistings-bids-stage.test.ts` › ML7 expects "Sold Sat 17 Oct" for `2026-10-17T21:00-04:00`.
    - The UTC runner prints "Sold Sun 18 Oct".
    - It has failed on every `v3/midnight-app` push since at least 2026-10-07, including `9bbeaec6`
      (run 38028668549). 1 of 178 files.
    - It is not caused by the merge: the S5 trial fails identically.
-   - C has been told. Fix it, then re-run the trial CI (A).
-2. **E's one open evidence item. Owner: C, then B.**
+   - **(a) ML7:** fixed by C in the test only (`10dbcdf4`). `soldOnLabel` deliberately stays in the device's zone;
+     ML7b now defends that.
+   - **(b) The parity suite never loaded:** `core/tests/domain-parity.test.ts` reported "Cannot find package
+     '@/src/lib/money'".
+     - It had been hidden behind ML7, and it had failed since 2026-09-24, when `90235b74` (v3 only; not on the gate)
+       made `src/config/app.ts` import through the `@/` alias, which `packages/vitest.config.ts` never declared.
+     - Fixed by C in `d27aa449`, in the config only.
+   - **A gap that existed, not only a bug fixed.** For 17 days the 11 APP_CONFIG parity assertions did not execute,
+     while the job reported its first failure instead.
+     - Those assertions cover `BUYER_FEE_RATE`, `SELLER_FEE_RATE`, and `STRIPE_PUBLISHABLE_KEY` as the only intended
+       omission.
+     - No value had drifted: all 108 pass at r3.
+     - C's negative control: a non-money key mutated kills exactly that test.
+   - Trial r3 (`5450b348`) is green on every step.
+2. **E's one open evidence item: captured; B's review owed.** C pushed the four frames (`32c0804a`, labelled `11e50ca0`).
+   B's narrow review is owed. B cannot receive messages, so E's acceptance record is the channel.
    - Four fresh default-size frames at `9bbeaec6`: `settings-hub-default-{light,dark}` and
      `appearance-default-{light,dark}`. C has the simulator window.
    - Then B reviews those four frames only.
    - E: "Open: one evidence item"; it is the only open line in E's current summary.
 3. **The rest of the §5.3 combined-candidate verification** (`packages/S5_candidate_20261011/README.md`):
    - Item 1, changed-surface inventory: **done (A).** `app/` and `src/` are identical to `9bbeaec6`.
-   - Item 2, CI green: **blocked on #1.**
+   - Item 2, CI green: **DONE.** Trial r3 `5450b348` (run 38162239127); every step was confirmed to execute.
    - Item 3, C4 static client-read check: **PASS (A)**, against the ledger-164 schema.
      - 63 chains and 25 RPCs, 0 missing; 5/5 planted defects caught; 16 dynamic sites resolved by hand.
      - D verifies (item 6).
@@ -90,6 +105,11 @@
 
 ## 4. Optional follow-ups (not release blockers)
 
+- **CI step masking (A's recommendation; a `ci.yml` change, so a PR into the gate, owner-gated).** The quality job's
+  steps run in sequence, so the first failure hides every later step. Twice in a row ML7 hid the parity suite, and the
+  parity load error hid 11 assertions; "red on one test" therefore never meant one thing was wrong. Recommended: run
+  each independent test step with `if: ${{ !cancelled() }}`, so that every step reports and the job still fails on any
+  of them. A has not changed `ci.yml`.
 - **Migration 153** (F-DETECT-REFUNDS-UNOBSERVABLE-1). Prepared; CI green; rollback restores 150's body exactly.
   Applying it to production is owner-gated; D reviews the branch.
 - **Spoken VoiceOver:** optional.
@@ -135,7 +155,7 @@
 
 ## Concrete remaining approvals, in order
 
-1. *(after C's ML7 fix and A's green re-run, and E's open frames)* **Accept the v3 candidate** on E's stated coverage.
+1. *(after B's review of the four frames; CI is now green)* **Accept the v3 candidate `d27aa449`** on E's stated coverage.
 2. **D2:** is the 152 blocking scope in this release, yes or no?
 3. **S5:** merge `v3/midnight-app` into the gate.
 4. **S7:** gate → `main`, with PR-3 and a fresh auto-deploy-off confirmation.

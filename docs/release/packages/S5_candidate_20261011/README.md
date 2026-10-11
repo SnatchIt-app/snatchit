@@ -20,7 +20,19 @@ deployed. S5 (`v3/midnight-app` → gate), S7 (gate → `main`) and distribution
   - The gate adds to v3: `supabase` (38), `tests` (8), `scripts`, `docs` and `.github`. v3 changes nothing under
     `supabase/`.
 
-## CI at the combined candidate (§5.3 item 2): RED, with one failure that predates the merge
+## CI at the combined candidate (§5.3 item 2): GREEN at trial r3 (2026-10-11 18:06Z)
+
+**r3:** `integration/s5-trial-20261011-r3` @ `5450b348`, the gate `abef9506` merged with v3 `d27aa449`. It is clean,
+`app/` and `src/` are identical to `9bbeaec6`, and it adds 0 new blobs. Run
+[38162239127](https://github.com/SnatchIt-app/snatchit/actions/runs/38162239127): all five jobs succeeded, and every
+step was confirmed to execute:
+- unit tests: 182 files / 3,084 tests;
+- parity: 3 files / 108 tests, including `domain-parity` (11);
+- pgTAP: 98 files / 5,605 tests.
+
+r1 (below) and r2 (`4f162c24`, red on the parity load error that ML7 had hidden) are kept as record.
+
+### r1 (history): RED, with one failure that predates the merge
 
 Run [38159624076](https://github.com/SnatchIt-app/snatchit/actions/runs/38159624076) on `9ed130d5`:
 - Migrations (fresh DB), Deno, Web build and Admin console: **success**.
@@ -71,6 +83,8 @@ Tool: `c4_client_read_check.py` (this folder).
 ## Still owed by others for §5.3
 
 - **Item 4:** a native build of the candidate from a fresh install (C/B, on "SN V3 393x852").
+- **C4 carries over to `d27aa449`:** outside `native/9bbeaec6/` evidence, the only changes since `9bbeaec6` are
+  `tests/v3-mylistings-bids-stage.test.ts` and `packages/vitest.config.ts`. Neither reads from the database.
 - **Item 5:** delta acceptance. There are no app-source changes beyond `9bbeaec6`, so the delta is E's one open
   evidence item (four default-size Settings frames) plus whatever the ML7 fix touches.
 - **Item 6:** D's verification of C4.
