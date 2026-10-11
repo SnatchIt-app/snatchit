@@ -101,3 +101,55 @@ wording on the authenticated pages remains waived rather than verified.
 **Irreversible from here:** `payment_refund_state_log` and `payment_refunds` are append-only, and 150's
 rollback guard (`payment_refund_state rows = 0`) no longer holds. That was stated before approval and
 is now the standing position.
+
+---
+
+## 6. A's four requested checks, on D's own reads
+
+**(a) After-state of both rows and their state/log/ledger rows** — §1. Matches A on every field.
+
+**(b) The excluded five — unchanged and untouched.** All five: `stripe_livemode false`, status
+`refunded`, `amount_refunded_cents` **NULL**, cents **0/0/0**, and **0 `payment_refund_state` rows
+each**. Global totals are **2 state / 2 log / 2 ledger**, every one of them accounted for by #6 and #7,
+so nothing was written for any other payment. The scripts also pin `c_payment_id`, so they could not
+have reached them.
+
+*One observation, not a change:* four of the five already carry a `stripe_refund_id`
+(`re_3THufw…`, `re_3THuOy…`, `re_3TFRdx…`, `re_3TpCE5…`) while `50f9a2e3` does not. **D has no
+baseline for that column on these rows** — R0 did not select it — so D states it as pre-existing rather
+than as unchanged. It cannot have been written today, since today's writes produced exactly the two
+ledger rows above. Mildly odd that those four have a refund id while `amount_refunded_cents` is NULL,
+since `record_payment_refund` sets both; it suggests an earlier path or backfill populated the id
+alone. Out of scope here, flagged for the record.
+
+**(c) The 16:35:00Z run and no new case** — §2. `refunds` succeeded, scanned 2, opened 0;
+`refund_resolution` skipped. **0 cases created today**, and the total stands at 21.
+
+**(d) The `payout_decisions` dates — this closes the gap D could not close itself.**
+
+| payment | decision | decided_at (UTC) | reason codes |
+|---|---|---|---|
+| `32913315` | `manual_review` | **2026-08-04 03:00:03Z** | `PAYOUT_TRANSFER_FAILED` |
+| `700d469b` | `manual_review` | **2026-08-04 03:27:40Z** | `BUYER_CONFIRMED,PAYOUT_TRANSFER_FAILED` |
+
+**Both predate the run by two months.** D had recorded that it could not independently confirm the
+scoped `payout_decisions` count was unchanged, having never captured a before-value. The `decided_at`
+dates settle it directly: these rows existed long before today, so the run did not create them. A's
+equivalent miss resolves the same way.
+
+**A contextual finding that falls out of it.** Both payments were flagged `manual_review` with
+`PAYOUT_TRANSFER_FAILED` at 03:00 and 03:27 on 2026-08-04, and were refunded at 17:20 the same day.
+That is a coherent sequence: the payout transfers failed in the early hours, and the payments were
+refunded about fourteen hours later. It fits `source = 'dashboard'` — a manual refund following a
+failed payout — though the determination already rests on the code rule and does not need this.
+It also matches the owner's own records of an August payment incident.
+
+## 7. D's verdict on the execution
+
+**Both writes are correct, complete and confined to the two approved records.** Every value D
+predicted in advance matched, including the two D derived structurally rather than from rehearsal:
+`refunded_at` preserved to the millisecond, and the detector's `items_scanned` staying at 2.
+
+The owner's conditions were met. The limitation in D's own witnessing of #6 (§3) stands as recorded
+and does not change the verdict — it changes only how strongly D can claim to have observed the
+before-state of that one record, as opposed to relying on the file's atomic guards.
