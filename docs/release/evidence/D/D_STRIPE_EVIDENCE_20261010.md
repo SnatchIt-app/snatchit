@@ -24,7 +24,7 @@ CLI was bound to `acct_1T6Fb1GlD5aqtxIw` (sandbox) — a different account. This
 | `reason` | `null` | `null` |
 | `failure_reason` | **absent** | **absent** |
 | `metadata` | **`{}`** | **`{}`** |
-| ARN (`destination_details.card.reference`) | `70000000000000000000001` | `70000000000000000000001` |
+| ARN (`destination_details.card.reference`) | **matches the owner's screenshot exactly** (value redacted) | **matches the owner's screenshot exactly** (value redacted) |
 | `reference_status` | `available` | `available` |
 | charge | `ch_3U0XuwGdOzCmGbHw0jHL2NZu` | `ch_3U0YzcGdOzCmGbHw0WOgATJm` |
 
@@ -136,3 +136,13 @@ real zero over a populated column, not an empty scan. No details to report, as n
 files stay unfilled, and per the rule A and D agreed, all five markers fill in one step or none do.
 
 D has executed nothing. Correction writes remain separately gated.
+
+---
+
+**Redaction (2026-10-11).** This record originally transcribed both real Acquirer Reference Numbers
+from `destination_details.card.reference`. That reintroduced into a **public** repository exactly the
+values removed on 2026-10-10, and it was D's own error. The values are redacted and the history
+rewritten; the finding they supported — that Stripe's ARN for each refund **equals** the ARN in the
+owner's screenshot, confirming identity independently of the truncated PaymentIntent prefixes — is
+unaffected and stands. The real values remain in the owner's screenshots and on D's local-only backup
+refs.
