@@ -1,0 +1,225 @@
+-- ============================================================================
+-- 132_checkout_group_claim.sql — pre-mint checkout group record.
+--
+-- DEFECT (D's disposition, OPEN MONEY DEFECT; owner ruling 2026-09-15: required
+-- before production). 130 serializes a checkout only once a PENDING PAYMENT ROW
+-- exists, because its claim lives on that row. Two concurrent requests by one
+-- buyer that both find NO pending row each mint at Stripe. Their idempotency
+-- key normally matches, so Stripe replays one intent, but it diverges three
+-- ways: the canceled-replay retry (`_u<uuid>`), a seller re-price between the
+-- two reads, and a failedAttempts flip between the two reads. Each divergence
+-- yields two intents, two secrets and two captured charges; the second capture
+-- collides with idx_payments_one_success_per_listing, is recorded unfulfillable
+-- and is refunded only by a later sweep. The owner does not accept that path.
+--
+-- FIX. A durable record of the checkout group (listing, buyer) that the
+-- create-payment-intent edge takes BEFORE it reads prior payments and BEFORE
+-- any mint, and holds through every secret hand-out. The group spans BOTH modes
+-- (D review F-132-1): one buyer can be entitled to Buy Now and to the auction on
+-- the same listing at once (a live hold taken while the auction ran, then the
+-- finalizer ended the auction under it), so a mode-keyed group let the two
+-- checkouts each mint. `mode` is recorded for diagnostics, not part of the key.
+--   public.checkout_group_claim            one row per claimed (listing, buyer)
+--   public.claim_checkout_group(l, b, m)   -> {claimed, claim_token, reason}
+--   public.release_checkout_group(l, b, m, token) -> {released, reason}
+-- A second concurrent request of the same group is refused (claim_held) and
+-- answered 409 without a mint or a secret. Once the holder has committed its
+-- pending row, the next request takes 130's reuse or supersede path.
+--
+-- MECHANISM CHOICE (recorded in MIGRATION_132_CHECKOUT_GROUP_CLAIM_DESIGN.md).
+-- A payments row without an intent id would also satisfy "a record before the
+-- intent", but readers of pending payments assume an intent id (the Phase 0
+-- sweep's Stripe retrieve, account-deletion blockers, 127's live-sibling rule);
+-- this table touches none of them.
+--
+-- ATOMICITY AND LOCKS. The claim is one statement: INSERT ... ON CONFLICT
+-- (primary key) DO UPDATE ... WHERE the existing claim is older than 120 s.
+-- A concurrent insert of the same key waits for the first to commit, then
+-- evaluates the WHERE against the committed row and returns no row. The
+-- statement takes no payments or listings lock and has no foreign keys, so it
+-- adds no lock-order interaction with settlement (payments -> listings) or with
+-- 130's claim. 120 s governs reclaim only; the holder is bounded by the edge's
+-- E-1 budget (90 s default) and re-reads this token before each hand-out.
+--
+-- ORPHANS. A crashed holder's row lapses at 120 s and is overwritten by the
+-- next claim; it holds only ids. The deletion cascade is not needed for
+-- correctness and is deliberately absent (no FK, no lock interaction).
+--
+-- 130 IS UNCHANGED. Its RPCs and columns stay; the edge still takes the row
+-- claim on reuse and supersede, so a mixed-version deploy stays serialized.
+-- DEPLOY ORDER: 132 before the edge (the edge fails closed, 503, without it).
+-- Rollback: supabase/rollbacks/132_checkout_group_claim_rollback.sql.
+-- ============================================================================
+begin;
+
+create table if not exists public.checkout_group_claim (
+  listing_id  uuid        not null,
+  buyer_id    uuid        not null,
+  mode        text        not null constraint checkout_group_claim_mode_ck check (mode in ('buy_now', 'auction')),
+  claim_token uuid        not null,
+  claimed_at  timestamptz not null default now(),
+  constraint checkout_group_claim_pkey primary key (listing_id, buyer_id)
+);
+comment on table public.checkout_group_claim is
+  '132: durable pre-mint record of the checkout group (listing, buyer), spanning both modes; mode records the holder''s request. A row means one create-payment-intent request holds the right to read prior payments, mint and hand out a secret for that group; older than 120 s it is abandoned and reclaimable. Written only by claim_checkout_group / release_checkout_group. service_role only.';
+
+alter table public.checkout_group_claim enable row level security;
+revoke all on public.checkout_group_claim from public, anon, authenticated;
+-- Explicit, not inherited (as 128): a CI replay has no Supabase default ACL, so
+-- service_role would hold only REFERENCES, TRIGGER, TRUNCATE. The edge's E-1
+-- guard SELECTs this table as service_role before every hand-out; without the
+-- grant that read errors and every checkout fails closed (503). The full set
+-- matches what production's default ACL gives service_role on a new table.
+grant delete, insert, references, select, trigger, truncate, update
+  on public.checkout_group_claim to service_role;
+
+create or replace function public.claim_checkout_group(
+  p_listing_id uuid,
+  p_buyer_id   uuid,
+  p_mode       text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_token uuid;
+begin
+  if p_listing_id is null or p_buyer_id is null or p_mode is null then
+    return jsonb_build_object('claimed', false, 'claim_token', null, 'reason', 'missing_argument');
+  end if;
+  if p_mode not in ('buy_now', 'auction') then
+    return jsonb_build_object('claimed', false, 'claim_token', null, 'reason', 'invalid_mode');
+  end if;
+
+  insert into public.checkout_group_claim as g (listing_id, buyer_id, mode, claim_token, claimed_at)
+  values (p_listing_id, p_buyer_id, p_mode, gen_random_uuid(), now())
+  on conflict on constraint checkout_group_claim_pkey do update
+     set mode        = excluded.mode,
+         claim_token = excluded.claim_token,
+         claimed_at  = excluded.claimed_at
+   where g.claimed_at < now() - interval '120 seconds'
+  returning g.claim_token into v_token;
+
+  if v_token is null then
+    return jsonb_build_object('claimed', false, 'claim_token', null, 'reason', 'claim_held');
+  end if;
+  return jsonb_build_object('claimed', true, 'claim_token', v_token, 'reason', 'claimed');
+end;
+$$;
+comment on function public.claim_checkout_group(uuid, uuid, text) is
+  '132: take the pre-mint checkout group record for (listing, buyer) — either mode — unless a claim younger than 120 s holds it; p_mode is recorded. One atomic statement on the primary key; no payments or listings lock. Returns {claimed, claim_token, reason} with reason claimed | claim_held | missing_argument | invalid_mode; never raises on those. service_role only.';
+revoke execute on function public.claim_checkout_group(uuid, uuid, text) from public, anon, authenticated;
+grant  execute on function public.claim_checkout_group(uuid, uuid, text) to service_role;
+
+create or replace function public.release_checkout_group(
+  p_listing_id  uuid,
+  p_buyer_id    uuid,
+  p_mode        text,
+  p_claim_token uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_token uuid;
+begin
+  if p_listing_id is null or p_buyer_id is null or p_mode is null or p_claim_token is null then
+    return jsonb_build_object('released', false, 'reason', 'missing_argument');
+  end if;
+  delete from public.checkout_group_claim g
+   where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id
+     and g.claim_token = p_claim_token
+  returning g.claim_token into v_token;
+  if v_token is not null then
+    return jsonb_build_object('released', true, 'reason', 'released');
+  end if;
+  if exists (select 1 from public.checkout_group_claim g
+              where g.listing_id = p_listing_id and g.buyer_id = p_buyer_id) then
+    return jsonb_build_object('released', false, 'reason', 'token_mismatch');
+  end if;
+  return jsonb_build_object('released', false, 'reason', 'not_claimed');
+end;
+$$;
+comment on function public.release_checkout_group(uuid, uuid, text, uuid) is
+  '132: delete the (listing, buyer) checkout group record only when the token matches (p_mode is not part of the match), so a late release by an abandoned holder never frees a reclaim. Returns {released, reason} with reason released | token_mismatch | not_claimed | missing_argument; never raises on those. service_role only.';
+revoke execute on function public.release_checkout_group(uuid, uuid, text, uuid) from public, anon, authenticated;
+grant  execute on function public.release_checkout_group(uuid, uuid, text, uuid) to service_role;
+
+-- ── The pending row may only be recorded while the claim is still held ───────
+-- D review, reuse-order: the edge's checks bracket its INSERT, but the insert
+-- itself was not bound to the claim. If the insert request stalls in transit or
+-- in pool acquisition (the E-1 budget is 90 s, the claim lapses at 120 s), a
+-- reclaimer R can read, mint and hand out its own secret before the stalled
+-- insert commits. The stalled row then has the NEWEST created_at, so the next
+-- request reuses it and hands out a second live secret.
+--
+-- record_checkout_attempt closes that structurally: it takes the group row
+-- FOR SHARE matched on the claim token and inserts only if that matched.
+--   * A reclaim (INSERT ... ON CONFLICT DO UPDATE, which locks the existing row
+--     FOR NO KEY UPDATE) must WAIT for this transaction, so R's later prior read
+--     always sees the row and reuses it: one live secret. FOR SHARE is required;
+--     FOR KEY SHARE does not conflict with FOR NO KEY UPDATE and would not block.
+--   * If R reclaimed first, this SELECT waits on R, then re-evaluates its WHERE
+--     under READ COMMITTED against the updated row, finds no match, and records
+--     nothing; the caller cancels its unexposed intent.
+-- Freshness is deliberately not required: a stale-but-unreclaimed holder may
+-- still record, because any later reclaim waits and then reuses that row.
+-- unique_violation is NOT caught, so 23505 still reaches the edge's
+-- concurrent-identical-request recovery path unchanged.
+create or replace function public.record_checkout_attempt(
+  p_listing_id       uuid,
+  p_buyer_id         uuid,
+  p_mode             text,
+  p_claim_token      uuid,
+  p_seller_id        uuid,
+  p_amount           integer,
+  p_buyer_fee        integer,
+  p_seller_fee       integer,
+  p_total            integer,
+  p_payment_intent_id text,
+  p_livemode         boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if p_listing_id is null or p_buyer_id is null or p_mode is null or p_claim_token is null
+     or p_payment_intent_id is null or p_amount is null or p_total is null then
+    return jsonb_build_object('inserted', false, 'payment_id', null, 'reason', 'missing_argument');
+  end if;
+
+  perform 1
+     from public.checkout_group_claim g
+    where g.listing_id = p_listing_id
+      and g.buyer_id   = p_buyer_id
+      and g.claim_token = p_claim_token
+      for share;
+  if not found then
+    return jsonb_build_object('inserted', false, 'payment_id', null, 'reason', 'claim_lost');
+  end if;
+
+  insert into public.payments
+    (listing_id, buyer_id, seller_id, amount, buyer_fee, seller_fee, total,
+     stripe_payment_intent_id, status, mode, stripe_livemode)
+  values
+    (p_listing_id, p_buyer_id, p_seller_id, p_amount, coalesce(p_buyer_fee, 0), coalesce(p_seller_fee, 0), p_total,
+     p_payment_intent_id, 'pending', p_mode, p_livemode)
+  returning id into v_id;
+
+  return jsonb_build_object('inserted', true, 'payment_id', v_id, 'reason', 'recorded');
+end;
+$$;
+comment on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) is
+  '132: record a checkout''s pending payment row only while its (listing, buyer) group claim is still held. Takes the group row FOR SHARE on the claim token — FOR SHARE, so a reclaim''s FOR NO KEY UPDATE must wait — and inserts nothing when the token no longer matches. Returns {inserted, payment_id, reason} with reason recorded | claim_lost | missing_argument; unique_violation (23505) is deliberately NOT caught. service_role only.';
+revoke execute on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) from public, anon, authenticated;
+grant  execute on function public.record_checkout_attempt(uuid, uuid, text, uuid, uuid, integer, integer, integer, integer, text, boolean) to service_role;
+
+commit;
