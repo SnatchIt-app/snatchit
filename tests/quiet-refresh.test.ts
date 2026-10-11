@@ -100,7 +100,10 @@ describe('tickets — shipped-source guards', () => {
   it('reads what is on screen through a ref, so the focus effect does not refetch on every state change', () => {
     expect(screenCode).toMatch(/const shown = useRef</);
     expect(screenCode).toMatch(/useFocusEffect\(useCallback\(\(\) => \{ load\(\); \}, \[load\]\)\)/);
-    expect(screenCode).toMatch(/\}, \[devFixtures\]\);/);
+    // RETARGETED 2026-09-24 (V3 tickets task instruction): `load` also short-circuits on the
+    // v3-tickets harness fixture, so the fixture prop joins the deps. Both values are stable
+    // per mount, so the focus effect still refetches only when `load` genuinely changes.
+    expect(screenCode).toMatch(/\}, \[devFixtures, fixture\]\);/);
   });
 
   it('keeps the copy, the header and the dev toggle exactly', () => {

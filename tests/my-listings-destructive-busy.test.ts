@@ -34,6 +34,15 @@ const h = vi.hoisted(() => {
   };
 });
 
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Alert: {
     alert: (title: string, _body?: string, buttons?: { text: string; style?: string; onPress?: () => void }[]) => {
@@ -56,7 +65,7 @@ vi.mock('@/src/components/ui', () => ({
 }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => ({ onScroll: () => {}, expand: () => {} }) }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/coverImage', () => ({ getCoverImageUrl: () => null }));
 // Presentation only, and the legacy-theme badge pulls .ttf assets vitest cannot parse.
 vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));

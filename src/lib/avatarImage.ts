@@ -50,11 +50,12 @@ const BUCKET = 'avatars'; // must match bucket name in Supabase dashboard exactl
  */
 export function getAvatarUrl(
   path: string | null | undefined,
-  opts: { width?: number; devicePixelRatio?: number } = {},
+  opts: { width?: number; height?: number; devicePixelRatio?: number } = {},
 ): string | null {
   return mediaUrlForStoredValue(path, {
     bucket: BUCKET,
     width: opts.width,
+    height: opts.height,
     devicePixelRatio: opts.devicePixelRatio,
   });
 }

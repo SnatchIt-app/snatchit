@@ -11,9 +11,12 @@
  * things on the screen, directly under the artwork.
  */
 
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface DetailRow {
@@ -24,6 +27,8 @@ export interface DetailRow {
 }
 
 export function TicketDetails({ rows }: { rows: DetailRow[] }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={styles.wrap}>
       <Text style={[textStyle('displaySm'), styles.head]} accessibilityRole="header">
@@ -50,9 +55,10 @@ export function TicketDetails({ rows }: { rows: DetailRow[] }) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   wrap: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.xl },
-  head: { color: v2.text.primary, marginBottom: v2.space.sm },
+  head: { color: p.text.primary, marginBottom: v2.space.sm },
   row: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -60,11 +66,12 @@ const styles = StyleSheet.create({
     gap: v2.space.lg,
     paddingVertical: v2.space.md,
     borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomColor: p.border.default,
   },
   rowBlock: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs },
   last: { borderBottomWidth: 0 },
-  label: { color: v2.text.muted },
-  value: { color: v2.text.primary, flexShrink: 1, textAlign: 'right' },
+  label: { color: p.text.muted },
+  value: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
   valueBlock: { textAlign: 'left' },
-});
+  });
+}

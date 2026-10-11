@@ -1,3 +1,5 @@
+import { formatCents } from '@/src/lib/money';
+import { rowWhenLabel } from '@/src/lib/listing/feedRowState';
 /**
  * src/lib/transfer/transferState.ts — the shared, tested core of the transfer
  * flow (buyer receive + seller send).
@@ -131,13 +133,31 @@ export function transferReadOutcome(i: {
 }
 
 /** The canonical badge label + tone for a status. Word carries the meaning. */
-export function transferStatusMeta(status: string): { label: string; tone: TransferTone } {
+export function transferStatusMeta(
+  status: string,
+  role: TransferRole = 'buyer',
+  /** See `transferStatusCopy`: a NULL `buyer_confirmed_at` on `buyer_confirmed` is an operator's
+   *  dispute decision, not a confirmation. Defaults to true so existing callers are unchanged. */
+  opts: { buyerConfirmed?: boolean } = {},
+): { label: string; tone: TransferTone } {
+  // The badge must not assert receipt to someone who reported non-receipt and lost, and it is not a
+  // success for them either.
+  if (status === 'buyer_confirmed' && opts.buyerConfirmed === false) {
+    return { label: 'Resolved', tone: 'neutral' };
+  }
   switch (status) {
     case 'pending':         return { label: 'Pending',     tone: 'neutral' };
     case 'seller_sent':     return { label: 'Marked sent', tone: 'neutral' };
     case 'buyer_confirmed': return { label: 'Received',    tone: 'success' };
     case 'auto_released':   return { label: 'Released',    tone: 'success' };
     case 'disputed':        return { label: 'Issue',       tone: 'warning' };
+    // A's table (2026-09-24): `expired` is the one server fact that permits the word.
+    case 'expired':         return { label: 'Expired',     tone: 'neutral' };
+    // `reversed` is the SELLER's payout event (Stripe transfer.reversed → mark_transfer_reversed).
+    // It is never a buyer-facing money fact, so the buyer's word is neutral.
+    case 'reversed':        return role === 'seller'
+      ? { label: 'Payout reversed', tone: 'warning' }
+      : { label: 'Closed',          tone: 'neutral' };
     default:                return { label: status.replace(/_/g, ' '), tone: 'neutral' };
   }
 }
@@ -149,45 +169,87 @@ export type TransferRole = 'buyer' | 'seller';
  * "marked … as sent" is always the seller's statement; "received" is always the
  * buyer's. Auto-release says what happened to the money, not to the tickets.
  */
-export function transferStatusCopy(status: string, role: TransferRole): { title: string; body: string } {
+export function transferStatusCopy(
+  status: string,
+  role: TransferRole,
+  /**
+   * `buyer_confirmed` is reached two ways: the buyer confirms, or an operator resolves a dispute for
+   * the seller. Only the buyer's own `confirm_transfer_received` writes `buyer_confirmed_at`
+   * (0550:191-205); `resolve_transfer_dispute` (065:119-152) never touches it and a guard blocks
+   * direct writes — so a NULL timestamp on that status means the buyer did NOT confirm. Defaults to
+   * true so every existing caller keeps the sentence it had.
+   */
+  opts: { buyerConfirmed?: boolean } = {},
+): { title: string; body: string } {
   const buyer = role === 'buyer';
+  const buyerConfirmed = opts.buyerConfirmed ?? true;
   switch (status) {
     case 'pending':
       return buyer
         ? { title: 'Waiting for the seller', body: 'The seller has not marked the tickets as sent yet.' }
-        : { title: 'Send the tickets', body: 'The buyer has paid. Payment is held until they confirm receipt.' };
+        // A's §2g (2026-09-24): "held" collides with payout_review_status='held', which has its own
+        // dated copy, and naming the buyer's confirmation as the condition leaves out the three other
+        // release paths (the review-window decision, an operator release, a seller-win).
+        : { title: 'Send the tickets', body: 'The buyer has paid. Payout pending.' };
     case 'seller_sent':
       return buyer
         ? { title: 'Seller marked as sent', body: "That is the seller's update, not a confirmation. Check your ticket account, then confirm receipt here." }
         : { title: 'Marked as sent', body: 'Waiting for the buyer to confirm they received the tickets.' };
     case 'buyer_confirmed':
+      if (!buyerConfirmed) {
+        // An operator decided this, so neither sentence may credit the buyer with confirming. The
+        // buyer's line says what happened without hinting at a refund; the seller's matches the
+        // server's own notice and leaves every payout statement to the payout fields.
+        return buyer
+          ? { title: 'Dispute resolved', body: 'Support reviewed the dispute on this transfer and decided it in the seller\'s favour. Contact support if you have questions.' }
+          : { title: 'Dispute resolved in your favour', body: 'Support reviewed this transfer and decided it in your favour.' };
+      }
       return buyer
         ? { title: 'Tickets received', body: 'You confirmed receipt. Enjoy the event.' }
         : { title: 'Tickets received', body: 'The buyer confirmed they received the tickets.' };
     case 'auto_released':
+      /*
+       * A's §2g (2026-09-24), which withdraws A's own earlier §2e wording. `auto_released` does NOT
+       * establish that the review window passed: `admin_release_held_payout` (039; 0551's bypass
+       * twin) sets this status gated on `status='seller_sent'` and `payout_released_at IS NULL`
+       * alone, never reading `auto_release_at`, so an operator can release at any time — including
+       * before the window ends. What the status does establish is that the release happened without
+       * the buyer confirming and without a report. The money claim still waits for
+       * `payout_released_at`, which is why these titles are the released ones and the callers below
+       * gate on that field.
+       */
       return buyer
-        ? { title: 'Payment released', body: 'The review window closed without a confirmation or a report from you, so payment went to the seller.' }
-        : { title: 'Payout released', body: 'The buyer review window passed without a report. Your payout has been released.' };
+        ? { title: 'Payment released', body: 'This order was released to the seller without a confirmation or a report from you. The seller has been paid.' }
+        : { title: 'Payout released', body: 'This order was released without a confirmation or a report from the buyer. Your payout has been released.' };
     case 'disputed':
+      // A's §2g: what a report freezes is the SELLER's payout — the buyer's card was charged at
+      // checkout, so "your payment stays on hold" reads as an authorisation that never existed. And
+      // "pending review" asserts a process the row does not record. The 24-hour sentence is the
+      // owner's own P1 decision (G9) and stays until they rule.
       return buyer
-        ? { title: 'Issue reported', body: 'Our team typically reviews within 24 hours. Your payment stays on hold until this is resolved.' }
-        : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is on hold pending review.' };
+        // The owner's decision (2026-09-24): no fixed review time. "Our team typically reviews
+        // within 24 hours" was a service-level promise nothing in the product keeps. The freeze is
+        // the fact, and it stays.
+        ? { title: 'Issue reported', body: "The seller's payout is frozen until this is resolved." }
+        : { title: 'Dispute in progress', body: 'The buyer has reported an issue with the transfer. Your payout is frozen until the report is resolved.' };
     default:
       return { title: status.replace(/_/g, ' '), body: '' };
   }
 }
 
 /**
- * The buyer's auto-release block (owner, 2026-09-19; A's review). `auto_released` is the release DECISION;
- * `payout_released_at` is written only by `record_transfer_payout`, after the Stripe transfer succeeded. Without that
- * field the screen says the window closed and the order is complete, and claims nothing about money reaching the
- * seller. With it, the existing sentence stands.
+ * The buyer's auto-release block (owner, 2026-09-19; A's review, reworded by A's §2g 2026-09-24).
+ * `auto_released` is the release DECISION; `payout_released_at` is written only by
+ * `record_transfer_payout`, after the Stripe transfer succeeded. Without that field the screen says
+ * what the status establishes and nothing about money reaching the seller. With it, "The seller has
+ * been paid." is added — and neither version claims the review window passed, because an operator
+ * can set this status before it does.
  */
 export function buyerAutoReleasedCopy(payoutReleasedAt: string | null | undefined): { title: string; body: string } {
   if (payoutReleasedAt) return transferStatusCopy('auto_released', 'buyer');
   return {
-    title: 'Review window closed',
-    body: 'The review window closed without a confirmation or a report from you. This order is complete.',
+    title: 'Order released',
+    body: 'This order was released to the seller without a confirmation or a report from you.',
   };
 }
 
@@ -208,6 +270,18 @@ export const CONFIRM_RECEIPT_DIALOG = {
   confirm: 'Confirm and release payment',
 } as const;
 
+/**
+ * V3 O-3 (owner 2026-09-22): what "Report a problem" may say when the SEND fails on the network.
+ * A dropped connection is a submitted-action-with-unknown-result, never proof the report was not
+ * received — the request can still land after the client gives up. The screen re-reads first; only
+ * if the server still shows no report does it say this. "Reporting again is safe" is server truth:
+ * buyer_dispute_transfer returns success on an already-disputed transfer (0550, idempotent branch).
+ */
+export const REPORT_PROBLEM_UNCONFIRMED = {
+  title: "We couldn't confirm your report was received",
+  body: 'Your connection dropped while it was being sent. If this order is not marked as reported after a refresh, report it again — sending it twice is safe.',
+} as const;
+
 type DeliveryLike = { status: string; delivery_email: string | null; delivery_phone: string | null };
 
 /**
@@ -222,4 +296,110 @@ export function buyerNeedsDelivery(t: DeliveryLike): boolean {
 /** Seller side: the buyer has not provided delivery info yet, so sending is blocked. */
 export function sellerDeliveryMissing(t: Pick<DeliveryLike, 'delivery_email' | 'delivery_phone'>): boolean {
   return !t.delivery_email && !t.delivery_phone;
+}
+
+// ─── The order/transfer cells (A's PAYMENT_STATE_WORDING_TABLE_20260924 @ fbbe0440) ────────────
+//
+// Three facts, three columns, never derived from one another: ORDER = transfers.status; RECORDED
+// REFUND = payments.{amount_refunded_cents, refunded_at, status}; CONFIRMED PAYOUT =
+// transfers.payout_released_at. Precedence: reversed > payout_released_at; disputed > any deadline;
+// a NULL amount > the word "refunded"; a server timestamp > the device clock.
+
+/** What the ORDER status alone establishes for the buyer — nothing about money. */
+export const BUYER_ORDER_CLOSED_COPY = {
+  expired: { title: 'Order expired', body: "The seller didn't send the tickets in time." },
+  reversed: { title: 'Order closed', body: 'This order is closed.' },
+} as const;
+
+/** A stated policy on `expired`, not an asserted fact: the refund shows when the payment row does. */
+export const REFUND_DUE_POLICY = "A refund is due; it will show here once it's confirmed.";
+/**
+ * A PARTIAL ruling's obligation line (owner 16:51Z): no amount — the client cannot read one, and
+ * the ruling's amount is not on `transfers`, so any figure here would be invented.
+ */
+export const REFUND_PARTIAL_DUE_POLICY = "A partial refund is due; it will show here once it's confirmed.";
+/** The transfer row is readable but the payment row carries no refund yet. */
+export const REFUND_PENDING_LINE = "If a refund is issued, it will show here.";
+
+/**
+ * The seller's reversed payout. A's finding (2026-09-24): the previous body — "This order's payout
+ * was reversed after a dispute or operator review" — claimed an EXTENT and a CAUSE the row does not
+ * record. `mark_transfer_reversed` is called from the stripe-webhook `transfer.reversed` handler
+ * with the Stripe transfer id alone; `amount_reversed` is logged and never compared with the
+ * transfer amount, so a partial reversal marks the row 'reversed' exactly like a full one, and
+ * nothing anywhere stores why. So: the event, no amount, no cause, and a route to a human.
+ */
+export const SELLER_REVERSED_COPY = {
+  title: 'Payout reversed',
+  body: "A reversal was recorded on this order's payout. Contact support for details.",
+} as const;
+/** No payout ever moved for an expired order (Phase 1 runs on pending rows). */
+export const SELLER_NO_PAYOUT_LINE = 'No payout for this order.';
+
+export interface PaymentRefundFacts {
+  status: string | null;
+  amount_refunded_cents: number | null;
+  refunded_at: string | null;
+  total: number | null;
+}
+
+/**
+ * The recorded refund, from the payment row alone. "Refunded $X" only when the amount is known AND
+ * equals the total; a partial states both figures; a date or status without an amount is "Refund
+ * recorded" — never "in full", never a figure; nothing recorded is null (the caller decides between
+ * the policy line and the pending line).
+ */
+export function refundLine(p: PaymentRefundFacts | null | undefined): string | null {
+  if (!p) return null;
+  const amount = p.amount_refunded_cents;
+  const total = p.total;
+  const recorded = p.status === 'refunded' || p.refunded_at != null;
+  if (amount != null && amount > 0) {
+    // A's interim ruling (2026-09-24, REFUND_LIFECYCLE_TRACE_AND_FIX_20260924.md): today's columns
+    // cannot tell a REQUESTED refund from a COMPLETED one. Every refund is recorded the moment it is
+    // created, whatever Stripe's own state then does — pending, succeeded, or failed later. So
+    // "Refunded $X" and "Full refund" are claims the data does not support, and the word is
+    // "initiated" until migration 150 gives the lifecycle its own columns. The partial line drops the
+    // total: with no completion to compare against, "of $Y" implied a settled shortfall.
+    if (total != null && total > 0 && amount === total) return `Refund of ${formatCents(amount)} initiated`;
+    if (total != null && total > 0 && amount < total) return `Partial refund of ${formatCents(amount)} initiated`;
+    return 'Refund recorded';
+  }
+  return recorded ? 'Refund recorded' : null;
+}
+
+/** A server timestamp in the shared row format, local time; null when unparseable. */
+function localDateTime(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return rowWhenLabel(
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  );
+}
+
+/** The buyer's review window, from the server's auto_release_at — or nothing. Never a payout claim. */
+export function buyerReviewDeadlineLine(autoReleaseAt: string | null | undefined): string | null {
+  if (!autoReleaseAt) return null;
+  const when = localDateTime(autoReleaseAt);
+  return when ? `Confirm you received the tickets, or report a problem, before ${when}.` : null;
+}
+
+/** The seller's line names the release DECISION time (039 decides at auto_release_at) — not a payout. */
+export function sellerReleaseLine(autoReleaseAt: string | null | undefined): string | null {
+  if (!autoReleaseAt) return null;
+  const when = localDateTime(autoReleaseAt);
+  return when ? `Release decision at ${when}.` : null;
+}
+
+/**
+ * The seller's hold line (A, 2026-09-24): only when payout_review_status === 'held' AND the server's
+ * payout_hold_until is present — never derived from auto_release_at + policy days. A hold, not a
+ * payout: after that time the release DECISION runs; the money fact is still payout_released_at.
+ */
+export function sellerHoldLine(reviewStatus: string | null | undefined, holdUntil: string | null | undefined): string | null {
+  if (reviewStatus !== 'held' || !holdUntil) return null;
+  const when = localDateTime(holdUntil);
+  return when ? `Payout held until ${when}.` : null;
 }

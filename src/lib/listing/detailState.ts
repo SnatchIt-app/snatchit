@@ -13,12 +13,63 @@
  * Pure functions, no React and no React Native, so the mapping can be tested
  * directly. This file decides WHAT is offered. The components decide how it looks.
  *
- * IT COMPUTES NO MONEY. Every amount is a preformatted string produced by the
- * established helpers in `src/lib/money.ts` and handed in. There is exactly one
- * dollars-to-cents conversion in this app and it is not here.
+ * IT DOES NO FEE ARITHMETIC. Every amount the resolver handles is a preformatted string
+ * handed in by the caller. The one addition is `listingPriceLinesV3` below — DISPLAY
+ * formatting composed from the canonical helpers in `src/lib/money.ts`, exactly as
+ * `bidPriceLinesV3` does for the bid screen. It computes no fee and no rounding of its own.
  */
 
+import { BUYER_FEE_RATE, buyerFeeCents, buyerTotalCents, dollarsToCents, formatCentsV3 } from '@/src/lib/money';
 import type { TransferStatus } from '@/src/types';
+
+/**
+ * V3 DISPLAY ONLY (owner 2026-09-24, pkg8 listing board: "$99.00", "$95.00", "$9.50").
+ *
+ * The same integer-cent arithmetic the app already does — `dollarsToCents`, `buyerFeeCents`,
+ * `buyerTotalCents` — printed with cents, because `formatCents` trims ".00" and the approved
+ * boards show it. Nothing here is submitted, stored or charged: a bid is still chosen and sent
+ * in whole dollars and checkout still recomputes its own total, which the server re-checks.
+ *
+ * ITS RIGHT HOME IS `src/lib/money.ts` (as `allInFromDollarsV3`), beside the helpers it wraps;
+ * it lives here only because that module is owned centrally. Move it when that lands.
+ */
+export interface ListingPriceLinesV3 {
+  /** The ticket price itself, e.g. "$95.00". */
+  base: string;
+  /** The 10% buyer service fee, e.g. "$9.50". */
+  fee: string;
+  /** What the buyer pays all-in, e.g. "$104.50". */
+  allIn: string;
+}
+
+/**
+ * The label for the buyer-fee row in the RESALE bid family — the Listing minimum-bid breakdown
+ * and the panel that mirrors it. It states the rate because the number beside it is computed
+ * right here, by `buyerFeeCents`, at exactly BUYER_FEE_RATE: the label describes arithmetic the
+ * app just did rather than a claim about what any server will charge.
+ *
+ * That is why the CHECKOUT keeps a plain "Service fee" and this does not. There the amount comes
+ * from the order's own breakdown, and the venue primary rail carries its own buyer_fee — so a
+ * rate in that label would be a promise the app cannot keep (W-2, A's ruling).
+ *
+ * Derived, never typed: PlaceBidScreen builds the same string from the same constant, and a rate
+ * change must move both labels or neither.
+ */
+export const RESALE_FEE_LABEL = `Service fee (${Math.round(BUYER_FEE_RATE * 100)}%)`;
+
+export function listingPriceLinesV3(baseDollars: number): ListingPriceLinesV3 {
+  const cents = dollarsToCents(baseDollars);
+  return {
+    base: formatCentsV3(cents),
+    fee: formatCentsV3(buyerFeeCents(cents)),
+    allIn: formatCentsV3(buyerTotalCents(cents)),
+  };
+}
+
+/** The all-in on its own — the price every V3 listing surface leads with. */
+export function listingAllInV3(baseDollars: number): string {
+  return listingPriceLinesV3(baseDollars).allIn;
+}
 
 /** Who is looking. A listing means something different to each of them. */
 export type ViewerRole = 'seller' | 'buyer' | 'visitor';
@@ -40,11 +91,29 @@ export type ActionKind =
   | 'view_dispute'
   | 'unavailable';
 
+/**
+ * V3 §5 (owner 2026-09-22): what a FAILED listing read may say. "Nothing was sent from this
+ * screen" is source truth: on a failed load the screen has run no RPC, no reservation and no bid —
+ * the exit-release asks only about a listing it actually holds. It says nothing about server state
+ * (never "your bid is unchanged"), because a failed read establishes nothing out there.
+ */
+export const LISTING_READ_FAILED_COPY = {
+  title: "We couldn't load this listing",
+  body: "Nothing was sent from this screen — we couldn't read the listing. Check your connection and try again.",
+  retry: 'Try again',
+} as const;
+
 export interface ListingAction {
   kind: ActionKind;
   label: string;
   /** Rendered, but not tappable: the state is worth showing, the action is not available. */
   disabled?: boolean;
+  /**
+   * V3 (O-2): an informational line under the control. For place_bid it carries the minimum
+   * ("minimum $104.50 all-in") — the button OPENS bid entry, so its label never names a price
+   * as if pressing it would submit that amount.
+   */
+  subLabel?: string;
 }
 
 /**
@@ -88,6 +157,8 @@ export interface DetailStateInput {
     reserved_by: string | null;
     winner_user_id?: string | null;
     bid_count?: number | null;
+    /** Ticket count, for the quantity-aware buy-now verb. Absent → no count is invented. */
+    quantity?: number | null;
   };
   userId?: string;
   /** The auction clock has passed `ends_at`. */
@@ -105,6 +176,8 @@ export interface DetailStateInput {
   hasBid: boolean;
   /** Preformatted, all-in. From `allInFromDollars`. Never computed here. */
   buyNowAllIn: string | null;
+  /** All-in of the minimum next bid, preformatted; null when closed or unknown. */
+  nextBidAllIn?: string | null;
 }
 
 export interface DetailState {
@@ -167,7 +240,9 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
       return {
         kind: 'transfer_pending',
         label: 'Send the tickets',
-        detail: 'The buyer has paid. Payment is held until they confirm.',
+        // A's §2g (2026-09-24): "held" collides with the payout review status, and the buyer's
+        // confirmation is one of four release paths, not the rule.
+        detail: 'The buyer has paid. Payout pending.',
         tone: 'warning',
       };
     }
@@ -243,11 +318,22 @@ export function listingStatus(input: DetailStateInput): ListingStatus | null {
 /**
  * The actions the sticky bar offers.
  *
- * TWO RULES, both of which the old screen broke:
- *  1. Buy Now leads when it exists. Instant purchase is the stronger offer and
- *     was styled as the weaker button.
+ * TWO RULES:
+ *  1. When bidding and Buy Now are BOTH available, the bid leads. OWNER RULING 2026-09-25,
+ *     settled, on Option B of B's footer comparison: "Place a bid is first, full-width and red.
+ *     Its minimum all-in amount sits beneath the label inside the button. Buy Now is second,
+ *     full-width and outlined." This SUPERSEDES the 2026-09-22/24 rulings that made Buy Now the
+ *     leading action, and it lives here rather than in the screen so every consumer of the
+ *     resolver agrees — the footer paints `primary` filled-red first and `secondary` outlined
+ *     below, so the emphasis follows from the selection instead of a paint override.
  *  2. Nothing is offered that cannot work. A seller was shown an enabled bid
  *     button; the database refuses that bid by design.
+ *
+ * The ruling reaches ONE state. Buy-now-only, auction-only, reserved, won/pay-now, sold,
+ * cancelled, ended, own-listing and not-found each have a single valid action and are untouched by
+ * it — the owner was explicit that the pair must not be forced onto states with different valid
+ * actions. Eligibility, handlers, single-flight and the reserving lock are unchanged; opening bid
+ * entry still submits nothing, and Buy Now still establishes no charge.
  */
 export function listingActions(input: DetailStateInput): {
   primary: ListingAction;
@@ -292,14 +378,32 @@ export function listingActions(input: DetailStateInput): {
           : reservationActive && listing.reserved_by && listing.reserved_by !== userId
             ? 'On hold'
             : 'Ended';
-    return { primary: { kind: 'unavailable', label, disabled: true }, secondary: null };
+    // The CTA's label here is LISTING state, not a control word, and a disabled control is dimmed to
+    // 0.4 — 1.50:1 in Daylight. That dim is correct for a control and wrong for a status, so the
+    // three states nothing else carries are also stated in `subLabel`, which renders at full strength
+    // OUTSIDE the button. `Sold` and `Ended` are already carried by the price label ("Sold for" /
+    // "Final bid"), so they get none — a second sentence saying the same thing is noise.
+    const subLabel =
+      label === 'Cancelled' ? 'This listing was cancelled.'
+        : label === 'On hold' ? 'Another buyer is in checkout.'
+          : undefined;
+    return {
+      primary: { kind: 'unavailable', label, disabled: true, ...(subLabel ? { subLabel } : {}) },
+      secondary: null,
+    };
   }
 
   // The seller of a live listing is not a buyer. No bid button, no Buy Now: the
   // database refuses both, and offering them is how a screen teaches a user that
   // its buttons cannot be trusted.
   if (role === 'seller') {
-    return { primary: { kind: 'unavailable', label: 'Your listing', disabled: true }, secondary: null };
+    return {
+      primary: {
+        kind: 'unavailable', label: 'Your listing', disabled: true,
+        subLabel: 'You listed this, so you cannot bid or buy.',
+      },
+      secondary: null,
+    };
   }
 
   if (reservedByMe) {
@@ -309,21 +413,46 @@ export function listingActions(input: DetailStateInput): {
     };
   }
 
-  const bid: ListingAction = { kind: 'place_bid', label: 'Place bid', disabled: reserving };
+  // V3 (O-2, owner 2026-09-22): the control opens bid entry — it submits nothing — so it reads
+  // "Place a bid" and the minimum is a sub-line, not a price on the button.
+  const bid: ListingAction = {
+    kind: 'place_bid',
+    label: 'Place a bid',
+    disabled: reserving,
+    ...(input.nextBidAllIn ? { subLabel: `minimum ${input.nextBidAllIn} all-in` } : {}),
+  };
 
   if (mode === 'auction_and_buy_now') {
-    return {
-      primary: {
-        kind: 'buy_now',
-        label: input.buyNowAllIn ? `Buy now · ${input.buyNowAllIn}` : 'Buy now',
-        disabled: reserving,
-      },
-      secondary: bid,
+    // V3 (owner ruling 2026-09-22, still in force): the verb counts the tickets, so the price reads
+    // as the WHOLE-LISTING total it is — "Buy both now" for two, "Buy all N now" beyond that. An
+    // unknown quantity invents no count. The owner's 2026-09-25 ruling preserved this label, its
+    // price and its subline exactly; it changed only which of the two actions leads.
+    const qty = listing.quantity ?? null;
+    const verb = qty === 2 ? 'Buy both now' : qty != null && qty >= 3 ? `Buy all ${qty} now` : 'Buy now';
+    const buyNowAction: ListingAction = {
+      kind: 'buy_now',
+      label: input.buyNowAllIn ? `${verb} · ${input.buyNowAllIn}` : verb,
+      disabled: reserving,
+      // §5 (V3): both facts a buyer needs beside a live auction — the price is all-in,
+      // and taking it ends the auction. True only in this mode.
+      subLabel: 'all-in, ends the auction',
     };
+    // Bid first (filled red, with its minimum inside the button), Buy Now second (outlined).
+    return { primary: bid, secondary: buyNowAction };
   }
 
   return { primary: bid, secondary: null };
 }
+
+/**
+ * The commitment sentence, de-duplicated (owner 2026-09-23, superseding the §5 draft's
+ * number-carrying version): the panel already states the market price and the CTA sub-label
+ * already states the minimum, so this sentence repeats neither. It says only what nothing
+ * else on the screen says — the commitment, and the verified payment path (the winner pays at
+ * checkout; nothing charges automatically).
+ */
+export const BID_COMMITMENT_COPY =
+  "A bid is a commitment. If you win, you'll pay your own bid at checkout to complete the purchase.";
 
 export function detailState(input: DetailStateInput): DetailState {
   const role = viewerRole(input);
@@ -339,5 +468,44 @@ export function detailState(input: DetailStateInput): DetailState {
     // price got there is part of what the buyer bought.
     showsBidActivity: true,
     showsOwnerActions: role === 'seller',
+  };
+}
+
+/**
+ * Whether THIS screen offers a bid — read off the resolved actions, never re-derived (B's R-5,
+ * owner 2026-09-24). A buyer holding a reservation gets `continue_reservation` with no secondary,
+ * so no bid exists there even though the auction is live; the dialog copy and the commitment
+ * sentence must agree with the buttons, and this is the one predicate both read.
+ */
+export function offersBid(actions: { primary: ListingAction; secondary: ListingAction | null }): boolean {
+  return actions.primary.kind === 'place_bid' || actions.secondary?.kind === 'place_bid';
+}
+
+/** The kinds that dispatch the reserve call, and therefore the kinds that can be busy. */
+export function isReserveAction(action: ListingAction | null | undefined): boolean {
+  return !!action && (action.kind === 'buy_now' || action.kind === 'continue_reservation');
+}
+
+/**
+ * Which BUTTON shows "Reserving…", derived from the resolved actions rather than from either
+ * button's position (B's finding at 3c6f15a4, owner-confirmed 2026-09-25).
+ *
+ * The screen used to compute this for the PRIMARY alone, which was true for exactly as long as Buy
+ * Now was the primary. The owner's Option B ruling made the bid primary and Buy Now the secondary,
+ * and the busy state did not move with it: Buy Now still started a reservation and still showed no
+ * pending label. Putting the rule here means the two buttons read the same predicate, and a future
+ * re-ordering carries the busy state with whichever button owns the reserve call.
+ *
+ * NOT the same thing as repeat-activation protection, which was never broken: both buttons dispatch
+ * into one `useSingleFlight` lock held in a ref, so a second tap in the same tick is dropped by the
+ * lock rather than by a React state that has not re-rendered yet. This function is about FEEDBACK.
+ */
+export function reserveBusy(
+  actions: { primary: ListingAction; secondary: ListingAction | null },
+  reserving: boolean,
+): { primary: boolean; secondary: boolean } {
+  return {
+    primary: reserving && isReserveAction(actions.primary),
+    secondary: reserving && isReserveAction(actions.secondary),
   };
 }

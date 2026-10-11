@@ -1,24 +1,38 @@
 /**
- * src/components/bids/BidCard.tsx — one row on the Bids screen.
+ * src/components/bids/BidCard.tsx — one row on the Bids screen (V3).
  *
- * A horizontal card: event artwork on the left, then the event, its state and the
- * one price that matters for that state. The whole row is a single tap target —
- * to the transfer flow for an in-flight purchase, otherwise to the listing, which
- * is where the next action (bid again, pay to claim) lives.
+ * Board: `pkg6-bids-{clean,active,past}.png` (dark only; Daylight is the same composition
+ * through palette roles). Event artwork on the left — a 4:5 poster since the owner's 2026-09-24
+ * direction, filling the row's height rather than a square; the event name in the display voice with
+ * the state word (Badge) and, inside the closing hour, the amber urgency beside it; on the
+ * right the one price that matters, its "all-in" basis, and the state's action hint in the
+ * uppercase eyebrow voice — the board draws the hint on every row ("the hint says what the row
+ * will do, never what has happened to money"). The whole row is a single tap target — to the
+ * transfer flow for an in-flight purchase, otherwise to the listing.
  *
- * State is a word (Badge) plus, for the states that need the user to act, a short
- * red action line — never colour alone. Money is passed in preformatted; this
- * component does no arithmetic.
+ * State is a word plus the hint — never colour alone. Money is passed in preformatted; this
+ * component does no arithmetic. Venue and date leave the drawn row (the board omits them) but
+ * stay in the spoken label, with the price's basis word, so nothing a V2 user heard is lost.
+ *
+ * DELIBERATE DIFFERENCES FROM THE BOARD, each with its reason:
+ *  - The urgency words are bidState's own ("Ends in 12m"), not the board's "12M LEFT":
+ *    endingSoonLabel is owner/A-ruled territory this task does not touch.
+ *  - The state words include 'Released' (auto_released) and 'Resolved' (operator decision),
+ *    which the board's ten-word list flattens into 'Received'. DR12/DR9 rule those labels;
+ *    the board is recorded as deviating, not followed.
  */
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
+import { NameText } from '@/src/components/NameText';
 import { Badge, usePressScale } from '@/src/components/ui';
 import type { BidPresentation, BidTone } from '@/src/lib/bids/bidState';
-import { needsAction } from '@/src/lib/bids/bidState';
+import { MEDIA_SLOTS } from '@/src/lib/media/slots';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface BidCardProps {
@@ -35,19 +49,38 @@ export interface BidCardProps {
   onPress: () => void;
 }
 
+/**
+ * The row's artwork box (owner's 4:5 poster direction, 2026-09-24).
+ *
+ * 72 is the row's HEIGHT budget — the board's thumbnail edge, and the number the row's vertical
+ * rhythm was drawn against — so it goes to EventMedia as `height` and the poster takes whatever
+ * width the ratio gives it. Passed as `width` it would have been a 72-wide, 90-tall poster: 18pt
+ * taller than the row it sits in, which moves every divider on a screen the owner has accepted.
+ *
+ * The width is DERIVED, from the slot's own ratio rather than a number typed here, and exported so
+ * the Bids screen's loading placeholder is the same box: a skeleton whose shape is not the shape of
+ * the thing it stands for shifts the row the moment the artwork arrives.
+ */
+export const BID_ROW_ART_H = 72;
+export const BID_ROW_ART_W = Math.round(BID_ROW_ART_H * MEDIA_SLOTS.CHECKOUT_THUMBNAIL.aspectRatio);
+
+// Board tone for 'brand': "Won" wears the buying-path red — "red marks the buying path…
+// not a claim that money moves when you tap it" — and Badge has no brand slot, so the red
+// outline is the danger tone's ink.
 const TONE: Record<BidTone, 'neutral' | 'success' | 'warning' | 'danger'> = {
-  brand: 'neutral', neutral: 'neutral', success: 'success', warning: 'warning', danger: 'danger',
+  brand: 'danger', neutral: 'neutral', success: 'success', warning: 'warning', danger: 'danger',
 };
 
 function BidCardImpl({
   eventName, venue, whenLabel, coverPath, presentation, priceAllIn, secondaryAllIn, urgencyLabel, onPress,
 }: BidCardProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
-  const act = needsAction(presentation.status);
   const dimmed = presentation.group === 'past';
 
   return (
-    <Animated.View style={[styles.wrap, press.style]}>
+    <Animated.View style={press.style}>
       <Pressable
         onPress={onPress}
         onPressIn={press.onPressIn}
@@ -55,9 +88,10 @@ function BidCardImpl({
         style={styles.row}
         accessibilityRole="button"
         accessibilityLabel={
-          `${eventName}. ${venue}. ${presentation.label}. ` +
+          `${eventName}. ${venue}${whenLabel ? ` · ${whenLabel}` : ''}. ${presentation.label}. ` +
           `${urgencyLabel ? `${urgencyLabel}. ` : ''}` +
-          `${presentation.priceLabel} ${priceAllIn} all in.`
+          `${presentation.priceLabel} ${priceAllIn} all in.` +
+          `${presentation.secondaryLabel && secondaryAllIn ? ` ${presentation.secondaryLabel} ${secondaryAllIn}.` : ''}`
         }
         accessibilityHint={presentation.actionHint}
       >
@@ -66,46 +100,31 @@ function BidCardImpl({
             asset={{ path: coverPath, contract: 'legacy', bucket: 'auction-media' }}
             slot="CHECKOUT_THUMBNAIL"
             title={eventName}
-            width={72}
+            // The HEIGHT is this row's constrained edge; EventMedia derives the poster's width.
+            height={BID_ROW_ART_H}
             decorative
           />
         </View>
 
         <View style={styles.body}>
+          <NameText token="nameRow" maxLines={2} style={styles.name}>{eventName}</NameText>
           <View style={styles.badgeRow}>
             <Badge label={presentation.label} tone={TONE[presentation.tone]} />
+            {urgencyLabel ? (
+              <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
+            ) : null}
           </View>
-          <Text style={[textStyle('title'), styles.name]} numberOfLines={1}>{eventName}</Text>
-          <Text style={[textStyle('bodySm'), styles.meta]} numberOfLines={1}>
-            {venue}{whenLabel ? ` · ${whenLabel}` : ''}
-          </Text>
-          {urgencyLabel ? (
-            <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
-          ) : null}
-
-          <View style={styles.priceRow}>
-            <Text style={[textStyle('bodySm'), styles.priceLabel]}>{presentation.priceLabel}</Text>
-            <Text style={[textStyle('price'), styles.price]} numberOfLines={1}>
-              {priceAllIn}
-              <Text style={[textStyle('bodySm'), styles.allIn]}> all in</Text>
-            </Text>
-          </View>
-          {presentation.secondaryLabel && secondaryAllIn ? (
-            <Text style={[textStyle('bodySm'), styles.secondary]} numberOfLines={1}>
-              {presentation.secondaryLabel} {secondaryAllIn}
-            </Text>
-          ) : null}
-
-          {/* The action line, only where the user actually has a next step, in
-              red because it IS the action. Winning/ended carry no action line. */}
-          {act ? (
-            <Text style={[textStyle('label'), styles.action]} numberOfLines={1}>
-              {presentation.actionHint}
-            </Text>
-          ) : null}
         </View>
 
-        <Text style={styles.chevron}>{'›'}</Text>
+        <View style={styles.right}>
+          <Text style={[textStyle('price'), styles.price]} numberOfLines={1}>{priceAllIn}</Text>
+          <Text style={[textStyle('bodySm'), styles.allIn]} numberOfLines={1}>all-in</Text>
+          {/* The board's hint, on every row, in the eyebrow voice — state metadata, not a
+              control: the row is the control, and the hint is also the spoken hint above. */}
+          <Text style={[textStyle('label'), styles.hint]} numberOfLines={1}>
+            {presentation.actionHint}
+          </Text>
+        </View>
       </Pressable>
     </Animated.View>
   );
@@ -113,27 +132,24 @@ function BidCardImpl({
 
 export const BidCard = memo(BidCardImpl);
 
-const styles = StyleSheet.create({
-  urgency: { color: v2.status.warning, marginTop: 2 },
-  wrap: { marginBottom: v2.space.md },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: v2.space.md,
     alignItems: 'center',
     paddingVertical: v2.space.md,
-    borderBottomWidth: 1,
-    borderBottomColor: v2.border.default,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: p.border.default,
   },
   dimmed: { opacity: 0.55 },
-  body: { flex: 1, minWidth: 0, gap: 3 },
-  badgeRow: { flexDirection: 'row' },
-  name: { color: v2.text.primary },
-  meta: { color: v2.text.muted },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: v2.space.sm, marginTop: 2 },
-  priceLabel: { color: v2.text.muted },
-  price: { color: v2.text.primary, fontVariant: ['tabular-nums'] },
-  allIn: { color: v2.text.muted },
-  secondary: { color: v2.text.muted },
-  action: { color: v2.brand.red, marginTop: 2 },
-  chevron: { color: v2.text.muted, fontSize: 22, lineHeight: 24 },
-});
+  body: { flex: 1, minWidth: 0, gap: v2.space.xs },
+  name: { color: p.text.primary },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
+  urgency: { color: p.status.warning },
+  right: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
+  price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
+  allIn: { color: p.text.muted },
+  hint: { color: p.text.secondary, marginTop: v2.space.xs },
+  });
+}

@@ -38,6 +38,7 @@
  *     bucket path so that legacy rows get transformations too.
  */
 
+import { devPosterModule } from './devPosters';
 import {
   MEDIA_SLOTS,
   slotPixelWidth,
@@ -88,6 +89,13 @@ export type ResolvedImage =
   | {
       kind: 'image';
       uri: string;
+      /**
+       * A BUNDLED source for the visual-QA fixtures only (src/lib/media/devPosters.ts). When it is
+       * present the component passes it to expo-image instead of `uri`, because a required module is
+       * the only asset form that resolves on both native and web. `uri` then carries the marker that
+       * asked for it, and is never fetched.
+       */
+      moduleSource?: unknown;
       /** A tiny blurred copy for the `fit` backdrop and for placeholder use. */
       backdropUri: string;
       width: number;
@@ -281,24 +289,36 @@ export function normalizePath(raw: string | null | undefined, bucket: MediaBucke
 /**
  * Builds a Supabase image-transformation URL.
  *
- * NOTE ON `resize`: it only takes effect when BOTH width and height are given.
- * With a width alone the image is scaled proportionally and `resize` is inert.
- * That is deliberate here: the slot frame does the cropping on the client via
- * `contentFit`, and the server's job is only to stop shipping a multi-megabyte
- * original. The parameter is still sent so that adding a height later changes
- * behaviour in one place rather than everywhere.
+ * NOTE ON `resize`. This comment used to say that `resize` is inert unless both dimensions are
+ * given, so a width-only request scales proportionally. That was a claim about the API, and B's
+ * harness MEASUREMENT against this project contradicted it (see `height` below): a width-only
+ * request came back as a 56×1176 sliver. A measurement outranks a claim about the same endpoint,
+ * so the rule here is now the opposite one — send BOTH dimensions, always.
+ *
+ * Sending both is also what makes the 4:5 poster direction safe end to end: with `resize=contain`
+ * and the frame's own box, the server returns the whole poster scaled to fit inside it, so no crop
+ * can happen on the server and none is needed on the client.
  */
 export function transformUrl(params: {
   base: string;
   bucket: MediaBucket;
   path: string;
   width: number;
+  /**
+   * B's harness measurement (2026-09-24): a width-ONLY request with `resize=cover` against this
+   * project returned a 56×1176 sliver — the endpoint did not preserve the source aspect, and a
+   * sliver LOADS, so no onError fires and no fallback engages. A sliver is therefore invisible to
+   * every error path we have, which is why this is required rather than optional for artwork:
+   * `resolveImage` always sends it.
+   */
+  height?: number;
   quality: number;
   resize: 'cover' | 'contain';
 }): string {
-  const { base, bucket, path, width, quality, resize } = params;
+  const { base, bucket, path, width, height, quality, resize } = params;
   const q = new URLSearchParams({
     width: String(width),
+    ...(height != null ? { height: String(height) } : {}),
     quality: String(quality),
     resize,
   });
@@ -324,6 +344,12 @@ export function resolveImage(
     devicePixelRatio?: number;
     /** The real laid-out width, when the caller overrides the slot default. */
     layoutWidth?: number;
+    /**
+     * The real laid-out HEIGHT. Given, the request carries the frame's exact proportions instead
+     * of proportions re-derived from a rounded width — which matters for the row poster, whose
+     * height (62) is the approved edge and whose width (50) is the rounded one.
+     */
+    layoutHeight?: number;
   } = {},
 ): ResolvedImage {
   const breakpoint = opts.breakpoint ?? 'mobile';
@@ -334,11 +360,44 @@ export function resolveImage(
   const base = storageBase();
   if (!base) return { kind: 'fallback', reason: 'no-storage-base' };
 
+  /*
+   * The visual-QA branch, before anything storage-shaped happens (src/lib/media/devPosters.ts): a
+   * bundled asset has no transform endpoint, so there is nothing to size, encode or crop — the
+   * client's own `contentFit` is exactly what these fixtures exist to exercise. Returns null for
+   * every real stored value, and for everything at all outside a dev bundle.
+   */
+  const devModule = devPosterModule(asset.path);
+  if (devModule != null) {
+    const px = slotPixelWidth(slot, breakpoint, dpr, opts.layoutWidth);
+    return {
+      kind: 'image',
+      // The marker, for identification only — `moduleSource` is what gets rendered.
+      uri: asset.path as string,
+      backdropUri: asset.path as string,
+      moduleSource: devModule,
+      width: px,
+      height: Math.max(1, Math.round(px / spec.aspectRatio)),
+      fit: asset.fit ?? spec.defaultFit,
+      focal: asset.focal ?? DEFAULT_FOCAL,
+    };
+  }
+
   const stored = classifyStoredMedia(asset.path, bucket);
   if (stored.kind === 'unsafe') return { kind: 'fallback', reason: stored.reason };
 
   const width = slotPixelWidth(slot, breakpoint, dpr, opts.layoutWidth);
   const quality = slotQuality(dpr);
+  /*
+   * The pixel HEIGHT of the request, derived from the pixel width so it survives the density cap
+   * inside `slotPixelWidth` (asking for a 3× height beside a 2×-capped width would request a box
+   * of the wrong shape). With the frame's real height it is the frame's exact proportion;
+   * otherwise it falls back to the slot ratio.
+   */
+  const frameRatio =
+    opts.layoutWidth != null && opts.layoutHeight != null && opts.layoutHeight > 0
+      ? opts.layoutWidth / opts.layoutHeight
+      : spec.aspectRatio;
+  const height = Math.max(1, Math.round(width / frameRatio));
 
   const contract = asset.contract ?? 'legacy';
   const slotIsPortrait = spec.aspectRatio < 1;
@@ -358,6 +417,9 @@ export function resolveImage(
           bucket: stored.bucket,
           path: stored.path,
           width,
+          // Both dimensions, for the reason in `transformUrl`. With `contain` the server fits the
+          // whole asset inside this box; with `cover` (photography only) it crops to it.
+          height,
           quality,
           resize: fit === 'cover' ? 'cover' : 'contain',
         });
@@ -372,6 +434,10 @@ export function resolveImage(
           bucket: stored.bucket,
           path: stored.path,
           width: 32,
+          // The backdrop is cropped to the frame's shape on purpose — it exists to FILL the slack
+          // behind a fitted poster — but it still needs both dimensions, or it comes back a sliver
+          // like everything else and the blur spreads one column of pixels across the frame.
+          height: Math.max(1, Math.round(32 / frameRatio)),
           quality: 30,
           resize: 'cover',
         });
@@ -381,7 +447,7 @@ export function resolveImage(
     uri,
     backdropUri,
     width,
-    height: Math.round(width / spec.aspectRatio),
+    height,
     fit,
     focal: asset.focal ?? DEFAULT_FOCAL,
   };
@@ -412,6 +478,8 @@ export function mediaUrlForStoredValue(
     bucket?: MediaBucket;
     /** Layout width in POINTS. Omit to get the untransformed object URL. */
     width?: number;
+    /** Layout height in POINTS. Send it whenever the layout is a BOX — see transformUrl. */
+    height?: number;
     devicePixelRatio?: number;
     quality?: number;
     resize?: 'cover' | 'contain';
@@ -435,6 +503,7 @@ export function mediaUrlForStoredValue(
     bucket: stored.bucket,
     path: stored.path,
     width: Math.round(opts.width * dpr),
+    height: opts.height != null ? Math.round(opts.height * dpr) : undefined,
     quality: opts.quality ?? slotQuality(dpr),
     resize: opts.resize ?? 'cover',
   });

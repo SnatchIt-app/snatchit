@@ -1,12 +1,21 @@
 /**
- * app/my-listings.tsx — Seller's listings (V2).
+ * app/my-listings.tsx — Seller's listings (V3).
  *
- * PRESENTATION rebuilt on the V2 system; the DATA LAYER is unchanged: the same
- * listings fetch, the per-listing transfer map that drives "send the tickets",
- * hard-load + focus refetch + pull-to-refresh, and the exact delete/cancel rules
- * (no bids → delete; has bids → cancel via `cancel_listing`, both confirmed). The
- * six emoji filter tabs become Active/Send/Sold/Ended/All chips; the card is the
- * V2 SellerListingCard. Closes the seller loop from the redesigned Profile.
+ * Boards: composition `pkg3-my-listings-{clean,empty}.png`, tokens
+ * `pkg8-mylistings-{dark,light}.png`. The header speaks the screen-title voice; the
+ * filter chips carry the board's bare words (All / Active / Send tickets / Sold /
+ * Ended — no counts drawn); the row is the V3 SellerListingCard. The board's empty
+ * body says "Tap the Create tab…" — stale against the owner's Create → "Sell" dock
+ * rename, so the Sell wording stays.
+ *
+ * The DATA LAYER is unchanged: the same listings fetch, the per-listing transfer
+ * map that drives "send the tickets", hard-load + focus refetch + pull-to-refresh,
+ * and the exact delete/cancel rules (no bids → delete; has bids → cancel via
+ * `cancel_listing`, both confirmed).
+ *
+ * The `fixture` prop exists for the `_dev/v3-mylistings-bids` rendering harness
+ * only: it short-circuits ONLY the network read (rows supplied as literals), and it
+ * makes the destructive paths preview-only — nothing leaves the app.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -16,11 +25,14 @@ import { Alert, FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } f
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
-import SellerListingCard from '@/src/components/SellerListingCard';
+import SellerListingCard, { SELLER_THUMB_H, SELLER_THUMB_W } from '@/src/components/SellerListingCard';
 import ScreenState from '@/src/components/ScreenState';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import { Chip, EmptyState, IconButton, Skeleton } from '@/src/components/ui';
+import { MEDIA_RADIUS } from '@/src/lib/design/featureMetrics';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -30,8 +42,15 @@ const VALID_FILTERS: FilterKey[] = ['all', 'active', 'needs_action', 'ended', 's
 
 type TransferInfo = { transferId: string; status: string };
 
-export default function MyListingsScreen() {
+/** Harness-only literals in place of the network reads: rows (+ transfer states), or a first-load failure. */
+export type MyListingsFixture =
+  | { listings: Listing[]; transfers?: { listing_id: string; transferId: string; status: string }[] }
+  | { failure: 'offline' | 'error' };
+
+export default function MyListingsScreen({ fixture }: { fixture?: MyListingsFixture } = {}) {
   const { session } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const userId = session?.user.id ?? '';
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
   const topPad = useTopInset();
@@ -40,11 +59,19 @@ export default function MyListingsScreen() {
   const resolvedInitialFilter: FilterKey =
     filterParam && VALID_FILTERS.includes(filterParam as FilterKey) ? (filterParam as FilterKey) : 'all';
 
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [listings, setListings] = useState<Listing[]>(fixture && 'listings' in fixture ? fixture.listings : []);
+  const [transfers, setTransfers] = useState<Map<string, TransferInfo>>(() => {
+    const map = new Map<string, TransferInfo>();
+    if (fixture && 'listings' in fixture) {
+      for (const t of fixture.transfers ?? []) map.set(t.listing_id, { transferId: t.transferId, status: t.status });
+    }
+    return map;
+  });
+  const [loading, setLoading] = useState(!fixture);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<'offline' | 'error' | null>(null);
+  const [loadError, setLoadError] = useState<'offline' | 'error' | null>(
+    fixture && 'failure' in fixture ? fixture.failure : null,
+  );
 
   const initialLoadDone = useRef(false);
   // F-DESTRUCT-1: one destructive request per listing at a time. The ref is the lock (a second tap that
@@ -64,6 +91,8 @@ export default function MyListingsScreen() {
   }
 
   const fetchMyListings = useCallback(async (silent = false) => {
+    // The harness fixture replaces the network reads and nothing else: no query leaves the app.
+    if (fixture) return;
     if (!userId) return;
     if (!silent) setLoading(true);
 
@@ -96,7 +125,7 @@ export default function MyListingsScreen() {
       map.set(t.listing_id, { transferId: t.id, status: t.status });
     }
     setTransfers(map);
-  }, [userId]);
+  }, [userId, fixture]);
 
   useEffect(() => {
     fetchMyListings(false).finally(() => { initialLoadDone.current = true; });
@@ -118,6 +147,8 @@ export default function MyListingsScreen() {
   // ── Delete / cancel (unchanged rules) ────────────────────────────────────────
 
   async function performDelete(listing: Listing) {
+    // The harness can never walk a destructive chain: the guard precedes every write.
+    if (fixture) return;
     if (listing.bid_count > 0 || listing.auction_status !== 'active') {
       Alert.alert('Cannot delete', 'This listing has bids and cannot be deleted.');
       return;
@@ -140,6 +171,7 @@ export default function MyListingsScreen() {
   }
 
   async function performCancel(listing: Listing) {
+    if (fixture) return;
     if (!beginDestructive(listing.id)) return;
     try {
       const { error } = await supabase.rpc('cancel_listing', { p_listing_id: listing.id, p_user_id: userId });
@@ -179,21 +211,6 @@ export default function MyListingsScreen() {
     [transfers],
   );
 
-  const filterCounts = useMemo(() => {
-    const c = { all: listings.length, active: 0, needs_action: 0, ended: 0, sold: 0 };
-    for (const l of listings) {
-      if (l.status === 'sold') {
-        c.sold++;
-        if (needsTicketSend(l)) c.needs_action++;
-      } else if (l.auction_status === 'ended' || l.auction_status === 'cancelled' || new Date(l.ends_at) <= new Date()) {
-        c.ended++;
-      } else {
-        c.active++;
-      }
-    }
-    return c;
-  }, [listings, needsTicketSend]);
-
   const filteredListings = useMemo(() => {
     if (filter === 'all') return listings;
     if (filter === 'active') return listings.filter((l) =>
@@ -216,17 +233,17 @@ export default function MyListingsScreen() {
     <View style={s.root}>
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" onPress={() => router.back()} accessibilityLabel="Back" />
-        <Text style={[textStyle('displaySm'), s.headerTitle]} accessibilityRole="header">My listings</Text>
+        <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">My listings</Text>
         <View style={s.headerSpacer} />
       </View>
 
       {!loading && listings.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters} keyboardShouldPersistTaps="handled">
+          {/* Board: the chips carry bare words — the filter is the promise, not a number. */}
           {TABS.map((tab) => (
             <Chip
               key={tab.key}
               label={tab.label}
-              count={filterCounts[tab.key] > 0 ? filterCounts[tab.key] : undefined}
               selected={filter === tab.key}
               onPress={() => setFilter(tab.key)}
             />
@@ -238,7 +255,11 @@ export default function MyListingsScreen() {
         <View style={s.list}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={s.skelRow}>
-              <Skeleton width={76} height={76} />
+              {/* The row's artwork box, taken from the card rather than typed again: a 76×76 square
+                  here and a 61×76 poster there would shift every row sideways the moment the real
+                  art arrived. MEDIA_RADIUS for the same reason in the other direction — the
+                  placeholder's corners must not change shape when the poster replaces it. */}
+              <Skeleton width={SELLER_THUMB_W} height={SELLER_THUMB_H} style={{ borderRadius: MEDIA_RADIUS }} />
               <View style={s.skelBody}>
                 <Skeleton height={16} width="70%" />
                 <Skeleton height={12} width="45%" style={{ marginTop: 8 }} />
@@ -255,7 +276,7 @@ export default function MyListingsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={v2.brand.red} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.brand.red} />}
           ListEmptyComponent={
             <EmptyState
               title={
@@ -265,10 +286,13 @@ export default function MyListingsScreen() {
                   : filter === 'ended' ? 'No ended auctions'
                   : 'Nothing sold yet'
               }
+              // §2: each empty means something different, so each gets its own sentence.
               body={
-                filter === 'all' ? 'Tap the Create tab to list your first ticket.'
+                filter === 'all' ? 'Tap the Sell tab to list your first ticket.'
+                  : filter === 'active' ? 'Nothing of yours is live right now.'
                   : filter === 'needs_action' ? 'No tickets waiting to be sent.'
-                  : 'Nothing here yet.'
+                  : filter === 'ended' ? 'Auctions that closed without a sale land here.'
+                  : 'Completed sales land here.'
               }
               action={filter === 'all' ? { label: 'Create a listing', onPress: () => router.push('/(tabs)/create') } : undefined}
             />
@@ -297,15 +321,16 @@ export default function MyListingsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   filters: { gap: v2.space.sm, paddingHorizontal: v2.space.lg, paddingVertical: v2.space.md },
@@ -313,4 +338,5 @@ const s = StyleSheet.create({
   list: { paddingHorizontal: v2.space.lg, paddingBottom: 96, paddingTop: v2.space.sm },
   skelRow: { flexDirection: 'row', gap: v2.space.md, paddingVertical: v2.space.sm },
   skelBody: { flex: 1, justifyContent: 'center' },
-});
+  });
+}

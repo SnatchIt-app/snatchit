@@ -25,16 +25,22 @@ describe('the sample-tickets label', () => {
   });
 
   it('the Tickets screen shows the label whenever fixture rows are rendered, only in __DEV__, off by default', () => {
+    // RETARGETED 2026-09-24 (V3 tickets task instruction): the `_dev/v3-tickets` harness renders
+    // board fixtures through a `fixture` prop, and the owner's ruling follows the FIXTURE ROWS,
+    // not the toggle — so the label condition widened from `devFixtures` to
+    // `devFixtures || fixtureRows`. Everything the ruling pinned still holds below.
     const t = stripComments(read('app/(tabs)/tickets.tsx'));
     expect(t).toContain('SAMPLE_TICKETS_LABEL');
     // the label is tied to the same flag that swaps in the fixture rows
     expect(t).toContain('const effectiveRows: MyTicketGroup[] = devFixtures ? DEV_TICKET_FIXTURES : rows;');
-    expect(t).toMatch(/\{devFixtures \? \(\s*<View[^>]*accessibilityRole="alert"[\s\S]*?\{SAMPLE_TICKETS_LABEL\}[\s\S]*?\) : null\}/);
+    expect(t).toMatch(/\{devFixtures \|\| fixtureRows \? \(\s*<View[^>]*accessibilityRole="alert"[\s\S]*?\{SAMPLE_TICKETS_LABEL\}[\s\S]*?\) : null\}/);
     expect(t).toContain('useState(false)');                 // off by default
     expect(t).toContain('{__DEV__ ? (');                     // toggle exists only in development
     expect(t).not.toMatch(/setDevFixtures\(true\)/);         // nothing turns it on by itself
+    // harness rows count as fixture rows on screen — the caveat covers them too
+    expect(t).toContain("const fixtureRows = !!fixture && 'rows' in fixture && fixture.rows.length > 0;");
     // the label sits above the list, not inside a card, and cannot be dismissed
-    const start = t.indexOf('{devFixtures ? (');
+    const start = t.indexOf('{devFixtures || fixtureRows ? (');
     const block = t.slice(start, t.indexOf(') : null}', start));
     expect(block).toContain('{SAMPLE_TICKETS_LABEL}');
     expect(block).not.toContain('onPress');

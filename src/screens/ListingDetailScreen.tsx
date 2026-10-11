@@ -33,17 +33,8 @@
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 // import { Audio } from 'expo-av'; // re-enable once mallet-hit.mp3 is added
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActionSheetIOS,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
@@ -53,30 +44,88 @@ import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { connectionNotice, resultPollDelayMs, shouldPollForResult } from '@/src/lib/listing/liveState';
 import { useListingRealtime } from '@/src/hooks/useListingRealtime';
 import { finalSoldPrice } from '@/src/lib/salePrice';
-import { allInFromDollars, allInLabel, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
-import { getAvatarUrl } from '@/src/lib/avatarImage';
+import { allInFromDollars, buyerTotalCents, dollarsToCents } from '@/src/lib/money';
+import { clockLabel } from '@/src/lib/listing/feedRowState';
+import { PLATFORM_INSTRUCTIONS } from '@/src/lib/platformInstructions';
 import { APP_CONFIG } from '@/src/config/app';
 import { sendLocalNotification } from '@/src/utils/notifications';
-import { Button, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+import { StateView, EmptyState, Spinner, StickyBar } from '@/src/components/ui';
+// `BarAction` is the V3 pill with its sub-line inside it. Imported from the module rather than
+// the `ui` barrel because that barrel is owned centrally; it belongs in the barrel's exports.
+import { BarAction } from '@/src/components/ui/StickyBar';
 import { BidActivity } from '@/src/components/listing/BidActivity';
 import { ListingHero } from '@/src/components/listing/ListingHero';
 import { ListingStatusBanner } from '@/src/components/listing/ListingStatusBanner';
 import { OutbidToast } from '@/src/components/listing/OutbidToast';
-import { SellerTrustRow } from '@/src/components/listing/SellerTrustRow';
-import { TicketDetails, type DetailRow } from '@/src/components/listing/TicketDetails';
 import { TransactionPanel } from '@/src/components/listing/TransactionPanel';
-import { detailState, type ActionKind } from '@/src/lib/listing/detailState';
+import { BID_COMMITMENT_COPY, LISTING_READ_FAILED_COPY, RESALE_FEE_LABEL, detailState, listingAllInV3, listingPriceLinesV3, offersBid, reserveBusy, type ActionKind } from '@/src/lib/listing/detailState';
 import { readCardHandoff, type CardHandoff } from '@/src/lib/listing/cardHandoff';
 import { shouldReleaseReservation } from '@/src/lib/listing/reservationExit';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import ScreenState from '@/src/components/ScreenState';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import { isNetworkError } from '@/src/hooks/useNetworkStatus';
 import type { Bid, Listing, TransferStatus } from '@/src/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-type Props = { id: string };
+/**
+ * DEVELOPMENT RENDERING ONLY (owner 2026-09-24). When supplied, the screen paints these rows
+ * instead of READING them, so the approved boards can be compared against what the real
+ * component renders without a session, a listing row or a seller. Only `app/_dev/v3-listing.tsx`
+ * passes it, and that route redirects unless the bundle is a sandbox or `__DEV__` build; the real
+ * `/listing/[id]` route never passes it, so the production path is the read path, untouched.
+ *
+ * It short-circuits READS ONLY. Every offer, gate, total, reservation and bid below still comes
+ * from `listing` through `detailState`, exactly as it does for a fetched row.
+ */
+export interface ListingDetailFixture {
+  listing: Listing;
+  /**
+   * Seeds a FAILED read, so the screen's two failure faces can be rendered (owner, 2026-10-06).
+   * It says which KIND of read failed, never which state appears: the message it seeds goes through
+   * the screen's own `isNetworkError` below, which is what chooses the offline screen over the
+   * neutral read-failure one. A fixture that named the state could show a face the classifier
+   * would never give it.
+   */
+  failure?: 'offline' | 'error';
+  seller?: { display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null;
+  /** Painted in Bid activity. The price, the minimum and the outbid logic still read the live hook. */
+  bids?: Bid[];
+  /** Which of those bids reads as "You". Display only — it is never an identity for a transaction. */
+  viewerId?: string;
+  /**
+   * Seeds the reserve-in-flight state, so the "Reserving…" treatment can be RENDERED without a
+   * reservation existing (B's native review of f3f08930 could not see it at all).
+   *
+   * It seeds the screen's own `reserving` state rather than faking the footer, which matters: that
+   * one value feeds BOTH the resolver — where it disables each action — and `reserveBusy`, where it
+   * decides which button shows the pending label. So the harness exercises the real path from one
+   * flag, and a regression in either half still shows up here.
+   *
+   * It does NOT start, simulate or stand in for a reserve call. Nothing is requested, no single
+   * flight is taken, and the screen's handlers are untouched — this is the busy PRESENTATION only.
+   * Repeat-tap protection lives in `useSingleFlight` and is covered by tests/v3-reserve-feedback.
+   */
+  reserving?: boolean;
+}
+
+type Props = { id: string; fixture?: ListingDetailFixture };
+
+/** One row of the board's fact list: quiet label left, the fact right, a hairline under it. */
+type FactRow = {
+  label: string;
+  value: string;
+  /** Tabular figures, so a column of amounts lines up instead of jittering. */
+  money?: boolean;
+  /** Long free text (restrictions) wraps under its label instead of fighting it. */
+  block?: boolean;
+  /** Makes the row a control. Only the seller row has one, and it opens their profile. */
+  onPress?: () => void;
+};
 
 const VALID_TRANSFER_STATUSES: readonly TransferStatus[] = [
   'pending', 'seller_sent', 'buyer_confirmed', 'disputed', 'expired', 'auto_released',
@@ -96,41 +145,11 @@ function fmtCountdownMs(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function useAuctionCountdown(endsAt: string | null): string {
-  const [label, setLabel] = useState('');
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// V3: the panel clock is clockLabel(listing.ends_at, now) — the §5 forms, driven by the
+// screen's existing one-second ticker. The old hh:mm:ss hook went with its only consumer.
 
-  useEffect(() => {
-    if (!endsAt) return;
-    function tick() {
-      const diff = new Date(endsAt!).getTime() - Date.now();
-      if (diff <= 0) {
-        setLabel('Ended');
-        if (timerRef.current) clearInterval(timerRef.current);
-        return;
-      }
-      const h   = Math.floor(diff / 3_600_000);
-      const m   = Math.floor((diff % 3_600_000) / 60_000);
-      const sec = Math.floor((diff % 60_000) / 1_000);
-      if (h > 23) setLabel(`${Math.floor(h / 24)}d ${h % 24}h left`);
-      else        setLabel(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`);
-    }
-    tick();
-    timerRef.current = setInterval(tick, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [endsAt]);
-
-  return label;
-}
-
-function fmtDate(date: string, time: string): string {
-  const d = new Date(`${date}T${time}`);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
+// V3: the hero builds its own dated line through feedRowState, so home, search and the
+// listing agree on the format; the local formatter went with it.
 
 function timeAgo(iso: string): string {
   const sec = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -162,11 +181,23 @@ const WIN_TITLES = [
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function ListingDetailScreen({ id }: Props) {
+export default function ListingDetailScreen({ id, fixture }: Props) {
 
   // Sticky-bar stacking is decided by StickyBar itself, from the live window
   // width against a threshold derived from the layout. This screen no longer
   // carries a device breakpoint.
+
+  const { palette } = useTheme();
+  const { fontScale: factFontScale } = useWindowDimensions();
+  /*
+   * The content scrolls UNDER the fixed footer, so it has to end above it. `s.scroll` padded by a
+   * constant, and the footer is not a constant: its labels scale, so at the largest accessibility
+   * size it is far taller than the padding and slices the last fact row (B, batch 4 at 91a5a58c —
+   * "Mobile transfer · DICE" cut, CTA top at 688 pt). The bar reports its measured height instead.
+   */
+  const [footerHeight, setFooterHeight] = useState(0);
+  const scrollPad = { paddingBottom: footerHeight + v2.space.lg };
+  const s = useMemo(() => makeStyles(palette), [palette]);
 
   // ── Auth — wait for getSession() before any outbid logic ──────────────────
   // authLoading is true until the stored session has been resolved once.
@@ -225,7 +256,9 @@ export default function ListingDetailScreen({ id }: Props) {
   }, [navigation, user?.id, id]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
-  const [reserving,  setReserving]  = useState(false);
+  // Seeded from the fixture in the sandbox harness only; `undefined` in the product, so this is
+  // `useState(false)` everywhere a real buyer sees it.
+  const [reserving,  setReserving]  = useState(fixture?.reserving ?? false);
   const [finalizing, setFinalizing] = useState(false);
   const [sellerProfile, setSellerProfile] = useState<{ display_name: string | null; is_verified_seller: boolean; avatar_url: string | null; avatar_path: string | null } | null>(null);
   const [transferStatus,        setTransferStatus]        = useState<TransferStatus | null>(null);
@@ -238,7 +271,9 @@ export default function ListingDetailScreen({ id }: Props) {
     // so the hook always dispatches to the latest version of the callback.
     onNewBid: (bid, allBids) => handleNewBidRef.current(bid, allBids),
   });
-  const bids       = rt.bids;
+  // Display list only. `rt.bids` still drives the price, the outbid detection and every gate —
+  // the fixture replaces what Bid activity paints, never what the screen decides.
+  const bids       = fixture?.bids ?? rt.bids;
   const bidsLoaded = !rt.loading;
 
   // ── Ticker ─────────────────────────────────────────────────────────────────
@@ -289,8 +324,7 @@ export default function ListingDetailScreen({ id }: Props) {
   const lostNotifSentRef  = useRef(false);
 
   // ── Countdown ──────────────────────────────────────────────────────────────
-  const countdown = useAuctionCountdown(listing?.ends_at ?? null);
-  const ended     = listing ? new Date(listing.ends_at) <= new Date() : false;
+  const ended = listing ? new Date(listing.ends_at) <= new Date() : false;
 
   // ── Result at zero (CFT-501) ───────────────────────────────────────────────
   // This device's clock ran out; the server decides. Re-read the row on the
@@ -362,6 +396,23 @@ export default function ListingDetailScreen({ id }: Props) {
   // ── fetchData ─────────────────────────────────────────────────────────────
   // Only fetches the listing row — bids are owned by useListingRealtime.
   async function fetchData(silent = false) {
+    // Development rendering only: the fixture stands in for every READ this function makes —
+    // the listing row, the seller profile, the transfer row and the finalize call that follows a
+    // dead clock. Nothing below this line runs, and nothing above the guard writes anything.
+    if (fixture) {
+      if (fixture.failure) {
+        // 'Network request failed' is the text `isNetworkError` recognises; any other sentence is
+        // a server failure. The screen classifies it exactly as it classifies a real one.
+        setError(fixture.failure === 'offline' ? 'Network request failed' : 'The listing could not be read');
+        setLoading(false);
+        return;
+      }
+      setListing(fixture.listing);
+      setSellerProfile(fixture.seller ?? null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!silent) setLoading(true);
     setError(null);
 
@@ -763,7 +814,10 @@ export default function ListingDetailScreen({ id }: Props) {
       Alert.alert('Not allowed', 'You cannot purchase your own listing.'); return;
     }
     if (!listing.buy_now_enabled || listing.buy_now_price == null) {
-      Alert.alert('Buy Now unavailable', 'This listing does not have Buy Now enabled.'); return;
+      // F-29 → R-5 (owner 2026-09-24): offer the bid recovery only when the RESOLVER offers a bid on
+      // this screen — the same actions the buttons render — never a locally re-derived guess (which
+      // said "yes" while the viewer held a reservation and the screen showed no bid at all).
+      Alert.alert('Buy Now unavailable', offersBid(state) ? 'You can place a bid instead.' : "Buy Now isn't offered on this listing."); return;
     }
     if (ended || isSold) { Alert.alert('Not available', 'This listing is no longer available.'); return; }
     if (reservedByOther) {
@@ -783,7 +837,12 @@ export default function ListingDetailScreen({ id }: Props) {
       else                                       Alert.alert('Reservation failed', msg);
       return;
     }
-    await fetchData();
+    // SILENT, deliberately (F-V3-READFAIL-1, D 2026-09-24): a reservation has just LEFT this
+    // screen, so the failed-read view — whose copy promises "nothing was sent from this screen"
+    // — must be unreachable from here. This refresh is a courtesy for the screen left mounted
+    // under checkout; if it fails, the loaded listing stays up, which is strictly more truthful
+    // than replacing it with a reassurance that is now false.
+    await fetchData(true);
     setReserving(false);
     navigateToCheckout();
   }
@@ -1013,21 +1072,21 @@ export default function ListingDetailScreen({ id }: Props) {
     <View style={s.safe}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, scrollPad]}
         contentInsetAdjustmentBehavior="never"
       >
         <ListingHero
           asset={{ path: handoff.coverPath, contract: 'legacy', bucket: 'auction-media' }}
           eventName={handoff.eventName}
           venue={handoff.venue}
-          whenLabel={fmtDate(handoff.eventDate, handoff.eventTime)}
-          neighborhood={handoff.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          eventDate={handoff.eventDate}
+          eventTime={handoff.eventTime}
           onBack={() => router.back()}
         />
-        <View style={s.scrollTail} />
       </ScrollView>
 
       <StickyBar
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
         left={
           handoff.priceAllIn ? (
             <PriceDisplay size="sticky" label={handoff.priceLabel} amount={handoff.priceAllIn} />
@@ -1046,14 +1105,21 @@ export default function ListingDetailScreen({ id }: Props) {
   );
 
   if (error) return (
-    // A raw fetch failure gets the dedicated offline / server-error screen.
-    // "Listing not found" (data null) stays its own state below: a listing that
+    // A raw fetch failure: offline keeps the dedicated offline screen; any other failure carries
+    // the V3 §5 copy — the read failed, nothing left this screen, and nothing is claimed about
+    // server state. "Listing not found" (data null) stays its own state below: a listing that
     // was deleted is not a connection problem, and saying so wastes a retry.
     <View style={s.centered}>
-      <ScreenState
-        state={isNetworkError(error) ? 'offline' : 'error'}
-        onRetry={() => fetchData()}
-      />
+      {isNetworkError(error) ? (
+        <ScreenState state="offline" onRetry={() => fetchData()} />
+      ) : (
+        <StateView
+          kind="error"
+          title={LISTING_READ_FAILED_COPY.title}
+          body={LISTING_READ_FAILED_COPY.body}
+          action={{ label: LISTING_READ_FAILED_COPY.retry, onPress: () => fetchData() }}
+        />
+      )}
     </View>
   );
 
@@ -1071,7 +1137,6 @@ export default function ListingDetailScreen({ id }: Props) {
 
   // ─── Derived display values ────────────────────────────────────────────────
 
-  const ticketLabel   = listing.ticket_type;
   const transferLabel = listing.transfer_method === 'mobile_transfer' ? 'Mobile transfer' : 'Email';
 
   const isSold          = listing.status === 'sold';
@@ -1091,7 +1156,8 @@ export default function ListingDetailScreen({ id }: Props) {
   const userHasBid    = myMaxBid > 0;
 
   // Preformatted by the canonical money helper. Nothing downstream does arithmetic.
-  const buyNowAllIn = listing.buy_now_price != null ? allInFromDollars(listing.buy_now_price) : null;
+  // V3 display: cents are shown on every amount (pkg8 boards), which is the only difference.
+  const buyNowAllIn = listing.buy_now_price != null ? listingAllInV3(listing.buy_now_price) : null;
 
   // ─── One state object drives the whole screen ──────────────────────────────
   // Every offer, refusal and status decision is made in src/lib/listing/detailState.ts
@@ -1106,6 +1172,7 @@ export default function ListingDetailScreen({ id }: Props) {
       reserved_by:     listing.reserved_by,
       winner_user_id:  listing.winner_user_id,
       bid_count:       listing.bid_count,
+      quantity:        listing.quantity,
     },
     userId:            user?.id,
     clockEnded:        ended,
@@ -1116,6 +1183,9 @@ export default function ListingDetailScreen({ id }: Props) {
     isHighestBidder:   userHasBid && myMaxBid >= currentHighest,
     hasBid:            userHasBid,
     buyNowAllIn,
+    // V3 (O-2): the informational minimum under "Place a bid" — same derivation as the breakdown
+    // below, and never shown once the auction is closed (detailState guards mode).
+    nextBidAllIn:      listingAllInV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT),
   });
 
   // A frozen screen must not look live (CFT-504): say when the bids channel is
@@ -1132,25 +1202,74 @@ export default function ListingDetailScreen({ id }: Props) {
   // The retry effect above polls for ten seconds; this is the manual escape.
   const needsTransferRefresh = isSold && isSeller && !transferId;
 
-  const soldAllIn = isSold ? allInFromDollars(finalSoldPrice(listing)) : null;
-  const currentAllIn = allInFromDollars(currentHighest);
+  const soldAllIn = isSold ? listingAllInV3(finalSoldPrice(listing)) : null;
+  const currentAllIn = listingAllInV3(currentHighest);
+  // The panel's breakdown GATE, in the legacy display form. The rows themselves are rendered
+  // below in the board's list, so this value is never printed.
   const nextBidAllIn = allInFromDollars(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  // §5 breakdown rows for "If you bid the minimum" — same base, through the one money module.
+  const minBid = listingPriceLinesV3(currentHighest + APP_CONFIG.MIN_BID_INCREMENT);
+  const minBidBase = minBid.base;
+  const minBidFee = minBid.fee;
 
-  const detailRows: DetailRow[] = [
-    { label: 'Type', value: ticketLabel },
-    { label: 'Quantity', value: `${listing.quantity} ${listing.quantity === 1 ? 'ticket' : 'tickets'}` },
-    { label: 'Delivery', value: transferLabel },
-    {
-      label: 'Category',
-      value: (listing.category ?? 'nightlife').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-    },
-    { label: 'Started at', value: allInLabel(listing.starting_bid) },
+  // "Mobile transfer · DICE": the platform's display name from the existing instruction table.
+  // 'other' adds nothing — "· Other" is noise, not information.
+  const platformName =
+    listing.ticket_platform && listing.ticket_platform !== 'other'
+      ? PLATFORM_INSTRUCTIONS[listing.ticket_platform]?.displayName
+      : null;
+
+  // ─── The facts, as ONE list (pkg8 board) ───────────────────────────────────
+  // The board draws the minimum-bid breakdown and the two facts that decide whether this ticket
+  // is worth bidding on — how it is delivered and who is selling it — as the same kind of row,
+  // under one eyebrow and separated by hairlines. Type and quantity are NOT repeated here: the
+  // panel above already states "2 × GA tickets".
+  //
+  // The breakdown rows exist only while a bid can be placed, and `offersBid` is the one predicate
+  // that answers that — the same one the commitment sentence and the Buy Now recovery already use
+  // (R-5). `mode !== 'closed'` was a second, wider answer: it admitted the seller's own listing and a
+  // reservation the viewer is holding, where there is no bid to break down (B's F-91-4; E's item 1).
+  /*
+   * At a large text scale a two-column fact row cannot fit, and the VALUE is the half that loses:
+   * the C-operated a3xl capture at d301ccb4 showed Delivery as "…le t…". The screen already has a
+   * stacked form for these rows — `factRowBlock`, which Restrictions uses — so every row takes it
+   * above the same threshold the feature's identity block uses. Existing visual language, no new
+   * one, and `row.block` still wins on its own.
+   */
+  const stackRows = identityStacks(factFontScale);
+  const showBreakdown = offersBid(state);
+  const sellerName = sellerProfile?.display_name?.trim() || 'Seller';
+  const detailRows: FactRow[] = [
+    ...(showBreakdown
+      ? [
+          { label: 'Tickets', value: minBidBase, money: true },
+          { label: RESALE_FEE_LABEL, value: minBidFee, money: true },
+        ]
+      : []),
+    { label: 'Delivery', value: platformName ? `${transferLabel} · ${platformName}` : transferLabel },
+    // The seller row replaces the avatar strip the board drops. The verified mark survives as a
+    // WORD rather than a colour, and the row still opens the seller's profile.
+    ...(sellerProfile
+      ? [{
+          label: 'Seller',
+          value: sellerProfile.is_verified_seller ? `${sellerName} · Verified seller` : sellerName,
+          onPress: () => router.push(`/profile/${listing.seller_id}`),
+        }]
+      : []),
+    // V3: the hero no longer carries the neighborhood; it lives here rather than vanishing.
+    ...(listing.neighborhood
+      ? [{
+          label: 'Neighborhood',
+          value: listing.neighborhood.replace(/\b\w/g, c => c.toUpperCase()),
+        }]
+      : []),
   ];
   // Ownership proof appears only after a human reviewed it. It never claims
   // verification before review (migration 033).
   if (listing.proof_status === 'approved') {
     detailRows.push({ label: 'Ownership proof', value: 'Reviewed by Snatch It' });
   }
+  // A material term of the sale. It is never dropped to make the list match a sample board.
   if (listing.restrictions) {
     detailRows.push({ label: 'Restrictions', value: listing.restrictions, block: true });
   }
@@ -1185,11 +1304,19 @@ export default function ListingDetailScreen({ id }: Props) {
     }
   }
 
-  const primaryBusy =
-    (state.primary.kind === 'buy_now' || state.primary.kind === 'continue_reservation') && reserving;
+  /*
+   * BUSY FOLLOWS THE ACTION, NOT ITS POSITION (B's finding at 3c6f15a4, owner-confirmed).
+   *
+   * The rule lives in `reserveBusy` so both buttons read one predicate and neither can drift from
+   * the other again — see that function for what broke and why repeat-tap protection was a separate
+   * question that was already sound.
+   */
+  const busy = reserveBusy(state, reserving);
 
-  const stickyPriceLabel = isSold ? 'Sold for' : state.mode === 'closed' ? 'Final bid' : 'Current bid';
-  const stickyPriceAmount = soldAllIn ?? currentAllIn;
+  // The live action's sub-line, read off the resolved action. Destructured so the ONE place that
+  // spells `state.primary.subLabel` is the unavailable-state sentence in the footer, which is the
+  // one that must stay outside the dimmed button.
+  const { subLabel: primarySubLabel } = state.primary;
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -1199,7 +1326,7 @@ export default function ListingDetailScreen({ id }: Props) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={s.scroll}
+        contentContainerStyle={[s.scroll, scrollPad]}
         // The sticky bar sits over the bottom of the content; this keeps the last
         // section reachable instead of permanently hidden behind it.
         contentInsetAdjustmentBehavior="never"
@@ -1207,16 +1334,18 @@ export default function ListingDetailScreen({ id }: Props) {
         <ListingHero
           asset={{
             path: coverPath,
-            // Legacy assets were cropped destructively to 16:9 before upload, so
-            // they are fitted against a blurred copy of themselves rather than
-            // re-cropped into the portrait frame. No black bars, no lost lineup.
+            // Legacy assets were cropped destructively to 16:9 before upload, and those portrait
+            // pixels cannot be recovered. Under the 4:5 poster direction the hero FITS the asset
+            // into a portrait frame rather than cropping it again — so a legacy cover shows as a
+            // contained band over the blurred copy of itself, and the curve scrim keeps the
+            // identity legible either way.
             contract: 'legacy',
             bucket: 'auction-media',
           }}
           eventName={listing.event_name}
           venue={listing.venue}
-          whenLabel={fmtDate(listing.event_date, listing.event_time)}
-          neighborhood={listing.neighborhood?.replace(/\b\w/g, c => c.toUpperCase()) ?? null}
+          eventDate={listing.event_date}
+          eventTime={listing.event_time}
           onBack={() => router.back()}
           onOverflow={openListingActions}
         />
@@ -1247,72 +1376,141 @@ export default function ListingDetailScreen({ id }: Props) {
         <TransactionPanel
           mode={state.mode}
           currentAllIn={currentAllIn}
-          buyNowAllIn={state.mode === 'auction_and_buy_now' ? buyNowAllIn : null}
           nextBidAllIn={state.mode === 'closed' ? null : nextBidAllIn}
-          countdown={state.mode === 'closed' ? null : (countdown || null)}
+          // The breakdown is rendered below, as the board draws it: one list, one row idiom,
+          // hairlines under every row — not two differently-styled blocks.
+          minBidBase={null}
+          minBidFee={null}
+          // §5 clock forms, from the server's ends_at. Display only: the live/ended DECISION
+          // stays with detailState, exactly as before.
+          clock={state.mode === 'closed' ? null : clockLabel(listing.ends_at, now)}
           soldAllIn={soldAllIn}
           bidCount={listing.bid_count ?? 0}
+          quantity={listing.quantity}
+          ticketType={listing.ticket_type}
         />
 
-        {sellerProfile ? (
-          <SellerTrustRow
-            displayName={sellerProfile.display_name || 'Seller'}
-            avatarUrl={getAvatarUrl(sellerProfile.avatar_path ?? sellerProfile.avatar_url)}
-            isVerified={sellerProfile.is_verified_seller}
-            onPress={() => router.push(`/profile/${listing.seller_id}`)}
-          />
-        ) : null}
+        <View style={s.facts}>
+          {showBreakdown ? (
+            <Text style={[textStyle('micro'), s.factEyebrow]}>If you bid the minimum</Text>
+          ) : null}
+          {detailRows.map((row) => {
+            const cells = (
+              <>
+                <Text style={[textStyle('body'), s.factLabel]}>{row.label}</Text>
+                <Text
+                  style={[
+                    textStyle('body'),
+                    s.factValue,
+                    row.money ? s.factMoney : null,
+                    row.block || stackRows ? s.factValueBlock : null,
+                  ]}
+                  numberOfLines={row.block || stackRows ? undefined : 2}
+                >
+                  {row.value}
+                </Text>
+              </>
+            );
+            return row.onPress ? (
+              <Pressable
+                key={row.label}
+                onPress={row.onPress}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
+                accessibilityRole="button"
+                accessibilityLabel={`${row.label}: ${row.value}`}
+                accessibilityHint="Opens the seller's profile"
+              >
+                {cells}
+              </Pressable>
+            ) : (
+              <View
+                key={row.label}
+                style={[s.factRow, row.block || stackRows ? s.factRowBlock : null]}
+                accessible
+                accessibilityLabel={`${row.label}: ${row.value}`}
+              >
+                {cells}
+              </View>
+            );
+          })}
+        </View>
 
-        <TicketDetails rows={detailRows} />
+        {/* The commitment sentence, wherever a bid can actually be placed from here. De-dup:
+            it carries no numbers — the panel and the CTA sub-label already do. */}
+        {offersBid(state) ? (
+          <Text style={[textStyle('bodySm'), s.commitment]}>{BID_COMMITMENT_COPY}</Text>
+        ) : null}
 
         {state.showsBidActivity ? (
           <BidActivity
             bids={bids}
-            amountFor={(b) => allInFromDollars(b.amount)}
+            amountFor={(b) => listingAllInV3(b.amount)}
             timeFor={(b) => timeAgo(b.created_at)}
-            viewerId={user?.id}
-            highlightTop={!isSold && !auctionEnded && !ended}
+            viewerId={fixture?.viewerId ?? user?.id}
+            // Nobody leads an auction that was cancelled: the bids are void, and the row that
+            // was in front is history like the rest of them.
+            highlightTop={!isSold && !auctionEnded && !ended && listing.auction_status !== 'cancelled'}
           />
         ) : null}
 
-        <View style={s.scrollTail} />
       </ScrollView>
 
       {/*
-        One bar, one decision. Buy Now leads when it exists and bidding sits
-        beside it as the secondary; the old screen inverted that, giving instant
-        purchase a grey outline and the bid a red fill.
+        THE FOOTER AS THE BOARD DRAWS IT (pkg8-listing-dark/light). Full-width pill actions in a
+        COLUMN, each with its own sub-line inside it, on the page rather than on a raised bar.
+        What this replaces: both actions and both sub-lines were being pushed through the bar's
+        horizontal `actions` container, which clipped and crowded them.
+
+        The price is not repeated here. The panel at the top of the screen states it once, which
+        is what the board draws and what "each number once" has meant on this screen since §5.
       */}
-      <StickyBar
-        left={
-          <PriceDisplay
-            size="sticky"
-            label={stickyPriceLabel}
-            amount={stickyPriceAmount}
-            muted={isSold || state.mode === 'closed'}
-          />
-        }
-      >
+      <StickyBar layout="stack" onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}>
+        {/* A dimmed control may not be the only place a listing's STATE is written: Button drops a
+            disabled pill to 0.4. So an unavailable primary keeps its sentence OUTSIDE the pill, at
+            full strength — the live actions below carry theirs inside. */}
+        {(state.primary.disabled || state.primary.kind === 'unavailable') && state.primary.subLabel ? (
+          <Text style={[textStyle('bodySm'), s.ctaSubLabel]} numberOfLines={2}>{state.primary.subLabel}</Text>
+        ) : null}
+
+        {/*
+          HIERARCHY COMES FROM THE RESOLVER (owner rulings 2026-09-24, then 2026-09-25). The screen
+          paints whatever the resolver selects: the primary is the FILLED red action and it leads
+          the column, the secondary is outlined below it. On a listing that offers BOTH actions the
+          resolver now selects the bid as primary (owner 2026-09-25, Option B), superseding the
+          earlier Buy-Now-first hierarchy — and because the emphasis is read off the selection
+          rather than overridden here, that ruling took one change in `detailState` and none in
+          this file;
+          the bid follows, outlined. The earlier reading — pkg8-listing-{dark,light} draws the bid
+          filled with Buy Now outlined beneath it — pinned the emphasis to the board and inverted
+          the resolver; that flip is what this ruling closes. The board's remaining footer facts
+          (full-width pills stacked on the page, each sub-line inside its own pill, no repeated
+          price) are unchanged, and nothing about what either action DOES moved with the paint.
+        */}
+        <BarAction
+          label={state.primary.label}
+          // V3 (O-2): informational — a minimum or a consequence, never the amount a tap submits.
+          subLabel={state.primary.disabled || state.primary.kind === 'unavailable' ? undefined : primarySubLabel}
+          // Visible while the reserve call is in flight (CFT-203), on whichever button carries the
+          // reserve action — see `isReserveAction` above.
+          pendingLabel="Reserving…"
+          variant="primary"
+          disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
+          loading={busy.primary}
+          onPress={() => runAction(state.primary.kind)}
+        />
         {state.secondary ? (
-          <Button
+          <BarAction
             label={state.secondary.label}
+            subLabel={state.secondary.subLabel}
             variant="secondary"
-            size="md"
+            // The same pending treatment as the primary: under Option B this is the button that
+            // reserves, and a control that starts a network call must say so wherever it sits.
+            pendingLabel="Reserving…"
             disabled={state.secondary.disabled}
+            loading={busy.secondary}
             onPress={() => runAction(state.secondary!.kind)}
           />
         ) : null}
-        <Button
-          label={state.primary.label}
-          // Visible while the reserve call is in flight (CFT-203); Buy Now is the
-          // only primary that sets `reserving`.
-          pendingLabel="Reserving…"
-          variant="primary"
-          size="md"
-          disabled={state.primary.disabled || state.primary.kind === 'unavailable'}
-          loading={primaryBusy}
-          onPress={() => runAction(state.primary.kind)}
-        />
       </StickyBar>
     </View>
   );
@@ -1320,18 +1518,45 @@ export default function ListingDetailScreen({ id }: Props) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   liveNotice: {
     paddingVertical: v2.space.sm, paddingHorizontal: v2.space.lg,
-    borderLeftWidth: 2, borderLeftColor: v2.status.warning, backgroundColor: v2.surface.surface,
+    borderLeftWidth: 2, borderLeftColor: p.status.warning, backgroundColor: p.surface.surface,
   },
-  liveNoticeText: { color: v2.status.warning },
-  safe: { flex: 1, backgroundColor: v2.surface.canvas },
+  liveNoticeText: { color: p.status.warning },
+  ctaSubLabel: { color: p.text.muted, textAlign: 'center' },
+  safe: { flex: 1, backgroundColor: p.surface.canvas },
 
   // The artwork runs under the status bar: the hero is the first thing on the
   // screen and a safe-area gap above it would frame it like a card.
-  scroll: { paddingBottom: v2.space.xxxl },
-  scrollTail: { height: 96 },
+  /*
+   * No constant here any more. Clearance is `scrollPad`, computed from the footer's MEASURED
+   * height — a 96 pt spacer plus a 64 pt constant came to about 160 pt against a footer that is
+   * 176 pt at the largest accessibility size, which is the ~16 pt slice B measured on the last
+   * fact row. Three sources of the same spacing is how that gap went unnoticed.
+   */
+  scroll: {},
+  // §5 commitment sentence: quiet body ink, on the gutter, above the sticky actions.
+  commitment: { color: p.text.secondary, paddingHorizontal: v2.space.lg, paddingTop: v2.space.md },
+
+  // The board's fact list: one eyebrow, then rows of the same weight separated by hairlines.
+  facts: { paddingHorizontal: v2.space.lg },
+  factEyebrow: { color: p.text.muted, paddingBottom: v2.space.xs },
+  factRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: v2.space.lg,
+    paddingVertical: v2.space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: p.border.default,
+  },
+  factRowBlock: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs },
+  factLabel: { color: p.text.secondary },
+  factValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
+  factValueBlock: { textAlign: 'left' },
+  factMoney: { fontVariant: ['tabular-nums'] },
 
   statusWrap: { marginTop: v2.space.lg },
   refreshRow: {
@@ -1339,15 +1564,16 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: v2.space.lg,
   },
-  refreshText: { color: v2.brand.red },
+  refreshText: { color: p.brand.redText },
 
   centered: {
     flex: 1,
-    backgroundColor: v2.surface.canvas,
+    backgroundColor: p.surface.canvas,
     alignItems: 'center',
     justifyContent: 'center',
     gap: v2.space.md,
     paddingHorizontal: v2.space.xl,
   },
-  errText: { color: v2.text.secondary, textAlign: 'center' },
-});
+  errText: { color: p.text.secondary, textAlign: 'center' },
+  });
+}

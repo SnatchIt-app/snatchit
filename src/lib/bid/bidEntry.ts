@@ -18,6 +18,8 @@ import {
   dollarsToCents,
   formatCents,
   formatDollars,
+  formatDollarsV3,
+  formatCentsV3,
 } from '@/src/lib/money';
 
 /** The floor a new bid must clear: the current bid plus one increment. */
@@ -60,6 +62,22 @@ export interface BidPriceLines {
  * arithmetic of its own, so it can never drift from what checkout actually
  * charges.
  */
+/**
+ * V3 presentation of the SAME three amounts (owner 2026-09-24). Identical integer-cent
+ * arithmetic — `dollarsToCents`, `buyerFeeCents`, `buyerTotalCents` — formatted with cents
+ * shown, because the approved boards show "$95.00 / $9.50 / $104.50". Nothing about what is
+ * submitted, rounded or stored changes; `bidPriceLines` is retained unchanged for the
+ * surfaces that have not moved to V3.
+ */
+export function bidPriceLinesV3(selectedDollars: number): BidPriceLines {
+  const cents = dollarsToCents(selectedDollars);
+  return {
+    bid: formatCentsV3(cents),
+    fee: formatCentsV3(buyerFeeCents(cents)),
+    total: formatCentsV3(buyerTotalCents(cents)),
+  };
+}
+
 export function bidPriceLines(selectedDollars: number): BidPriceLines {
   const cents = dollarsToCents(selectedDollars);
   return {
@@ -71,7 +89,10 @@ export function bidPriceLines(selectedDollars: number): BidPriceLines {
 
 /** The all-in total on its own, for the sticky bar / CTA context. */
 export function bidTotalLabel(selectedDollars: number): string {
-  return formatCents(buyerTotalCents(dollarsToCents(selectedDollars)));
+  // V3 display (E, 2026-09-24): 2dp, the same figure the screen shows. The alert used to say "$105"
+  // where the screen said "$105.00" — one number, two spellings, in the same interaction. Display
+  // only: the cents arithmetic above is untouched.
+  return formatCentsV3(buyerTotalCents(dollarsToCents(selectedDollars)));
 }
 
 // ─── After the server accepted the bid (CFT-203, item 10) ────────────────────
@@ -102,7 +123,8 @@ export function bidOutcomeCopy(
   amountDollars: number,
   freshCurrentBid?: number | null,
 ): BidOutcomeCopy {
-  const bid = formatDollars(amountDollars);
+  // V3 display, as on the screen the bidder just left (E, 2026-09-24).
+  const bid = formatDollarsV3(amountDollars);
   const total = bidTotalLabel(amountDollars);
   switch (outcome) {
     case 'leading':
@@ -113,7 +135,7 @@ export function bidOutcomeCopy(
     case 'outbid':
       return {
         title: 'Bid placed, but outbid',
-        body: `Your ${bid} bid is in, but someone has already bid ${freshCurrentBid != null ? formatDollars(freshCurrentBid) : 'higher'}. Go back to the listing to raise it.`,
+        body: `Your ${bid} bid is in, but someone has already bid ${freshCurrentBid != null ? formatDollarsV3(freshCurrentBid) : 'higher'}. Go back to the listing to raise it.`,
       };
     default:
       return {

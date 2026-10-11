@@ -14,36 +14,50 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextStyle } from 'react-native';
+import { TICKET_PLATFORMS } from '@/src/lib/listing/ticketPlatforms';
 import { useTopInset } from '@/src/lib/nav/navInsets';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useUnsavedChangesGuard } from '@/src/hooks/useUnsavedChangesGuard';
 import { shouldAskBeforeLeaving, UNSAVED_COPY } from '@/src/lib/nav/unsavedChanges';
+import { editPhase, editRefusal, editRefusalCopy, type EditRefusal } from '@/src/lib/listing/editAccess';
+import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { findBannedContent } from '@/src/lib/sell/sellState';
-import { Button, Chip, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
+import { Button, Chip, EmptyState, IconButton, Input, Spinner, StickyBar } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, TicketPlatform } from '@/src/types';
 
-const TICKET_PLATFORMS: { value: TicketPlatform; label: string }[] = [
-  { value: 'dice',         label: 'DICE' },
-  { value: 'eventbrite',   label: 'Eventbrite' },
-  { value: 'posh',         label: 'Posh' },
-  { value: 'axs',          label: 'AXS' },
-  { value: 'ticketmaster', label: 'Ticketmaster' },
-  { value: 'other',        label: 'Other' },
-];
 
-export default function EditListingScreen() {
-  const { user } = useAuth();
+/**
+ * The dev harness's seed (`app/_dev/v3-edit-listing.tsx`). It stands in for the READ and nothing
+ * else: the viewer still comes from `useAuth()`, which no prop may replace — v3-listing's rule —
+ * so the signed-out refusal is not seedable here and keeps its behavioural coverage instead. Save
+ * short-circuits under a fixture, so a harness render cannot write a listing.
+ */
+export interface EditListingFixture {
+  /** The row the read would have returned; null stands for a row-less answer. */
+  row: Listing | null;
+  /** The read error's own sentence, when the read failed. */
+  readError?: string | null;
+}
+
+export default function EditListingScreen({ fixture }: { fixture?: EditListingFixture } = {}) {
+  const { user, loading: authLoading } = useAuth();
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const topPad = useTopInset();
   const params = useLocalSearchParams<{ id: string }>();
-  const listingId = params.id ?? '';
+  // Under a fixture the row carries its own id; the live route is unchanged.
+  const listingId = params.id ?? fixture?.row?.id ?? '';
 
   const [loading, setLoading] = useState(true);
+  const [refused, setRefused] = useState<EditRefusal | null>(null);
   const [saving, setSaving] = useState(false);
   const [listing, setListing] = useState<Listing | null>(null);
 
@@ -66,30 +80,47 @@ export default function EditListingScreen() {
     ...UNSAVED_COPY.listingEdit,
   });
 
+  /*
+   * The exit a refusal offers. `router.back()` on its own is a dead control from a deep link or a
+   * cold start — there is nothing underneath — so it falls back to the board this screen is opened
+   * from. Both the alert's OK and the refusal's action call this, so they cannot drift apart.
+   */
+  function leave(): void {
+    const exit = exitRoute(router.canGoBack(), '/my-listings');
+    if (exit.kind === 'back') router.back();
+    else router.replace(exit.href as never);
+  }
+
   useEffect(() => {
     let cancelled = false;
+    /*
+     * Every exit from here either shows the form or records a refusal (E, 2026-10-05). Two of
+     * these paths used to return with `loading` still set, and the render guard read a missing
+     * listing as "still loading", so the seller was left on a spinner behind the alert — and with
+     * the alert dismissed by the hardware back button, on a spinner and nothing else.
+     */
+    function refuse(r: EditRefusal, alert: boolean): void {
+      setRefused(r);
+      setLoading(false);
+      if (alert) Alert.alert(r.title, r.body, [{ text: 'OK', onPress: leave }]);
+    }
     async function load() {
-      if (!listingId || !user) return;
-      const { data, error } = await supabase.from('listings').select('*').eq('id', listingId).single();
+      if (authLoading) return;                       // the session is still being checked
+      if (!user || !listingId) {
+        // No alert: nothing was asked for yet, so the refusal is the screen, not an interruption.
+        refuse(editRefusalCopy(user ? 'not-found' : 'signed-out'), false);
+        return;
+      }
+      const { data, error } = fixture
+        ? { data: fixture.row, error: fixture.readError ? { message: fixture.readError } : null }
+        : await supabase.from('listings').select('*').eq('id', listingId).single();
       if (cancelled) return;
-      if (error || !data) {
-        Alert.alert('Listing not found', error?.message ?? 'Try again later.', [{ text: 'OK', onPress: () => router.back() }]);
-        setLoading(false);
-        return;
-      }
-      const l = data as Listing;
-      if (l.seller_id !== user.id) {
-        Alert.alert('Not allowed', 'You can only edit your own listings.', [{ text: 'OK', onPress: () => router.back() }]);
-        return;
-      }
-      if (l.bid_count > 0 || l.auction_status !== 'active') {
-        Alert.alert(
-          'Cannot edit',
-          l.bid_count > 0
-            ? 'This listing already has bids. Use Cancel from My Listings if you need to remove it.'
-            : 'This listing is no longer active.',
-          [{ text: 'OK', onPress: () => router.back() }],
-        );
+      const l = (data ?? null) as Listing | null;
+      const refusal = editRefusal({ listing: l, viewerId: user.id, readError: error?.message });
+      // `!l` is already the 'not-found' refusal; it stays in the condition so the rest of this
+      // function keeps its non-null listing rather than asserting one.
+      if (refusal || !l) {
+        refuse(refusal ?? editRefusalCopy('not-found', error?.message), true);
         return;
       }
       setListing(l);
@@ -101,9 +132,12 @@ export default function EditListingScreen() {
     }
     load();
     return () => { cancelled = true; };
-  }, [listingId, user]);
+  }, [listingId, user, authLoading, fixture]);
 
   async function handleSave() {
+    // A harness render is a picture of the screen, not a seat at the keyboard: the update below
+    // writes a real row, so it never runs under a fixture.
+    if (fixture) return;
     if (!listing || !user) return;
     if (!eventName.trim() || !venue.trim()) {
       Alert.alert('Missing fields', 'Event name and venue are required.');
@@ -134,8 +168,20 @@ export default function EditListingScreen() {
     }
   }
 
-  if (loading || !listing) {
-    return <View style={[s.root, s.center]}><Spinner color={v2.brand.red} /></View>;
+  const phase = editPhase({ authLoading, loading, refusal: refused, listing });
+  if (phase === 'refused' && refused) {
+    return (
+      <View style={[s.root, s.center]}>
+        <EmptyState
+          title={refused.title}
+          body={refused.body}
+          action={{ label: 'Back', onPress: leave }}
+        />
+      </View>
+    );
+  }
+  if (phase === 'loading' || !listing) {
+    return <View style={[s.root, s.center]}><Spinner color={palette.brand.red} /></View>;
   }
 
   return (
@@ -166,15 +212,15 @@ export default function EditListingScreen() {
           style={[
             textStyle('body') as TextStyle,
             s.multiline,
-            { borderBottomColor: restrictionsFocused ? v2.brand.red : v2.border.strong },
+            { borderBottomColor: restrictionsFocused ? palette.brand.red : palette.border.strong },
           ]}
           value={restrictions}
           onChangeText={setRestrictions}
           onFocus={() => setRestrictionsFocused(true)}
           onBlur={() => setRestrictionsFocused(false)}
           placeholder="e.g. 21+, no re-entry, dress code"
-          placeholderTextColor={v2.text.faint}
-          selectionColor={v2.brand.red}
+          placeholderTextColor={palette.text.faint}
+          selectionColor={palette.brand.red}
           multiline
           numberOfLines={3}
           maxLength={500}
@@ -189,25 +235,27 @@ export default function EditListingScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { alignItems: 'center', justifyContent: 'center' },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: v2.space.md, paddingBottom: v2.space.sm,
-    borderBottomWidth: 1, borderBottomColor: v2.border.default,
+    borderBottomWidth: 1, borderBottomColor: p.border.default,
   },
-  headerTitle: { color: v2.text.primary },
+  headerTitle: { color: p.text.primary },
   headerSpacer: { width: 44 },
 
   body: { paddingHorizontal: v2.space.lg, paddingTop: v2.space.lg, paddingBottom: v2.space.xxl },
-  helper: { color: v2.text.muted, marginBottom: v2.space.xl },
+  helper: { color: p.text.muted, marginBottom: v2.space.xl },
   gap: { marginTop: v2.space.lg },
-  groupLabel: { color: v2.text.muted, marginTop: v2.space.xl, marginBottom: v2.space.sm },
+  groupLabel: { color: p.text.muted, marginTop: v2.space.xl, marginBottom: v2.space.sm },
   chipRow: { gap: v2.space.sm, paddingRight: v2.space.lg },
   multiline: {
-    minHeight: 76, color: v2.text.primary, borderBottomWidth: 1,
+    minHeight: 76, color: p.text.primary, borderBottomWidth: 1,
     paddingVertical: v2.space.sm, textAlignVertical: 'top',
   },
-});
+  });
+}

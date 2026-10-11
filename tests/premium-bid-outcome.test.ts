@@ -60,10 +60,17 @@ describe('bidOutcomeCopy — calm, exact, and honest about position', () => {
     expect(c.body).toContain('someone has already bid $90');
     expect(c.body).not.toMatch(/leading|win/i);
   });
-  it('accepted: the old "Bid placed" wording, unchanged', () => {
+  it('accepted: the old "Bid placed" wording, now in the V3 money spelling', () => {
+    /*
+     * RETARGETED (E's finding, 2026-09-24): the outcome alerts used the V2 formatters, so an alert
+     * said "$88" about a screen that said "$88.00" — one figure, two spellings, in one interaction.
+     * The V3 display formatters are what every other money figure in the app uses. Display only: the
+     * integer-cent arithmetic behind these strings is untouched.
+     */
+
     const c = bidOutcomeCopy('accepted', 80, null);
     expect(c.title).toBe('Bid placed');
-    expect(c.body).toBe("Your bid of $80 is in. If you win, you'll pay $88 total (includes the 10% service fee).");
+    expect(c.body).toBe("Your bid of $80.00 is in. If you win, you'll pay $88.00 total (includes the 10% service fee).");
   });
 });
 
@@ -93,7 +100,16 @@ describe('PlaceBidScreen — shipped-source guards', () => {
 
   it('confirms and re-reads only AFTER the insert succeeded', () => {
     const insert = code.indexOf("from('bids').insert(");
-    const failed = code.indexOf("Alert.alert('Bid failed', error.message)");
+    /*
+     * RETARGETED 2026-09-24: the error arm no longer shows the server's own `error.message`. A raw
+     * PostgREST/Postgres string — an RLS policy name, a trigger's RAISE text, a transport failure —
+     * was being read out to a bidder on the screen where money is committed. The ORDERING this case
+     * is about is unchanged, and it is the same arm.
+     */
+    // Searched FROM the insert: the same copy also serves the throw path, which sits above
+     // submitBid, so a plain indexOf would find that one and this ordering check would be about the
+     // wrong arm (it failed exactly that way when the throw path was reworded).
+    const failed = code.indexOf('Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body)', insert);
     const haptic = code.indexOf('hapticConfirm();');
     const reread = code.indexOf("select('current_bid')");
     const outcome = code.indexOf('bidOutcomeCopy(bidOutcome(amount, freshBid), amount, freshBid)');
@@ -116,7 +132,10 @@ describe('PlaceBidScreen — shipped-source guards', () => {
   it('stepper and quick-add keys use Tappable, and amounts use formatDollars', () => {
     expect(code).not.toMatch(/<Pressable\b/);
     expect(screen).toContain('<Tappable');
-    expect(screen).toContain('const fmt$ = formatDollars;');
+    // V3 (pkg8 boards): displayed amounts carry cents through the display-only V3 formatter;
+    // the whole-dollar face stays for the step keys. Same single-formatter discipline, two faces.
+    expect(screen).toContain('const fmt$ = formatDollarsV3;');
+    expect(screen).toContain('const fmtStep$ = formatDollars;');
     expect(code).not.toContain("toLocaleString('en-US')");
   });
 });

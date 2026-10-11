@@ -11,10 +11,13 @@
  */
 
 import { Image } from 'expo-image';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import VerifiedSellerBadge from '@/src/components/VerifiedSellerBadge';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export interface SellerTrustRowProps {
@@ -25,6 +28,8 @@ export interface SellerTrustRowProps {
 }
 
 export function SellerTrustRow({ displayName, avatarUrl, isVerified, onPress }: SellerTrustRowProps) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const initial = displayName.trim().charAt(0).toUpperCase() || 'S';
 
   return (
@@ -59,7 +64,8 @@ export function SellerTrustRow({ displayName, avatarUrl, isVerified, onPress }: 
 
 const AVATAR = 44;
 
-const styles = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -69,19 +75,20 @@ const styles = StyleSheet.create({
     paddingVertical: v2.space.md,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: v2.border.default,
+    borderColor: p.border.default,
   },
   // The one circle in the product. People are round; everything else is square.
   avatar: { width: AVATAR, height: AVATAR, borderRadius: v2.radius.pill },
   avatarFallback: {
-    backgroundColor: v2.surface.elevated,
+    backgroundColor: p.surface.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  initial: { color: v2.text.muted },
+  initial: { color: p.text.muted },
   text: { flex: 1, minWidth: 0, gap: 2 },
-  eyebrow: { color: v2.text.muted },
+  eyebrow: { color: p.text.muted },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
-  name: { color: v2.text.primary, flexShrink: 1 },
-  chevron: { color: v2.text.muted, fontSize: 22, lineHeight: 24 },
-});
+  name: { color: p.text.primary, flexShrink: 1 },
+  chevron: { color: p.text.muted, fontSize: 22, lineHeight: 24 },
+  });
+}

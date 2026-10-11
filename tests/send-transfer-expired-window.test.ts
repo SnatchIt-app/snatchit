@@ -30,7 +30,7 @@ import {
   sellerWindowView,
   TRANSFER_EXPIRY_COPY,
 } from '@/src/lib/transfer/transferState';
-import { findElement, HookHost, type Element } from './helpers/nav-stack-harness';
+import { expandTree, findElement, HookHost, type Element } from './helpers/nav-stack-harness';
 
 (globalThis as Record<string, unknown>).__DEV__ = false;
 
@@ -104,6 +104,11 @@ const h = vi.hoisted(() => ({
   reads: 0,
 }));
 
+// V3 appearance: the shared transfer-state blocks read the palette; pin the shipped dark one here.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
+});
 vi.mock('react-native', () => ({
   Alert: { alert: () => {} },
   ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', RefreshControl: 'RefreshControl',
@@ -116,6 +121,11 @@ vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {} }, useL
 vi.mock('@react-navigation/native', () => ({ useFocusEffect: () => {} }));
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'seller-1' }, session: { user: { id: 'seller-1' } } }) }));
 vi.mock('@/src/hooks/useNetworkStatus', () => ({ useNetworkStatus: () => ({ isOffline: false }), isNetworkError: () => false }));
+// The send summary now renders the event poster (owner's 4:5 direction, 2026-09-24). These suites
+// mock `react-native` down to the handful of exports they need, which does not include PixelRatio,
+// and EventMedia is not what they are testing — so it is stubbed the way the receive-screen suites
+// already stub it (tests/v3-transfer-cells.test.ts).
+vi.mock('@/src/components/media/EventMedia', () => ({ EventMedia: 'EventMedia' }));
 vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({
   Badge: 'Badge', Button: 'Button', IconButton: 'IconButton', Spinner: 'Spinner', StickyBar: 'StickyBar',
@@ -129,7 +139,7 @@ vi.mock('@/src/lib/media/uploadFlow', () => ({
   withUploadTimeout: async <T,>(p: Promise<T>) => p,
 }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/supabase', () => {
   const table = (name: string) => {
     h.tables.push(name);
@@ -175,13 +185,15 @@ function texts(host: HookHost): string {
     if (typeof el.props.children === 'string') out.push(el.props.children);
     walk(el.props.children);
   };
-  walk(host.output);
+  walk(expandTree(host.output));
   return out.join(' | ');
 }
 const block = (host: HookHost, title: string) => findElement(host.output, (el) => el.props.title === title);
 const instructions = (host: HookHost) => findElement(host.output, (el) => el.type === 'PlatformInstructions');
 /** The delivery target is a local Row: its value is a prop, never flattened text (so assert on the prop). */
-const deliveryRow = (host: HookHost) => findElement(host.output, (el) => el.props.label === 'Email' && el.props.value === 'buyer@example.test');
+// V3 (pkg8-send): the delivery target is the panel's one middot line, not an "Email" Row.
+const deliveryRow = (host: HookHost) => findElement(host.output, (el) =>
+  el.type === 'Text' && String(Array.isArray(el.props.children) ? el.props.children.join('') : el.props.children).includes('buyer@example.test'));
 const markAsSent = (host: HookHost) =>
   findElement(host.output, (el) => el.type === 'Button' && (el.props.label === 'Mark as sent' || el.props.label === 'Try again'));
 

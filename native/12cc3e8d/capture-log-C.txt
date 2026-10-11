@@ -1,0 +1,57 @@
+C-operated captures at 12cc3e8d6c5233fd89a1c283370a473886338538 (v3/midnight-app)
+=================================================================================
+The stacked hero — the fix B named and the owner authorised — at A3XL, Light and Dark.
+B's own frames from the same commit sit beside these as *-Boperated.png; they are B's and are
+left untracked here rather than committed by me.
+
+Metro: B's process on 8081, started through the repaired guard, cwd read back from the kernel as
+/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-refund. Device SN V3 393x852, iOS 26.5. Every frame
+gated on the SANDBOX banner. Serving tree clean apart from the documented launch.json edit.
+
+FRAMES
+------
+profile-a3xl-light-hero-Coperated.png   "TRANSFER" / "SUCCESS RATE" / "100%" — TRANSFER WHOLE
+profile-a3xl-light-blurb-Coperated.png  "100%", the Trusted seller badge, and the blurb below it
+profile-a3xl-dark-hero-Coperated.png    all of the above in one frame, Dark
+
+Default size at this commit is covered by B's profile-default-{light,dark}-Boperated.png, which
+show the two-column hero unchanged. Not duplicated here.
+
+THE TWO QUESTIONS B ASKED, ANSWERED FROM THE PAINT
+--------------------------------------------------
+1. Does "TRANSFER" still break mid-word? NO. B measured TRANSFE / R / SUCCESS / RATE at
+   857e6d93, in both appearances, with P-3 not yet applied. Stacking gives the left column the
+   full width, and it now reads TRANSFER / SUCCESS RATE. That defect is closed by 12cc3e8d.
+2. Did the rate block collapse under heroLeft's flex: 1 in the column form? NO. "100%" paints at
+   full height in both appearances — measured ink bands of 274-275 px where the frame includes
+   it. B's concern was sound and does not materialise here; heroLeftStacked was not needed. If a
+   future layout change makes the hero's height non-auto, it is worth revisiting.
+
+And the blurb wraps on WORD boundaries across the full width — "14 sales · 100% transfer
+success" breaks after "100%" and after "transfer", with no word split. That was the owner's
+condition: complete text is not enough if the layout makes it hard to read.
+
+MEASUREMENTS (same method as native/857e6d93: deviation from each frame's own modal background,
+below the fixed header; the right gutter starts at the 377 pt content edge)
+  profile-a3xl-light-hero      gutter 0 px   max ink x 361.3 pt
+  profile-a3xl-light-blurb     gutter 0 px   max ink x 348.0 pt
+  profile-a3xl-dark-hero       gutter 0 px   max ink x 348.0 pt
+
+THE TEXT SIZE ON THIS MACHINE CANNOT BE TRUSTED FROM simctl ALONE
+------------------------------------------------------------------
+Something on this machine resets the simulator's content size roughly every 30 seconds. It is
+not my scripts: set / terminate / openurl all preserve A3XL, and the size also dropped during 30
+seconds of pure idle with nothing launching. I could not identify the process.
+
+Two consequences, both of which produced wrong-looking evidence before they were understood:
+  * The app reads the content size AT LAUNCH. Setting A3XL under a running app leaves the paint
+    unchanged — verified: both size reads said A3XL while the painted glyphs measured at the
+    default scale. A frame is only A3XL if the size was A3XL when the app STARTED.
+  * shot.sh sleeps 42 s during a relaunch, which loses the race. tools/v3-capture/fastshot.sh
+    polls instead and completes in ~15 s, inside the reset window. Every frame above was taken
+    with it, with the size read immediately before and after the capture; a frame whose two
+    reads disagree is void and was discarded.
+
+The decisive check is not simctl's answer but the PAINT: a known-A3XL frame fingerprints at
+145-158 px tall ink bands, the default at 60-92. Each frame above was checked against that
+before being kept. Several earlier attempts in this window were discarded on exactly that test.

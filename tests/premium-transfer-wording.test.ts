@@ -67,9 +67,18 @@ describe('vocabulary: claim ≠ possession', () => {
 describe('screens use the vocabulary, not their own words', () => {
   it('receive: pending/sent/confirmed/released/disputed all come from transferStatusCopy', () => {
     const receive = stripComments(read('app/transfer/receive/[id].tsx'));
-    for (const st of ['pending', 'seller_sent', 'buyer_confirmed', 'disputed']) {
-      expect(receive, st).toContain(`transferStatusCopy('${st}', 'buyer')`);
-    }
+    expect(receive).toContain("transferStatusCopy('pending', 'buyer')");
+    // disputed routes through disputeOutcome (the fourth gated read, A 2026-09-24), which
+    // DELEGATES the open state to transferStatusCopy('disputed', …) verbatim — same vocabulary,
+    // one owner; the decided states add the operator-ruling sentences that module owns.
+    expect(receive).toContain("disputedStateCopy(decision, 'buyer')");
+    // buyer_confirmed now passes the one fact that separates a real confirmation from an operator's
+    // dispute decision — same vocabulary, chosen by `buyer_confirmed_at` rather than by status alone.
+    expect(receive).toContain("transferStatusCopy('buyer_confirmed', 'buyer', { buyerConfirmed: transfer.buyer_confirmed_at != null })");
+    // seller_sent moved into the shared block the screen renders (owner 2026-09-24, one implementation
+    // for the screens and the sandbox gallery): the vocabulary is still the shared copy.
+    expect(receive).toContain('<BuyerSellerSentBlock autoReleaseAt={transfer.auto_release_at} />');
+    expect(stripComments(read('src/components/transfer/TransferStateBlocks.tsx'))).toContain("transferStatusCopy('seller_sent', 'buyer')");
     // Updated 2026-09-19 (owner/A): auto_released goes through buyerAutoReleasedCopy, which returns exactly this
     // shared copy once `payout_released_at` is set, and claims nothing about the money before that.
     expect(receive).toContain('buyerAutoReleasedCopy(transfer.payout_released_at)');
@@ -81,9 +90,30 @@ describe('screens use the vocabulary, not their own words', () => {
 
   it('send: the seller reads "Marked as sent" and "Tickets received", never "Transfer sent/complete"', () => {
     const send = stripComments(read('app/transfer/send/[id].tsx'));
-    expect(send).toContain('<StateBlock title="Marked as sent"');
-    expect(send).toContain('<StateBlock title="Tickets received"');
-    expect(send).toContain("Alert.alert('Marked as sent'");
+    // F-28 (B pkg7 §6b; owner 2026-09-24): the badge already reads "Marked sent", so the seller_sent
+    // block carries only the forward-looking body and NO title repeating the badge. The block
+    // component takes an optional title for exactly this case.
+    expect(send).toMatch(/transfer\.status === 'seller_sent' \? \(\s*<SellerSentBlock/);
+    expect(send).not.toContain('<StateBlock title="Marked as sent"');
+    // The block itself (shared with the sandbox gallery) renders body only, no title, for seller_sent.
+    const blocks = stripComments(read('src/components/transfer/TransferStateBlocks.tsx'));
+    expect(blocks).toMatch(/function StateBlock\(\{ title, tone, children \}: \{ title\?: string/);
+    expect(blocks).toMatch(/export function SellerSentBlock[\s\S]*?<StateBlock tone="neutral">/);
+    // Was a hard-coded title; it now comes from the shared vocabulary, which is what this test is
+    // named for — and it has to, because the seller-win title is "Dispute resolved in your favour".
+    expect(send).toContain("transferStatusCopy('buyer_confirmed', 'seller', { buyerConfirmed: byBuyer })");
+    // The tone is derived now, not hard-coded: an operator's dispute decision must not paint as a
+    // success beside a neutral badge. The title still comes from the shared vocabulary.
+    expect(send).toContain("<StateBlock title={copy.title} tone={byBuyer ? 'success' : 'neutral'}>");
+    // The success is announced for assistive tech - not a dialog repeating it.
+    expect(send).not.toContain("Alert.alert('Marked as sent'");
+    expect(send).toContain("announceForAccessibility('Marked as sent");
+    // Failure feedback untouched: every failure dialog of the mark-sent path is still there.
+    expect(send).toContain(`Alert.alert("Couldn't mark as sent"`);
+    expect(send).toContain("Alert.alert('Not confirmed yet'");
+    expect(send).toContain("Alert.alert('Already marked as sent'");
+    expect(send).toContain("Alert.alert('Evidence required'");
+    expect(send).toContain(`Alert.alert("Couldn't upload the transfer proof"`);
     expect(send).not.toMatch(/"Transfer sent"|"Transfer complete"|'Sent'/);
   });
 
