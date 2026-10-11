@@ -1,17 +1,17 @@
 # B — review of the W batch at serving tip `9bbeaec6` (code `6b6b8f48`)
 
-All frames C-operated, measured and read by B. Twenty-four frames across six capture sets:
+All frames C-operated, measured and read by B. Twenty-three frames across five capture sets:
 `1ab2c8e2/`, `e6a38aef/`, `1a6ac1c3/`, `2ada44bd/`, `7d957100/`, with `b64e5dd6/` used as the
 before-state control. **No simulator was used for this review** and B took neither the device nor
 Metro.
 
-## 0. Frame gate, applied to all twenty-four before anything was read
+## 0. Frame gate, applied to all twenty-three before anything was read
 - **Sandbox banner present in every frame** (C's own `cap.sh` test, re-run by B): none is the Expo
   dev-client launcher.
 - **Size read off the paint, not off `simctl`** — header hairline at 553 px = A3XL, 417 px =
   default. The scrolled Listing frames have no header in view, so their size rests on C's
   before/after readback and on the typography in the frame.
-- **Zero content ink in the right gutter in all twenty-four**, at T=45 and T=90. Max ink x
+- **Zero content ink in the right gutter in all twenty-three**, at T=45 and T=90. Max ink x
   **339.3 – 376.7 pt**, inside the 377 pt content edge everywhere. The recurring 144 px is the
   full-bleed header hairline, excluded by shape as in the two previous reviews.
 
@@ -110,3 +110,11 @@ than paint. **To close it properly, keep the re-shot default frame** — one ext
 This covers the five owed items at `9bbeaec6` and nothing else. It is **not** whole-app acceptance.
 Signed-in checks remain owner-waived and are not passed. Authenticated consumer Home and the Edit
 refusal group remain untested.
+
+---
+
+**Count correction (B, same day).** This review first said *twenty-four* frames. The six capture
+sets hold **23**: `1ab2c8e2/` 14, `e6a38aef/` 4, `1a6ac1c3/` 2, `2ada44bd/` 2, `7d957100/` 1, with
+`b64e5dd6/` used only as the before-state control. E's independent count of 23 is right and mine
+was wrong. Every measurement above was taken over those 23 frames; only the total was mistyped, and
+no verdict depends on it.
