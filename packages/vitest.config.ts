@@ -21,6 +21,15 @@ export default defineConfig({
       { find: '@snatchit/design-tokens', replacement: path.resolve(__dirname, 'design-tokens/src/index.ts') },
       // Mobile app sources (parity reference) — mirrors the app's '@/*' → './*' alias.
       { find: /^@mobile\//, replacement: repoRoot + '/' },
+      // The SAME root under the app's OWN alias. '@mobile/' gets a mobile file loaded; this is
+      // what lets that file's own internal imports resolve once it is loading. src/config/app.ts
+      // began importing '@/src/lib/money' at 90235b74 and this suite could no longer load it —
+      // red in CI from then on, and invisible until the ML7 failure ahead of it was fixed.
+      // Resolution only: it maps '@/' exactly where tsconfig's "@/*": ["./*"] maps it, so a
+      // parity test reads the same file the app does. Nothing here can change a fee or an amount.
+      // Must stay a regex anchored on '@/' — a bare '@' string would also swallow '@mobile/'
+      // and '@snatchit/' above.
+      { find: /^@\//, replacement: repoRoot + '/' },
       // Supabase edge-function shared modules (server source of truth).
       { find: /^@server-shared\//, replacement: path.join(repoRoot, 'supabase/functions/_shared') + '/' },
     ],
