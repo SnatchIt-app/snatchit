@@ -52,8 +52,14 @@
      - No value had drifted: all 108 pass at r3.
      - C's negative control: a non-money key mutated kills exactly that test.
    - Trial r3 (`5450b348`) is green on every step.
-2. **E's one open evidence item: captured; B's review owed.** C pushed the four frames (`32c0804a`, labelled `11e50ca0`).
-   B's narrow review is owed. B cannot receive messages, so E's acceptance record is the channel.
+2. **E's one open evidence item: captured and re-diffed; B's review owed.**
+   - C pushed the four frames (`32c0804a`, labelled `11e50ca0`).
+   - E's re-diff against `b64e5dd6` finds 0 px differing below the header. The earlier "0 px" claims stay labelled
+     unverifiable.
+   - B's narrow review of the four frames is the last acceptance item. B cannot receive messages, so E's acceptance
+     record is the channel.
+   - **E's final summary (2026-10-11)** agrees with this list: CI green at `d27aa449`; passed items as in §5; not
+     passed by design as in §2. E: "NOT whole-app acceptance and NOT a release artifact." 
    - Four fresh default-size frames at `9bbeaec6`: `settings-hub-default-{light,dark}` and
      `appearance-default-{light,dark}`. C has the simulator window.
    - Then B reviews those four frames only.
@@ -128,6 +134,10 @@
   - "Not deployed, not merged to `main`."
   - The venue backend items B1–B11 (`venue_api` "applied nowhere") need the owner's authorisation before any start.
   - The demo access decision is the owner's.
+- **E's acceptance record is only partly backed up (owner action).** `design/frontend-audit-20260917` is local at
+  `d9240daa`, 5 record commits ahead of origin (`6f284925`). E's session cannot push, and A does not push another
+  session's branch on its behalf. Pushing it needs the owner, or B, after the usual check for credentials and private
+  evidence; the repository is public.
 - **Stale documents to retire, which conflict with newer records** (from A's read-only extraction of the B/C/E/F
   reports; A re-checked only E's current summary, not each item):
   - C's `V3_SSD_LAUNCH_BLOCKER.md` (L-1 was resolved at `b0d727ce`);

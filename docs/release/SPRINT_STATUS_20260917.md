@@ -2432,3 +2432,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - **Recommendation:** stop sequential steps masking each other (`if: ${{ !cancelled() }}`). This is a `ci.yml`
     change and owner-gated; not made.
   - E's four frames were pushed (`32c0804a`); B's narrow review is owed, through E's record.
+- **E's final v3 acceptance summary received (2026-10-11).** It agrees with RELEASE_READINESS_20261011.md. B's narrow review of the four default-size frames is the last acceptance item. E's 5 record commits (`d9240daa`) are local only; the owner or B must push them, after inspection. A does not push them on E's behalf.
