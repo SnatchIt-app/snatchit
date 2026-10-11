@@ -15,7 +15,7 @@ Metro.
   **339.3 – 376.7 pt**, inside the 377 pt content edge everywhere. The recurring 144 px is the
   full-bleed header hairline, excluded by shape as in the two previous reviews.
 
-## 1. W-4, Settings header — **PASS**, both screens, both sizes, both appearances
+## 1. W-4, Settings header — **PASS at A3XL**; the default-size half is **WITHDRAWN** (see the note at the end)
 `SETTINGS` and `APPEARANCE` render **whole, on one line, shrunk to fit** at A3XL, with a plain back
 chevron and no chip; at default the same uppercase title, centred. Verified on the hub and on the
 Appearance sub-screen, Light and Dark.
@@ -118,3 +118,21 @@ sets hold **23**: `1ab2c8e2/` 14, `e6a38aef/` 4, `1a6ac1c3/` 2, `2ada44bd/` 2, `
 `b64e5dd6/` used only as the before-state control. E's independent count of 23 is right and mine
 was wrong. Every measurement above was taken over those 23 frames; only the total was mistyped, and
 no verdict depends on it.
+
+---
+
+**W-4 default size: withdrawn from "pass" (B, after the owner's ruling).** §1 originally recorded
+W-4 as passing at *both* sizes. The **A3XL half stands** — 86,802 and 78,519 differing px confined
+to the header band, with nothing below it moving.
+
+The **default-size half is withdrawn**, for the reason already set out in §7 of this document: the
+`1ab2c8e2/` default frames are byte-identical copies of the `b64e5dd6/` ones, and the re-shot frame
+that the zero-difference claim rests on was not kept. The owner has ruled that no such comparison
+may be claimed from copied baselines or an unretained frame. Fresh re-shot frames have been
+requested from C; until they exist the line is **open**, not passed.
+
+I expect the claim to hold, because `SettingsHeader` adds its shrink props only above
+`identityStacks(fontScale)` and the default branch is therefore unchanged by construction. That is a
+source argument, and §2 of the handoff is exactly where source arguments belong.
+
+Current classification: `B_REVIEW_HANDOFF.md`.
