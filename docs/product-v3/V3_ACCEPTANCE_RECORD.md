@@ -21,7 +21,7 @@ acceptance.
 
 **Candidate:** app code as of `9bbeaec6`. The last code commit is `6b6b8f48`
 (`v3/consumer-batch2`).
-- The serving tip is now **`11e50ca0`**, which adds only the capture log and handback note over `10dbcdf4`. `10dbcdf4` itself (`v3/midnight-app`, on origin). Since `9bbeaec6` it adds
+- The serving tip was **`11e50ca0`**, which adds only the capture log and handback note over `10dbcdf4`. `10dbcdf4` itself (`v3/midnight-app`, on origin). Since `9bbeaec6` it adds
   only `native/` frames and **one test file** (`tests/v3-mylistings-bids-stage.test.ts`). App code
   is unchanged, so all evidence below applies.
 - **CI on `v3/midnight-app` was red on every push from about 2026-10-07 until `9bbeaec6`.** Recorded
@@ -38,8 +38,23 @@ acceptance.
     - `src/config/app.ts` last changed at `90235b74` (2026-09-24, "one fee rate has one home"). So
       this is likely pre-existing since then, hidden behind ML7. That's an inference from history;
       the earlier runs weren't re-examined.
-    - **Owner: C** (test/config resolution in the core package's test run, not app behaviour).
-      **CI green is not evidenced.**
+    - **FIXED at `d27aa449`** (C). The only change is `packages/vitest.config.ts`: an `@/` alias
+      anchored to match tsconfig's `@/*`. No app source, fee value or money code changed (E
+      verified the diff).
+      - The fix **restored 11 APP_CONFIG parity assertions that hadn't run for about 17 days**
+        (97 → 108 tests).
+      - C's negative control: mutating a non-money key killed exactly the parity test.
+- **CI GREEN at `d27aa449`:** run `38162136552`, all five jobs `success` (E verified the
+  run):
+  - typecheck/lint/unit (178 and 3 test files);
+  - Deno type-check;
+  - admin console (15 files);
+  - web build (12 files);
+  - migrations on a fresh DB.
+- **The serving tip is now `d27aa449`.** App code is unchanged since `9bbeaec6`.
+- **Process observation (C, for A; not acted on):** the quality job's steps run in sequence with no
+  continue-on-error, so the first red hides every later step. That happened twice here. Whether to
+  change it is a CI-config decision for **A**.
 - **C's handback is committed at `11e50ca0`.** The device is shut down and `:8081` is clear (C, and
   E's earlier check). **The simulator is B's.**
 - **Lint (C's correction):** the tip has 44 warnings, all pre-existing. C's earlier "29" was stale.
