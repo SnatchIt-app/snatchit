@@ -2401,3 +2401,4 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
   - The excluded five are unchanged.
   - The two `payout_decisions` rows on #6/#7 date from 2026-08-04 (`PAYOUT_TRANSFER_FAILED`) and predate the run.
   - 150's rollback guard no longer holds. Record: `packages/OR4_reconciliation_20261008/EXECUTION_20261011.md`.
+  - **D witnessed and confirmed** the O-R4 execution (D `1046b78e`). Its limit: no independent immediately-before prestate for #6 (its verdict-stage read was a day old; the atomic guards were the backstop). Observation, out of scope: 4 of the excluded five carry `stripe_refund_id` with `amount_refunded_cents` NULL, pre-existing.

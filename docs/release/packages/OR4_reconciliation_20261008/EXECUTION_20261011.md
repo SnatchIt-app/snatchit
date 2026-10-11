@@ -97,5 +97,31 @@ Both predate the run by two months and come from the August payout incident. An 
 **Cases at 16:35:27Z:** 21 in total (unchanged); 2 open refund cases (the pre-existing ones); 0 on either refund id;
 0 created since the run began.
 
-**Outcome: EXECUTED. Every prediction held; no stop condition was met; nothing was retried.** D is witnessing
-independently; D's record will be cited here.
+**Outcome: EXECUTED. Every prediction held; no stop condition was met; nothing was retried.**
+
+## D's witness: CONFIRMED (D `1046b78e`, `D_WITNESS_R3_EXECUTION_20261011.md`)
+
+D's own reads confirm all four checks:
+- **(a)** Both rows changed as predicted. `refunded_at` is unchanged to the millisecond (17:20:05.165 / 17:20:19.353).
+  There are exactly 2 state, 2 log and 2 ledger rows, all succeeded/dashboard/reconcile with `stripe_dispute_id` NULL.
+  Transfers are still reversed, with no payout.
+- **(b)** The excluded five are untouched: 0 state rows each, and the 2/2/2 totals are fully accounted for by #6 and
+  #7.
+- **(c)** The 16:35:00Z run: `refunds` scanned 2 and opened 0; `refund_resolution` was skipped; 0 cases today.
+- **(d)** The `payout_decisions` dates are 2026-08-04 03:00:03Z and 03:27:40Z. This independently closes the one item
+  neither A nor D had baselined.
+
+**D's stated limit:** D has no independent immediately-before prestate for **#6**.
+- D's corrected read landed after #6 was written. D's nearest independent prestate for #6 is its verdict-stage read
+  of 2026-10-10. The file's atomic prestate guards are the structural backstop.
+- **#7** has a clean independent prestate, taken minutes before its run.
+
+**Detection, restated so it cannot be misread:** `items_scanned` is still 2 with two real succeeded state rows present
+(2 across 288 runs before detection was enabled, 2 across 255 after, 2 now). Completing O-R4 demonstrates
+**nothing** about refund-state detection (F-DETECT-REFUNDS-UNOBSERVABLE-1). "Reconciliation done, detector clean" is
+not validation.
+
+**Observation, pre-existing and out of scope (D):** four of the excluded five carry a `stripe_refund_id` while
+`amount_refunded_cents` is NULL. `record_payment_refund` sets both, so an earlier path or a backfill set the id alone.
+There is no baseline for that column on those rows, so it is stated as pre-existing, not as unchanged. It is worth
+someone's attention eventually; nothing here touched it.

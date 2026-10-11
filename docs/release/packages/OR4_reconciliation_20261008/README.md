@@ -1,7 +1,7 @@
 # O-R4 historical refund reconciliation (A, 2026-10-09)
 
-**Status (2026-10-11): EXECUTED in production on the owner's approval of the exact hashes. Every prediction held; D
-is witnessing.** See `EXECUTION_20261011.md`.
+**Status (2026-10-11): EXECUTED in production on the owner's approval of the exact hashes. Every prediction held;
+D witnessed and confirmed (D `1046b78e`).** See `EXECUTION_20261011.md`.
 - #6 and #7 are now each a confirmed refund: one state, log and ledger row, source `dashboard`.
 - The test-mode five are unchanged.
 
