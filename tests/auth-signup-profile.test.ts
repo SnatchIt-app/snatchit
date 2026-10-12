@@ -281,4 +281,15 @@ describe('10. F3: a failed profile write is surfaced, not swallowed', () => {
     expect(signup).toMatch(/Try again/);
     expect(handler + persist).not.toMatch(/password/i);
   });
+
+  it('B-D9: a resend clears the retry flag, so a new code is always verified before the write', () => {
+    /*
+     * B's finding on F3: with the retry flag set, Back → change the number → Send code → any six
+     * digits → Create account skipped verifyOtp and wrote the NEW, unverified number as the verified
+     * one. sendCode() now withdraws the flag the moment a new code is issued.
+     */
+    const send = signupCode.slice(signupCode.indexOf('async function sendCode'), signupCode.indexOf('async function verifyAndFinish'));
+    expect(send).toContain('profileRetryRef.current = false;');
+    expect(send.indexOf('profileRetryRef.current = false;')).toBeLessThan(send.indexOf("setStep('verify')"));
+  });
 });

@@ -175,6 +175,10 @@ export default function SignUpScreen() {
     if (error) { fail(otpErrorCopy(classifyOtpError(error, 'send'))); return; }
 
     setCode('');
+    // B-D9: a new code was issued, so the next Create account must verify it. The F3 retry flag
+    // skips verifyOtp only for the number that already verified; a resend (same or changed number)
+    // withdraws that, or an unverified number could be written as the verified one.
+    profileRetryRef.current = false;
     startCooldown();
     setStep('verify');
   }
