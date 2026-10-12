@@ -150,7 +150,10 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
     }
     setSaving(true);
     try {
-      const { error } = await supabase
+      // F2: select the row the update wrote. PostgREST answers { error: null } for ZERO matched
+      // rows (deleted, relisted, or the seller/RLS no longer matching since the load), and "no
+      // error" was being read as "saved" — the edits were lost behind a success message.
+      const { data: written, error } = await supabase
         .from('listings')
         .update({
           event_name: eventName.trim(),
@@ -159,8 +162,14 @@ export default function EditListingScreen({ fixture }: { fixture?: EditListingFi
           ticket_platform: ticketPlatform,
         })
         .eq('id', listing.id)
-        .eq('seller_id', user.id);
+        .eq('seller_id', user.id)
+        .select('id');
       if (error) { Alert.alert('Save failed', error.message); return; }
+      if (!Array.isArray(written) || written.length === 0) {
+        // Nothing was written: say so and keep the form, so nothing typed is lost.
+        Alert.alert('Save failed', "This listing couldn't be updated. It may have changed or been removed — go back and reopen it.");
+        return;
+      }
       setSaved(true); // the guard stands down; the alert's OK navigates back
       Alert.alert('Saved', 'Your listing has been updated.', [{ text: 'OK', onPress: () => router.back() }]);
     } finally {
