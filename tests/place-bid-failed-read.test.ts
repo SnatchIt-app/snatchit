@@ -39,6 +39,8 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock('react-native', () => ({
+  // B-D7: the screens read fontScale for the shared stacking rule; the default window keeps the unstacked branch.
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Alert: { alert: () => {} },
   ScrollView: 'ScrollView', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
