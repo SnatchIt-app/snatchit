@@ -791,9 +791,13 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
   function navigateToWinnerCheckout() {
     if (!listing) return;
     const winAmount = (listing as any).winning_bid_amount ?? listing.current_bid ?? 0;
+    // B-D10: the checkout mode is the server's contract — 'buy_now' | 'auction'. This pushed the
+    // legacy literal 'bid', which only ever worked because `params.mode === 'buy_now'` read
+    // anything else as auction; F4 parses the mode and rejects unknown values, so 'bid' sent every
+    // winner into the no-mode branch and Pay never appeared.
     router.push({
       pathname: '/checkout/[id]',
-      params: { id: listing.id, mode: 'bid', bidAmount: String(winAmount),
+      params: { id: listing.id, mode: 'auction', bidAmount: String(winAmount),
                 totalCents: String(buyerTotalCents(dollarsToCents(winAmount))),
                 eventName: listing.event_name, venue: listing.venue },
     });
