@@ -24,8 +24,12 @@ const autoRefresh = read('src/lib/auth/sessionAutoRefresh.ts');
 const foreground = read('src/lib/auth/appForeground.ts');
 
 describe('defect 1 — the 3-D Secure return URL must resolve to a real route', () => {
-  it('the return URL carries the listing id', () => {
-    expect(checkout).toContain('returnURL: `snatchit://checkout/${listingId}`');
+  it('the return URL carries the listing id — and, since F4, the mode and totals the remount needs', () => {
+    // F4 (2026-10-12): `snatchit://checkout/${listingId}` alone remounted the screen with no mode,
+    // which read as auction. The helper keeps the real route and adds mode/totalCents/bidAmount;
+    // tests/checkout-mode.test.ts proves the URL's shape and the round trip.
+    expect(checkout).toContain('returnURL: buildCheckoutReturnURL({ listingId, mode,');
+    expect(stripComments(checkout)).not.toContain('returnURL: `snatchit://checkout/${listingId}`');
     // the bare form is what stranded the buyer on the sitemap screen
     expect(stripComments(checkout)).not.toContain("returnURL: 'snatchit://checkout'");
   });

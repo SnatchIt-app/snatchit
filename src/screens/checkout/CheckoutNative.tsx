@@ -39,6 +39,9 @@ import {
 import * as Sentry from '@sentry/react-native';
 
 import { buyerTotalCents, dollarsToCents, formatCents } from '@/src/lib/money';
+import { parseCheckoutRouteParams } from '@/src/screens/checkout/checkoutRouteParams';
+import { buildCheckoutReturnURL, decideNoModeSetup, parseCheckoutMode } from '@/src/screens/checkout/checkoutMode';
+import { useFrozenCheckoutParams } from '@/src/screens/checkout/useFrozenCheckoutParams';
 import CheckoutView, {
   CheckoutShell,
   ConfirmationView,
@@ -86,17 +89,25 @@ export default function CheckoutScreen() {
     eventName:  string;
     venue:      string;
   }>();
+  // F4 (warm return): read ONCE at mount. The 3-D Secure return re-enters this same route key and
+  // expo-router replaces the params in place without a remount; nothing below may follow that
+  // replacement, so every field comes from the frozen copy, never from `params` again.
+  const frozen = useFrozenCheckoutParams(params);
 
-  const listingId = params.id ?? '';
-  const isBuyNow  = params.mode === 'buy_now';
-  const bidAmount = parseInt(params.bidAmount ?? '0', 10);
+  const listingId = frozen.id ?? '';
+  // Parsed, never defaulted: an absent or invalid mode is NO mode, and the setup below then does
+  // only the settled read. `params.mode === 'buy_now'` used to read "no mode" as auction and ran
+  // the auction path on a 3-D Secure return that carried no mode (F4).
+  const checkoutMode = parseCheckoutMode(frozen.mode);
+  const isBuyNow  = checkoutMode === 'buy_now';
+  // Route params are an untrusted URL. A malformed or negative value is ABSENT, never NaN \u2014
+  // parseInt here used to feed assertCents and threw during render on a crafted link (F1).
   // Display estimate only \u2014 computed with the canonical money util by the
   // caller. The server result (below) is the authority for what is charged,
   // and create-payment-intent rejects a mismatched expected total.
-  const estimatedTotalCents = parseInt(params.totalCents ?? '0', 10)
-    || buyerTotalCents(dollarsToCents(bidAmount));
-  const eventName = params.eventName ?? '\u2014';
-  const venue     = params.venue     ?? '\u2014';
+  const { bidAmount, estimatedTotalCents } = parseCheckoutRouteParams(frozen);
+  const eventName = frozen.eventName ?? '\u2014';
+  const venue     = frozen.venue     ?? '\u2014';
 
   // -- State ----------------------------------------------------------------
 
@@ -213,12 +224,37 @@ export default function CheckoutScreen() {
         setPaymentError(null);
         setStatusUnknown(false);
 
+        // F4: with no mode there is nothing to hold and nothing to create. Only the settled read
+        // runs — settled → completed, a refund → its state, otherwise the same unknown state as a
+        // failed read, whose one action ("Check again") re-runs this. Never an intent.
+        if (checkoutMode === null) {
+          const read = await readSettledPayments(supabase, listingId, user!.id);
+          if ('error' in read) throw new SettledReadError(read.error);
+          setPaymentStatusUnknown(false);
+          const noMode = decideNoModeSetup(read.rows);
+          if (noMode.kind === 'completed') {
+            confirmedRef.current = true;
+            setSettlement('completed');
+            return;
+          }
+          if (noMode.kind !== 'payment_status_unknown') {
+            setRefundState(noMode);
+            return;
+          }
+          reportCheckoutFailure('payment-status', 'checkout opened without a mode');
+          setStatusUnknown(true);
+          setPaymentStatusUnknown(true);
+          setPaymentError(PAYMENT_STATUS_UNKNOWN_COPY);
+          return;
+        }
+        const mode = checkoutMode;
+
         // Settled-first, then hold, then intent — see setupDecision.ts. The
         // 3-D Secure return can remount this screen after the charge landed;
         // that must render the completed settlement, never "reservation
         // expired", and must never create a second intent (auction included).
         const decision = await decideCheckoutSetup(
-          { listingId, buyerId: user!.id, mode: isBuyNow ? 'buy_now' : 'auction' },
+          { listingId, buyerId: user!.id, mode },
           {
             fetchSettledPayment: async (lid, bid) => {
               // Several rows may exist (a refunded one and a later succeeded one);
@@ -243,7 +279,7 @@ export default function CheckoutScreen() {
               createPaymentIntent({
                 listingId: listingId,
                 buyerId: user!.id,
-                mode: isBuyNow ? 'buy_now' : 'auction',
+                mode,
                 // Server authority: this is the total we showed the buyer; the
                 // server 409s rather than charge a different number.
                 expectedTotalCents: acceptedTotalRef.current || undefined,
@@ -365,7 +401,8 @@ export default function CheckoutScreen() {
           // challenge returned the buyer to expo-router's unmatched/sitemap
           // screen while the charge had already succeeded. The id sends them
           // back to the screen that owns this payment.
-          returnURL: `snatchit://checkout/${listingId}`,
+          // F4: the remount after 3-D Secure must re-enter with its mode and totals, not as {id} only.
+          returnURL: buildCheckoutReturnURL({ listingId, mode, totalCents: acceptedTotalRef.current, bidAmount }),
           allowsDelayedPaymentMethods: false,
           defaultBillingDetails: { email: user!.email },
           // P1-03: passing both customerId and the ephemeral key activates
@@ -645,12 +682,13 @@ export default function CheckoutScreen() {
   // its own: a reachable "not verified" re-offers it only after the SERVER
   // says the hold is still live; "verified" settles.
   async function recheckPayment() {
-    if (!user || !paymentIntentId) return;
+    // F4: an intent exists only for a parsed mode; never finalize under a defaulted one.
+    if (!user || !paymentIntentId || !checkoutMode) return;
     const verdict = await reconcileAfterSheetError();
     if (verdict === 'verified') {
       setFinalizing(true);
       try {
-        const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: isBuyNow ? 'buy_now' : 'auction' });
+        const result = await finalizePurchase({ listingId, userId: user.id, paymentIntentId, mode: checkoutMode });
         if (result.transferId) setPostPurchaseTransferId(result.transferId);
         confirmedRef.current = result.outcome === 'completed';
         setSettlement(result.outcome);
