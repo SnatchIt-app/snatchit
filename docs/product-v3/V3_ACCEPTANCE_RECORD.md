@@ -10,6 +10,9 @@ capture on `SN V3 393x852` (iPhone 16, 393×852 pt @3×, UDID `52282259-961E-4A1
 iOS 26.5 23F77, Xcode 26.6 17F113) · **device** = owner's phone. Neither web nor sim is device
 acceptance.
 
+
+> **The status column below is dated history (2026-09-25 to 2026-10-05).** R-1, R-2 and R-4 closed as M-1/M-2. R-3 per-slot rendering closed as M-1; R-3's iOS picker crop is waived and untested (§3 of the 2026-10-12 matrix).
+
 | # | Owner ruling (date) | Governs | Implementation commit | B review (commit · evidence class · file) | Native checks owed | Status |
 |---|---|---|---|---|---|---|
 | R-1 | **Listing footer, Option B** (2026-09-25). When bidding and Buy Now are both available: Place a bid first, full-width, red, minimum all-in inside; Buy Now second, full-width, outlined, quantity-aware label + price + sub-line. Supersedes the Buy-Now-first hierarchy. Other states keep their own valid actions. Eligibility and behaviour unchanged | `comparisons/footer_arrangements_91062ab1.png` (Option B); map §*SETTLED — listing footer* | `12be25d6`: the resolver (`detailState`) selects the bid as primary when both are available; `ListingDetailScreen.tsx` changes are comments only; per-state tests in `listing-detail-state.test.ts` | Selection render only: `91062ab1` + harness patch · web · `V3_FOOTER_AND_POSTER_91062ab1.md`. **Not** a review of implemented code | Dynamic Type (largest standard + accessibility sizes, no truncation of label, minimum, "Buy … now · $X", sub-line); wrapping; safe area under the stacked footer; Light + Dark | Open |
@@ -17,7 +20,96 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## E STORAGE CLOSEOUT (2026-10-11). E stops editing after this entry
+## CURRENT ACCEPTANCE MATRIX (E, 2026-10-12). THE ONLY CURRENT SECTION; everything below is dated history
+
+**Key.** A's integrated candidate is a fresh merge of gate `abef9506` and v3 `d27aa449` (with S3/S4).
+A will write its sha to `sprint-control/CANDIDATE_MANIFEST.md`. **That file does not exist yet, so
+the key is not yet fixed (external, owner of the step: A).**
+- Consumer source under review: `v3/midnight-app` `d27aa449`. Its `app/` and `src/` trees are
+  identical to `9bbeaec6`, the reviewed tip (tree ids `app` = `78519bd3` and `src` = `26d756b8` at
+  both; `git diff --stat` is empty; checked by E's audit, and B has confirmed it independently).
+- `9bbeaec6..d27aa449` adds only the four default frames and their log, `packages/vitest.config.ts`,
+  and one test file.
+- A row closes for the manifest sha only after A's byte-identity check of `app/` and `src/` against
+  `d27aa449`, which B verifies independently.
+
+**Coverage, stated once.**
+- Every measured pass below comes from C-operated captures of a **simulator development build**
+  (Metro-served, `SN V3 393x852`, iOS 26.5), reviewed by B and E.
+- That is **development coverage, not a native or distribution artifact.** No fresh-install build,
+  signed build, TestFlight build or device run exists.
+- **Accepted scope = the rows marked PASS. Screens and flows not listed are not accepted.** "All
+  reviewed items pass" is not whole-app acceptance.
+
+### 1. Measured passes (simulator development build; B and E agree)
+| # | Flow / item | Evidence (commit · artifact) | Verifier | Status |
+|---|---|---|---|---|
+| M-1 | Home: 4:5 feature artwork per fixture, identity beneath, no gradient; feed-row and feature amounts at a3xl; Filters glyph and icons (R-2, R-3 per-slot rendering) | B `c9d6f0d7` (artwork per fixture at `d5217530`), `f235ddb7` (icons and Dynamic Type), batch 8 `605e35ad` (feature amount at a3xl, at `9498080a`); `HomeFeature.tsx` is unchanged since `9498080a` | B, E | PASS |
+| M-2 | Listing: poster clear of banner and navigation; event name reachable (R-4); Option B footer (R-1); reservation feedback; scroll-end clearance; bid-activity amounts (F-BA); full date and time (F-DT); error and offline states | B `f235ddb7`, `17c7e670`, `a4e546d0` (poster, footer, reserving); `e1c5f38e` (scroll end, R-4); `a1af6499` (error and offline); batch 8 `605e35ad` (F-BA, F-DT); batch 9 `a09b2ae0` carries the poster clearance | B, E | PASS, carried forward: the only Listing-path change in `9498080a..9bbeaec6` is the W-2/W-2b fee-label text (`RESALE_FEE_LABEL`, sold note), which M-5 covers |
+| M-3 | Profile: P-1, P-2, P-3, hero stacking at large text, no `null%`; default layout unchanged | `12cc3e8d` hero frames; B `B_REVIEW_HANDOFF.md` §1 (0 px below the header vs `857e6d93`) | B, E | PASS |
+| M-4 | W-4 header shrinks to fit at a3xl; S-1/S-1b row labels at a3xl | `native/e6a38aef/`, `native/1a6ac1c3/`; B `B_NATIVE_REVIEW_9bbeaec6.md`; E's gutter instrument | B, E | PASS |
+| M-5 | W-2 fee labels (resale minimum bid "Service fee (10%)"; checkout plain "Service fee"); W-2b sold note; P-5 tier word | `native/2ada44bd/`, `native/7d957100/listing-sold-default-light-Coperated.png`, `native/1ab2c8e2/profile-hero-a3xl-dark`; B `9c970b05` | B, E | PASS. Note: the P-5 frame is at `1ab2c8e2`; `1ab2c8e2..9bbeaec6` changes no profile or reputation file |
+| M-6 | W-4 and S-1/S-1b at **default** size, Light and Dark | `native/9bbeaec6/` (C `32c0804a`); B `92356c9e` §11; E's re-diff | B, E | PASS. The historical `1ab2c8e2` comparison stays unverifiable |
+| M-7 | CI at the consumer tip and at the combined trial | v3 `d27aa449` run `38162136552` (5/5 jobs); trial r3 `5450b348` run `38162239127` (A) | E (v3 run), A (trial) | GREEN. A re-run at the manifest sha is owed by A |
+
+### 2. Source-only (closed on source or tests; **not measured passes**)
+- **P-4:** fixture correction `2181de75`; nothing new to photograph (B §1).
+- **W-6 payout line, connected state:** the wording is settled ("…less the seller fee and any refund",
+  `payout-setup.tsx:162`). Rendering it needs a connected Stripe account; A also files it under
+  owner-waived.
+- **W-5 platform parity:** test-pinned (`ticketPlatforms.ts`); the live picker is owner-waived.
+- **VoiceOver labels:** checked in source only.
+
+### 3. Owner-waived (not verified; do not re-ask)
+- Authenticated consumer Home.
+- The Edit refusal group.
+- The W-5 Edit platform picker.
+- The repeat signed-in web and console wording sessions (A §2).
+- **R-3 native image-picker crop on iOS:** reachable only in the signed-in create flow. It was never
+  captured, so it falls under A §2's "authenticated flows" waiver. The owner didn't name it
+  separately, and it is **not passed.**
+
+### 4. Optional
+- Spoken VoiceOver. Not a release blocker.
+
+### 5. Open, required before acceptance at the manifest sha
+| # | Item | Responsible | State (as reported by each owner to E, 2026-10-12) |
+|---|---|---|---|
+| O-1 | `CANDIDATE_MANIFEST.md`, plus A's `app/` and `src/` byte-identity check against `d27aa449` | A (B verifies) | Not yet published |
+| O-2 | Fresh-install native build of the manifest sha: sha, isolated checkout, `npm ci`, toolchain, command and full output, artifact path and digest, banner-gated launch of **that** binary. It is labelled an unsigned simulator-native build, not a distribution artifact | C builds; B reviews the artifact | Planned, not started. C waits for A's assignment. If C builds `d27aa449`, the record must show an empty build-input diff to the manifest sha |
+| O-3 | B's independent regression review of the candidate source | B | In progress (read-only) |
+| O-4 | D's independent C4 and safety verdict | D | In progress on `5450b348`. It carries over to the manifest only with a tree-identity line |
+
+**Genuine failures: none open.** The 2026-10-07..10-11 red CI was fixed at `d27aa449`; it is
+history, not a blocker.
+
+### 6. Follow-ups (not release blockers)
+- Badge 1.3× cap.
+- Dispute-branch tier word (the adverse fact is stated in full; a later wording batch).
+- L-2 launch method (Codex).
+- CI step-masking (A, parked).
+- Shared label/value-row test (B and C).
+- Legal "10%" text (owner).
+
+### 7. Separate track
+- F's dashboards v2: `venue/dashboard-v2` `549e0335`, `admin/dashboard-v2` `4ef76958`. Not deployed
+  and not merged to `main`. F's functional-readiness pass is in progress. Not part of this matrix.
+
+### Locked (not reopened)
+- Plain "Service fee" at checkout and Apple Pay; resale bid surfaces keep "(10%)".
+- The settled payout wording.
+- Platform parity (W-5).
+- Profile fixes P-1..P-5.
+- W-1 "Unrated" and W-3 uppercase chrome labels.
+
+### Coordination
+- **Simulator and Metro: C owns them** for O-2 until C hands off in a written, committed line. B
+  holds neither. E does no device work.
+- **Routes, all two-way as of 2026-10-12**, each proved by a unique token round trip; the details are
+  in `sprint-control/E-HANDOFF.md`. The old "E→B refused" limit applied to the pre-fork B only.
+- **No new review round is opened for doc-only or capture-only commits.**
+
+## E storage closeout (2026-10-11). HISTORY: the push range it names was published by B at `c16c2d8f`
 
 **For B (routine shared-branch push):** E's session cannot push, and the denial was not bypassed.
 The local-only range on `design/frontend-audit-20260917` in
@@ -45,7 +137,7 @@ recorded:
 **Durable on origin since `262c3b10`:** E's 17 relay notes in `docs/product-v3/e-relays/`, and
 `gutter_e.py` in `docs/product-v3/harness/measure/`.
 
-## CURRENT ACCEPTANCE STATUS (E, 2026-10-11). THE ONLY CURRENT SUMMARY; every section below is dated history
+## Acceptance status 2026-10-11 (HISTORY, superseded by the 2026-10-12 matrix above; its "still red", "window is yours" and "do not touch the device" lines are dated)
 
 **Candidate:** app code as of `9bbeaec6`. The last code commit is `6b6b8f48`
 (`v3/consumer-batch2`).
