@@ -207,12 +207,18 @@ describe('Phase 10 surfaces — shipped-source guards', () => {
   });
 
   it('payout landing pages keep the auto-redirect + replace routing', () => {
+    // F5 (2026-10-12): payout-return claims nothing and hands off to payout-setup, which verifies;
+    // its timer is HANDOFF_MS and its target VERIFY_ROUTE. The invariant is unchanged: a TIMED
+    // router.replace to a real screen — never a push, so back cannot return to a landing page.
     for (const src of [payoutReturn, payoutRefresh]) {
-      expect(src).toContain('AUTO_REDIRECT_MS');
-      expect(src).toContain('router.replace(');
+      expect(src).toMatch(/setTimeout\(\(\) => \{ router\.replace\(/);
+      expect(src).toMatch(/AUTO_REDIRECT_MS|HANDOFF_MS/);
+      expect(src).not.toContain('router.push(');
       expect(src).not.toMatch(/kernel[^\n]*tickets/);
     }
-    expect(payoutReturn).toContain("router.replace('/(tabs)/profile')");
+    expect(payoutReturn).toContain("const VERIFY_ROUTE = '/settings/payout-setup'");
+    expect(payoutReturn).toContain('router.replace(VERIFY_ROUTE)');
+    expect(payoutReturn).not.toContain("'/(tabs)/profile'");
     expect(payoutRefresh).toContain('/settings/payout-setup');
   });
 });
