@@ -10,10 +10,17 @@
  *     fill the row edge-to-edge — no scrolling, no dead space.
  *   - Hierarchy: large number on top, small uppercase label underneath.
  *   - Equal heights (stretch), equal gaps, one corner radius, one padding.
+ *
+ * Appearance (owner 2026-09-24; B's A-4): every colour comes from the palette. Nothing renders
+ * this strip today; it is themed so that the day something does, it cannot fail in either
+ * appearance. Geometry keeps the legacy spacing scale it was built on.
  */
 
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, ViewStyle } from 'react-native';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { fontSize, radius, spacing } from '@/src/theme';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 
 const CARD_MIN_WIDTH = 92;
 const CARD_GAP = spacing.sm;
@@ -43,6 +50,8 @@ export default function StatCardStrip({
   items, activeKey, onItemPress, style,
   contentPaddingHorizontal = spacing.md,
 }: Props) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={style}>
       <ScrollView
@@ -55,19 +64,19 @@ export default function StatCardStrip({
       >
         {items.map((item) => {
           const active = activeKey != null && activeKey === item.key;
-          const accent = item.color ?? colors.text;
+          const accent = item.color ?? palette.text.primary;
           const handlePress = item.onPress ?? (onItemPress ? () => onItemPress(item.key) : undefined);
           return (
             <Pressable
               key={item.key}
               style={[
                 s.card,
-                active && { borderColor: accent, backgroundColor: 'rgba(255,255,255,0.06)' },
+                active && [s.cardActive, { borderColor: accent }],
               ]}
               onPress={handlePress}
               disabled={!handlePress}
               hitSlop={6}
-              android_ripple={handlePress ? { color: colors.primarySoft } : undefined}
+              android_ripple={handlePress ? { color: palette.brand.redSoft } : undefined}
             >
               <Text style={[s.value, { color: accent }]} numberOfLines={1}>
                 {item.value}
@@ -86,7 +95,8 @@ export default function StatCardStrip({
   );
 }
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   row: {
     flexGrow: 1,
     gap: CARD_GAP,
@@ -101,8 +111,12 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.sm + spacing.xs,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bgCard,
+    borderColor: p.border.default,
+    backgroundColor: p.surface.surface,
+  },
+  // The active card lifts to the elevated surface; its accent border is applied inline.
+  cardActive: {
+    backgroundColor: p.surface.elevated,
   },
   value: {
     // Between fontSize.lg and .xl — the number stays the focal point
@@ -116,7 +130,8 @@ const s = StyleSheet.create({
     // inside the tighter card — Apple Wallet-style quiet label.
     fontSize: fontSize.xs,
     fontWeight: '600',
-    color: colors.textMuted,
+    color: p.text.muted,
     letterSpacing: 0.2,
   },
-});
+  });
+}

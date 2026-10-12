@@ -23,8 +23,23 @@ import { describe, expect, it } from 'vitest';
 import { ESCROW_NOTE_COPY, showEscrowNote } from '../src/lib/checkout/holdState';
 
 describe('the rule', () => {
-  it('E1: the line is the existing sentence, now held in the copy module', () => {
-    expect(ESCROW_NOTE_COPY).toBe('Payment is held until your ticket reaches you. Secured by Stripe.');
+  it("E1 (A's ruling §2f, 2026-09-24): the line states what the product actually does — no delivery-linked hold", () => {
+    /*
+     * WITHDRAWN by A: "Payment is held until your ticket reaches you." The system never observes
+     * delivery, and the seller's payout follows one of four things, none of which is the ticket
+     * arriving: the buyer's confirmation; the release decision after the review window with no
+     * report; an operator releasing an unreleased seller_sent row (admin_release_held_payout, 0551);
+     * or a dispute resolved for the seller. "Held"/"on hold" also reads as a card authorisation,
+     * while the card is charged at checkout.
+     *
+     * TRUE and usable, from A's table: a report freezes the seller's payout. `buyer_dispute_transfer`
+     * (0550) accepts a report only while the order is seller_sent, and every release path needs that
+     * status with no open dispute — so an accepted report always precedes any release.
+     */
+    expect(ESCROW_NOTE_COPY).toBe("You pay now. If the tickets don't arrive, report it from your order; a report freezes the seller's payout.");
+    // A's must-nots, asserted rather than trusted.
+    expect(ESCROW_NOTE_COPY.toLowerCase()).not.toMatch(/held|on hold|until (your|the) ticket|reaches you|escrow/);
+    expect(ESCROW_NOTE_COPY).not.toMatch(/\bby [A-Z]|\d{1,2} [A-Z][a-z]{2}/);   // no deadline as a guarantee
   });
 
   it('E2: hidden when the payment lookup failed', () => {
@@ -56,10 +71,20 @@ const between = (s: string, from: string, to: string) => {
 
 describe('the screen applies it', () => {
   it('E5: the line renders once, only through the rule, fed every unknown state; the screen no longer spells it out', () => {
+    // RETARGETED 2026-09-24: the presentation moved to CheckoutView.tsx (a module the native payment
+    // module cannot be reached from). The rule keeps both halves in one place each: the SCREEN
+    // evaluates it against all three unknown flags and hands down the sentence or null; the VIEW
+    // paints whatever it was handed, and decides nothing.
     const s = src();
-    expect(s).toContain('showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable }) ? (');
-    expect(s.split('{ESCROW_NOTE_COPY}').length - 1).toBe(1);
+    expect(s).toContain('showEscrowNote({ paymentStatusUnknown, reservationStatusUnknown, confirmUnreachable: checkUnreachable })');
+    expect(s.split('ESCROW_NOTE_COPY').length - 1).toBe(2);      // the import and the one use
+    const view = readFileSync(resolve(__dirname, '../src/screens/checkout/CheckoutView.tsx'), 'utf8');
+    expect(view.split('escrowNote').length - 1).toBe(4);         // its type, its parameter, and the one render's test + value
+    expect(view).toMatch(/\{escrowNote \? <Text[^>]*>\{escrowNote\}<\/Text> : null\}/);
+    // Neither file spells the sentence out, and neither can decide to show it on its own.
     expect(s).not.toContain('Payment is held until your ticket reaches you');   // witness: E1 finds it in holdState
+    expect(view).not.toContain('Payment is held until your ticket reaches you');
+    expect(view).not.toContain('showEscrowNote');
   });
 
   it('E6: setup marks the payment status unknown when its payment lookup fails', () => {

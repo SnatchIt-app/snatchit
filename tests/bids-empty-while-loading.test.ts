@@ -39,6 +39,15 @@ const h = vi.hoisted(() => {
   };
 });
 
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   FlatList: 'FlatList', Pressable: 'Pressable', RefreshControl: 'RefreshControl', Text: 'Text', View: 'View',
   StyleSheet: { create: <T,>(s: T) => s },
@@ -52,7 +61,10 @@ vi.mock('@/src/components/ScreenState', () => ({ default: 'ScreenState' }));
 vi.mock('@/src/components/ui', () => ({ Chip: 'Chip', EmptyState: 'EmptyState', Skeleton: 'Skeleton' }));
 vi.mock('@/src/components/nav/dockContext', () => ({ useDockScroll: () => h.dock }));
 vi.mock('@/src/lib/nav/navInsets', () => ({ useDockClearance: () => 0, useTopInset: () => 0 }));
-vi.mock('@/src/components/bids/BidCard', () => ({ BidCard: 'BidCard' }));
+// The screen's skeleton reads the row's poster box from the card, so one number has one home
+// (4:5 poster direction, 2026-09-24). A mock that stubs only the component leaves the skeleton with
+// `width={undefined}` — which is why these two constants are part of the stub.
+vi.mock('@/src/components/bids/BidCard', () => ({ BidCard: 'BidCard', BID_ROW_ART_H: 72, BID_ROW_ART_W: 58 }));
 vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}) }));
 vi.mock('@/src/lib/supabase', () => {
   const chain = (queue: { promise: Promise<unknown> }[], make: () => { promise: Promise<unknown> }) => {

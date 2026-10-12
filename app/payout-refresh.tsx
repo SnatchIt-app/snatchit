@@ -7,19 +7,24 @@
  * (router.replace) with a manual Continue button.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Badge, Button } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 const AUTO_REDIRECT_MS = 1500;
 const RETRY_PATH = '/settings/payout-setup';
 
 export default function PayoutRefreshScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
+
   useEffect(() => {
     const timer = setTimeout(() => { router.replace(RETRY_PATH); }, AUTO_REDIRECT_MS);
     return () => clearTimeout(timer);
@@ -40,10 +45,12 @@ export default function PayoutRefreshScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: v2.space.xl, gap: v2.space.md },
-  title: { color: v2.text.primary, textAlign: 'center', marginTop: v2.space.sm },
-  subtitle: { color: v2.text.secondary, textAlign: 'center', maxWidth: 360 },
+  title: { color: p.text.primary, textAlign: 'center', marginTop: v2.space.sm },
+  subtitle: { color: p.text.secondary, textAlign: 'center', maxWidth: 360 },
   cta: { marginTop: v2.space.lg, alignSelf: 'stretch' },
-});
+  });
+}

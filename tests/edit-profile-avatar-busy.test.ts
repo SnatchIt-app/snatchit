@@ -14,6 +14,8 @@
  *
  * Client-only. No auth, payment, database or server change.
  */
+import { readFileSync } from 'node:fs';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HookHost } from './helpers/nav-stack-harness';
@@ -34,6 +36,15 @@ const h = vi.hoisted(() => {
   };
 });
 
+// The migrated screens read the resolved appearance. These suites assert behaviour, not colour, so
+// the boundary is mocked to Midnight — whose values ARE the v2 tokens, so nothing they pin moves.
+vi.mock('@/src/theme/appearance', async () => {
+  const { dark } = await import('@/src/theme/palette');
+  return {
+    useTheme: () => ({ scheme: 'dark', palette: dark }),
+    useAppearancePreference: () => ({ preference: 'system', setPreference: () => {} }),
+  };
+});
 vi.mock('react-native', () => ({
   Alert: { alert: (t: string) => { h.alerts.push(t); } },
   Keyboard: { dismiss: () => {} },
@@ -47,7 +58,7 @@ vi.mock('expo-router', () => ({ router: { push: () => {}, back: () => {}, replac
 vi.mock('@/src/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'u-1', email: 'seller@example.test' } }) }));
 vi.mock('@/src/components/ui', () => ({ Button: 'Button', Input: 'Input', Spinner: 'Spinner', StickyBar: 'StickyBar' }));
 vi.mock('@/src/components/account/SettingsHeader', () => ({ SettingsHeader: 'SettingsHeader' }));
-vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3 }));
+vi.mock('@/src/theme/typography', () => ({ textStyle: () => ({}), MAX_DISPLAY_FONT_SCALE: 1.3, AMOUNT_MIN_FONT_SCALE: 0.6 }));
 vi.mock('@/src/lib/avatarImage', () => ({
   getAvatarUrl: () => 'https://example.test/old.png',
   pickAndUploadAvatar: () => {
@@ -293,5 +304,20 @@ describe('F-AVATAR-2 — Edit Profile keeps every avatar control busy until the 
     expect(ringBusy(host)).toBe(false);
     expect(h.writes.length).toBe(0);
     expect(h.alerts).toContain('Upload failed');
+  });
+});
+
+describe('the bio counter can actually warn', () => {
+  it('EP-CAP: the over-state threshold matches the field\'s maxLength, so it is reachable', () => {
+    const src = readFileSync('app/settings/edit-profile.tsx', 'utf8');
+    // It used to be `> 200` on a field with maxLength={200}: trim() only shortens, so the
+    // status.error state could never render and the counter stayed at the decoration ink forever.
+    // The BIO field's cap, not the display name's (which is 50): take the maxLength that follows
+    // `value={bio}`, so this stays tied to the field the counter actually counts.
+    const bioBlock = src.slice(src.indexOf('value={bio}'));
+    const cap = bioBlock.match(/maxLength=\{(\d+)\}/)?.[1];
+    expect(cap).toBe('200');
+    expect(src).toContain(`bio.trim().length >= ${cap} ? s.countOver : s.count`);
+    expect(src).not.toMatch(/bio\.trim\(\)\.length > 200/);
   });
 });

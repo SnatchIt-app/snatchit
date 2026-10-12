@@ -9,13 +9,18 @@
  * Checkout runs in the mobile app; web explains that.
  */
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/src/components/ui';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 export default function CheckoutWeb() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   return (
     <View style={s.wrap}>
       <View style={s.card}>
@@ -31,9 +36,11 @@ export default function CheckoutWeb() {
   );
 }
 
-const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: v2.surface.canvas, alignItems: 'center', justifyContent: 'center', padding: v2.space.lg },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  wrap: { flex: 1, backgroundColor: p.surface.canvas, alignItems: 'center', justifyContent: 'center', padding: v2.space.lg },
   card: { alignItems: 'center', gap: v2.space.md, maxWidth: 400, width: '100%' },
-  title: { color: v2.text.primary, textAlign: 'center' },
-  body: { color: v2.text.muted, textAlign: 'center' },
+  title: { color: p.text.primary, textAlign: 'center' },
+  body: { color: p.text.muted, textAlign: 'center' },
 });
+}

@@ -11,7 +11,7 @@
  */
 
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -22,6 +22,8 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { Badge, Button, Spinner } from '@/src/components/ui';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 
 const PAYOUT_AUTH_CALLBACK = 'snatchit://payout-return';
@@ -29,6 +31,8 @@ const PAYOUT_AUTH_CALLBACK = 'snatchit://payout-return';
 type PayoutStatus = 'not_connected' | 'onboarding_required' | 'connected';
 
 export default function PayoutSetupScreen() {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
 
@@ -150,7 +154,12 @@ export default function PayoutSetupScreen() {
     },
     connected: {
       title: 'Payouts connected',
-      description: 'Your account is connected. Payouts deposit automatically when your listings sell.',
+      // A's ruling (2026-09-24): a payout follows the order's RELEASE, not the sale, and eligibility
+      // applies — "deposit automatically when your listings sell" promised both away.
+      // W-6: and the amount names no rate. A cannot confirm 10% is withheld on every row — a NULL
+      // seller_fee pays with no fee — and after a partial refund the payout is not "sale price
+      // minus fee" under any reading. Same rule as the buyer side: name the deduction, not the rate.
+      description: 'Your account is connected. After an order is released, we send your payout (the sale price, less the seller fee and any refund) to your Stripe account.',
       tone: 'success', statusLabel: 'Connected', statusSub: 'Your banking details are securely managed by Stripe.', btnLabel: 'Manage payouts',
     },
   };
@@ -160,7 +169,7 @@ export default function PayoutSetupScreen() {
     <View style={s.root}>
       <SettingsHeader title="Payout setup" />
       {loading ? (
-        <View style={s.center}><Spinner color={v2.brand.red} /></View>
+        <View style={s.center}><Spinner color={palette.brand.red} /></View>
       ) : (
         <View style={s.body}>
           <Text style={[textStyle('displayMd'), s.title]} accessibilityRole="header">{ui.title}</Text>
@@ -187,20 +196,22 @@ export default function PayoutSetupScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   body: { flex: 1, paddingHorizontal: v2.space.lg, paddingTop: v2.space.xxl, gap: v2.space.lg },
-  title: { color: v2.text.primary },
-  description: { color: v2.text.secondary },
+  title: { color: p.text.primary },
+  description: { color: p.text.secondary },
 
   statusCard: {
-    borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface,
+    borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface,
     padding: v2.space.lg, gap: v2.space.sm, alignItems: 'flex-start',
   },
-  statusSub: { color: v2.text.muted },
+  statusSub: { color: p.text.muted },
 
   actions: { gap: v2.space.sm, marginTop: v2.space.sm },
-  note: { color: v2.text.muted, marginTop: v2.space.md },
-});
+  note: { color: p.text.muted, marginTop: v2.space.md },
+  });
+}

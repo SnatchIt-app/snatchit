@@ -141,8 +141,16 @@ describe('checkout — shipped-source guards', () => {
   });
 
   it('shows the buyer what they are paying for', () => {
-    expect(native).toContain('EventMedia');
-    expect(native).toContain('CHECKOUT_THUMBNAIL');
+    // V3: the artwork + identity moved into the ONE shared OrderIdentity block, which is
+    // where the thumbnail slot lives now. Same guarantee, one level down.
+    // RETARGETED 2026-09-24: the presentation moved to CheckoutView.tsx so it can be rendered on a
+    // path with no payment module in its graph. The screen still supplies the facts — one identity
+    // object, handed to all three faces.
+    expect(code('src/screens/checkout/CheckoutView.tsx')).toContain('<OrderIdentity');
+    expect(native).toMatch(/identity=\{identity\}/);
+    const identity = code('src/components/checkout/OrderIdentity.tsx');
+    expect(identity).toContain('EventMedia');
+    expect(identity).toContain('CHECKOUT_THUMBNAIL');
   });
 
   it('keeps @stripe out of the base (web) entry, and reaches it only via the native entry', () => {

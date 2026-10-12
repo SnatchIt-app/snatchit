@@ -13,11 +13,11 @@
 
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
-import { allInLabel } from '@/src/lib/money';
+import { allInFromDollarsV3 } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
 import { EventMedia } from '@/src/components/media/EventMedia';
@@ -25,11 +25,16 @@ import { Badge, Button, EmptyState, Spinner } from '@/src/components/ui';
 import { AccountSection } from '@/src/components/account/AccountSection';
 import { SettingsHeader } from '@/src/components/account/SettingsHeader';
 import { deriveReputation, reputationTone } from '@/src/lib/profile/reputation';
-import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
 import type { Listing, ProfileTrustStats } from '@/src/types';
 
-type PublicProfile = {
+type Styles = ReturnType<typeof makeStyles>;
+
+export type PublicProfile = {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
@@ -50,10 +55,14 @@ function memberSince(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-function ActiveListingRow({ listing }: { listing: Listing }) {
+function ActiveListingRow({ listing, s }: { listing: Listing; s: Styles }) {
   return (
     <Pressable style={s.listingRow} onPress={() => router.push(`/listing/${listing.id}`)} accessibilityRole="button" accessibilityLabel={listing.event_name}>
-      <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" width={64} title={listing.event_name} decorative />
+      {/* 64 is the listing row's HEIGHT allowance, not a square's side (owner's 4:5 poster
+          direction, 2026-09-24): spent as a width the poster stood 80 tall and set the height of
+          every row in this list. Passed as `height` the rows keep their rhythm and the artwork
+          takes the 51pt the ratio derives. */}
+      <EventMedia asset={{ path: listing.cover_image_path, contract: 'legacy', bucket: 'auction-media' }} slot="CHECKOUT_THUMBNAIL" height={64} title={listing.event_name} decorative />
       <View style={s.listingInfo}>
         <Text style={[textStyle('title'), s.listingName]} numberOfLines={1}>{listing.event_name}</Text>
         <Text style={[textStyle('bodySm'), s.listingVenue]} numberOfLines={1}>
@@ -62,23 +71,50 @@ function ActiveListingRow({ listing }: { listing: Listing }) {
       </View>
       <View style={s.listingRight}>
         <Text style={[textStyle('micro'), s.listingBidLabel]}>Current bid</Text>
-        <Text style={[textStyle('price'), s.listingBid]} numberOfLines={1}>{allInLabel(listing.current_bid)}</Text>
+        {/* V3: 2dp, and the word "total" is dropped — the label above already says what the figure is
+            (E, 2026-09-24). Display only. */}
+        <Text style={[textStyle('price'), s.listingBid]} numberOfLines={1}>{allInFromDollarsV3(listing.current_bid)}</Text>
       </View>
     </Pressable>
   );
 }
 
-function TrustRow({ label, value, emphasize, last }: { label: string; value: string; emphasize?: boolean; last?: boolean }) {
+function TrustRow({ label, value, emphasize, last, stacked, s }: { label: string; value: string; emphasize?: boolean; last?: boolean; stacked?: boolean; s: Styles }) {
+  /*
+   * Side by side the label takes the width it needs and the VALUE is what runs off the screen —
+   * B measured 8,089 px of "Member since"'s value inside the right gutter at A3XL. Above the
+   * shared threshold the row stacks, exactly as the bid rows and the fact rows do.
+   */
   return (
-    <View style={[s.trustRow, !last && s.trustRowBorder]}>
+    <View style={[stacked ? s.trustRowStacked : s.trustRow, !last && s.trustRowBorder]}>
       <Text style={[textStyle('body'), s.trustRowLabel]}>{label}</Text>
       <Text style={[textStyle('body'), emphasize ? s.trustRowValueEmphasize : s.trustRowValue]}>{value}</Text>
     </View>
   );
 }
 
-export default function PublicProfileScreen() {
+/**
+ * The dev harness's seed (`app/_dev/v3-profile.tsx`). It stands in for the four READS this screen
+ * makes and nothing else: the viewer still comes from `useAuth()`, which no prop may replace, and
+ * Block short-circuits under a fixture so a harness render cannot write a `user_blocks` row.
+ */
+export interface PublicProfileFixture {
+  /** The profile row the read would have returned; null stands for a row-less answer. */
+  profile: PublicProfile | null;
+  avatarUrl?: string | null;
+  trust?: ProfileTrustStats | null;
+  /** The stats read FAILED — a different fact from "no history", as reputation.ts says. */
+  statsUnavailable?: boolean;
+  listings?: Listing[];
+  /** The viewer has blocked this seller: stats and listings are withheld, exactly as live. */
+  blocked?: boolean;
+}
+
+export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfileFixture } = {}) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const { user } = useAuth();
+  const { fontScale } = useWindowDimensions();
   const { id } = useLocalSearchParams<{ id: string }>();
   const sellerId = id ?? '';
   const isSelf = !!user?.id && user.id === sellerId;
@@ -94,6 +130,25 @@ export default function PublicProfileScreen() {
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
+    /*
+     * Development rendering only: the fixture stands in for every READ below — the block row, the
+     * profile, the trust-stats RPC and the active listings. Nothing after this branch runs. The
+     * withholding order is the live one: a blocked seller's stats and listings are not shown, so
+     * the harness cannot paint a state the screen would not reach.
+     */
+    if (fixture) {
+      setIsBlocked(!!fixture.blocked);
+      setProfile(fixture.profile);
+      setAvatarUrl(fixture.avatarUrl ?? null);
+      if (fixture.blocked) {
+        setTrustStats(null); setStatsUnavailable(false); setActiveListings([]); setLoading(false); return;
+      }
+      setTrustStats(fixture.trust ?? null);
+      setStatsUnavailable(!!fixture.statsUnavailable);
+      setActiveListings(fixture.listings ?? []);
+      setLoading(false);
+      return;
+    }
     if (!sellerId) { setLoading(false); return; }
     setLoading(true);
 
@@ -136,7 +191,7 @@ export default function PublicProfileScreen() {
       .from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').eq('auction_status', 'active').order('ends_at', { ascending: true });
     setActiveListings((actives as Listing[]) ?? []);
     setLoading(false);
-  }, [sellerId, user?.id, isSelf]);
+  }, [sellerId, user?.id, isSelf, fixture]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -145,6 +200,8 @@ export default function PublicProfileScreen() {
   }
 
   function handleBlock() {
+    // A harness render is a picture of the screen: the insert below writes a real block row.
+    if (fixture) return;
     if (!user?.id) { Alert.alert('Sign in required', 'You need to be signed in to block users.'); return; }
     const name = profile?.display_name?.trim() || 'this seller';
     Alert.alert(`Block ${name}?`, 'Their listings will be hidden from your feed. You can unblock anytime in Settings → Blocked users.', [
@@ -177,7 +234,7 @@ export default function PublicProfileScreen() {
     return (
       <View style={s.root}>
         <SettingsHeader title="Profile" />
-        <View style={s.centered}><Spinner color={v2.brand.red} /></View>
+        <View style={s.centered}><Spinner color={palette.brand.red} /></View>
       </View>
     );
   }
@@ -210,6 +267,15 @@ export default function PublicProfileScreen() {
 
   const rep = deriveReputation(trustStats);
   const insufficientData = !trustStats || trustStats.seller_terminal_total < 1;
+  /*
+   * One shared rule, the same one the feature, the feed row, the panel, the fact rows and the bid
+   * rows use. The rate is a NUMBER: it is bounded to its line and shrinks to fit rather than
+   * breaking after the second digit, which is how "100%" came to render as "10 / 0 / %".
+   */
+  const stackRows = identityStacks(fontScale);
+  const rateFit = stackRows
+    ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE }
+    : { maxFontSizeMultiplier: MAX_DISPLAY_FONT_SCALE };
 
   return (
     <View style={s.root}>
@@ -239,24 +305,34 @@ export default function PublicProfileScreen() {
             </View>
           ) : (
             <>
-              <View style={s.hero}>
+              <View style={[s.hero, stackRows && s.heroStacked]}>
                 <View style={s.heroLeft}>
                   <Text style={[textStyle('micro'), s.heroLabel]}>Transfer success rate</Text>
-                  <Text style={s.heroValue}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
+                  <Text style={s.heroValue} numberOfLines={1} {...rateFit}>{rep.successRate == null ? '—' : `${rep.successRate}%`}</Text>
                   {insufficientData ? <Text style={[textStyle('bodySm'), s.heroSub]}>No completed transfers yet</Text> : null}
                 </View>
-                <View style={s.heroRight}>
+                <View style={[s.heroRight, stackRows && s.heroRightStacked]}>
                   <Badge label={rep.label} tone={reputationTone(rep.tier)} />
-                  <Text style={[textStyle('bodySm'), s.heroBlurb]} numberOfLines={2}>{rep.blurb}</Text>
+                  {/*
+                    * P-3: two lines is enough for the blurb at the default size and not enough at
+                    * A3XL, where a row the RPC can return — "14 sales · 98% transfer success" —
+                    * is cut. Above the shared threshold it takes the lines it needs.
+                    */}
+                  <Text
+                    style={[textStyle('bodySm'), s.heroBlurb, stackRows && s.heroBlurbStacked]}
+                    numberOfLines={stackRows ? undefined : 2}
+                  >
+                    {rep.blurb}
+                  </Text>
                 </View>
               </View>
               <View style={s.trustRows}>
-                <TrustRow label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} />
-                <TrustRow label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} />
-                <TrustRow label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} />
-                <TrustRow label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} />
-                <TrustRow label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} />
-                <TrustRow label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last />
+                <TrustRow stacked={stackRows} label="Completed sales" value={String(trustStats?.completed_sales ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Completed purchases" value={String(trustStats?.completed_purchases ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Active listings" value={String(trustStats?.active_listings ?? activeListings.length)} s={s} />
+                <TrustRow stacked={stackRows} label="Disputes opened" value={String(trustStats?.disputes_opened ?? 0)} s={s} />
+                <TrustRow stacked={stackRows} label="Disputes lost" value={String(trustStats?.disputes_lost ?? 0)} emphasize={!!trustStats && trustStats.disputes_lost > 0} s={s} />
+                <TrustRow stacked={stackRows} label="Member since" value={memberSince(trustStats?.member_since ?? profile.created_at)} last s={s} />
               </View>
             </>
           )}
@@ -267,7 +343,7 @@ export default function PublicProfileScreen() {
           {activeListings.length === 0 ? (
             <Text style={[textStyle('bodySm'), s.emptyListings]}>No active listings right now.</Text>
           ) : (
-            <View style={s.listings}>{activeListings.map((l) => <ActiveListingRow key={l.id} listing={l} />)}</View>
+            <View style={s.listings}>{activeListings.map((l) => <ActiveListingRow key={l.id} listing={l} s={s} />)}</View>
           )}
         </AccountSection>
 
@@ -286,8 +362,9 @@ export default function PublicProfileScreen() {
 const AVATAR = 88;
 const RING = AVATAR + 8;
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: v2.surface.canvas },
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: p.surface.canvas },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: v2.space.xl, gap: v2.space.md },
 
   scroll: { paddingHorizontal: v2.space.lg, paddingBottom: v2.space.xxxl },
@@ -295,48 +372,59 @@ const s = StyleSheet.create({
   identity: { alignItems: 'center', paddingTop: v2.space.xl },
   avatarRing: {
     width: RING, height: RING, borderRadius: RING / 2,
-    borderWidth: 1, borderColor: v2.brand.red, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: p.brand.red, alignItems: 'center', justifyContent: 'center',
   },
   avatarImage: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2 },
-  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: v2.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
-  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: v2.brand.red },
-  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: v2.text.primary, marginTop: v2.space.md, textAlign: 'center' },
+  avatarFallback: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, backgroundColor: p.brand.redSoft, alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { fontFamily: v2.font.bodyBold, fontSize: 28, color: p.brand.redText },
+  name: { fontFamily: v2.font.bodyBold, fontSize: 22, color: p.text.primary, marginTop: v2.space.md, textAlign: 'center' },
   badgeWrap: { marginTop: v2.space.sm },
-  bio: { color: v2.text.muted, textAlign: 'center', marginTop: v2.space.md },
+  bio: { color: p.text.muted, textAlign: 'center', marginTop: v2.space.md },
 
   unavailable: { paddingVertical: v2.space.md, gap: v2.space.sm, alignItems: 'flex-start' },
-  unavailableTitle: { color: v2.text.primary },
-  unavailableBody: { color: v2.text.muted },
+  unavailableTitle: { color: p.text.primary },
+  unavailableBody: { color: p.text.muted },
   retry: { minWidth: 140, marginTop: v2.space.xs },
 
   hero: { flexDirection: 'row', alignItems: 'flex-start', gap: v2.space.lg, paddingVertical: v2.space.md },
   heroLeft: { flex: 1 },
-  heroLabel: { color: v2.text.muted, marginBottom: v2.space.xs },
-  heroValue: { fontFamily: v2.font.bodyBold, fontSize: 34, color: v2.text.primary, letterSpacing: -0.5 },
-  heroSub: { color: v2.text.muted, marginTop: 2 },
+  heroLabel: { color: p.text.muted, marginBottom: v2.space.xs },
+  heroValue: { fontFamily: v2.font.bodyBold, fontSize: 34, color: p.text.primary, letterSpacing: -0.5 },
+  heroSub: { color: p.text.muted, marginTop: 2 },
   heroRight: { alignItems: 'flex-end', gap: v2.space.xs, maxWidth: 150 },
-  heroBlurb: { color: v2.text.muted, textAlign: 'right' },
+  heroBlurb: { color: p.text.muted, textAlign: 'right' },
+  /*
+   * Above the shared threshold the hero stacks: the badge and its explanation drop below the
+   * rate and take the full width. Unclamping alone left the blurb wrapping inside a 150 pt
+   * column, which breaks words — complete text that is still hard to read, which the owner
+   * ruled is not enough. The default two-column form above is untouched.
+   */
+  heroStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.sm },
+  heroRightStacked: { alignItems: 'flex-start', maxWidth: undefined },
+  heroBlurbStacked: { textAlign: 'left' },
 
-  trustRows: { borderTopWidth: 1, borderTopColor: v2.border.default },
+  trustRows: { borderTopWidth: 1, borderTopColor: p.border.default },
   trustRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: v2.space.md },
-  trustRowBorder: { borderBottomWidth: 1, borderBottomColor: v2.border.default },
-  trustRowLabel: { color: v2.text.muted },
-  trustRowValue: { color: v2.text.primary },
-  trustRowValueEmphasize: { color: v2.status.error },
+  trustRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: v2.space.xs, paddingVertical: v2.space.md },
+  trustRowBorder: { borderBottomWidth: 1, borderBottomColor: p.border.default },
+  trustRowLabel: { color: p.text.muted },
+  trustRowValue: { color: p.text.primary },
+  trustRowValueEmphasize: { color: p.status.error },
 
   listings: { gap: v2.space.sm },
-  listingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, borderWidth: 1, borderColor: v2.border.default, backgroundColor: v2.surface.surface, padding: v2.space.md },
+  listingRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.md, borderWidth: 1, borderColor: p.border.default, backgroundColor: p.surface.surface, padding: v2.space.md },
   listingInfo: { flex: 1, minWidth: 0 },
-  listingName: { color: v2.text.primary },
-  listingVenue: { color: v2.text.muted, marginTop: 2 },
+  listingName: { color: p.text.primary },
+  listingVenue: { color: p.text.muted, marginTop: 2 },
   listingRight: { alignItems: 'flex-end' },
-  listingBidLabel: { color: v2.text.muted },
-  listingBid: { color: v2.text.primary, marginTop: 1 },
-  emptyListings: { color: v2.text.muted, paddingVertical: v2.space.md },
+  listingBidLabel: { color: p.text.muted },
+  listingBid: { color: p.text.primary, marginTop: 1 },
+  emptyListings: { color: p.text.muted, paddingVertical: v2.space.md },
 
   actions: { marginTop: v2.space.xxl, gap: v2.space.md },
 
-  blockedTitle: { color: v2.text.primary, textAlign: 'center' },
-  blockedBody: { color: v2.text.muted, textAlign: 'center', maxWidth: 320 },
+  blockedTitle: { color: p.text.primary, textAlign: 'center' },
+  blockedBody: { color: p.text.muted, textAlign: 'center', maxWidth: 320 },
   unblock: { minWidth: 160, marginTop: v2.space.sm },
-});
+  });
+}

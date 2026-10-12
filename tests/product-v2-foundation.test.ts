@@ -9,6 +9,12 @@
 
 import { describe, expect, it, beforeAll } from 'vitest';
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// The media radius is read from its one home, so this suite cannot pass against a number a slot
+// invented — only against the value B's radius table assigns to the media role.
+import { MEDIA_RADIUS } from '../src/lib/design/featureMetrics';
 import {
   MEDIA_SLOTS,
   slotHeight,
@@ -40,6 +46,11 @@ import {
   priceLadder,
 } from '../src/lib/pricing/allIn';
 import { inventoryKindOf, provenanceLabel, provenanceSortWeight } from '../src/lib/pricing/provenance';
+// The approved V3 radii are read as TOKENS, so this suite cannot pass against a number a screen
+// invented — it can only pass against the scale the owner ratified.
+import * as v2 from '../src/theme/v2';
+
+const root = resolve(__dirname, '..');
 
 beforeAll(() => {
   process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://example.supabase.co';
@@ -61,7 +72,8 @@ describe('brand token parity', () => {
     expect(t.radius.none).toBe(0);
     expect(Object.values(t.radius)).not.toContain(6);
     // Red-tinted hairlines, never gray.
-    expect(t.border.default).toContain('255,26,26');
+    // V3 A-1 (owner 2026-09-22 / 2026-09-24): hairlines are the approved neutral, no longer red-tinted.
+    expect(t.border.default).toBe('#28292D');
     // Metadata must clear the 4.5:1 minimum: it carries dates and venue names.
     expect(t.text.muted).toBe('rgba(255,255,255,0.55)');
     // A destructive action must not share a color with a primary action.
@@ -92,22 +104,99 @@ describe('media slots', () => {
     }
   });
 
-  it('is square everywhere, because radius 0 is the brand', () => {
-    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(0);
+  it('carries the approved V3 radius per slot — the row thumb is ROUNDED, the rest are square', () => {
+    /*
+     * RETARGETED, not relaxed (owner 2026-09-24).
+     *
+     * This assertion used to read `n === 'FEED_ROW_ART' ? 8 : 0`, which encoded two rules that no
+     * longer hold: the V2 "radius 0 everywhere" law, and §3's drawn 8 for the one exception. The
+     * owner's 2026-09-24 instruction supersedes both — the pkg8 boards round controls, media and
+     * panels, the V3 radius scale in `v2.radius` assigns "row thumbnails" to `md`, and the owner's
+     * finding on the implemented Home is that the row thumbnails must read as ROUNDED, not square.
+     *
+     * So the rule is now a per-slot table of APPROVED values rather than a blanket zero. A slot
+     * that grows a radius which is not written here is still a defect — the table is exhaustive
+     * (the `names` sweep below proves no slot escapes it), and every value is a `v2.radius` token,
+     * never a screen-local number.
+     */
+    const APPROVED: Record<MediaSlotName, number> = {
+      // The 62pt feed/search row thumbnail — B's DRAWN 8 (V3 §3), which the pkg8 boards measure
+      // exactly (16px arc at 2×). The scale's `md` was applied here for a few hours on
+      // 2026-09-24 until the board was measured; the drawn value wins over a generic token.
+      FEED_ROW_ART: 8,
+      // Full-bleed artwork reaches all four screen edges; a radius there would show canvas in the
+      // corners, and the boards draw both of these square.
+      HOME_FEATURE_V3: v2.radius.none,
+      LISTING_HERO_V3: v2.radius.none,
+      /*
+       * The rest follow B's radius table §4.1 by ROLE (rules 0 · media 8 · chrome 22 · dock 33 ·
+       * full-bleed 0 · panels 0), applied when the 4:5 poster direction landed. A media frame is 8
+       * — the same 8 the row thumbnail was already drawn at, now read from one constant so the two
+       * cannot drift. Zero is not "unrounded by default" here: each zero below is the full-bleed
+       * row of the same table, or a frame whose corners are owned by the parent that clips it.
+       */
+      DISCOVERY_CARD: MEDIA_RADIUS,
+      FEATURED_EVENT: MEDIA_RADIUS,
+      EVENT_GALLERY: MEDIA_RADIUS,
+      CHECKOUT_THUMBNAIL: MEDIA_RADIUS,
+      SEARCH_RESULT: MEDIA_RADIUS,
+      DASHBOARD_THUMBNAIL: MEDIA_RADIUS,
+      // Full-bleed to the screen edges, or clipped by the card it is flush with (TICKET_ART).
+      EVENT_HERO: v2.radius.none,
+      VENUE_HERO: v2.radius.none,
+      TICKET_ART: v2.radius.none,
+      // Rendered server-side at a fixed square; the platforms crop it, so a radius is meaningless.
+      PROMOTER_SHARE: v2.radius.none,
+    };
+    for (const n of names) expect(MEDIA_SLOTS[n].radius).toBe(APPROVED[n]);
+    // The row thumbnail is genuinely rounded, not square-by-another-name.
+    expect(MEDIA_SLOTS.FEED_ROW_ART.radius).toBeGreaterThan(0);
   });
 
-  it('puts a scrim behind every slot that carries text over artwork', () => {
+  it('puts a scrim behind every slot that carries text over artwork, and ONLY those', () => {
     // If text sits on the image, an unscrimmed slot would be unreadable over
     // bright artwork and invisible over dark artwork.
+    // FEATURED_EVENT is the V2 rail slot and still overlays its title, so it still needs a scrim.
     expect(MEDIA_SLOTS.FEATURED_EVENT.scrim).not.toBe('none');
-    expect(MEDIA_SLOTS.TICKET_ART.scrim).not.toBe('none');
     // The discovery card deliberately places text BELOW the image, so it needs none.
     expect(MEDIA_SLOTS.DISCOVERY_CARD.scrim).toBe('none');
+    // And the converse, which this suite used to assert backwards for TICKET_ART: a scrim with no
+    // text over it is not a margin of safety, it is just darker artwork. Read from the SOURCE so
+    // the two facts cannot drift — the slot's only consumer must still put its text in the card
+    // body rather than on the poster.
+    expect(MEDIA_SLOTS.TICKET_ART.scrim).toBe('none');
+    const ticket = readFileSync(resolve(root, 'src/components/tickets/TicketEventGroup.tsx'), 'utf8');
+    expect(ticket).toMatch(/<EventMedia asset=\{asset\} slot="TICKET_ART" fluid \/>/);
+    /*
+     * The Home feature and then the listing hero joined them (owner 2026-09-25): identity beneath
+     * the poster, gradient gone. Checked at the SOURCE as well as the slot, so a re-introduced
+     * overlay fails here rather than only in a render someone has to look at.
+     */
+    expect(MEDIA_SLOTS.HOME_FEATURE_V3.scrim).toBe('none');
+    const feature = readFileSync(resolve(root, 'src/components/discovery/HomeFeature.tsx'), 'utf8');
+    expect(feature).not.toMatch(/<\/EventMedia>/);
+
+    expect(MEDIA_SLOTS.LISTING_HERO_V3.scrim).toBe('none');
+    /*
+     * The hero used to be the one slot that still had CHILDREN — its back and overflow controls,
+     * classed as navigation rather than app text, so the check was "nothing but navigation".
+     *
+     * B then measured what that cost on a device (native batch 3 at d5217530): the chips sat at
+     * (5,80)-(79.7,159.7) and (310,80)-(389.7,159.7), on the poster's printed lines, with the
+     * SANDBOX banner over its top 79 pt. The owner ruled that navigation, the status bar and the
+     * banner must not cover printed content. So the hero now has NO children, like every other
+     * slot here, and the rule it is held to is the stronger one.
+     */
+    const hero = readFileSync(resolve(root, 'src/components/listing/ListingHero.tsx'), 'utf8');
+    expect(hero).not.toMatch(/<\/EventMedia>/);
+    expect(hero).toMatch(/slot="LISTING_HERO_V3"[^>]*\/>/);
   });
 
   it('derives height from width and ratio rather than hard-coding it', () => {
     // 4:5 portrait at 168 wide is 210 tall.
     expect(slotHeight('DISCOVERY_CARD', 'mobile')).toBe(210);
+    // The row thumbnail round-trips: its reference WIDTH is derived from the 64pt row height the
+    // rows actually budget, so the height comes back out at 64 (51 / 0.8 = 63.75).
     expect(slotHeight('SEARCH_RESULT', 'mobile')).toBe(64);
   });
 
@@ -282,7 +371,9 @@ describe('media path encoding', () => {
     // remains of a filename.
     expect(r.uri).toContain('rock%26roll%3F.jpg');
     expect(r.uri).toContain('width=');
-    expect(r.uri.split('?')[1]).toMatch(/^width=\d+&quality=\d+&resize=(cover|contain)$/);
+    // The height is part of the request now, and deliberately: a width-only request returned a
+    // 56x1176 sliver against this project, and a sliver loads, so nothing downstream could catch it.
+    expect(r.uri.split('?')[1]).toMatch(/^width=\d+&height=\d+&quality=\d+&resize=(cover|contain)$/);
   });
 });
 

@@ -1,5 +1,6 @@
 {
   "version": "0.0.1",
+  "_comment": "Every Expo entry is pinned to this worktree and gated by scripts/dev-web-guard.sh, which refuses an unexpected working directory or a non-sandbox configuration. See the header of that script for why.",
   "configurations": [
     {
       "name": "web",
@@ -10,26 +11,38 @@
     },
     {
       "name": "snatchit",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/josetascon/snatchit-refund && ./scripts/dev-web-guard.sh && exec npx expo start --port 8081"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-ios",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--ios"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/josetascon/snatchit-refund && ./scripts/dev-web-guard.sh && exec npx expo start --ios --port 8081"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-android",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--android"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/josetascon/snatchit-refund && ./scripts/dev-web-guard.sh && exec npx expo start --android --port 8081"
+      ],
       "port": 8081
     },
     {
       "name": "snatchit-web",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd /Users/josetascon/snatchit-refund && ./scripts/dev-web-guard.sh && export NODE_OPTIONS=--max-old-space-size=6144 && exec npx expo start --web --port 8081"
+      ],
       "port": 8081
     }
   ]

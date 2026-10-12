@@ -10,7 +10,7 @@
  * the product's press response and reads "Saving…" while the RPC is in flight.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -19,7 +19,9 @@ import {
 } from 'react-native';
 
 import { Button } from '@/src/components/ui';
-import { colors, fontSize, radius, spacing } from '@/src/theme';
+import { fontSize, radius, spacing } from '@/src/theme';
+import { useTheme } from '@/src/theme/appearance';
+import type { Palette } from '@/src/theme/palette';
 import type { TransferMethod } from '@/src/types';
 import {
   formatPhoneDisplay,
@@ -47,6 +49,8 @@ export default function DeliveryInfoForm({
   onSubmit,
   loading = false,
 }: DeliveryInfoFormProps) {
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
@@ -91,7 +95,7 @@ export default function DeliveryInfoForm({
           <TextInput
             style={s.input}
             placeholder="you@example.com"
-            placeholderTextColor={colors.textPlaceholder}
+            placeholderTextColor={palette.text.faint}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -112,7 +116,7 @@ export default function DeliveryInfoForm({
           <TextInput
             style={s.input}
             placeholder="(305) 555-1234"
-            placeholderTextColor={colors.textPlaceholder}
+            placeholderTextColor={palette.text.faint}
             value={formatPhoneDisplay(phone)}
             onChangeText={(v) => setPhone(toPhoneDigits(v))}
             keyboardType="phone-pad"
@@ -141,46 +145,48 @@ export default function DeliveryInfoForm({
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
+function makeStyles(p: Palette) {
+  return StyleSheet.create({
   container: {
-    backgroundColor: colors.bgCard,
+    backgroundColor: p.surface.surface,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: p.border.default,
   },
   title: {
-    color: colors.text,
+    color: p.text.primary,
     fontSize: fontSize.md,
     fontWeight: '700',
     marginBottom: spacing.xs,
   },
   subtitle: {
-    color: colors.textMuted,
+    color: p.text.muted,
     fontSize: fontSize.xs,
     marginBottom: spacing.md,
   },
   label: {
-    color: colors.textMuted,
+    color: p.text.muted,
     fontSize: fontSize.xs,
     fontWeight: '600',
     marginBottom: spacing.xs,
   },
   input: {
-    backgroundColor: colors.bgInput,
+    backgroundColor: p.surface.elevated,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderInput,
-    color: colors.text,
+    borderColor: p.border.control,
+    color: p.text.primary,
     fontSize: fontSize.md,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
   errorText: {
-    color: colors.error,
+    color: p.status.error,
     fontSize: fontSize.xs,
     marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },
 });
+}
