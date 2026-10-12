@@ -73,7 +73,7 @@ obligation to test; it does not supply a result.
 
 ---
 
-## 5. OPEN — awaiting evidence, and **reclassified from my own earlier pass**
+## 5. ~~OPEN~~ — **RESOLVED, see §11.** (Kept as written, because §11 is the answer to it.)
 **W-4 at default size.** My review at `9bbeaec6` recorded W-4 as passing at *both* sizes. The A3XL
 half stands on paint. **The default-size half does not, and I am withdrawing it from §1.**
 
@@ -179,3 +179,46 @@ below the fixed header**.
 
 The third outcome is the reason this section exists. The failure mode here has never been a wrong
 conclusion; it has been a comparison that could not have come out any other way.
+
+---
+
+## 11. §5 closed — the four fresh frames, and the pre-registered prediction held
+`native/9bbeaec6/`, C-operated, evidence commit `32c0804a`. Reviewed from the committed files; **no
+simulator, no new capture request.**
+
+**Provenance, checked rather than assumed:** served sha read with `git rev-parse HEAD` while Metro
+was already listening, `9bbeaec6`, used as the directory name; `content_size` **set / pre / post all
+`large`** on each of the four; appearance driven by the `?appearance=` route parameter; sandbox
+banner present on all four; size witness from the paint = default (header hairline at 417 px).
+
+**Outcome 3 ruled out first — they are genuinely re-shot, not copied again:**
+
+```
+settings-hub-default-light    b64e5dd6 1e0499b6  ->  9bbeaec6 dd74e60e   distinct
+settings-hub-default-dark     b64e5dd6 e56e24ef  ->  9bbeaec6 73878bd4   distinct
+appearance-default-light      b64e5dd6 1e80d619  ->  9bbeaec6 d6e91714   distinct
+appearance-default-dark       b64e5dd6 a226adfe  ->  9bbeaec6 77e07554   distinct
+```
+
+**The pre-registered check (§10), fresh vs retained `b64e5dd6`:**
+
+| frame | below y=440 px | whole frame | where the difference is |
+|---|---|---|---|
+| `settings-hub-default-light` | **0** | 1,744 | y 23–35 pt, x 162–266 px |
+| `settings-hub-default-dark` | **0** | 1,355 | y 23–35 pt |
+| `appearance-default-light` | **0** | 1,706 | y 23–35 pt |
+| `appearance-default-dark` | **0** | 1,375 | y 23–35 pt |
+
+Zero below the fixed header in all four; every difference is the status-bar clock. That is exactly
+the first outcome §10 named. Gutter: **0 px content ink**, max ink x 360.7–376.7 pt, inside the
+377 pt edge.
+
+**Result: W-4 and S-1 / S-1b now pass at default size on paint**, both appearances, and move from
+§5 into §1. `9bbeaec6` serves the final `SettingsRow` and `SettingsHeader`, so these four frames
+exercise the end state of the whole chain, not an intermediate one.
+
+**What is still not claimed, and I am not claiming it.** The *historical* zero-difference comparison
+— C's unretained re-shoot at `1ab2c8e2` — stays labelled unverifiable. No measurement taken now can
+reach back and check a comparison whose other half no longer exists. What is checkable is only what
+is now true: both sides of the comparison above are committed, so anyone can re-run it without the
+device. C's capture log states this the same way, which is the right call.
