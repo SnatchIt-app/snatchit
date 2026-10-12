@@ -25,7 +25,7 @@
 
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OrderIdentity } from '@/src/components/checkout/OrderIdentity';
@@ -40,7 +40,8 @@ import { useTopInset } from '@/src/lib/nav/navInsets';
 import type { SettlementOutcome } from '@/src/lib/payments';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
-import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 
 /** What the buyer is paying for — the same block on all three faces. */
@@ -107,6 +108,11 @@ export default function CheckoutView({
 }: CheckoutViewProps) {
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   const insets = useSafeAreaInsets();
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds).
   const topPad = useTopInset();
@@ -171,9 +177,9 @@ export default function CheckoutView({
             <Row label={breakdown.item} value={breakdown.amount} s={s} />
             <Row label="Service fee" value={breakdown.fee} s={s} />
             <View style={s.hairline} />
-            <View style={s.totalRow}>
+            <View style={stacked ? s.totalRowStacked : s.totalRow}>
               <Text style={[textStyle('label'), s.totalLabel]}>{TOTAL_LABEL}</Text>
-              <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1}>{breakdown.total}</Text>
+              <Text style={[textStyle('price'), s.totalValue]} numberOfLines={1} {...amountFit}>{breakdown.total}</Text>
             </View>
           </View>
         ) : preparing ? (
@@ -404,10 +410,15 @@ export function CheckoutShell({ children }: { children: ReactNode }) {
 }
 
 function Row({ label, value, s }: { label: string; value: string; s: CheckoutStyles }) {
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   return (
-    <View style={s.row} accessible accessibilityLabel={`${label}: ${value}`}>
+    <View style={stacked ? s.rowStacked : s.row} accessible accessibilityLabel={`${label}: ${value}`}>
       <Text style={[textStyle('body'), s.rowLabel]}>{label}</Text>
-      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1} {...amountFit}>{value}</Text>
     </View>
   );
 }
@@ -445,10 +456,13 @@ function makeStyles(p: Palette) {
     gap: v2.space.sm,
   },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, so the amount is not competing for width. */
+  rowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   rowLabel: { color: p.text.muted },
   rowValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   hairline: { height: 1, backgroundColor: p.border.default, marginVertical: v2.space.xs },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  totalRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   totalLabel: { color: p.text.primary },
   totalValue: { color: p.text.primary },
 

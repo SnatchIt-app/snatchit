@@ -22,13 +22,14 @@
 
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
 import { APP_CONFIG } from '@/src/config/app';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
 import {
   bidOutcome,
   bidOutcomeCopy,
@@ -48,7 +49,7 @@ import { Button, IconButton, Spinner, Tappable } from '@/src/components/ui';
 import { classifyLoadFailure, type LoadFailureKind } from '@/src/lib/ui/loadState';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
-import { textStyle, MAX_DISPLAY_FONT_SCALE } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, MAX_DISPLAY_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import * as v2 from '@/src/theme/v2';
 import type { Listing } from '@/src/types';
 import { useTopInset } from '@/src/lib/nav/navInsets';
@@ -114,6 +115,11 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
   // Appearance: every colour on this screen comes from the resolved palette (light or dark).
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
 
   const [listing,    setListing]    = useState<Listing | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -323,11 +329,11 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
             De-dup (owner 2026-09-23) holds: the market price appears once, in the same units as
             the editable bid, and the buyer's total appears once, in the summary below. */}
         <View style={[s.rule, s.ruleTop]} />
-        <View style={s.marketRow}>
+        <View style={stacked ? s.marketRowStacked : s.marketRow}>
           <Text style={[textStyle('body'), s.marketLabel]}>
             {(listing?.bid_count ?? 0) > 0 ? 'Current bid' : 'Starting bid'}
           </Text>
-          <Text style={[textStyle('price'), s.marketValue]} numberOfLines={1}>
+          <Text style={[textStyle('price'), s.marketValue]} numberOfLines={1} {...amountFit}>
             {fmt$(listing?.current_bid ?? 0)}
           </Text>
         </View>
@@ -417,13 +423,13 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
           caption. The bid repeating here is intentional. */}
       <View testID="bid-footer" style={[s.footer, { paddingBottom: v2.space.md + insets.bottom }]}>
         <View testID="bid-summary" style={s.summary}>
-          <View style={s.summaryRow}>
+          <View style={stacked ? s.summaryRowStacked : s.summaryRow}>
             <Text style={[textStyle('body'), s.summaryLabel]}>Bid</Text>
-            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1}>{lines.bid}</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1} {...amountFit}>{lines.bid}</Text>
           </View>
-          <View style={s.summaryRow}>
+          <View style={stacked ? s.summaryRowStacked : s.summaryRow}>
             <Text style={[textStyle('body'), s.summaryLabel]}>{`Fee (${Math.round(APP_CONFIG.BUYER_FEE_RATE * 100)}%)`}</Text>
-            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1}>{lines.fee}</Text>
+            <Text style={[textStyle('body'), s.summaryValue]} numberOfLines={1} {...amountFit}>{lines.fee}</Text>
           </View>
           <View testID="bid-summary-total" style={[s.summaryRow, s.summaryTotalRow]}>
             <Text style={[textStyle('title'), s.summaryTotalLabel]}>Total</Text>
@@ -482,6 +488,8 @@ function makeStyles(p: Palette) {
     gap: v2.space.md,
     paddingVertical: v2.space.lg,
   },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): the same row as a column. */
+  marketRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingVertical: v2.space.lg },
   marketLabel: { color: p.text.primary },
   marketValue: { color: p.text.primary, fontSize: 24, lineHeight: 28 },
 
@@ -545,6 +553,7 @@ function makeStyles(p: Palette) {
     paddingVertical: v2.space.lg,
   },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: v2.space.md },
+  summaryRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   summaryLabel: { color: p.text.secondary },
   summaryValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   // Total is the strongest row: heavier label, the price face, a hairline above.

@@ -207,9 +207,11 @@ const between = (s: string, from: string, to: string) => {
 };
 
 describe('the screen applies both decisions fail-closed', () => {
-  it('W2: both reads go through readSettledPayments; the screen queries payments nowhere itself', () => {
+  it('W2: every read goes through readSettledPayments; the screen queries payments nowhere itself', () => {
     const s = src();
-    expect(s.split('readSettledPayments(supabase, ').length - 1).toBe(2);
+    // Three since F4 (2026-10-12): the setup dependency, the no-mode settled-only read, and
+    // re-validation. The invariant is the second line: the screen never reads payments itself.
+    expect(s.split('readSettledPayments(supabase, ').length - 1).toBe(3);
     expect(s).not.toContain(".from('payments')");
   });
 

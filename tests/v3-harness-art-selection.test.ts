@@ -42,10 +42,15 @@ const MIDNIGHT = (() => {
   return d.getTime();
 })();
 
+// D-RC-4 (D, 2026-10-12): `toISOString()` renders LOCAL midnight as a UTC instant, so in any UTC+
+// zone `iso(0)` was yesterday's date and the "today" row failed to feature — green on the UTC runner
+// and on UTC-4 Macs, red in Europe/Berlin. sections.ts parses `${eventDate}T00:00:00` as LOCAL
+// midnight, so the test must write the LOCAL calendar date. Same shape as the ML7 fix.
 const iso = (daysAhead: number) => {
   const d = new Date(MIDNIGHT);
   d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
 type Row = {

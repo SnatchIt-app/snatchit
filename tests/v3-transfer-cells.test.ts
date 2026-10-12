@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({
+  // B-D7: the screens read fontScale for the shared stacking rule; the default window keeps the unstacked branch.
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Alert: { alert: (title: string, message?: string) => { h.alerts.push({ title, message }); } },
   AppState: { addEventListener: () => ({ remove: () => {} }), currentState: 'active' },
   AccessibilityInfo: { announceForAccessibility: () => {} },

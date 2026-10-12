@@ -40,6 +40,8 @@ const h = vi.hoisted(() => ({
   authLoading: false,
   reply: null as null | { data: unknown; error: null | { message: string } },
   pending: [] as ((r: { data: unknown; error: null | { message: string } }) => void)[],
+  // F2: what the UPDATE's `.select('id')` answers — the written rows. Default: the row was written.
+  updateReply: { data: [{ id: 'listing-1' }], error: null } as { data: unknown; error: null | { message: string } },
 }));
 
 vi.mock('@/src/theme/appearance', async () => {
@@ -83,7 +85,13 @@ vi.mock('@/src/lib/supabase', () => ({
           },
         }),
       }),
-      update: (row: unknown) => { h.updates.push(row); return { eq: () => ({ eq: async () => ({ error: null }) }) }; },
+      // F2: the chain is update().eq().eq().select() — the select answers with the written rows, so a
+      // save that matched nothing (deleted, relisted, RLS no longer matching) is distinguishable
+      // from one that wrote. The old chain ended at eq() and answered { error: null } for both.
+      update: (row: unknown) => {
+        h.updates.push(row);
+        return { eq: () => ({ eq: () => ({ select: async () => h.updateReply }) }) };
+      },
     }),
   },
 }));
@@ -133,6 +141,7 @@ beforeEach(() => {
   h.user = { id: 'seller-1' };
   h.authLoading = false;
   h.reply = null;
+  h.updateReply = { data: [{ id: 'listing-1' }], error: null };
 });
 
 describe('EL1 · the states are distinguishable', () => {
@@ -373,5 +382,52 @@ describe('EL7 · the dev route is a dev route', () => {
     }
     // `signed-out` is not offered: a prop standing in for auth is exactly what v3-listing forbids.
     expect(src).not.toContain("'signed-out'");
+  });
+});
+
+describe('EL7 · F2: "Saved" is said only when a row was written', () => {
+  /*
+   * The UPDATE ran with no `.select()`, and PostgREST answers { error: null } for ZERO matched rows
+   * — the listing was deleted, relisted, or the seller_id/RLS no longer matched between load and
+   * save. The screen then said "Saved. Your listing has been updated." and navigated back, and the
+   * edits were gone. Found by the read-only critical-flow audit of d27aa449.
+   */
+  async function pressSave(host: HookHost) {
+    const save = findElement(host.output, (el) => el.type === 'Button' && el.props.label === 'Save changes');
+    expect(save, 'the form should offer Save').toBeDefined();
+    await (save!.props.onPress as () => Promise<void>)();
+    await flush();
+  }
+
+  it('EL7a: a save that wrote the row still says Saved and goes back (control)', async () => {
+    h.reply = { data: OWNED, error: null };
+    const host = await mountEdit();
+    expect(screen(host)).toBe('form');
+    await pressSave(host);
+    expect(h.updates).toHaveLength(1);
+    expect(h.alerts.map((a) => a.title)).toEqual(['Saved']);
+  });
+
+  it('EL7b: a save that matched NO row is not Saved — the form stays, the seller is told, nothing navigates', async () => {
+    h.reply = { data: OWNED, error: null };
+    h.updateReply = { data: [], error: null };
+    const host = await mountEdit();
+    expect(screen(host)).toBe('form');
+    await pressSave(host);
+    expect(h.updates, 'the update was attempted').toHaveLength(1);
+    expect(h.alerts.map((a) => a.title), 'no success claim').not.toContain('Saved');
+    expect(h.alerts).toHaveLength(1);
+    expect(h.alerts[0].title).toBe('Save failed');
+    expect(h.back).toBe(0);
+    expect(h.replaced).toEqual([]);
+  });
+
+  it('EL7c: the same shape when the select answers null rows', async () => {
+    h.reply = { data: OWNED, error: null };
+    h.updateReply = { data: null, error: null };
+    const host = await mountEdit();
+    await pressSave(host);
+    expect(h.alerts.map((a) => a.title)).not.toContain('Saved');
+    expect(h.back).toBe(0);
   });
 });

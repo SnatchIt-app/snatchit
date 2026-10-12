@@ -35,7 +35,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -52,7 +52,7 @@ import { Badge, Button, EmptyState, IconButton, Spinner, Tappable } from '@/src/
 import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { EventMedia } from '@/src/components/media/EventMedia';
 // The row poster's height — the one value both transfer summaries measure their artwork by.
-import { ROW_ART } from '@/src/lib/design/featureMetrics';
+import { identityStacks, ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   orderProgress,
   orderProgressA11y,
@@ -84,7 +84,7 @@ import {
   returnPromptBody,
   type HandoffState,
 } from '@/src/lib/transfer/providerHandoff';
-import { textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { refundReadState, refundStateLine, type RefundRead } from '@/src/lib/transfer/refundState';
 import { disputeDecision, disputedStateCopy, disputedStateMeta, refundDueContext } from '@/src/lib/transfer/disputeOutcome';
 import { useTheme } from '@/src/theme/appearance';
@@ -148,6 +148,11 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   const { id } = useLocalSearchParams<{ id: string }>();
   const { palette } = useTheme();
   const s = useMemo(() => makeStyles(palette), [palette]);
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   const { session } = useAuth();
   const userId = session?.user.id ?? '';
   // F-SELL-2: the badge-aware top inset (status bar + the SANDBOX badge on sandbox builds; production unchanged).
@@ -548,9 +553,9 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
                 </View>
               </View>
               {paid ? (
-                <View style={s.paidRow}>
+                <View style={stacked ? s.paidRowStacked : s.paidRow}>
                   <Text style={[textStyle('body'), s.paidLabel]}>{YOU_PAID_LABEL}</Text>
-                  <Text style={[textStyle('price'), s.paidValue]}>{paid}</Text>
+                  <Text style={[textStyle('price'), s.paidValue]} numberOfLines={stacked ? 1 : undefined} {...amountFit}>{paid}</Text>
                 </View>
               ) : null}
             </>
@@ -781,6 +786,8 @@ function makeStyles(p: Palette) {
   progressLabelCurrent: { color: p.status.warning },
   progressDetail: { color: p.text.muted },
   paidRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: v2.space.lg },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
+  paidRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, marginBottom: v2.space.lg },
   paidLabel: { color: p.text.secondary },
   paidValue: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   proofRow: {

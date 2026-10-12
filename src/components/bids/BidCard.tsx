@@ -23,14 +23,15 @@
  */
 
 import { memo, useMemo } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventMedia } from '@/src/components/media/EventMedia';
 import { NameText } from '@/src/components/NameText';
 import { Badge, usePressScale } from '@/src/components/ui';
 import type { BidPresentation, BidTone } from '@/src/lib/bids/bidState';
 import { MEDIA_SLOTS } from '@/src/lib/media/slots';
-import { textStyle } from '@/src/theme/typography';
+import { identityStacks } from '@/src/lib/design/featureMetrics';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -78,6 +79,11 @@ function BidCardImpl({
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const press = usePressScale();
   const dimmed = presentation.group === 'past';
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
 
   return (
     <Animated.View style={press.style}>
@@ -106,25 +112,34 @@ function BidCardImpl({
           />
         </View>
 
-        <View style={styles.body}>
-          <NameText token="nameRow" maxLines={2} style={styles.name}>{eventName}</NameText>
-          <View style={styles.badgeRow}>
-            <Badge label={presentation.label} tone={TONE[presentation.tone]} />
-            {urgencyLabel ? (
-              <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
-            ) : null}
-          </View>
-        </View>
+        {(() => {
+          const blocks = (
+            <>
+              <View style={styles.body}>
+                <NameText token="nameRow" maxLines={2} style={styles.name}>{eventName}</NameText>
+                <View style={styles.badgeRow}>
+                  <Badge label={presentation.label} tone={TONE[presentation.tone]} />
+                  {urgencyLabel ? (
+                    <Text style={[textStyle('label'), styles.urgency]} numberOfLines={1}>{urgencyLabel}</Text>
+                  ) : null}
+                </View>
+              </View>
 
-        <View style={styles.right}>
-          <Text style={[textStyle('price'), styles.price]} numberOfLines={1}>{priceAllIn}</Text>
-          <Text style={[textStyle('bodySm'), styles.allIn]} numberOfLines={1}>all-in</Text>
-          {/* The board's hint, on every row, in the eyebrow voice — state metadata, not a
-              control: the row is the control, and the hint is also the spoken hint above. */}
-          <Text style={[textStyle('label'), styles.hint]} numberOfLines={1}>
-            {presentation.actionHint}
-          </Text>
-        </View>
+              <View style={stacked ? styles.rightStacked : styles.right}>
+                <Text style={[textStyle('price'), styles.price]} numberOfLines={1} {...amountFit}>{priceAllIn}</Text>
+                <Text style={[textStyle('bodySm'), styles.allIn]} numberOfLines={1}>all-in</Text>
+                {/* The board's hint, on every row, in the eyebrow voice — state metadata, not a
+                    control: the row is the control, and the hint is also the spoken hint above. */}
+                <Text style={[textStyle('label'), styles.hint]} numberOfLines={1}>
+                  {presentation.actionHint}
+                </Text>
+              </View>
+            </>
+          );
+          // Stacked (B-D7, same shape as FeedRow): the text and amount blocks share one column, so the
+          // amount has the row's width instead of competing for it. Unstacked: the row it always was.
+          return stacked ? <View style={styles.bodyStacked} testID="bidcard-body">{blocks}</View> : blocks;
+        })()}
       </Pressable>
     </Animated.View>
   );
@@ -148,6 +163,9 @@ function makeStyles(p: Palette) {
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: v2.space.sm },
   urgency: { color: p.status.warning },
   right: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
+  bodyStacked: { flex: 1, flexDirection: 'column', gap: v2.space.xs },
+  rightStacked: { alignItems: 'flex-start', gap: 2 },
   price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   allIn: { color: p.text.muted },
   hint: { color: p.text.secondary, marginTop: v2.space.xs },

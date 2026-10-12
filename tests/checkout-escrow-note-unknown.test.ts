@@ -104,13 +104,24 @@ describe('the screen applies it', () => {
   });
 
   it('E9: only a SUCCESSFUL payment lookup clears it — not the start of the re-check, while the status is still unknown', () => {
+    /*
+     * F4 (2026-10-12) added a second settled read: with no checkout mode the screen reads what is
+     * settled and nothing else, before decideCheckoutSetup. So the pin is no longer "exactly one
+     * clear, inside the dependency"; it is the invariant that clear was guarding, stated directly:
+     * EVERY clear is immediately preceded by the settled-read error throw (a failed read can never
+     * reach a clear), and the setup preamble before the FIRST read clears nothing.
+     */
     const s = src();
     const dep = between(s, 'fetchSettledPayment: async (lid, bid) => {', 'fetchListing: async (lid) => {');
     const afterRead = between(dep, "if ('error' in read) throw new SettledReadError(read.error);", 'return read.rows;');
     expect(afterRead).toContain('setPaymentStatusUnknown(false);');
-    const setupStart = between(s, 'async function setupPayment() {', 'const decision = await decideCheckoutSetup(');
-    expect(setupStart).not.toContain('setPaymentStatusUnknown');   // witness: the same query finds it in the dependency
-    expect(s.split('setPaymentStatusUnknown(false);').length - 1).toBe(1);
+    const beforeFirstRead = between(s, 'async function setupPayment() {', 'readSettledPayments(supabase, ');
+    expect(beforeFirstRead).not.toContain('setPaymentStatusUnknown');
+    const clears = s.split('setPaymentStatusUnknown(false);').length - 1;
+    expect(clears, 'the dependency read and the no-mode read').toBe(2);
+    // Each clear sits right after the throw line — nothing between them but whitespace/comments.
+    const guarded = s.match(/if \('error' in read\) throw new SettledReadError\(read\.error\);\s*(\/\/[^\n]*\n\s*)*setPaymentStatusUnknown\(false\);/g) ?? [];
+    expect(guarded, 'every clear must be immediately preceded by the settled-read throw').toHaveLength(clears);
   });
 
   it('E11: setup marks the reservation unknown when its listing read fails', () => {

@@ -65,6 +65,8 @@ vi.mock('@/src/theme/appearance', async () => {
   return { useTheme: () => ({ scheme: 'dark', palette: dark }) };
 });
 vi.mock('react-native', () => ({
+  // B-D7: the screens read fontScale for the shared stacking rule; the default window keeps the unstacked branch.
+  useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
   Alert: { alert: () => {} },
   AppState: { addEventListener: () => ({ remove: () => {} }), currentState: 'active' },
   ActivityIndicator: 'ActivityIndicator', Pressable: 'Pressable', RefreshControl: 'RefreshControl',

@@ -22,11 +22,54 @@ function deps(over: Partial<DeepLinkDeps> = {}) {
     verifyOtp: vi.fn(async () => ({ error: null })),
     exchangeCodeForSession: vi.fn(async () => ({ error: null })),
     onRecovery: vi.fn(),
+    onRecoveryFailed: vi.fn(),
     warn: vi.fn(),
     ...over,
   };
   return d as DeepLinkDeps & { [K in keyof DeepLinkDeps]: ReturnType<typeof vi.fn> };
 }
+
+describe('(a2) F7: a recovery link whose token the provider rejects must release the hold it raised', () => {
+  /*
+   * The hold is raised on the link's CLAIM (type=recovery) before verifyOtp runs, so the reset
+   * screen shows at once — that ordering is pinned below in (b) and stays. But a consumed or
+   * expired token (AGENTS.md records link pre-scanners consuming one-time links within seconds)
+   * left the hold raised with no session: rootRouteDecision holds on isRecovery, reset-password's
+   * updateUser fails "Auth session missing!", and only SIGNED_OUT or a relaunch clears it. The
+   * claim failed, so the hold it bought must be released.
+   */
+  it('calls onRecoveryFailed exactly once when verifyOtp returns an error for a recovery link', async () => {
+    const d = deps({ verifyOtp: vi.fn(async () => ({ error: { message: 'Token has expired' } })) });
+    await dispatchDeepLink(OTP_URL, d);
+    expect(d.onRecovery).toHaveBeenCalledTimes(1);
+    expect(d.onRecoveryFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onRecoveryFailed when verifyOtp THROWS for a recovery link', async () => {
+    const d = deps({ verifyOtp: vi.fn(async () => { throw new Error('network'); }) });
+    await dispatchDeepLink(OTP_URL, d);
+    expect(d.onRecoveryFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the hold for a recovery link that carries no token at all', async () => {
+    const d = deps();
+    const out = await dispatchDeepLink('snatchit://auth?type=recovery', d);
+    expect(out).toEqual({ kind: 'no_auth_params' });
+    expect(d.onRecovery).toHaveBeenCalledTimes(1);
+    expect(d.onRecoveryFailed).toHaveBeenCalledTimes(1);
+    expect(d.verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('does not call onRecoveryFailed on success, nor for a non-recovery link that fails', async () => {
+    const ok = deps();
+    await dispatchDeepLink(OTP_URL, ok);
+    expect(ok.onRecoveryFailed).not.toHaveBeenCalled();
+    const signupFail = deps({ verifyOtp: vi.fn(async () => ({ error: { message: 'Token has expired' } })) });
+    await dispatchDeepLink('snatchit://auth?token_hash=abc&type=signup', signupFail);
+    expect(signupFail.onRecovery).not.toHaveBeenCalled();
+    expect(signupFail.onRecoveryFailed).not.toHaveBeenCalled();
+  });
+});
 
 describe('(a) a Stripe return URL', () => {
   it('reaches handleURLCallback first; when consumed, no auth exchange and no navigation side effect', async () => {
@@ -125,5 +168,16 @@ describe('(d) a handleURLCallback rejection does not break the auth path', () =>
     expect(d.exchangeCodeForSession).toHaveBeenCalledWith('pkce-code-1');
     expect(out).toEqual({ kind: 'pkce', error: null });
     expect(d.warn).toHaveBeenCalledWith(expect.stringContaining('stripe callback threw'), expect.any(Error));
+  });
+});
+
+describe('(a3) F7: the shell wires the release to the same state the hold raised', () => {
+  it('NativeAppShell passes onRecoveryFailed, and it lowers isRecovery', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const shell = readFileSync(resolve(__dirname, '..', 'src/providers/NativeAppShell.native.tsx'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(shell).toContain('onRecovery: () => { setIsRecovery(true);');
+    expect(shell).toContain('onRecoveryFailed: () => setIsRecovery(false)');
   });
 });
