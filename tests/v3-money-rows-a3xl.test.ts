@@ -137,17 +137,11 @@ describe('B-D7 · the shared rule is wired into each surface, and the default st
     },
     {
       rel: 'app/transfer/receive/[id].tsx',
-      rows: [{ container: 's.paidRow', stacked: 's.paidRowStacked', count: 1 }, { container: 's.row', stacked: 's.rowStacked', count: 1 }],
+      rows: [{ container: 's.paidRow', stacked: 's.paidRowStacked', count: 1 }],
       originalStyles: [
         "paidRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: v2.space.lg },",
         "row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },",
       ],
-      amountFit: 'amountFit',
-    },
-    {
-      rel: 'app/transfer/send/[id].tsx',
-      rows: [{ container: 's.row', stacked: 's.rowStacked', count: 1 }],
-      originalStyles: [],
       amountFit: 'amountFit',
     },
   ];
@@ -188,6 +182,23 @@ describe('B-D7 · the shared rule is wired into each surface, and the default st
     expect(total).toContain('maxFontSizeMultiplier={MAX_DISPLAY_FONT_SCALE}');
     expect(total).not.toContain('adjustsFontSizeToFit');
     expect(total).not.toContain('amountFit');
+  });
+
+  it('MR9: the rule reaches money rows only — the transfer detail rows (names, emails, phones) and the Send screen are untouched', () => {
+    // The independent review caught the shared detail Row being stacked and fitted: it carries the
+    // seller's name, the delivery email and phone, and Send has no money text at all. An email that
+    // ellipsised at A3XL must not start shrinking to 60% because a money rule was applied to it.
+    const receive = strip('app/transfer/receive/[id].tsx');
+    const rowStart = receive.indexOf('function Row(');
+    const row = receive.slice(rowStart, receive.indexOf('\n}', rowStart) + 2);   // the whole function, not its signature
+    expect(row).toContain('style={s.row}');
+    expect(row).not.toContain('amountFit');
+    expect(receive).not.toContain('rowStacked');
+    // "You paid" keeps its default props byte-identical: one line is forced only when stacked.
+    expect(receive).toContain('numberOfLines={stacked ? 1 : undefined} {...amountFit}>{paid}');
+    const send = readFileSync('app/transfer/send/[id].tsx', 'utf8');
+    expect(send).not.toContain('identityStacks');
+    expect(send).not.toContain('amountFit');
   });
 
   it('MR8: no copy changed on any of the four surfaces', () => {

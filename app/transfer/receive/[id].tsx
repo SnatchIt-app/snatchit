@@ -555,7 +555,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
               {paid ? (
                 <View style={stacked ? s.paidRowStacked : s.paidRow}>
                   <Text style={[textStyle('body'), s.paidLabel]}>{YOU_PAID_LABEL}</Text>
-                  <Text style={[textStyle('price'), s.paidValue]} numberOfLines={1} {...amountFit}>{paid}</Text>
+                  <Text style={[textStyle('price'), s.paidValue]} numberOfLines={stacked ? 1 : undefined} {...amountFit}>{paid}</Text>
                 </View>
               ) : null}
             </>
@@ -745,15 +745,10 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
 }
 
 function Row({ label, value, s }: { label: string; value: string; s: TransferStyles }) {
-  const { fontScale } = useWindowDimensions();
-  const stacked = identityStacks(fontScale);
-  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
-  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
-  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   return (
-    <View style={stacked ? s.rowStacked : s.row}>
+    <View style={s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
-      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1} {...amountFit}>{value}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
@@ -816,7 +811,6 @@ function makeStyles(p: Palette) {
   detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
-  rowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingVertical: v2.space.xs },
   rowLabel: { color: p.text.muted },
   rowValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 

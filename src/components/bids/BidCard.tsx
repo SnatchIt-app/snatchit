@@ -164,8 +164,8 @@ function makeStyles(p: Palette) {
   urgency: { color: p.status.warning },
   right: { alignItems: 'flex-end', gap: 2, flexShrink: 0 },
   /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
-  bodyStacked: { flex: 1, minWidth: 0, gap: v2.space.xs },
-  rightStacked: { alignItems: 'flex-start', gap: 2, flexShrink: 1, minWidth: 0 },
+  bodyStacked: { flex: 1, flexDirection: 'column', gap: v2.space.xs },
+  rightStacked: { alignItems: 'flex-start', gap: 2 },
   price: { color: p.text.primary, fontVariant: ['tabular-nums'] },
   allIn: { color: p.text.muted },
   hint: { color: p.text.secondary, marginTop: v2.space.xs },
