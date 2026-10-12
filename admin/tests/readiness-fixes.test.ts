@@ -203,6 +203,8 @@ describe("item 9 — sign-in outage copy and coded denial reasons", () => {
     expect(deniedReasonCode({})).toBe("check_failed");
     expect(src("app/(auth)/denied/page.tsx")).not.toMatch(/compact>\s*\{reason\}/);
     expect(src("lib/auth/session.ts")).not.toContain("encodeURIComponent(res.message)");
+    // …and the diagnostic is kept where support can read it: the server log.
+    expect(src("lib/auth/session.ts")).toMatch(/console\.warn\("\[auth\] operator check failed", \{[^}]*message: "message" in res \? res\.message/);
   });
 });
 

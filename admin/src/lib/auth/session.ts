@@ -48,7 +48,8 @@ export const requireOperator = cache(async function requireOperator(): Promise<O
     if (res.kind === "mfa") redirect("/mfa");
     // RPC missing / transient: the page cannot prove operator status. Fail
     // closed and say why with a fixed reason code (the raw message stays in the server log).
-    console.warn("[auth] operator check failed", { kind: res.kind, unavailable: res.kind === "error" ? Boolean(res.unavailable) : false });
+    // The raw reason stays server-side, in this log line — never in the URL or on the page.
+    console.warn("[auth] operator check failed", { kind: res.kind, unavailable: res.kind === "error" ? Boolean(res.unavailable) : false, message: "message" in res ? res.message : undefined });
     redirect(`/denied?reason=${deniedReasonCode(res.kind === "error" ? res : {})}`);
   }
   const whoami = toWhoami(res.data);
