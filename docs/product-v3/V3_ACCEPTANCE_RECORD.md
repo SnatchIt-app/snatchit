@@ -21,14 +21,20 @@ acceptance.
 
 **For B (routine shared-branch push):** E's session cannot push, and the denial was not bypassed.
 The local-only range on `design/frontend-audit-20260917` in
-`/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-audit` is `6f284925..` this commit (6 commits:
-`7fc043d0`, `fc606307`, `226a22f0`, `c662fded`, `d9240daa` and this one). Every commit changes only
-this file. E scanned the range for credentials and private data before each push hand-off; 0 hits,
-with a positive control. The push is a normal fast-forward with no force.
+`/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-audit` is **`6f284925..` this commit**, a normal
+fast-forward with no force. It holds E's record commits `7fc043d0`, `fc606307`, `226a22f0`,
+`c662fded`, `d9240daa`, `f8cc4920` and this one, plus **B's own local `92356c9e`**
+(`B_REVIEW_HANDOFF.md` §11). E scanned the whole range for credentials and private data; 0 hits,
+with a positive control.
 
-**Still pending, a development item and not a storage blocker:** B's narrow review of C's four
-default frames in `native/9bbeaec6/`. B's prediction is pre-registered at `6f284925`, but no result
-had landed by this closeout. E will not start another relay cycle.
+**B's narrow review is in, at `92356c9e`, and it passes.** C's four frames in `native/9bbeaec6/`
+(evidence `32c0804a`) are genuinely re-shot: all four md5 values differ from the `b64e5dd6` frames.
+- Zero differing pixels below y = 440 px in all four. The only difference is the status-bar clock.
+- The gutter has 0 px of content ink.
+- B's result matches E's independent re-diff.
+
+**W-4 and S-1/S-1b therefore pass at default size on the paint.** The historical `1ab2c8e2`
+comparison stays labelled unverifiable, because its other half was never kept.
 
 **Not measured passes:** these items are waived, source-only or optional, so they stay open as
 recorded:
@@ -109,7 +115,7 @@ reviews by B and E, each with its own positive-controlled instrument.
 - **Wording decided under owner delegation:** W-1 "Unrated"; W-2 and its correction; W-2b; W-3
   uppercase chrome labels; W-4; W-5; W-6. They are recorded below and closed.
 
-### Default size after the header change: VERIFIED by kept frames (C `32c0804a`; E independently re-diffed). B's narrow review pending
+### Default size after the header change: VERIFIED by kept frames (C `32c0804a`; E independently re-diffed; **B passed it at `92356c9e`**)
 - **Fresh captures** at the served tip `9bbeaec6`, through `_dev/v3-account` (the real Settings and
   Appearance screens): `native/9bbeaec6/settings-hub-default-{light,dark}` and
   `appearance-default-{light,dark}`, with `capture-log.txt`.
