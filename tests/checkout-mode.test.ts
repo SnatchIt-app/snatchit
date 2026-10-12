@@ -34,7 +34,8 @@ describe('F4 · parseCheckoutMode never invents a mode', () => {
   });
 
   it('CM2: absent, empty, or unknown is NO mode — not auction', () => {
-    for (const raw of [undefined, '', 'x', 'AUCTION', 'buy-now', 'null']) {
+    // 'bid' is the legacy literal the winner path once pushed (B-D10): it is NOT a mode.
+    for (const raw of [undefined, '', 'x', 'AUCTION', 'buy-now', 'null', 'bid']) {
       expect(parseCheckoutMode(raw), `raw=${String(raw)}`).toBeNull();
     }
   });
@@ -98,5 +99,34 @@ describe('F4 · CheckoutNative is wired through the helpers, not through a boole
   it('CM10: the return URL is built by the helper that carries the context', () => {
     expect(src).toContain('returnURL: buildCheckoutReturnURL(');
     expect(src).not.toContain('returnURL: `snatchit://checkout/${listingId}`');
+  });
+});
+
+describe('F4 · every caller pushes a mode the screen will parse (B-D10)', () => {
+  /*
+   * B's blocker on the F4 fix: the auction winner's "Pay now" pushed mode 'bid', which at the base
+   * fell through to auction by accident (`params.mode === 'buy_now'` was false). With the mode
+   * parsed, 'bid' became NO mode: every winner landed in the settled-only branch, saw "We couldn't
+   * check whether this has already been paid" with a "Check again" that re-ran it forever, and Pay
+   * never appeared. The literal must be the server's contract, 'buy_now' | 'auction'.
+   */
+  const detail = strip('src/screens/ListingDetailScreen.tsx');
+
+  it('CM11: the winner checkout pushes mode auction, the Buy Now checkout pushes mode buy_now', () => {
+    const winner = detail.slice(detail.indexOf('function navigateToWinnerCheckout'), detail.indexOf('\n  }', detail.indexOf('function navigateToWinnerCheckout')));
+    const buyNow = detail.slice(detail.indexOf('function navigateToCheckout'), detail.indexOf('\n  }', detail.indexOf('function navigateToCheckout')));
+    expect(winner).toContain("mode: 'auction'");
+    expect(buyNow).toContain("mode: 'buy_now'");
+    expect(detail).not.toContain("mode: 'bid'");
+  });
+
+  it('CM12: those two are the only checkout pushes in the app, and each carries a parseable mode', async () => {
+    const { execSync } = await import('node:child_process');
+    const hits = execSync(`grep -rln "pathname: '/checkout/\\[id\\]'" app src --include='*.ts' --include='*.tsx'`, { encoding: 'utf8' })
+      .split('\n').filter(Boolean).filter((f) => !f.includes('/_dev/'));
+    expect(hits).toEqual(['src/screens/ListingDetailScreen.tsx']);
+    const pushes = detail.match(/pathname: '\/checkout\/\[id\]',\s*params: \{[^}]*mode: '([a-z_]+)'/g) ?? [];
+    expect(pushes).toHaveLength(2);
+    for (const p of pushes) expect(parseCheckoutMode(p.match(/mode: '([a-z_]+)'/)![1])).not.toBeNull();
   });
 });
