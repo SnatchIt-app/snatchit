@@ -16,7 +16,7 @@ export const NAV: readonly { href: string; label: string; short?: string; key: s
   { href: "/", label: "Today", key: "t", icon: "today", primary: true },
   { href: "/cases", label: "Cases", key: "c", icon: "case", primary: true, group: "Work" },
   { href: "/orders", label: "Orders & transfers", short: "Orders", key: "o", icon: "receipt", primary: true, group: "Money" },
-  { href: "/money", label: "Money & refunds", short: "Money", key: "m", icon: "money", primary: true, group: "Money" },
+  { href: "/money", label: "Money", short: "Money", key: "m", icon: "money", primary: true, group: "Money" },
   { href: "/users", label: "Users", key: "u", icon: "users", group: "People" },
   { href: "/marketplace", label: "Marketplace", short: "Market", key: "k", icon: "store", group: "Platform" },
   { href: "/reports", label: "Reports", key: "r", icon: "flag", group: "People" },

@@ -26,7 +26,9 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const me = await requireOperator();
 
   const res = await callOps<unknown>("case_detail", { p_case_id: id });
-  if (!res.ok) {
+  // case_detail raises "not_found: …" for an id that does not exist — show that, not an outage.
+  const missing = !res.ok && res.kind === "error" && res.message.toLowerCase().includes("not_found");
+  if (!res.ok && !missing) {
     return (
       <>
         <PageHeader eyebrow="Case" title={id.slice(0, 8)} />
@@ -34,7 +36,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       </>
     );
   }
-  const detail = toCaseDetail(res.data);
+  const detail = res.ok ? toCaseDetail(res.data) : null;
   if (!detail || !detail.case) {
     return (
       <>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toListingSummary, type ListingSummary } from "@/lib/types";
-import { cursorOf, first, limitOf, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm, FilterSelect } from "@/components/ui/FilterField";
@@ -62,7 +62,7 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
           <input name="q" defaultValue={q} placeholder="listing id or event name" className="field py-1.5 text-[0.8125rem]" />
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref="/marketplace" /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_listings" retryHref={selfHref("/marketplace", sp)} /> : <ListingTable rows={rows} basePath="/marketplace" searchParams={sp} nextCursor={page?.next_cursor} />}
     </>
   );
 }

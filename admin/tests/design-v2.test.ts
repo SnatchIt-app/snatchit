@@ -78,7 +78,9 @@ describe("order rows keep the reviewed vocabulary and the references", () => {
   it("keeps the order, payment and Stripe references and the open-case link", () => {
     expect(html).toContain('href="/orders/9a900000-0000-4000-8000-000000000013"');
     expect(html).toContain("pi_test_000013");
-    expect(html).toContain('href="/cases?subject_id=9a900000-0000-4000-8000-000000000013"');
+    // open_cases counts payment, transfer and listing cases; the order page lists all three (a payment-id case filter misses most).
+    expect(html).toMatch(/<a[^>]*badge badge-red[^>]*href="\/orders\/9a900000-0000-4000-8000-000000000013"|<a[^>]*href="\/orders\/9a900000-0000-4000-8000-000000000013"[^>]*badge badge-red/);
+    expect(html).not.toContain("/cases?subject_id=");
     expect(html).toContain("2 open cases");
   });
 });

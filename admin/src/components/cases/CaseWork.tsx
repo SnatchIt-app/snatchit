@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { CASE_PRIORITIES, CASE_STATUSES, type OpsCase, type CaseDetail } from "@/lib/types";
 import { humanize } from "@/lib/format";
-import { ConfirmForm } from "@/components/ui/ConfirmForm";
+import { ConfirmForm, OutcomeHost } from "@/components/ui/ConfirmForm";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime, TimeAgo } from "@/components/ui/DateTime";
 import { Icon } from "@/components/ui/Icon";
@@ -80,62 +80,70 @@ export function CaseControls({ c, detail, me, envelope, idPrefix }: { c: OpsCase
   return (
     <div className="divide-y divide-[rgba(70,50,30,0.1)] border-y border-line">
       <Control title="Assign" current={assigneeName(c, me.id) ?? "Unassigned"}>
-        <ConfirmForm key={`assign-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_assign" {...envelope} label="Assign">
-          <label htmlFor={id("assignee")} className="eyebrow block text-dim">
-            Assignee
-          </label>
-          <select id={id("assignee")} name="param.assignee" defaultValue={c.assignee ?? ""} className="field mt-1">
-            <option value="">Unassigned</option>
-            <option value={me.id}>Me ({me.label})</option>
-            {detail.operators
-              .filter((o) => o.user_id && o.user_id !== me.id)
-              .map((o) => (
-                <option key={o.user_id} value={o.user_id}>
-                  {o.display ?? o.email_masked ?? o.user_id} {o.role ? `· ${o.role.replace("platform_", "")}` : ""}
-                </option>
-              ))}
-          </select>
-        </ConfirmForm>
+        <OutcomeHost actionType="case_assign">
+          <ConfirmForm key={`assign-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_assign" {...envelope} label="Assign">
+            <label htmlFor={id("assignee")} className="eyebrow block text-dim">
+              Assignee
+            </label>
+            <select id={id("assignee")} name="param.assignee" defaultValue={c.assignee ?? ""} className="field mt-1">
+              <option value="">Unassigned</option>
+              <option value={me.id}>Me ({me.label})</option>
+              {detail.operators
+                .filter((o) => o.user_id && o.user_id !== me.id)
+                .map((o) => (
+                  <option key={o.user_id} value={o.user_id}>
+                    {o.display ?? o.email_masked ?? o.user_id} {o.role ? `· ${o.role.replace("platform_", "")}` : ""}
+                  </option>
+                ))}
+            </select>
+          </ConfirmForm>
+        </OutcomeHost>
       </Control>
 
       <Control title="Status" current={<StatusBadge status={c.status} />}>
-        <ConfirmForm key={`status-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_status" {...envelope} label="Set status">
-          <label htmlFor={id("status")} className="eyebrow block text-dim">
-            Status
-          </label>
-          <select id={id("status")} name="param.status" defaultValue={c.status ?? "open"} className="field mt-1">
-            {CASE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-        </ConfirmForm>
+        <OutcomeHost actionType="case_status">
+          <ConfirmForm key={`status-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_status" {...envelope} label="Set status">
+            <label htmlFor={id("status")} className="eyebrow block text-dim">
+              Status
+            </label>
+            <select id={id("status")} name="param.status" defaultValue={c.status ?? "open"} className="field mt-1">
+              {CASE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </ConfirmForm>
+        </OutcomeHost>
       </Control>
 
       <Control title="Priority" current={<StatusBadge status={c.priority} />}>
-        <ConfirmForm key={`priority-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_priority" {...envelope} label="Set priority">
-          <label htmlFor={id("priority")} className="eyebrow block text-dim">
-            Priority
-          </label>
-          <select id={id("priority")} name="param.priority" defaultValue={c.priority ?? "p3"} className="field mt-1">
-            {CASE_PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </ConfirmForm>
+        <OutcomeHost actionType="case_priority">
+          <ConfirmForm key={`priority-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_priority" {...envelope} label="Set priority">
+            <label htmlFor={id("priority")} className="eyebrow block text-dim">
+              Priority
+            </label>
+            <select id={id("priority")} name="param.priority" defaultValue={c.priority ?? "p3"} className="field mt-1">
+              {CASE_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </ConfirmForm>
+        </OutcomeHost>
       </Control>
 
       <Control title="Due" current={c.due_at ? <TimeAgo value={c.due_at} /> : "No due date"}>
-        <ConfirmForm key={`due-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_due" {...envelope} label="Set due">
-          <label htmlFor={id("due")} className="eyebrow block text-dim">
-            Due (your local time; stored as UTC)
-          </label>
-          <input id={id("due")} type="datetime-local" name="param.due_at" defaultValue={c.due_at ? c.due_at.slice(0, 16) : ""} className="field mt-1" />
-          <p className="mt-1 text-[0.6875rem] text-dim">Leave empty to clear the due date.</p>
-        </ConfirmForm>
+        <OutcomeHost actionType="case_due">
+          <ConfirmForm key={`due-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_due" {...envelope} label="Set due">
+            <label htmlFor={id("due")} className="eyebrow block text-dim">
+              Due (UTC)
+            </label>
+            <input id={id("due")} type="datetime-local" name="param.due_at" defaultValue={c.due_at ? c.due_at.slice(0, 16) : ""} className="field mt-1" />
+            <p className="mt-1 text-[0.6875rem] text-dim">Leave empty to clear the due date.</p>
+          </ConfirmForm>
+        </OutcomeHost>
       </Control>
     </div>
   );
@@ -180,12 +188,14 @@ export function CaseNotes({ c, detail, meId, envelope, idPrefix, limit }: { c: O
         </ol>
       )}
       <div className="mt-4">
-        <ConfirmForm key={`note-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_note" {...envelope} label="Add note" reasonRequired={false}>
-          <label htmlFor={`${idPrefix}-note`} className="eyebrow block text-dim">
-            New note
-          </label>
-          <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Append-only; visible to all operators." />
-        </ConfirmForm>
+        <OutcomeHost actionType="case_note">
+          <ConfirmForm key={`note-${c.version}`} idempotencyKey={newIdempotencyKey()} actionType="case_note" {...envelope} label="Add note" reasonRequired={false}>
+            <label htmlFor={`${idPrefix}-note`} className="eyebrow block text-dim">
+              New note
+            </label>
+            <textarea id={`${idPrefix}-note`} name="param.body" required rows={3} maxLength={4000} className="field mt-1" placeholder="Append-only; visible to all operators." />
+          </ConfirmForm>
+        </OutcomeHost>
       </div>
     </div>
   );

@@ -21,6 +21,8 @@ export function MfaFlow({ next }: { next: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // A ref, not the state: a same-tick double press would pass a state check.
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   // Guard against React StrictMode's double effect run in development: a
@@ -70,11 +72,13 @@ export function MfaFlow({ next }: { next: string }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (phase.kind !== "enroll" && phase.kind !== "verify") return;
+    if (busyRef.current) return;
     const digits = code.replace(/\s+/g, "");
     if (!/^\d{6}$/.test(digits)) {
       setError("Enter the 6-digit code from your authenticator.");
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -93,6 +97,7 @@ export function MfaFlow({ next }: { next: string }) {
       setError(err instanceof Error ? err.message : "Verification failed.");
       setCode("");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -148,7 +153,7 @@ export function MfaFlow({ next }: { next: string }) {
         />
       </div>
       {error ? <Alert state="failed" title={error} compact /> : null}
-      <button type="submit" disabled={busy} className="btn btn-primary btn-lg w-full">
+      <button type="submit" aria-disabled={busy} aria-busy={busy} className="btn btn-primary btn-lg w-full">
         {busy ? "Verifying…" : phase.kind === "enroll" ? "Enrol and verify" : "Verify"}
       </button>
     </form>

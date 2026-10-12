@@ -1,4 +1,5 @@
-import { ConfirmForm } from "@/components/ui/ConfirmForm";
+import { ConfirmForm, OutcomeHost } from "@/components/ui/ConfirmForm";
+import { DateTime } from "@/components/ui/DateTime";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import type { Report } from "@/lib/types";
 
@@ -10,13 +11,17 @@ import type { Report } from "@/lib/types";
 export function ReportResolveForms({ report, revalidate, compact = false }: { report: Report; revalidate: string; compact?: boolean }) {
   if (!report.id) return null;
   const closed = report.status === "actioned" || report.status === "dismissed";
-  if (closed) return <span className="text-[0.75rem] text-dim">closed {report.resolved_at ? "" : ""}</span>;
   const targets: { status: string; label: string; danger?: boolean }[] = [
     ...(report.status === "reviewing" ? [] : [{ status: "reviewing", label: "Mark reviewing" }]),
     { status: "actioned", label: "Actioned", danger: true },
     { status: "dismissed", label: "Dismiss" },
   ];
+  // OutcomeHost keeps the server's answer visible after the forms re-key on the new status.
   return (
+    <OutcomeHost actionType="report_resolve">
+      {closed ? (
+        <span className="text-[0.75rem] text-dim">closed{report.resolved_at ? <> <DateTime value={report.resolved_at} /></> : null}</span>
+      ) : (
     <div className={`flex flex-col gap-3 ${compact ? "min-w-[220px]" : ""}`}>
       {targets.map((t) => (
         <ConfirmForm
@@ -35,5 +40,7 @@ export function ReportResolveForms({ report, revalidate, compact = false }: { re
         />
       ))}
     </div>
+      )}
+    </OutcomeHost>
   );
 }

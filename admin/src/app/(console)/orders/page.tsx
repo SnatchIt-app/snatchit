@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
-import { toListPage, toOrderRows, num, type OrderRow } from "@/lib/types";
+import { toListPage, toOrderRows, type OrderRow } from "@/lib/types";
 import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
 import { FUNDS_STATE_LABELS, PAYMENT_STATUS_LABELS, TRANSFER_STATUS_LABELS, isPast, labelFor, transferStateLabel } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -15,6 +15,8 @@ import { Money } from "@/components/ui/Money";
 import { DateTime, TimeAgo } from "@/components/ui/DateTime";
 import { PartyLink } from "@/components/ui/IdLink";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { isUuid } from "@/lib/routes";
+import { listTotal } from "@/lib/list-filters";
 
 export const metadata: Metadata = { title: "Orders & transfers" };
 export const dynamic = "force-dynamic";
@@ -42,10 +44,10 @@ type Params = Partial<Record<FilterKey, string>>;
  * only a preset of the filters — nothing the filter chips cannot also express.
  */
 const QUEUES: { key: string; label: string; hint: string; icon: IconName; params: Params }[] = [
-  { key: "cases", label: "Open cases", hint: "An order someone is working on", icon: "case", params: { has_open_case: "true" } },
+  { key: "cases", label: "Open cases", hint: OPEN_CASE_LABELS.true, icon: "case", params: { has_open_case: "true" } },
   { key: "delivery", label: "Awaiting seller delivery", hint: "Paid; ticket not yet sent", icon: "clock", params: { transfer_status: "pending" } },
   { key: "disputed", label: "Disputed", hint: "Buyer raised a problem", icon: "alert", params: { transfer_status: "disputed" } },
-  { key: "review", label: "Manual review", hint: "Seller funds held for a person", icon: "flag", params: { payout_state: "manual_review" } },
+  { key: "review", label: FUNDS_STATE_LABELS.manual_review, hint: `Seller funds: ${PAYOUT_STATE_LABELS.manual_review}`, icon: "flag", params: { payout_state: "manual_review" } },
 ];
 
 function href(params: Record<string, string | undefined>): string {
@@ -77,7 +79,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const from = first(sp.from);
   const to = first(sp.to);
   const q = (first(sp.q) ?? "").trim().slice(0, 200);
-  const open = first(sp.open) ?? null;
+  const openRaw = first(sp.open);
+  const open = isUuid(openRaw) ? openRaw : null;
 
   const applied: Params = {
     payment_status: paymentStatus?.length ? paymentStatus.join(",") : undefined,
@@ -96,17 +99,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     callOps<unknown>("list_orders", { p_filters: filters, p_cursor: cursorOf(sp), p_limit: limitOf(sp) }),
     ...QUEUES.map((v) => callOps<unknown>("list_orders", { p_filters: toFilters(v.params), p_cursor: null, p_limit: 100 })),
   ]);
-  // count_hint is omitted when nothing matches; an empty first page is a real zero.
-  const countOf = (r: { ok: boolean; data?: unknown }) => {
-    if (!r.ok || typeof r.data !== "object" || r.data === null) return null;
-    const hint = num((r.data as Record<string, unknown>).count_hint);
-    if (hint !== null) return hint;
-    const lp = toListPage(r.data);
-    return lp.next_cursor ? null : lp.items.length;
-  };
+  const countOf = (r: { ok: boolean; data?: unknown }) => listTotal(r, false);
   const page = res.ok ? toListPage(res.data) : null;
   const rows = page ? toOrderRows(page.items) : [];
-  const countHint = countOf(res);
+  const countHint = listTotal(res, Boolean(cursorOf(sp)));
 
   const same = (p: Params) => FILTER_KEYS.every((k) => (p[k] ?? undefined) === applied[k]);
   const activeQueue = QUEUES.find((v) => same(v.params))?.key ?? null;
@@ -170,7 +166,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           {filterCount || q ? "Matching orders" : "All orders"}
         </h2>
         <div className="flex flex-wrap items-center gap-2 border-b border-line p-3 md:p-4">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex flex-wrap items-center gap-2">
             <DimensionChip title="Payment" name="payment_status" kind="check" options={PAYMENT_STATUSES.map((v) => [v, PAYMENT_STATUS_LABELS[v] ?? v])} applied={applied} q={q} />
             <DimensionChip title="Ticket transfer" name="transfer_status" kind="check" options={TRANSFER_STATUSES.map((v) => [v, TRANSFER_STATUS_LABELS[v] ?? v])} applied={applied} q={q} />
             <DimensionChip title="Seller funds" name="payout_state" kind="radio" options={PAYOUT_STATES.map((v) => [v, PAYOUT_STATE_LABELS[v]])} applied={applied} q={q} />
@@ -194,7 +190,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             {chips.map((c) => (
               <RemovableChip key={c.key} label={c.label} href={href({ ...applied, [c.key]: undefined, q: q || undefined })} />
             ))}
-            <Link href="/orders" className="ml-1 rounded-full px-2 text-[0.8125rem] font-medium text-muted underline-offset-4 hover:text-ink hover:underline">
+            <Link href="/orders" className="ml-1 inline-flex min-h-9 items-center rounded-full px-2 text-[0.8125rem] font-medium text-muted underline-offset-4 hover:text-ink hover:underline">
               Clear all
             </Link>
           </div>
@@ -203,7 +199,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <div className="p-2 md:p-1">
           {!res.ok ? (
             <div className="p-3">
-              <OpsFailureAlert failure={res} fn="list_orders" retryHref="/orders" subject="Orders" />
+              <OpsFailureAlert failure={res} fn="list_orders" retryHref={closeHref} subject="Orders" />
             </div>
           ) : rows.length === 0 ? (
             <div className="flex flex-col items-center px-6 py-14 text-center">
@@ -219,7 +215,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               ) : null}
             </div>
           ) : (
-            <OrderTable rows={rows} basePath="/orders" searchParams={sp} nextCursor={page?.next_cursor} openHref={openHref} selectedId={open} />
+            <OrderTable rows={rows} basePath="/orders" searchParams={{ ...sp, open: undefined }} nextCursor={page?.next_cursor} openHref={openHref} selectedId={open} />
           )}
         </div>
       </section>
@@ -246,7 +242,7 @@ function OrderPreview({ r }: { r: OrderRow }) {
           Buyer paid <Money cents={r.total} /> in total{r.created_at ? <> · ordered <TimeAgo value={r.created_at} /></> : null}
         </p>
         {r.open_cases ? (
-          <Link href={`/cases?subject_id=${id}`} className="badge badge-red mt-3">
+          <Link href={`/orders/${id}`} className="badge badge-red mt-3">
             {r.open_cases} open {r.open_cases === 1 ? "case" : "cases"} — view
           </Link>
         ) : null}
@@ -409,13 +405,13 @@ function DimensionChip({ title, name, kind, options, applied, q }: { title: stri
           : null;
   const keepKeys = FILTER_KEYS.filter((k) => (kind === "dates" ? k !== "from" && k !== "to" : k !== name));
   return (
-    <details data-popover className="relative">
-      <summary className={`filter-chip ${selected.length ? "!bg-ink !text-white !shadow-none" : ""}`} aria-label={`${title} filter${label ? `: ${label}` : ""}`}>
+    <details data-popover className="sm:relative">
+      <summary className={`filter-chip ${selected.length ? "!bg-ink !text-white !shadow-none" : ""}`} aria-label={`${title}${label ? ` ${label}` : ""} filter`}>
         <span className={selected.length ? "text-white/70" : "text-muted"}>{title}</span>
         {label ? <span className="max-w-[10rem] truncate font-semibold">{label}</span> : null}
         <Icon name="down" size={14} />
       </summary>
-      <form method="get" action="/orders" className="popover glass glass-solid left-0 w-[min(19rem,calc(100vw-2rem))] p-2">
+      <form method="get" action="/orders" className="popover glass glass-solid inset-x-0 p-2 sm:inset-x-auto sm:left-0 sm:w-[min(19rem,calc(100vw-2rem))]">
         {q ? <input type="hidden" name="q" value={q} /> : null}
         {keepKeys.map((k) => (applied[k] ? <input key={k} type="hidden" name={k} value={applied[k]} /> : null))}
         <fieldset className="flex max-h-[18rem] flex-col gap-0.5 overflow-y-auto p-1">

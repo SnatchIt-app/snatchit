@@ -15,6 +15,7 @@ import { OpsFailureAlert, Alert } from "@/components/ui/Alert";
 import { DateTime } from "@/components/ui/DateTime";
 import { CaseTable } from "@/components/cases/CaseTable";
 import { ReportFreshness } from "@/components/shell/Freshness";
+import { OPEN_CASE_STATUSES } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Today" };
 export const dynamic = "force-dynamic";
@@ -63,6 +64,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     );
   }
 
+  // The attention list is capped (ops.today returns at most 200); the total is the open_cases metric.
+  const openMetric = today.metrics.find((m) => m.key === "open_cases")?.value;
+  const openCount = typeof openMetric === "number" ? openMetric : today.attention.length;
   const filtered = today.attention.filter((c) =>
     assignee === "all" ? true : assignee === "me" ? c.assignee === me.id : !c.assignee,
   );
@@ -97,7 +101,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           <>
             Data as of <DateTime value={today.computed_at} withSeconds />
             {" · "}
-            {today.attention.length} open item{today.attention.length === 1 ? "" : "s"}
+            {openCount} open item{openCount === 1 ? "" : "s"}
+            {today.attention.length < openCount ? ` · ${today.attention.length} listed` : ""}
             {" · "}
             <a href="#business" className="link">
               Business snapshot
@@ -143,13 +148,13 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                 <Panel
                   key={type}
                   title={
-                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="hover:text-primary-ink">
+                    <Link href={`/cases?case_type=${encodeURIComponent(type)}&status=${OPEN_CASE_STATUSES}`} className="hover:text-primary-ink">
                       {humanize(type)}
                     </Link>
                   }
                   description={`${rows.length} open item${rows.length === 1 ? "" : "s"}`}
                   actions={
-                    <Link href={`/cases?case_type=${encodeURIComponent(type)}`} className="link text-[0.8125rem]">
+                    <Link href={`/cases?case_type=${encodeURIComponent(type)}&status=${OPEN_CASE_STATUSES}`} className="link text-[0.8125rem]">
                       All {humanize(type).toLowerCase()} cases
                     </Link>
                   }

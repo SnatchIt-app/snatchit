@@ -200,7 +200,7 @@ function FundsCell({ r }: { r: OrderRow }) {
 function CasesCell({ r }: { r: OrderRow }) {
   if (!r.open_cases) return null;
   return (
-    <Link href={`/cases?subject_id=${r.payment_id ?? ""}`} className="badge badge-red tabular-nums hover:bg-[rgba(196,0,0,0.06)]">
+    <Link href={`/orders/${r.payment_id ?? ""}`} className="badge badge-red tabular-nums hover:bg-[rgba(196,0,0,0.06)]">
       {r.open_cases} open {r.open_cases === 1 ? "case" : "cases"}
     </Link>
   );

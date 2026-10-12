@@ -106,6 +106,14 @@
   html {
     background: var(--color-canvas);
   }
+  /* Below lg the header is sticky and the tab bar is fixed: keep a focused or
+     scrolled-to element clear of both (WCAG 2.4.11). */
+  @media (max-width: 1023.98px) {
+    html {
+      scroll-padding-top: 5rem;
+      scroll-padding-bottom: 6.5rem;
+    }
+  }
   body {
     min-height: 100dvh;
     color: #231e1a;
@@ -797,7 +805,7 @@
     cursor: not-allowed;
   }
   .field::placeholder {
-    color: rgba(35, 30, 26, 0.6);
+    color: var(--color-placeholder);
   }
   select.field {
     appearance: none;
@@ -838,7 +846,7 @@
     font-size: var(--text-body);
   }
   .search-pill input::placeholder {
-    color: rgba(35, 30, 26, 0.6);
+    color: var(--color-placeholder);
   }
 
   .link {

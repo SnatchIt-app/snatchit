@@ -29,3 +29,18 @@ export function limitOf(sp: SearchParams, fallback = 50, max = 200): number {
   if (!Number.isInteger(n) || n <= 0) return fallback;
   return Math.min(n, max);
 }
+
+/**
+ * The page the operator is on, with every query parameter it was loaded with —
+ * so "Try again" after a failed read reloads the same filtered view, not the
+ * unfiltered default. Repeated keys are kept.
+ */
+export function selfHref(path: string, sp: SearchParams): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (Array.isArray(v)) v.forEach((x) => x !== "" && q.append(k, x));
+    else if (v !== undefined && v !== "") q.set(k, v);
+  }
+  const s = q.toString();
+  return s ? `${path}?${s}` : path;
+}

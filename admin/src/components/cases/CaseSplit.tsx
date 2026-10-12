@@ -25,6 +25,8 @@ export function CaseSplit({ openId, closeHref, children }: { openId: string | nu
     document.getElementById("case-pane-title")?.focus();
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
+      // An open popover (a filter, New manual case) takes this Escape; PopoverDismiss closes it.
+      if (document.querySelector("details[data-popover][open]")) return;
       const t = e.target as HTMLElement | null;
       // Escape inside an open disclosure or a field belongs to that control.
       if (t?.closest("details[open] form") || t?.matches("input, textarea, select")) return;

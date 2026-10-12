@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/ui/Icon";
 
 /**
@@ -15,11 +15,30 @@ import { Icon } from "@/components/ui/Icon";
 export function OrderDrawer({ id, closeHref, title, children }: { id: string; closeHref: string; title: string; children: ReactNode }) {
   const router = useRouter();
   const heading = useRef<HTMLHeadingElement>(null);
+  const panel = useRef<HTMLElement>(null);
+
+  // The scrim covers the queue, so Tab stays inside the drawer: from the last
+  // control it wraps to the heading, and Shift+Tab from the heading to the last.
+  const onTab = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Tab" || !panel.current) return;
+    const items = Array.from(panel.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select, textarea, summary, [tabindex]:not([tabindex="-1"])')).filter((el) => el.offsetParent !== null);
+    const first = heading.current;
+    const last = items[items.length - 1];
+    if (!first || !last) return;
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === items[0])) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   useEffect(() => {
     heading.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector("details[data-popover][open]")) return;
       e.preventDefault();
       close();
     };
@@ -44,7 +63,7 @@ export function OrderDrawer({ id, closeHref, title, children }: { id: string; cl
   return (
     <>
       <Link href={closeHref} scroll={false} aria-label="Close order preview" className="drawer-scrim fixed inset-0 z-40 bg-[rgba(28,25,23,0.18)]" tabIndex={-1} />
-      <aside role="dialog" aria-modal="false" aria-labelledby="drawer-title" className="drawer glass glass-solid fixed inset-y-3 right-3 z-50 flex w-[min(30rem,calc(100vw-1.5rem))] flex-col rounded-[28px]">
+      <aside ref={panel} onKeyDown={onTab} role="dialog" aria-modal="true" aria-labelledby="drawer-title" className="drawer glass glass-solid fixed inset-y-3 right-3 z-50 flex w-[min(30rem,calc(100vw-1.5rem))] flex-col rounded-[28px]">
         <div className="flex items-start justify-between gap-3 border-b border-line px-6 pb-4 pt-5">
           <div className="min-w-0">
             <p className="kicker">Order preview</p>

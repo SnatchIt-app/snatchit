@@ -3,12 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
-import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
-import { canRequest } from "@/lib/permissions";
 import { SUPABASE_URL } from "@/lib/env";
-import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, transferStateLabel, DISPUTE_OUTCOME_LABELS } from "@/lib/format";
-import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction, type OrderDetail } from "@/lib/types";
+import { decisionProvenanceNote, labelFor, payoutStateLabel, refundStateLabel, shortId, transferStateLabel } from "@/lib/format";
+import { asArray, str, num, bool, evidenceItems, refundStatusOf, toOrderDetail, toSettings, toTimeline, type JsonRecord, type OpsAction } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Panel } from "@/components/ui/Panel";
 import { KeyValue } from "@/components/ui/KeyValue";
@@ -16,12 +14,11 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DateTime } from "@/components/ui/DateTime";
 import { Money } from "@/components/ui/Money";
 import { Alert, OpsFailureAlert } from "@/components/ui/Alert";
-import { ConfirmForm } from "@/components/ui/ConfirmForm";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { IdLink, PartyLink } from "@/components/ui/IdLink";
 import { EvidenceList } from "@/components/ui/EvidenceLink";
 import { CaseTable } from "@/components/cases/CaseTable";
-import { NewCaseForm } from "@/components/cases/NewCaseForm";
+import { OrderActions } from "@/components/orders/OrderActions";
 import { ActionTable } from "@/components/actions/ActionTable";
 import { Timeline } from "@/components/orders/Timeline";
 
@@ -316,152 +313,9 @@ export default async function OrderPage({ params }: { params: Promise<{ paymentI
           <ActionTable rows={d.actions} basePath={path} meId={me.id} />
         </Panel>
         <Panel eyebrow="Chronology" title="Timeline">
-          {!timelineRes.ok ? <OpsFailureAlert failure={timelineRes} fn="order_timeline" retryHref={path} /> : timeline ? <Timeline data={timeline} /> : null}
+          {!timelineRes.ok ? <OpsFailureAlert failure={timelineRes} fn="order_timeline" retryHref={path} /> : timeline ? <Timeline data={timeline} /> : <Alert state="failed" title="Unrecognised payload from ops.order_timeline()" retryHref={path} compact />}
         </Panel>
       </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function OrderActions({
-  d,
-  me,
-  path,
-  refundEnabled,
-  disputeOpen,
-  canRelease,
-  canRefund,
-}: {
-  d: OrderDetail;
-  me: Awaited<ReturnType<typeof requireOperator>>;
-  path: string;
-  refundEnabled: boolean;
-  disputeOpen: boolean;
-  canRelease: boolean;
-  canRefund: boolean;
-}) {
-  const p = d.payment!;
-  const t = d.transfer;
-  const nothing = !disputeOpen && !canRelease && !canRefund;
-  return (
-    <>
-      <Panel eyebrow="Safe actions" title="Actions">
-        <p className="text-[0.75rem] text-muted">
-          Every action needs a reason, checks the state you see here before acting, and is recorded with your identity. Results shown are the server&apos;s answer — never optimistic.
-        </p>
-        {nothing ? <Alert state="info" title="No state-changing action applies to this order right now." compact /> : null}
-      </Panel>
-
-      {disputeOpen && t?.id ? (
-        <Panel eyebrow="Dispute open" title="Resolve dispute">
-          {canRequest(me.role, "dispute_resolve") ? (
-            <ConfirmForm
-              idempotencyKey={newIdempotencyKey()}
-              actionType="dispute_resolve"
-              subjectKind="transfer"
-              subjectId={t.id}
-              expected={{ status: t.status }}
-              revalidate={path}
-              label="Record resolution"
-              danger
-            >
-              <div>
-                <label htmlFor="dispute-outcome" className="eyebrow block text-dim">
-                  Outcome <span aria-hidden="true">*</span>
-                </label>
-                <select id="dispute-outcome" name="param.outcome" required defaultValue="" className="field mt-1">
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  {Object.entries(DISPUTE_OUTCOME_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="dispute-notes" className="eyebrow block text-dim">
-                  Notes for the record
-                </label>
-                <textarea id="dispute-notes" name="param.notes" rows={2} maxLength={2000} className="field mt-1" />
-              </div>
-              <p className="text-[0.6875rem] text-dim">Buyer win / partial refund does not move money — a Refund pending case opens and the refund is executed separately.</p>
-            </ConfirmForm>
-          ) : (
-            <Alert state="info" title="Only founders and risk operators can record dispute outcomes." compact />
-          )}
-        </Panel>
-      ) : null}
-
-      {canRelease && t?.id ? (
-        <Panel eyebrow="Two-founder approval" title="Release held payout">
-          {canRequest(me.role, "payout_release") ? (
-            <ConfirmForm
-              idempotencyKey={newIdempotencyKey()}
-              actionType="payout_release"
-              subjectKind="transfer"
-              subjectId={t.id}
-              expected={{ payout_review_status: t.payout_review_status ?? null }}
-              revalidate={path}
-              label="Request release"
-              danger
-            >
-              <p className="text-[0.75rem] text-muted">
-                Marks the transfer released; the payout worker creates the Stripe Transfer to the seller&apos;s connected account on its next run (not a bank payout). Requires the other founder&apos;s approval under System → Approvals; nothing changes until then.
-              </p>
-              <p className="text-[0.6875rem] text-dim">
-                Current review status: <StatusBadge status={t.payout_review_status} label={labelFor("payout_review", t.payout_review_status ?? "none")} />
-                {t.payout_risk_tier ? <> · risk tier {t.payout_risk_tier}</> : null}
-              </p>
-            </ConfirmForm>
-          ) : (
-            <Alert state="info" title="Only a founder can request a payout release." compact />
-          )}
-        </Panel>
-      ) : null}
-
-      {canRefund ? (
-        <Panel eyebrow="Two-founder approval" title="Execute refund">
-          {!canRequest(me.role, "refund_execute") ? (
-            <Alert state="info" title="Only a founder can request a refund." compact />
-          ) : (
-            <>
-              {!refundEnabled ? (
-                <Alert state="warning" title="Disabled until ops-refund-execute is deployed." compact>
-                  {me.role === "platform_admin"
-                    ? "ops.setting refund_execute_enabled is false. Follow the Stripe Dashboard SOP; the request below will be rejected as disabled."
-                    : "Refund execution state is only visible to founders; assume disabled and follow the Stripe Dashboard SOP."}
-                </Alert>
-              ) : null}
-              <ConfirmForm
-                idempotencyKey={newIdempotencyKey()}
-                actionType="refund_execute"
-                subjectKind="payment"
-                subjectId={p.id ?? ""}
-                expected={{ status: p.status }}
-                revalidate={path}
-                label={refundEnabled ? "Request refund" : "Request refund (will be rejected: disabled)"}
-                danger
-                className="mt-3"
-              >
-                <p className="text-[0.75rem] text-ink">
-                  Full refund of <Money cents={p.total} /> only — partial refunds are not supported by the local money model (payments records refund status, not a refunded amount; a partial would be rejected as <code className="font-mono">not_supported</code>).
-                </p>
-                <p className="text-[0.6875rem] text-dim">
-                  Parked as awaiting approval; after the other founder approves, the ops-refund-execute function calls Stripe with a stable idempotency key. The console never calls Stripe. The payment shows “refunded” only after the webhook lands.
-                </p>
-              </ConfirmForm>
-            </>
-          )}
-        </Panel>
-      ) : null}
-
-      <Panel eyebrow="Manual" title="Open a case on this order">
-        <NewCaseForm subjectKind="payment" subjectId={p.id} revalidate={path} defaultTitle={d.listing?.event_name ? `${d.listing.event_name} — ` : undefined} />
-      </Panel>
     </>
   );
 }

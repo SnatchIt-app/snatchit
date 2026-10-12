@@ -55,26 +55,30 @@ export function subjectHref(kind: string | null | undefined, id: string | null |
   }
 }
 
+/** Cases that are still being worked — what Today's open counts count (status not resolved or dismissed). */
+export const OPEN_CASE_STATUSES = "open,in_progress,waiting";
+const openCases = (caseType?: string) => `/cases?${caseType ? `case_type=${caseType}&` : ""}status=${OPEN_CASE_STATUSES}`;
+
 /** Where a Today metric tile should take the operator. */
 export function metricHref(key: string): string | null {
   switch (key) {
     case "open_cases":
-      return "/cases";
+      return openCases();
     case "paid_unsettled":
-      return "/cases?case_type=paid_unsettled";
+      return openCases("paid_unsettled");
     case "transfers_due_6h":
-      return "/cases?case_type=transfer_deadline_soon";
+      return openCases("transfer_deadline_soon");
     case "transfers_overdue":
-      return "/cases?case_type=transfer_overdue";
+      return openCases("transfer_overdue");
     case "refunds_pending":
-      return "/cases?case_type=refund_pending";
+      return openCases("refund_pending");
     case "disputes_open":
-      return "/cases?case_type=dispute_open";
+      return openCases("dispute_open");
     case "stripe_disputes_open":
     case "evidence_due_72h":
-      return "/cases?case_type=dispute_evidence_due";
+      return openCases("dispute_evidence_due");
     case "payout_review":
-      return "/money?state=manual_review#payouts";
+      return "/money#payouts";
     case "reports_pending":
       return "/reports?status=pending";
     case "jobs_failing":

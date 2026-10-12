@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toUserListItem, type UserListItem } from "@/lib/types";
-import { cursorOf, first, limitOf, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, selfHref, type SearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { FilterField, FilterForm } from "@/components/ui/FilterField";
@@ -55,7 +55,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
           </select>
         </FilterField>
       </FilterForm>
-      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref="/users" /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} />}
+      {!res.ok ? <OpsFailureAlert failure={res} fn="list_users" retryHref={selfHref("/users", sp)} /> : <UserTable rows={rows} basePath="/users" searchParams={sp} nextCursor={page?.next_cursor} />}
     </>
   );
 }

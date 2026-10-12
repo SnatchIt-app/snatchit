@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { num, toListPage, toReport, type Report } from "@/lib/types";
-import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
+import { cursorOf, first, limitOf, list, selfHref, type SearchParams } from "@/lib/search-params";
 import { labelFor, REPORT_STATUS_LABELS } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
@@ -92,7 +92,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </FilterField>
       </FilterForm>
       {!res.ok ? (
-        <OpsFailureAlert failure={res} fn="list_reports" retryHref={basePath} />
+        <OpsFailureAlert failure={res} fn="list_reports" retryHref={selfHref(basePath, sp)} />
       ) : (
         <DataTable columns={columns} rows={rows} rowKey={(r, i) => r.id ?? `${i}`} basePath={basePath} searchParams={sp} nextCursor={page?.next_cursor} emptyText="No reports match." caption="Reports" />
       )}

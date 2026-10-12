@@ -5,6 +5,7 @@ import { requireOperator } from "@/lib/auth/session";
 import { CASE_PRIORITIES, CASE_STATUSES, num, toCase, toCaseDetail, toListPage, type OpsCase } from "@/lib/types";
 import { cursorOf, first, limitOf, list, type SearchParams } from "@/lib/search-params";
 import { humanize } from "@/lib/format";
+import { caseFilters } from "@/lib/list-filters";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { OpsFailureAlert } from "@/components/ui/Alert";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -66,18 +67,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
     subject_kind: subjectKind,
     subject_id: subjectId && UUID.test(subjectId) ? subjectId : undefined,
   };
-  const toFilters = (p: Params) => {
-    const f: Record<string, unknown> = {};
-    if (p.status) f.status = p.status.split(",");
-    if (p.priority) f.priority = p.priority.split(",");
-    if (p.case_type) f.case_type = p.case_type.split(",");
-    if (p.subject_kind) f.subject_kind = p.subject_kind;
-    if (p.subject_id) f.subject_id = p.subject_id;
-    if (p.assignee === "me") f.assignee = me.id;
-    else if (p.assignee === "unassigned") f.unassigned = true;
-    else if (p.assignee) f.assignee = p.assignee;
-    return f;
-  };
+  const toFilters = (p: Params) => caseFilters(p, me.id);
 
   const [res, detailRes, ...viewRes] = await Promise.all([
     callOps<unknown>("list_cases", { p_filters: toFilters(applied), p_cursor: cursor, p_limit: limitOf(sp) }),
@@ -114,7 +104,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
               <Icon name="plus" size={16} />
               New manual case
             </summary>
-            <div className="popover glass glass-solid right-0 w-[min(28rem,calc(100vw-2rem))] p-5">
+            <div className="popover glass glass-solid left-0 w-[min(28rem,calc(100vw-2rem))] p-5 xl:left-auto xl:right-0">
               <p className="title-section text-[1.25rem]">New manual case</p>
               <p className="mb-4 mt-1 text-[0.8125rem] text-muted">A free-standing case with no subject. To attach a case to an order, listing or user, open it from that record&apos;s page.</p>
               <NewCaseForm subjectKind="none" revalidate="/cases" />
@@ -160,7 +150,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
           {/* The queue. Below xl it gives way to the open case, which carries a way back. */}
           <section aria-labelledby="queue-h" className={`panel enter-3 min-w-0 overflow-visible ${open ? "hidden xl:block" : ""}`}>
-            <div className="flex flex-wrap items-center gap-2 border-b border-line p-3 md:p-4">
+            <div className="relative flex flex-wrap items-center gap-2 border-b border-line p-3 md:p-4">
               <h2 id="queue-h" className="sr-only">
                 {chips.length ? "Matching cases" : "All cases"}
               </h2>
@@ -186,7 +176,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                     </span>
                   </Link>
                 ))}
-                <Link href="/cases" className="ml-1 rounded-full px-2 text-[0.8125rem] font-medium text-muted underline-offset-4 hover:text-ink hover:underline">
+                <Link href="/cases" className="ml-1 inline-flex min-h-9 items-center rounded-full px-2 text-[0.8125rem] font-medium text-muted underline-offset-4 hover:text-ink hover:underline">
                   Clear all
                 </Link>
               </div>
@@ -245,10 +235,10 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
           <section
             aria-labelledby={open ? "case-pane-title" : undefined}
             aria-label={open ? undefined : "Case detail"}
-            className={`panel glass-solid enter-3 min-w-0 xl:sticky xl:top-24 ${open ? "" : "hidden xl:block"}`}
+            className={`panel glass-solid enter-3 min-w-0 xl:sticky xl:top-24 xl:max-h-[calc(100dvh-7.5rem)] xl:overflow-y-auto ${open ? "" : "hidden xl:block"}`}
           >
             {open && detailRes ? (
-              <CasePane id={open} res={detailRes} me={meRef} closeHref={closeHref} prev={prev?.id ? openHref(prev.id) : null} next={next?.id ? openHref(next.id) : null} />
+              <CasePane id={open} res={detailRes} me={meRef} closeHref={closeHref} retryHref={openHref(open)} prev={prev?.id ? openHref(prev.id) : null} next={next?.id ? openHref(next.id) : null} />
             ) : (
               <div className="flex flex-col items-center px-8 py-20 text-center">
                 <span className="grid h-12 w-12 place-items-center rounded-full bg-[#f5f3ef]">
@@ -330,6 +320,7 @@ function CasePane({
   res,
   me,
   closeHref,
+  retryHref,
   prev,
   next,
 }: {
@@ -337,6 +328,8 @@ function CasePane({
   res: OpsResult<unknown>;
   me: { id: string; label: string };
   closeHref: string;
+  /** The same queue with this case open — a retry keeps the operator's filters. */
+  retryHref: string;
   prev: string | null;
   next: string | null;
 }) {
@@ -347,7 +340,7 @@ function CasePane({
         All cases
       </Link>
       <Link href={closeHref} scroll={false} className="hidden rounded-lg text-[0.8125rem] text-muted hover:text-ink xl:inline">
-        Close <span className="kbd ml-1">Esc</span>
+        Close <kbd className="kbd ml-1">Esc</kbd>
       </Link>
       <span className="flex items-center gap-1">
         {prev ? (
@@ -364,7 +357,9 @@ function CasePane({
     </div>
   );
 
-  if (!res.ok) {
+  // case_detail raises "not_found: …" for a deleted or mistyped id — that is not an outage.
+  const missing = !res.ok && res.kind === "error" && res.message.toLowerCase().includes("not_found");
+  if (!res.ok && !missing) {
     return (
       <>
         {nav}
@@ -373,13 +368,13 @@ function CasePane({
             Case {id.slice(0, 8)}
           </h2>
           <div className="mt-4">
-            <OpsFailureAlert failure={res} fn="case_detail" retryHref={href({ open: id })} subject="This case" />
+            <OpsFailureAlert failure={res} fn="case_detail" retryHref={retryHref} subject="This case" />
           </div>
         </div>
       </>
     );
   }
-  const detail = toCaseDetail(res.data);
+  const detail = res.ok ? toCaseDetail(res.data) : null;
   if (!detail || !detail.case) {
     return (
       <>
@@ -474,13 +469,13 @@ function Chip({ title, name, kind, options, applied }: { title: string; name: Ke
   const keepKeys = KEYS.filter((k) => k !== name);
   const choices: [string, string][] = kind === "radio" ? [["", "Anyone"], ...options] : options;
   return (
-    <details data-popover className="relative">
-      <summary className={`filter-chip ${selected.length ? "!bg-ink !text-white !shadow-none" : ""}`} aria-label={`${title} filter${label ? `: ${label}` : ""}`}>
+    <details data-popover className="sm:relative">
+      <summary className={`filter-chip ${selected.length ? "!bg-ink !text-white !shadow-none" : ""}`} aria-label={`${title}${label ? ` ${label}` : ""} filter`}>
         <span className={selected.length ? "text-white/70" : "text-muted"}>{title}</span>
         {label ? <span className="max-w-[9rem] truncate font-semibold">{label}</span> : null}
         <Icon name="down" size={14} />
       </summary>
-      <form method="get" action="/cases" className="popover glass glass-solid left-0 w-[min(17rem,calc(100vw-2rem))] p-2">
+      <form method="get" action="/cases" className="popover glass glass-solid inset-x-3 p-2 sm:inset-x-auto sm:left-0 sm:w-[min(17rem,calc(100vw-2rem))]">
         {keepKeys.map((k) => (applied[k] ? <input key={k} type="hidden" name={k} value={applied[k]} /> : null))}
         <fieldset className="flex flex-col gap-0.5 p-1">
           <legend className="px-1.5 pb-1 pt-1 text-[0.75rem] font-semibold text-muted">{title}</legend>

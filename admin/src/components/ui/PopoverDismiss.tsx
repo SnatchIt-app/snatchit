@@ -15,6 +15,8 @@ export function PopoverDismiss() {
       const open = openOnes();
       if (open.length === 0) return;
       const last = open[open.length - 1];
+      // This Escape is spent: a pane or drawer listening for Escape must not also close.
+      e.preventDefault();
       last.open = false;
       last.querySelector<HTMLElement>(":scope > summary")?.focus();
     };

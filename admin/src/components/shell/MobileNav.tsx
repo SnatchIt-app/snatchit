@@ -52,6 +52,7 @@ export function MobileNav() {
   const open = openedOn === pathname;
   const buttonRef = useRef<HTMLButtonElement>(null);
 
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -59,19 +60,27 @@ export function MobileNav() {
       setOpenedOn(null);
       buttonRef.current?.focus();
     };
+    // A tap anywhere outside the sheet closes it, as the other popovers do.
+    const onPointer = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpenedOn(null);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
   }, [open]);
 
   return (
-    <div className="lg:hidden">
+    <div ref={rootRef} className="lg:hidden">
       <button
         ref={buttonRef}
         type="button"
         className={`flex min-h-[3.25rem] w-full flex-col items-center justify-center gap-0.5 rounded-[20px] px-1 transition-colors ${open ? "bg-ink text-white" : "text-[rgba(28,25,23,0.72)] hover:bg-[rgba(28,25,23,0.05)]"}`}
         aria-expanded={open}
-        aria-controls="mobile-nav"
-        aria-label={open ? "Close the list of sections" : "All sections"}
+        aria-controls={open ? "mobile-nav" : undefined}
+        aria-label={open ? "Close the list of sections" : "More — all sections"}
         onClick={() => setOpenedOn(open ? null : pathname)}
       >
         <Icon name={open ? "close" : "menu"} size={19} />

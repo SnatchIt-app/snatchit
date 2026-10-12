@@ -1,6 +1,7 @@
 import { ENV_LABEL, IS_PRODUCTION_ENV_LABEL } from "@/lib/env";
 import { signOutAction } from "@/lib/auth/actions";
 import { SearchBox } from "@/components/shell/SearchBox";
+import { ShortcutToggle } from "@/components/shell/KeyboardShortcuts";
 import { FreshnessSlot } from "@/components/shell/Freshness";
 import { humanize } from "@/lib/format";
 import { Icon } from "@/components/ui/Icon";
@@ -46,7 +47,8 @@ function AccountMenu({ email, role, placement }: { email: string | null; role: s
     <div className={`popover glass glass-solid w-72 p-4 ${placement === "sidebar" ? "bottom-14 left-0" : "right-0"}`}>
       <p className="break-words text-sm font-semibold">{email ?? "—"}</p>
       <p className="mt-0.5 text-sm text-muted">{humanize(role.replace("platform_", ""))}</p>
-      <form action={signOutAction} className="mt-3">
+      <ShortcutToggle />
+      <form action={signOutAction} className="mt-2">
         <button type="submit" className="btn btn-ghost btn-sm w-full">
           <Icon name="logout" size={15} />
           Sign out

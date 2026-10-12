@@ -3,7 +3,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { formatUsdCompact, formatUsdExact, niceTicks } from "@/lib/analytics-core";
 
-export type TrendPoint = { label: string; detail: string; value: number };
+/** `value: null` = the period's figure is unknown; it is left out of the drawing, never plotted as 0. */
+export type TrendPoint = { label: string; detail: string; value: number | null };
 export type TrendUnit = "usd_cents" | "count";
 
 /**
@@ -43,12 +44,12 @@ export function TrendChart({
   }, []);
 
   const fmtAxis = (v: number) => (unit === "usd_cents" ? formatUsdCompact(v) : Math.round(v).toLocaleString("en-US"));
-  const fmtExact = (v: number) => (unit === "usd_cents" ? formatUsdExact(v) : `${v.toLocaleString("en-US")}`);
+  const fmtExact = (v: number | null) => (v === null ? "—" : unit === "usd_cents" ? formatUsdExact(v) : `${v.toLocaleString("en-US")}`);
 
   const m = { top: 20, right: kind === "line" ? 64 : 12, bottom: 30, left: unit === "usd_cents" ? 56 : 36 };
   const plotW = Math.max(40, width - m.left - m.right);
   const plotH = height - m.top - m.bottom;
-  const max = Math.max(0, ...points.map((p) => p.value));
+  const max = Math.max(0, ...points.map((p) => p.value ?? 0));
   const ticks = useMemo(() => niceTicks(max, 4, unit === "count"), [max, unit]);
   const top = ticks[ticks.length - 1] || 1;
   const n = points.length;
@@ -61,8 +62,17 @@ export function TrendChart({
   // Avoid a collision between the last regular label and the forced final label.
   const trimmed = xLabels.filter((l, k) => !(k === xLabels.length - 2 && xLabels[xLabels.length - 1].i - l.i < labelEvery * 0.75));
 
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(p.value).toFixed(1)}`).join("");
-  const areaPath = n > 0 ? `${linePath}L${xAt(n - 1).toFixed(1)},${plotH}L${xAt(0).toFixed(1)},${plotH}Z` : "";
+  // Unknown periods break the line: each run of known values is its own segment.
+  const segments: number[][] = [];
+  points.forEach((p, i) => {
+    if (p.value === null) return;
+    const seg = segments[segments.length - 1];
+    if (seg && seg[seg.length - 1] === i - 1) seg.push(i);
+    else segments.push([i]);
+  });
+  const segPath = (seg: number[]) => seg.map((i, k) => `${k === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(points[i].value as number).toFixed(1)}`).join("");
+  const linePath = segments.map(segPath).join("");
+  const areaPath = segments.map((seg) => `${segPath(seg)}L${xAt(seg[seg.length - 1]).toFixed(1)},${plotH}L${xAt(seg[0]).toFixed(1)},${plotH}Z`).join("");
   const barW = Math.min(24, Math.max(2, band - 2));
 
   const pick = (e: PointerEvent<SVGRectElement>) => {
@@ -83,12 +93,13 @@ export function TrendChart({
   const a = active !== null ? points[active] : null;
   const tipX = active !== null ? m.left + xAt(active) : 0;
   const tipLeft = Math.min(Math.max(tipX, 90), width - 90);
-  const last = n > 0 ? points[n - 1] : null;
+  const lastPoint = n > 0 ? points[n - 1] : null;
+  const last = lastPoint && lastPoint.value !== null ? (lastPoint as TrendPoint & { value: number }) : null;
 
   return (
     <div
       ref={wrap}
-      className="relative outline-none focus-visible:rounded-[var(--radius-control)] focus-visible:ring-2 focus-visible:ring-primary-ink/40"
+      className="relative outline-none focus-visible:rounded-[var(--radius-control)] focus-visible:ring-2 focus-visible:ring-ink"
       tabIndex={0}
       role="group"
       aria-label={`${title}. Use the left and right arrow keys to read each period.`}
@@ -117,8 +128,8 @@ export function TrendChart({
             <>
               <path d={areaPath} fill="var(--color-series-1)" fillOpacity={0.1} />
               <path d={linePath} fill="none" stroke="var(--color-series-1)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-              {partialLast && n > 1 ? (
-                <line x1={xAt(n - 2)} y1={yAt(points[n - 2].value)} x2={xAt(n - 1)} y2={yAt(points[n - 1].value)} stroke="var(--color-card)" strokeWidth={2} strokeDasharray="3 3" />
+              {partialLast && n > 1 && points[n - 2].value !== null && points[n - 1].value !== null ? (
+                <line x1={xAt(n - 2)} y1={yAt(points[n - 2].value as number)} x2={xAt(n - 1)} y2={yAt(points[n - 1].value as number)} stroke="var(--color-card)" strokeWidth={2} strokeDasharray="3 3" />
               ) : null}
               {last ? (
                 <>
@@ -131,12 +142,13 @@ export function TrendChart({
               {a && active !== null ? (
                 <>
                   <line x1={xAt(active)} x2={xAt(active)} y1={0} y2={plotH} stroke="var(--color-line-strong)" strokeWidth={1} />
-                  <circle cx={xAt(active)} cy={yAt(a.value)} r={5} fill="var(--color-series-1)" stroke="var(--color-card)" strokeWidth={2} />
+                  {a.value === null ? null : <circle cx={xAt(active)} cy={yAt(a.value)} r={5} fill="var(--color-series-1)" stroke="var(--color-card)" strokeWidth={2} />}
                 </>
               ) : null}
             </>
           ) : (
             points.map((p, i) => {
+              if (p.value === null) return null;
               const h = plotH - yAt(p.value);
               const x = xAt(i) - barW / 2;
               const y = yAt(p.value);

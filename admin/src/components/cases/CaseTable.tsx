@@ -25,7 +25,6 @@ export function CaseTable({
     {
       key: "priority",
       header: "Pri",
-      sortKey: "priority",
       render: (c) => <StatusBadge status={c.priority} />,
     },
     {
@@ -44,8 +43,8 @@ export function CaseTable({
         </div>
       ),
     },
-    { key: "case_type", header: "Type", sortKey: "case_type", render: (c) => (c.case_type ? <span title={c.case_type}>{humanize(c.case_type)}</span> : <span className="text-muted">—</span>) },
-    { key: "status", header: "Status", sortKey: "status", render: (c) => <StatusBadge status={c.status} /> },
+    { key: "case_type", header: "Type", render: (c) => (c.case_type ? <span title={c.case_type}>{humanize(c.case_type)}</span> : <span className="text-muted">—</span>) },
+    { key: "status", header: "Status", render: (c) => <StatusBadge status={c.status} /> },
     {
       key: "subject",
       header: "Subject",
@@ -69,7 +68,6 @@ export function CaseTable({
     {
       key: "assignee",
       header: "Assignee",
-      sortKey: "assignee",
       render: (c) =>
         c.assignee ? (
           <span className={c.assignee === meId ? "font-semibold text-ink" : ""}>
@@ -79,8 +77,8 @@ export function CaseTable({
           <span className="text-dim">unassigned</span>
         ),
     },
-    { key: "due_at", header: "Due", sortKey: "due_at", render: (c) => <TimeAgo value={c.due_at} /> },
-    { key: "detected_at", header: "Detected", sortKey: "detected_at", render: (c) => <TimeAgo value={c.detected_at ?? c.created_at} /> },
+    { key: "due_at", header: "Due", render: (c) => <TimeAgo value={c.due_at} /> },
+    { key: "detected_at", header: "Detected", render: (c) => <TimeAgo value={c.detected_at ?? c.created_at} /> },
   ];
   return (
     <DataTable

@@ -80,16 +80,20 @@ const SHORT_LABEL: Record<string, string> = {
 };
 
 export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile[]; definitions: Record<string, string> }) {
-  const counted = metrics
-    .map((m) => ({ ...m, n: typeof m.value === "number" ? m.value : Number(m.value), sev: SEVERITY[m.key] ?? "info" }))
-    .filter((m) => Number.isFinite(m.n));
+  // A missing or unreadable figure is unknown — never counted as clear (Number(null) would be 0).
+  const toCount = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN);
+  const all = metrics.map((m) => ({ ...m, n: toCount(m.value), sev: SEVERITY[m.key] ?? "info" }));
+  const counted = all.filter((m) => Number.isFinite(m.n));
+  const unknown = all.filter((m) => !Number.isFinite(m.n));
   const active = counted.filter((m) => m.n > 0).sort((a, b) => SEVERITY_ORDER[a.sev] - SEVERITY_ORDER[b.sev] || b.n - a.n);
   const clear = counted.filter((m) => m.n === 0);
   const urgent = active.filter((m) => m.sev === "critical").length;
   return (
     <div className="panel px-5 pb-3 pt-4 md:px-6">
       <p className="pb-3 text-[0.875rem] text-muted">
-        {active.length === 0 ? (
+        {active.length === 0 && unknown.length ? (
+          <span className="font-medium text-ink">Nothing needs attention among the checks that were read.</span>
+        ) : active.length === 0 ? (
           <span className="font-medium text-success">Nothing needs attention right now.</span>
         ) : (
           <>
@@ -138,6 +142,11 @@ export function AttentionSummary({ metrics, definitions }: { metrics: MetricTile
           })}
         </ul>
       ) : null}
+      {unknown.length ? (
+        <p className="border-t border-line py-2.5 text-[0.8125rem] text-warning">
+          {unknown.length} check{unknown.length === 1 ? "" : "s"} couldn&apos;t be read: {unknown.map((m) => SHORT_LABEL[m.key] ?? m.label).join(" · ")}
+        </p>
+      ) : null}
       {clear.length ? (
         <details className="border-t border-line pt-2.5">
           <summary className="inline-flex min-h-9 items-center rounded-lg text-[0.8125rem] text-muted hover:text-ink">
@@ -181,10 +190,10 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
   const rv = refundValue([f]);
   const tiles = (
     <>
-      <KpiTile label="Captured sales" value={formatUsdWhole(f.capturedCents)} valueNote={`${f.capturedCount ?? 0} payments`} delta={delta(f.capturedCents, p?.capturedCents ?? null)} definition={DEF.captured} />
-      <KpiTile label="Platform fees (gross)" value={formatUsdWhole(f.feesCents)} valueNote={`${f.feesCount ?? 0} succeeded payments`} delta={delta(f.feesCents, p?.feesCents ?? null)} definition={DEF.fees} />
+      <KpiTile label="Captured sales" value={formatUsdWhole(f.capturedCents)} valueNote={f.capturedCount == null ? "—" : `${f.capturedCount} payments`} delta={delta(f.capturedCents, p?.capturedCents ?? null)} definition={DEF.captured} />
+      <KpiTile label="Platform fees (gross)" value={formatUsdWhole(f.feesCents)} valueNote={f.feesCount == null ? "—" : `${f.feesCount} succeeded payments`} delta={delta(f.feesCents, p?.feesCents ?? null)} definition={DEF.fees} />
       <KpiTile label="Fully refunded payments" value={rv.value} valueNote={rv.note} delta={delta(f.refundCount, p?.refundCount ?? null)} goodWhen="down" definition={DEF.refunds} />
-      <KpiTile label="Seller funds released" value={formatUsdWhole(f.releasedCents)} valueNote={`${f.releasedCount ?? 0} transfers`} delta={delta(f.releasedCents, p?.releasedCents ?? null)} goodWhen="neutral" definition={DEF.released} />
+      <KpiTile label="Seller funds released" value={formatUsdWhole(f.releasedCents)} valueNote={f.releasedCount == null ? "—" : `${f.releasedCount} transfers`} delta={delta(f.releasedCents, p?.releasedCents ?? null)} goodWhen="neutral" definition={DEF.released} />
     </>
   );
   return (
@@ -193,7 +202,7 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
       <div className={compact ? "grid grid-cols-1 gap-3 min-[480px]:grid-cols-2" : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"}>{tiles}</div>
       {!compact ? (
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <KpiTile label="Seller funds pending release · now" value={formatUsdWhole(f.pendingCents)} valueNote={`${f.pendingCount ?? 0} transfers`} goodWhen="neutral" definition={DEF.pending} />
+          <KpiTile label="Seller funds pending release · now" value={formatUsdWhole(f.pendingCents)} valueNote={f.pendingCount == null ? "—" : `${f.pendingCount} transfers`} goodWhen="neutral" definition={DEF.pending} />
           <KpiTile label="Bank payouts" value="Not tracked" muted definition={DEF.bank} />
         </div>
       ) : null}
@@ -205,8 +214,8 @@ export async function MoneyKpis({ from, to, compact = false }: { from: string; t
   );
 }
 
-function tableRows(points: { label: string; detail: string; value: number }[], fmt: (v: number) => string) {
-  return points.map((p) => [p.detail, fmt(p.value)]);
+function tableRows(points: { label: string; detail: string; value: number | null }[], fmt: (v: number) => string) {
+  return points.map((p) => [p.detail, p.value === null ? "—" : fmt(p.value)]);
 }
 
 export async function MoneyCharts({ from, to, only }: { from: string; to: string; only?: "captured" }) {
@@ -229,7 +238,7 @@ export async function MoneyCharts({ from, to, only }: { from: string; to: string
     series.points.map((p, i) => ({
       label: p.bucket.label,
       detail: `${p.bucket.from === p.bucket.to ? shortDay(p.bucket.from) : p.bucket.label}${partialLast && i === series.points.length - 1 ? " (today so far)" : ""}`,
-      value: pick(p.figures) ?? 0,
+      value: pick(p.figures) ?? null, // unknown stays unknown — never charted as 0
     }));
   const empty = isEmptySeries(series.points);
   const emptyState = { kind: "empty" as const, message: <>No payments, fees, refunds or releases between {range}. Nothing is drawn rather than a flat line.</> };

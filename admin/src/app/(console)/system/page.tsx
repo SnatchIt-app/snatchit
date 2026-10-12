@@ -6,7 +6,7 @@ import { newIdempotencyKey } from "@/lib/idempotency";
 import { canRequest } from "@/lib/permissions";
 import { settingFieldName, settingKind } from "@/lib/form-params";
 import { humanize, labelFor, shortId, ACTION_STATE_LABELS, ACTION_TYPE_LABELS } from "@/lib/format";
-import { first, limitOf, list, type SearchParams } from "@/lib/search-params";
+import { first, limitOf, list, selfHref, type SearchParams } from "@/lib/search-params";
 import {
   toActions,
   toApproval,
@@ -112,7 +112,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           ["#webhooks", "Webhooks"],
           ["#notify", "Notifications"],
           ["#alerts", "Alerts"],
-          ["#approvals", `Approvals (${approvals.length})`],
+          ["#approvals", `Approvals (${approvalsRes.ok ? approvals.length : "—"})`],
           ["#settings", "Settings"],
           ["#actions", "Actions"],
           ["#audit", "Audit log"],
@@ -126,7 +126,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
       <div className="space-y-6">
         {!healthRes.ok ? (
-          <OpsFailureAlert failure={healthRes} fn="job_health" retryHref="/system" />
+          <OpsFailureAlert failure={healthRes} fn="job_health" retryHref={selfHref("/system", sp)} />
         ) : !health ? (
           <Alert state="failed" title="Unrecognised payload from ops.job_health()" />
         ) : (
@@ -134,10 +134,10 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             <MetricGrid cols={6}>
               <MetricTile label="Ops jobs" value={health.ops_jobs.length} definition="Rows in ops.job_state (detectors + daily summary + metric snapshot)." href="#jobs" />
               <MetricTile label="Jobs failing" value={failingJobs} definition="Enabled ops jobs with 2 or more consecutive failures." href="#jobs" />
-              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? 0} definition="stripe_webhook_events with processed_at null and no failed_at." href="#webhooks" />
-              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? 0} definition="stripe_webhook_events with failed_at set and processed_at null." href="#webhooks" />
+              <MetricTile label="Webhooks unprocessed" value={health.webhook_backlog.unprocessed ?? "—"} definition="stripe_webhook_events with processed_at null and no failed_at." href="#webhooks" />
+              <MetricTile label="Webhooks failed" value={health.webhook_backlog.failed ?? "—"} definition="stripe_webhook_events with failed_at set and processed_at null." href="#webhooks" />
               <MetricTile label="Alerts firing" value={health.alerts.length} definition="ops.alert rows in state firing." href="#alerts" />
-              <MetricTile label="Approvals pending" value={approvals.length} definition="Second-founder approvals awaiting a decision." href="#approvals" />
+              <MetricTile label="Approvals pending" value={approvalsRes.ok ? approvals.length : "—"} note={approvalsRes.ok ? null : "Couldn't be loaded"} definition="Second-founder approvals awaiting a decision." href="#approvals" />
             </MetricGrid>
 
             <Panel eyebrow="Run by the console" title="Console jobs (detectors)">
@@ -161,8 +161,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
                 <KeyValue
                   columns={2}
                   items={[
-                    { key: "unprocessed", value: String(health.webhook_backlog.unprocessed ?? 0) },
-                    { key: "failed", value: String(health.webhook_backlog.failed ?? 0) },
+                    { key: "unprocessed", value: health.webhook_backlog.unprocessed ?? null },
+                    { key: "failed", value: health.webhook_backlog.failed ?? null },
                     { key: "oldest_unprocessed_at", value: <DateTime value={health.webhook_backlog.oldest_unprocessed_at} /> },
                     { key: "oldest_unprocessed_event_id", value: health.webhook_backlog.oldest_unprocessed_event_id ? <code className="font-mono text-[0.75rem]">{health.webhook_backlog.oldest_unprocessed_event_id}</code> : null },
                   ]}
@@ -212,10 +212,10 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           </>
         )}
 
-        <Panel eyebrow={`${approvals.length} pending`} title="Approvals (second founder)">
+        <Panel eyebrow={approvalsRes.ok ? `${approvals.length} pending` : "—"} title="Approvals (second founder)">
           <div id="approvals" />
           {!approvalsRes.ok ? (
-            <OpsFailureAlert failure={approvalsRes} fn="list_approvals" retryHref="/system" />
+            <OpsFailureAlert failure={approvalsRes} fn="list_approvals" retryHref={selfHref("/system", sp)} />
           ) : approvals.length === 0 ? (
             <p className="text-dim">Nothing awaiting approval.</p>
           ) : (
@@ -233,7 +233,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
           {!isAdmin ? (
             <Alert state="info" title="Settings are visible to platform_admin only." compact />
           ) : settingsRes && !settingsRes.ok ? (
-            <OpsFailureAlert failure={settingsRes} fn="settings" retryHref="/system" />
+            <OpsFailureAlert failure={settingsRes} fn="settings" retryHref={selfHref("/system", sp)} />
           ) : (
             <SettingsList settings={settings} />
           )}
@@ -253,7 +253,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
             </button>
           </form>
           {!actionsRes.ok ? (
-            <OpsFailureAlert failure={actionsRes} fn="list_actions" retryHref="/system" />
+            <OpsFailureAlert failure={actionsRes} fn="list_actions" retryHref={selfHref("/system", sp)} />
           ) : (
             <ActionTable rows={actions} basePath="/system" searchParams={sp} nextCursor={actionsPage?.next_cursor} cursorParam="actions_cursor" meId={me.id} />
           )}
@@ -261,13 +261,13 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
 
         <Panel eyebrow="Append-only" title="Audit log">
           <div id="audit" />
-          {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref="/system" /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
+          {!auditRes.ok ? <OpsFailureAlert failure={auditRes} fn="audit_log" retryHref={selfHref("/system", sp)} /> : <AuditTable rows={audit} basePath="/system" searchParams={sp} nextCursor={auditPage?.next_cursor} cursorParam="audit_cursor" meId={me.id} />}
         </Panel>
 
         <Panel eyebrow="13:00 UTC daily" title="Latest daily summary">
           <div id="summary" />
           {!summaryRes.ok ? (
-            <OpsFailureAlert failure={summaryRes} fn="latest_summary" retryHref="/system" />
+            <OpsFailureAlert failure={summaryRes} fn="latest_summary" retryHref={selfHref("/system", sp)} />
           ) : !summary ? (
             <Alert state="empty" title="No daily summary has been generated yet." compact>
               The daily_summary job writes one row per day at 13:00 UTC; run it now from the jobs table to generate one. Portal only — no delivery channel is configured.
@@ -342,7 +342,7 @@ function OpsJobTable({ jobs, canRetry }: { jobs: OpsJob[]; canRetry: boolean }) 
       header: "Run now",
       render: (j) =>
         canRetry ? (
-          <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="job_retry" subjectKind="job" subjectRef={j.job_name} params={{ job_name: j.job_name }} label="Run now" className="min-w-[200px]" />
+          <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="job_retry" subjectKind="job" subjectRef={j.job_name} params={{ job_name: j.job_name }} revalidate="/system" label="Run now" className="min-w-[200px]" />
         ) : (
           <span className="text-[0.6875rem] text-dim">founder only</span>
         ),
@@ -432,7 +432,7 @@ function SettingsList({ settings }: { settings: Setting[] }) {
                 Last changed <DateTime value={s.updated_at} /> {s.updated_by_label ? `by ${s.updated_by_label}` : s.updated_by ? `by ${shortId(s.updated_by)}` : "(seed)"}
               </p>
             </div>
-            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>
+            <ConfirmForm idempotencyKey={newIdempotencyKey()} actionType="setting_set" subjectKind="setting" subjectRef={s.key} revalidate="/system" label="Save setting" danger={s.key === "refund_execute_enabled" || s.key === "actions_enabled"}>
               <label htmlFor={inputId} className="eyebrow block text-dim">
                 New value ({kind})
               </label>

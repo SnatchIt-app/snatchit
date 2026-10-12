@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callOps } from "@/lib/ops";
 import { toWhoami, type Whoami } from "@/lib/types";
+import { deniedReasonCode } from "@/lib/auth/messages";
 
 export type AuthedUser = {
   id: string;
@@ -46,8 +47,9 @@ export const requireOperator = cache(async function requireOperator(): Promise<O
     if (res.kind === "denied") redirect("/denied");
     if (res.kind === "mfa") redirect("/mfa");
     // RPC missing / transient: the page cannot prove operator status. Fail
-    // closed but tell the operator why (denied page shows the reason).
-    redirect(`/denied?reason=${encodeURIComponent(res.message)}`);
+    // closed and say why with a fixed reason code (the raw message stays in the server log).
+    console.warn("[auth] operator check failed", { kind: res.kind, unavailable: res.kind === "error" ? Boolean(res.unavailable) : false });
+    redirect(`/denied?reason=${deniedReasonCode(res.kind === "error" ? res : {})}`);
   }
   const whoami = toWhoami(res.data);
   if (!whoami || !whoami.role) redirect("/denied");

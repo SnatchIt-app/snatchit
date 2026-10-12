@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getAuthedUser } from "@/lib/auth/session";
 import { signOutAction } from "@/lib/auth/actions";
 import { Alert } from "@/components/ui/Alert";
+import { deniedReasonText } from "@/lib/auth/messages";
 
 export const metadata: Metadata = { title: "Not an operator" };
 
@@ -25,7 +26,7 @@ export default async function DeniedPage({ searchParams }: { searchParams: Promi
           </p>
           <div className="mt-4">
             <Alert state="failed" title="Could not verify operator status." compact>
-              {reason}
+              {deniedReasonText(reason)}
             </Alert>
           </div>
           <Link href="/" className="btn btn-primary mt-6 w-full">
