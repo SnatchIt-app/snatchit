@@ -5,6 +5,7 @@ import { STATUS_LABEL } from "@/lib/events";
 import { withPreview, type PreviewContext } from "@/lib/preview";
 import type { Event, EventStatus } from "@/lib/types";
 import { Icon } from "@/components/ui/Icon";
+import { canReadDoor, canReadScanBoard, canReadTicketTypes, canSeeCheckIn, rosterClasses } from "@/lib/roles";
 import { EventArt } from "@/components/ui/EventArt";
 import { AttentionQueue, TicketViews, type QueueItem } from "@/components/overview/TodayClient";
 import { ArrivalsChart } from "@/components/ui/Event";
@@ -73,21 +74,29 @@ export function Tonight({
   const sess = stageView.session;
   const evBase = ev ? `${basePath}/events/${ev.eventId}` : basePath;
   const scan = scanners ?? (door ? { online: door.devicesOnline, total: door.devicesTotal } : null);
-  const items: QueueItem[] = signals.map((s) => ({ ...s, area: areaOf(s.id) }));
-  const inside = stageView.stage === "during" && door ? door : null;
+  // Today shows less, never more, than the screens behind it (roles.ts): door items,
+  // door figures and the door action only for roles that can open the door screen.
+  const items: QueueItem[] = signals.map((s) => ({ ...s, area: areaOf(s.id) })).filter((i) => i.area !== "door" || canReadDoor(ctx.role));
+  const inside = stageView.stage === "during" && door && canReadScanBoard(ctx.role) ? door : null;
+  const roster = rosterClasses(ctx.role) !== null;
+  const ticketsOrSetup = canReadTicketTypes(ctx.role)
+    ? { label: "Tickets", href: link(`${evBase}/inventory`), icon: "ticket" as const }
+    : { label: "Event setup", href: link(evBase), icon: "settings" as const };
 
   const primary =
-    stageView.stage === "during"
+    stageView.stage === "during" && canReadDoor(ctx.role)
       ? { label: "Open check-in", href: link(`${evBase}/door`), icon: "scan" as const }
+      : stageView.stage === "during"
+        ? { label: "Review this event", href: link(evBase), icon: "calendar" as const }
       : stageView.stage === "after"
         ? { label: "Review this event", href: link(evBase), icon: "calendar" as const }
         : { label: "Get this event ready", href: link(evBase), icon: "settings" as const };
   const secondary =
-    stageView.stage === "during"
+    stageView.stage === "during" && roster
       ? { label: "Guest list", href: link(`${evBase}/attendees`), icon: "users" as const }
-      : stageView.stage === "after"
+      : stageView.stage === "after" && roster
         ? { label: "Who came", href: link(`${evBase}/attendees`), icon: "users" as const }
-        : { label: "Tickets", href: link(`${evBase}/inventory`), icon: "ticket" as const };
+        : ticketsOrSetup;
 
   const upcoming = [...events]
     .filter((e) => e.status !== "completed" && e.status !== "cancelled" && e.eventId !== ev?.eventId)
@@ -174,7 +183,13 @@ export function Tonight({
             {inside ? (
               <Stat href={link(`${evBase}/door`)} label="Checked in" value={String(inside.admitted)} of={`of ${inside.expected} guests`} />
             ) : null}
-            {inside ? <Stat href={link(`${evBase}/attendees?checkIn=not_scanned`)} label="Still to arrive" value={String(Math.max(0, inside.expected - inside.admitted))} /> : null}
+            {inside ? (
+              <Stat
+                href={canSeeCheckIn(ctx.role) ? link(`${evBase}/attendees?checkIn=not_scanned`) : link(`${evBase}/door`)}
+                label="Still to arrive"
+                value={String(Math.max(0, inside.expected - inside.admitted))}
+              />
+            ) : null}
             {sales.length > 0 && countersVisible ? <Stat href={link(`${evBase}/inventory`)} label="Tickets sold" value={String(totalSold)} of={`of ${totalCap}`} /> : null}
             {inside && scan ? (
               <Stat
@@ -264,20 +279,20 @@ const STATUS_TONE: Record<EventStatus, string> = {
 
 function Stat({ href, label, value, of, note }: { href: string; label: string; value: string; of?: string; note?: string }) {
   return (
-    <div className="min-w-0">
-      <Link href={href} className="group block rounded-[10px] outline-offset-4">
-        <dt className="text-[0.875rem] text-muted transition-colors group-hover:text-ink">{label}</dt>
-        <dd className="mt-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-          <span className="stat-num">{value}</span>
-          {of ? <span className="text-[0.8125rem] text-muted">{of}</span> : null}
-          {note ? (
-            <span className="flex items-center gap-1.5 text-[0.8125rem] text-warning">
-              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[#e08a2e]" />
-              {note}
-            </span>
-          ) : null}
-        </dd>
-      </Link>
+    // dt/dd stay direct children of the list's group; the link is stretched over the cell from inside the dd.
+    <div className="group relative min-w-0 rounded-[10px]">
+      <dt className="text-[0.875rem] text-muted transition-colors group-hover:text-ink">{label}</dt>
+      <dd className="mt-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <span className="stat-num">{value}</span>
+        {of ? <span className="text-[0.8125rem] text-muted">{of}</span> : null}
+        {note ? (
+          <span className="flex items-center gap-1.5 text-[0.8125rem] text-warning">
+            <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[#e08a2e]" />
+            {note}
+          </span>
+        ) : null}
+        <Link href={href} aria-label={`${label}: ${value}${of ? ` ${of}` : ""}${note ? `, ${note}` : ""}`} className="absolute inset-0 rounded-[10px] outline-offset-4" />
+      </dd>
     </div>
   );
 }

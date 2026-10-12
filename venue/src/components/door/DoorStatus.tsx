@@ -146,6 +146,7 @@ export function DoorStatus({
           ))}
         </ul>
       )}
+      {canManagePins(ctx.role) ? <p className="mt-2 text-xs text-dim lg:hidden">Issuing and revoking PINs is done on a larger screen.</p> : null}
       {canManagePins(ctx.role) ? (
         <div className="mt-3 hidden lg:block">
           <form method="get" action={self} className="flex gap-2">
@@ -169,8 +170,16 @@ export function DoorStatus({
       <div className="mt-2 border border-line-neutral p-2 text-xs">
         <p className="eyebrow text-dim">Freeze status</p>
         <p className="mt-1">
-          Transfers frozen since <strong>{venueTime(freeze.at, timeZone)}</strong> —{" "}
-          {freeze.source === "manifest_open" ? "because the check-in list was opened." : "automatically at doors time, because the list was never opened."}
+          {new Date(freeze.at).getTime() > now.getTime() ? (
+            <>
+              Transfers will freeze at <strong>{venueTime(freeze.at, timeZone)}</strong> — at doors time, or earlier if the check-in list is opened first.
+            </>
+          ) : (
+            <>
+              Transfers frozen since <strong>{venueTime(freeze.at, timeZone)}</strong> —{" "}
+              {freeze.source === "manifest_open" ? "because the check-in list was opened." : "automatically at doors time, because the list was never opened."}
+            </>
+          )}
         </p>
       </div>
       {episodes.length > 0 ? (
@@ -323,7 +332,7 @@ export function DoorStatus({
       <div className="enter-2 space-y-6">
         {canReadScanBoard(ctx.role) ? ScanBoard : null}
         {Lookup}
-        {Flags}
+        {Flags ? <div id="flags" className="scroll-mt-24">{Flags}</div> : null}
         {Devices}
         {Pins}
         {Manifest}

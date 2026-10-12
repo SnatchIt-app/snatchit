@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EventPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
+  if (!p.scope.ok) return <DeniedState standalone surface="This venue" reason="This account holds no role at the venue in this link." />;
   const { ctx } = p;
   const basePath = p.scope.basePath;
   const readable = ctx.state !== "denied" && canReadEvents(ctx.role);
@@ -29,7 +29,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const dbFailure: ReadFailure | null = ctx.source === "database" ? p.eventFailure : null;
   const event = p.event;
 
-  let loaded: { types: TicketType[]; batches: InventoryBatch[]; open: Set<string> } | null = null;
+  // open: null = the check-in list state was not read (database mode) — never shown as closed.
+  let loaded: { types: TicketType[]; batches: InventoryBatch[]; open: Set<string> | null } | null = null;
   let failedRead: string | null = null;
   let dbLoadFailure: ReadFailure | null = null;
   if (readable && entryOpen && ctx.state !== "loading" && event && !dbFailure) {
@@ -38,7 +39,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       const b = t.ok ? await dbListBatches(event.eventId) : null;
       if (!t.ok) dbLoadFailure = t;
       else if (b && !b.ok) dbLoadFailure = b;
-      else loaded = { types: ctx.state === "empty" ? [] : t.data, batches: ctx.state === "empty" ? [] : (b as { ok: true; data: InventoryBatch[] }).data, open: new Set() };
+      else loaded = { types: ctx.state === "empty" ? [] : t.data, batches: ctx.state === "empty" ? [] : (b as { ok: true; data: InventoryBatch[] }).data, open: null };
     } else {
       try {
         loaded = {

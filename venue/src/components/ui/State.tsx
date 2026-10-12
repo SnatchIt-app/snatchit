@@ -74,16 +74,20 @@ export function DeniedState({
   reason,
   grantedBy = "A venue manager or an organization owner",
   alternative,
+  standalone = false,
 }: {
   surface?: string;
   roleLabel?: string;
   reason?: string;
   grantedBy?: string;
   alternative?: { label: string; href: string };
+  /** The whole page (no frame around it): renders the main landmark and the page heading. */
+  standalone?: boolean;
 }) {
-  return (
+  const Title = standalone ? "h1" : "p";
+  const card = (
     <StateCard icon="users" role="alert">
-      <p className="title-section mt-4 text-[1.25rem]">{surface} isn&apos;t open to you.</p>
+      <Title className="title-section mt-4 text-[1.25rem]">{surface} isn&apos;t open to you.</Title>
       <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-muted">{reason ?? (roleLabel ? `Your role here is ${roleLabel}, and that role doesn't include this screen.` : "Your role at this venue doesn't include this screen.")}</p>
       <p className="mt-2 max-w-md text-[0.875rem] leading-relaxed text-muted">
         {grantedBy} can give you access. Nothing about this screen&apos;s contents is shown either way — this is not a message about whether anything exists.
@@ -95,24 +99,43 @@ export function DeniedState({
       ) : null}
     </StateCard>
   );
+  return standalone ? (
+    <main id="main" className="flex min-h-dvh items-center justify-center px-4 py-10">
+      {card}
+    </main>
+  ) : (
+    card
+  );
 }
 
 export function PartialCell({ why }: { why: string }) {
   return (
-    <span className="text-dim" title={why} aria-label={why}>
-      —
-    </span>
+    <>
+      <span aria-hidden="true" className="text-dim" title={why}>
+        —
+      </span>
+      <span className="sr-only">{why}</span>
+    </>
   );
 }
 
 /** Spec §3.2 — below `lg` the money/capacity/price/role surfaces are read-only. */
-export function LargerScreenBanner() {
+export function LargerScreenBanner({ subject }: { subject?: string }) {
   // Measured at 4.35:1 as warning-on-warning-tint, under AA. The tinted band
   // goes; a left rule carries the same signal and the text sits on white,
   // which is how the error and denied states already read.
+  // `subject` narrows the line when only part of the screen is read-only (e.g. capacity, while holds can still be released).
   return (
     <p className="border-l-2 border-warning py-1.5 pl-3 text-sm text-muted lg:hidden">
-      <span className="font-semibold text-ink">Read-only on this screen size.</span> Open on a larger screen to make changes here.
+      {subject ? (
+        <>
+          <span className="font-semibold text-ink">{subject} are made on a larger screen.</span> Everything else here works on this screen.
+        </>
+      ) : (
+        <>
+          <span className="font-semibold text-ink">Read-only on this screen size.</span> Open on a larger screen to make changes here.
+        </>
+      )}
     </p>
   );
 }

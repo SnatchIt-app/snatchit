@@ -17,7 +17,7 @@ type Loaded = { pins: DoorPin[]; devices: ScanDevice[]; episodes: ManifestEpisod
 
 export default async function DoorPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
+  if (!p.scope.ok) return <DeniedState standalone surface="This venue" reason="This account holds no role at the venue in this link." />;
   if (p.ctx.source === "database") {
     return (
       <Shell ctx={p.ctx} event={p.event ? { eventId: p.event.eventId, title: p.event.title } : null} active="door" signedInAs={p.signedInAs} title="Check-in">
@@ -25,7 +25,16 @@ export default async function DoorPage({ params, searchParams }: { params: Promi
       </Shell>
     );
   }
-  if (!p.event) return <DeniedState surface="This event" reason="Either it isn't yours to see, or it isn't there. The dashboard answers the same way to both on purpose." />;
+  if (!p.event)
+    return (
+      <Shell ctx={p.ctx} event={null} active="door" signedInAs={p.signedInAs} title="Check-in">
+        <DeniedState
+          surface="This event"
+          reason="Either it isn't yours to see, or it isn't there. The dashboard answers the same way to both on purpose."
+          alternative={{ label: "Back to events", href: withPreview(`${p.scope.basePath}/events`, p.ctx) }}
+        />
+      </Shell>
+    );
   const { ctx, event } = p;
   const basePath = p.scope.basePath;
   const session = event.sessions.find((s) => s.status === "live") ?? event.sessions[0];

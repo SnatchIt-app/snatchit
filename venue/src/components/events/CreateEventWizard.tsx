@@ -68,7 +68,7 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
               </select>
             </label>
             <Field label="Name (unique per event)" name="name" required placeholder="General admission" />
-            <Field label="Price (USD)" name="price" type="number" required placeholder="25.00" />
+            <Field label="Price (USD)" name="price" type="number" step="0.01" min="0" required placeholder="25.00" />
             <label className="block text-sm">
               Visibility
               <select name="visibility" className="field mt-1" defaultValue="public">
@@ -119,12 +119,12 @@ export function CreateEventWizard({ ctx, basePath, step, venueApproved, venueNam
   );
 }
 
-function Field({ label, name, type = "text", required, placeholder, value, readOnly }: { label: string; name: string; type?: string; required?: boolean; placeholder?: string; value?: string; readOnly?: boolean }) {
+function Field({ label, name, type = "text", required, placeholder, value, readOnly, step, min }: { label: string; name: string; type?: string; required?: boolean; placeholder?: string; value?: string; readOnly?: boolean; step?: string; min?: string }) {
   return (
     <label className="block text-sm">
       {label}
       {required ? " *" : ""}
-      <input className="field mt-1" name={name} type={type} required={required} placeholder={placeholder} defaultValue={value} readOnly={readOnly} />
+      <input className="field mt-1" name={name} type={type} required={required} placeholder={placeholder} defaultValue={value} readOnly={readOnly} step={step} min={min} />
     </label>
   );
 }

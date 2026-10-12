@@ -1,7 +1,7 @@
 import { EventHeader } from "@/components/ui/Event";
 import { usd, venueTime } from "@/lib/format";
 import { withPreview, type PreviewContext } from "@/lib/preview";
-import { canManualLookup, canReadOrders, canSeeCheckIn, exportTemplate, rosterClasses, PRINCIPAL_LABEL } from "@/lib/roles";
+import { canReadDoor, canReadOrders, canSeeCheckIn, exportTemplate, rosterClasses, PRINCIPAL_LABEL } from "@/lib/roles";
 import type { Event, EventSession, OrderRow, RosterRow } from "@/lib/types";
 import { Chip, Panel } from "@/components/ui/Bits";
 import { DeniedState, EmptyState, PartialCell } from "@/components/ui/State";
@@ -64,8 +64,8 @@ export function Attendees({
       <DeniedState
         surface="The attendee list"
         roleLabel={PRINCIPAL_LABEL[ctx.role]}
-        reason={canManualLookup(ctx.role) ? "Door roles check one ticket at a time at the door, rather than reading the whole guest list." : undefined}
-        alternative={canManualLookup(ctx.role) ? { label: "Look up a single ticket instead", href: withPreview(`${door}#lookup`, ctx) } : undefined}
+        reason={canReadDoor(ctx.role) ? "Door roles check one ticket at a time at the door, rather than reading the whole guest list." : undefined}
+        alternative={canReadDoor(ctx.role) ? { label: "Look up a single ticket instead", href: withPreview(`${door}#lookup`, ctx) } : undefined}
       />
     );
   }
@@ -109,6 +109,7 @@ export function Attendees({
               </button>
             </form>
           ) : null}
+          {tpl ? <p className="text-xs text-dim lg:hidden">Downloads are requested on a larger screen.</p> : null}
           </div>
         }
       />
@@ -116,7 +117,7 @@ export function Attendees({
       {view === "holders" ? (
         <>
           {/* Search sticky on md/sm; filters from a closed set. */}
-          <form method="get" action={self} role="search" className="panel sticky top-[4.5rem] z-20 flex flex-wrap gap-2 p-2 md:static">
+          <form method="get" action={self} role="search" className="panel sticky top-16 z-20 flex flex-wrap gap-2 !bg-[#fffdfa] p-2 md:static">
             <PreviewHidden ctx={ctx} />
             <input className="field flex-1 touch-row md:min-h-0" name="q" placeholder="Name, order ref, or exact email" defaultValue={filter.q ?? ""} aria-label="Search attendees" />
             {hasOps ? (
@@ -195,14 +196,18 @@ export function Attendees({
                   const ci = checkInText(r, timeZone);
                   return (
                     <li key={r.customerRef} className="touch-row panel p-4">
+                      {/* Same classes as the table: a column the role doesn't hold is absent here too. */}
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-bold">{r.name}</p>
+                        <p className="font-bold">
+                          {r.name} {r.isPurchaser ? <Chip tone="info">purchaser</Chip> : null}
+                        </p>
                         {hasOps ? <Chip tone={ci.tone}>{ci.label}</Chip> : null}
                       </div>
                       <p className="text-xs text-muted">
-                        {r.ticketTypes.join(", ")} · {r.ticketsHeld} held
+                        {hasOps ? `${r.ticketTypes.join(", ")} · ` : ""}
+                        {r.ticketsHeld} held
                       </p>
-                      {hasMoney ? <p className="text-xs text-dim">{r.isPurchaser ? "Purchaser" : "Holder only"}</p> : null}
+                      {hasContact ? <p className="text-xs text-muted">{r.email ?? <span className="text-dim">—</span>}</p> : null}
                     </li>
                   );
                 })}

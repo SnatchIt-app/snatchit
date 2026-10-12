@@ -40,8 +40,9 @@ export function EventsTable({
   const liveIds = new Set(events.flatMap((e) => e.sessions.filter((s) => s.status === "live").map((s) => s.sessionId)));
   // Warnings only matter for events that can still sell (spec §6.1 zone 6 is about tonight and upcoming).
   const sellingIds = new Set(events.filter((e) => e.status !== "completed" && e.status !== "cancelled").map((e) => e.eventId));
+  // Warnings are computed from sold/held counts; where those aren't readable (database mode) there are none to show.
   const warnEventIds = new Set(
-    inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now })
+    (counters ? inventoryWarnings(batches, types, holds, { liveSessionIds: liveIds, now }) : [])
       .map((w) => types.find((t) => t.ticketTypeId === batches.find((b) => b.batchId === w.batchId)?.ticketTypeId)?.eventId)
       .filter((id) => id && sellingIds.has(id)),
   );

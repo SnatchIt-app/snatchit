@@ -44,7 +44,7 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
         }
       />
 
-      {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner /> : null}
+      {canChangeCapacity(ctx.role) && ctx.writesEnabled !== false ? <LargerScreenBanner subject="Capacity changes" /> : null}
 
       {view === "counters" && warnings.length > 0 ? (
         <Panel title="Needs attention" eyebrow="One line per problem">
@@ -140,7 +140,8 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
               </thead>
               <tbody>
                 {batches
-                  .filter((b) => b.ticketTypeId === t.ticketTypeId)
+                  // Same night as the xl and phone layouts (the heading names it); each night has its own capacity.
+                  .filter((b) => b.ticketTypeId === t.ticketTypeId && (!session || b.sessionId === session.sessionId))
                   .map((b) => (
                     <tr key={b.batchId}>
                       <td>{RELEASE_LABEL[b.releaseKind]}</td>
@@ -205,7 +206,9 @@ export function InventoryOverview({ event, types, batches, holds, ctx, basePath,
 
         {canReadHolds(ctx.role) ? (
           <Panel title="Holds" eyebrow="Seats reserved but not sold">
-            {holds.filter((h) => h.status === "active").length === 0 ? (
+            {ctx.source === "database" ? (
+              <p className="text-sm text-muted">Holds aren&apos;t readable in this mode.</p>
+            ) : holds.filter((h) => h.status === "active").length === 0 ? (
               <p className="text-sm text-muted">No active holds</p>
             ) : (
               <ul className="divide-y divide-line-neutral text-sm">

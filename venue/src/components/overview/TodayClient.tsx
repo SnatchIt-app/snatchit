@@ -172,7 +172,7 @@ export function TicketViews({ lines, countersVisible, manageHref, available, tit
           {title}
         </h2>
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-          <div className="seg min-w-0" role="group" aria-label="Saved views">
+          <div className="seg min-w-0 max-sm:flex-wrap" role="group" aria-label="Saved views">
             {views.map((v) => (
               <button key={v.key} type="button" aria-pressed={view === v.key} onClick={() => setView(v.key)}>
                 {v.label}

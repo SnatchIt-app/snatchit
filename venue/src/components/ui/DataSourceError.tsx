@@ -72,7 +72,7 @@ export function NotWiredState({ surface }: { surface: string }) {
   return (
     <div className="border border-line-neutral p-6 text-center" role="status">
       <p className="font-bold">{surface} is not wired to the database yet</p>
-      <p className="mt-1 text-sm text-muted">Slice 1 covers the events list and event setup (read side). Switch to fixture mode to review this surface&apos;s design; sample data is never shown in database mode.</p>
+      <p className="mt-1 text-sm text-muted">Slice 1 covers the events list, event setup and ticket availability (read side). Switch to fixture mode to review this surface&apos;s design; sample data is never shown in database mode.</p>
     </div>
   );
 }

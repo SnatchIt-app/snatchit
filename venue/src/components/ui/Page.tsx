@@ -43,7 +43,7 @@ export function Page({ eyebrow, title, lead, action, art, children }: { eyebrow?
 
 /** A section of the page: a quiet panel with an editorial heading and its one action. */
 export function Block({ title, lead, action, children, id }: { title?: string; lead?: ReactNode; action?: ReactNode; children: ReactNode; id?: string }) {
-  const headingId = id ? `${id}-heading` : undefined;
+  const headingId = id && title ? `${id}-heading` : undefined;
   return (
     <section aria-labelledby={headingId} id={id} className="panel px-5 pb-5 pt-5 md:px-6">
       {title ? (

@@ -5,7 +5,7 @@ import { DEMO_DATA_LABEL, DEMO_DATA_SUBLABEL, demoActionLabel, statesFor, withPr
 import { sourceInfo } from "@/lib/source";
 import { frameAttention } from "@/lib/attention";
 import { PREVIEW_PRINCIPALS, PRINCIPAL_LABEL } from "@/lib/roles";
-import { canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses, canManualLookup } from "@/lib/roles";
+import { canManualLookup, canReadDoor, canReadEvents, canReadTicketTypes, rosterClasses } from "@/lib/roles";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { PopoverDismiss } from "@/components/ui/PopoverDismiss";
 import { EventArt } from "@/components/ui/EventArt";
@@ -142,20 +142,21 @@ export function Shell({
                 </ol>
               </nav>
               <span className="flex-1 sm:hidden" />
-              <details data-popover className="relative lg:hidden">
-                <summary aria-label="About this data" className="rounded-full">
+              {/* Below sm these popovers span the header (its sticky bar is their containing block) instead of hanging off-screen to the left. */}
+              <details data-popover className="sm:relative lg:hidden">
+                <summary aria-label={`${ctx.source === "database" ? "Database" : "Sample data"} — about this data`} className="rounded-full">
                   <DataPill ctx={ctx} />
                 </summary>
-                <div className="popover glass glass-solid right-0 w-[min(20rem,calc(100vw-2rem))] p-2">
+                <div className="popover glass glass-solid inset-x-4 p-2 sm:inset-x-auto sm:right-0 sm:w-[min(20rem,calc(100vw-2rem))]">
                   <DataSource ctx={ctx} surface={active} where="menu" />
                 </div>
               </details>
-              {evBase && canManualLookupOrRoster(ctx) ? (
-                <details data-popover className="relative">
+              {evBase && canSearchGuests(ctx) ? (
+                <details data-popover className="sm:relative">
                   <summary className="btn-icon" aria-label="Search the guest list">
                     <Icon name="search" size={20} />
                   </summary>
-                  <form method="get" action={`${evBase}/attendees`} role="search" className="popover glass glass-solid right-0 w-[min(20rem,calc(100vw-2rem))] p-3">
+                  <form method="get" action={`${evBase}/attendees`} role="search" className="popover glass glass-solid inset-x-4 p-3 sm:inset-x-auto sm:right-0 sm:w-[min(20rem,calc(100vw-2rem))]">
                     <label htmlFor="guest-q" className="mb-2 block text-[0.75rem] font-medium text-muted">
                       Search {navEvent?.title ? `the guest list for ${navEvent.title}` : "the guest list"}
                     </label>
@@ -215,8 +216,9 @@ export function Shell({
   );
 }
 
-function canManualLookupOrRoster(ctx: PreviewContext): boolean {
-  return rosterClasses(ctx.role) !== null || canManualLookup(ctx.role);
+/** The header search opens the guest list: only roles that can read it, and only where it is wired (sample data). */
+function canSearchGuests(ctx: PreviewContext): boolean {
+  return rosterClasses(ctx.role) !== null && ctx.source !== "database";
 }
 
 type NavItem = { key: string; label: string; icon: IconName; href: string; show: boolean };

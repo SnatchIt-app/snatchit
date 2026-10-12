@@ -10,7 +10,7 @@ import { LargerScreenBanner } from "@/components/ui/State";
 import { Action, ArrowLink, Block, Detail, Facts, Row, Rows } from "@/components/ui/Page";
 
 /** Spec §7.3–§7.9 — event detail: header counters, sessions, advance status, resale policy, danger zone. */
-export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> }) {
+export function EventSetup({ event, types, batches, ctx, basePath, timeZone, openManifestSessionIds }: { event: Event; types: TicketType[]; batches: InventoryBatch[]; ctx: PreviewContext; basePath: string; timeZone: string; openManifestSessionIds: Set<string> | null }) {
   const editor = canEditEvents(ctx.role);
   const next = nextStatus(event.status);
   const blocker = next === "on_sale" ? publishBlocker(types, batches) : null;
@@ -66,7 +66,7 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
         {editor && ctx.writesEnabled === false && next ? (
           <p className="mt-3 max-w-2xl text-sm text-dim">Status changes are not available in database mode: the write path is not wired in this slice. Nothing you see here is a saved change.</p>
         ) : null}
-        {editor ? <div className="mt-4"><LargerScreenBanner /></div> : null}
+        {editor && ctx.writesEnabled !== false ? <div className="mt-4"><LargerScreenBanner /></div> : null}
       </Block>
 
       {/* 2. The numbers, defined, once. */}
@@ -101,7 +101,11 @@ export function EventSetup({ event, types, batches, ctx, basePath, timeZone, ope
                     {counters && hb.total > 0 ? ` · ${hb.door} of ${hb.total} held back for the door` : ""}
                   </>
                 }
-                right={<span className="text-sm text-dim">{MANIFEST_COPY[manifestState(sx, openManifestSessionIds.has(sx.sessionId))]}</span>}
+                right={
+                  <span className="text-sm text-dim">
+                    {openManifestSessionIds === null ? "Check-in list state isn't readable in this mode." : MANIFEST_COPY[manifestState(sx, openManifestSessionIds.has(sx.sessionId))]}
+                  </span>
+                }
               />
             );
           })}

@@ -63,15 +63,26 @@ export function readPreviewContext(sp: SearchParams | undefined): PreviewContext
   return { role, state, source: "fixtures", countersAvailable: true, writesEnabled: true };
 }
 
-/** Build a link that keeps the current role/state so the reviewer can walk the flow in one persona. */
+/**
+ * Build a link that keeps the current role/state so the reviewer can walk the
+ * flow in one persona. The href may already carry a query (`?view=…`) and a
+ * fragment (`#lookup`): role/state merge into the query, the fragment stays last.
+ */
 export function withPreview(href: string, ctx: PreviewContext, overrides: Partial<PreviewContext> = {}): string {
   const role = overrides.role ?? ctx.role;
   const state = overrides.state ?? ctx.state;
-  const params = new URLSearchParams();
+  const hashAt = href.indexOf("#");
+  const fragment = hashAt >= 0 ? href.slice(hashAt) : "";
+  const beforeHash = hashAt >= 0 ? href.slice(0, hashAt) : href;
+  const queryAt = beforeHash.indexOf("?");
+  const path = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+  const params = new URLSearchParams(queryAt >= 0 ? beforeHash.slice(queryAt + 1) : "");
+  params.delete("role");
+  params.delete("state");
   if (role !== DEFAULT_PRINCIPAL) params.set("role", role);
   if (state !== "live") params.set("state", state);
   const q = params.toString();
-  return q ? `${href}?${q}` : href;
+  return `${path}${q ? `?${q}` : ""}${fragment}`;
 }
 
 /**

@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function OverviewPage({ params, searchParams }: { params: Promise<PageParams>; searchParams: Promise<SearchParams> }) {
   const p = await readPage(params, searchParams);
-  if (!p.scope.ok) return <DeniedState surface="This venue" reason="This account holds no role at the venue in this link." />;
+  if (!p.scope.ok) return <DeniedState standalone surface="This venue" reason="This account holds no role at the venue in this link." />;
   const { ctx } = p;
   const { basePath } = p.scope;
 

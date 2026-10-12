@@ -32,7 +32,8 @@ describe("database-mode failures are explicit", () => {
 });
 
 describe("counters gate follows the data source", () => {
-  const db: PreviewContext = { role: "venue_manager", state: "live", source: "database", countersAvailable: false };
+  // As readPreviewContext returns it in database mode (lib/preview.ts): counters off, writes off.
+  const db: PreviewContext = { role: "venue_manager", state: "live", source: "database", countersAvailable: false, writesEnabled: false };
   it("a manager in database mode sees remaining only, never fabricated sold/capacity", () => {
     expect(showCounters("venue_manager", db)).toBe(false);
     expect(showCounters("venue_manager", {})).toBe(true);

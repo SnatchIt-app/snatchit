@@ -74,18 +74,14 @@ export function Stats({ items, label }: { items: StatItem[]; label?: string }) {
                   {s.note}
                 </span>
               ) : null}
+              {s.href ? <Link href={s.href} aria-label={`${s.label}: ${typeof s.value === "string" || typeof s.value === "number" ? s.value : ""}${typeof s.of === "string" ? ` ${s.of}` : ""}${s.note ? `, ${s.note}` : ""}`} className="absolute inset-0 rounded-[10px]" /> : null}
             </dd>
           </>
         );
+        // dt/dd stay direct children of the list's group; a link is stretched over the cell from inside the dd.
         return (
-          <div key={s.label} className="min-w-0">
-            {s.href ? (
-              <Link href={s.href} className="group block rounded-[10px]">
-                {body}
-              </Link>
-            ) : (
-              <div>{body}</div>
-            )}
+          <div key={s.label} className="group relative min-w-0 rounded-[10px]">
+            {body}
           </div>
         );
       })}
