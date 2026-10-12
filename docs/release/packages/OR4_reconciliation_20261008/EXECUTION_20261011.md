@@ -142,3 +142,17 @@ The pre-rewrite shas now resolve only on D's local backup. Same content, ARN val
 **The executed files still say `D blind check 78d9572a` in `c_evidence`, and they stay unchanged.** They were
 approved and executed by their sha256 (#6 `d7f31cf1…`, #7 `dca8cb00…`), so editing them would break the approved
 hashes. Follow `78d9572a` → `99e5cdea`. Every other citation in A's records now uses the new shas.
+
+**Where the private side is kept (A, storage closeout, 2026-10-11).** The four pre-rewrite commits contain the real
+ARNs, so they stay off origin. They exist in three places on the encrypted SSD:
+- D's local ref `review/d-records-PREREWRITE2-BACKUP` (tip `1046b78e`) in the shared store.
+- Codex's `recovery/final-cleanup-20261011-125355/ssd-all-refs.bundle`. It was made at 12:53, before D's second
+  rewrite, so it holds `1046b78e` under the names `review/d-records-20261005` and its origin ref (read with
+  `git bundle list-heads`).
+- A's copy: `recovery/A-closeout-20261011/evidence-mapping/d-records-prerewrite2-backup.bundle`, sha256
+  `a98e3919e0be29dae4c65918a174ff126403af2fafd341f0bbf90a7d056ef0ec`.
+  - It holds the 4 commits on top of `8afcef14`, which is on origin.
+  - Fetched into a fresh bare repository, all four pre-rewrite shas resolve.
+  - `POINTER_MAP.md` sits beside it.
+
+Neither copy is to be pushed. The executed files are unchanged.

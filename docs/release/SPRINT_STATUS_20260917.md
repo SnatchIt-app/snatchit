@@ -2433,3 +2433,21 @@ The go/no-go is at `docs/release/GO_NO_GO_PRODUCTION_8f45e9b_20260918.md` §10.
     change and owner-gated; not made.
   - E's four frames were pushed (`32c0804a`); B's narrow review is owed, through E's record.
 - **E's final v3 acceptance summary received (2026-10-11).** It agrees with RELEASE_READINESS_20261011.md. B's narrow review of the four default-size frames is the last acceptance item. E's 5 record commits (`d9240daa`) are local only; the owner or B must push them, after inspection. A does not push them on E's behalf.
+- **Storage closeout (A, 2026-10-11, late). Development frozen; A stops here.**
+  - **Release record closed on the latest results** (`RELEASE_READINESS_20261011.md`):
+    - CI is green at v3 `d27aa449` and at the combined trial r3 `5450b348`;
+    - O-R4 is executed and closed (do not rerun);
+    - B's narrow review passes (`92356c9e`, recorded by E at `c16c2d8f`, now on origin with E's formerly local-only
+      commits).
+  - **Still open:** the fresh-install native build of the candidate (§5.3 item 4). It is recorded as OUTSTANDING:
+    every native result is a simulator development-build capture, and A did not infer a build from captures. D's C4
+    check is also owed.
+  - **Release queue, separate and the owner's:** accept, D2/152 scope, S5, S7, X11/G2.
+  - **Parked:** 153 detector logging (registry row updated) and the CI step-masking change.
+  - **Preserved on the encrypted SSD**, `01_SNATCH_IT/recovery/A-closeout-20261011/` (private, with `MANIFEST.md`):
+    - verified dumps of A's six scratch DBs, which are now disposable and identified to Codex (none dropped);
+    - A's Mac session temp dir;
+    - a second copy of `_A_SCRATCH_EVIDENCE_20261009`;
+    - a bundle of D's four pre-rewrite record commits, behind the pointer map. Where it is kept is noted in
+      `EXECUTION_20261011.md`.
+  - A's three temporary SSD worktrees are clean with no unique changes. No production action was taken.

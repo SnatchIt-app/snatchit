@@ -5,7 +5,12 @@ switched on, and nothing in this sheet does any of that. Every step marked *owne
 that step. This consolidates D's sheet (`review/d-records-20261005 @ 797c2d46`) with A's checks. §6 records where they differed;
 D verified and accepted each point and revised its sheet to agree (rev 3, `342f2ab3`).
 
-## Current state (A, 2026-10-09; read this first)
+## Current state (A, 2026-10-09, updated 2026-10-11 at the storage closeout; read this first)
+
+**Closeout (2026-10-11):** the release record is `RELEASE_READINESS_20261011.md`. CI is green at v3 `d27aa449` and at
+the combined trial r3 `5450b348`; B's narrow review passes. Still open: the fresh-install native build of the
+candidate and D's C4 check. The release queue (accept, D2/152, S5, S7, X11/G2) is the owner's. 153 and the CI
+step-masking change are parked.
 
 The paragraph above describes 2026-10-06. The dated status blocks below are history: each was true when written,
 and later blocks supersede earlier ones, including the 10-07 "Not done" line and the 10-08 "#98 … Not deployed".
@@ -39,7 +44,7 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     - #6 `re_3U0XuwGdOzCmGbHw0bL9UYzT`, #7 `re_3U0YzcGdOzCmGbHw0Av5k7ZH`.
     - Source `dashboard` on evidence: the handler's `refundSource` rule and the code history.
   - Final files: #6 `d7f31cf1…`, #7 `dca8cb00…`. Each is a 5-line fill of the frozen versions; the exact files were
-    rehearsed ALL PASS. Not executed.
+    rehearsed ALL PASS, then executed once each (above).
   - The test-mode five are excluded and unchanged.
 - **F-WEBHOOK-LEDGER-GAP-1: COMPLETE (explained).** no qualifying live activity since 2026-08-05 23:39:41Z, and no rejection
   evidenced. Stripe, the database and the application logs were compared.
@@ -62,9 +67,7 @@ and later blocks supersede earlier ones, including the 10-07 "Not done" line and
     `187f6986` → `9e731194`, `133a6d75` → `b0de860a`, `f70ca9d9` → `a7a4dfdc`. The pre-rewrite shas resolve only on D's
     local `review/d-records-PREREWRITE-BACKUP`, which is never pushed.
   - A's own pushed history contains neither ARN (full-history pickaxe with a positive control).
-- **Open finding (A's lane): F-WEBHOOK-LEDGER-GAP-1.** No Stripe event has passed signature verification at
-  `stripe-webhook` since 2026-08-05 23:39. One read-only query, needing the owner's authorisation, tells "no live
-  traffic" apart from "live events refused".
+- **F-WEBHOOK-LEDGER-GAP-1** (formerly open here): complete and explained, as above.
 - **Not a release blocker (owner, 2026-10-09):** VoiceOver is optional.
 - **Not authorised:** production correction writes, the final main integration (S7) and app distribution.
 

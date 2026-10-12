@@ -1,11 +1,16 @@
 # Release readiness: the single consolidated list (A, 2026-10-11)
 
+**Status: closed for the storage closeout (A, 2026-10-11, late).** Development is frozen. This record holds the
+latest results; the earlier red-CI reports are history. What is still open is in §1 and the release queue below.
+Nothing in this record authorises a merge, deployment, distribution or production change.
+
 **Sources.**
-- Current origin tips, fetched 2026-10-11 ~17:50Z (table below).
-- E's `V3_ACCEPTANCE_RECORD.md` @ `6f284925` ("the only current summary") and B's `B_NATIVE_REVIEW_9bbeaec6.md`.
+- Current origin tips, fetched 2026-10-11 at closeout (table below).
+- E's `V3_ACCEPTANCE_RECORD.md` @ `c16c2d8f`, which records B's narrow pass (`92356c9e`), and B's
+  `B_NATIVE_REVIEW_9bbeaec6.md`.
 - C's v3 handoffs.
 - F's `DASHBOARD_V2_HANDOFF.md` on `venue/dashboard-v2` @ `549e0335` and `admin/dashboard-v2` @ `4ef76958`.
-- D's records @ `66e691c8`.
+- D's records.
 - A's records and the checks A ran today.
 
 **Read with these rules:**
@@ -20,72 +25,27 @@
 | `release/production-gate-20260918` | `abef9506` | Production backend source: 150/151 applied, ledger 164, stripe-webhook v43, enforce-transfer-expiry v42 |
 | `feature/web-accounts-foundation` | `0b389584` | Live on `snatchti.com` as `dpl_9n8Jps9W…` |
 | `admin/operating-console` | `f7e7e85f` | Live as `dpl_8xPaaBYG…`; the pin is unchanged |
-| `v3/midnight-app` | `d27aa449` | The v3 candidate. Its `app/` and `src/` are identical to `9bbeaec6`, the tip B and E reviewed. It adds C's ML7 test fix (`10dbcdf4`), E's four frames (`32c0804a`, `11e50ca0`) and the parity alias fix (`d27aa449`). v3's own CI is green (run 38162136552). It contains `v3/consumer-batch2` `6b6b8f48` |
-| `integration/s5-trial-20261011-r3` | `5450b348` | **A's trial merge of the gate and v3 `d27aa449`, test only. CI GREEN** (run 38162239127): 182 unit files / 3,084 tests, parity 108 tests, pgTAP 98 files / 5,605 tests |
-| `integration/s5-trial-20261011` (-r2) | `9ed130d5` (`4f162c24`) | Earlier trials, red on ML7 (r1) and then on the parity load error (r2). Kept as record |
-| `fix/153-detect-refunds-state-on` | `ce95e503` | Migration 153 (`20261011000000`), prepared and tested. CI green (run 38160107004, pgTAP 99 files / 5,625 tests PASS). **Not applied** |
+| `v3/midnight-app` | `d27aa449` | The v3 candidate. Its `app/` and `src/` are identical to `9bbeaec6`, the tip B and E reviewed. It adds C's ML7 test fix (`10dbcdf4`), E's four frames (`32c0804a`, `11e50ca0`) and the parity alias fix (`d27aa449`). **v3's own CI is green** (run 38162136552). It contains `v3/consumer-batch2` `6b6b8f48` |
+| `integration/s5-trial-20261011-r3` | `5450b348` | A's trial merge of the gate and v3 `d27aa449`, test only. **CI GREEN** (run 38162239127): 182 unit files / 3,084 tests, parity 108 tests, pgTAP 98 files / 5,605 tests |
+| `integration/s5-trial-20261011` / `-r2` | `9ed130d5` / `4f162c24` | Earlier trials, red on ML7 (r1) and then on the parity load error (r2). Superseded by r3; kept as record |
+| `fix/153-detect-refunds-state-on` | `ce95e503` | Migration 153 (`20261011000000`). CI green (run 38160107004). **Parked; not applied** |
 | `release/candidate-20260918` | this commit | A's records |
-| `design/frontend-audit-20260917` | `6f284925` | B and E's record, pushed |
-| `review/d-records-20261005` | `66e691c8` | D's records, pushed and sanitised |
+| `design/frontend-audit-20260917` | `c16c2d8f` | B and E's record, with B's narrow pass. **E's local-only commits are now on origin** (`d9240daa` is an ancestor) |
+| `review/d-records-20261005` | `1bca001c` | D's records, sanitised |
 | `venue/dashboard-v2` / `admin/dashboard-v2` | `549e0335` / `4ef76958` | F's dashboard v2. "Not deployed, not merged to `main`" |
 | `main` | `eadd456a` | 2026-09-01; S7 never authorised |
 
-## 1. Release blockers (must close before the v3 app ships)
+## 1. Release blockers still open
 
-1. **RESOLVED (2026-10-11 18:06Z): v3 CI was red; it is now green at `d27aa449`.** It had two stacked failures:
-   - `tests/v3-mylistings-bids-stage.test.ts` › ML7 expects "Sold Sat 17 Oct" for `2026-10-17T21:00-04:00`.
-   - The UTC runner prints "Sold Sun 18 Oct".
-   - It has failed on every `v3/midnight-app` push since at least 2026-10-07, including `9bbeaec6`
-     (run 38028668549). 1 of 178 files.
-   - It is not caused by the merge: the S5 trial fails identically.
-   - **(a) ML7:** fixed by C in the test only (`10dbcdf4`). `soldOnLabel` deliberately stays in the device's zone;
-     ML7b now defends that.
-   - **(b) The parity suite never loaded:** `core/tests/domain-parity.test.ts` reported "Cannot find package
-     '@/src/lib/money'".
-     - It had been hidden behind ML7, and it had failed since 2026-09-24, when `90235b74` (v3 only; not on the gate)
-       made `src/config/app.ts` import through the `@/` alias, which `packages/vitest.config.ts` never declared.
-     - Fixed by C in `d27aa449`, in the config only.
-   - **A gap that existed, not only a bug fixed.** For 17 days the 11 APP_CONFIG parity assertions did not execute,
-     while the job reported its first failure instead.
-     - Those assertions cover `BUYER_FEE_RATE`, `SELLER_FEE_RATE`, and `STRIPE_PUBLISHABLE_KEY` as the only intended
-       omission.
-     - No value had drifted: all 108 pass at r3.
-     - C's negative control: a non-money key mutated kills exactly that test.
-   - Trial r3 (`5450b348`) is green on every step.
-2. **E's one open evidence item: captured and re-diffed; B's review owed.**
-   - C pushed the four frames (`32c0804a`, labelled `11e50ca0`).
-   - E's re-diff against `b64e5dd6` finds 0 px differing below the header. The earlier "0 px" claims stay labelled
-     unverifiable.
-   - B's narrow review of the four frames is the last acceptance item. B cannot receive messages, so E's acceptance
-     record is the channel.
-   - **E's final summary (2026-10-11)** agrees with this list: CI green at `d27aa449`; passed items as in §5; not
-     passed by design as in §2. E: "NOT whole-app acceptance and NOT a release artifact." 
-   - Four fresh default-size frames at `9bbeaec6`: `settings-hub-default-{light,dark}` and
-     `appearance-default-{light,dark}`. C has the simulator window.
-   - Then B reviews those four frames only.
-   - E: "Open: one evidence item"; it is the only open line in E's current summary.
-3. **The rest of the §5.3 combined-candidate verification** (`packages/S5_candidate_20261011/README.md`):
-   - Item 1, changed-surface inventory: **done (A).** `app/` and `src/` are identical to `9bbeaec6`.
-   - Item 2, CI green: **DONE.** Trial r3 `5450b348` (run 38162239127); every step was confirmed to execute.
-   - Item 3, C4 static client-read check: **PASS (A)**, against the ledger-164 schema.
-     - 63 chains and 25 RPCs, 0 missing; 5/5 planted defects caught; 16 dynamic sites resolved by hand.
-     - D verifies (item 6).
-   - Item 4, native build of the candidate from a fresh install: **owed (C/B).**
-   - Item 5, delta acceptance: covered by #2, plus whatever the ML7 fix touches.
-4. **Owner approvals on the path** (these are approvals, not engineering defects):
-   - **The owner's acceptance of the v3 candidate.** E states its scope: "Native development build only. Not
-     whole-app acceptance". Accepted: Home, Listing, Profile and the W batch. Screens outside that list are not
-     accepted at `9bbeaec6`; the owner accepts the candidate on that coverage, or asks for more.
-   - **S5:** merge `v3/midnight-app` into the gate.
-   - **D2: the 152 blocking scope** (`BLOCKING_SCOPE_RECOMMENDATION_20260924.md` §5). Decide whether it is in this
-     release. Today a block is only a one-way hide preference: "No server code reads `user_blocks`".
-     - If yes: A writes 152 and C the client half, D verifies, and the §5.3 checks re-run (C4 included).
-     - If no: ship as it is, with the truthful wording ("hide a seller's listings").
-   - **S7: gate → `main`.**
-     - It needs PR-3 (a merge commit, MAIN_PROTECTION_PROPOSAL §2) and a fresh owner visual confirmation that
-       Supabase auto-deploy is off (AUTODEPLOY-1). It is migration-bearing.
-     - 153, if approved by then, rides with it or applies separately.
-   - **X11 / G2:** an EAS production build from the exact candidate sha, then TestFlight, then the owner's submission.
+1. **The native build of the candidate from a fresh install (§5.3 item 4): OUTSTANDING.**
+   - Every native result for v3 comes from a **simulator development build**. E's record says so: "Native
+     development build only. Not whole-app acceptance."
+   - A searched v3's and the audit branch's records. None shows a build of `d27aa449` (or `9bbeaec6`) from a fresh
+     install with its build output.
+   - It is **not inferred** from the simulator captures. A capture is not a build record.
+   - Owner of the work: C/B. It waits for the development freeze to lift.
+   - This is separate from G2 (the EAS production build). G2 is in the release queue.
+2. **D's verification of C4 (§5.3 item 6): owed by D.** A's C4 passed (§5). D's independent check is still to come.
 
 ## 2. Owner-waived (not verified; do not re-ask)
 
@@ -106,18 +66,39 @@
   - The 16:35Z run after O-R4 scanned 2 and opened 0, the same as before; it is **not** evidence that detection
     works.
   - Only A's rehearsal positive control stands behind the mechanism.
-  - The first real failed or pending refund is the natural witness. 153, once applied, makes every tick's run log
-    show which case it was.
+  - The first real failed or pending refund is the natural witness. 153 would make each run's log name the case;
+    it is parked.
+
+## Release queue (separate; each step is the owner's, in order)
+
+Not engineering work, and not started by A.
+1. **Close §1:** the fresh-install native build of the candidate, and D's C4 check.
+2. **Accept the v3 candidate `d27aa449`** on E's stated coverage. B's narrow review is in and passes, so nothing
+   else in acceptance is open. Accepted: Home, Listing, Profile, the W batch, and W-4 and S-1/S-1b at default size.
+   Screens outside that list are not accepted; the owner accepts on that coverage, or asks for more.
+3. **D2: the 152 blocking scope** (`BLOCKING_SCOPE_RECOMMENDATION_20260924.md` §5). Is it in this release?
+   - Today a block is only a one-way hide preference: "No server code reads `user_blocks`".
+   - If yes: A writes 152 and C the client half, D verifies, and the §5.3 checks re-run (C4 included).
+   - If no: ship as it is, with the truthful wording ("hide a seller's listings").
+4. **S5:** merge `v3/midnight-app` into the gate.
+5. **S7: gate → `main`.** It is migration-bearing. It needs:
+   - PR-3 (a merge commit; MAIN_PROTECTION_PROPOSAL §2);
+   - a fresh owner visual confirmation that Supabase auto-deploy is off (AUTODEPLOY-1).
+6. **X11 / G2:** an EAS production build from the exact candidate sha, then TestFlight, then the owner's submission.
+
+## Parked (not in the release; resume only on the owner's word)
+
+- **Migration 153, detector logging** (F-DETECT-REFUNDS-UNOBSERVABLE-1).
+  - Branch `fix/153-detect-refunds-state-on` @ `ce95e503`, on origin.
+  - Local RED then GREEN 20/20. CI green: pgTAP 99 files / 5,625 tests.
+  - The rollback restores 150's body exactly.
+  - Not applied anywhere in production. D's review is not started.
+- **CI step masking** (a `ci.yml` change, so a PR into the gate). The quality job runs its steps in sequence, so the
+  first failure hides every later step. For 17 days the parity load error hid 11 APP_CONFIG assertions. Recommended:
+  `if: ${{ !cancelled() }}` on each independent test step. A has not changed `ci.yml`.
 
 ## 4. Optional follow-ups (not release blockers)
 
-- **CI step masking (A's recommendation; a `ci.yml` change, so a PR into the gate, owner-gated).** The quality job's
-  steps run in sequence, so the first failure hides every later step. Twice in a row ML7 hid the parity suite, and the
-  parity load error hid 11 assertions; "red on one test" therefore never meant one thing was wrong. Recommended: run
-  each independent test step with `if: ${{ !cancelled() }}`, so that every step reports and the job still fails on any
-  of them. A has not changed `ci.yml`.
-- **Migration 153** (F-DETECT-REFUNDS-UNOBSERVABLE-1). Prepared; CI green; rollback restores 150's body exactly.
-  Applying it to production is owner-gated; D reviews the branch.
 - **Spoken VoiceOver:** optional.
 - **The Badge 1.3× cap** (owner's call; E) and the dispute-branch tier word (a later batch; C).
 - **L-2 launch method** (Codex).
@@ -134,10 +115,6 @@
   - "Not deployed, not merged to `main`."
   - The venue backend items B1–B11 (`venue_api` "applied nowhere") need the owner's authorisation before any start.
   - The demo access decision is the owner's.
-- **E's acceptance record is only partly backed up (owner action).** `design/frontend-audit-20260917` is local at
-  `d9240daa`, 5 record commits ahead of origin (`6f284925`). E's session cannot push, and A does not push another
-  session's branch on its behalf. Pushing it needs the owner, or B, after the usual check for credentials and private
-  evidence; the repository is public.
 - **Stale documents to retire, which conflict with newer records** (from A's read-only extraction of the B/C/E/F
   reports; A re-checked only E's current summary, not each item):
   - C's `V3_SSD_LAUNCH_BLOCKER.md` (L-1 was resolved at `b0d727ce`);
@@ -152,22 +129,34 @@
 - **Web #97 live; console #98 live** via the pin plus Redeploy; MM-1 rulesets in place.
 - **Stripe live endpoint:** 13 events, refund events included. O-R2 (refund-state detection) enabled. O-R3 operator:
   the owner, daily.
-- **O-R4 CLOSED, 2026-10-11.** Both live historical refunds were reconciled from Stripe's live API, run on the owner's
-  approved hashes, and witnessed by D (`6b9da194`). The five test-mode payments are excluded and unchanged.
-- **F-WEBHOOK-LEDGER-GAP-1: explained.** There has been no qualifying live activity since 2026-08-05 23:39:41Z, and
-  no rejection is evidenced. Stripe, the database and the app logs were compared.
-- **The seller-fee query:** 0 affected rows.
+- **O-R4 CLOSED, 2026-10-11. Do not rerun.** Both live historical refunds were reconciled from Stripe's live API,
+  run once each on the owner's approved hashes (#6 `d7f31cf1…`, #7 `dca8cb00…`), and witnessed by D (`6b9da194`).
+  The five test-mode payments are excluded and unchanged. The public-to-private evidence pointer map, and where
+  the private side is kept, are in the package's `EXECUTION_20261011.md`.
+- **F-WEBHOOK-LEDGER-GAP-1: complete (explained).** There has been no qualifying live activity since 2026-08-05
+  23:39:41Z, and no rejection is evidenced. Stripe, the database and the app logs were compared. Residual: the
+  platform's `account.updated` events from 08-06 to about 09-10 cannot be enumerated.
+- **The seller-fee query: complete.** 0 affected rows.
+- **CI green at the candidate (2026-10-11 18:06Z).**
+  - v3 `d27aa449`: run 38162136552.
+  - Combined trial r3 `5450b348` (the gate plus `d27aa449`): run 38162239127. Every step was confirmed to execute.
+  - Two stacked failures were cleared by C, each fix in test or config only:
+    - ML7, a timezone-dependent test (`10dbcdf4`). `soldOnLabel` stays in the device's zone; ML7b defends that.
+    - The parity suite's load error (`d27aa449`, `packages/vitest.config.ts`).
+  - A gap that existed, not only a bug fixed: the 11 APP_CONFIG parity assertions did not run from 2026-09-24 (v3
+    only). No value drifted; all 108 pass at r3.
+- **§5.3 items 1, 2, 3 and 5 (A, B, E).**
+  - Item 1, changed-surface inventory: `app/` and `src/` identical to `9bbeaec6`.
+  - Item 2, CI: green, as above.
+  - Item 3, C4 static client-read check: PASS against the ledger-164 schema (63 chains, 25 RPCs, 0 missing; 5/5
+    planted defects caught; 16 dynamic sites resolved by hand). It carries over to `d27aa449`, whose only changes
+    since `9bbeaec6` are one test file and the vitest config.
+  - Item 5, delta acceptance: **B's narrow review passes** (`92356c9e`, recorded by E at `c16c2d8f`). The four
+    default-size frames are genuinely re-shot; there are 0 differing pixels below y = 440 px, and B's result matches
+    E's independent re-diff. W-4 and S-1/S-1b pass at default size.
 - **Branches and records:**
   - D's four branches are pushed (the records branch sanitised); the trial branch `s1-s2` is deleted (redundant).
-  - The B/E audit branch is pushed; C's v3 branches are pushed.
+  - The B/E audit branch is pushed through `c16c2d8f`, including E's formerly local-only record commits.
+  - C's v3 branches are pushed.
 - **v3 review (B and E agree, closed):** Home, Listing, Profile, the W batch at `9bbeaec6`; wording W-1 to W-6
   decided; L-1 guard path repaired.
-
-## Concrete remaining approvals, in order
-
-1. *(after B's review of the four frames; CI is now green)* **Accept the v3 candidate `d27aa449`** on E's stated coverage.
-2. **D2:** is the 152 blocking scope in this release, yes or no?
-3. **S5:** merge `v3/midnight-app` into the gate.
-4. **S7:** gate → `main`, with PR-3 and a fresh auto-deploy-off confirmation.
-5. **X11 / G2:** an EAS production build from the exact candidate sha, then TestFlight, then submission.
-6. *(independent, optional)* **Apply 153** to production after D's review.

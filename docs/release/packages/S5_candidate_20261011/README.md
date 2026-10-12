@@ -80,12 +80,16 @@ Tool: `c4_client_read_check.py` (this folder).
   - It covers `9bbeaec6` without S6. If 152 and C's blocking client half join the candidate, rerun it.
   - **D verifies C4 (§5.3 item 6).**
 
-## Still owed by others for §5.3
+## §5.3 status at the storage closeout (A, 2026-10-11)
 
-- **Item 4:** a native build of the candidate from a fresh install (C/B, on "SN V3 393x852").
-- **C4 carries over to `d27aa449`:** outside `native/9bbeaec6/` evidence, the only changes since `9bbeaec6` are
-  `tests/v3-mylistings-bids-stage.test.ts` and `packages/vitest.config.ts`. Neither reads from the database.
-- **Item 5:** delta acceptance. There are no app-source changes beyond `9bbeaec6`, so the delta is E's one open
-  evidence item (four default-size Settings frames) plus whatever the ML7 fix touches.
-- **Item 6:** D's verification of C4.
-- **Item 7:** G2, an EAS production build from the exact candidate sha, which is owner-authorised.
+- **Items 1, 2 and 3: done** (above). C4 carries over to `d27aa449`: outside `native/9bbeaec6/` evidence, the only
+  changes since `9bbeaec6` are `tests/v3-mylistings-bids-stage.test.ts` and `packages/vitest.config.ts`. Neither
+  reads from the database.
+- **Item 5, delta acceptance: done.** B's narrow review of the four default-size frames passes (`92356c9e`, recorded
+  by E at `c16c2d8f`). The ML7 fix touches only a test.
+- **Item 4, a native build of the candidate from a fresh install (C/B): OUTSTANDING.** The native evidence so far
+  is simulator development-build captures. No record shows a fresh-install build of `d27aa449` or `9bbeaec6`, and
+  the captures are not taken as one.
+- **Item 6:** D's verification of C4. Owed.
+- **Item 7:** G2, an EAS production build from the exact candidate sha. In the owner's release queue
+  (`RELEASE_READINESS_20261011.md`).
