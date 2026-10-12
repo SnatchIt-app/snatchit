@@ -1,0 +1,120 @@
+RC2 HEAVY-3 run started 2026-10-12T23:34:39Z; binary = C's Release build of e2b9498b (installed container digests recorded separately); pre-flight gate on the app already up at large
+pre-flight: banner present at large (try 1)
+relaunched at content_size=accessibility-extra-extra-extra-large (banner after 6s)
+ok   placebid-a3xl-light  _dev/v3-screens?screen=bid  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 184 >=128)  md5=a309f46469d9bb045c4f68a7249deafa
+ok   listing-footer-a3xl-light  _dev/v3-listing?screen=listing  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 244 >=128)  md5=1257f1d0f8e8ffa1793c786f0f031493
+ok   checkout-ready-a3xl-light  _dev/v3-checkout?state=ready  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 212 >=128)  md5=203d9e67b450de2e722e00516b8393df
+ok   checkout-auction-a3xl-light  _dev/v3-checkout?state=auction  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 212 >=128)  md5=d331133c61c821c1a3d8a69cf9132b80
+ok   bids-all-a3xl-light  _dev/v3-mylistings-bids?screen=bids&variant=all  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 200 >=128)  md5=55ec9bfdbd63b94fef6621800c252b01
+ok   order-a3xl-light  _dev/v3-tickets?screen=order  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 219 >=128)  md5=d5394e7098948b65b3923fed8068aba9
+ok   send-a3xl-light  _dev/v3-tickets?screen=send  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 215 >=128)  md5=6840bbbbe8849a6b5640f62867b8af34
+ok   profile-a3xl-light  _dev/v3-profile  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 241 >=128)  md5=543e195bc9a0bd7805a3ebb39585fcff
+ok   banner-reserved-a3xl-light  _dev/v3-listing?screen=listing&variant=reserved-by-you  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 238 >=128)  md5=724facc9e159293f79421b4bac3f91c3
+ok   banner-onhold-a3xl-light  _dev/v3-listing?screen=listing&variant=on-hold  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 244 >=128)  md5=53f83ded297a327ae01391ef6efdabd8
+ok   placebid-a3xl-dark  _dev/v3-screens?screen=bid  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 73 <128)  md5=f5138f89e90e17a37be6fd23f9bad31c
+ok   listing-footer-a3xl-dark  _dev/v3-listing?screen=listing  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 10 <128)  md5=a3aa87ebffd4e627f8fa9a17e95b944b
+ok   checkout-ready-a3xl-dark  _dev/v3-checkout?state=ready  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 43 <128)  md5=c3235ce65caae3b05cc1137283fd582f
+ok   checkout-auction-a3xl-dark  _dev/v3-checkout?state=auction  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 43 <128)  md5=6813e3c32ad1a216677500c2b29cd843
+ok   bids-all-a3xl-dark  _dev/v3-mylistings-bids?screen=bids&variant=all  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 57 <128)  md5=094e027adb153fc96c40cd4d08243473
+ok   order-a3xl-dark  _dev/v3-tickets?screen=order  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 36 <128)  md5=194998c1bd5bbf2325309ec7c8d063fb
+ok   send-a3xl-dark  _dev/v3-tickets?screen=send  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 41 <128)  md5=780d4ad00b567150a13ff3f147fcfafc
+ok   profile-a3xl-dark  _dev/v3-profile  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 7 <128)  md5=193e0d37ccdf2a6e5868f9de3e256376
+ok   banner-reserved-a3xl-dark  _dev/v3-listing?screen=listing&variant=reserved-by-you  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 16 <128)  md5=c1928e4c87c50aa6a99a60bf1610a108
+ok   banner-onhold-a3xl-dark  _dev/v3-listing?screen=listing&variant=on-hold  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 10 <128)  md5=474fa9dd651a452767dfd4da07df0a36
+relaunched at content_size=large (banner after 3s)
+ok   bids-default-dflt-light  _dev/v3-mylistings-bids?screen=bids  size=large pre/post  appearance=light (lum 240 >=128)  md5=2cbe684a9767a9158a40250212a437dc
+ok   bids-empty-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=empty  size=large pre/post  appearance=light (lum 245 >=128)  md5=6445659abd36351d71997f977065636b
+ok   bids-past-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=past  size=large pre/post  appearance=light (lum 240 >=128)  md5=398d009e238c4bbae24c3f1e74ed18a4
+ok   bids-all-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=all  size=large pre/post  appearance=light (lum 240 >=128)  md5=2cbe684a9767a9158a40250212a437dc
+ok   bids-failed-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=failed  size=large pre/post  appearance=light (lum 239 >=128)  md5=c0c61717419aade68423082f95ca2cd9
+ok   bids-error-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=error  size=large pre/post  appearance=light (lum 255 >=128)  md5=16e80843a16489f6c1a3687f787f975c
+ok   bids-offline-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=offline  size=large pre/post  appearance=light (lum 255 >=128)  md5=a452b3329c417f35cc17e9e3c3d5824c
+ok   checkout-preparing-dflt-light  _dev/v3-checkout?state=preparing  size=large pre/post  appearance=light (lum 250 >=128)  md5=957235bf28433103dd494f6a15767196
+ok   checkout-ready-dflt-light  _dev/v3-checkout?state=ready  size=large pre/post  appearance=light (lum 249 >=128)  md5=f205478fdd0b233d079dc6ec5d17e4dd
+ok   checkout-auction-dflt-light  _dev/v3-checkout?state=auction  size=large pre/post  appearance=light (lum 250 >=128)  md5=3cf4a182be1c967a188b7947be50b2d2
+ok   checkout-hold-lost-dflt-light  _dev/v3-checkout?state=hold-lost  size=large pre/post  appearance=light (lum 250 >=128)  md5=a73a97ec09870b99a12816e9719317c3
+ok   checkout-price-changed-dflt-light  _dev/v3-checkout?state=price-changed  size=large pre/post  appearance=light (lum 248 >=128)  md5=26b405ea38af2a14ffbcbb02016ffcea
+ok   checkout-unconfirmed-dflt-light  _dev/v3-checkout?state=unconfirmed  size=large pre/post  appearance=light (lum 249 >=128)  md5=d1e6c7f46424f7d7e42b359f71d1a014
+ok   checkout-failed-dflt-light  _dev/v3-checkout?state=failed  size=large pre/post  appearance=light (lum 249 >=128)  md5=fa65d336261783ff9eb6be4ea9ae84e5
+ok   checkout-hold-checking-dflt-light  _dev/v3-checkout?state=hold-checking  size=large pre/post  appearance=light (lum 250 >=128)  md5=06679747ac8e96422c13f37425291339
+ok   checkout-confirming-dflt-light  _dev/v3-checkout?state=confirming  size=large pre/post  appearance=light (lum 249 >=128)  md5=26a4829420be40e5c1e51bb163e23cd4
+ok   checkout-finalizing-dflt-light  _dev/v3-checkout?state=finalizing  size=large pre/post  appearance=light (lum 249 >=128)  md5=e5104643beee87ff8d395489b28bd8b0
+ok   checkout-authenticating-dflt-light  _dev/v3-checkout?state=authenticating  size=large pre/post  appearance=light (lum 251 >=128)  md5=40833a912fad552577c3d40267e8d6af
+ok   checkout-status-unknown-dflt-light  _dev/v3-checkout?state=status-unknown  size=large pre/post  appearance=light (lum 249 >=128)  md5=b3b60d027891c2201cdc2a806ac20e83
+ok   checkout-unavailable-dflt-light  _dev/v3-checkout?state=unavailable  size=large pre/post  appearance=light (lum 251 >=128)  md5=39c6bca8b7c4d6055ec4b47916a5eee8
+ok   checkout-complete-dflt-light  _dev/v3-checkout?state=complete  size=large pre/post  appearance=light (lum 242 >=128)  md5=e47e124099f3028d32d9b533fc62b8d3
+ok   checkout-pending-dflt-light  _dev/v3-checkout?state=pending  size=large pre/post  appearance=light (lum 242 >=128)  md5=eb3caaa18e74f28aa70a9f89dc416227
+ok   checkout-settle-failed-dflt-light  _dev/v3-checkout?state=settle-failed  size=large pre/post  appearance=light (lum 242 >=128)  md5=1f510555d1d55573e75c74cb20df88b0
+ok   checkout-refund-dflt-light  _dev/v3-checkout?state=refund  size=large pre/post  appearance=light (lum 237 >=128)  md5=54f30eb6fdf4c9a17a75d401a69cfa1f
+ok   placebid-default-dflt-light  _dev/v3-screens?screen=bid  size=large pre/post  appearance=light (lum 246 >=128)  md5=cf7e86371fa70b6cc6334210b7a6f9e1
+ok   order-default-dflt-light  _dev/v3-tickets?screen=order  size=large pre/post  appearance=light (lum 246 >=128)  md5=4c717dac92ad3f18fd1dfd4c57c8262e
+ok   send-default-dflt-light  _dev/v3-tickets?screen=send  size=large pre/post  appearance=light (lum 235 >=128)  md5=ef6937bed239bbb1e4da9186448f01c7
+ok   listing-default-dflt-light  _dev/v3-listing?screen=listing  size=large pre/post  appearance=light (lum 244 >=128)  md5=75375d230cd84423af9a5043cf62ed51
+ok   listing-sold-dflt-light  _dev/v3-listing?screen=listing&variant=sold  size=large pre/post  appearance=light (lum 244 >=128)  md5=c530c5b51b0754647337b55623f4f798
+ok   listing-cancelled-dflt-light  _dev/v3-listing?screen=listing&variant=cancelled  size=large pre/post  appearance=light (lum 244 >=128)  md5=e1c4376b2143b762f81e6d9b7a507ef5
+ok   listing-not-found-dflt-light  _dev/v3-listing?screen=listing&variant=not-found  size=large pre/post  appearance=light (lum 255 >=128)  md5=91705ec90346547567474bfe1028c776
+ok   listing-error-dflt-light  _dev/v3-listing?screen=listing&variant=error  size=large pre/post  appearance=light (lum 255 >=128)  md5=4289677c34f1403937a5a95f2068f868
+ok   listing-offline-dflt-light  _dev/v3-listing?screen=listing&variant=offline  size=large pre/post  appearance=light (lum 255 >=128)  md5=ba2344022178614228efc2436011d3ee
+ok   listing-on-hold-dflt-light  _dev/v3-listing?screen=listing&variant=on-hold  size=large pre/post  appearance=light (lum 244 >=128)  md5=9134bf8b45a9d63a415da8c6de1cb17e
+ok   listing-won-dflt-light  _dev/v3-listing?screen=listing&variant=won  size=large pre/post  appearance=light (lum 255 >=128)  md5=9a54755db6e90a6ae908b3d887ff0db0
+ok   listing-reserved-by-you-dflt-light  _dev/v3-listing?screen=listing&variant=reserved-by-you  size=large pre/post  appearance=light (lum 255 >=128)  md5=422535cf863bfb067e13b1ddad0a6949
+ok   listing-own-listing-dflt-light  _dev/v3-listing?screen=listing&variant=own-listing  size=large pre/post  appearance=light (lum 255 >=128)  md5=b0a798d2178ecd386f2e3f1d6bdcd290
+ok   listing-reserving-dflt-light  _dev/v3-listing?screen=listing&reserving=1  size=large pre/post  appearance=light (lum 244 >=128)  md5=cf3ae710967c8515066a1318301bed9f
+ok   edit-default-dflt-light  _dev/v3-edit-listing  size=large pre/post  appearance=light (lum 255 >=128)  md5=3ee469bf73ab43b8c6b8b34675124678
+ok   edit-not-found-dflt-light  _dev/v3-edit-listing?variant=not-found  size=large pre/post  appearance=light (lum 255 >=128)  md5=526dc71b70d68a2659d534f06c946614
+ok   edit-not-owner-dflt-light  _dev/v3-edit-listing?variant=not-owner  size=large pre/post  appearance=light (lum 255 >=128)  md5=526dc71b70d68a2659d534f06c946614
+ok   edit-has-bids-dflt-light  _dev/v3-edit-listing?variant=has-bids  size=large pre/post  appearance=light (lum 255 >=128)  md5=526dc71b70d68a2659d534f06c946614
+ok   edit-inactive-dflt-light  _dev/v3-edit-listing?variant=inactive  size=large pre/post  appearance=light (lum 255 >=128)  md5=526dc71b70d68a2659d534f06c946614
+ok   edit-read-failed-dflt-light  _dev/v3-edit-listing?variant=read-failed  size=large pre/post  appearance=light (lum 255 >=128)  md5=526dc71b70d68a2659d534f06c946614
+finished 2026-10-12T23:44:44Z ok=64 fail=0
+== default-size pixel identity vs 48d20ca1 frames (A's condition for B-D7; status-bar clock excluded via y>=440) ==
+  bids-all-dflt-light.png                      DIFFERS below header: 1266 px, y 1279-1306 px
+  bids-default-dflt-light.png                  IDENTICAL below header
+  bids-empty-dflt-light.png                    IDENTICAL below header
+  bids-error-dflt-light.png                    IDENTICAL below header
+  bids-failed-dflt-light.png                   DIFFERS below header: 1266 px, y 1495-1522 px
+  bids-offline-dflt-light.png                  IDENTICAL below header
+  bids-past-dflt-light.png                     IDENTICAL below header
+  checkout-auction-dflt-light.png              IDENTICAL below header
+  checkout-authenticating-dflt-light.png       DIFFERS below header: 1160 px, y 791-2369 px
+  checkout-complete-dflt-light.png             IDENTICAL below header
+  checkout-confirming-dflt-light.png           DIFFERS below header: 1488 px, y 1296-2369 px
+  checkout-failed-dflt-light.png               IDENTICAL below header
+  checkout-finalizing-dflt-light.png           DIFFERS below header: 1488 px, y 1296-2369 px
+  checkout-hold-checking-dflt-light.png        DIFFERS below header: 1160 px, y 1208-2369 px
+  checkout-hold-lost-dflt-light.png            IDENTICAL below header
+  checkout-pending-dflt-light.png              IDENTICAL below header
+  checkout-preparing-dflt-light.png            DIFFERS below header: 736 px, y 2310-2369 px
+  checkout-price-changed-dflt-light.png        IDENTICAL below header
+  checkout-ready-dflt-light.png                IDENTICAL below header
+  checkout-refund-dflt-light.png               IDENTICAL below header
+  checkout-settle-failed-dflt-light.png        IDENTICAL below header
+  checkout-status-unknown-dflt-light.png       IDENTICAL below header
+  checkout-unavailable-dflt-light.png          DIFFERS below header: 744 px, y 783-842 px
+  checkout-unconfirmed-dflt-light.png          DIFFERS below header: 735 px, y 2318-2369 px
+  edit-default-dflt-light.png                  IDENTICAL below header
+  edit-has-bids-dflt-light.png                 IDENTICAL below header
+  edit-inactive-dflt-light.png                 IDENTICAL below header
+  edit-not-found-dflt-light.png                IDENTICAL below header
+  edit-not-owner-dflt-light.png                IDENTICAL below header
+  edit-read-failed-dflt-light.png              IDENTICAL below header
+  listing-cancelled-dflt-light.png             not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-default-dflt-light.png               not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-error-dflt-light.png                 not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-not-found-dflt-light.png             not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-offline-dflt-light.png               not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-on-hold-dflt-light.png               not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-own-listing-dflt-light.png           not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-reserved-by-you-dflt-light.png       not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-reserving-dflt-light.png             not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-sold-dflt-light.png                  not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  listing-won-dflt-light.png                   not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  order-default-dflt-light.png                 DIFFERS below header: 394833 px, y 954-2555 px
+  placebid-default-dflt-light.png              not comparable: RC1's frame of this name was Home's empty state (missing screen=listing) or absent
+  send-default-dflt-light.png                  DIFFERS below header: 4632 px, y 1423-1452 px
+scrolled set: relaunched at content_size=accessibility-extra-extra-extra-large (banner after 3s) 23:47:59Z
+ok   order-scrolled-a3xl-light  (scrolled by one 380-pt drag; You paid row and below)  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 238)  md5=05e5cd5cd28901301b88484fc5b6b310
+ok   order-scrolled-a3xl-dark  (scrolled by one 380-pt drag; You paid row and below)  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 17)  md5=974e126688a8178e683a59b7bc3ff1c7
+ok   checkout-auction-scrolled-a3xl-light  (scrolled by one 380-pt drag; breakdown fee and total rows)  size=accessibility-extra-extra-extra-large pre/post  appearance=light (lum 232)  md5=7c0f19aae45d8e663e58c348695ffb5c
+ok   checkout-auction-scrolled-a3xl-dark  (scrolled by one 380-pt drag; breakdown fee and total rows)  size=accessibility-extra-extra-extra-large pre/post  appearance=dark (lum 13)  md5=529d24981979875e4125719b5a2dbd29
+HEAVY-3 released by B at 2026-10-12T23:51:57Z

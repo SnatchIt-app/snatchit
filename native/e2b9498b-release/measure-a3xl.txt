@@ -1,0 +1,202 @@
+== A3XL gutter sweep (B's instrument; ink past x=1131 below y=440) ==
+
+banner-onhold-a3xl-light.png  1179x2556  bg=(244, 244, 244)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=280259
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=279516
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=278072
+   T=90  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=276926
+
+banner-reserved-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=237965
+   T=45  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=236495
+   T=60  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=235106
+   T=90  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=231590
+
+bids-all-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=363888
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=362898
+   T=60  gutter=      0 px   max_ink_x=365.3 pt (1096 px)   total_ink=359794
+   T=90  gutter=      0 px   max_ink_x=365.3 pt (1096 px)   total_ink=357854
+
+checkout-auction-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=384571  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=383481  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=60  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=378938  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=90  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=377029  gutter_y=(np.float64(741.0), np.float64(741.7))
+
+checkout-ready-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=411121  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=410155  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=60  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=405647  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=90  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=403768  gutter_y=(np.float64(741.0), np.float64(741.7))
+
+listing-footer-a3xl-light.png  1179x2556  bg=(244, 244, 244)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=258041
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=257568
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=257169
+   T=90  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=255826
+
+order-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=    888 px   max_ink_x=392.7 pt (1178 px)   total_ink=241197  gutter_y=(np.float64(146.7), np.float64(181.7))
+   T=45  gutter=    888 px   max_ink_x=392.7 pt (1178 px)   total_ink=239747  gutter_y=(np.float64(146.7), np.float64(181.7))
+   T=60  gutter=    744 px   max_ink_x=388.7 pt (1166 px)   total_ink=234366  gutter_y=(np.float64(146.7), np.float64(154.3))
+   T=90  gutter=    744 px   max_ink_x=388.7 pt (1166 px)   total_ink=231673  gutter_y=(np.float64(146.7), np.float64(154.3))
+
+placebid-a3xl-light.png  1179x2556  bg=(244, 244, 244)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=386075
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=381986
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=381260
+   T=90  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=379167
+
+profile-a3xl-light.png  1179x2556  bg=(252, 252, 252)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=233847  gutter_y=(np.float64(184.3), np.float64(185.0))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=232525  gutter_y=(np.float64(184.3), np.float64(185.0))
+   T=60  gutter=      0 px   max_ink_x=361.3 pt (1084 px)   total_ink=222385
+   T=90  gutter=      0 px   max_ink_x=361.3 pt (1084 px)   total_ink=219569
+
+send-a3xl-light.png  1179x2556  bg=(244, 244, 244)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=268927  gutter_y=(np.float64(266.7), np.float64(267.3))
+   T=45  gutter=      0 px   max_ink_x=363.7 pt (1091 px)   total_ink=244665
+   T=60  gutter=      0 px   max_ink_x=363.7 pt (1091 px)   total_ink=243142
+   T=90  gutter=      0 px   max_ink_x=363.7 pt (1091 px)   total_ink=241100
+
+banner-onhold-a3xl-dark.png  1179x2556  bg=(12, 12, 12)  band y=440-2556px
+   T=30  gutter=   1364 px   max_ink_x=392.7 pt (1178 px)   total_ink=278424  gutter_y=(np.float64(146.7), np.float64(601.0))
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=273983
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=273190
+   T=90  gutter=      0 px   max_ink_x=376.3 pt (1129 px)   total_ink=271539
+
+banner-reserved-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=237789
+   T=45  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=236472
+   T=60  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=234972
+   T=90  gutter=      0 px   max_ink_x=368.7 pt (1106 px)   total_ink=231566
+
+bids-all-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=365238
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=364116
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=361068
+   T=90  gutter=      0 px   max_ink_x=365.3 pt (1096 px)   total_ink=357786
+
+checkout-auction-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=378529  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=377201  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=60  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=375304  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=90  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=370019  gutter_y=(np.float64(741.0), np.float64(741.7))
+
+checkout-ready-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=405081  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=403819  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=60  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=401982  gutter_y=(np.float64(741.0), np.float64(741.7))
+   T=90  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=396662  gutter_y=(np.float64(741.0), np.float64(741.7))
+
+listing-footer-a3xl-dark.png  1179x2556  bg=(12, 12, 12)  band y=440-2556px
+   T=30  gutter=   1497 px   max_ink_x=392.7 pt (1178 px)   total_ink=251541  gutter_y=(np.float64(146.7), np.float64(629.7))
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=246799
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=246199
+   T=90  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=244497
+
+order-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=    888 px   max_ink_x=392.7 pt (1178 px)   total_ink=241633  gutter_y=(np.float64(146.7), np.float64(181.7))
+   T=45  gutter=    888 px   max_ink_x=392.7 pt (1178 px)   total_ink=240201  gutter_y=(np.float64(146.7), np.float64(181.7))
+   T=60  gutter=    888 px   max_ink_x=392.7 pt (1178 px)   total_ink=237788  gutter_y=(np.float64(146.7), np.float64(181.7))
+   T=90  gutter=    744 px   max_ink_x=388.7 pt (1166 px)   total_ink=231789  gutter_y=(np.float64(146.7), np.float64(154.3))
+
+placebid-a3xl-dark.png  1179x2556  bg=(12, 12, 12)  band y=440-2556px
+   T=30  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=380968
+   T=45  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=379911
+   T=60  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=376157
+   T=90  gutter=      0 px   max_ink_x=376.7 pt (1130 px)   total_ink=374065
+
+profile-a3xl-dark.png  1179x2556  bg=(4, 4, 4)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=233560  gutter_y=(np.float64(184.3), np.float64(185.0))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=232164  gutter_y=(np.float64(184.3), np.float64(185.0))
+   T=60  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=228734  gutter_y=(np.float64(184.3), np.float64(185.0))
+   T=90  gutter=      0 px   max_ink_x=361.3 pt (1084 px)   total_ink=218735
+
+send-a3xl-dark.png  1179x2556  bg=(12, 12, 12)  band y=440-2556px
+   T=30  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=269275  gutter_y=(np.float64(266.7), np.float64(267.3))
+   T=45  gutter=    144 px   max_ink_x=392.7 pt (1178 px)   total_ink=267656  gutter_y=(np.float64(266.7), np.float64(267.3))
+   T=60  gutter=      0 px   max_ink_x=363.7 pt (1091 px)   total_ink=243194
+   T=90  gutter=      0 px   max_ink_x=363.7 pt (1091 px)   total_ink=241294
+== gutter-ink rows (y) on the four B-D7 surfaces, T=45 ==
+
+bids-all-a3xl-light.png  bg=(252, 252, 252)
+   no gutter ink at T=45
+
+checkout-auction-a3xl-light.png  bg=(252, 252, 252)
+   y=2223px (741.0 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=2224px (741.3 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=2225px (741.7 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+
+placebid-a3xl-light.png  bg=(244, 244, 244)
+   no gutter ink at T=45
+
+order-a3xl-light.png  bg=(252, 252, 252)
+   y=440px (146.7 pt)  ink cols=536/1179 (45%)  x 227..1166  gutter=31/48  contiguous=no
+   y=441px (147.0 pt)  ink cols=558/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=442px (147.3 pt)  ink cols=587/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=443px (147.7 pt)  ink cols=596/1179 (51%)  x 227..1166  gutter=31/48  contiguous=no
+   y=444px (148.0 pt)  ink cols=590/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=445px (148.3 pt)  ink cols=587/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=446px (148.7 pt)  ink cols=580/1179 (49%)  x 227..1166  gutter=31/48  contiguous=no
+   y=447px (149.0 pt)  ink cols=571/1179 (48%)  x 227..1166  gutter=31/48  contiguous=no
+   y=448px (149.3 pt)  ink cols=563/1179 (48%)  x 227..1166  gutter=31/48  contiguous=no
+   y=449px (149.7 pt)  ink cols=555/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=450px (150.0 pt)  ink cols=551/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=451px (150.3 pt)  ink cols=540/1179 (46%)  x 227..1166  gutter=31/48  contiguous=no
+   y=452px (150.7 pt)  ink cols=530/1179 (45%)  x 227..1166  gutter=31/48  contiguous=no
+   y=453px (151.0 pt)  ink cols=520/1179 (44%)  x 227..1166  gutter=31/48  contiguous=no
+   y=454px (151.3 pt)  ink cols=510/1179 (43%)  x 227..1166  gutter=31/48  contiguous=no
+   y=455px (151.7 pt)  ink cols=500/1179 (42%)  x 227..1166  gutter=31/48  contiguous=no
+   y=456px (152.0 pt)  ink cols=489/1179 (41%)  x 227..1166  gutter=31/48  contiguous=no
+   y=457px (152.3 pt)  ink cols=474/1179 (40%)  x 227..1166  gutter=31/48  contiguous=no
+   y=458px (152.7 pt)  ink cols=461/1179 (39%)  x 227..1166  gutter=31/48  contiguous=no
+   y=459px (153.0 pt)  ink cols=445/1179 (38%)  x 227..1166  gutter=31/48  contiguous=no
+   y=460px (153.3 pt)  ink cols=427/1179 (36%)  x 227..1166  gutter=31/48  contiguous=no
+   y=461px (153.7 pt)  ink cols=407/1179 (35%)  x 227..1166  gutter=31/48  contiguous=no
+   y=462px (154.0 pt)  ink cols=388/1179 (33%)  x 227..1166  gutter=31/48  contiguous=no
+   y=463px (154.3 pt)  ink cols=360/1179 (31%)  x 227..1166  gutter=31/48  contiguous=no
+   y=543px (181.0 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=544px (181.3 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=545px (181.7 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+
+bids-all-a3xl-dark.png  bg=(4, 4, 4)
+   no gutter ink at T=45
+
+checkout-auction-a3xl-dark.png  bg=(4, 4, 4)
+   y=2223px (741.0 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=2224px (741.3 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=2225px (741.7 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+
+placebid-a3xl-dark.png  bg=(12, 12, 12)
+   no gutter ink at T=45
+
+order-a3xl-dark.png  bg=(4, 4, 4)
+   y=440px (146.7 pt)  ink cols=536/1179 (45%)  x 227..1166  gutter=31/48  contiguous=no
+   y=441px (147.0 pt)  ink cols=558/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=442px (147.3 pt)  ink cols=587/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=443px (147.7 pt)  ink cols=596/1179 (51%)  x 227..1166  gutter=31/48  contiguous=no
+   y=444px (148.0 pt)  ink cols=591/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=445px (148.3 pt)  ink cols=587/1179 (50%)  x 227..1166  gutter=31/48  contiguous=no
+   y=446px (148.7 pt)  ink cols=580/1179 (49%)  x 227..1166  gutter=31/48  contiguous=no
+   y=447px (149.0 pt)  ink cols=571/1179 (48%)  x 227..1166  gutter=31/48  contiguous=no
+   y=448px (149.3 pt)  ink cols=563/1179 (48%)  x 227..1166  gutter=31/48  contiguous=no
+   y=449px (149.7 pt)  ink cols=555/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=450px (150.0 pt)  ink cols=551/1179 (47%)  x 227..1166  gutter=31/48  contiguous=no
+   y=451px (150.3 pt)  ink cols=540/1179 (46%)  x 227..1166  gutter=31/48  contiguous=no
+   y=452px (150.7 pt)  ink cols=530/1179 (45%)  x 227..1166  gutter=31/48  contiguous=no
+   y=453px (151.0 pt)  ink cols=520/1179 (44%)  x 227..1166  gutter=31/48  contiguous=no
+   y=454px (151.3 pt)  ink cols=510/1179 (43%)  x 227..1166  gutter=31/48  contiguous=no
+   y=455px (151.7 pt)  ink cols=500/1179 (42%)  x 227..1166  gutter=31/48  contiguous=no
+   y=456px (152.0 pt)  ink cols=489/1179 (41%)  x 227..1166  gutter=31/48  contiguous=no
+   y=457px (152.3 pt)  ink cols=474/1179 (40%)  x 227..1166  gutter=31/48  contiguous=no
+   y=458px (152.7 pt)  ink cols=461/1179 (39%)  x 227..1166  gutter=31/48  contiguous=no
+   y=459px (153.0 pt)  ink cols=445/1179 (38%)  x 227..1166  gutter=31/48  contiguous=no
+   y=460px (153.3 pt)  ink cols=427/1179 (36%)  x 227..1166  gutter=31/48  contiguous=no
+   y=461px (153.7 pt)  ink cols=407/1179 (35%)  x 227..1166  gutter=31/48  contiguous=no
+   y=462px (154.0 pt)  ink cols=388/1179 (33%)  x 227..1166  gutter=31/48  contiguous=no
+   y=463px (154.3 pt)  ink cols=360/1179 (31%)  x 227..1166  gutter=31/48  contiguous=no
+   y=543px (181.0 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=544px (181.3 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES
+   y=545px (181.7 pt)  ink cols=1179/1179 (100%)  x 0..1178  gutter=48/48  contiguous=YES

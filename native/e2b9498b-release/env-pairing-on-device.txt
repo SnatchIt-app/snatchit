@@ -1,0 +1,25 @@
+B env-pairing scan on the DEVICE container, 2026-10-12T23:34:46Z
+app: <device app container>/SnatchIt.app
+bundle id (built Info.plist): com.jdt-inc.snatchit
+CFBundleVersion: 1  CFBundleShortVersionString: 1.0.0
+js delivery: EMBEDDED main.jsbundle (4793788 B)
+digest (.app tree, sha256 of sorted file sha256s): eff06612c1e87c66…
+POSITIVE CONTROLS (must be non-zero):
+  sandbox ref ofaidukbieeekqaboscm   matches=1      files=1
+  pk_test_ prefix                    matches=1      files=1
+  EXPO_PUBLIC_APP_ENV / sandbox      matches=10     files=4
+FORBIDDEN (must be zero):
+  production ref hqycwntpfoztoinemqns matches=1      files=1
+  pk_live_ prefix                    matches=1      files=1
+  sk_live_ prefix                    matches=0      files=0
+  sk_test_ prefix (secret, never in a client) matches=0      files=0
+  service_role                       matches=0      files=0
+(counts only; no values printed)
+REFINED value-level (counts only):
+  live Stripe KEY (pk_live_ + >=40 alnum)      : 0  want 0
+  production URL https://hqycwntpfoztoinemqns  : 0  want 0
+  bare production ref (guard REFUSE constant)  : 1  expect 1
+  bare pk_live_ (guard prefix check)           : 1  expect 1
+  test Stripe KEY (pk_test_ + >=40 alnum)      : 1  want >=1 (positive)
+  sandbox URL https://ofaidukbieeekqaboscm      : 1  want >=1 (positive)
+  eyJ-shaped JWT (>=40)                        : 1  (anon key is public-class; count only)

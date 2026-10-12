@@ -1,0 +1,11 @@
+B artifact read 2026-10-12T23:34:23Z device 52282259-961E-4A1A-B32B-CEFA858CFF48
+booted: 1
+container: <device app container>/SnatchIt.app
+Info.plist: com.jdt-inc.snatchit 1.0.0 (1)
+main binary sha256: 1cebc77af076927b57236cf72eff755123a9a87d9d976327455cb8834842fd98
+main.jsbundle sha256: fc0f5b9257e239f4372f11761a97a12f444e16b6c9c03dbeaf518e4c7d2b1692  size 4793788 magic c61fbc03
+main binary = C's recorded digest: YES
+main.jsbundle = C's recorded digest: YES
+dev-launcher bundle present: 0
+listeners :8081/:8083: 0
+content_size: large
