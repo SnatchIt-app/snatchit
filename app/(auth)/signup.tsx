@@ -94,6 +94,9 @@ export default function SignUpScreen() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'error' | 'success' } | null>(null);
+  // F3: set when the number verified but the profile write failed; the next press retries the
+  // write only (the OTP is single-use and already consumed).
+  const profileRetryRef = useRef(false);
 
   // Never leave the root redirect held because a screen went away.
   useEffect(() => () => {
@@ -186,15 +189,27 @@ export default function SignUpScreen() {
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.verifyOtp({ phone: e164, token: code.trim(), type: 'phone_change' });
+    // F3: once the number is verified, a failed profile write must not be lost behind a
+    // successful verification. The code is single-use, so the retry skips verifyOtp and only
+    // repeats the (idempotent) write; the gate stays raised until the write succeeds.
+    if (!profileRetryRef.current) {
+      const { error } = await supabase.auth.verifyOtp({ phone: e164, token: code.trim(), type: 'phone_change' });
 
-    if (error) {
-      setLoading(false);
-      fail(otpErrorCopy(classifyOtpError(error, 'verify')));
-      return;
+      if (error) {
+        setLoading(false);
+        fail(otpErrorCopy(classifyOtpError(error, 'verify')));
+        return;
+      }
     }
 
-    await persistProfile();
+    const saved = await persistProfile();
+    if (!saved.ok) {
+      profileRetryRef.current = true;
+      setLoading(false);
+      fail(`Your number is verified, but we couldn't save your ${saved.what}. Try again.`);
+      return;
+    }
+    profileRetryRef.current = false;
 
     setLoading(false);
     // Releasing the gate hands navigation back: _layout sees the session and
@@ -207,16 +222,20 @@ export default function SignUpScreen() {
    * second copy: display_name and phone_number are the ones Edit profile writes,
    * and gender goes through the kernel demographics RPC, which is owner scoped and
    * validates the value itself.
+   *
+   * Returns whether everything was written. A failure names what was not saved, in the
+   * person's words, so the screen can say it and offer to try again (F3). Both writes are
+   * idempotent, so repeating a partially successful one is safe.
    */
-  async function persistProfile() {
+  async function persistProfile(): Promise<{ ok: true } | { ok: false; what: string }> {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return { ok: false, what: 'details' };
 
     const { error: profileErr } = await supabase
       .from('profiles')
       .update({ display_name: name.trim(), phone_number: normalizeUSPhone(phone) })
       .eq('id', user.id);
-    if (profileErr) console.warn('[signup] profile write failed:', profileErr.message);
+    if (profileErr) return { ok: false, what: 'name' };
 
     if (gender) {
       const { error: genderErr } = await (supabase as any)
@@ -225,8 +244,9 @@ export default function SignUpScreen() {
           p_gender_identity: gender,
           p_notice_version: DEMOGRAPHIC_NOTICE_VERSION,
         });
-      if (genderErr) console.warn('[signup] demographics write failed:', genderErr.message);
+      if (genderErr) return { ok: false, what: 'gender' };
     }
+    return { ok: true };
   }
 
   const messageRow = message ? (
