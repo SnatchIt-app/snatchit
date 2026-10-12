@@ -26,9 +26,9 @@ would have failed if the fix had not landed — because a reading on its own is 
 | **Profile default layout** unchanged by the P-3/P-4/stacking batch | `12cc3e8d` vs `857e6d93` | **0 differing pixels below the fixed header**, both appearances | the two frames genuinely differ (2,031 / 2,192 px, all in the status-bar clock), so the zero is a real comparison |
 | **W-4** header at A3XL | `1ab2c8e2` | `SETTINGS` / `APPEARANCE` whole, one line, shrunk to fit; hub and Appearance; Light and Dark | across the fix: **86,802 and 78,519 differing px, confined to y 23–163 pt** — the header band, nothing below it moved |
 | **S-1 / S-1b** row labels | `1a6ac1c3` | `Notifications` whole on one line; `Edit profile` breaks on its space at full size; chevrons present; Light and Dark | at `e6a38aef` the same label reads `Notificatio / ns`; three attempts, three distinct md5s |
-| **W-2** resale fee label | `2ada44bd` | `Service fee (10%)  $9.50` beside `Tickets $95.00` — the label describes arithmetic in the same frame | at `1ab2c8e2` the same row reads plain `Service fee  $9.50`: same amount, label only |
+| **W-2** resale fee label | `2ada44bd` | `Service fee (10%)  $9.50` beside `Tickets $95.00` — the label describes arithmetic in the same frame | the control frame `1ab2c8e2/listing-breakdown-default-light` is physically the `b64e5dd6` capture (byte copy): the row reads plain `Service fee  $9.50`, same amount, label only. Control sha corrected: **b64e5dd6** |
 | **W-2b** sold note | `7d957100` | `Price includes the service fee.` with `SOLD FOR $132.00 total` untouched | the rate is present in the pre-change copy; amount unchanged either side |
-| **P-5** information loss | `9bbeaec6` | blurb paints `Trusted seller · 14 sales · 100% transfer success` at full size | source checked on **every** `deriveReputation` branch, not just the fixture's |
+| **P-5** information loss | frame `1ab2c8e2/profile-hero-a3xl-dark` (served at `1ab2c8e2`; `reputation.ts` unchanged through `9bbeaec6`) | blurb paints `Trusted seller · 14 sales · 100% transfer success` at full size | source checked on **every** `deriveReputation` branch at `9bbeaec6`, not just the fixture's. Served-at label corrected |
 
 **Gate applied to every frame before any of it was read:** sandbox banner present (so no frame is
 the Expo dev-client launcher), md5-distinct, size read off the paint, and **zero content ink in the
@@ -78,8 +78,8 @@ obligation to test; it does not supply a result.
 half stands on paint. **The default-size half does not, and I am withdrawing it from §1.**
 
 The default frames in `native/1ab2c8e2/` are **byte-identical copies** of the `native/b64e5dd6/`
-frames (md5 matches on `settings-hub-default-{light,dark}`, `appearance-default-light`,
-`listing-breakdown-default-light`). C declares the copy in its capture log, so nothing is concealed.
+frames (md5 matches on all **six**: `settings-hub-default-{light,dark}`, `appearance-default-{light,dark}`,
+`listing-breakdown-default-{light,dark}` — count corrected from four by the evidence audit). C declares the copy in its capture log, so nothing is concealed.
 But the claim resting on it — that a re-shoot after the fix differed by zero below y=440 — rests on
 a frame that was **not kept**, so it cannot be checked. The same applies to the `e6a38aef` and
 `1a6ac1c3` default claims.
