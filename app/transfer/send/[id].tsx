@@ -11,7 +11,7 @@
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/hooks/useAuth';
@@ -29,7 +29,7 @@ import { Badge, Button, EmptyState, IconButton, MediaUpload, Spinner } from '@/s
 import { exitRoute } from '@/src/lib/nav/leaveScreen';
 import { EventMedia } from '@/src/components/media/EventMedia';
 // The row poster's height — the same value the buyer's order summary measures its artwork by.
-import { ROW_ART } from '@/src/lib/design/featureMetrics';
+import { identityStacks, ROW_ART } from '@/src/lib/design/featureMetrics';
 import {
   formatCountdown,
   sellerAlreadySent,
@@ -42,7 +42,7 @@ import {
 } from '@/src/lib/transfer/transferState';
 import { SellerClosedBlock, SellerReversedBlock, SellerSentBlock, StateBlock } from '@/src/components/transfer/TransferStateBlocks';
 import { disputeDecision, disputedStateCopy, disputedStateMeta } from '@/src/lib/transfer/disputeOutcome';
-import { textStyle } from '@/src/theme/typography';
+import { AMOUNT_MIN_FONT_SCALE, textStyle } from '@/src/theme/typography';
 import { useTheme } from '@/src/theme/appearance';
 import type { Palette } from '@/src/theme/palette';
 import * as v2 from '@/src/theme/v2';
@@ -622,10 +622,15 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
 }
 
 function Row({ label, value, s }: { label: string; value: string; s: TransferStyles }) {
+  const { fontScale } = useWindowDimensions();
+  const stacked = identityStacks(fontScale);
+  // B-D7: the approved rule. Above the shared threshold a money row stacks into one column and
+  // the amount shrinks to fit its full-width line; below it NOTHING changes (default pixel-identical).
+  const amountFit = stacked ? { adjustsFontSizeToFit: true, minimumFontScale: AMOUNT_MIN_FONT_SCALE } : null;
   return (
-    <View style={s.row}>
+    <View style={stacked ? s.rowStacked : s.row}>
       <Text style={[textStyle('bodySm'), s.rowLabel]}>{label}</Text>
-      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1}>{value}</Text>
+      <Text style={[textStyle('body'), s.rowValue]} numberOfLines={1} {...amountFit}>{value}</Text>
     </View>
   );
 }
@@ -668,6 +673,8 @@ function makeStyles(p: Palette) {
   detailHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: v2.space.sm },
 
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: v2.space.md, paddingVertical: v2.space.xs },
+  /* Stacked above IDENTITY_STACK_SCALE (B-D7): one column, the amount on its own full-width line. */
+  rowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingVertical: v2.space.xs },
   rowLabel: { color: p.text.muted },
   rowValue: { color: p.text.primary, flexShrink: 1, textAlign: 'right' },
 
