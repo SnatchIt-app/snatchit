@@ -22,6 +22,40 @@ acceptance.
 
 ## CURRENT ACCEPTANCE MATRIX (E, 2026-10-12). THE ONLY CURRENT SECTION; everything below is dated history
 
+**KEY MOVING TO RC2 (A, 2026-10-12): `48d20ca1` is not the shipping candidate.**
+- **What RC2 is:** `48d20ca1`'s line plus `v3/rc-fixes-20261012` (C; not on origin when E checked) plus `fix/rc-f6-settled-recheck-20261012` (A, `50e74efb`: `src/lib/checkout/setupDecision.ts` and one test).
+- **Where the sha goes:** `CANDIDATE_MANIFEST.md` amendment 2. **Not published yet.**
+- **Rules once it lands:**
+  - Every row below re-keys to the RC2 sha.
+  - A measured pass carries over only if `git diff <48d20ca1> <RC2>` leaves its source files unchanged. E will list the carried and reopened rows by file.
+  - O-2 (native build), O-3 (B) and O-4 (D) close only on evidence naming RC2. A build of `48d20ca1` does not close O-2.
+
+**Genuine failures at `48d20ca1`, OPEN.** Found by C's audit; A confirmed them at source; E relays them and has not reproduced them:
+| # | Defect | Area | Delta row |
+|---|---|---|---|
+| F1 | Checkout deep-link crash | checkout, auth deep link | Δ-1, Δ-5 |
+| F2 | Listing edit shows a false "Saved" | listing edit | Δ-3 |
+| F3 | Signup write is swallowed | signup | Δ-4 |
+| F4 | 3-D Secure return drops the mode | checkout | Δ-1 |
+| F5 | Payout-return shows "Connected" unconditionally | payout-return | Δ-2 |
+| F6 | "Nothing was charged" after a charge | checkout (A `50e74efb`) | Δ-1 |
+| F7 | Recovery hold gets stuck | checkout | Δ-1 |
+
+**Not part of this matrix:** F8 (the device clock marks a bid lost) is an owner product decision, routed by A. E does not re-escalate it.
+
+**Delta rows at RC2.** Each closes only on C's evidence plus B's review, both naming the RC2 sha:
+| # | Flow | Defects | Evidence required | State |
+|---|---|---|---|---|
+| Δ-1 | Checkout: deep-link entry, 3-D Secure return, charged/not-charged copy, recovery hold | F1, F4, F6, F7 | C: fix commits, red-to-green tests and capture or log of each state; B: review | open |
+| Δ-2 | Payout-return state | F5 | the same | open |
+| Δ-3 | Listing edit save result | F2 | the same | open |
+| Δ-4 | Signup write failure surfaced | F3 | the same | open |
+| Δ-5 | Auth deep link | F1 path | the same | open |
+
+Where a delta flow is signed-in only, the owner's waiver covers the visual check, **not the fix**. Tests and source evidence are still required, and the row is labelled source/test, not a measured pass.
+
+---
+
 **Key: `integration/rc-20261012` @ `48d20ca1c0d0d53ce51c295c44447f3548496aa8`** (tree `7feadf07`; A's
 `sprint-control/CANDIDATE_MANIFEST.md`, frozen 2026-10-12 04:19Z). The composition is gate
 `abef9506`, then S3 `419bbe59`, then S4 `08409f55`, then S5 merging v3 `d27aa449`. It is review only
@@ -39,7 +73,7 @@ Against trial r3 `5450b348`, 14 files differ (3 `admin/`, 11 `web/`) and nothing
 `d27aa449` is an ancestor of the candidate. `app/` and `src/` trees are `78519bd3` / `26d756b8`,
 the same as the reviewed `9bbeaec6`.
 
-**So every consumer-app row below applies to `48d20ca1` unchanged.**
+**So every consumer-app row below applies to `48d20ca1` unchanged.** A's correction: the gate's `supabase/` holds the 164 ledger files plus the unapplied 121/125/126.
 
 **Coverage, stated once.**
 - Every measured pass below comes from C-operated captures of a **simulator development build**
@@ -88,8 +122,8 @@ the same as the reviewed `9bbeaec6`.
 | O-3 | B's independent consumer verdict at `48d20ca1` | B | Open, in progress. B's web renders at `d27aa449` (`:8083`) are WEB class: development evidence that does not substitute for native |
 | O-4 | D's C4 and candidate-safety verdict at `48d20ca1` | D | Open, in progress. The C4 scan inputs (`app/`, `src/`, `packages/`) are 0-diff between `5450b348` and `48d20ca1`, but the row closes on D's record naming `48d20ca1` |
 
-**Genuine failures: none open.** The 2026-10-07..10-11 red CI was fixed at `d27aa449`; it is
-history, not a blocker.
+**Genuine failures: F1–F7 OPEN** (see the RC2 block above). The 2026-10-07..10-11 red CI was fixed at
+`d27aa449`; it is history, not a blocker.
 
 ### 6. Follow-ups (not release blockers)
 - Badge 1.3× cap.
