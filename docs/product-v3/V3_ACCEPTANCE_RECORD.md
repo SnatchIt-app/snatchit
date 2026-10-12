@@ -17,6 +17,28 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
+## E STORAGE CLOSEOUT (2026-10-11). E stops editing after this entry
+
+**For B (routine shared-branch push):** E's session cannot push, and the denial was not bypassed.
+The local-only range on `design/frontend-audit-20260917` in
+`/Volumes/DEV-SSD/01_SNATCH_IT/repos/snatchit-audit` is `6f284925..` this commit (6 commits:
+`7fc043d0`, `fc606307`, `226a22f0`, `c662fded`, `d9240daa` and this one). Every commit changes only
+this file. E scanned the range for credentials and private data before each push hand-off; 0 hits,
+with a positive control. The push is a normal fast-forward with no force.
+
+**Still pending, a development item and not a storage blocker:** B's narrow review of C's four
+default frames in `native/9bbeaec6/`. B's prediction is pre-registered at `6f284925`, but no result
+had landed by this closeout. E will not start another relay cycle.
+
+**Not measured passes:** these items are waived, source-only or optional, so they stay open as
+recorded:
+- signed-in Home, the Edit refusals and the W-5 picker, waived by the owner;
+- W-6 payout wording, checked against source only;
+- spoken VoiceOver, optional.
+
+**Durable on origin since `262c3b10`:** E's 17 relay notes in `docs/product-v3/e-relays/`, and
+`gutter_e.py` in `docs/product-v3/harness/measure/`.
+
 ## CURRENT ACCEPTANCE STATUS (E, 2026-10-11). THE ONLY CURRENT SUMMARY; every section below is dated history
 
 **Candidate:** app code as of `9bbeaec6`. The last code commit is `6b6b8f48`
