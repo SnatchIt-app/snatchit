@@ -107,3 +107,7 @@ ok   profile-stats-unavailable-dflt-light  _dev/v3-profile?variant=stats-unavail
 ok   profile-no-listings-dflt-light  _dev/v3-profile?variant=no-listings  size=large pre/post
 ok   transfer-states-dflt-light  _dev/transfer-states  size=large pre/post
 finished 2026-10-12T05:27:48Z ok=91 fail=0
+
+CORRECTION (B, after review): every listing-*-dflt-light frame, listing-footer-a3xl-{light,dark} and banner-*-a3xl-{light,dark}
+is HOME'S EMPTY STATE, not the Listing. Cause: B's routes omitted ?screen=listing (app/_dev/v3-listing.tsx:387 switches on
+`screen`, default → Redirect to /). Not a Release-build limitation. These 15 frames are NOT Listing evidence.

@@ -90,11 +90,13 @@ Each state is distinguishable and truthful; error and offline states offer **Ret
 not a record of zero sales"*; the own-profile phone is **masked**; the five Edit refusals are the known byte-identical
 signed-out guard (owner-waived). Gutter: 0 px content ink on all except `mylistings-default` (1,004 px — the horizontally
 scrolling chip row, a scroller by design, not a clip). `bids-past` and `bids-empty` are distinct (74,569 px differ).
-**Excluded on this binary:** the Listing group — `app/_dev/v3-listing.tsx` reaches `default: return <Redirect href="/" />`
-for every variant on a Release build (its fixture depends on the `__DEV__`-gated bundled posters; the record's own note:
-"a Release build was not used because `__DEV__`-gated fixtures resolve to nothing there"). All 11 `listing-*` and 4
-`banner-*` frames are **Home's empty state** and are recorded as such. Listing evidence carries from the dev-client
-builds (E's M-2) and is **not** re-claimed here. `foundation` likewise (`__DEV__`-only).
+**Excluded on this binary — BY B's OWN ERROR, corrected:** `app/_dev/v3-listing.tsx:387` is `switch (screen)` with
+`default: return <Redirect href="/" />` and no default for `screen`; C's capture routes always carry
+`?screen=listing&variant=…`, B's carried `?variant=…` alone, so all 11 `listing-*` and 4 `banner-*` frames are **Home's
+empty state**. B first wrote "fixture-gated on a Release build" — **wrong, withdrawn**; the Listing IS capturable on the
+Release binary. Listing evidence for the `48d20ca1` binary carries from the dev-client builds (E's M-2); B captures the
+Listing properly (footer sub-line, banner states) in the RC2 window. `foundation` is the only route that is genuinely
+`__DEV__`-only.
 
 ### 4b. A3XL set (20 frames, Light + Dark) — **B-D6 and B-D7 are MEASURED, not predicted**
 | frame | content ink past 377 pt | max ink x | what the paint shows |
@@ -106,13 +108,15 @@ builds (E's M-2) and is **not** re-claimed here. `foundation` likewise (`__DEV__
 | `send` | 0 | 363.7 pt | `Buyer Buye…`, `Method mo…` — ellipsis truncation inside a two-column row (B-D7 class, inside the edge) |
 | `checkout-ready` | 0 (hairline only) | — | `HELD FOR YOU · 7:12 · UNTIL 7:34 PM` wraps on whole words; `Pay $99.00` fits (the fixture's 2dp label — B-D8) |
 | `profile` | 0 (hairline only) | 361.3 pt | hero stacked, as at `12cc3e8d`; `Lanter…` name (known) |
-| `listing-footer`, `banner-*` | — | — | **not Listing** — Home's empty state (§4a); the StickyBar sub-line (B-D6) stays source-only |
+| `listing-footer`, `banner-*` | — | — | **not Listing** — Home's empty state, B's missing `screen=listing` (§4a); the StickyBar sub-line (B-D6) and banner states (B-D7) are captured in the RC2 window |
 
 At default size the same screens measure **0 px**. **VERDICT FOR THIS ROW: FAILED — readability, the owner's rule
-"never split a monetary amount across lines or clip its digits".** Not a crash, not a data loss, not a money loss. The
-scope decision — fix in RC2 (C's shape: the shared `identityStacks` rule on `BidCard.tsx:120-124`,
-`CheckoutView.tsx:176/410`, `PlaceBidScreen.tsx:330/422/426/430-434`, the Order progress row) or an owner-accepted
-follow-up with this evidence attached — is A's and the owner's, not B's or C's.
+"never split a monetary amount across lines or clip its digits".** Not a crash, not a data loss, not a money loss.
+**A's scope decision (05:3xZ): B-D7 enters RC2** — the existing approved stacking rule on the four surfaces
+(`BidCard.tsx:120-124`, `CheckoutView.tsx:176/410`, `PlaceBidScreen.tsx:330/422/426`, the Order progress row), no copy
+change, condition pixel-identity at default size; **B re-measures default and A3XL on the RC2 binary.** **B-D6** (the
+1.3× cap on PlaceBid's Total) stays an **owner decision**, documented with this evidence, not in RC2. If D7 cannot land
+cleanly it goes to the owner as a follow-up and this FAILED row stands.
 
 ## 5. SOURCE-ONLY — not passes
 P-4 (fixture correction, nothing to photograph) · W-6 payout wording, connected state (no fixture seam) · W-5 platform
@@ -131,6 +135,14 @@ Spoken VoiceOver · `Badge` 1.3× cap (P-5 legibility residual) · `needs_review
 ## 9. Accessibility from source and existing frames — ⟨pending: subagent, verified by B⟩ (no new owner obligation)
 
 ## 10. Corrections of record this sprint (B's own)
+- **"Listing is fixture-gated on a Release build" — wrong.** The redirect was B's missing `screen=listing` route param
+  (§4a). Stated to A, then withdrawn in the same hour.
+- **Push `647b8b48` was not gated on its own scan.** The scan reported one forbidden-class hit and the command went on to
+  commit and push; the hit was B's verdict table naming `sk_live_` / `service_role` as pattern *labels* (0 token-shaped
+  values after any forbidden prefix, verified after the fact). Nothing private was published; the gate now stops the push.
+- **Capture driver:** a per-frame terminate→launch cycle against the Release binary read as a hang (it was my timing);
+  gate screenshots written straight to the SSD failed (`simctl` cannot write to the external volume — C's recorded trap,
+  which `cap.sh` already handles). Both corrected before the frames that count were taken.
 - "Signed-out surface only" for the Release binary — **wrong**, withdrawn; gate is `__DEV__ || IS_SANDBOX_BUILD`.
 - First staleness computation ran relative to the wrong cwd and returned "no change" for `src/components/ui`, which
   had changed — voided on its positive-control failure and recomputed with absolute paths.
