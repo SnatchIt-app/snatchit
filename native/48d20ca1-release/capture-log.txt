@@ -1,0 +1,109 @@
+B H2 — installed binary on 52282259-961E-4A1A-B32B-CEFA858CFF48 (com.jdt-inc.snatchit). Built by C at 48d20ca1 Release (H1). Frames are of THAT binary: '48d20ca1 Release — shared components only'.
+installed container: /Users/josetascon/Library/Developer/CoreSimulator/Devices/52282259-961E-4A1A-B32B-CEFA858CFF48/data/Containers/Bundle/Application/3060FF01-ECFB-460C-8A5E-CADF664B48B6/SnatchIt.app
+installed main.jsbundle sha256: a04dac3708cce406ea7cc37fadc657e97794c6982ce9876f3c8635c08e4fdbb3
+installed main binary sha256:   85d8abfb2f06e16993fd6fca869a114b5e4d579bc0b1cb13155fbb5fcdb5fff7
+no Metro: :8081 listeners=0 :8083=0
+appearance via ?appearance= (app preference); content_size set, read pre-launch and post-capture; banner-gated by cap.sh
+started 2026-10-12T05:01:07Z
+ok   placebid-a3xl-light  _dev/v3-screens?screen=bid  size=accessibility-extra-extra-extra-large pre/post
+v3 run started 2026-10-12T05:12:19Z; pre-flight gate on the app already up at accessibility-extra-extra-extra-large
+pre-flight FAILED: no banner on the running app at accessibility-extra-extra-extra-large — stopping before any route
+v3 run started 2026-10-12T05:13:20Z; pre-flight gate on the app already up at accessibility-extra-extra-extra-large
+pre-flight try 1: screenshot FAILED (service busy?)
+pre-flight try 2: screenshot FAILED (service busy?)
+pre-flight try 3: screenshot FAILED (service busy?)
+pre-flight FAILED after 3 tries — stopping before any route
+v3 run started 2026-10-12T05:13:54Z; pre-flight gate on the app already up at accessibility-extra-extra-extra-large
+pre-flight: banner present at accessibility-extra-extra-extra-large (try 1)
+ok   placebid-a3xl-light  _dev/v3-screens?screen=bid  size=accessibility-extra-extra-extra-large pre/post
+ok   listing-footer-a3xl-light  _dev/v3-listing  size=accessibility-extra-extra-extra-large pre/post
+ok   checkout-ready-a3xl-light  _dev/v3-checkout?state=ready  size=accessibility-extra-extra-extra-large pre/post
+ok   checkout-auction-a3xl-light  _dev/v3-checkout?state=auction  size=accessibility-extra-extra-extra-large pre/post
+ok   bids-all-a3xl-light  _dev/v3-mylistings-bids?screen=bids&variant=all  size=accessibility-extra-extra-extra-large pre/post
+ok   order-a3xl-light  _dev/v3-tickets?screen=order  size=accessibility-extra-extra-extra-large pre/post
+ok   send-a3xl-light  _dev/v3-tickets?screen=send  size=accessibility-extra-extra-extra-large pre/post
+ok   profile-a3xl-light  _dev/v3-profile  size=accessibility-extra-extra-extra-large pre/post
+ok   banner-reserved-a3xl-light  _dev/v3-listing?variant=reserved-by-you  size=accessibility-extra-extra-extra-large pre/post
+ok   banner-onhold-a3xl-light  _dev/v3-listing?variant=on-hold  size=accessibility-extra-extra-extra-large pre/post
+ok   placebid-a3xl-dark  _dev/v3-screens?screen=bid  size=accessibility-extra-extra-extra-large pre/post
+ok   listing-footer-a3xl-dark  _dev/v3-listing  size=accessibility-extra-extra-extra-large pre/post
+ok   checkout-ready-a3xl-dark  _dev/v3-checkout?state=ready  size=accessibility-extra-extra-extra-large pre/post
+ok   checkout-auction-a3xl-dark  _dev/v3-checkout?state=auction  size=accessibility-extra-extra-extra-large pre/post
+ok   bids-all-a3xl-dark  _dev/v3-mylistings-bids?screen=bids&variant=all  size=accessibility-extra-extra-extra-large pre/post
+ok   order-a3xl-dark  _dev/v3-tickets?screen=order  size=accessibility-extra-extra-extra-large pre/post
+ok   send-a3xl-dark  _dev/v3-tickets?screen=send  size=accessibility-extra-extra-extra-large pre/post
+ok   profile-a3xl-dark  _dev/v3-profile  size=accessibility-extra-extra-extra-large pre/post
+ok   banner-reserved-a3xl-dark  _dev/v3-listing?variant=reserved-by-you  size=accessibility-extra-extra-extra-large pre/post
+ok   banner-onhold-a3xl-dark  _dev/v3-listing?variant=on-hold  size=accessibility-extra-extra-extra-large pre/post
+relaunched at content_size=large (banner after 3s)
+ok   home-default-dflt-light  _dev/v3-home  size=large pre/post
+ok   home-empty-dflt-light  _dev/v3-home?variant=empty  size=large pre/post
+ok   home-nomatches-dflt-light  _dev/v3-home?variant=nomatches  size=large pre/post
+ok   home-sold-empty-dflt-light  _dev/v3-home?variant=sold-empty  size=large pre/post
+ok   home-ended-empty-dflt-light  _dev/v3-home?variant=ended-empty  size=large pre/post
+ok   home-error-dflt-light  _dev/v3-home?variant=error  size=large pre/post
+ok   home-offline-dflt-light  _dev/v3-home?variant=offline  size=large pre/post
+ok   listing-default-dflt-light  _dev/v3-listing  size=large pre/post
+ok   listing-sold-dflt-light  _dev/v3-listing?variant=sold  size=large pre/post
+ok   listing-cancelled-dflt-light  _dev/v3-listing?variant=cancelled  size=large pre/post
+ok   listing-not-found-dflt-light  _dev/v3-listing?variant=not-found  size=large pre/post
+ok   listing-error-dflt-light  _dev/v3-listing?variant=error  size=large pre/post
+ok   listing-offline-dflt-light  _dev/v3-listing?variant=offline  size=large pre/post
+ok   listing-on-hold-dflt-light  _dev/v3-listing?variant=on-hold  size=large pre/post
+ok   listing-won-dflt-light  _dev/v3-listing?variant=won  size=large pre/post
+ok   listing-reserved-by-you-dflt-light  _dev/v3-listing?variant=reserved-by-you  size=large pre/post
+ok   listing-own-listing-dflt-light  _dev/v3-listing?variant=own-listing  size=large pre/post
+ok   listing-reserving-dflt-light  _dev/v3-listing?reserving=1  size=large pre/post
+ok   mylistings-default-dflt-light  _dev/v3-mylistings-bids?screen=mylistings  size=large pre/post
+ok   mylistings-empty-dflt-light  _dev/v3-mylistings-bids?screen=mylistings&variant=empty  size=large pre/post
+ok   mylistings-error-dflt-light  _dev/v3-mylistings-bids?screen=mylistings&variant=error  size=large pre/post
+ok   mylistings-offline-dflt-light  _dev/v3-mylistings-bids?screen=mylistings&variant=offline  size=large pre/post
+ok   bids-default-dflt-light  _dev/v3-mylistings-bids?screen=bids  size=large pre/post
+ok   bids-empty-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=empty  size=large pre/post
+ok   bids-past-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=past  size=large pre/post
+ok   bids-all-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=all  size=large pre/post
+ok   bids-failed-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=failed  size=large pre/post
+ok   bids-error-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=error  size=large pre/post
+ok   bids-offline-dflt-light  _dev/v3-mylistings-bids?screen=bids&variant=offline  size=large pre/post
+ok   tickets-default-dflt-light  _dev/v3-tickets?screen=tickets  size=large pre/post
+ok   tickets-empty-dflt-light  _dev/v3-tickets?screen=tickets&variant=empty  size=large pre/post
+ok   tickets-past-dflt-light  _dev/v3-tickets?screen=tickets&variant=past  size=large pre/post
+ok   tickets-error-dflt-light  _dev/v3-tickets?screen=tickets&variant=error  size=large pre/post
+ok   tickets-offline-dflt-light  _dev/v3-tickets?screen=tickets&variant=offline  size=large pre/post
+ok   order-default-dflt-light  _dev/v3-tickets?screen=order  size=large pre/post
+ok   send-default-dflt-light  _dev/v3-tickets?screen=send  size=large pre/post
+ok   checkout-preparing-dflt-light  _dev/v3-checkout?state=preparing  size=large pre/post
+ok   checkout-ready-dflt-light  _dev/v3-checkout?state=ready  size=large pre/post
+ok   checkout-auction-dflt-light  _dev/v3-checkout?state=auction  size=large pre/post
+ok   checkout-hold-lost-dflt-light  _dev/v3-checkout?state=hold-lost  size=large pre/post
+ok   checkout-price-changed-dflt-light  _dev/v3-checkout?state=price-changed  size=large pre/post
+ok   checkout-unconfirmed-dflt-light  _dev/v3-checkout?state=unconfirmed  size=large pre/post
+ok   checkout-failed-dflt-light  _dev/v3-checkout?state=failed  size=large pre/post
+ok   checkout-hold-checking-dflt-light  _dev/v3-checkout?state=hold-checking  size=large pre/post
+ok   checkout-confirming-dflt-light  _dev/v3-checkout?state=confirming  size=large pre/post
+ok   checkout-finalizing-dflt-light  _dev/v3-checkout?state=finalizing  size=large pre/post
+ok   checkout-authenticating-dflt-light  _dev/v3-checkout?state=authenticating  size=large pre/post
+ok   checkout-status-unknown-dflt-light  _dev/v3-checkout?state=status-unknown  size=large pre/post
+ok   checkout-unavailable-dflt-light  _dev/v3-checkout?state=unavailable  size=large pre/post
+ok   checkout-complete-dflt-light  _dev/v3-checkout?state=complete  size=large pre/post
+ok   checkout-pending-dflt-light  _dev/v3-checkout?state=pending  size=large pre/post
+ok   checkout-settle-failed-dflt-light  _dev/v3-checkout?state=settle-failed  size=large pre/post
+ok   checkout-refund-dflt-light  _dev/v3-checkout?state=refund  size=large pre/post
+ok   edit-default-dflt-light  _dev/v3-edit-listing  size=large pre/post
+ok   edit-not-found-dflt-light  _dev/v3-edit-listing?variant=not-found  size=large pre/post
+ok   edit-not-owner-dflt-light  _dev/v3-edit-listing?variant=not-owner  size=large pre/post
+ok   edit-has-bids-dflt-light  _dev/v3-edit-listing?variant=has-bids  size=large pre/post
+ok   edit-inactive-dflt-light  _dev/v3-edit-listing?variant=inactive  size=large pre/post
+ok   edit-read-failed-dflt-light  _dev/v3-edit-listing?variant=read-failed  size=large pre/post
+ok   search-default-dflt-light  _dev/v3-search-create?screen=search  size=large pre/post
+ok   create-default-dflt-light  _dev/v3-search-create?screen=create  size=large pre/post
+ok   account-profile-default-dflt-light  _dev/v3-account?screen=profile  size=large pre/post
+ok   account-profile-noavatar-dflt-light  _dev/v3-account?screen=profile&variant=noavatar  size=large pre/post
+ok   account-profile-pending-dflt-light  _dev/v3-account?screen=profile&variant=pending  size=large pre/post
+ok   account-profile-probe-failed-dflt-light  _dev/v3-account?screen=profile&variant=probe-failed  size=large pre/post
+ok   profile-not-found-dflt-light  _dev/v3-profile?variant=not-found  size=large pre/post
+ok   profile-blocked-dflt-light  _dev/v3-profile?variant=blocked  size=large pre/post
+ok   profile-stats-unavailable-dflt-light  _dev/v3-profile?variant=stats-unavailable  size=large pre/post
+ok   profile-no-listings-dflt-light  _dev/v3-profile?variant=no-listings  size=large pre/post
+ok   transfer-states-dflt-light  _dev/transfer-states  size=large pre/post
+finished 2026-10-12T05:27:48Z ok=91 fail=0
