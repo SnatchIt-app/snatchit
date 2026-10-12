@@ -22,16 +22,24 @@ acceptance.
 
 ## CURRENT ACCEPTANCE MATRIX (E, 2026-10-12). THE ONLY CURRENT SECTION; everything below is dated history
 
-**Key.** A's integrated candidate is a fresh merge of gate `abef9506` and v3 `d27aa449` (with S3/S4).
-A will write its sha to `sprint-control/CANDIDATE_MANIFEST.md`. **That file does not exist yet, so
-the key is not yet fixed (external, owner of the step: A).**
-- Consumer source under review: `v3/midnight-app` `d27aa449`. Its `app/` and `src/` trees are
-  identical to `9bbeaec6`, the reviewed tip (tree ids `app` = `78519bd3` and `src` = `26d756b8` at
-  both; `git diff --stat` is empty; checked by E's audit, and B has confirmed it independently).
-- `9bbeaec6..d27aa449` adds only the four default frames and their log, `packages/vitest.config.ts`,
-  and one test file.
-- A row closes for the manifest sha only after A's byte-identity check of `app/` and `src/` against
-  `d27aa449`, which B verifies independently.
+**Key: `integration/rc-20261012` @ `48d20ca1c0d0d53ce51c295c44447f3548496aa8`** (tree `7feadf07`; A's
+`sprint-control/CANDIDATE_MANIFEST.md`, frozen 2026-10-12 04:19Z). The composition is gate
+`abef9506`, then S3 `419bbe59`, then S4 `08409f55`, then S5 merging v3 `d27aa449`. It is review only
+and not merged into the gate or `main`.
+
+E rechecked A's identities with `git diff --name-only` against `48d20ca1`. Each of these comparisons
+has **0 differing files**:
+- `app/`, `src/` and `packages/` vs `d27aa449`;
+- every native-build input in the manifest list vs `d27aa449`;
+- `supabase/` vs the gate `abef9506`;
+- `web/` vs the live `0b389584`;
+- `admin/` vs the live `f7e7e85f`.
+
+Against trial r3 `5450b348`, 14 files differ (3 `admin/`, 11 `web/`) and nothing else.
+`d27aa449` is an ancestor of the candidate. `app/` and `src/` trees are `78519bd3` / `26d756b8`,
+the same as the reviewed `9bbeaec6`.
+
+**So every consumer-app row below applies to `48d20ca1` unchanged.**
 
 **Coverage, stated once.**
 - Every measured pass below comes from C-operated captures of a **simulator development build**
@@ -50,7 +58,7 @@ the key is not yet fixed (external, owner of the step: A).**
 | M-4 | W-4 header shrinks to fit at a3xl; S-1/S-1b row labels at a3xl | `native/e6a38aef/`, `native/1a6ac1c3/`; B `B_NATIVE_REVIEW_9bbeaec6.md`; E's gutter instrument | B, E | PASS |
 | M-5 | W-2 fee labels (resale minimum bid "Service fee (10%)"; checkout plain "Service fee"); W-2b sold note; P-5 tier word | `native/2ada44bd/`, `native/7d957100/listing-sold-default-light-Coperated.png`, `native/1ab2c8e2/profile-hero-a3xl-dark`; B `9c970b05` | B, E | PASS. Note: the P-5 frame is at `1ab2c8e2`; `1ab2c8e2..9bbeaec6` changes no profile or reputation file |
 | M-6 | W-4 and S-1/S-1b at **default** size, Light and Dark | `native/9bbeaec6/` (C `32c0804a`); B `92356c9e` §11; E's re-diff | B, E | PASS. The historical `1ab2c8e2` comparison stays unverifiable |
-| M-7 | CI at the consumer tip and at the combined trial | v3 `d27aa449` run `38162136552` (5/5 jobs); trial r3 `5450b348` run `38162239127` (A) | E (v3 run), A (trial) | GREEN. A re-run at the manifest sha is owed by A |
+| M-7 | CI at the candidate | **`48d20ca1` run `38203105234`: completed, 5/5 jobs `success`** (typecheck/lint/unit, migrations on a fresh DB, web build, Deno, admin console; E read it with `gh run view`, and `headSha` matches). Earlier: v3 `d27aa449` run `38162136552`, trial r3 run `38162239127` | E (read), A (owner) | GREEN at the candidate |
 
 ### 2. Source-only (closed on source or tests; **not measured passes**)
 - **P-4:** fixture correction `2181de75`; nothing new to photograph (B §1).
@@ -75,10 +83,10 @@ the key is not yet fixed (external, owner of the step: A).**
 ### 5. Open, required before acceptance at the manifest sha
 | # | Item | Responsible | State (as reported by each owner to E, 2026-10-12) |
 |---|---|---|---|
-| O-1 | `CANDIDATE_MANIFEST.md`, plus A's `app/` and `src/` byte-identity check against `d27aa449` | A (B verifies) | Not yet published |
-| O-2 | Fresh-install native build of the manifest sha: sha, isolated checkout, `npm ci`, toolchain, command and full output, artifact path and digest, banner-gated launch of **that** binary. It is labelled an unsigned simulator-native build, not a distribution artifact | C builds; B reviews the artifact | Planned, not started. C waits for A's assignment. If C builds `d27aa449`, the record must show an empty build-input diff to the manifest sha |
-| O-3 | B's independent regression review of the candidate source | B | In progress (read-only) |
-| O-4 | D's independent C4 and safety verdict | D | In progress on `5450b348`. It carries over to the manifest only with a tree-identity line |
+| O-1 | Manifest and identity checks | A, E rechecked | **CLOSED**: `48d20ca1`, identities above (B's own check is noted when it arrives; it is not a gate on this row) |
+| O-2 | Fresh-install native build of **`48d20ca1`** (all build inputs are 0-diff vs `d27aa449`, so a `d27aa449` build qualifies when it records that): sha, isolated checkout, `npm ci`, toolchain, command and full output, artifact path and digest, banner-gated launch of **that** binary. It is labelled an unsigned simulator-native build, not a distribution artifact | C builds; B reviews the artifact | Open. It closes on C's build record (log with exit status, binary and its digest, environment pairing, banner-gated launch of that binary) **plus** B's artifact review |
+| O-3 | B's independent consumer verdict at `48d20ca1` | B | Open, in progress. B's web renders at `d27aa449` (`:8083`) are WEB class: development evidence that does not substitute for native |
+| O-4 | D's C4 and candidate-safety verdict at `48d20ca1` | D | Open, in progress. The C4 scan inputs (`app/`, `src/`, `packages/`) are 0-diff between `5450b348` and `48d20ca1`, but the row closes on D's record naming `48d20ca1` |
 
 **Genuine failures: none open.** The 2026-10-07..10-11 red CI was fixed at `d27aa449`; it is
 history, not a blocker.
@@ -91,8 +99,8 @@ history, not a blocker.
 - Shared label/value-row test (B and C).
 - Legal "10%" text (owner).
 
-### 7. Separate track
-- F's dashboards v2: `venue/dashboard-v2` `549e0335`, `admin/dashboard-v2` `4ef76958`. Not deployed
+### 7. Not in this release
+- F's dashboards v2 (local preview only, per A's manifest): `venue/dashboard-v2` `549e0335`, `admin/dashboard-v2` `4ef76958`. Not deployed
   and not merged to `main`. F's functional-readiness pass is in progress. Not part of this matrix.
 
 ### Locked (not reopened)
