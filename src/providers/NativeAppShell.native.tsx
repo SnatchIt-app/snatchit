@@ -208,6 +208,9 @@ export function useNativeEffects({ userId, isRecovery, setIsRecovery }: NativeEf
         verifyOtp: ({ type, token_hash }) => supabase.auth.verifyOtp({ type, token_hash }),
         exchangeCodeForSession: (code) => supabase.auth.exchangeCodeForSession(code),
         onRecovery: () => { setIsRecovery(true); router.replace('/(auth)/reset-password'); },
+        // F7: the claim failed (rejected or missing token), so drop the hold it raised; the root
+        // route then decides by phase — signed out goes to login, where a new link can be requested.
+        onRecoveryFailed: () => setIsRecovery(false),
       });
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
