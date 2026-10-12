@@ -130,9 +130,37 @@ image-picker crop (signed-in create flow).
 Spoken VoiceOver · `Badge` 1.3× cap (P-5 legibility residual) · `needs_review`-from-disputes blurb wording · the proposed
 377 pt A3XL ink test.
 
-## 8. Evidence-provenance audit — ⟨pending: subagent, verified by B⟩
+## 8. Evidence-provenance audit (subagent, 21 pass claims; the decisive ones re-verified by B)
+| status | count | items |
+|---|---|---|
+| **backed** | 11 | frame exists, served sha in the log, banner gate, control stated |
+| copied_baseline | 1 | the `1ab2c8e2/` default frames — **six** byte copies of `b64e5dd6/` (B re-verified by md5; count corrected from four) |
+| unretained_half | 2 | the historical `1ab2c8e2` re-shoot; **W-2b's "amount unchanged" before-frame** — the before side of the sold panel was never kept (C's own log says the diff covered the wrong region); the sentence change is on paint, the amount's constancy is source-only |
+| source_only | 3 | W-6 connected copy, P-4, P-5 on the non-fixture tiers |
+| waived | 2 | W-5 picker, signed-in Home / Edit refusals |
+| optional | 2 | spoken VoiceOver, the `Badge` cap |
 
-## 9. Accessibility from source and existing frames — ⟨pending: subagent, verified by B⟩ (no new owner obligation)
+Gaps the audit raised and B's disposition: **W-4 Dark at A3XL has no `b64e5dd6` Dark control frame** — the Dark fix is read
+from the after-frame and the Light control; recorded as such, not as a photographic control. **P-5's row was labelled
+"served at `9bbeaec6`" for a `1ab2c8e2` frame** — corrected in `B_REVIEW_HANDOFF.md` (`01b2cc4c`). The audit's own
+pixel counts differ from B's and E's by instrument (threshold and background method); all three agree on the zero below
+the header. No pass claim rests on a frame that does not exist.
+
+## 9. Accessibility from source and existing frames (subagent, 33 checks: 22 ok · 8 defect · 2 unverifiable · 1 optional) — no new owner obligation
+Items B re-verified at the quoted lines are marked **B**; the rest are the audit's, with its source refs.
+| # | screen · check | WCAG | finding | severity | B |
+|---|---|---|---|---|---|
+| A-1 | Listing footer CTA labels and the **minimum all-in sub-line**; every `Button` label; `Chip` labels | 1.4.4 resize | capped at 1.3× (`Button.tsx:153-154,168-169`, `StickyBar.tsx:165-169`, `Chip.tsx:69-75`) | readability — **= B-D6**, owner's ruled class | **B** |
+| A-2 | PlaceBid amount, stepper glyphs, Total | 1.4.4 | capped at 1.3× (`PlaceBidScreen.tsx:356-363,377,430-434`); the Total paints smaller than its label on the candidate binary (§4b) | readability — **= B-D6** | **B** |
+| A-3 | Home feed-row meta lines | 1.4.4 | `numberOfLines={1}` not lifted when stacked (`FeedRow.tsx:149,152`), unlike the feature (`HomeFeature.tsx:151,156`) | readability, minor | audit |
+| A-4 | Home / Bids / Settings inline **Retry**, own-profile **Settings** action | 2.5.5 target size | bare `Pressable` + one-line `Text` + `hitSlop={8}` ≈ 32–36 pt tall vs `MIN_TOUCH_TARGET = 44` (`typography.ts:122`); roles and labels correct | interaction, minor | **B** (lines read) |
+| A-5 | Public profile display name | 1.4.4 | `numberOfLines={1}`, no fit (`app/profile/[id].tsx:293`) — `Lanter…` on the candidate binary | readability, minor | **B** (seen) |
+| A-6 | Settings row chevron | 1.4.11 non-text | `faint` ink 2.3:1 Light / 2.4:1 Dark, below 3:1; the row **edge** (3.4:1 per `palette.ts:100`) is what identifies the control and the whole row is the spoken target | cosmetic | **B** (recomputed) |
+| A-7 | Bids segment chips | 1.4.4 | capped at 1.3×; two short words, information intact | readability, lowest | **B** |
+| — | 22 checks ok: roles/labels on icon buttons and chips, no colour-only status on the critical screens (tone always paired with a word), body-text contrast on canvas in both appearances above 4.5:1 | | | | audit |
+| — | 2 unverifiable from source: focus order and spoken output | | optional per the owner | | — |
+None of these is a release blocker; A-1/A-2 are already carried as B-D6 (owner decision); A-3…A-7 are recorded for the
+follow-up list. Spoken VoiceOver remains optional and is not turned into an owner testing obligation.
 
 ## 10. Corrections of record this sprint (B's own)
 - **"Listing is fixture-gated on a Release build" — wrong.** The redirect was B's missing `screen=listing` route param
