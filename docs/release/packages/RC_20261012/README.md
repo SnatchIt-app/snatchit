@@ -111,3 +111,74 @@ locally and keeps the overall result failed. The `ci.yml` change itself stays pa
   - Then: 152 (timestamp-named) and pgTAP 219 (A); the client half (C); D's PASS; sandbox rehearsal; XB1 applied
     **before** distribution; the §5.3 checks rerun.
   - Distribution waits for all of that.
+
+## RC2: the shipping candidate. State at A's final report (2026-10-12 ~06:10Z)
+
+**Not frozen yet. The blocker is C's session: not running since 05:12Z, absent from ListAgents, socket gone.** C's
+fixes are committed locally and unpushed. A does not push another session's branch.
+
+| Part | Commit | State |
+|---|---|---|
+| RC1 line | `48d20ca1` | verified above |
+| F6 (A): settled re-read before `not_held` and before `lost` (gated `setupDecision.ts`) | `fix/rc-f6-settled-recheck-20261012` `50e74efb` + `084de270` (origin) | RED 4/6 then 5/12; GREEN 152/152 on the 8 setup suites; mutants 3+3 killed as predicted; tsc/eslint 0; CI green on both commits; **D PASS on both commits** (own RED/GREEN runs, plus the transaction-order proof from SQL); B: logic SOUND at `50e74efb` (B did not review `084de270`) |
+| F1/F4, F2, F3, F5, F7, D-RC-4 (C) | local `v3/rc-fixes-20261012` `1117731e`, 6 commits on `d27aa449` | tests-first with mutants per C-HANDOFF; **NOT pushed, full stages not run** |
+| B-D7 (clipped money digits at A3XL; owner rule) | — | A's scope call: in RC2, reusing the approved stacking rule, with no copy change and pixel-identical default size. Not started (C was down) |
+
+**A's local RC2 trial** (`48d20ca1` + `1117731e` + `084de270`; not pushed):
+- Both merges are clean. `rc_verify.sh`: PASS.
+  - `supabase/`, `web/`, `admin/`, `.github/` and the native inputs are unchanged.
+  - Mismatches, unexpected changes and new blobs: 0 at both merges.
+- C4: MISSING 0, the same 16 UNRESOLVED sites. F2's new `.select('id')` is covered: a planted bad column gives MISSING 1.
+- Stage runner: env-pairing, typecheck, lint (0 errors) and parity 108 PASS. **Unit FAIL, 3/3,133.** All three are
+  shipped-source guard pins that C's restructure tripped:
+  - E9: a second `setPaymentStatusUnknown(false)`;
+  - W2: 3 `readSettledPayments` calls, not 2;
+  - the payout landing guard: `AUTO_REDIRECT_MS` renamed.
+  - A reads none as a behaviour regression. Each must be updated to keep its invariant, not loosened (exact guidance
+    in C's fallback note).
+- **Remaining, in order:**
+  1. C: B-D7 (or its fallback), the three guard updates, full stages, push.
+  2. A: merge into `integration/rc-20261012` (PR #100 follows), `rc_verify.sh`, CI, C4.
+  3. C: the fresh-install native build of the RC2 sha (H1).
+  4. B: delta review (default + A3XL re-measure, Listing with `screen=listing`).
+  5. D: RC2 record (C4 incl. web/admin; fix diff).
+  6. E (if restored): delta rows.
+
+## Lane results at `48d20ca1` (independent of A)
+
+- **C: fresh-install native build, H1. BUILD EXIT 0.**
+  - Release configuration; Hermes bundle embedded; uninstall-before-install verified.
+  - Two cold launches reach Sign in with the SANDBOX banner, with 0 Metro listeners.
+  - Evidence: `private-evidence/C-session-12c718b1/build-20261012/` on the SSD (not public).
+  - Pairing: no production URL or live key VALUE in the bundle. The guard's refusal constants are present by design
+    (`envGuard.ts:28`; the `pk_live_` prefix checks). B re-ran the scan with positive controls.
+- **B: verdict `7060784e`** (`design/frontend-audit-20260917`).
+  - The source review carries over (app diff 0). O-2 is evidenced from the artifact.
+  - 70 native default-size state frames on the Release binary: PASS (fixture class).
+  - A3XL: **FAILED** (B-D7, clipped money digits); B-D6 goes to the owner.
+  - B recorded its own coverage limit: its checks probed "no false success", not "no false failure" or "inputs survive
+    a remount", which is how F4 and F6 were missed.
+- **D: verdict `e64dfe53`** (`review/d-records-20261005`).
+  - C4 PASS for `app/src/packages` AND `web/admin`, shown non-vacuous (empty catalog → MISSING 88). D found 16
+    scanner blind-spot controls and hand-resolved the classes in use.
+  - No blocking defect in `48d20ca1`. Non-blocking: D-RC-1 (corrected), D-RC-2 (harness configuration in the public
+    tree), D-RC-3, D-RC-4 (in C's branch) and five contract drifts.
+- **E:** the acceptance matrix (`V3_ACCEPTANCE_RECORD.md`, current section). There are no genuine failures beyond
+  F1–F7; passes are simulator-development class. E has been unreachable since ~04:44Z.
+- **F:** dashboards v2 completed as previews: admin `f1e783e1` (code `fae12913`), venue `ee1d90b7` (code `bb94b1f2`).
+  - Unit tests: admin 197/197, venue 157/157. Mutants killed: 21 + 16.
+  - Browser sweep: 0 overflow, 0 contrast failures.
+  - Local synthetic MFA flow with real TOTP. **Not in this release.**
+
+## Findings for the owner (not in this release; each needs a decision or a later package)
+
+| Id | What | Where it lives | Severity / evidence |
+|---|---|---|---|
+| D/F item 4 | The console's "already requested" state for refund_execute/payout_release is advisory only. `ops.execute_action` checks just the idempotency key; the console mints a key per render; a parked refund leaves `payments.status` unchanged; `order_detail.actions` is limited to 50. A stale tab or a second operator can park a SECOND money action | **live console + server** | D's code reading. Whether execution-time guards stop a second refund or payout was NOT assessed this sprint. Proposed: a partial unique index on `ops.action (action_type, subject_id)` over the open states, or a check in `execute_action`. **Needs a migration** |
+| A15 | `listing_relist` ignores `expected` in `action_dispatch` (144:830). Only `admin_relist_listing`'s domain guard protects it | live server | A confirmed in SQL; migration |
+| D-RC-3 | The buyer never sees a 150-lifecycle FAILED refund (`settledRead.ts:42` reads only the one-way record) | app | D; product follow-up |
+| F6 residual | Stripe has charged, but neither promoter has committed: the row is pending, so a lapsed hold can still say "Nothing was charged" | app/server | D; F4's freeze-at-mount closes the 3-D Secure path operationally; optional hardening parked |
+| F8 | `bidState.ts:83` puts a still-active auction in "Ended"/Past on the device clock, for the leading bidder too. No money effect | app | reviewer + C; the owner's product call |
+| B-D6 | PlaceBid's Total is capped at 1.3× and paints smaller than its label at A3XL | app | B measured; the owner's call (as the Badge cap) |
+| SEC-NEXT | Live web and console run Next.js 16.3.3: 1 critical and 6 more advisories, fixed in 16.3.8. RCE needs `next/og` (unused); no ISR, draft-mode or metadata-image routes; the image-optimisation SSRF is the only plausible surface (`next/image`, `remotePatterns` restricted) | **live web + console** | A's exposure analysis; a dependency bump plus a deploy, owner-gated. Dependabot has `next-16.3.8` for `web/` only |
+| App deps | 1 critical (`shell-quote` via `react-devtools-core`, dev tooling) and 31 high (Expo CLI/metro chain); none in the Release runtime | app tooling | A's audit; SDK-level upgrade, later |

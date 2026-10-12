@@ -1,5 +1,9 @@
 # RC-20261012: proposed deployment and rollback plan (A, 2026-10-12; D reviews)
 
+**Applies to the frozen shipping candidate.** That will be RC2 once frozen (README, RC2 section). `48d20ca1` (RC1)
+must NOT be shipped: it carries F1–F7 and the A3XL money clipping. Every `48d20ca1` below stands for the frozen
+candidate's sha, and its checks are re-run at that sha.
+
 Nothing here is authorised in this sprint. Every step is a separate owner approval, in this order. Each step names
 its production effect and whether it can apply migrations automatically.
 
