@@ -110,12 +110,14 @@ export function DeniedState({
 
 export function PartialCell({ why }: { why: string }) {
   return (
-    <>
+    // `relative` keeps the absolutely positioned sr-only text inside its cell: without a positioned
+    // ancestor it escapes a table's overflow-x scroller and widens the whole page on a phone.
+    <span className="relative">
       <span aria-hidden="true" className="text-dim" title={why}>
         —
       </span>
       <span className="sr-only">{why}</span>
-    </>
+    </span>
   );
 }
 

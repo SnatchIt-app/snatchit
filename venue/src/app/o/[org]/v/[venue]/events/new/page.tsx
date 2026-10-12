@@ -19,8 +19,10 @@ export default async function NewEventPage({ params, searchParams }: { params: P
   const stepRaw = Number(p.first("step") ?? "1");
   const step = ([1, 2, 3, 4] as const).includes(stepRaw as 1 | 2 | 3 | 4) ? (stepRaw as 1 | 2 | 3 | 4) : 1;
   const denied = ctx.state === "denied" || !canEditEvents(ctx.role);
+  // The wizard carries its own page heading; every other state screen gets it from the frame.
+  const showsWizard = ctx.source !== "database" && !denied && ctx.state !== "loading" && ctx.state !== "error";
   return (
-    <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs}>
+    <Shell ctx={ctx} event={null} active="events" signedInAs={p.signedInAs} title={showsWizard ? undefined : "New event"}>
       {ctx.source === "fixtures" ? <PreviewOutcome did={p.first("did")} /> : null}
       {ctx.source === "database" ? (p.entry.kind === "ok" ? <NotWiredState surface="Create event" /> : <EntryGate entry={p.entry} loginHref={`/login?next=${encodeURIComponent(`${p.scope.basePath}/events/new`)}`} retryHref={p.scope.basePath} />) : denied ? <DeniedState surface="Creating an event" roleLabel={PRINCIPAL_LABEL[p.ctx.role]} alternative={{ label: "Back to events", href: withPreview(`${p.scope.basePath}/events`, p.ctx) }} /> : ctx.state === "loading" ? <Skeleton rows={6} /> : ctx.state === "error" ? <ErrorState lost="Creating an event" read="catalog.create_event" retryHref={withPreview(`${p.scope.basePath}/events/new`, ctx)} /> : <CreateEventWizard ctx={ctx} basePath={p.scope.basePath} step={step} venueApproved={VENUE.approvalStatus === "approved"} venueName={VENUE.name} />}
     </Shell>

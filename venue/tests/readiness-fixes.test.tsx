@@ -125,3 +125,18 @@ describe("small honesty and access fixes", () => {
     expect(out).toContain("<h1");
   });
 });
+
+import { readFileSync } from "node:fs";
+import { PartialCell } from "@/components/ui/State";
+
+describe("found by the H3b sweep", () => {
+  it("a dash with a reason keeps its sr-only text inside a positioned box (it widened the phone page from inside a table scroller)", () => {
+    const out = renderToStaticMarkup(<PartialCell why="Couldn't load payment detail" />);
+    expect(out).toMatch(/^<span class="relative"><span aria-hidden="true"[^>]*>—<\/span><span class="sr-only">/);
+  });
+  it("the create-event state screens (loading, error, denied) get the page heading from the frame", () => {
+    const s = readFileSync(new URL("../src/app/o/[org]/v/[venue]/events/new/page.tsx", import.meta.url), "utf8");
+    expect(s).toContain('title={showsWizard ? undefined : "New event"}');
+    expect(s).toMatch(/const showsWizard = ctx\.source !== "database" && !denied && ctx\.state !== "loading" && ctx\.state !== "error";/);
+  });
+});
