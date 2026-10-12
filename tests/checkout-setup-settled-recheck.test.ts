@@ -12,7 +12,14 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { _resetSetupInFlight, decideCheckoutSetup, type SetupDeps } from '../src/lib/checkout/setupDecision';
+import {
+  _resetSetupInFlight,
+  decideCheckoutSetup,
+  decideRevalidation,
+  type ListingRead,
+  type SettledRead,
+  type SetupDeps,
+} from '../src/lib/checkout/setupDecision';
 
 const NOW = new Date('2026-10-12T05:00:00Z');
 const SOLD = { status: 'sold', reserved_by: null, reserved_until: null };
@@ -82,5 +89,58 @@ describe('F6: unchanged paths', () => {
     expect((await decideCheckoutSetup({ ...INPUT, mode: 'auction' }, d)).kind).toBe('ready');
     expect(d.fetchListing).not.toHaveBeenCalled();
     expect(d.fetchSettledPayment).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The same race in decideRevalidation (the independent reviewer's finding, 2026-10-12): the settled read, then the
+ * listing read, then `lost`, whose copy is again "Nothing was charged". The same rule applies: re-read the settled
+ * payments once before `lost`.
+ */
+function revalDeps(settledAnswers: (SettledRead | Error)[], listing: ListingRead) {
+  const queue = [...settledAnswers];
+  return {
+    readSettled: vi.fn(async (): Promise<SettledRead> => {
+      const next = queue.shift();
+      if (next instanceof Error) throw next;
+      return next as SettledRead;
+    }),
+    readListing: vi.fn(async (): Promise<ListingRead> => listing),
+  };
+}
+const REVAL = { buyerId: 'buyer', isBuyNow: true, now: NOW };
+
+describe('F6 in decideRevalidation: the payment settles between the two reads', () => {
+  it('a succeeded payment visible on the re-read is already_settled, never "lost"', async () => {
+    const d = revalDeps([{ rows: [] }, { rows: [{ status: 'succeeded' } as never] }], { listing: SOLD as never });
+    expect(await decideRevalidation(REVAL, d)).toEqual({ kind: 'already_settled' });
+    expect(d.readSettled).toHaveBeenCalledTimes(2);
+  });
+
+  it('a refund visible on the re-read is reported as the refund it is, never "lost"', async () => {
+    const d = revalDeps([{ rows: [] }, { rows: [{ status: 'refunded' } as never] }], { listing: SOLD as never });
+    expect((await decideRevalidation(REVAL, d)).kind).toBe('refund_unconfirmed');
+  });
+
+  it('a failed re-read establishes nothing: payment status unknown, never "lost"', async () => {
+    const d = revalDeps([{ rows: [] }, { error: { code: '08006', message: 'connection' } }], { listing: SOLD as never });
+    expect(await decideRevalidation(REVAL, d)).toEqual({ kind: 'payment_status_unknown', detail: '08006: connection' });
+  });
+
+  it('a thrown re-read establishes nothing either', async () => {
+    const d = revalDeps([{ rows: [] }, new Error('network')], { listing: SOLD as never });
+    expect(await decideRevalidation(REVAL, d)).toEqual({ kind: 'payment_status_unknown', detail: 'no-code: network' });
+  });
+
+  it('no settled payment on either read: still lost (one re-read, nothing charged)', async () => {
+    const d = revalDeps([{ rows: [] }, { rows: [] }], { listing: EXPIRED_HOLD as never });
+    expect(await decideRevalidation(REVAL, d)).toEqual({ kind: 'lost' });
+    expect(d.readSettled).toHaveBeenCalledTimes(2);
+  });
+
+  it('a live hold is not re-read', async () => {
+    const d = revalDeps([{ rows: [] }], { listing: LIVE_HOLD as never });
+    expect((await decideRevalidation(REVAL, d)).kind).toBe('held');
+    expect(d.readSettled).toHaveBeenCalledTimes(1);
   });
 });

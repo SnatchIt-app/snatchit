@@ -295,6 +295,20 @@ export async function decideRevalidation(
   if (listing && holdIsMine(listing, input.buyerId, input.now)) {
     return { kind: 'held', reservedUntilMs: new Date(listing.reserved_until as string).getTime() };
   }
+  // F6, the same race as in decideCheckoutSetup: `lost` says "Nothing was charged", so read the settled payments once
+  // more first. settle_verified_payment commits payment 'succeeded' and listing 'sold' in one transaction, so a re-read
+  // that starts after a 'sold' listing read sees the buyer's own succeeded row.
+  let again: SettledRead;
+  try {
+    again = await deps.readSettled();
+  } catch (e) {
+    again = { error: { code: null, message: e instanceof Error ? e.message : String(e) } };
+  }
+  if ('error' in again) return { kind: 'payment_status_unknown', detail: `${again.error.code ?? 'no-code'}: ${again.error.message}` };
+  const settledAgain = pickSettled(again.rows);
+  if (settledKind(settledAgain) === 'already_settled') return { kind: 'already_settled' };
+  const refundAgain = refundStateFor(settledAgain);
+  if (refundAgain) return refundAgain;
   return { kind: 'lost' };
 }
 
