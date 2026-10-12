@@ -1,0 +1,23 @@
+# C4 run, 2026-10-12T04:25:14Z: source = git archive 48d20ca1 (app/ src/ packages/); schema = local pkg151_rehears (ledger 164)
+resolved: 63 .from() chains, 25 .rpc() calls; MISSING 0, UNRESOLVED 16
+UNRESOLVED app/settings/notifications.tsx:111  .update(non-literal object)
+UNRESOLVED src/screens/checkout/CheckoutNative.tsx:173  non-literal select
+UNRESOLVED src/hooks/useSecurityNotices.ts:33  .rpc(SECURITY_NOTICES_RPC)
+UNRESOLVED src/hooks/useSecurityNotices.ts:98  .rpc(MARK_NOTICES_READ_RPC, { p_ids: ids })
+UNRESOLVED src/hooks/useListingRealtime.ts:127  non-literal select
+UNRESOLVED src/hooks/useListingRealtime.ts:173  non-literal select
+UNRESOLVED src/lib/payments.ts:357  .rpc(settleRpc, {
+    p_listing_id: params.li)
+UNRESOLVED src/lib/auth/signOut.ts:95  .rpc(token)
+UNRESOLVED src/lib/auth/signOut.ts:181  .rpc(REVOKE_RPC, { p_token: token })
+UNRESOLVED src/lib/auth/signOut.ts:259  .rpc(REVOKE_ALL_RPC)
+UNRESOLVED src/lib/push/registerToken.ts:92  .rpc({
+      p_token: args.token,
+      p_pla)
+UNRESOLVED src/lib/push/registerToken.ts:184  public.register_push_token args not a literal object
+UNRESOLVED src/lib/push/registerToken.ts:196  .insert(non-literal object)
+UNRESOLVED src/lib/venue/client.ts:87  .rpc(fn, args)
+UNRESOLVED src/lib/venue/client.ts:93  .rpc(fn, args)
+UNRESOLVED src/lib/venue/client.ts:99  .rpc(fn, args)
+exit=0
+# same source against a_rc_replay (fresh LC_ALL=C replay of the candidate minus 121/125/126): byte-identical output

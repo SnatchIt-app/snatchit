@@ -1,5 +1,8 @@
 # Release readiness: the single consolidated list (A, 2026-10-11)
 
+**Superseded for the candidate's state by `packages/RC_20261012/README.md` (A, 2026-10-12):** the integrated
+candidate `48d20ca1` and its checks.
+
 **Status: closed for the storage closeout (A, 2026-10-11, late).** Development is frozen. This record holds the
 latest results; the earlier red-CI reports are history. What is still open is in §1 and the release queue below.
 Nothing in this record authorises a merge, deployment, distribution or production change.
@@ -25,7 +28,7 @@ Nothing in this record authorises a merge, deployment, distribution or productio
 | `release/production-gate-20260918` | `abef9506` | Production backend source: 150/151 applied, ledger 164, stripe-webhook v43, enforce-transfer-expiry v42 |
 | `feature/web-accounts-foundation` | `0b389584` | Live on `snatchti.com` as `dpl_9n8Jps9W…` |
 | `admin/operating-console` | `f7e7e85f` | Live as `dpl_8xPaaBYG…`; the pin is unchanged |
-| `v3/midnight-app` | `d27aa449` | The v3 candidate. Its `app/` and `src/` are identical to `9bbeaec6`, the tip B and E reviewed. It adds C's ML7 test fix (`10dbcdf4`), E's four frames (`32c0804a`, `11e50ca0`) and the parity alias fix (`d27aa449`). **v3's own CI is green** (run 38162136552). It contains `v3/consumer-batch2` `6b6b8f48` |
+| `v3/midnight-app` | `d27aa449` | The v3 candidate. Its `app/` and `src/` are identical to `9bbeaec6`, the tip B and E reviewed. It adds C's ML7 test fix (`10dbcdf4`), the four default-size Settings frames (C-operated captures, re-diffed by E and reviewed by B: `32c0804a`, `11e50ca0`) and the parity alias fix (`d27aa449`). **v3's own CI is green** (run 38162136552). It contains `v3/consumer-batch2` `6b6b8f48` |
 | `integration/s5-trial-20261011-r3` | `5450b348` | A's trial merge of the gate and v3 `d27aa449`, test only. **CI GREEN** (run 38162239127): 182 unit files / 3,084 tests, parity 108 tests, pgTAP 98 files / 5,605 tests |
 | `integration/s5-trial-20261011` / `-r2` | `9ed130d5` / `4f162c24` | Earlier trials, red on ML7 (r1) and then on the parity load error (r2). Superseded by r3; kept as record |
 | `fix/153-detect-refunds-state-on` | `ce95e503` | Migration 153 (`20261011000000`). CI green (run 38160107004). **Parked; not applied** |
@@ -57,7 +60,7 @@ Nothing in this record authorises a merge, deployment, distribution or productio
   - authenticated consumer Home;
   - the Edit refusal group;
   - the W-5 Edit platform picker (parity is test-pinned only);
-  - the W-6 payout line in its connected state (source-pinned only).
+  - the W-6 payout line in its connected state (source-pinned only; its wording is closed on source). **Not a pass.**
 - **The 2026-10-08 console sign-in and TOTP** were confirmed from auth records (A, D). That covers access, not wording.
 
 ## 3. Unevidenced, not waived (D's class; not a blocker)

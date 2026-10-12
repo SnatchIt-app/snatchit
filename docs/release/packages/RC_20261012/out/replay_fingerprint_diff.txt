@@ -1,0 +1,35 @@
+# catalog fingerprint diff: pkg151_rehears (<) vs a_rc_replay (>), 2026-10-12T04:25:14Z
+# a_rc_replay lines=2909 pkg151_rehears lines=2937
+# all 28 differences are rehearsal-harness objects (stand-in ledger table; pgTAP helper functions and views); only-in-replay 0
+< col|supabase_migrations.schema_migrations.created_by|text|nn=false|def=
+< col|supabase_migrations.schema_migrations.name|text|nn=false|def=
+< col|supabase_migrations.schema_migrations.statements|text[]|nn=false|def=
+< col|supabase_migrations.schema_migrations.version|text|nn=true|def=
+< fn|tap.admin_user()|cef6c658e1b53e8626f7966607129ddd|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.buyer()|a9eaaa5b39be7ad19d00baa4adaf216f|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.listing_a()|13856d87e629fb0cd5f6b754f507a9d7|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.listing_b()|142978c1c7e25d804478c0c494a1c4a6|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.listing_c()|cb06250d6eeee10e31b1be5e664b56bf|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.listing_d()|92cd8125805f807b77963a2fa1842020|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.login(p_uid uuid)|1753ed163d11fd5bfe23048d8f1a5d4d|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.login_anon()|218ef07800d33fbcb7be2ac7ef3b60f4|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.login_service()|5f19884bd938fec311ce89b2dfa18d81|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.logout()|5f2c3447353c97b49c63c294fb0c04e7|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.other_user()|4545065b51250833f4e1f501240d16e7|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.payment_a()|cde22b9e3ce044a446f8054b8898f9a2|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.payment_b()|05e608ca0183b06dea36ae8eca8a0189|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.payment_d()|e64b88ed62c5caae7cdcb1833e2abbdf|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.reset_guards()|761cc98dc36d727b2231bd84e66f7f6a|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.seed_core()|2995f22371938e1d552bfc8b2385a119|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.seller()|6fe1c0beced937c13bc0af6d90480dc4|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.set_claims(p_uid uuid, p_role text)|f5b36fdb7f0a8e02746a26fddd1b1b6b|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.transfer_a()|7b32a67a64744134e72e7145ab42dc47|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< fn|tap.transfer_b()|6890fcc4cbb1ef5dde04c2d675e80672|secdef=false|cfg=|acl={=X/postgres,postgres=X/postgres}
+< idx|supabase_migrations.schema_migrations_pkey|CREATE UNIQUE INDEX schema_migrations_pkey ON supabase_migrations.schema_migrations USING btree (version)
+< rel|supabase_migrations.schema_migrations|r|rls=false|acl=
+< view|public.pg_all_foreign_keys|e13e47d8eda61e2f00f058184975625e
+< view|public.tap_funky|d7060d4add063a0bb1735b32d754634f
+# positive control: 153 applied to a clone (a_rc_ctl) -> exactly one line changes:
+< fn|ops.detect_refunds()|e1e9a8bc08305e17916e25247a22752f|secdef=true|cfg=search_path=""|acl={postgres=X/postgres}
+> fn|ops.detect_refunds()|2f3bc625a843f0c94200ce974b99fac3|secdef=true|cfg=search_path=""|acl={postgres=X/postgres}
+# 150/151 functions vs expected/post151.txt (matched by production read-back at X3): match=6 mismatch=0

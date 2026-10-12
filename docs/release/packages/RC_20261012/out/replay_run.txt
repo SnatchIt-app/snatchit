@@ -1,0 +1,12 @@
+# Local LC_ALL=C replay of the candidate's migration chain (A, 2026-10-12), copied from this session's command output.
+# Source: git archive 48d20ca1 supabase scripts/local, with 121_*, 125_* and 126_* removed (not in the production ledger).
+# Files replayed: 164. Harness: scripts/local/replay.sh (shim + supplements + every migration in LC_ALL=C order + parity_grants).
+# Target: a new local database a_rc_replay on the Mac PostgreSQL 17 (127.0.0.1:5432).
+started 04:22:02Z
+NOTICE:  database "a_rc_replay" does not exist, skipping
+REPLAY OK: 164 migrations applied to a_rc_replay
+finished 04:22:22Z
+# stderr file: 301 lines, 0 ERROR or FATAL; the run stops on the first error (ON_ERROR_STOP). Besides NOTICEs it has two
+# WARNINGs, both expected on this plain local cluster: replay_shim.sql:48 "wal_level is insufficient to publish logical
+# changes" (no logical replication locally) and 093_primary_ticketing.sql:2867 "SET LOCAL can only be used in transaction
+# blocks" (psql -f runs each statement outside an explicit transaction).
