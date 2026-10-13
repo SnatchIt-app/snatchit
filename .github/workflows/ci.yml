@@ -667,11 +667,16 @@ jobs:
           # The challenge table is in notify (outside this census).
           # 2026-09-25 migration 150: functions 108 -> 111 — +3 public.record_refund_state,
           # public.payment_refund_state_log_append_only, public.guard_payment_refund_state_columns.
-          EXPECT_FUNCS: 111
+          # 2026-10-13 migration 152 (marketplace safety): functions 111 -> 116 — +5 public.assert_marketplace_parties,
+          # public.guard_bid_parties, public.guard_listing_reservation_parties, public.listing_prohibited_term,
+          # public.guard_listing_content (all no-client-execute).
+          EXPECT_FUNCS: 116
           EXPECT_POLICIES: 37
           # 2026-09-25 migration 150: triggers 38 -> 40 — +trg_payment_refund_state_log_append_only,
           # +trg_guard_payment_refund_state_columns (on payments).
-          EXPECT_TRIGGERS: 40
+          # 2026-10-13 migration 152: triggers 40 -> 43 — +before_bid_guard_parties (bids),
+          # +trg_guard_listing_reservation_parties, +trg_guard_listing_content (listings).
+          EXPECT_TRIGGERS: 43
 
       # Privilege-parity diagnostic. Production's table grants come from Supabase's
       # DEFAULT PRIVILEGES, not from the migration chain (migration 063 says so

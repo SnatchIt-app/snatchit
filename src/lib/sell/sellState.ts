@@ -192,7 +192,8 @@ export function priceSummary(dollars: number): PriceSummary {
 
 // ─── Content moderation (Apple Guideline 1.4.3) ────────────────────────────────
 
-const BANNED_CONTENT_PATTERNS: { pattern: RegExp; label: string }[] = [
+// Exported for tests/server-content-parity.test.ts: migration 152 enforces this same list on the server.
+export const BANNED_CONTENT_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\balcohol\b/i,             label: 'alcohol' },
   { pattern: /\bdrugs?\b/i,              label: 'drugs' },
   { pattern: /\bweed\b/i,                label: 'weed' },
