@@ -29,7 +29,7 @@ type Alerted = { title: string; body?: string };
 
 const h = vi.hoisted(() => ({
   alerts: [] as { title: string; body?: string }[],
-  insertError: null as { message: string } | null,
+  insertError: null as { message: string; hint?: string } | null,
   tables: [] as string[],
   user: { id: 'bidder-1' } as { id: string } | null,
   network: { isOffline: false },
@@ -200,6 +200,45 @@ describe('a failed bid insert never shows the server string', () => {
     expect(alerts[0].title).not.toBe(copy.title);
     // 105 is both the bid and the fresh floor, so the position is "leading" — bidOutcomeCopy's words.
     expect(`${alerts[0].title} ${alerts[0].body}`).toMatch(/leading/i);
+  });
+});
+
+describe('RC3 · a refusal with a stable hint shows the policy sentence, with no retry (152)', () => {
+  it('BR1: BLOCKED_PARTY → the K2 sentence, OK-only, not the unconfirmed copy and not the wire text', async () => {
+    h.insertError = { message: RAW_SERVER_MESSAGE, hint: 'BLOCKED_PARTY' };
+    const alerts = await placeBid(await mountScreen());
+    const { REFUSAL_COPY } = await import('@/src/lib/moderation/serverRefusal');
+
+    expect(h.tables).toContain('bids');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].title).toBe(REFUSAL_COPY.BLOCKED_PARTY.title);
+    expect(alerts[0].body).toBe("This listing isn't available to you.");
+    expect(`${alerts[0].title} ${alerts[0].body}`).not.toMatch(/try again/i);
+    expect(alerts[0].body).not.toContain(RAW_SERVER_MESSAGE);
+    expect(alerts[0].title).not.toBe(declaredCopy().title);
+  });
+
+  it('BR2: ACCOUNT_SUSPENDED → the K2 sentence, no retry', async () => {
+    h.insertError = { message: 'whatever the server said', hint: 'ACCOUNT_SUSPENDED' };
+    const alerts = await placeBid(await mountScreen());
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].body).toBe("Your account is suspended, so you can't bid, buy or create listings. Orders you already have aren't affected. Contact support@snatchitapp.com.");
+    expect(`${alerts[0].title} ${alerts[0].body}`).not.toMatch(/try again/i);
+  });
+
+  it('BR3: LISTING_UNAVAILABLE → the K2 sentence', async () => {
+    h.insertError = { message: 'x', hint: 'LISTING_UNAVAILABLE' };
+    const alerts = await placeBid(await mountScreen());
+    expect(alerts[0].body).toBe("This listing isn't available right now.");
+  });
+
+  it('BR4: an unknown hint is still the unknown outcome — BID_UNCONFIRMED_COPY, unchanged', async () => {
+    h.insertError = { message: RAW_SERVER_MESSAGE, hint: 'SOMETHING_ELSE' };
+    const alerts = await placeBid(await mountScreen());
+    const copy = declaredCopy();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].title).toBe(copy.title);
+    expect(alerts[0].body).toBe(copy.body);
   });
 });
 

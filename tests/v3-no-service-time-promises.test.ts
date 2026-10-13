@@ -40,6 +40,25 @@ const code = (rel: string) => readFileSync(rel, 'utf8')
 const FILES = ROOTS.flatMap((r) => sources(r));
 const ATTESTATION = 'src/screens/CreateListingScreen.tsx';
 
+/**
+ * RC3 S6 (POLICY_WORDING §2, owner direction 2026-10-13): the Terms now carry three refund sentences
+ * that name a time — the seller's 24-hour send window (a product rule, not our review time), the
+ * bank's "typically 5 to 10 business days" (Stripe's guidance about the card issuer, not our
+ * response) and "after 10 business days, contact support" (a user instruction). None is a turnaround
+ * WE promise for reviewing or replying, which is what this guard forbids. They are admitted by EXACT
+ * text in that one file: any other 24-hour or business-day phrase there still fails.
+ */
+const LEGAL = 'app/settings/legal.tsx';
+const POLICY_REFUND_SENTENCES = [
+  "If the seller doesn't mark the tickets as sent within 24 hours after your payment goes through, the order is cancelled automatically and a full refund of what you paid, including the service fee, is issued to your original payment method.",
+  'Issuing a refund starts it with our payment processor, Stripe. It can show as pending for a while, and in rare cases a refund fails. Once it completes, how long it takes to appear depends on your bank or card issuer, typically 5 to 10 business days.',
+  "If a refund hasn't appeared after 10 business days, contact support@snatchitapp.com.",
+];
+/** The rendered text of a JSX file: entities and line wraps resolved, so a sentence can be matched whole. */
+const rendered = (src: string) => src.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+const withoutPolicyRefundSentences = (src: string) =>
+  POLICY_REFUND_SENTENCES.reduce((acc, sentence) => acc.split(sentence).join(''), rendered(src));
+
 describe('no promised turnaround anywhere in the consumer app', () => {
   it('ST0 (witness): the search sees real files, and finds the ONE legitimate use of the phrase', () => {
     // Without this, a zero below could be an empty file list or a broken matcher.
@@ -52,7 +71,7 @@ describe('no promised turnaround anywhere in the consumer app', () => {
   it('ST1: no file promises a review time, a typical review or a business-day response', () => {
     const offenders: string[] = [];
     for (const rel of FILES) {
-      const src = code(rel);
+      const src = rel === LEGAL ? withoutPolicyRefundSentences(code(rel)) : code(rel);
       for (const [pattern, what] of [
         [/within 24 hours/, 'a 24-hour promise'],
         [/typically reviews/, 'a typical review time'],
@@ -65,6 +84,17 @@ describe('no promised turnaround anywhere in the consumer app', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('ST1c: the admitted refund sentences are live in the Terms, verbatim, and promise no review or reply time', () => {
+    const legal = rendered(code(LEGAL));
+    for (const sentence of POLICY_REFUND_SENTENCES) {
+      expect(legal, sentence).toContain(sentence);                 // the exemption covers real text, not a dead list
+      expect(sentence).not.toMatch(/we (review|aim|respond|reply)|our team (reviews|responds)|typically reviews/i);
+    }
+    // And the exemption is exact: the same file with one word changed is an offender again.
+    const drifted = legal.replace('within 24 hours after your payment', 'within 24 hours of your payment');
+    expect(/within 24 hours/.test(POLICY_REFUND_SENTENCES.reduce((a, s) => a.split(s).join(''), drifted))).toBe(true);
   });
 
   it('ST1b: two OTHER kinds of time survive, and must — a statutory duty and a user instruction', () => {

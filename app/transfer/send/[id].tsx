@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { confirmBlock, showMoreActions } from '@/src/lib/moderation/blockFlow';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useImageUpload } from '@/src/hooks/useImageUpload';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
@@ -68,6 +69,8 @@ type TransferData = {
   delivery_phone: string | null;
   transfer_evidence_path: string | null;
   buyer: { display_name: string | null };
+  /** RC3: the counterparty, for the Block entry only — never used to change this order. */
+  buyer_id?: string | null;
   listing: {
     event_name: string | null;
     ticket_platform: TicketPlatform | null;
@@ -141,7 +144,7 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
     const { data, error: fetchErr } = await supabase
       .from('transfers')
       .select(
-        'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
+        'id, listing_id, buyer_id, status, transfer_method, expires_at, auto_release_at, payout_released_at, payout_review_status, payout_hold_until, buyer_confirmed_at, dispute_resolution, dispute_resolved_at, ' +
         'delivery_email, delivery_phone, transfer_evidence_path, ' +
         'buyer:profiles!buyer_id(display_name), ' +
         'listing:listings!listing_id(event_name, ticket_platform, event_date, event_time, venue, quantity, ticket_type, cover_image_path)',
@@ -334,12 +337,28 @@ export default function TransferSendScreen({ fixture }: { fixture?: SendFixture 
     : ({ kind: 'none' } as const);
   const orderClosed = windowView.kind === 'closed';
 
+  // RC3 (152): the Block entry. It offers the K1 confirmation and writes one user_blocks row; it
+  // never touches this order — existing orders are exempt on the server, and the screen stays put.
+  const counterpartyId = transfer?.buyer_id ?? null;
+  // Under a fixture the entry paints for a signed-out harness viewer; with write:false below the
+  // placeholder id never reaches a server.
+  const viewerId = userId ?? (fixture ? 'fixture-viewer' : null);
+  function openMoreActions() {
+    if (!counterpartyId || !viewerId) return;
+    const name = transfer?.buyer?.display_name?.trim() || 'this buyer';
+    showMoreActions([
+      { label: `Block ${name}`, destructive: true, handler: () => confirmBlock({ viewerId, targetId: counterpartyId, targetName: name, write: !fixture }) },
+    ]);
+  }
+
   function Header() {
     return (
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Send transfer</Text>
-        <View style={s.headerSpacer} />
+        {counterpartyId && viewerId
+          ? <IconButton glyph="more" chip onPress={openMoreActions} accessibilityLabel="More actions" />
+          : <View style={s.headerSpacer} />}
       </View>
     );
   }

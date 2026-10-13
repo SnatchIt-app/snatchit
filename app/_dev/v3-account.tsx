@@ -55,6 +55,7 @@ import { useAppearancePreference } from '@/src/theme/appearance';
 import ProfileScreen, { type ProfileFixture } from '@/app/(tabs)/profile';
 import SettingsScreen, { type SettingsDeletionFixture } from '@/app/settings/index';
 import AppearanceScreen from '@/app/settings/appearance';
+import LegalScreen from '@/app/settings/legal';
 
 declare const __DEV__: boolean;
 
@@ -137,6 +138,9 @@ export default function V3AccountHarness() {
     case 'appearance':
       // No fixture: the screen has no read to short-circuit. `?appearance=` selects the radio.
       return <AppearanceScreen />;
+    case 'legal':
+      // RC3 S6: static Terms text, no read. Lets the wording be rendered without a sign-in.
+      return <LegalScreen />;
     default:
       return <Redirect href="/" />;
   }

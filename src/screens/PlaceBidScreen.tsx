@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useNetworkStatus } from '@/src/hooks/useNetworkStatus';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
@@ -245,6 +246,15 @@ export default function PlaceBidScreen({ id, fixture }: Props) {
       });
 
       if (error) {
+        // RC3 (152): a refusal with a stable hint — blocked party, suspended bidder, suspended
+        // seller — is a KNOWN outcome: the server answered and refused, nothing committed. It gets
+        // the policy sentence, OK-only, no retry offered. The hint is read through one helper; the
+        // screen itself still never reads a server message (BE5).
+        const refusal = readServerRefusal(error);
+        if (refusal) {
+          Alert.alert(refusal.title, refusal.body);
+          return;
+        }
         // The raw server string never reaches the bidder; see BID_UNCONFIRMED_COPY for why the
         // wording claims neither outcome.
         Alert.alert(BID_UNCONFIRMED_COPY.title, BID_UNCONFIRMED_COPY.body);

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { supabase } from '@/src/lib/supabase';
+import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { allInFromDollarsV3 } from '@/src/lib/money';
 import { useAuth } from '@/src/hooks/useAuth';
 import { getAvatarUrl } from '@/src/lib/avatarImage';
@@ -204,7 +205,8 @@ export default function PublicProfileScreen({ fixture }: { fixture?: PublicProfi
     if (fixture) return;
     if (!user?.id) { Alert.alert('Sign in required', 'You need to be signed in to block users.'); return; }
     const name = profile?.display_name?.trim() || 'this seller';
-    Alert.alert(`Block ${name}?`, 'Their listings will be hidden from your feed. You can unblock anytime in Settings → Blocked users.', [
+    // RC3: K1 — what a block now does on the server (152), identical on every surface.
+    Alert.alert(`Block ${name}?`, blockConfirmMessage(), [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Block',

@@ -82,18 +82,35 @@ export default function LegalScreen() {
           <Bullet s={s}>
             Transactions are conducted directly between buyers and sellers. Once payment is
             processed and confirmed, transactions are final.
+            If the seller doesn&apos;t mark the tickets as sent within 24 hours after your
+            payment goes through, the order is cancelled automatically and a full refund of what
+            you paid, including the service fee, is issued to your original payment method.
+            Issuing a refund starts it with our payment processor, Stripe. It can show as
+            pending for a while, and in rare cases a refund fails. Once it completes, how long
+            it takes to appear depends on your bank or card issuer, typically 5 to 10 business
+            days. If a refund hasn&apos;t appeared after 10 business days, contact
+            support@snatchitapp.com.
           </Bullet>
           <Bullet s={s}>
             All payments are processed by third-party payment providers (currently Stripe).
-            Snatch It does not store payment card details. Under our protected payment flow,
-            payment funds are held by Stripe on Snatch It&apos;s behalf until the buyer confirms
-            receipt of the ticket (or the auto-release window expires), at which point the
-            seller&apos;s net payout is released.
+            Snatch It does not store payment card details.
+            Payment funds are held by Stripe on Snatch It&apos;s behalf until the order is
+            released. When the buyer confirms they received the tickets, Snatch It starts the
+            seller&apos;s payout straight away. If the payout can&apos;t be made at that moment,
+            for example because the seller&apos;s payout account isn&apos;t ready, it waits for
+            review by our team. If the buyer neither confirms nor reports a problem within 72
+            hours after the seller marks the tickets as sent, the order becomes eligible for
+            release. Snatch It runs risk checks first: depending on the order, the payout is
+            released, held until after the event, or held for manual review. Once a payout is
+            sent, when it reaches the seller&apos;s bank depends on Stripe&apos;s payout
+            schedule and the bank. Snatch It doesn&apos;t guarantee a date.
           </Bullet>
           <Bullet s={s}>
-            A 10% service fee is added to the buyer&apos;s total at checkout, and a 10%
-            marketplace fee is deducted from the seller&apos;s payout. Snatch It reserves
-            the right to modify fee structures with reasonable notice.
+            Buyers pay a service fee of 10% of the sale price (the Buy Now price or the winning
+            bid, for the whole listing). It is added to the total at checkout and shown before
+            you confirm. Sellers pay a marketplace fee of 10% of the same sale price, deducted
+            from the payout. Snatch It reserves the right to modify fee structures with
+            reasonable notice.
           </Bullet>
           <Bullet s={s}>
             Chargebacks and refunds: if a buyer disputes a charge through their
@@ -204,17 +221,33 @@ export default function LegalScreen() {
                 responsible for listing accuracy and ticket validity. Buyers are solely responsible
                 for reviewing listings and confirming receipt. Transactions are final once
                 payment is confirmed. Snatch It does not guarantee refunds, returns, or exchanges.
+                If the seller doesn&apos;t mark the tickets as sent within 24 hours after your
+                payment goes through, the order is cancelled automatically and a full refund of
+                what you paid, including the service fee, is issued to your original payment
+                method. Issuing a refund starts it with our payment processor, Stripe. It can
+                show as pending for a while, and in rare cases a refund fails. Once it
+                completes, how long it takes to appear depends on your bank or card issuer,
+                typically 5 to 10 business days. If a refund hasn&apos;t appeared after 10
+                business days, contact support@snatchitapp.com.
               </Text>
 
               <Text style={s.ftSubhead}>6. Payments & Fees</Text>
               <Text style={s.ftBody}>
-                Payments are processed by Stripe. A 10% service fee is added to the buyer&apos;s
-                total at checkout, and a 10% marketplace fee is deducted from the seller&apos;s
-                payout. Snatch It does not store payment card details. Under our protected
-                payment flow, funds are held by Stripe on Snatch It&apos;s behalf until the buyer
-                confirms ticket receipt (or the auto-release window expires), at which point
-                the seller&apos;s net is transferred to their connected Stripe account. All
-                transactions are denominated in USD.
+                Payments are processed by Stripe. Buyers pay a service fee of 10% of the sale
+                price (the Buy Now price or the winning bid, for the whole listing). It is added
+                to the total at checkout and shown before you confirm. Sellers pay a marketplace
+                fee of 10% of the same sale price, deducted from the payout. Snatch It does not
+                store payment card details. Payment funds are held by Stripe on Snatch It&apos;s
+                behalf until the order is released. When the buyer confirms they received the
+                tickets, Snatch It starts the seller&apos;s payout straight away. If the payout
+                can&apos;t be made at that moment, for example because the seller&apos;s payout
+                account isn&apos;t ready, it waits for review by our team. If the buyer neither
+                confirms nor reports a problem within 72 hours after the seller marks the
+                tickets as sent, the order becomes eligible for release. Snatch It runs risk
+                checks first: depending on the order, the payout is released, held until after
+                the event, or held for manual review. Once a payout is sent, when it reaches the
+                seller&apos;s bank depends on Stripe&apos;s payout schedule and the bank. Snatch
+                It doesn&apos;t guarantee a date. All transactions are denominated in USD.
               </Text>
 
               <Text style={s.ftSubhead}>6a. Chargebacks, Refunds & Negative Balances</Text>

@@ -308,7 +308,8 @@ describe('the buyer\'s receive screen — expired and reversed cells', () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/transfer/receive/[id].tsx', 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    expect(src).toMatch(/'id, listing_id, status, transfer_method, expires_at, auto_release_at, payout_released_at,/);
+    // RC3 S5 added `seller_id` (the Block entry's counterparty); the two new columns still ride on the same list.
+    expect(src).toMatch(/'id, listing_id, seller_id, status, transfer_method, expires_at, auto_release_at, payout_released_at,/);
     expect(src).toContain('readSettledPayments(');
     expect(src).not.toMatch(/from\('payments'\)/);
   });

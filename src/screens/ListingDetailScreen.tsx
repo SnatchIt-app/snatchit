@@ -38,6 +38,8 @@ import { ActionSheetIOS, Alert, Platform, Pressable, ScrollView, StyleSheet, Tex
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { supabase } from '@/src/lib/supabase';
+import { readServerRefusal } from '@/src/lib/moderation/serverRefusal';
+import { blockConfirmMessage } from '@/src/lib/moderation/blockCopy';
 import { PriceDisplay } from '@/src/components/PriceDisplay';
 import { useAuth } from '@/src/hooks/useAuth';
 import { useSingleFlight } from '@/src/hooks/useSingleFlight';
@@ -835,6 +837,10 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     });
     if (rpcError) {
       setReserving(false);
+      // RC3 (152): blocked party, suspended viewer or suspended seller — the server's refusal, as
+      // the policy sentence, OK-only, no retry offered. Any other error keeps the branches below.
+      const refusal = readServerRefusal(rpcError);
+      if (refusal) { Alert.alert(refusal.title, refusal.body); return; }
       const msg = rpcError.message ?? 'Could not reserve this listing.';
       if      (msg.includes('already reserved')) Alert.alert('Currently reserved', 'Reserved by another buyer. Try again soon.');
       else if (msg.includes('sold'))             Alert.alert('Already sold', 'This listing has already been sold.');
@@ -1038,7 +1044,8 @@ export default function ListingDetailScreen({ id, fixture }: Props) {
     }
     Alert.alert(
       `Block ${sellerName}?`,
-      'Their listings will be hidden from your feed. You can unblock from Settings → Blocked Users.',
+      // RC3: K1 — what a block now does on the server (152), identical on every surface.
+      blockConfirmMessage(),
       [
         { text: 'Cancel', style: 'cancel' },
         {
