@@ -27,6 +27,15 @@ export function canRequest(role: OperatorRole | null | undefined, actionType: Ac
   return allowedRoles(actionType).includes(role);
 }
 
+/**
+ * Account suspension (user_restrict / user_unrestrict with kind "suspended", migration 152).
+ * ops.action_dispatch allows it to platform_admin and platform_risk only, although
+ * user_restrict itself is open to support for listing blocks. UX mirror; the database decides.
+ */
+export function canSuspend(role: OperatorRole | null | undefined): boolean {
+  return role === "platform_admin" || role === "platform_risk";
+}
+
 /** Actions parked for a second founder (ops.action_requires_approval). */
 export function requiresApproval(actionType: string): boolean {
   return actionType === "payout_release" || actionType === "refund_execute";
