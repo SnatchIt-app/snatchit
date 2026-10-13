@@ -56,6 +56,7 @@ import ProfileScreen, { type ProfileFixture } from '@/app/(tabs)/profile';
 import SettingsScreen, { type SettingsDeletionFixture } from '@/app/settings/index';
 import AppearanceScreen from '@/app/settings/appearance';
 import LegalScreen from '@/app/settings/legal';
+import PrivacyScreen from '@/app/settings/privacy';
 
 declare const __DEV__: boolean;
 
@@ -141,6 +142,9 @@ export default function V3AccountHarness() {
     case 'legal':
       // RC3 S6: static Terms text, no read. Lets the wording be rendered without a sign-in.
       return <LegalScreen />;
+    case 'privacy':
+      // C-RC3-1 follow-up: the other tall static scroll, for the last-line check without a sign-in.
+      return <PrivacyScreen />;
     default:
       return <Redirect href="/" />;
   }
