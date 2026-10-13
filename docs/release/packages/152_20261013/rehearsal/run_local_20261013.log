@@ -1,0 +1,78 @@
+== R1 check pre (expect rc 0)
+rc=0
+== R2 apply 152 (expect rc 0)
+[pkg] prestate 152 vs pre152.txt
+[pkg] request sha256 ffc020a0ec3bea3e22bec82c7515e9c16c151892674fde5f8ec75b6d28db560c (91561 bytes)
+[pkg] post assertion 152 vs post152.txt
+[pkg] 152 APPLIED and verified
+rc=0
+== R3 re-apply (negative) (expect rc 3)
+[pkg] prestate STOP for 152; nothing sent
+[pkg] prestate 152 vs pre152.txt
+  MISMATCH bids_first_trigger: expected before_bid_insert | actual before_bid_guard_parties
+  MISMATCH census: expected 34|1209|37|40 | actual 34|1214|37|43
+  MISMATCH exec_public.assert_marketplace_parties(uuid,uuid): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.guard_bid_parties(): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.guard_listing_content(): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.guard_listing_reservation_parties(): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH exec_public.listing_prohibited_term(text[]): expected absent | actual anon:false,authenticated:false,service_role:true
+  MISMATCH fn_ops.action_dispatch(p_action ops.action): expected def:a1b6c7f63121d2027e55e9d99ba07f9b|src:35a3edbdb89745c302d3f36f82fed2d1|secdef=true|cfg=search_path="" | actual def:bfb8b9dcfaace5ff04009f96b6de7bef|src:8ab39be62307dc3cb154474e660ebb5b|secdef=true|cfg=search_path=""
+  MISMATCH fn_public.can_create_listing(p_seller_id uuid): expected def:8369a2a6ee4f0b777c9eafcacfe8df62|src:895655ce15bc3f31cfcfc3cbda4843b6|secdef=true|cfg=search_path=public | actual def:638c7bcc001213bde1b4cfb7b9a0e29f|src:98e50315054b758a186b04ace4beffeb|secdef=true|cfg=search_path=public
+  MISMATCH kind_check: expected CHECK ((kind = 'listing_blocked'::text)) | actual CHECK ((kind = ANY (ARRAY['listing_blocked'::text, 'suspended'::text])))
+  MISMATCH ledger_152: expected absent | actual marketplace_safety_enforcement|claude-a/owner-authorised-152|1|4d4765ef5e4fe50719553fd46229451f|45675
+  MISMATCH ledger_count: expected 164 | actual 165
+  MISMATCH ledger_max: expected 20260925010000 | actual 20261013000000
+  MISMATCH triggers_152: expected none | actual bids.before_bid_guard_parties:O:7:guard_bid_parties(),listings.trg_guard_listing_content:O:23:guard_listing_content(),listings.trg_guard_listing_reservation_parties:O:19:guard_listing_reservation_parties()
+  UNEXPECTED KEY fn_public.assert_marketplace_parties(p_actor uuid, p_counterparty uuid)=def:56c1a6ad0aaa85c6c02478d17e6aed1a|src:6052f88741ec44e029becc1223a9bca6|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.guard_bid_parties()=def:97922d8250651fa09f58e1479a2f3014|src:11be6591808073f224e64c97ce33e93c|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.guard_listing_content()=def:afd7f7ac8c8647bff0baf97973d53f07|src:cd3e82cfbcd0ac54612ed83fa94b3e8c|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.guard_listing_reservation_parties()=def:96b637a6a74e3d20615a6afc203fad7c|src:555eadb1932f04d8f7103a17c65adfca|secdef=true|cfg=search_path=""
+  UNEXPECTED KEY fn_public.listing_prohibited_term(p_texts text[])=def:489fe7d80d5415c1ddd7aa4e67ac60ee|src:a1372d8a7344d1c847e4703f08d8a940|secdef=false|cfg=search_path=""
+rc=3
+== R4 ledger-only with row present (negative) (expect rc 3)
+[pkg] apply --ledger-only STOP: objects are not in the post-state, or the ledger row already exists
+rc=3
+== R5 rollback 152 (expect rc 0)
+[pkg] rollback guard 152: state must equal post152.txt
+[pkg] rollback request sha256 ea3774b4819dca35a511b4ee04d7b8c7ec5bcfe9f7ffd6940c299eac015dbc54
+[pkg] post-rollback 152 vs pre152.txt
+[pkg] 152 ROLLED BACK and verified
+rc=0
+== R6 rollback again (negative) (expect rc 3)
+[pkg] rollback STOP for 152; nothing sent
+[pkg] rollback guard 152: state must equal post152.txt
+  MISMATCH bids_first_trigger: expected before_bid_guard_parties | actual before_bid_insert
+  MISMATCH census: expected 34|1214|37|43 | actual 34|1209|37|40
+  MISMATCH exec_public.assert_marketplace_parties(uuid,uuid): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH exec_public.guard_bid_parties(): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH exec_public.guard_listing_content(): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH exec_public.guard_listing_reservation_parties(): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH exec_public.listing_prohibited_term(text[]): expected anon:false,authenticated:false,service_role:true | actual absent
+  MISMATCH fn_ops.action_dispatch(p_action ops.action): expected def:bfb8b9dcfaace5ff04009f96b6de7bef|src:8ab39be62307dc3cb154474e660ebb5b|secdef=true|cfg=search_path="" | actual def:a1b6c7f63121d2027e55e9d99ba07f9b|src:35a3edbdb89745c302d3f36f82fed2d1|secdef=true|cfg=search_path=""
+  MISMATCH fn_public.assert_marketplace_parties(p_actor uuid, p_counterparty uuid): expected def:56c1a6ad0aaa85c6c02478d17e6aed1a|src:6052f88741ec44e029becc1223a9bca6|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.can_create_listing(p_seller_id uuid): expected def:638c7bcc001213bde1b4cfb7b9a0e29f|src:98e50315054b758a186b04ace4beffeb|secdef=true|cfg=search_path=public | actual def:8369a2a6ee4f0b777c9eafcacfe8df62|src:895655ce15bc3f31cfcfc3cbda4843b6|secdef=true|cfg=search_path=public
+  MISMATCH fn_public.guard_bid_parties(): expected def:97922d8250651fa09f58e1479a2f3014|src:11be6591808073f224e64c97ce33e93c|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.guard_listing_content(): expected def:afd7f7ac8c8647bff0baf97973d53f07|src:cd3e82cfbcd0ac54612ed83fa94b3e8c|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.guard_listing_reservation_parties(): expected def:96b637a6a74e3d20615a6afc203fad7c|src:555eadb1932f04d8f7103a17c65adfca|secdef=true|cfg=search_path="" | actual <missing>
+  MISMATCH fn_public.listing_prohibited_term(p_texts text[]): expected def:489fe7d80d5415c1ddd7aa4e67ac60ee|src:a1372d8a7344d1c847e4703f08d8a940|secdef=false|cfg=search_path="" | actual <missing>
+  MISMATCH kind_check: expected CHECK ((kind = ANY (ARRAY['listing_blocked'::text, 'suspended'::text]))) | actual CHECK ((kind = 'listing_blocked'::text))
+  MISMATCH ledger_152: expected marketplace_safety_enforcement|claude-a/owner-authorised-152|1|4d4765ef5e4fe50719553fd46229451f|45675 | actual absent
+  MISMATCH ledger_count: expected 165 | actual 164
+  MISMATCH ledger_max: expected 20261013000000 | actual 20260925010000
+  MISMATCH triggers_152: expected bids.before_bid_guard_parties:O:7:guard_bid_parties(),listings.trg_guard_listing_content:O:23:guard_listing_content(),listings.trg_guard_listing_reservation_parties:O:19:guard_listing_reservation_parties() | actual none
+rc=3
+== R7 apply again (expect rc 0)
+[pkg] prestate 152 vs pre152.txt
+[pkg] request sha256 ffc020a0ec3bea3e22bec82c7515e9c16c151892674fde5f8ec75b6d28db560c (91561 bytes)
+[pkg] post assertion 152 vs post152.txt
+[pkg] 152 APPLIED and verified
+rc=0
+== R8 split: file only via psql, then ledger-only
+DELETE 1
+file-only rc=0
+== R8b ledger-only resume (expect rc 0)
+[pkg] ledger-only request sha256 ca6f6f173505490f1eca4b505acd7c60f89c6d9ddf1a39e356f8c49922b5e5f0
+[pkg] 152 ledger row restored and verified
+rc=0
+== R9 final check post (expect rc 0)
+rc=0

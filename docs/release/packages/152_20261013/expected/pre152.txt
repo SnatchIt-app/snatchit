@@ -1,0 +1,30 @@
+# Production read-only state (MCP execute_sql of sql/state.sql), 2026-10-13 21:31:56Z. Equals D's 21:12:57Z prestate.
+bids_first_trigger=before_bid_insert
+census=34|111|37|40
+exec_public.assert_marketplace_parties(uuid,uuid)=absent
+exec_public.guard_bid_parties()=absent
+exec_public.guard_listing_content()=absent
+exec_public.guard_listing_reservation_parties()=absent
+exec_public.listing_prohibited_term(text[])=absent
+fn_ops.action_allowed_roles(p_action_type text)=def:972443bf571dc94ef1e1400602b28315|src:98d8aba103710706fd8fb6d4081a0a1c|secdef=false|cfg=-
+fn_ops.action_dispatch(p_action ops.action)=def:a1b6c7f63121d2027e55e9d99ba07f9b|src:35a3edbdb89745c302d3f36f82fed2d1|secdef=true|cfg=search_path=""
+fn_ops.execute_action(p_idempotency_key text, p_action_type text, p_subject_kind text, p_subject_id uuid, p_params jsonb, p_reason text, p_expected jsonb, p_subject_ref text)=def:e59c158453adabc662431cac9dca1040|src:a05348edbad6d62139e75f91f0abda01|secdef=true|cfg=search_path=""
+fn_public.can_create_listing(p_seller_id uuid)=def:8369a2a6ee4f0b777c9eafcacfe8df62|src:895655ce15bc3f31cfcfc3cbda4843b6|secdef=true|cfg=search_path=public
+fn_public.cleanup_expired_reservations()=def:0271dca2e22467501d3f14b7845ef6b6|src:6b7ba391baeffe7c3199a982f730f457|secdef=true|cfg=search_path=public
+fn_public.complete_auction_payment(p_listing_id uuid, p_user_id uuid)=def:2d157aef39c0b53c176647052da32f10|src:e9d9175cb4b8fc55e9141d149c85253f|secdef=true|cfg=search_path=public
+fn_public.mark_listing_sold(p_listing_id uuid, p_user_id uuid)=def:e03bae57a1436b2a8cafb3ea1a63053b|src:e408ca62c06480700fe6af1cf70b8c48|secdef=true|cfg=search_path=public
+fn_public.release_reservation(p_listing_id uuid, p_user_id uuid)=def:083b70d7c98b946a6d8ce2beca2ba814|src:cf7427c42d4119238509f6cce8625bec|secdef=true|cfg=search_path=public
+fn_public.reserve_buy_now(p_listing_id uuid, p_user_id uuid, p_minutes integer)=def:5e01af4e16794db1de613a0115ce7127|src:cbae565239fd327789c81f968998303f|secdef=true|cfg=search_path=public
+fn_public.settle_listing_for_payment(p_payment_id uuid)=def:729a19615334d2029726e101eebb412d|src:38d76cf6e13fc9b2c551842e682e8838|secdef=true|cfg=search_path=public
+fn_public.validate_and_apply_bid()=def:d237200eb6a4cc6a2400b217e25e0618|src:35e9980fe956e56353d91fa688dc5eeb|secdef=true|cfg=search_path=public
+grants_anon_authenticated=382|4f576282c9c8f564360a2ddd423750e9
+kind_check=CHECK ((kind = 'listing_blocked'::text))
+ledger_152=absent
+ledger_count=164
+ledger_max=20260925010000
+ledger_unauthorised_121_125_126=none
+ops_setting=14|897cc8f8280f25b20ae69c0df5187d20
+triggers_152=none
+user_blocks_rls=true|user_blocks: owner all:ALL
+user_blocks_rows=0
+user_restriction_rows=0

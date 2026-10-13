@@ -1,0 +1,25 @@
+# Registered BEFORE the first local apply (A, 2026-10-13). Delta vs rehearsal/r0_pre_local.txt.
+# Values marked ? were not predicted; they are taken from the observation and labelled observed.
+bids_first_trigger=before_bid_guard_parties
+census=34|1214|37|43
+exec_public.assert_marketplace_parties(uuid,uuid)=anon:false,authenticated:false,service_role:true
+exec_public.guard_bid_parties()=anon:false,authenticated:false,service_role:true
+exec_public.guard_listing_content()=anon:false,authenticated:false,service_role:true
+exec_public.guard_listing_reservation_parties()=anon:false,authenticated:false,service_role:true
+exec_public.listing_prohibited_term(text[])=anon:false,authenticated:false,service_role:true
+fn_ops.action_dispatch def=bfb8b9dcfaace5ff04009f96b6de7bef secdef=true cfg=search_path=""
+fn_public.can_create_listing def=638c7bcc001213bde1b4cfb7b9a0e29f secdef=true cfg=search_path=public
+fn_public.assert_marketplace_parties def=56c1a6ad0aaa85c6c02478d17e6aed1a secdef=true cfg=search_path=""
+fn_public.guard_bid_parties def=97922d8250651fa09f58e1479a2f3014 secdef=true cfg=search_path=""
+fn_public.guard_listing_reservation_parties def=96b637a6a74e3d20615a6afc203fad7c secdef=true cfg=search_path=""
+fn_public.guard_listing_content def=afd7f7ac8c8647bff0baf97973d53f07 secdef=true cfg=search_path=""
+fn_public.listing_prohibited_term def=489fe7d80d5415c1ddd7aa4e67ac60ee secdef=false cfg=search_path=""
+fn_* src=? (observed)
+every other fn_ key unchanged
+kind_check=CHECK ((kind = ANY (ARRAY['listing_blocked'::text, 'suspended'::text])))
+ledger_152=marketplace_safety_enforcement|claude-a/owner-authorised-152|1|4d4765ef5e4fe50719553fd46229451f|45675
+ledger_count=165
+ledger_max=20261013000000
+ledger_unauthorised_121_125_126=none
+triggers_152=3 rows, each tgenabled O, tgfoid = its guard function, tgtype ? (observed)
+grants_anon_authenticated, ops_setting, user_blocks_rls, user_blocks_rows, user_restriction_rows unchanged

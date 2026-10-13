@@ -1,0 +1,32 @@
+BEGIN
+SET
+ALTER TABLE
+ALTER TABLE
+CREATE FUNCTION
+COMMENT
+NOTICE:  trigger "before_bid_guard_parties" for relation "public.bids" does not exist, skipping
+CREATE FUNCTION
+COMMENT
+DROP TRIGGER
+CREATE TRIGGER
+NOTICE:  trigger "trg_guard_listing_reservation_parties" for relation "public.listings" does not exist, skipping
+CREATE FUNCTION
+COMMENT
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+COMMENT
+NOTICE:  trigger "trg_guard_listing_content" for relation "public.listings" does not exist, skipping
+CREATE FUNCTION
+COMMENT
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+COMMIT
+INSERT 0 1
