@@ -91,13 +91,14 @@ function GateRow({
     <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-line py-5">
       <div className="flex min-w-0 flex-1 gap-3.5">
         <span
+          aria-hidden="true"
           className={`mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full ${
-            done ? "bg-success-soft text-on-success-soft" : "border border-control text-faint"
+            done ? "bg-success-soft text-on-success-soft" : "border border-control"
           }`}
         >
           {done ? <Icon name="check" size={16} strokeWidth={2.4} /> : null}
-          <span className="sr-only">{done ? "Done:" : "To do:"}</span>
         </span>
+        <span className="sr-only">{done ? "Done:" : "To do:"}</span>
         <div className="min-w-[12rem]">
           <p className="t-title text-ink">{title}</p>
           <p className="t-body-sm mt-1 text-muted">{body}</p>

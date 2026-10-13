@@ -203,7 +203,7 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               ) : (
                 <Badge>Ended</Badge>
               )}
-              {listing.buy_now_enabled ? <Badge tone="brand">Buy now</Badge> : null}
+              {listing.buy_now_enabled && isActive ? <Badge tone="brand">Buy now</Badge> : null}
             </div>
             <p className="t-body mt-3 text-muted">
               {eventWhen(listing)} · {listing.venue}
