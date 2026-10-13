@@ -16,9 +16,12 @@ export function AccountSection({
   children: ReactNode;
   className?: string;
 }) {
+  const id = `section-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <section className={className}>
-      <h2 className="t-micro mb-2 text-muted">{title}</h2>
+    <section aria-labelledby={id} className={className}>
+      <h2 id={id} className="t-micro mb-2 text-muted">
+        {title}
+      </h2>
       <div className="border-t border-line">{children}</div>
     </section>
   );
