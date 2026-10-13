@@ -68,7 +68,8 @@
 -- ROLLBACK: supabase/rollbacks/20261013000000_marketplace_safety_enforcement_rollback.sql restores 144's
 --   ops.action_dispatch and 013's can_create_listing bodies, drops the three triggers and five functions,
 --   and narrows the kind check only when no 'suspended' row exists (history is never deleted). After a
---   rollback, recorded suspensions are no longer enforced: lift them or re-apply this file.
+--   rollback, blocks are a client-side hide again, recorded suspensions are no longer enforced, and listing
+--   text is checked only by the app: lift recorded suspensions in the console first, or re-apply this file.
 -- VERIFY (read-only): select tgname from pg_trigger where tgname in ('before_bid_guard_parties',
 --   'trg_guard_listing_reservation_parties','trg_guard_listing_content');                         -- 3 rows
 --   select pg_get_constraintdef(oid) from pg_constraint where conname = 'user_restriction_kind_check';
