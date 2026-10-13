@@ -7,8 +7,9 @@ import { Container } from "@/components/ui/Container";
 import { Button, Spinner } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
+import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
 
-type Status = "processing" | "success" | "unverified" | "error";
+type Status = "processing" | "success" | "unverified" | "pending" | "error";
 
 /**
  * Fallback landing page for payment methods that require an actual browser
@@ -23,6 +24,10 @@ function CompleteClient() {
 
   const redirectStatus = searchParams.get("redirect_status");
   const paymentIntentId = searchParams.get("payment_intent");
+  // Stripe's redirect_status "processing" is NOT a failure: the payment may still succeed, so
+  // "try again" could charge the buyer twice. It gets the same sentence PaymentForm shows inline
+  // for a processing PaymentIntent, and points at purchases, never back to Buy Now.
+  const stillProcessing = redirectStatus === "processing" && !!paymentIntentId;
   const failedUpfront = redirectStatus !== "succeeded" || !paymentIntentId;
   // PaymentForm puts ?mode on the return_url so the win settles with
   // complete_auction_payment, not mark_listing_sold. Anything unrecognised
@@ -31,14 +36,18 @@ function CompleteClient() {
 
   // Computed synchronously during render (not in the effect below) — this
   // branch needs no async work, just a state derived from the URL.
-  const [status, setStatus] = useState<Status>(failedUpfront ? "error" : "processing");
+  const [status, setStatus] = useState<Status>(
+    stillProcessing ? "pending" : failedUpfront ? "error" : "processing",
+  );
   const [transferId, setTransferId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
-    failedUpfront
-      ? redirectStatus === "failed"
-        ? "Payment failed. Please go back and try again."
-        : "Payment did not complete. Please go back and try again."
-      : null,
+    stillProcessing
+      ? PAYMENT_STILL_PROCESSING
+      : failedUpfront
+        ? redirectStatus === "failed"
+          ? "Payment failed. Please go back and try again."
+          : "Payment did not complete. Please go back and try again."
+        : null,
   );
 
   useEffect(() => {
@@ -77,6 +86,17 @@ function CompleteClient() {
       <p className="t-body flex items-center gap-2.5 text-muted" role="status">
         <Spinner /> Confirming your payment…
       </p>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <>
+        <Alert tone="info">{message}</Alert>
+        <Button variant="primary" size="lg" className="mt-5 w-full" onClick={() => router.push("/account/purchases")}>
+          View your purchases
+        </Button>
+      </>
     );
   }
 

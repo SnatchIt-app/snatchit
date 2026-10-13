@@ -9,6 +9,7 @@ import { SITE_URL } from "@/lib/env";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
+import { PAYMENT_STILL_PROCESSING } from "@/lib/checkout-wording";
 
 export function PaymentForm({ listingId, mode }: { listingId: string; mode: CheckoutMode }) {
   const stripe = useStripe();
@@ -49,7 +50,7 @@ export function PaymentForm({ listingId, mode }: { listingId: string; mode: Chec
     if (paymentIntent?.status !== "succeeded") {
       // processing / requires_action without a redirect — rare, but don't
       // claim success we haven't confirmed.
-      setError("Payment is still processing. Please wait a moment and check your account.");
+      setError(PAYMENT_STILL_PROCESSING);
       setSubmitting(false);
       return;
     }
