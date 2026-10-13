@@ -5,7 +5,7 @@ import { callOps } from "@/lib/ops";
 import { requireOperator } from "@/lib/auth/session";
 import { newIdempotencyKey } from "@/lib/idempotency";
 import { isUuid } from "@/lib/routes";
-import { canRequest } from "@/lib/permissions";
+import { canRequest, canSuspend } from "@/lib/permissions";
 import { formatRatio, humanize, labelFor, shortId } from "@/lib/format";
 import { str, num, toUserDetail, type JsonRecord, type Report } from "@/lib/types";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -54,7 +54,8 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
     );
   }
   const risk = u.seller_risk_score;
-  const activeRestriction = u.restrictions.find((r) => !r.lifted_at);
+  const activeRestriction = u.restrictions.find((r) => !r.lifted_at && (r.kind ?? "listing_blocked") === "listing_blocked");
+  const activeSuspension = u.restrictions.find((r) => !r.lifted_at && r.kind === "suspended");
 
   const profileExtras = Object.entries(u.profile).filter(
     ([k]) => !["id", "display_name", "full_name", "email_masked", "phone_masked", "created_at", "avatar_url", "avatar_path", "bio", "preferred_neighborhoods"].includes(k),
@@ -77,6 +78,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
           <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={u.is_listing_blocked ? "held" : "active"} label={u.is_listing_blocked ? "listing creation blocked" : "listing creation allowed"} />
             {u.profile.is_verified_seller === true ? <StatusBadge status="ok" label="verified seller" /> : null}
+            {activeSuspension ? <StatusBadge status="held" label="account suspended" /> : null}
             {u.is_operator ? <StatusBadge status="info" label="console operator" /> : null}
             {risk?.risk_tier ? <StatusBadge status={str(risk.risk_tier)} label={`risk ${str(risk.risk_tier)}`} /> : null}
             <span className="font-mono">
@@ -215,10 +217,56 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                 label="Block listing creation"
                 danger
               >
-                <p className="text-[12px] text-muted">Sets seller_risk_scores.is_listing_blocked; the apps call can_create_listing() before creating a listing. Existing listings and orders are untouched. Account suspension does not exist and is not offered.</p>
+                <p className="text-[12px] text-muted">Sets seller_risk_scores.is_listing_blocked; the apps call can_create_listing() before creating a listing. Existing listings and orders are untouched. To stop bidding and buying as well, use Account suspension below.</p>
               </ConfirmForm>
             ) : (
               <Alert state="info" title="Your role cannot block listing creation." compact />
+            )}
+          </Panel>
+
+          <Panel eyebrow="Enforced by the database (migration 152)" title="Account suspension">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
+              <StatusBadge status={activeSuspension ? "held" : "active"} label={activeSuspension ? "suspended" : "not suspended"} />
+              {activeSuspension ? (
+                <span className="text-muted">
+                  since <DateTime value={activeSuspension.created_at} />
+                </span>
+              ) : null}
+            </div>
+            {activeSuspension?.reason ? <p className="mb-3 text-[12px] text-muted">Reason on record: {activeSuspension.reason}</p> : null}
+            {activeSuspension ? (
+              canSuspend(me.role) ? (
+                <ConfirmForm
+                  idempotencyKey={newIdempotencyKey()}
+                  actionType="user_unrestrict"
+                  subjectKind="user"
+                  subjectId={id}
+                  params={{ kind: "suspended" }}
+                  revalidate={path}
+                  label="Restore account"
+                >
+                  <p className="text-[12px] text-muted">Lifts the suspension. Bidding, Buy Now, listing and listing edits work again. The suspension stays in the history with who lifted it, when and why.</p>
+                </ConfirmForm>
+              ) : (
+                <Alert state="info" title="Only founders and risk operators can restore a suspended account." compact />
+              )
+            ) : id === me.id ? (
+              <Alert state="info" title="You cannot suspend your own account." compact />
+            ) : canSuspend(me.role) ? (
+              <ConfirmForm
+                idempotencyKey={newIdempotencyKey()}
+                actionType="user_restrict"
+                subjectKind="user"
+                subjectId={id}
+                params={{ kind: "suspended" }}
+                revalidate={path}
+                label="Suspend account"
+                danger
+              >
+                <p className="text-[12px] text-muted">Stops new bids, Buy Now and listings by this person, and new bids and Buy Now on their listings. Orders that already exist, refunds, payouts and reports continue, and they can still sign in. Their existing listings stay visible; their earlier bids stand.</p>
+              </ConfirmForm>
+            ) : (
+              <Alert state="info" title="Only founders and risk operators can suspend an account." compact />
             )}
           </Panel>
 
