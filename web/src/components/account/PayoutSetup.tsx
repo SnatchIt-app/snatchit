@@ -6,6 +6,7 @@ import type { PayoutStatus } from "@/lib/payouts";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Badge, type Tone } from "@/components/ui/Badge";
+import { PAYOUT_CONNECTED } from "@/lib/policy-wording";
 
 const COPY: Record<PayoutStatus, { title: string; description: string; tone: Tone; label: string; btn: string }> = {
   not_connected: {
@@ -25,7 +26,7 @@ const COPY: Record<PayoutStatus, { title: string; description: string; tone: Ton
   },
   connected: {
     title: "Payouts connected",
-    description: "Your Stripe account is connected. Payouts are deposited automatically when your listings sell.",
+    description: PAYOUT_CONNECTED,
     tone: "success",
     label: "Connected",
     btn: "Manage payouts",

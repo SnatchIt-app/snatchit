@@ -12,6 +12,7 @@ import {
 } from "@snatchit/core";
 import { createListingAction, uploadListingImageAction } from "@/lib/create-listing-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
+import { prohibitedContentMessage } from "@/lib/server-refusal";
 import { Field } from "@/components/ui/Field";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -93,8 +94,8 @@ export function CreateListingForm({ riskWarning }: { riskWarning: string | null 
     if (!proof.path) errors.push("Upload proof of ownership.");
     if (!commitmentAccepted) errors.push("Confirm the seller commitment to continue.");
 
-    const flagged = findBannedTerm(`${eventName} ${venue} ${restrictions}`);
-    if (flagged) errors.push("Listing details can't mention prohibited content — please rephrase.");
+    const flagged = findBannedTerm([eventName, venue, restrictions]);
+    if (flagged) errors.push(prohibitedContentMessage(flagged));
 
     return errors;
   }

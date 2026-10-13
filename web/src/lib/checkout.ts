@@ -2,6 +2,7 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callEdgeFunction } from "@/lib/edge-functions";
+import { readServerRefusal } from "@/lib/server-refusal";
 import type { WebListing } from "@/lib/listings";
 
 export const RESERVATION_MINUTES = 10; // matches src/config/app.ts (mobile)
@@ -58,6 +59,10 @@ export async function reserveBuyNow(listingId: string, userId: string): Promise<
     p_minutes: RESERVATION_MINUTES,
   });
   if (!error) return {};
+
+  // Migration 152: blocked parties, suspended accounts and suspended sellers' listings.
+  const refusal = readServerRefusal(error);
+  if (refusal) return { error: refusal.message };
 
   const msg = error.message ?? "Could not reserve this listing.";
   if (msg.includes("already reserved")) return { error: "Reserved by another buyer. Try again in a few minutes." };

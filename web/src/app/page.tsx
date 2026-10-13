@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LinkButton, ArrowLink } from "@/components/ui/Button";
 import { FeedRow } from "@/components/listing/FeedRow";
 import { ListingFeature } from "@/components/listing/ListingFeature";
+import { REFUND_SHORT, SELLER_TERMS } from "@/lib/policy-wording";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
@@ -27,7 +28,7 @@ const STEPS = [
   {
     n: "03",
     title: "Get ready to go",
-    body: "The seller transfers your ticket, or you're refunded automatically.",
+    body: REFUND_SHORT,
   },
 ] as const;
 
@@ -138,13 +139,13 @@ export default async function HomePage() {
                 Got a spare ticket? Sell it.
               </h2>
               <p className="t-body mt-3 max-w-[46ch] text-ink-2">
-                List it in minutes as an auction or Buy Now. You keep 90% of the sale, paid out through Stripe.
+                List it in minutes as an auction or Buy Now. {SELLER_TERMS}
               </p>
               <dl className="mt-7 grid max-w-md grid-cols-3 gap-4">
                 {[
-                  { big: "90%", small: "of the sale is yours" },
+                  { big: "90%", small: "of the sale price is yours" },
                   { big: "24h", small: "transfer window" },
-                  { big: "10%", small: "flat seller fee" },
+                  { big: "10%", small: "marketplace fee" },
                 ].map((stat) => (
                   <div key={stat.big}>
                     <dt className="sr-only">{stat.small}</dt>

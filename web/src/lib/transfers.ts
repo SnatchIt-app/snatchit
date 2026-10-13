@@ -285,11 +285,13 @@ export async function confirmReceipt(transferId: string): Promise<TransferResult
     // buyer would get no feedback at all on the one action that moves money.
     // Convert to the standard result shape, keeping the AUTH_REQUIRED
     // convention so the panel redirects to login instead of showing an error.
+    //
+    // The outcome is UNKNOWN here: a dropped response can follow a recorded confirmation and a
+    // payout, so nothing may say "nothing was released". A retry is safe — confirm-and-release
+    // answers already_released for a transfer it already paid (A, 2026-10-13).
     const msg = e instanceof Error ? e.message : "";
     if (msg === "No active session") return { error: "AUTH_REQUIRED" };
-    return {
-      error: "We couldn't reach the confirmation service. Nothing was charged or released — please try again.",
-    };
+    return { error: CONFIRM_OUTCOME_UNKNOWN };
   }
 
   if (res.error) return { error: mapTransferError(res.error) };
@@ -298,6 +300,10 @@ export async function confirmReceipt(transferId: string): Promise<TransferResult
   }
   return { ok: true, warning: res.warning };
 }
+
+/** confirmReceipt's answer when the request may or may not have landed. */
+export const CONFIRM_OUTCOME_UNKNOWN =
+  "We couldn't tell whether your confirmation went through. Refresh this order — if it isn't marked confirmed, try again.";
 
 /** seller_sent -> disputed. Mobile sends only the id; reason stays null. */
 export async function disputeTransfer(userId: string, transferId: string): Promise<TransferResult> {

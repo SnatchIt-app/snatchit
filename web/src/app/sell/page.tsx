@@ -6,6 +6,7 @@ import { Container } from "@/components/ui/Container";
 import { LinkButton } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { CreateListingForm } from "@/components/sell/CreateListingForm";
+import { SELLER_TERMS } from "@/lib/policy-wording";
 
 export const metadata: Metadata = {
   title: "Sell tickets",
@@ -53,11 +54,12 @@ export default async function SellPage() {
           <Icon name="alert" size={26} />
         </span>
         <h1 className="t-name-state text-ink">Listing unavailable</h1>
-        <p className="t-body mt-2.5 max-w-sm text-muted">
-          {gates.risk.reason === "critical_risk"
-            ? "Your account can't create new listings right now. Contact support if you think this is a mistake."
-            : "Your account is temporarily blocked from creating listings. Contact support if you think this is a mistake."}
-        </p>
+        {/* The app's RISK_COPY for both reasons. A suspension (migration 152) answers
+            listing_blocked, and has no end date, so nothing here says "temporarily". */}
+        <p className="t-body mt-2.5 max-w-sm text-muted">You cannot create listings at this time. Contact support.</p>
+        <LinkButton href="https://snatchitapp.com/support" variant="secondary" size="md" className="mt-7">
+          Contact support
+        </LinkButton>
       </Container>
     );
   }
@@ -66,8 +68,7 @@ export default async function SellPage() {
     <Container size="narrow" className="pb-10 pt-6 lg:pt-10">
       <h1 className="t-display-lg text-ink">List your tickets</h1>
       <p className="t-body mt-2 max-w-[56ch] text-muted">
-        List it as an auction or Buy Now. You keep 90% of the sale, paid out through Stripe
-        once the buyer confirms the transfer.
+        List it as an auction or Buy Now. {SELLER_TERMS}
       </p>
       <CreateListingForm riskWarning={gates.risk.reason === "ok" ? null : gates.risk.reason} />
     </Container>

@@ -9,6 +9,7 @@ import { sellerPayoutParagraph, sellerStateAlert } from "@/lib/transfer-wording"
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { Icon } from "@/components/ui/Icon";
+import { SELLER_MISSED_DEADLINE } from "@/lib/policy-wording";
 
 export function SellerTransferPanel({
   transfer,
@@ -83,7 +84,7 @@ export function SellerTransferPanel({
         <>
           <Alert tone={countdownLabel ? "warning" : "error"}>
             {countdownLabel
-              ? `You have ${countdownLabel} to send these tickets. Miss it and the buyer is refunded automatically.`
+              ? `You have ${countdownLabel} to send these tickets. ${SELLER_MISSED_DEADLINE}`
               : "The transfer window has expired."}
           </Alert>
 

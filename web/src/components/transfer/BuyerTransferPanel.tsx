@@ -16,6 +16,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { REPORT_CONFIRM } from "@/lib/policy-wording";
 
 export function BuyerTransferPanel({
   transfer,
@@ -188,7 +189,7 @@ export function BuyerTransferPanel({
               className="flex-1"
               disabled={isPending}
               onClick={() => {
-                if (!confirm("Report a problem? This freezes the transfer and notifies support.")) return;
+                if (!confirm(REPORT_CONFIRM)) return;
                 run(() => disputeTransferAction(transfer.id));
               }}
             >

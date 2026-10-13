@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { PLATFORM_INSTRUCTIONS } from "@snatchit/core";
 import { updateListingAction } from "@/lib/seller-listings-actions";
 import { findBannedTerm } from "@/lib/content-moderation";
+import { prohibitedContentMessage } from "@/lib/server-refusal";
 import { Field } from "@/components/ui/Field";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -47,9 +48,8 @@ export function EditListingForm({
 
     if (!eventName.trim()) return setError("Event name is required.");
     if (!venue.trim()) return setError("Venue is required.");
-    if (findBannedTerm(`${eventName} ${venue} ${restrictions}`)) {
-      return setError("Listing details can't mention prohibited content — please rephrase.");
-    }
+    const flagged = findBannedTerm([eventName, venue, restrictions]);
+    if (flagged) return setError(prohibitedContentMessage(flagged));
 
     startTransition(async () => {
       const result = await updateListingAction(listingId, {

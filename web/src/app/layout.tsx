@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     template: "%s | Snatch It",
   },
   description:
-    "Bid or Buy Now on real tickets from real people across Miami. All-in prices, Stripe-secured checkout, and funds held until your ticket is delivered.",
+    "Bid or Buy Now on real tickets from real people across Miami. All-in prices and Stripe-secured checkout.",
   openGraph: {
     siteName: "Snatch It",
     type: "website",

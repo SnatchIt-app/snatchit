@@ -40,6 +40,7 @@ import { ListingCard } from "@/components/ListingCard";
 import { Countdown } from "@/components/listing/Countdown";
 import { Poster } from "@/components/listing/Poster";
 import { JsonLd } from "@/components/site/JsonLd";
+import { PAYOUT_SHORT, REFUND_SHORT, REPORT_FREEZES_PAYOUT } from "@/lib/policy-wording";
 
 type Params = { id: string };
 
@@ -340,9 +341,6 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                     : "Marketplace seller"}
                 </p>
               </div>
-              <p className="t-body-sm max-w-[220px] text-right text-muted max-sm:hidden">
-                Seller is paid only after you confirm the transfer arrived.
-              </p>
             </section>
 
             {/* Buyer protection */}
@@ -355,9 +353,9 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
               <ul className="mt-4 border-t border-line">
                 {[
                   "Payment is processed by Stripe. Your card details never touch Snatch It.",
-                  "Your money is held by Snatch It until you confirm the ticket arrived.",
-                  "If the seller doesn't transfer within 24 hours, you're refunded in full, automatically.",
-                  "Report a problem before confirming and the seller's payout freezes while we review.",
+                  PAYOUT_SHORT,
+                  REFUND_SHORT,
+                  REPORT_FREEZES_PAYOUT,
                 ].map((line) => (
                   <li key={line} className="t-body flex gap-3 border-b border-line py-3 text-ink-2">
                     <Icon name="check" size={18} strokeWidth={2.2} className="mt-0.5 text-ink" />
@@ -365,9 +363,10 @@ export default async function ListingPage({ params }: { params: Promise<Params> 
                   </li>
                 ))}
               </ul>
-              <ArrowLink href="https://snatchitapp.com/buyer-guarantee" className="mt-2">
-                Read the full guarantee
-              </ArrowLink>
+              <div className="mt-2 flex flex-wrap gap-x-6">
+                <ArrowLink href="https://snatchitapp.com/buyer-guarantee">Read the full guarantee</ArrowLink>
+                <ArrowLink href="https://snatchitapp.com/terms">Fees, payouts and refunds</ArrowLink>
+              </div>
             </section>
           </div>
         </div>
