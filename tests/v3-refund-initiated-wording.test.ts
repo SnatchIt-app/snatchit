@@ -16,6 +16,17 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const FORBIDDEN = [/Refunded \$/, /Refunded \{/, /Full refund/i, /Partly refunded/i];
+
+/**
+ * RC3 S6 (POLICY_WORDING R1, owner direction 2026-10-13): the Terms state the non-delivery rule —
+ * "a full refund of what you paid … is ISSUED". Issued is initiated, not completed, and the very next
+ * sentence (R2) says it can show as pending and can fail. That one sentence is admitted by EXACT text
+ * in that one file; "Full refund recorded" and every other claim of a completed refund still fail.
+ */
+const LEGAL = 'app/settings/legal.tsx';
+const R1 = "If the seller doesn't mark the tickets as sent within 24 hours after your payment goes through, the order is cancelled automatically and a full refund of what you paid, including the service fee, is issued to your original payment method.";
+const R2_OPENING = 'Issuing a refund starts it with our payment processor, Stripe. It can show as pending for a while, and in rare cases a refund fails.';
+const rendered = (src: string) => src.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const SKIP = new Set(['node_modules']);
 
 function sources(dir: string, out: string[] = []): string[] {
@@ -44,10 +55,21 @@ describe('a refund is stated as initiated, never as completed', () => {
   it('RI1: no consumer source claims a completed refund', () => {
     const offenders: string[] = [];
     for (const rel of [...sources('src'), ...sources('app')]) {
-      const src = code(rel);
+      const src = rel === LEGAL ? rendered(code(rel)).split(R1).join('') : code(rel);
       for (const re of FORBIDDEN) if (re.test(src)) offenders.push(`${rel}: ${re}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('RI1b: the admitted sentence is live, says "issued" (never completed), and R2 follows it with pending/failed', () => {
+    const legal = rendered(code(LEGAL));
+    expect(legal).toContain(R1);
+    expect(R1).toMatch(/is issued to your original payment method/);
+    expect(R1).not.toMatch(/recorded|completed|has been refunded|was refunded/i);
+    const at = legal.indexOf(R1);
+    expect(legal.indexOf(R2_OPENING, at)).toBe(at + R1.length + 1);   // R2 is the very next sentence
+    // The exemption is exact: a drifted sentence is an offender again.
+    expect(/Full refund/i.test(legal.replace('a full refund of what you paid', 'a Full refund of what you paid').split(R1).join(''))).toBe(true);
   });
 
   it('RI2: the two wording sources say "initiated", and the unconfirmed-amount variant is unchanged', async () => {

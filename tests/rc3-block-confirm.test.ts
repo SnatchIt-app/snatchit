@@ -46,3 +46,20 @@ describe('RC3 · K1 block confirmation', () => {
     expect(flow).toContain("'23505'");
   });
 });
+
+describe('RC3 · the harness can paint the new surfaces without a sign-in or a write', () => {
+  it('BK5: the order fixtures carry the counterparty id, and the Block press is write:false under a fixture', () => {
+    const tickets = strip('app/_dev/v3-tickets.tsx');
+    expect(tickets).toContain("seller_id: 'fixture-seller'");
+    expect(tickets).toContain("buyer_id: 'fixture-buyer'");
+    for (const rel of ['app/transfer/receive/[id].tsx', 'app/transfer/send/[id].tsx']) {
+      expect(strip(rel), rel).toContain('write: !fixture');
+    }
+  });
+
+  it('BK6: the account harness mounts the Legal screen (screen=legal)', () => {
+    const account = strip('app/_dev/v3-account.tsx');
+    expect(account).toContain("case 'legal':");
+    expect(account).toContain('<LegalScreen />');
+  });
+});

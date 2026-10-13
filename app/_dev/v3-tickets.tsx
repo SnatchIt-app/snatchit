@@ -185,6 +185,7 @@ const ORDER_FIXTURE: OrderFixture = {
     delivery_phone: null,
     transfer_evidence_path: 'fixtures/proof.jpg',
     seller: { display_name: 'the seller' },
+    seller_id: 'fixture-seller',   // RC3: paints the Block entry; the harness never writes a block row
     listing: {
       event_name: 'Neon Choir',
       ticket_platform: 'dice',
@@ -209,5 +210,6 @@ const SEND_FIXTURE: SendFixture = {
     payout_review_status: null,
     payout_hold_until: null,
     buyer: { display_name: 'Buyer One' },
+    buyer_id: 'fixture-buyer',   // RC3: paints the Block entry; the harness never writes a block row
   } as SendFixture['transfer'],
 };

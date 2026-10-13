@@ -450,11 +450,14 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   // RC3 (152): the Block entry. It offers the K1 confirmation and writes one user_blocks row; it
   // never touches this order — existing orders are exempt on the server, and the screen stays put.
   const counterpartyId = transfer?.seller_id ?? null;
+  // Under a fixture the entry paints for a signed-out harness viewer; with write:false below the
+  // placeholder id never reaches a server.
+  const viewerId = userId ?? (fixture ? 'fixture-viewer' : null);
   function openMoreActions() {
-    if (!counterpartyId || !userId) return;
+    if (!counterpartyId || !viewerId) return;
     const name = transfer?.seller?.display_name?.trim() || 'this seller';
     showMoreActions([
-      { label: `Block ${name}`, destructive: true, handler: () => confirmBlock({ viewerId: userId, targetId: counterpartyId, targetName: name, write: !fixture }) },
+      { label: `Block ${name}`, destructive: true, handler: () => confirmBlock({ viewerId, targetId: counterpartyId, targetName: name, write: !fixture }) },
     ]);
   }
 
@@ -463,7 +466,7 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
       <View style={[s.header, { paddingTop: topPad + v2.space.sm }]}>
         <IconButton glyph="back" chip onPress={() => router.back()} accessibilityLabel="Back" />
         <Text style={[textStyle('screenTitle'), s.headerTitle]} accessibilityRole="header">Your order</Text>
-        {counterpartyId && userId
+        {counterpartyId && viewerId
           ? <IconButton glyph="more" chip onPress={openMoreActions} accessibilityLabel="More actions" />
           : <View style={s.headerSpacer} />}
       </View>
