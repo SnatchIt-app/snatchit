@@ -48,6 +48,7 @@ describe("next.config local harness allowance", () => {
   it("ignores the flag on Vercel", async () => {
     const { config, csp } = await load({ SNATCHIT_LOCAL_HARNESS: "1", VERCEL: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3222" });
     expect(csp).not.toContain("http://127.0.0.1:3222");
+    expect(csp).not.toContain("ws://127.0.0.1:3222");
     expect(config.images).not.toHaveProperty("dangerouslyAllowLocalIP");
   });
 
@@ -62,7 +63,7 @@ describe("next.config local harness allowance", () => {
   it("allows exactly the loopback harness origin when the flag is set", async () => {
     const { config, csp } = await load({ SNATCHIT_LOCAL_HARNESS: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3222" });
     expect(csp).toContain("img-src 'self' data: blob: https://hqycwntpfoztoinemqns.supabase.co https://127.0.0.1 http://127.0.0.1:3222;");
-    expect(csp).toMatch(/connect-src [^;]* http:\/\/127\.0\.0\.1:3222;/);
+    expect(csp).toMatch(/connect-src [^;]* http:\/\/127\.0\.0\.1:3222 ws:\/\/127\.0\.0\.1:3222;/);
     expect(config.images?.remotePatterns).toContainEqual({
       protocol: "http",
       hostname: "127.0.0.1",

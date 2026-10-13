@@ -18,8 +18,9 @@ const isDev = process.env.NODE_ENV === "development";
 /**
  * Local preview harness (synthetic data on this machine only). When
  * SNATCHIT_LOCAL_HARNESS=1 and NEXT_PUBLIC_SUPABASE_URL is an http loopback
- * origin, that exact origin is allowed for images and connections, and
- * next/image may optimize it. Never active on Vercel (VERCEL is set there),
+ * origin, that exact origin is allowed for images and connections (http, and
+ * ws for Realtime, as production allows https + wss), and next/image may
+ * optimize it. Never active on Vercel (VERCEL is set there),
  * and with the flag unset every header and image rule below is unchanged
  * (tests/next-config-headers.test.ts).
  */
@@ -34,6 +35,7 @@ const localHarnessOrigin = (() => {
   }
 })();
 const harnessSrc = localHarnessOrigin ? ` ${localHarnessOrigin.origin}` : "";
+const harnessConnect = localHarnessOrigin ? `${harnessSrc} ws://${localHarnessOrigin.host}` : "";
 
 /**
  * Content Security Policy.
@@ -54,7 +56,7 @@ const csp = [
   // Sentry: *.ingest.sentry.io covers EU and regionless DSNs too. Allowing
   // only the US host would have CSP-blocked error reporting on any other
   // region — silently, since a blocked report cannot report itself.
-  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.stripe.com${harnessSrc}`,
+  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${extraHost ? ` https://${extraHost} wss://${extraHost}` : ""} https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.stripe.com${harnessConnect}`,
   "frame-src https://js.stripe.com https://hooks.stripe.com",
   "object-src 'none'",
   "base-uri 'self'",
