@@ -20,7 +20,118 @@ acceptance.
 | R-3 | **Event artwork 4:5 throughout** (2026-09-25, authorised direction). Full poster content preserved; avatars unchanged | Owner direction; E's baseline inventory at `a5c0bfc6` | Group 1 of 4: `ec61bfa7` (media contract: 10 slots at 4:5 + `fit`; requests carry width+height with `resize=contain`; Home and Search frames). Group 2: `99dd6f36` (Create picker no longer crops: `aspect: null`, so no `allowsEditing`; helper "JPG or PNG, 4:5 portrait — any other shape is fitted whole, never cropped."; listing hero frame 4:5 at ~491pt with the identity still overlaid; My listings card). Group 3: `59658b1a` (Bids and Tickets; the past-ticket 64×64 clipping wrapper removed). Group 4: `cbb2df6b` (Send, receive, checkout OrderIdentity, public profile). All four landed; the tree is clean at `cbb2df6b` | pending (B), per slot, including the corner-marker fixtures | Picker behaviour on iOS (no crop that discards poster pixels); per-slot rendering | Open |
 | R-4 | **Listing identity beneath the poster** (2026-09-25). The listing's date line, name and provenance label sit below the 4:5 poster; no app text or badges on the poster's printed content; back/overflow navigation stays reachable | Owner ruling; B `V3_FOOTER_AND_POSTER_91062ab1.md` Part 2 | `f3f08930` (`ListingHero`, E source check) | pending (B); native Listing artwork cases blocked until the Listing harness gets `?art=` (see restarted loop) | Scrolling; safe area under navigation chips; Dynamic Type on the moved block; Light + Dark | Open |
 
-## CURRENT ACCEPTANCE MATRIX (E, 2026-10-12). THE ONLY CURRENT SECTION; everything below is dated history
+## CURRENT ACCEPTANCE MATRIX: RC2 `e2b9498b` (E, 2026-10-13). THE ONLY CURRENT SECTION; everything below is dated history
+
+**Candidate:** `integration/rc-20261012` @ **`e2b9498b71191d308a33d00bce87a0832acc8d55`**, tree `3e981375`.
+- **Source:** `CANDIDATE_MANIFEST.md` amendment 2 (A, frozen 23:06Z).
+- **Verified by E against the manifest and `git ls-remote origin`.** RC1 `48d20ca1` and `d2651782` are not candidates.
+
+**VERDICT: the consumer app is accepted at `e2b9498b` on the coverage stated below. No engineering blocker is open.**
+- **What remains are owner steps, none started by E:** merging draft PR #100 into the gate, decision 152, the App Store gates
+  and the EAS production build.
+- **Coverage, stated once:** the native evidence is from a **simulator Release build** (adhoc, unsigned) with fixture-seeded
+  states.
+  - It is **not** a production-signed device build, TestFlight or a distribution artifact.
+  - Nothing here is an authenticated or live-payment result.
+  - Accepted scope is the rows below. This is not whole-app acceptance, and no whole-app pass is inferred from a layout or
+    profile pass.
+
+### 1. Independently verified at `e2b9498b`
+| # | Item | Evidence at this sha | Verified by |
+|---|---|---|---|
+| V-1 | Identity and composition | 41 files differ from RC1, all under `app/`, `src/` and `tests/`. Each blob equals `caa3fa03` (C) or `084de270` (A); none matches both or neither. Native-build inputs are 0-diff vs `d27aa449` | E (blob check and `closure.py`), B §1, D §1 |
+| V-2 | Integrated CI | Run **38319986862**: `headSha` = `e2b9498b`, `completed`/`success`, 5/5 jobs, 68/68 steps. Gate PR #100: 6/6 required checks pass (D §1) | E, B, D (`gh`) |
+| V-3 | **Native artifact and cold launch (O-2)** | C HEAVY-2, from a fresh detached worktree whose HEAD is `e2b9498b`, built after `npm ci` with Release / iphonesimulator: **`BUILD EXIT: 0`** (log line 2867). Attempt 1 failed in 17 s on the CocoaPods locale, nothing compiled; that log is kept. **Digests:** zip `506e0ee0…6e4bc8` (E and B recomputed: equal); main binary `1cebc77a…`; embedded Hermes `main.jsbundle` `fc0f5b92…`, the same on the installed container (B's own read). **Env pairing:** value-level PASS (C's v2 script and B's own scan of the installed container; no live key, no production host). **Launches:** fresh install; cold launches 2 (Light) and 3 (Dark) reach Sign in with the SANDBOX banner and no redbox; launch 1 was not framed | C (record), B §8, E (digest) |
+| V-4 | **B-D7 at A3XL (Δ-6)**: Bids, Checkout breakdown, PlaceBid summary, Order "You paid" | On the installed RC2 binary, **0 money pixels past the 377 pt edge on all four, Light and Dark** (RC1: 13,741 / 4,030 / 893 px; Order's row was below the fold). **Default size** is identical to RC1 where comparable. The differences B explained: fixture countdown digits, spinner glyphs, and Order shifted 42 px by a relative deadline. PlaceBid had no RC1 default frame, so its identity rests on style pins plus B's eye. Frames are in `native/e2b9498b-release/` (md5 list) | B (`B_RC2_VERDICT_e2b9498b.md` §6) |
+| V-5 | Listing on a Release binary (`screen=listing`) | Footer and on-hold banner at A3XL: 0 gutter px. Default states render. Signed-in states show the harness note (waived) | B §7 (fixture class) |
+| V-6 | Contract (C4) | MISSING 0 on both roots (`app/ src/ packages/` and `web/ admin/`), reconciled. The only query change is F2's `.select('id')`. Limit: existence only | D (`D_RC2_VERDICT_e2b9498b.md` §2, `review/d-records-20261005` @ `1e6e1e82`) |
+| V-7 | Candidate safety | No blocking defect. No schema, money-execution, settings or deployment-input change | D §5, §9; B §0 |
+
+### 2. Fix rows: source/test evidence plus two independent reviews at this sha (not visual passes)
+F2, F3, F5 and F7 are signed-in flows. They close on tests and source; the visual check stays waived.
+
+| Row | Fixes | Commits (all in RC2) | B review (exact-kill mutants) | D review | State |
+|---|---|---|---|---|---|
+| Δ-1 Checkout | F1, F4, F6, B-D10 | `1117731e`; `50e74efb` + `084de270`; `caa3fa03` | F1: CP2–4. F4: CM2, FP1. F6: 5 RED / 7 GREEN → 12 GREEN. B-D10: CM11 + CM12 | PASS. Producers of the checkout route enumerated (§4) | CLOSED |
+| Δ-2 Payout-return | F5 | `d2fdc9ef` | push instead of replace → the guard fails | PASS | CLOSED |
+| Δ-3 Listing edit | F2 | `e241e5bf` | EL7b, EL7c | PASS (C4 checks `listings.id`) | CLOSED |
+| Δ-4 Signup | F3, B-D9 | `7ab44c14`, `5edde728` | the §10 pin; reset dropped → 1/29 | PASS | CLOSED |
+| Δ-5 Auth deep link | F7 | `7a1d95d5` | the three (a2) tests | PASS | CLOSED |
+| — | D-RC-4 (timezone test) | `19959c11` | test-only | PASS | CLOSED |
+
+- B re-ran the 14 touched test files at `e2b9498b`: 204/204.
+- New strings were checked against the settled register (B §4). None reopens a settled sentence.
+
+### 3. Inherited results (carried, with their basis)
+- **What carries:** M-1 Home, M-2 Listing, M-3 Profile P-1..P-3, M-4 W-4/S-1 at A3XL, M-5 W-2 "(10%)" / W-2b / P-5, and
+  M-6 W-4/S-1 at default.
+- **Where they were measured:** dev-client simulator builds up to `9bbeaec6` (= `d27aa449` app code).
+- **Basis, from E's `closure.py`** (static import closure per row, layouts and root shell included, per-row positive controls)
+  over `48d20ca1 → e2b9498b`:
+  - **Home, Profile, Settings/Appearance:** their own closure is unchanged.
+  - **Listing (M-2/M-5):** the one change in its closure is `ListingDetailScreen.tsx` `navigateToWinnerCheckout` param
+    `'bid'` → `'auction'` (B-D10). It is a navigation literal, with no render change.
+  - **Root shell, all rows:** `NativeAppShell.native.tsx:211` plus `deepLinkDispatch.ts`, which run only on a recovery link
+    (F7).
+  - **Native-build inputs:** 0-diff.
+  - **Limit:** a static closure doesn't see runtime route dispatch.
+- **Also carried on the same basis:** B's RC1 default-state sweep on the RC1 Release binary (`B_FINAL_VERDICT_48d20ca1.md`
+  §4a) carries for the unchanged screens: Home, Search, Create, Tickets, Send, Profile, the Edit guard and the transfer
+  gallery. Send is net-unchanged since RC1.
+- **Re-measured instead:** Bids, Checkout and Order were re-measured on RC2 (V-4).
+
+### 4. Source and test evidence (not measured passes)
+- **Unchanged:** P-4 fixture, W-6 connected rendering, W-5 platform parity and the VoiceOver labels.
+- **Guard pins (`5b889443`):**
+  - **W2 and payout-landing:** restated, not loosened (B §3 and D §3 agree).
+  - **E9 is contested and resolved here.** B §3 calls the revision "stronger". D §3/§9 (D-RC2-2) found it weaker in one region.
+  - **E replayed D's mutation**, replicating the test's assertions in Python against the RC2 source; vitest was not run:
+    - the shipped source passes the new E9 (2 clears, both guarded);
+    - inserting `setPaymentStatusUnknown(false as const);` after `CheckoutNative.tsx:231` (before the no-mode read's throw)
+      **passes the new E9 and fails the pre-`5b889443` assertions**;
+    - a plain-spelling control in the same place is caught.
+  - **Conclusion:** the **shipped code is correct**. The revised E9 is stronger on adjacency but **weaker in the region
+    between the no-mode read and its throw**. B's blanket "stronger" is **not adopted**.
+  - **Accepted non-blocking follow-up D-RC2-2** (A STATUS: non-gating): assert no `setPaymentStatusUnknown` mention between
+    each `readSettledPayments(` call and its throw, and count mentions rather than one spelling.
+
+### 5. Owner-waived signed-in checks (not verified; not passed; not re-asked)
+- Authenticated Home and the Edit refusal group.
+- The W-5 Edit platform picker and R-3's iOS picker crop.
+- The repeat signed-in wording sessions.
+- Listing's signed-in states (`won`, `reserved-by-you`, `own-listing`).
+- Any real 3-D Secure return on a device.
+
+### 6. Optional
+- **Spoken VoiceOver:** untested, optional, not a release blocker.
+
+### 7. Recorded, not release conditions
+- **Follow-ups:**
+  - D-RC2-1 (no-mode arrival plus a failed settled read shows "Try again" and the escrow note; fail-closed, no money effect);
+  - D-RC2-2 (E9 pin);
+  - Order's title "Your order" crosses the edge, and its progress labels truncate, at A3XL (pre-existing; not money);
+  - B's three probe notes (§5);
+  - D's residuals (§9);
+  - B-D1–D4, B-D8, A-3–A-7.
+- **Owner decisions** (A STATUS): 152 (App Review risk, decided before submission), F8/B-D5, B-D6 (PlaceBid Total 1.3×
+  cap), D-RC-3, and the console/server findings.
+
+### 8. Remaining release conditions (the owner's steps; none executed by any agent)
+1. Merge draft PR #100 (head `e2b9498b`) into `release/production-gate-20260918` with the `merge` method. A then checks
+   the merge tree = `3e981375`.
+2. Decision 152.
+3. App Store owner gates G2–G7 and G9, including an EAS **production** build from the exact sha, then TestFlight, a phone
+   session and submission.
+4. S7 (gate → `main`), separately, with a fresh AUTODEPLOY-off confirmation.
+
+### Not in this release
+- Dashboards v2 (F), a completed local-preview lane: `admin/dashboard-v2` `f1e783e1` (code `fae12913`) and
+  `venue/dashboard-v2` `ee1d90b7` (code `bb94b1f2`).
+- Not deployed and not merged. Venue carries the unapplied `venue_api` read-views migration.
+
+---
+
+## Acceptance matrix 2026-10-12 (HISTORY: keyed to RC1 `48d20ca1`, then the unfrozen RC2; superseded by the RC2 matrix above)
 
 **KEY MOVING TO RC2 (A, 2026-10-12): `48d20ca1` is not the shipping candidate.**
 - **What RC2 is:** `48d20ca1`'s line plus `v3/rc-fixes-20261012` (C; not on origin when E checked) plus `fix/rc-f6-settled-recheck-20261012` (A, `50e74efb`: `src/lib/checkout/setupDecision.ts` and one test).
