@@ -452,7 +452,8 @@ export default function TransferReceiveScreen({ fixture }: { fixture?: OrderFixt
   const counterpartyId = transfer?.seller_id ?? null;
   // Under a fixture the entry paints for a signed-out harness viewer; with write:false below the
   // placeholder id never reaches a server.
-  const viewerId = userId ?? (fixture ? 'fixture-viewer' : null);
+  // `userId` is '' when signed out (never null), so this is `||`, not `??` (C-RC3-2).
+  const viewerId = userId || (fixture ? 'fixture-viewer' : null);
   function openMoreActions() {
     if (!counterpartyId || !viewerId) return;
     const name = transfer?.seller?.display_name?.trim() || 'this seller';
