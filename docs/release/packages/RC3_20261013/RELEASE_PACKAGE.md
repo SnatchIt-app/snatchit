@@ -86,6 +86,8 @@ The app applies it to the in-app Terms (C) and the website to /terms, /buyer-gua
 
 ## 4. Migration 152: scope, rollout order, recovery
 
+> **EXECUTED 2026-10-13 (owner-authorised).** Gate merge `6f982f36` (tree = RC5) at 21:24:02Z. 152 applied 21:42:03-07Z after a fresh backup (`20261013T213722Z`, restore PASS) and D's written PROCEED; A and D read-backs verified with no discrepancy. Console `dpl_8q8eeFuyixnfC4xZohU8vCtXHiZt` @ `07100a35` (live + the 3 RC5 admin files). Full record: `../152_20261013/EXECUTION_RECORD.md`. The plan below is kept as written.
+
 **Production now** (read-only, 2026-10-13 04:56-05:00Z):
 - ledger 164 rows, tip `20260925010000`; 152 absent;
 - 111 public functions, 40 triggers, no name collisions;
