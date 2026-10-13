@@ -93,7 +93,7 @@ Nothing here adds coverage, exclusions or a service commitment.
 | `app/listing/[id]/page.tsx:242,259` | "Seller is paid only after you confirm…" / "held … until you confirm" | M1 payout short form |
 | `components/account/PayoutSetup.tsx:27` | "Payouts are deposited automatically when your listings sell." | the app's own `payout-setup.tsx:162` sentence |
 | `app/page.tsx:122-123`, `app/sell/page.tsx:71-72` | "You keep 90% of the sale, paid out … once the buyer confirms" | "You keep 90% of the sale price. Your payout starts when the buyer confirms, or after the 72-hour window and Snatch It's risk checks." |
-| `components/transfer/BuyerTransferPanel.tsx:187` | "…notifies support." | "This freezes the transfer and opens a case for our team." (the app's wording) |
+| `components/transfer/BuyerTransferPanel.tsx:187` | "…notifies support." | "This freezes the seller's payout and opens a case for our team." (the app's wording, `app/transfer/receive/[id].tsx:397` at RC5 `1e491ac4`; corrected 2026-10-13, was "freezes the transfer") |
 | `components/transfer/SellerTransferPanel.tsx:85` | "…the buyer is refunded automatically." | "…the order is cancelled and the buyer's refund is issued automatically." |
 
 ## 6. Buyer Guarantee scope: one recommended proposal (owner decision)
