@@ -232,22 +232,28 @@ export default function LegalScreen() {
               </Text>
 
               <Text style={s.ftSubhead}>6. Payments & Fees</Text>
+              {/* C-RC3-1: one paragraph of 1,145 characters painted its last line cut off on the
+                  iOS 26.5 simulator (RC3 50d8fcf1); every paragraph under ~1,000 painted whole.
+                  Same sentences, two Text nodes. */}
               <Text style={s.ftBody}>
                 Payments are processed by Stripe. Buyers pay a service fee of 10% of the sale
                 price (the Buy Now price or the winning bid, for the whole listing). It is added
                 to the total at checkout and shown before you confirm. Sellers pay a marketplace
                 fee of 10% of the same sale price, deducted from the payout. Snatch It does not
-                store payment card details. Payment funds are held by Stripe on Snatch It&apos;s
-                behalf until the order is released. When the buyer confirms they received the
-                tickets, Snatch It starts the seller&apos;s payout straight away. If the payout
-                can&apos;t be made at that moment, for example because the seller&apos;s payout
-                account isn&apos;t ready, it waits for review by our team. If the buyer neither
-                confirms nor reports a problem within 72 hours after the seller marks the
-                tickets as sent, the order becomes eligible for release. Snatch It runs risk
-                checks first: depending on the order, the payout is released, held until after
-                the event, or held for manual review. Once a payout is sent, when it reaches the
-                seller&apos;s bank depends on Stripe&apos;s payout schedule and the bank. Snatch
-                It doesn&apos;t guarantee a date. All transactions are denominated in USD.
+                store payment card details.
+              </Text>
+              <Text style={[s.ftBody, s.ftBodyGap]}>
+                Payment funds are held by Stripe on Snatch It&apos;s behalf until the order is
+                released. When the buyer confirms they received the tickets, Snatch It starts the
+                seller&apos;s payout straight away. If the payout can&apos;t be made at that
+                moment, for example because the seller&apos;s payout account isn&apos;t ready, it
+                waits for review by our team. If the buyer neither confirms nor reports a problem
+                within 72 hours after the seller marks the tickets as sent, the order becomes
+                eligible for release. Snatch It runs risk checks first: depending on the order,
+                the payout is released, held until after the event, or held for manual review.
+                Once a payout is sent, when it reaches the seller&apos;s bank depends on
+                Stripe&apos;s payout schedule and the bank. Snatch It doesn&apos;t guarantee a
+                date. All transactions are denominated in USD.
               </Text>
 
               <Text style={s.ftSubhead}>6a. Chargebacks, Refunds & Negative Balances</Text>
@@ -382,6 +388,7 @@ function makeStyles(p: Palette) {
   ftSubhead:       { fontFamily: v2.font.bodySemi, fontSize: 15, lineHeight: 22, color: p.text.primary,
                      marginTop: v2.space.md, marginBottom: v2.space.xs },
   ftBody:          { fontFamily: v2.font.body, fontSize: 15, lineHeight: 22, color: p.text.muted },
+  ftBodyGap:       { marginTop: v2.space.sm },
   ftNote:          { fontFamily: v2.font.body, fontSize: 13, lineHeight: 18, color: p.text.muted,
                      marginTop: v2.space.lg, textAlign: 'center' },
 

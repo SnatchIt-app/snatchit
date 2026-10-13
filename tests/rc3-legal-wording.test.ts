@@ -46,3 +46,28 @@ describe('RC3 · legal.tsx wording', () => {
     expect(text.indexOf(S.R1, b)).toBeGreaterThan(b);
   });
 });
+
+describe('RC3 · C-RC3-1 — no Terms paragraph exceeds the length iOS painted whole', () => {
+  /*
+   * On the RC3 50d8fcf1 Release binary (iOS 26.5 simulator, default text size) the full-Terms §6
+   * paragraph — 1,145 rendered characters after the owner's wording — painted its last line cut
+   * mid-word ("…are denomina") with the final words missing, while every paragraph of 973
+   * characters or fewer (§5, the long summary bullets) painted whole. The same screen, same styles.
+   * Until the renderer's limit is understood, a Text node on this screen stays at or under the
+   * longest length seen painting whole; longer prose is split into further Text nodes.
+   */
+  const MAX_RENDERED_CHARS = 1000;
+  const source = readFileSync('app/settings/legal.tsx', 'utf8');
+  const norm = (t: string) => t.replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+
+  it('LW5: every ftBody paragraph and every summary bullet renders at most 1,000 characters', () => {
+    const long: string[] = [];
+    for (const m of source.matchAll(/<Text style=\{(?:s\.ftBody|\[s\.ftBody[^\]]*\])\}>([\s\S]*?)<\/Text>/g)) {
+      const t = norm(m[1]); if (t.length > MAX_RENDERED_CHARS) long.push(`ftBody ${t.length}: ${t.slice(0, 50)}…`);
+    }
+    for (const m of source.matchAll(/<Bullet s=\{s\}>([\s\S]*?)<\/Bullet>/g)) {
+      const t = norm(m[1]); if (t.length > MAX_RENDERED_CHARS) long.push(`Bullet ${t.length}: ${t.slice(0, 50)}…`);
+    }
+    expect(long).toEqual([]);
+  });
+});
