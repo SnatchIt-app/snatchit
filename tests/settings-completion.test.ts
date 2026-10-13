@@ -95,7 +95,7 @@ describe('Group C — support / legal / privacy', () => {
   it('legal CONTENT is preserved verbatim (not paraphrased)', () => {
     for (const phrase of [
       'Effective Date: March 20, 2026',
-      'A 10% service fee is added to the buyer',
+      'Buyers pay a service fee of 10% of the sale price',   // RC3 S6: F1 replaced the base-less sentence
       'Form 1099-K',
       'binding individual arbitration administered by the AAA',
       'JDT LLC',
